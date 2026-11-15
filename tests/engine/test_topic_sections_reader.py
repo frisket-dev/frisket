@@ -39,7 +39,7 @@ from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.features.temporal_values import TimelineRangesValue
+from frisket.contracts.temporal_values import TimelineRangesValue
 from frisket.features.topic_segmentation import engines
 from frisket.features.topic_segmentation.contracts import SegmentationExecutionError
 from frisket.ops.base import OpContext

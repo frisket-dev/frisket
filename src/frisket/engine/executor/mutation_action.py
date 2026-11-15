@@ -91,12 +91,12 @@ from frisket.engine.store.current_cells import (
 from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.artifact_timeline import TimelineError
-from frisket.features.temporal_ingress import (
+from frisket.engine.store.temporal_ingress import (
     is_temporal_column_type,
     preflight_typed_rows_for_persistence,
     validate_temporal_persistence_value,
 )
-from frisket.features.watchlists.specs import (
+from frisket.contracts.query_spec import (
     canonical_json,
     normalize_query_spec,
     query_spec_hash,

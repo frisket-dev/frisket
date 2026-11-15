@@ -111,7 +111,7 @@ def test_view_selection_filters_before_paging_and_locates_in_top_n(tmp_path):
 def test_large_explicit_view_scope_uses_bounded_sql_parameters(tmp_path):
     import sqlite3
     from contextlib import closing
-    from frisket.features.views.evaluate import open_selection
+    from frisket.engine.views.evaluate import open_selection
 
     with closing(Project.create(tmp_path / "large-scope.frisket")) as project:
         sheet = project.add_sheet("Rows")

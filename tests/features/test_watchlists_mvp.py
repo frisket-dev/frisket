@@ -267,7 +267,7 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
 def test_embedding_query_normalization_preserves_501_requested_limit(
     query: dict[str, Any],
 ) -> None:
-    from frisket.features.watchlists.specs import normalize_query_spec
+    from frisket.contracts.query_spec import normalize_query_spec
 
     assert normalize_query_spec(query)["limit"] == 501
 

@@ -22,7 +22,7 @@ from frisket.engine.store.artifact_timeline import (
     resolve_timeline,
     ensure_media_timeline,
 )
-from frisket.features.temporal_values import parse_temporal_value
+from frisket.contracts.temporal_values import parse_temporal_value
 from tests.engine.test_temporal_split import (
     _fake_stage,
     _request,

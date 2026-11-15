@@ -70,7 +70,7 @@ class PdfPacketScopeService:
     @contextmanager
     def _read_scope(self, project, body):
         if body.selection is not None:
-            from frisket.features.views.evaluate import open_selection
+            from frisket.engine.views.evaluate import open_selection
             from frisket.retrieval.query import RetrievalQueryError
             from frisket.ai.embeddings.similarity import SimilarityError
 

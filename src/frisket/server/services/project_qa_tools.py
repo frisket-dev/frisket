@@ -23,7 +23,7 @@ from frisket.retrieval.contracts import (
 )
 from frisket.retrieval.source_adapter import resolve_ocr_metadata_cells
 from frisket.actions.system import root_action_catalog_payload
-from frisket.features.watchlists.specs import canonical_json
+from frisket.contracts.query_spec import canonical_json
 from frisket.server.services.project_qa_query import (
     AnalyticsRequest,
     evaluate_analytics,

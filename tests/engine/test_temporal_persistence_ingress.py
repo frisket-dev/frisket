@@ -13,7 +13,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import TimelineError, resolve_timeline
-from frisket.features.temporal_ingress import validate_temporal_persistence_value
+from frisket.engine.store.temporal_ingress import validate_temporal_persistence_value
 
 
 PROJECT_ID = "project-temporal-persistence-ingress"

@@ -29,7 +29,7 @@ from frisket.engine.store.table_import_intake import (
     write_table_scan,
 )
 from frisket.engine.store.value_codec import encode_stored_value
-from frisket.features.temporal_ingress import preflight_typed_rows_for_persistence
+from frisket.engine.store.temporal_ingress import preflight_typed_rows_for_persistence
 from frisket.table_import import TableReadSettings
 
 from .action_jobs import ActionJobEnvelope, _result_from_existing_action_job_receipt

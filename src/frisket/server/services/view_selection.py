@@ -6,9 +6,9 @@ import json
 
 @contextmanager
 def open_sheet_selection(project, sheet_id, selection, view_id, *, legacy_scope=()):
-    from frisket.features.views.evaluate import open_selection
+    from frisket.engine.views.evaluate import open_selection
     from frisket.contracts.view import ViewSelection
-    from frisket.features.views.specs import stored_selection, SelectionUnavailable
+    from frisket.engine.views.specs import stored_selection, SelectionUnavailable
     from frisket.retrieval.query import RetrievalQueryError
     from frisket.ai.embeddings.similarity import SimilarityError
 

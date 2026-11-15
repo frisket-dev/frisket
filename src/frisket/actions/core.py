@@ -235,7 +235,7 @@ from frisket.actions.types import (
     discover_references,
 )
 from frisket.actions.document_extract import PositionedDocumentReader
-from frisket.features.temporal_values import TimelinePointsValue, TimelineRangesValue
+from frisket.contracts.temporal_values import TimelinePointsValue, TimelineRangesValue
 from frisket.actions.types import (
     EmbeddingIndexPolicy,
     DeletedEmbeddingIndex,

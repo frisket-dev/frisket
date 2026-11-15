@@ -2,7 +2,7 @@ import json
 
 from frisket.engine.store import Project
 from frisket.engine.store.domain_view_migration import migrate_unified_views
-from frisket.features.views.evaluate import open_selection
+from frisket.engine.views.evaluate import open_selection
 
 
 def test_all_old_definitions_and_watch_identity_survive_one_time_cutover(tmp_path):

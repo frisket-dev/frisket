@@ -12,7 +12,7 @@ from frisket.engine.executor.temporal_preview import PreviewTemporalValue
 from frisket.engine.executor.temporal_transcripts import resolve_timestamped_transcript
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_artifact_timeline
-from frisket.features.temporal_values import parse_temporal_value
+from frisket.contracts.temporal_values import parse_temporal_value
 from tests.engine.test_transcript_segments_action import _seed_timestamped_transcript
 
 

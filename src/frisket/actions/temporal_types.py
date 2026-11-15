@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from pydantic import BaseModel, Field
 
 from frisket.actions.types import ColumnRef, DynamicTableResult, SheetRows, Row
-from frisket.features.temporal_values import TimelinePointsValue, TimelineRangesValue
+from frisket.contracts.temporal_values import TimelinePointsValue, TimelineRangesValue
 from frisket.contracts.actions.schemas.temporal import (
     TemporalColumnSelection,
     TemporalDraftPointsSelection,

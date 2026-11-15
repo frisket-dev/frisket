@@ -16,7 +16,7 @@ from frisket.querysets import (
     sheet_row_scope_plan,
 )
 from frisket.engine.store import Project
-from frisket.features.watchlists.specs import (
+from frisket.contracts.query_spec import (
     canonical_json,
     normalize_query_spec,
     query_spec_hash,

@@ -20,7 +20,7 @@ from frisket.features.watchlists.events import (
     row_exited_event,
     threshold_crossed_event,
 )
-from frisket.features.watchlists.specs import (
+from frisket.contracts.query_spec import (
     normalize_detection_policy,
     canonical_json,
     detection_conditions,
@@ -90,7 +90,7 @@ def add_watch(
     commit: bool = True,
 ) -> int:
     from .saved_views import get_view
-    from frisket.features.views.specs import stored_selection, normalize_selection
+    from frisket.engine.views.specs import stored_selection, normalize_selection
 
     view = get_view(project, view_id)
     if view is None:

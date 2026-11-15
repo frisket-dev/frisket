@@ -9,7 +9,7 @@ from frisket.features.temporal.transcript_boundaries import (
     TranscriptBoundaryError,
     lock_transcript_boundaries,
 )
-from frisket.features.temporal_values import canonical_temporal_hash
+from frisket.contracts.temporal_values import canonical_temporal_hash
 from frisket.features.topic_segmentation.contracts import (
     BetweenUnits,
     BoundaryCandidate,

@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.runs import RunResultStore
-from frisket.features.temporal_values import (
+from frisket.contracts.temporal_values import (
     canonical_temporal_hash,
     parse_temporal_value,
 )

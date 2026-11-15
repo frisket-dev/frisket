@@ -9,7 +9,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Iterator
 
-from frisket.features.watchlists.specs import canonical_json
+from frisket.contracts.query_spec import canonical_json
 from frisket.querysets import sheet_row_scope_plan
 from frisket.retrieval.contracts import (
     RetrievalScope,

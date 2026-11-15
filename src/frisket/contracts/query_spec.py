@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from copy import deepcopy
 from typing import Any
 
@@ -32,6 +33,72 @@ DETECTION_POLICY_KINDS = {
     DETECTION_POLICY_ROW_CHANGED,
     DETECTION_POLICY_CONDITIONS,
 }
+
+
+MAX_QUERY_TERMS = 16
+DEFAULT_EXCLUDE_THRESHOLD = 0.5
+
+
+def normalize_manual_text_excludes(anchor: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = anchor.get("exclude")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("manual_text_query exclude must be a list")
+    if len(raw) > MAX_QUERY_TERMS:
+        raise ValueError(
+            f"manual_text_query supports at most {MAX_QUERY_TERMS} exclude terms"
+        )
+    out: list[dict[str, Any]] = []
+    for index, term in enumerate(raw):
+        if not isinstance(term, dict):
+            raise ValueError(f"exclude {index} must be an object {{text, threshold}}")
+        text = term.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError(f"exclude {index} needs non-empty text")
+        threshold = term.get("threshold", DEFAULT_EXCLUDE_THRESHOLD)
+        if (
+            isinstance(threshold, bool)
+            or not isinstance(threshold, int | float)
+            or not math.isfinite(threshold)
+        ):
+            raise ValueError(f"exclude {index} threshold must be a finite number")
+        threshold = float(threshold)
+        if not 0.0 < threshold <= 1.0:
+            raise ValueError(f"exclude {index} threshold must be in (0, 1]")
+        out.append({"text": text.strip(), "threshold": threshold})
+    return out
+
+
+def normalize_manual_text_terms(anchor: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_terms = anchor.get("terms")
+    text = anchor.get("text")
+    if raw_terms is not None and text is not None:
+        raise ValueError("manual_text_query takes either text or terms, not both")
+    if raw_terms is None:
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("manual_text_query requires non-empty text or terms")
+        return [{"text": text.strip(), "weight": 1.0}]
+    if not isinstance(raw_terms, list) or not raw_terms:
+        raise ValueError("manual_text_query terms must be a non-empty list")
+    if len(raw_terms) > MAX_QUERY_TERMS:
+        raise ValueError(f"manual_text_query supports at most {MAX_QUERY_TERMS} terms")
+    out: list[dict[str, Any]] = []
+    for index, term in enumerate(raw_terms):
+        if not isinstance(term, dict):
+            raise ValueError(f"term {index} must be an object {{text, weight}}")
+        value = term.get("text")
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"term {index} needs non-empty text")
+        weight = term.get("weight", 1.0)
+        if (
+            isinstance(weight, bool)
+            or not isinstance(weight, int | float)
+            or not math.isfinite(weight)
+        ):
+            raise ValueError(f"term {index} weight must be a finite number")
+        out.append({"text": value.strip(), "weight": float(weight)})
+    return out
 
 
 def canonical_json(data: Any) -> str:
@@ -226,13 +293,8 @@ def _normalize_embedding_similarity_query(
         # Store canonical
         # `terms` (single `text` -> one term weight 1.0) and, when present, canonical
         # `exclude` (hard NOT) — hash-stable, and the raw query string never leaks into
-        # the stored spec. Shared with the resolver (similarity.normalize_*). A query
+        # the stored spec. Shared with the similarity resolver. A query
         # with no `exclude` stores no `exclude` field, so query cache identities stay stable.
-        from frisket.ai.embeddings.similarity import (
-            normalize_manual_text_excludes,
-            normalize_manual_text_terms,
-        )
-
         normalized_anchor: dict[str, Any] = {
             "kind": "manual_text_query",
             "terms": normalize_manual_text_terms(anchor),

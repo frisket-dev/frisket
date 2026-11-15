@@ -380,7 +380,7 @@ def test_delete_refuses_live_saved_search_references(tmp_path, reference_kind):
                 query=query,
             )
         else:
-            from frisket.features.views.specs import legacy_selection
+            from frisket.engine.views.specs import legacy_selection
 
             project.add_view(
                 "Similar stories",

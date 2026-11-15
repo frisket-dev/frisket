@@ -15,7 +15,7 @@ from dataclasses import replace
 from typing import Any
 
 from frisket.engine.store import Project
-from frisket.features.watchlists.specs import canonical_json, normalize_query_spec
+from frisket.contracts.query_spec import canonical_json, normalize_query_spec
 from frisket.querysets import (
     SheetRowScopePlan,
     SheetRowSetError,

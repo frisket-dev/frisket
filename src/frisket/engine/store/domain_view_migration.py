@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from frisket.features.views.specs import legacy_selection
+from frisket.engine.views.specs import legacy_selection
 
 
 class _Definitions:

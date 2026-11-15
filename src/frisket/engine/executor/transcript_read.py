@@ -79,7 +79,7 @@ from frisket.engine.store.transcript_projection import (
     project_transcript_segments,
     whole_intersecting_transcript_chunks,
 )
-from frisket.features.temporal_values import normalize_temporal_value
+from frisket.contracts.temporal_values import normalize_temporal_value
 from frisket.engine.executor.temporal_preview import PreviewTemporalValue
 
 ACTION_KIND = "derive.transcript_segments"

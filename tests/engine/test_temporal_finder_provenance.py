@@ -18,7 +18,7 @@ from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cells
 from frisket.engine.store.runs import RunResultStore
-from frisket.features.temporal_values import canonical_temporal_hash
+from frisket.contracts.temporal_values import canonical_temporal_hash
 from frisket.features.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_COLUMN,
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,

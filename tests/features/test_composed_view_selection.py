@@ -1,8 +1,8 @@
 import pytest
 
 from frisket.engine.store import Project
-from frisket.features.views.evaluate import open_selection
-from frisket.features.views.specs import membership_hash, normalize_selection
+from frisket.engine.views.evaluate import open_selection
+from frisket.engine.views.specs import membership_hash, normalize_selection
 from frisket.search_index import drain_index
 
 
@@ -148,7 +148,7 @@ def test_similarity_filters_and_sort_share_membership_without_model_calls(tmp_pa
             assert [row["row_id"] for row in result.hits()] == [kitten]
         project.apply_edits([{"row_id": kitten, "column_id": col, "value": "kitten"}])
         # The edit changes authority revision; index maintenance must rebind it.
-        from frisket.features.views.specs import SelectionUnavailable
+        from frisket.engine.views.specs import SelectionUnavailable
 
         with pytest.raises(SelectionUnavailable, match="Refresh"):
             with open_selection(project, selection):

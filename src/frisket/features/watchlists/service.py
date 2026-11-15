@@ -8,8 +8,8 @@ from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.watches import get_watch, WatchCheckConflict
-from frisket.features.views.evaluate import open_selection
-from frisket.features.views.specs import (
+from frisket.engine.views.evaluate import open_selection
+from frisket.engine.views.specs import (
     stored_selection,
     normalize_selection,
     membership_hash,

@@ -12,7 +12,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from frisket.features.temporal_values import TimelineAnchor, TimelinePointsValue
+from frisket.contracts.temporal_values import TimelineAnchor, TimelinePointsValue
 
 
 DEFAULT_CONTENT_THRESHOLD = 27.0

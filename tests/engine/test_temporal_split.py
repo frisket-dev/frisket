@@ -39,7 +39,7 @@ from frisket.engine.store.media_splice import (
 )
 from frisket.engine.store.runs import RunResultStore
 from helpers import replace_test_source_cell, write_claimed_test_results
-from frisket.features.temporal_values import canonical_temporal_hash
+from frisket.contracts.temporal_values import canonical_temporal_hash
 from frisket.features.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_COLUMN,
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,

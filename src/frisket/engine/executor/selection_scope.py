@@ -74,7 +74,7 @@ def resolve_action_selection(
         )
         if rows is not None:
             return freeze_action_selection(bound, rows)
-    from frisket.features.views.evaluate import open_selection
+    from frisket.engine.views.evaluate import open_selection
     from frisket.retrieval.query import RetrievalQueryError
     from frisket.ai.embeddings.similarity import SimilarityError
 

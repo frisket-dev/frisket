@@ -7,7 +7,7 @@ from frisket.contracts.http.evaluation import ExpectedAnswerRequest
 from frisket.engine.executor.joined_table import _pair_mode
 from frisket.engine.store import evaluation as store
 from frisket.engine.store.artifact_timeline import TimelineError
-from frisket.features.temporal_ingress import preflight_typed_rows_for_persistence
+from frisket.engine.store.temporal_ingress import preflight_typed_rows_for_persistence
 from frisket.server.route_errors import RouteError
 from frisket.server.services import evaluation_links as links
 from frisket.server.services.evaluation_values import full_column

@@ -37,7 +37,7 @@ def add_view(
     "sort/filter the sheet" action becomes provenance-bearing. Returns the
     new view id.
     """
-    from frisket.features.views.specs import normalize_view_spec
+    from frisket.engine.views.specs import normalize_view_spec
 
     spec = normalize_view_spec(project, spec or {})
     derived_sheet = spec["selection"]["scope"].get("sheet_id")
@@ -73,7 +73,7 @@ def update_view(
         sets.append("name=?")
         vals.append(name)
     if spec is not None:
-        from frisket.features.views.specs import normalize_view_spec
+        from frisket.engine.views.specs import normalize_view_spec
 
         spec = normalize_view_spec(project, spec)
         sets.extend(["spec=?", "sheet_id=?"])

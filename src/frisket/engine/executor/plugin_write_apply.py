@@ -18,7 +18,7 @@ from frisket.engine.store.cell_writes import (
     create_base_cell_producer,
     initialize_base_cells,
 )
-from frisket.features.temporal_ingress import validate_project_contextual_value
+from frisket.engine.store.temporal_ingress import validate_project_contextual_value
 
 
 class WritePlanError(Exception):

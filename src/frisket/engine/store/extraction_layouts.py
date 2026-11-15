@@ -296,7 +296,7 @@ def _document_scope_read(project, *, sheet_id, source, scope):
         yield project, sql, params, "r.position,r.id"
         return
     from frisket.actions.document_extraction_types import ExtractionScope
-    from frisket.features.views.evaluate import open_selection
+    from frisket.engine.views.evaluate import open_selection
 
     validated = ExtractionScope.model_validate(values)
     if (

@@ -14,7 +14,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from frisket.features.temporal_values import (
+from frisket.contracts.temporal_values import (
     TimelineAnchor,
     TimelineRangesValue,
     canonical_temporal_hash,

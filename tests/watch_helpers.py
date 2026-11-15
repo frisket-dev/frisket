@@ -17,7 +17,7 @@ def seed_empty_watch_baseline(project, watch_id):
 
 def add_watch(project, name, *, query, scope="sheet", sheet_id=None, **kwargs):
     """Author existing scenario fixtures through the unified View/alert API."""
-    from frisket.features.views.specs import legacy_selection
+    from frisket.engine.views.specs import legacy_selection
 
     scope_def = {"kind": scope}
     if sheet_id is not None:
@@ -33,7 +33,7 @@ def add_watch(project, name, *, query, scope="sheet", sheet_id=None, **kwargs):
 
 def post_watch(client, path, *, json):
     """Build a saved View for an existing alert scenario, then call the real API."""
-    from frisket.features.views.specs import legacy_selection
+    from frisket.engine.views.specs import legacy_selection
 
     pid = path.split("/")[3]
     project = client.app.state.workspace.get(pid)

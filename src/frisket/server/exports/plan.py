@@ -18,7 +18,7 @@ from frisket.server.exports.rowset import ExportError
 from frisket.engine.store import Project
 
 if TYPE_CHECKING:
-    from frisket.features.views.evaluate import SelectionRead
+    from frisket.engine.views.evaluate import SelectionRead
 
 
 EXPORT_PLAN_SCHEMA_VERSION = "frisket.export_plan.v1"

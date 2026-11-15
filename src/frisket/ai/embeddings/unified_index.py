@@ -259,7 +259,7 @@ def resolve_named_cell_anchor(
 ) -> ResolvedNamedIndexAnchor:
     """Resolve a browser cell selection to the index's exact current row composite."""
 
-    from frisket.features.watchlists.specs import (
+    from frisket.contracts.query_spec import (
         canonical_json as query_canonical_json,
         normalize_query_spec,
     )

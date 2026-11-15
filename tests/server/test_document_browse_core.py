@@ -377,7 +377,7 @@ def test_split_source_range_is_bounded_to_current_cell(docs):
 
 
 def test_view_selection_keyset_uses_same_top_n_order_and_title_search(docs):
-    from frisket.features.views.evaluate import open_selection
+    from frisket.engine.views.evaluate import open_selection
 
     project, sheet, source, title, rows = docs
     selection = {

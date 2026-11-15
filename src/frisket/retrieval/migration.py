@@ -37,7 +37,7 @@ from frisket.ai.embeddings.spaces import (
 )
 from frisket.engine.store.retrieval_lifecycle import read_binding_revisions
 from frisket.engine.store.blob_backend import BlobStoreError
-from frisket.features.watchlists.specs import (
+from frisket.contracts.query_spec import (
     canonical_json as query_canonical_json,
     normalize_query_spec,
 )

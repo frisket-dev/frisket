@@ -20,7 +20,7 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
-from frisket.features.watchlists.specs import canonical_json
+from frisket.contracts.query_spec import canonical_json
 
 
 CatalogPayloadProvider = Callable[[], Mapping[str, Any]]

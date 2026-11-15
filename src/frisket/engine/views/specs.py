@@ -6,7 +6,7 @@ import hashlib
 from copy import deepcopy
 from typing import Any
 
-from frisket.features.watchlists.specs import canonical_json
+from frisket.contracts.query_spec import canonical_json
 from frisket.querysets import sheet_row_scope_plan
 
 
@@ -124,7 +124,7 @@ def normalize_selection(project: Any, value: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("search requires nonempty text")
         out["search"] = {"text": search["text"].strip()}
     if value.get("similarity") is not None:
-        from frisket.features.watchlists.specs import normalize_query_spec
+        from frisket.contracts.query_spec import normalize_query_spec
 
         query = normalize_query_spec(value["similarity"], allow_row_cell=True)
         if query["kind"] != "embedding_similarity":

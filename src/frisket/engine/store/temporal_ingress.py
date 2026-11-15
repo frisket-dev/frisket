@@ -9,7 +9,7 @@ This module is the single host seam for that second validation layer.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -17,11 +17,7 @@ from frisket.engine.store.artifact_timeline import (
     TimelineError,
     validate_timeline_anchor,
 )
-from frisket.features.temporal_values import parse_temporal_value
-
-if TYPE_CHECKING:  # pragma: no cover - annotation-only import
-    from frisket.engine.store import Project
-
+from frisket.contracts.temporal_values import parse_temporal_value
 
 TEMPORAL_COLUMN_TYPES = frozenset(
     {
@@ -40,7 +36,7 @@ def is_temporal_column_type(type_name: str) -> bool:
 
 
 def validate_temporal_persistence_value(
-    project: Project,
+    project: Any,
     *,
     type_name: str,
     value: Any,
@@ -104,7 +100,7 @@ def validate_temporal_persistence_value(
 
 
 def validate_project_contextual_value(
-    project: Project | None,
+    project: Any | None,
     *,
     type_name: str,
     value: Any,
@@ -134,7 +130,7 @@ def validate_project_contextual_value(
 
 
 def preflight_typed_rows_for_persistence(
-    project: Project,
+    project: Any,
     *,
     column_types_by_name: Mapping[str, str],
     rows: Sequence[Mapping[str, Any]],

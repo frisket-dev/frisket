@@ -23,11 +23,11 @@ from frisket.features.temporal_annotation_projection import (
     project_temporal_annotation_items,
     temporal_annotation_intersects,
 )
-from frisket.features.temporal_ingress import (
+from frisket.engine.store.temporal_ingress import (
     TEMPORAL_COLUMN_TYPES,
     validate_temporal_persistence_value,
 )
-from frisket.features.temporal_values import parse_temporal_value
+from frisket.contracts.temporal_values import parse_temporal_value
 
 
 @dataclass(frozen=True, slots=True)

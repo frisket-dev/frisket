@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from frisket.features.views.evaluate import open_selection
-from frisket.features.views.specs import normalize_view_spec, stored_selection
+from frisket.engine.views.evaluate import open_selection
+from frisket.engine.views.specs import normalize_view_spec, stored_selection
 from frisket.server.workspace import Workspace
 
 

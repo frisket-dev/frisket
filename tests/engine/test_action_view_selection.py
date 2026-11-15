@@ -64,7 +64,7 @@ def test_direct_selection_full_cohort_and_authored_replay(tmp_path, monkeypatch)
         assert cohort == rows[101:]
         project.add_rows(sheet, [{"note": "new 900", "rank": 900}], cols)
         monkeypatch.setattr(
-            "frisket.features.views.evaluate.open_selection", forbid_selection
+            "frisket.engine.views.evaluate.open_selection", forbid_selection
         )
         replay = run_action_spec(project, body, project_id="p")
         assert replay.receipt_id == first.receipt_id
@@ -107,7 +107,7 @@ def test_project_run_queue_freezes_selection_without_worker_query(
     )
     assert deleted.status == "completed", deleted
     monkeypatch.setattr(
-        "frisket.features.views.evaluate.open_selection", forbid_selection
+        "frisket.engine.views.evaluate.open_selection", forbid_selection
     )
     envelope = queued_v1_payload_envelope(job.payload)
     assert envelope is not None
@@ -132,7 +132,7 @@ def test_generic_action_job_freezes_selection_and_keeps_authored_hash(
         assert envelope.params_hash == typed_request_hash(authored)
         project.add_rows(sheet, [{"note": "new", "rank": 999}], cols)
         monkeypatch.setattr(
-            "frisket.features.views.evaluate.open_selection", forbid_selection
+            "frisket.engine.views.evaluate.open_selection", forbid_selection
         )
         restored = bind_typed_action_job(
             ActionJobEnvelope.from_json(envelope.to_json()), project=project

@@ -18,7 +18,7 @@ from frisket.engine.store.artifact_timeline import (
     resolve_artifact_timeline,
 )
 from frisket.features.temporal.transcript_boundaries import lock_transcript_boundaries
-from frisket.features.temporal_values import (
+from frisket.contracts.temporal_values import (
     TimelineRangesValue,
     canonical_temporal_hash,
 )

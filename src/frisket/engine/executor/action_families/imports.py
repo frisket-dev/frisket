@@ -31,7 +31,7 @@ from frisket.engine.store.cell_writes import (
 )
 from frisket.engine.store.artifact_timeline import TimelineError
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.features.temporal_ingress import preflight_typed_rows_for_persistence
+from frisket.engine.store.temporal_ingress import preflight_typed_rows_for_persistence
 
 
 _TEMPORAL_PERSISTENCE_ERROR_MESSAGES = {

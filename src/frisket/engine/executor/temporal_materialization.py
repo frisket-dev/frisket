@@ -42,7 +42,7 @@ from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
 )
-from frisket.features.temporal_values import (
+from frisket.contracts.temporal_values import (
     TimelinePointItem,
     TimelineRangeItem,
     normalize_temporal_value,

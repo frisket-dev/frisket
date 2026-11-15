@@ -45,7 +45,7 @@ from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.execution.provider import ExecutionLimitExceeded, ExecutionLimits
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.features.temporal_values import TimelinePointsValue
+from frisket.contracts.temporal_values import TimelinePointsValue
 
 
 class AlternateVisualParams(ActionParams):

@@ -14,7 +14,7 @@ from frisket.features.watchlists.events import (
     WATCH_RUN_EVENT_SCHEMA_VERSION,
     decode_watch_run_event,
 )
-from frisket.features.watchlists.specs import (
+from frisket.contracts.query_spec import (
     normalize_detection_policy,
 )
 from frisket.features.watchlists.service import WatchBindingError, run_watch_evaluation

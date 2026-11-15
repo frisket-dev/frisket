@@ -73,7 +73,7 @@ def _create_filter_watch(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    from frisket.features.watchlists.specs import detection_conditions
+    from frisket.contracts.query_spec import detection_conditions
 
     assert body["detection_policy"] == detection_conditions(policy)
     return body
