@@ -739,24 +739,20 @@ class StreamingSheetWriter:
 
     def pause(self, *, expected_cursor: int) -> ImportSession:
         self._require_session()
-        return ImportSessionStore(self.project).set_state(
+        return ImportSessionStore(self.project).pause(
             self._session_id,
             self._writer_authority,
             expected_cursor,
-            from_states=("active",),
-            state="paused",
         )
 
     def cancel(self, *, expected_cursor: int) -> ImportSession:
         """Stop acquisition while retaining every committed visible page."""
 
         self._require_session()
-        return ImportSessionStore(self.project).set_state(
+        return ImportSessionStore(self.project).cancel(
             self._session_id,
             self._writer_authority,
             expected_cursor,
-            from_states=("active", "paused"),
-            state="cancelled",
         )
 
     def finalize_session(
@@ -765,6 +761,7 @@ class StreamingSheetWriter:
         expected_cursor: int,
         keep_cancelled: bool = False,
         failure: ActionError | None = None,
+        enumeration_complete: bool = False,
     ) -> StreamingSheetPublication:
         """Finalize the one reserved receipt; cancelled sessions require Keep."""
 
@@ -804,22 +801,11 @@ class StreamingSheetWriter:
                 raise ImportSessionConflict("import receipt finalization lost its CAS")
             ChangeStore(self.project).close(self._op_id)
             db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
-            final_state = (
-                "kept" if keep_cancelled or failure is not None else "completed"
+            ImportSessionStore(self.project).finish(
+                session,
+                keep=keep_cancelled or failure is not None,
+                enumeration_complete=enumeration_complete,
             )
-            updated = db.execute(
-                "UPDATE import_sessions SET state=?,updated_at=datetime('now') "
-                "WHERE id=? AND writer_authority=? AND cursor=? AND state=?",
-                (
-                    final_state,
-                    self._session_id,
-                    self._writer_authority,
-                    int(expected_cursor),
-                    allowed[0] if len(allowed) == 1 else session.state,
-                ),
-            )
-            if updated.rowcount != 1:
-                raise ImportSessionConflict("import session finalization lost its CAS")
             db.commit()
         except BaseException:
             db.rollback()
@@ -902,17 +888,7 @@ class StreamingSheetWriter:
                 raise ImportSessionConflict("import receipt cancellation lost its CAS")
             ChangeStore(self.project).close(self._op_id)
             db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
-            updated = db.execute(
-                "UPDATE import_sessions SET state='removed',updated_at=datetime('now') "
-                "WHERE id=? AND writer_authority=? AND cursor=? AND state='cancelled'",
-                (
-                    self._session_id,
-                    self._writer_authority,
-                    int(expected_cursor),
-                ),
-            )
-            if updated.rowcount != 1:
-                raise ImportSessionConflict("import session removal lost its CAS")
+            ImportSessionStore(self.project).remove(session)
             db.commit()
         except BaseException:
             db.rollback()

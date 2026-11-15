@@ -11,6 +11,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Self
 
+from .changes import ChangeStore
 from .import_blobs import PreparedImportBlobPlan, publish_import_blobs
 from .import_sessions import (
     ImportInProgress,
@@ -178,10 +179,8 @@ class PdfSplitWriter(StreamingSheetWriter):
             db.execute(
                 "UPDATE ops SET status='discarded',barrier=0 WHERE id=?", (self._op_id,)
             )
-            db.execute(
-                "UPDATE import_sessions SET state='removed' WHERE id=?",
-                (self._session_id,),
-            )
+            sessions = ImportSessionStore(self.project)
+            sessions.discard_setup(sessions.get(self._session_id))
             db.commit()
         except BaseException:
             db.rollback()
@@ -487,14 +486,11 @@ class PdfSplitWriter(StreamingSheetWriter):
             ):
                 raise ImportSessionConflict("split receipt finalization lost its CAS")
             db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
-            db.execute(
-                "UPDATE import_sessions SET state=?,updated_at=datetime('now') WHERE id=?",
-                (
-                    "kept"
-                    if status in ("partial", "cancelled", "failed")
-                    else "completed",
-                    self._session_id,
-                ),
+            ChangeStore(self.project).close(self._op_id)
+            ImportSessionStore(self.project).finish(
+                session,
+                keep=status in ("partial", "cancelled", "failed"),
+                enumeration_complete=not counts.get("pending", 0),
             )
             db.commit()
         except BaseException:

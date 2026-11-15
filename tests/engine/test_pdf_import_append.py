@@ -108,7 +108,9 @@ def test_append_session_resumes_once_and_undo_owns_only_imported_rows(
             expected_cursor=1,
             next_cursor=2,
         )
-        publication = resumed.finalize_session(expected_cursor=2)
+        publication = resumed.finalize_session(
+            expected_cursor=2, enumeration_complete=True
+        )
 
         assert publication.sheet_id == sheet_id
         assert _visible_names(project, sheet_id, columns["filename"]) == [
@@ -162,7 +164,9 @@ def test_append_undo_hides_columns_created_for_the_import(tmp_path: Path) -> Non
             expected_cursor=0,
             next_cursor=1,
         )
-        publication = writer.finalize_session(expected_cursor=1)
+        publication = writer.finalize_session(
+            expected_cursor=1, enumeration_complete=True
+        )
         created_column = project.db.execute(
             "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
             (sheet_id, "PDF import note"),
@@ -220,7 +224,9 @@ def test_pre_upgrade_append_undo_includes_rows_added_after_restart(
         resumed.append_page(
             [{"filename": "after-upgrade.pdf"}], expected_cursor=1, next_cursor=2
         )
-        publication = resumed.finalize_session(expected_cursor=2)
+        publication = resumed.finalize_session(
+            expected_cursor=2, enumeration_complete=True
+        )
         assert project.undo() == publication.op_id
         assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
         assert project.redo() == publication.op_id
@@ -334,7 +340,9 @@ def test_append_adds_missing_import_columns_without_touching_existing_data(
             expected_cursor=0,
             next_cursor=1,
         )
-        publication = writer.finalize_session(expected_cursor=1)
+        publication = writer.finalize_session(
+            expected_cursor=1, enumeration_complete=True
+        )
 
         columns = {
             str(row["name"]): int(row["id"]) for row in project.columns(sheet_id)
@@ -366,7 +374,9 @@ def test_unrelated_write_during_append_keeps_normal_history_order(
             columns,
         )[0]
         unrelated_op = project.op_cursor
-        publication = writer.finalize_session(expected_cursor=1)
+        publication = writer.finalize_session(
+            expected_cursor=1, enumeration_complete=True
+        )
 
         assert project.undo() == unrelated_op
         assert _visible_names(project, sheet_id, columns["filename"]) == [
@@ -421,7 +431,9 @@ def test_large_append_keeps_undo_metadata_bounded(tmp_path: Path) -> None:
                     ).fetchone()["undo_info"]
                 )
             )
-        publication = writer.finalize_session(expected_cursor=cursor)
+        publication = writer.finalize_session(
+            expected_cursor=cursor, enumeration_complete=True
+        )
 
         undo_info = project.db.execute(
             "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
@@ -476,7 +488,9 @@ def test_import_undo_after_derived_text_result_preserves_existing_rows(
             expected_cursor=0,
             next_cursor=1,
         )
-        publication = writer.finalize_session(expected_cursor=1)
+        publication = writer.finalize_session(
+            expected_cursor=1, enumeration_complete=True
+        )
 
         derived = _start_claimed_run(
             project,
@@ -551,7 +565,7 @@ def test_unreadable_import_row_uses_standard_run_error_and_null_text(
             expected_cursor=0,
             next_cursor=1,
         )
-        writer.finalize_session(expected_cursor=1)
+        writer.finalize_session(expected_cursor=1, enumeration_complete=True)
         derived = _start_claimed_run(
             project,
             sheet_id=sheet_id,

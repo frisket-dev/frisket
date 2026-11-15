@@ -249,7 +249,7 @@ def test_bundle_export_round_trips_resolved_import(tmp_path: Path, state: str) -
         writer = _session(project)
         writer.append_page([{"value": "one"}], expected_cursor=0, next_cursor=1)
         if state == "completed":
-            writer.finalize_session(expected_cursor=1)
+            writer.finalize_session(expected_cursor=1, enumeration_complete=True)
         else:
             writer.cancel(expected_cursor=1)
             if state == "kept":

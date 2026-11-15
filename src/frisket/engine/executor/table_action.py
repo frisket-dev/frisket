@@ -1067,7 +1067,9 @@ def run_inventory_table_page(
             raise ValueError("inventory action skipped admitted occurrences")
         writer.set_warnings(prepared.warnings)
         if reader.complete:
-            writer.finalize_session(expected_cursor=reader.next_cursor)
+            writer.finalize_session(
+                expected_cursor=reader.next_cursor, enumeration_complete=reader.complete
+            )
     result = sessions.get(session_id)
     assert result is not None
     return result
@@ -1673,7 +1675,11 @@ def _perform_table_in_txn(
 
     consumed_captures = [
         capture
-        for reader in (list_reader, resolved.get("joined_tables_reader"), resolved.get("sheet_rows_reader"))
+        for reader in (
+            list_reader,
+            resolved.get("joined_tables_reader"),
+            resolved.get("sheet_rows_reader"),
+        )
         if reader is not None
         for capture in getattr(reader, "consumed_captures", ())
     ]

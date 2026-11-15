@@ -488,7 +488,7 @@ def run_table_import(
                             "sheet_id": session.sheet_id,
                         }
                     publication = writer.finalize_session(
-                        expected_cursor=session.cursor
+                        expected_cursor=session.cursor, enumeration_complete=exhausted
                     )
                     exact_rows = max(
                         exact_rows,

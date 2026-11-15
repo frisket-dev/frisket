@@ -365,6 +365,7 @@ def run_rows_updater(
         frozen = None
         envelope = None
         replay = None
+        enumeration_complete = False
 
         def _run(self, params, kind):
             if self.called:
@@ -393,6 +394,7 @@ def run_rows_updater(
             )
             if outcome["status"] != "published":
                 raise ValueError("row update was interrupted")
+            self.enumeration_complete = True
             session = ImportSessionStore(project).get(self.frozen.import_ref)
             writer = StreamingSheetWriter._from_session(project, session)
             receipt = ReceiptStore(project).parsed_by_id(self.envelope.receipt_id)
@@ -468,7 +470,9 @@ def run_rows_updater(
         if receipt.status in {"queued", "running"}:
             writer = StreamingSheetWriter._from_session(project, session)
             publication = writer.finalize_session(
-                expected_cursor=session.cursor, failure=failure
+                expected_cursor=session.cursor,
+                failure=failure,
+                enumeration_complete=updater.enumeration_complete,
             )
             receipt = publication.receipt
             finish_table_intake(updater.frozen.intake_dir, exact_rows=session.cursor)

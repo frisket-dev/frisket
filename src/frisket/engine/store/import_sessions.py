@@ -6,6 +6,26 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from statemachine import State, StateMachine
+from statemachine.exceptions import TransitionNotAllowed
+
+
+class ImportLifecycle(StateMachine):
+    active = State(initial=True)
+    paused = State()
+    cancelled = State()
+    kept = State()
+    completed = State(final=True)
+    removed = State(final=True)
+
+    pause = active.to(paused)
+    resume = active.to.itself() | paused.to(active)
+    cancel = active.to(cancelled) | paused.to(cancelled)
+    keep = cancelled.to(kept) | active.to(kept) | paused.to(kept)
+    complete = active.to(completed) | paused.to(completed)
+    remove = cancelled.to(removed)
+    discard_setup = kept.to(removed)
+
 
 ImportSessionState = Literal[
     "active", "paused", "cancelled", "kept", "completed", "removed"
@@ -99,6 +119,10 @@ class ImportSessionStore:
             raise ValueError("writer authority must be non-empty")
         self.db.execute("BEGIN IMMEDIATE")
         try:
+            session = self.get(session_id)
+            if session is None or session.cursor != int(expected_cursor):
+                raise ImportSessionConflict("import session cannot be resumed")
+            self._transition(session, "resume")
             updated = self.db.execute(
                 "UPDATE import_sessions SET writer_authority=?,state='active',"
                 "updated_at=datetime('now') WHERE id=? AND cursor=? "
@@ -147,26 +171,73 @@ class ImportSessionStore:
             (json.dumps(undo), session.op_id),
         )
 
-    def set_state(
+    def _transition(self, session: ImportSession, event: str) -> ImportSession:
+        """Named graph plus SQL fencing inside the owner's effects transaction."""
+        if not self.db.in_transaction:
+            raise RuntimeError("Import transitions require a caller-owned transaction")
+        machine = ImportLifecycle(start_value=session.state)
+        try:
+            machine.send(event)
+        except TransitionNotAllowed as exc:
+            raise ImportSessionConflict(
+                f"cannot {event} an import in state {session.state}"
+            ) from exc
+        state = next(iter(machine.configuration)).id
+        updated = self.db.execute(
+            "UPDATE import_sessions SET state=?,updated_at=datetime('now') "
+            "WHERE id=? AND writer_authority=? AND cursor=? AND state=?",
+            (
+                state,
+                session.id,
+                session.writer_authority,
+                session.cursor,
+                session.state,
+            ),
+        )
+        if updated.rowcount != 1:
+            raise ImportSessionConflict("import session state changed")
+        return self.get(session.id)
+
+    def pause(
+        self, session_id: str, authority: str, expected_cursor: int
+    ) -> ImportSession:
+        return self._stop(session_id, authority, expected_cursor, "pause")
+
+    def cancel(
+        self, session_id: str, authority: str, expected_cursor: int
+    ) -> ImportSession:
+        return self._stop(session_id, authority, expected_cursor, "cancel")
+
+    def finish(
+        self, session: ImportSession, *, keep: bool, enumeration_complete: bool = False
+    ) -> ImportSession:
+        # The existing reader/stager owns EOF and full key validation. It supplies
+        # that fact after draining, never by inferring it from a page's row count.
+        if not keep and not enumeration_complete:
+            raise ImportSessionConflict("import source enumeration is incomplete")
+        return self._transition(session, "keep" if keep else "complete")
+
+    def remove(self, session: ImportSession) -> ImportSession:
+        return self._transition(session, "remove")
+
+    def discard_setup(self, session: ImportSession) -> ImportSession:
+        if session.committed_rows or session.cursor:
+            raise ImportSessionConflict("cannot discard a published import")
+        return self._transition(session, "discard_setup")
+
+    def _stop(
         self,
         session_id: str,
         authority: str,
         expected_cursor: int,
-        *,
-        from_states: tuple[ImportSessionState, ...],
-        state: ImportSessionState,
+        event: Literal["pause", "cancel"],
     ) -> ImportSession:
-        placeholders = ",".join("?" for _ in from_states)
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            updated = self.db.execute(
-                "UPDATE import_sessions SET state=?,updated_at=datetime('now') "
-                "WHERE id=? AND writer_authority=? AND cursor=? "
-                f"AND state IN ({placeholders})",
-                (state, session_id, authority, int(expected_cursor), *from_states),
+            session = self.require_writer(
+                session_id, authority, expected_cursor, states=("active", "paused")
             )
-            if updated.rowcount != 1:
-                raise ImportSessionConflict("import session state changed")
+            self._transition(session, event)
             self.db.commit()
         except BaseException:
             self.db.rollback()

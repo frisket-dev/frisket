@@ -99,7 +99,9 @@ def test_resumable_session_reopens_without_duplicate_rows(tmp_path: Path) -> Non
             expected_cursor=2,
         )
         resumed.append_page(_records(2, 4), expected_cursor=2, next_cursor=4)
-        publication = resumed.finalize_session(expected_cursor=4)
+        publication = resumed.finalize_session(
+            expected_cursor=4, enumeration_complete=True
+        )
 
         assert publication.row_count == 4
         session = ImportSessionStore(project).get("import:one")
@@ -167,7 +169,7 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
         writer.set_warnings(["bounded parser warning"])
         writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
         if terminal == "completed":
-            writer.finalize_session(expected_cursor=1)
+            writer.finalize_session(expected_cursor=1, enumeration_complete=True)
         else:
             writer.cancel(expected_cursor=1)
             if terminal == "kept":
@@ -805,5 +807,56 @@ def test_duplicate_publication_is_typed_and_cleans_staging(tmp_path: Path) -> No
         assert [row["name"] for row in project.sheets()] == ["First"]
         assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
         assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+    finally:
+        project.close()
+
+
+def test_completion_requires_enumeration_and_preserves_atomic_state(tmp_path: Path):
+    project = Project.create(tmp_path / "completion.frisket", name="completion")
+    try:
+        writer = _start_session(project)
+        writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
+        with pytest.raises(ImportSessionConflict, match="enumeration"):
+            writer.finalize_session(expected_cursor=1)
+        session = ImportSessionStore(project).get("import:one")
+        assert session.state == "active"
+        assert ReceiptStore(project).find_by_id(session.receipt_id).status == "running"
+        op = project.db.execute(
+            "SELECT barrier,publication_closed FROM ops WHERE id=?", (session.op_id,)
+        ).fetchone()
+        assert tuple(op) == (1, 0)
+        writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+        assert ImportSessionStore(project).get(session.id).state == "completed"
+        assert tuple(
+            project.db.execute(
+                "SELECT barrier,publication_closed FROM ops WHERE id=?",
+                (session.op_id,),
+            ).fetchone()
+        ) == (0, 1)
+        with pytest.raises(ImportSessionConflict):
+            ImportSessionStore(project).replace_writer(
+                session.id, "another-worker", expected_cursor=1
+            )
+    finally:
+        project.close()
+
+
+def test_cancel_requires_explicit_resolution_and_fences_old_writer(tmp_path: Path):
+    project = Project.create(tmp_path / "cancel.frisket", name="cancel")
+    try:
+        writer = _start_session(project)
+        writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
+        writer.pause(expected_cursor=1)
+        writer.cancel(expected_cursor=1)
+        session = ImportSessionStore(project).get("import:one")
+        assert session.state == "cancelled"
+        assert session.committed_rows == 1
+        assert ReceiptStore(project).find_by_id(session.receipt_id).status == "running"
+        with pytest.raises(ImportSessionConflict):
+            writer.append_page(_records(1, 2), expected_cursor=1, next_cursor=2)
+        with pytest.raises(ImportSessionConflict):
+            writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+        writer.finalize_session(expected_cursor=1, keep_cancelled=True)
+        assert ImportSessionStore(project).get(session.id).state == "kept"
     finally:
         project.close()
