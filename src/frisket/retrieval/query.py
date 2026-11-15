@@ -6,6 +6,7 @@ import json
 import math
 import re
 import sqlite3
+import struct
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager
@@ -1443,6 +1444,17 @@ def _source_anchor_query_blob(
     return pack_vector(composed, dimensions=dimension), dimension
 
 
+def source_anchor_vectors(project: Any, request: SearchRequest) -> SemanticQueryVectors:
+    """Read a prepared anchor within its explicit scope, independently of result filters."""
+    with PinnedRetrievalReader(project) as reader:
+        blob, _dimension, _part = _resolve_anchor_vector(
+            reader, request, compile_scope(reader, request.scope)
+        )
+        return SemanticQueryVectors(
+            term_vectors=(tuple(value[0] for value in struct.iter_unpack("<f", blob)),)
+        )
+
+
 def _resolve_anchor_vector(
     reader: PinnedRetrievalReader,
     request: SearchRequest,
@@ -1622,7 +1634,6 @@ def _hydrate_lexical_batch(
         tuple(text for _candidate, text in hydrated)
     )
     snippets = native_snippets(
-        reader.db,
         query,
         [
             {"index_id": index, "content": text}
