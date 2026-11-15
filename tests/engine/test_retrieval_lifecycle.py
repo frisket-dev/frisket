@@ -41,44 +41,49 @@ def _current_cell_project(tmp_path: Path) -> tuple[Project, int, int, int]:
     return project, sheet_id, row_id, column_id
 
 
-def test_refresh_preserves_revision_until_source_writer_reports_changed_value(
+def test_projection_repair_preserves_revision_until_source_writer_changes_value(
     tmp_path,
 ) -> None:
     project, _sheet_id, row_id, column_id = _current_cell_project(tmp_path)
     before = project.db.execute(
-        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision "
+        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision,base_producer_id "
         "FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
     assert before[0] == "source_cell"
 
+    from frisket.engine.store.cell_projection import (
+        invalidate_region,
+        repair_current_cells,
+    )
+    from helpers import replace_test_source_cell
+
     with project.transaction_scope():
-        refresh_current_cells(project.db, column_ids=[column_id], row_ids=[row_id])
+        invalidate_region(project.db, column_id, row_id, row_id)
+    assert repair_current_cells(project, limit=1) == 1
     unchanged = project.db.execute(
         "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
     assert int(unchanged[0]) == int(before[3])
 
-    with project.db:
-        kind, value = encode_stored_value("second")
-        project.db.execute(
-            "UPDATE cells SET value_kind=?,value=? WHERE row_id=? AND column_id=?",
-            (kind, value, row_id, column_id),
-        )
-        refresh_current_cells(
-            project.db,
-            column_ids=[column_id],
-            row_ids=[row_id],
-            source_values_changed=True,
-        )
-
+    replace_test_source_cell(
+        project, row_id=row_id, column_id=column_id, value="second"
+    )
     after = project.db.execute(
-        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision "
+        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision,base_producer_id "
         "FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
-    assert tuple(after[:3]) == tuple(before[:3])
+    assert after[0] == "source_cell" and after[4] != before[4]
+    assert project.get_values(_sheet_id, column_id)[row_id] == "second"
+    assert [
+        row[0]
+        for row in project.db.execute(
+            "SELECT value FROM cells WHERE row_id=? AND column_id=? ORDER BY producer_id",
+            (row_id, column_id),
+        )
+    ] == ["first", "second"]
     assert int(after[3]) > int(before[3])
     assert int(after[3]) == latest_revision(project.db)
 
@@ -100,7 +105,6 @@ def test_revision_allocation_and_projection_roll_back_together(tmp_path) -> None
         project.db,
         column_ids=[column_id],
         row_ids=[row_id],
-        source_values_changed=True,
     )
     assert (
         read_binding_revision(project.db, row_id=row_id, column_id=column_id)

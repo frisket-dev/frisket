@@ -120,6 +120,13 @@ def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
         {
             "bundle_id": "1:1",
             "run_id": result.run_id,
+            "execution_run_id": result.run_id,
+            "applied": True,
+            "result_ref": {
+                "run_id": result.run_id,
+                "row_id": 1,
+                "column_id": queue[0]["column_id"],
+            },
             "row_id": 1,
             "column_id": queue[0]["column_id"],
             "column_name": "beat",
@@ -150,6 +157,7 @@ def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
     assert bundle["fields"] == [
         {
             "run_id": result.run_id,
+            "copied_op_id": None,
             "row_id": 1,
             "column_id": queue[0]["column_id"],
             "column_name": "beat",
@@ -170,6 +178,7 @@ def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
             "role": "field",
             "chore": True,
             "changed": False,
+            "applied": True,
             "can_edit": True,
         }
     ]

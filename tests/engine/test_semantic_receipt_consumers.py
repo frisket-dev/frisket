@@ -146,8 +146,10 @@ def test_managed_semantic_cells_do_not_depend_on_compatibility_column_pointer(
     assert result.status == "completed", result.errors
 
 
-def test_managed_semantic_cells_still_require_actual_generation_heads(
+@pytest.mark.parametrize("revert_owner", [False, True])
+def test_managed_semantic_cells_follow_canonical_owner_not_legacy_head_cache(
     completed_custom_join,
+    revert_owner,
 ):
     project, matched, _, _ = completed_custom_join
     receipt = ReceiptStore(project).parsed_by_id(matched.receipt_id)
@@ -158,8 +160,16 @@ def test_managed_semantic_cells_still_require_actual_generation_heads(
     )
     project.db.execute("DELETE FROM cell_result_heads WHERE column_id=?", (column,))
     project.db.commit()
+    if revert_owner:
+        from frisket.engine.store.op_log import step_operation
+
+        with project.transaction_scope():
+            step_operation(project, "revert", op_id=matched.op_ids[0])
     result = run_action_spec(
         project, link_request(matched.receipt_id), project_id="test"
     )
-    assert result.status == "failed"
-    assert result.errors[0].code == "invalid_input_ref"
+    if revert_owner:
+        assert result.status == "failed"
+        assert result.errors[0].code == "invalid_input_ref"
+    else:
+        assert result.status == "completed", result.errors

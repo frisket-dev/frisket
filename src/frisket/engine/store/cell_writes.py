@@ -536,7 +536,6 @@ def replace_base_cells(
         db,
         column_ids=columns,
         row_ids=rows,
-        source_values_changed=True,
     )
     return len(encoded)
 

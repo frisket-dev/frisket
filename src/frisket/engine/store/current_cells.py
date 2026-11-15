@@ -236,15 +236,14 @@ def refresh_current_cells(
     *,
     column_ids: Collection[int],
     row_ids: Collection[int] | None = None,
-    source_values_changed: bool = False,
     eager_limit: int = 512,
 ) -> int:
     """Refresh one column/row region inside the caller's transaction.
 
     ``row_ids=None`` means every row in the selected columns. Empty explicit
-    collections are no-ops. ``source_values_changed`` is the narrow signal for
-    a canonical writer that replaced base-cell values under the same producer;
-    it forces revisions only where the final visible head is that source cell.
+    collections are no-ops. This is the mutation notification boundary: it
+    advances authority revisions even when the winning pointer is unchanged.
+    Cache-only maintenance uses ``cell_projection.repair_current_cells``.
     The return value is the number of projected rows now present in the region.
     """
 
