@@ -920,3 +920,57 @@ def test_legacy_ready_text_not_shadowed_by_newer_unready_result(
         assert planning.sample_pdf(project, sheet, item, 1)[0] == newer_pages[0][1]
     finally:
         project.close()
+
+
+def test_empty_native_text_allows_one_ocr_preparation_pass(tmp_path, monkeypatch):
+    from frisket.engine import pdf_text
+    from frisket.engine.store.document_text import ensure_document_text_role
+
+    async def extract(_source, **_kwargs):
+        return pdf_text.PdfTextBatch([_page(1, "")], 1, None)
+
+    monkeypatch.setattr(pdf_text, "extract_pdf_text_batch", extract)
+    project = Project.create(tmp_path / "native-empty-then-ocr.frisket")
+    try:
+        sheet, document, row, _digest = _source(project, tmp_path, pdf=_pdf_bytes(""))
+        result = run_action_spec(
+            project, _request(sheet, row, key="native-empty"), project_id="empty-ocr"
+        )
+        assert result.status == "completed", result.errors
+        text_column = result.outputs[0].column_id
+        ensure_document_text_role(
+            project, source_column_id=document, text_column_id=text_column, commit=True
+        )
+        source = resolve_cell_blob_source(
+            project, sheet_id=sheet, row_id=row, column_id=document
+        )
+        assert planning._has_current_result(project, source, "native_pdf")
+        assert not planning._has_current_result(project, source, "ocr")
+        plan_args = dict(
+            sheet_id=sheet,
+            row_ids=[row],
+            force_ocr=False,
+            requirements=(),
+            requirement_dict=lambda *_args, **_kwargs: {},
+        )
+        plan = planning.build_plan(project, **plan_args)
+        assert [item["kind"] for item in plan["items"]] == ["ocr"]
+
+        artifact = project.db.execute("SELECT id FROM source_artifacts").fetchone()[0]
+        with project.db:
+            op = project.append_op("media.ocr", commit=False)
+            prepared = PreparedContentStore(project).stage_reference(
+                source_artifact_id=artifact,
+                producing_op_id=op,
+                pages=[PreparedPageDraft(1, "")],
+            )
+        project.apply_edits(
+            [{"row_id": row, "column_id": text_column, "value": prepared}]
+        )
+        assert planning._has_current_result(project, source, "ocr")
+        assert planning.build_plan(project, **plan_args)["items"] == []
+        # A user explicitly requesting a new OCR run can still do so.
+        forced = planning.build_plan(project, **{**plan_args, "force_ocr": True})
+        assert [item["kind"] for item in forced["items"]] == ["ocr"]
+    finally:
+        project.close()

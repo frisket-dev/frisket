@@ -157,7 +157,8 @@ def build_plan(
                 "retrieval_revision": source.binding.retrieval_revision,
             }
             if mime == "application/pdf":
-                if not force_ocr and _has_current_result(project, source, "native_pdf"):
+                # Empty native extraction can still need the configured OCR pass.
+                if not force_ocr and _has_current_result(project, source, "ocr"):
                     continue
                 try:
                     sample = _pdf_sample(
@@ -348,7 +349,12 @@ def _has_current_result(project: Any, source: Any, kind: str) -> bool:
         page_number=source.page_number,
     )
     if prepared is not None and prepared["coverage_complete"]:
-        return True
+        return bool(
+            kind != "ocr"
+            or prepared["has_text"]
+            or prepared["is_manual"]
+            or prepared["preparation_kind"] != "media.read_pdf_text"
+        )
     if kind != "transcribe":
         return False
     candidates = project.db.execute(
@@ -396,7 +402,13 @@ def _current_prepared_result(
     return project.db.execute(
         "WITH prepared_readiness_scope(sheet_id,row_id) AS (VALUES (?,?)), "
         f"{prepared_source_readiness_ctes(scope_relation='prepared_readiness_scope')} "
-        "SELECT prepared_ref_id,page_count,has_text,coverage_complete FROM current_prepared_sources "
+        "SELECT prepared_ref_id,page_count,has_text,coverage_complete,is_manual, "
+        "(SELECT COALESCE(run.action_kind,op.kind) FROM prepared_content_refs ref "
+        " JOIN prepared_content_sets content ON content.id=ref.set_id "
+        " JOIN ops op ON op.id=content.producing_op_id "
+        " LEFT JOIN runs run ON run.op_id=op.id "
+        " WHERE ref.id=current_prepared_sources.prepared_ref_id) AS preparation_kind "
+        "FROM current_prepared_sources "
         "WHERE source_sheet_id=? AND source_row_id=? AND source_column_id=? "
         "AND blob_hash=? AND page_number IS ? "
         "ORDER BY (has_text AND coverage_complete) DESC, prepared_ref_id DESC LIMIT 1",
