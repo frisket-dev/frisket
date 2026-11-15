@@ -1,5 +1,7 @@
 """Consent coverage remains scoped to the authenticated principal."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
@@ -85,7 +87,12 @@ def test_requestless_worker_uses_the_principal_pinned_at_admission(
         return ExecutorDeps(consent_coverage=coverage)
 
     adapter = _StubAdapter()
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     client = TestClient(
         create_app(

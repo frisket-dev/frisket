@@ -1,5 +1,7 @@
 """Real typed row dispatch preserves unusable reasons and optional inputs."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 from pydantic import BaseModel
 import pytest
@@ -160,7 +162,9 @@ def test_dispatch_distinguishes_required_unavailable_from_optional_input(
             project,
             BoundTypedActionRequest.bind(registry.get(request.action_id), request),
         )
-        router = ModelRouter(keys={}, use_env_keys=False)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
+        )
         runner = MapRunner(
             project,
             router,
@@ -241,7 +245,11 @@ def test_unavailable_current_input_does_not_replace_a_returned_paid_checkpoint(
 
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     project = Project.create(tmp_path / "returned-unavailable.frisket")
-    router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
     try:
         sheet = project.add_sheet("source")
         column = project.add_column(sheet, "text")

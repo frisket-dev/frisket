@@ -10,6 +10,7 @@ ambiguous reservation refuses by name, and free/local work writes nothing.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from typing import Any
@@ -112,6 +113,7 @@ def _action(
 
 def _project_key_router(provider: _CountingSummaryAdapter) -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "sk-ant-test"},
         key_sources={"anthropic": "project_key"},
         cache=None,
@@ -449,6 +451,7 @@ def test_free_local_reduce_effect_makes_no_checkpoints(project) -> None:
 
     provider = _CountingSummaryAdapter()
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={},
         cache=None,
         cache_mode="off",

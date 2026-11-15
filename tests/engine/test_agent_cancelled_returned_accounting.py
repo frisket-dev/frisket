@@ -1,5 +1,7 @@
 """Capability-retained facts must not be reminted by outer row cancellation."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import json
 import asyncio
 
@@ -26,7 +28,12 @@ def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_onc
     tmp_path, monkeypatch, kind, interrupt
 ):
     monkeypatch.setattr(ddgs, "DDGS", _FakeDDGS)
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        max_retries=0,
+    )
     calls = []
     project = None
 
@@ -169,7 +176,12 @@ def test_queued_vlm_failure_or_stop_records_each_purchase_once(
 ):
     from test_ocr import _render_png, _spec
 
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        max_retries=0,
+    )
     calls = []
     project = None
 

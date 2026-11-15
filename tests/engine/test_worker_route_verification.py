@@ -7,6 +7,7 @@ is literal: the stub records every invocation.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -187,7 +188,7 @@ def _prepare_local_run(project, spec, *, confirmed=False) -> int:
         request.action,
         request.params,
         project_id="proj",
-        router=ModelRouter(),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         program=request.program,
     )
     assert isinstance(reservation, dict), reservation
@@ -195,7 +196,7 @@ def _prepare_local_run(project, spec, *, confirmed=False) -> int:
     spec.update(reservation["runner_spec"])
     progress = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     ).prepare_run(spec, program=request.program, confirmed=confirmed)
@@ -218,7 +219,7 @@ def _prepare_local_run(project, spec, *, confirmed=False) -> int:
 def _prepare_consented_gateway_run(project, sheet_id) -> tuple[int, dict]:
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     )
@@ -240,7 +241,7 @@ def _prepare_consented_gateway_dispatch(project, sheet_id):
 
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     )
@@ -367,7 +368,11 @@ def _handle(root: Path, run_id: int, spec: dict) -> dict:
     finally:
         project.close()
     registry = HandlerRegistry()
-    register_project_run_handler(registry, workspace_root=root, router=ModelRouter())
+    register_project_run_handler(
+        registry,
+        workspace_root=root,
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+    )
     handler = registry.get("project.run")
     assert handler is not None
     return handler(payload, JobHandlerContext.without_job_row())
@@ -1017,7 +1022,7 @@ def test_routed_dispatch_reads_sources_through_bounded_live_pages(
     monkeypatch.setattr(RowSourcePage, "cell", record_lookup)
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     )
@@ -1098,7 +1103,7 @@ def test_pending_row_edit_after_admission_uses_current_input_in_fixed_scope(
     authority = _EditAfterAdmissionAuthority()
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=authority,
     )
@@ -1268,7 +1273,7 @@ def test_batch_recipe_invokes_the_run_start_fence_before_dispatching(
 
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=_HaltingAuthority(),
     )
@@ -1427,7 +1432,7 @@ def test_a_different_action_still_re_asks(workspace, gateway_env, adapter_stub):
     with pytest.raises(ClaimsGate):
         MapRunner(
             project,
-            ModelRouter(),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
             allow_action_lifecycle_only_recipes=True,
             authority=open_attempt_authority(project),
         ).prepare_run(other, program=_program(other))
@@ -1470,7 +1475,7 @@ def test_fresh_launch_refused_by_the_unverified_fence_terminalizes(
 
     unwired = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -1523,7 +1528,7 @@ def test_fresh_launch_with_a_dead_target_terminalizes(
     )
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         authority=open_attempt_authority(project),
     )
     claim_token, _ = _claimed_output_authority(project, prepared.run_id)
@@ -1566,7 +1571,7 @@ def test_fresh_launch_refused_consent_missing_terminalizes(
 
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=_RefusingAuthority(),
     )
@@ -1607,7 +1612,7 @@ def _remote_spec(sheet_id: int) -> dict:
 def _prepare_consented_remote_run(project, sheet_id: int) -> tuple[int, dict]:
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     )

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 
@@ -119,7 +120,9 @@ def test_deployment_owned_composition_has_no_runtime_mutation(tmp_path) -> None:
     injected = TestClient(
         create_app(
             tmp_path / "injected-workspace",
-            router=ModelRouter(cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache_mode="off"
+            ),
         )
     )
     assert injected.get("/api/config").json()["cache_mode_editable"] is False

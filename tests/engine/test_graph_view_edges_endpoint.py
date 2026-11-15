@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import itertools
 from pathlib import Path
@@ -22,7 +23,14 @@ _KEYGEN = itertools.count(1)
 
 
 def _client(ws: Path) -> TestClient:
-    return TestClient(create_app(ws, router=ModelRouter(cache=None, cache_mode="off")))
+    return TestClient(
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
+    )
 
 
 def _run_action(project: Project, action: dict[str, Any]):

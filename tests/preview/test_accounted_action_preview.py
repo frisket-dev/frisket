@@ -1,5 +1,7 @@
 """Paid previews share normal confirmation, execution and actual-call accounting."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 import threading
@@ -51,7 +53,12 @@ class _Adapter:
 
 
 def _runner(project, adapter):
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
     coverage = ConsentCoverage(instance_principal(project), Decimal("0"))
     authority = replace(
@@ -455,7 +462,7 @@ def test_priced_transcription_preview_settles_only_completed_quoted_rows(
     coverage = ConsentCoverage(instance_principal(project), Decimal("0"))
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         concurrency=1,
         authority=AttemptAuthority(
             project, composition=composition, consent_coverage=coverage

@@ -14,7 +14,13 @@ import pytest
 from frisket.ops.integrations import hy_mt2
 from frisket.ops.integrations.translate_common import TranslateEngineError
 from frisket.ops.base import OpContext
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.integrations.translation_engine import TranslationEngine
+
+
+def _local_context(**kwargs):
+    extras = kwargs.pop("extras", {})
+    return OpContext(extras={"standalone_dispatch": STANDALONE, **extras}, **kwargs)
 
 
 def test_target_language_name_accepts_codes_and_names():
@@ -153,7 +159,7 @@ async def test_recipe_hy_mt2_maps_checksum_mismatch_to_model_tampered(monkeypatc
     monkeypatch.setattr(hy_mt2, "translate_texts", miss)
     monkeypatch.setattr(hy_mt2, "ensure_installed", bad_checksum)
 
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     with pytest.raises(TranslateEngineError) as exc:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -182,7 +188,7 @@ async def test_recipe_hy_mt2_provision_cancel_is_retryable(monkeypatch):
     monkeypatch.setattr(hy_mt2, "translate_texts", miss)
     monkeypatch.setattr(hy_mt2, "ensure_installed", cancelled)
 
-    ctx = OpContext(project=None, http=None, extras={"cancelled": lambda: True})
+    ctx = _local_context(project=None, http=None, extras={"cancelled": lambda: True})
     with pytest.raises(TranslateEngineError) as exc:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -197,7 +203,7 @@ async def test_recipe_hy_mt2_provision_cancel_is_retryable(monkeypatch):
 @pytest.mark.asyncio
 async def test_recipe_hy_mt2_runtime_absent_reports_remediation(monkeypatch):
     monkeypatch.setattr(hy_mt2, "runtime_available", lambda: False)
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     with pytest.raises(TranslateEngineError) as ei:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -217,7 +223,7 @@ async def test_recipe_hy_mt2_translates_and_no_detected_column(monkeypatch):
         hy_mt2, "translate_texts", lambda target, texts, cache_root=None: ["Hola"]
     )
     # a real pinned entry so provenance stashes
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     out = await TranslationEngine().execute(
         {"statement": "Hello"},
         {"engine": "hy_mt2", "target_language": "Spanish", "output_name": "es"},
@@ -247,7 +253,7 @@ async def test_recipe_hy_mt2_provisions_on_miss_then_translates(monkeypatch):
 
     monkeypatch.setattr(hy_mt2, "translate_texts", fake_translate)
     monkeypatch.setattr(hy_mt2, "ensure_installed", fake_ensure)
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     out = await TranslationEngine().execute(
         {"statement": "Hello"},
         {"engine": "hy_mt2", "target_language": "French", "output_name": "fr"},
@@ -285,7 +291,7 @@ async def test_artifact_evidence_covers_executed_hy_mt2(monkeypatch):
 
     monkeypatch.setattr(hy_mt2, "runtime_available", lambda: True)
     monkeypatch.setattr(hy_mt2, "translate_texts", lambda *args: ["Hola"])
-    ctx = OpContext(project=None)
+    ctx = _local_context(project=None)
     await TranslationEngine().execute(
         {"text": "Hello"}, {"engine": "hy_mt2", "target_language": "Spanish"}, ctx
     )

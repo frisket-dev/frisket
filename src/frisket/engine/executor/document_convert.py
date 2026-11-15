@@ -12,6 +12,7 @@ from frisket.execution.purchases import (
     PurchaseRequest,
     PurchaseObservation,
     execute_purchase,
+    execute_purchase_sync,
     cost_micro,
     policy_for_context,
 )
@@ -289,9 +290,41 @@ class _BoundDocumentConverter:
             if self._is_cloud_route():
                 markdown, ocr_used = await self._convert_cloud(engine, path)
             elif engine == LIGHT_ENGINE:
-                markdown = await self._convert_markitdown(path, scratch)
+                markdown = await execute_purchase(
+                    PurchaseRequest(
+                        provider="local",
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        engine=engine,
+                        credential_source="none",
+                        prepared={"format": path.suffix},
+                        context=self._ctx,
+                        quantity={"input_count": 1},
+                    ),
+                    policy=policy_for_context(self._ctx),
+                    dispatch=dispatch_for_context(self._ctx),
+                    invoke=lambda: self._convert_markitdown(path, scratch),
+                    observe=lambda result: PurchaseObservation(
+                        result, {"input_count": 1}, 0
+                    ),
+                )
             elif engine == TRAFILATURA_HTML_ENGINE:
-                markdown = self._convert_trafilatura_html(path)
+                markdown = execute_purchase_sync(
+                    PurchaseRequest(
+                        provider="local",
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        engine=engine,
+                        credential_source="none",
+                        prepared={"format": path.suffix},
+                        context=self._ctx,
+                        quantity={"input_count": 1},
+                    ),
+                    policy=policy_for_context(self._ctx),
+                    dispatch=dispatch_for_context(self._ctx),
+                    invoke=lambda: self._convert_trafilatura_html(path),
+                    observe=lambda result: PurchaseObservation(
+                        result, {"input_count": 1}, 0
+                    ),
+                )
             elif engine in SIDECAR_ENGINES:
                 markdown, ocr_used = await self._convert_sidecar(engine, path)
             elif engine.startswith("opendocrouter/"):

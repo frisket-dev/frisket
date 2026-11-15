@@ -1,6 +1,8 @@
 """API server tests: the contract the frontend consumes. Model runs replay
 exact typed requests from a disposable cache — keyless, deterministic."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import csv
 import gzip
 import io
@@ -589,7 +591,12 @@ class TestRuns:
         # replay_strict proves that no provider effect can happen, so it
         # correctly has no spend-confirmation gate. Exercise the live posture
         # whose provider effect the gate protects.
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         client = TestClient(create_app(tmp_path / "cost-gate", router=router))
         pid, sheet_id = make_project_with_data(client)
         # inflate the ESTIMATE well past the $1 gate via sheer input size —
@@ -614,7 +621,12 @@ class TestRuns:
         """A model absent from pricing_data.json has an UNKNOWN estimate —
         the gate demands confirmation rather than guessing a price, however
         small the input."""
-        router = ModelRouter(keys={"acme": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"acme": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         client = TestClient(create_app(tmp_path / "unknown-cost-gate", router=router))
         pid, sheet_id = make_project_with_data(client)
         spec = {
@@ -917,7 +929,12 @@ class TestCancelRun:
                     model=req.model,
                 )
 
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = SlowAdapter()  # noqa: SLF001
         return TestClient(create_app(tmp_path / "ws-slow", router=router))
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import struct
@@ -52,14 +53,23 @@ class _FailingAdapter:
 
 
 def _stub_router(reply: dict[str, Any]) -> ModelRouter:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = _StubAdapter(reply)  # noqa: SLF001
     return router
 
 
 def _failing_router() -> ModelRouter:
     router = ModelRouter(
-        keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     router._adapters["anthropic"] = _FailingAdapter()  # noqa: SLF001
     return router

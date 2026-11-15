@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import threading
@@ -249,6 +250,7 @@ def test_ask_only_metadata_spans_survive_export_failure_and_shutdown_once(
                 )
 
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -341,6 +343,7 @@ def test_ask_tool_exception_details_follow_content_setting(
                 )
 
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -454,6 +457,7 @@ def test_provider_error_is_sanitized_before_metadata_only_export(tmp_path, monke
                 raise LLMError(f"api_key={secret}")
 
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": secret},
             key_sources={"anthropic": "platform_key"},
             cache=None,

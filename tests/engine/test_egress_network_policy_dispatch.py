@@ -4,6 +4,7 @@ the gate binds work that already ran — a stored remote-engine spec cannot be
 re-executed live after the project flips ``off``."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from decimal import Decimal
@@ -68,7 +69,9 @@ def _plan(project, body):
 
 
 def _router() -> ModelRouter:
-    return ModelRouter(cache=None, cache_mode="off")
+    return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
 
 
 def test_off_rejects_deepl_translate_at_validate(project) -> None:

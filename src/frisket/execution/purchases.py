@@ -20,6 +20,9 @@ class PurchasePolicyRequired(RuntimeError):
 class PurchaseRecordingError(RuntimeError):
     """The provider returned; retrying this error must not buy the work again."""
 
+    post_egress_ambiguous = True
+    provider_job_accepted = True
+
     def __init__(self, message: str, *, provider_result: Any, observation: Any = None):
         super().__init__(message)
         self.provider_result = provider_result
@@ -201,13 +204,20 @@ class _PurchaseExecution:
             raise PurchasePolicyRequired("Purchase policy did not determine accounting")
         try:
             dispatch.check()
-        except BaseException:
-            policy.fail_purchase(
-                request,
-                self.admission,
+        except BaseException as error:
+            self._fail(
                 PurchaseNotDispatched("Execution closed before provider dispatch"),
+                primary=error,
             )
             raise
+
+    def _fail(self, error, *, primary=None):
+        try:
+            self.policy.fail_purchase(self.request, self.admission, error)
+        except Exception as accounting_error:
+            (
+                primary if primary is not None else error
+            ).purchase_recording_error = accounting_error
 
     def failed(self, error: BaseException) -> None:
         try:
@@ -216,14 +226,19 @@ class _PurchaseExecution:
                 if self.observe_error is not None
                 else ()
             )
+        except Exception as observation_error:
+            error.purchase_observation_error = observation_error
+            self._fail(error)
+            return
+        if not known:
+            self._fail(error)
+            return
+        try:
             for observation in known:
                 self.policy.record_purchase(self.request, self.admission, observation)
-            if not known:
-                self.policy.fail_purchase(self.request, self.admission, error)
         except Exception as accounting_error:
-            # Keep the provider failure and its attached usage as the primary
-            # evidence. Diagnostics must not turn it into a different purchase.
             error.purchase_recording_error = accounting_error
+            self._fail(error)
 
     def returned(self, result):
         observation = None
@@ -231,23 +246,27 @@ class _PurchaseExecution:
             observation = self.observe(result)
             self.policy.record_purchase(self.request, self.admission, observation)
         except BaseException as error:
+            # A transport-specific observer can itself fail after a real return.
+            # Recover only an understood response type, never guess arbitrary
+            # page/audio/token units from a dictionary with unknown semantics.
             if observation is None:
-                try:
-                    self.policy.record_purchase(
-                        self.request, self.admission, PurchaseObservation(result, {})
-                    )
-                except Exception:
-                    pass  # The returned result is carried by the error below.
+                from frisket.ai.llm.types import LLMResponse
+
+                if isinstance(result, LLMResponse):
+                    observation = llm_observation(result)
+            recording_error = PurchaseRecordingError(
+                str(error),
+                provider_result=result,
+                observation=observation,
+            )
+            self._fail(recording_error)
             import asyncio
 
             if isinstance(error, asyncio.CancelledError):
                 error.provider_result = result
+                error.observation = observation
                 raise
-            raise PurchaseRecordingError(
-                str(error),
-                provider_result=result,
-                observation=observation,
-            ) from error
+            raise recording_error from error
         return result
 
 

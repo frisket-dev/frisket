@@ -6,6 +6,7 @@ prepare) lives in tests/engine/test_claims_gate_validation.py.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -116,7 +117,9 @@ def _spec(sheet_id: int, **overrides):
 
 def _composition(project, facts: CompositionFacts | None = None):
     composition = open_execution_composition(
-        project, ModelRouter(), ExecutionCompositionContext.direct()
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        ExecutionCompositionContext.direct(),
     )
     if facts is None:
         return composition
@@ -150,6 +153,7 @@ def test_non_marked_llm_recipe_honors_signed_out_saved_cloud_route(audio_project
     composition = open_execution_composition(
         project,
         ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "configured-own-key"},
             use_env_keys=False,
             cache_mode="off",
@@ -179,6 +183,7 @@ def test_non_marked_llm_recipe_keeps_saved_own_model_router_path(audio_project):
     composition = open_execution_composition(
         project,
         ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "configured-own-key"},
             use_env_keys=False,
             cache_mode="off",

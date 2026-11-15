@@ -41,6 +41,7 @@ from frisket.engine.runner.publication import (
 from frisket.engine.runner.row_inputs import row_source_values_empty
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
+from frisket.execution.purchases import PurchaseRecordingError
 from frisket.engine.store.runs import TERMINAL_FAILURE_OUTCOMES
 from frisket.execution.attempt import StaleAttemptWriter, routed_admission_in_scope
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
@@ -403,6 +404,18 @@ async def _execute_row(
     except StaleAttemptWriter as e:
         persist_trace(error=safe_error("stale_attempt_writer", e, max_chars=500).text)
         raise
+    except PurchaseRecordingError as e:
+        persist_trace(
+            error=safe_error(
+                "external_effect_reconciliation_required", e, max_chars=500
+            ).text
+        )
+        retain_returned_before_halt(e)
+        raise RecipeInvocationHalt(
+            "external_effect_reconciliation_required",
+            "The provider returned this row, but its accounting could not be saved. "
+            "Reconcile the returned result before retrying; another call could charge twice.",
+        ) from e
     except HostedEngineError as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
         if e.accounting is not None:
@@ -444,6 +457,7 @@ async def _execute_row(
                     "model_calls": bound_calls,
                 }
         if e.provider_job_accepted or e.post_egress_ambiguous:
+            retain_returned_before_halt(e)
             # Preserve the reservation while an accepted provider job may finish.
             raise RecipeInvocationHalt(
                 "external_effect_reconciliation_required",

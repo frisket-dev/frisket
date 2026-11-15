@@ -194,7 +194,7 @@ def missing_model_key_error_for_request(
     cache_can_serve_replay = router.cache_mode == "replay" and router.cache is not None
     if model_call_cannot_go_live(router) or cache_can_serve_replay:
         return None
-    if router.adapter_for(provider) is not None:
+    if router.has_provider(provider):
         return None
     return missing_provider_key_error(action_kind, provider)
 

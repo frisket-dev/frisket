@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -111,7 +112,9 @@ class TestOcrEstimateHonesty:
         sheet = _ocr_project(project)
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -129,7 +132,9 @@ class TestOcrEstimateHonesty:
         sheet = _ocr_project(project)
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -146,7 +151,9 @@ class TestOcrEstimateHonesty:
         sheet = _ocr_project(project)
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -166,7 +173,9 @@ class TestTranscribeEstimateHonesty:
         sheet = _transcribe_project(project)
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -184,7 +193,9 @@ class TestTranscribeEstimateHonesty:
         sheet = _transcribe_project(project)
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -230,7 +241,9 @@ def test_unavailable_route_refuses_before_quote_or_consent(
     )
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         allow_action_lifecycle_only_recipes=True,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -287,7 +300,9 @@ class TestToMarkdownEstimateHonesty:
         sheet = _to_markdown_project(project, doc="<html><body>hi</body></html>")
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -302,7 +317,9 @@ class TestToMarkdownEstimateHonesty:
         sheet = _to_markdown_project(project, doc=b"%PDF-1.4 two-page-doc")
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -325,7 +342,9 @@ class TestToMarkdownEstimateHonesty:
         sheet = _to_markdown_project(project, doc=b"%PDF-1.4 unprobed-doc", pages=None)
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -346,7 +365,9 @@ class TestUnconfirmedRemoteEngineRunGated:
         sheet = _ocr_project(project)
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -362,7 +383,9 @@ class TestUnconfirmedRemoteEngineRunGated:
         sheet = _transcribe_project(project)
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -384,7 +407,9 @@ class TestUnconfirmedRemoteEngineRunGated:
         )
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             # OCR resolves through the seam, so this control needs the
             # routed authority — with UnroutedOnlyAuthority it would pass for
             # the wrong reason (a DependentChoiceRefusal, caught below).
@@ -422,7 +447,9 @@ class TestVlmOcrTraceCapturesModelCalls:
         sheet = _ocr_project(
             project, value=media_cell(digest, filename="scan.png", mime="image/png")
         )
-        router = ModelRouter(cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
         adapter = _StubAdapter(
             {"lines": [{"text": "VLM READ 4271", "box_2d": [100, 100, 900, 900]}]}
         )

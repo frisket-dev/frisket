@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import sqlite3
@@ -247,7 +248,9 @@ def test_derive_link_table_writes_canonical_edge_membership_and_replays_it(
 
     project = Project(project_path)
     try:
-        router = ModelRouter(cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
         gated = executor_actions.run_action_spec(
             project,
             _join_action(source_sheet_id, target_sheet_id),

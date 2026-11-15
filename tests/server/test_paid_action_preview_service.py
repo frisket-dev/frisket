@@ -1,5 +1,7 @@
 """Normal preview confirmation and receipt accounting across the real job host."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import hashlib
 import io
@@ -25,7 +27,12 @@ from tests.engine.test_ocr_read import _png
 
 
 def _fixture(tmp_path, adapter):
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
     workspace = Workspace(
         tmp_path / "workspace", router=router, enable_local_model_pull=False

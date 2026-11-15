@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -31,7 +32,12 @@ class _StubAdapter:
 
 
 def _client(tmp_path: Path) -> TestClient:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = _StubAdapter({"beat": "a"})  # noqa: SLF001
     return TestClient(create_app(tmp_path / "workspace", router=router))
 

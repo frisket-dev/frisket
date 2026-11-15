@@ -35,6 +35,7 @@ This file pins three things:
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from datetime import UTC, datetime
@@ -111,6 +112,7 @@ def _run_all_failing(project: Project, tmp_path: Path, row_count: int) -> int:
     spec = _classify_spec(sheet)
     cache = ResponseCache(tmp_path / "c.db")
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "k"},
         cache=cache,
         cache_mode="replay",
@@ -183,7 +185,12 @@ class TestNonLlmExecuteFailurePersistence:
             "sheet_id": sheet,
             "input_columns": ["text"],
         }
-        router = ModelRouter(keys={}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={},
+            cache=None,
+            cache_mode="off",
+        )
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         progress = asyncio.run(run_with_output_claim(runner, spec))
         assert progress.failed == 1
@@ -347,7 +354,10 @@ class TestRowErrorSummaryShape:
                 ),
             )
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         progress = asyncio.run(run_with_output_claim(runner, spec))

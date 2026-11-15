@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from types import SimpleNamespace
 
@@ -123,7 +124,12 @@ def _run(project, values, *, threshold=3):
         project,
         "project-1",
         bound,
-        ModelRouter(cache=None, cache_mode="off", use_env_keys=False),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        ),
         runner,
     )
     return sheet, row_ids, bound, result

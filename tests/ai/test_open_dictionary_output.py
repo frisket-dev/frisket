@@ -1,5 +1,7 @@
 """Dynamic JSON answers must survive strict-provider wire shaping."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 
@@ -59,7 +61,12 @@ def test_json_answer_and_confidence_preserve_dynamic_keys_and_local_bounds(model
         return httpx.Response(200, json=response)
 
     async def go():
-        router = ModelRouter(keys={provider: "test"}, use_env_keys=False, max_retries=0)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={provider: "test"},
+            use_env_keys=False,
+            max_retries=0,
+        )
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             router._client = client
             return await StructuredCompleter(router.for_execution(STANDALONE)).complete(
@@ -87,7 +94,11 @@ def test_openai_explicit_strict_refuses_open_answer_before_wire():
         def handler(request):
             pytest.fail("unrepresentable schema reached the provider")
 
-        router = ModelRouter(keys={"openai": "test"}, use_env_keys=False)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"openai": "test"},
+            use_env_keys=False,
+        )
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             router._client = client
             return await router.for_execution(STANDALONE).complete_transport(
@@ -104,7 +115,9 @@ def test_openai_explicit_strict_refuses_open_answer_before_wire():
 
     async def complete():
         return await StructuredCompleter(
-            ModelRouter(keys={}, use_env_keys=False)
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
+            )
         ).complete(
             StructuredRequest(
                 model="openai/gpt-6-luna",

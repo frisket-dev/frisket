@@ -38,6 +38,7 @@ Closure mechanics (how a new kind goes red here, without anyone enumerating):
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import re
@@ -941,7 +942,9 @@ def _geospatial_driver(kind: str) -> Driver:
         def never_called(_request):
             pytest.fail("wrong-echo closure reached the external provider")
 
-        router = ModelRouter(cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
         router._client = httpx.AsyncClient(transport=httpx.MockTransport(never_called))
         project = Project.create(tmp_path / "geospatial.frisket")
         try:

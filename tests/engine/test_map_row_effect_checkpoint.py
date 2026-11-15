@@ -7,6 +7,7 @@ attempt that authorized the original egress.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
@@ -157,7 +158,11 @@ def test_resume_replays_returned_row_without_buying_it_again(
         spec, program = _bound(_spec(sheet))
 
         provider = _ReturnedProviderCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -291,6 +296,7 @@ def test_returned_checkpoint_accounts_spend_before_result_commit(
         project.add_rows(sheet, [{"text": "cross the cap"}], columns)
         provider = _ReturnedProviderCall()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "sk-ant-test"},
             key_sources={"anthropic": "project_key"},
             cache_mode="off",
@@ -358,7 +364,11 @@ def test_returned_checkpoint_replays_every_structured_wire_ordinal(
         project.add_rows(sheet, [{"text": "repair me"}], columns)
         spec, program = _bound(_spec(sheet))
         provider = _RepairThenReturn()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -423,7 +433,11 @@ def test_identical_prompts_keep_distinct_row_effect_identities(
         )
         spec, program = _bound(_spec(sheet))
         provider = _ReturnedProviderCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -531,6 +545,7 @@ def test_model_retry_retains_known_usage_without_inventing_lost_response_cost(
         project.add_rows(sheet, [{"text": "unknown accepted outcome"}], columns)
         provider = _AcceptedThenResponseLost()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test"},
             cache_mode="off",
             max_retries=3,
@@ -594,7 +609,11 @@ def test_ambiguous_reserved_effect_refuses_resume_instead_of_recalling(
         project.add_rows(sheet, [{"text": "unknown outcome"}], columns)
         spec, program = _bound(_spec(sheet))
         provider = _KilledInFlightCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -683,7 +702,11 @@ def test_cancel_retains_unpublished_return_and_fresh_run_buys_new_work(
         project.add_rows(sheet, [{"text": "cancel after return"}], columns)
         spec, program = _bound(_spec(sheet))
         provider = _ReturnedProviderCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -801,7 +824,11 @@ def test_row_refresh_cannot_erase_unreconciled_external_effect(
         row_id = int(project.db.execute("SELECT id FROM rows").fetchone()[0])
         spec, program = _bound(_spec(sheet))
         provider = _ReturnedProviderCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         runner = _runner(project, router)
         confirmed = _confirmed_spec(runner, spec, program)
@@ -886,6 +913,7 @@ def test_free_local_llm_row_checkpoint_is_consumed(tmp_path) -> None:
 
         provider = _FreeLocalCall()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache_mode="off",
             use_env_keys=False,
             local_endpoints=(

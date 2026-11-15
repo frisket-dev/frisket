@@ -4,6 +4,7 @@ and route/consent persistence at run creation.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -162,7 +163,7 @@ def _validate(
     pricing_policy=None,
     consent_coverage=None,
 ):
-    router = router or ModelRouter()
+    router = router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     return validation.validate_spec(
         project,
         router,
@@ -234,7 +235,7 @@ def test_resume_never_resolves(audio_project, monkeypatch):
     project, sheet_id = audio_project
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -287,6 +288,7 @@ def test_priced_free_local_model_estimates_zero_and_never_gates(audio_project):
     assert est["cost"] == 0.0
     assert est["cost"] is not None
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         local_endpoints=(
             LocalModelEndpointConfig(
                 endpoint_id="test-local",
@@ -294,7 +296,7 @@ def test_priced_free_local_model_estimates_zero_and_never_gates(audio_project):
                 origin="http://127.0.0.1:11434",
                 source="local_file",
             ),
-        )
+        ),
     )
     _validate(project, spec, router=router)  # must not raise CostGate
 
@@ -308,7 +310,7 @@ def test_local_free_run_never_gates_and_persists_o1(audio_project):
     project, sheet_id = audio_project
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -355,7 +357,7 @@ def test_confirmed_with_matching_echo_passes_and_records_consent(
     spec = _spec(sheet_id, engine="moss", consented_promise_set_hash=set_hash)
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=UnroutedOnlyAuthority(project),
         consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
@@ -414,7 +416,7 @@ def test_resolution_backfill_confirmation_requires_current_hash(
     pricing_policy = _OneMicroPolicy()
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -501,7 +503,7 @@ def test_missing_route_refuses_before_requesting_consent(audio_project, monkeypa
 
 def test_estimate_run_attaches_claims_and_hash(audio_project, gateway_env):
     project, sheet_id = audio_project
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     composition = open_execution_composition(
         project, router, ExecutionCompositionContext.direct()
     )
@@ -531,7 +533,7 @@ def test_estimate_run_attaches_claims_and_hash(audio_project, gateway_env):
 def test_estimate_run_preserves_route_refusal(audio_project, monkeypatch):
     project, sheet_id = audio_project
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     spec = _spec(sheet_id, engine="openai/not-a-priced-model")
     with pytest.raises(ExecutionResolutionRefused):
         validation.estimate_run(
@@ -589,7 +591,7 @@ def test_preview_persistence_is_ephemeral_and_writes_nothing(
 
 def test_standalone_estimate_never_persists(audio_project, gateway_env):
     project, sheet_id = audio_project
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     composition = open_execution_composition(
         project, router, ExecutionCompositionContext.direct()
     )

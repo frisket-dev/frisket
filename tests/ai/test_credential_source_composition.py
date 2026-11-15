@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 
@@ -16,6 +17,7 @@ def test_credential_sources_reject_unknown_or_secret_like_values() -> None:
 
     with pytest.raises(ValueError, match="unsupported credential source"):
         ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "value"},
             key_sources={"openai": "real-secret"},
         )
@@ -72,6 +74,7 @@ def test_durable_fact_store_rejects_unknown_credential_source(tmp_path) -> None:
 def test_workspace_preserves_mixed_org_and_platform_sources(tmp_path) -> None:
     project = Project.create(tmp_path / "project.frisket", name="project")
     base = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "org-value", "anthropic": "platform-value"},
         key_sources={"openai": "org_byok", "anthropic": "platform_key"},
     )
@@ -97,7 +100,10 @@ def test_injected_router_without_a_declared_source_refuses(tmp_path) -> None:
     """
     project = Project.create(tmp_path / "undeclared.frisket", name="undeclared")
     try:
-        undeclared = ModelRouter(keys={"openai": "operator-env-value"})
+        undeclared = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"openai": "operator-env-value"},
+        )
         assert not undeclared.has_explicit_key_source("openai")
         with pytest.raises(ValueError, match="must declare the provenance"):
             # A project-key layer forces the composition branch; before the
@@ -113,6 +119,7 @@ def test_injected_router_with_a_declared_source_keeps_it(tmp_path) -> None:
     project = Project.create(tmp_path / "declared.frisket", name="declared")
     try:
         declared = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "operator-env-value"},
             key_sources={"openai": "local"},
         )
@@ -157,7 +164,11 @@ def test_router_for_composed_branch_carries_local_endpoints(tmp_path) -> None:
         source="env",
     )
     try:
-        base = ModelRouter(local_endpoints=(endpoint,), use_env_keys=False)
+        base = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            local_endpoints=(endpoint,),
+            use_env_keys=False,
+        )
         # provider_keys_resolver forces the composed-router reconstruction
         # branch (resolved_org_keys is not None) rather than the fast path
         # that just returns self._router unchanged.
@@ -192,7 +203,11 @@ def test_diagnostic_router_org_resolver_branch_carries_local_endpoints(
         edge_auth=True,
         source="env",
     )
-    base = ModelRouter(local_endpoints=(endpoint,), use_env_keys=False)
+    base = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        local_endpoints=(endpoint,),
+        use_env_keys=False,
+    )
     ws = Workspace(
         tmp_path / "org-diag",
         router=base,

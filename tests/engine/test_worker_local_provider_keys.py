@@ -23,6 +23,7 @@ DONE means (white-box jobs/runs.py):
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 
@@ -259,6 +260,7 @@ def test_equal_empty_endpoint_authority_preserves_injected_router_runtime(
     """
     project = _make_project(tmp_path / "ws")
     injected = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-key"},
         key_sources={"anthropic": "local"},
         cache=None,
@@ -277,7 +279,7 @@ def test_equal_empty_endpoint_authority_preserves_injected_router_runtime(
         )
 
         assert composed is injected
-        assert composed.adapter_for("anthropic") is adapter
+        assert composed._adapters["anthropic"] is adapter
         assert composed.configured_keys() == {"anthropic": "test-key"}
         assert composed.cache is None
         assert composed.cache_mode == "off"
@@ -298,6 +300,7 @@ def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -
         url="http://127.0.0.1:11434",
     )
     injected = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         use_env_keys=False,
         local_endpoints=(endpoint,),
     )
@@ -311,7 +314,7 @@ def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -
 
         assert composed is not injected
         assert composed.local_endpoints == ()
-        assert composed.adapter_for("ollama") is None
+        assert not composed.has_provider("ollama")
     finally:
         project.close()
 
@@ -490,7 +493,7 @@ def test_router_for_org_run_threads_the_resolved_local_endpoint(
     endpoint = router.local_endpoints[0]
     assert endpoint.origin == "https://llm.heavy.internal"
     assert endpoint.inference_token == "org-inference-secret"
-    _, adapter, _ = router.resolve_local_model(
+    _, adapter, _ = router._resolve_local_model(
         f"ollama/@{endpoint.endpoint_id}/qwen3:8b"
     )
     assert adapter.api_key == "org-inference-secret"

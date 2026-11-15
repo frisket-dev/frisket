@@ -31,6 +31,7 @@ from frisket.execution.targets import (
     CAPABILITY_CLASSIFY,
     CAPABILITY_GEOCODE,
     CAPABILITY_LLM,
+    CAPABILITY_NER,
     CAPABILITY_OCR,
     CAPABILITY_TO_MARKDOWN,
     CAPABILITY_TRANSCRIBE,
@@ -126,8 +127,9 @@ async def _transcribe_probe(
     effects: list[str],
 ) -> None:
     class _Router:
-        def adapter_for(self, _provider):
-            return SimpleNamespace(base_url="https://example.test", api_key="secret")
+        _adapters = {
+            "openai": SimpleNamespace(base_url="https://example.test", api_key="secret")
+        }
 
         def credential_source_for(self, _provider):
             return "org_byok"
@@ -353,6 +355,9 @@ _FENCE_PROBES: dict[str, _Probe] = {
 # tests/test_cloud_execution.py::test_http_transport_refuses_reconnected_user_before_network.
 _SEPARATE_PAYER_FENCE_PROOFS = {
     CAPABILITY_LLM: "HttpCloudExecutionTransport._access_token",
+    # GLiNER has no external BYOK lane: the native gateway policy authorizes
+    # the hosted included offering before any transport runs.
+    CAPABILITY_NER: "test_hosted_ner_requires_purchase_authority_before_egress",
 }
 
 
@@ -393,3 +398,28 @@ async def test_every_priced_capability_refuses_owner_mismatch_before_effect(
         )
 
     assert effects == []
+
+
+@pytest.mark.asyncio
+async def test_hosted_ner_requires_purchase_authority_before_egress(monkeypatch):
+    from frisket.ops import _sidecar
+    from frisket.execution.dispatch_control import STANDALONE
+    from frisket.execution.purchases import PurchasePolicyRequired
+
+    calls = []
+
+    async def send(*args, **kwargs):
+        calls.append(True)
+        raise AssertionError("NER must not send without hosted purchase authority")
+
+    monkeypatch.setattr(_sidecar, "_sidecar_post_transport", send)
+    ctx = OpContext(credential_use_context=_owner_mismatch_context())
+    with pytest.raises(PurchasePolicyRequired, match="Hosted execution"):
+        await _sidecar.sidecar_post(
+            ctx,
+            "/ner",
+            op="NER",
+            json={"engine": "gliner", "text": "hello", "labels": ["person"]},
+            dispatch=STANDALONE,
+        )
+    assert calls == []

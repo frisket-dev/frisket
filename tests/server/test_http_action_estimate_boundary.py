@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +21,12 @@ from frisket.server.services.action_previews import ActionPreviewService
 
 
 def _client(tmp_path) -> TestClient:
-    router = ModelRouter(keys={"gemini": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"gemini": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     return TestClient(create_app(tmp_path / "workspace", router=router))
 
 
@@ -584,7 +590,12 @@ def test_routed_action_preview_rates_once_and_returns_that_billed_quote(
         [{"media": media_cell(blob, mime="audio/wav", filename="clip.wav")}],
         {"media": column},
     )
-    router = ModelRouter(keys={"openai": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     composition = open_execution_composition(
         project, router, ExecutionCompositionContext.direct()
     )

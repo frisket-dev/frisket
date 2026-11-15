@@ -1,5 +1,7 @@
 """Cancelling Find's repair turn retains the first returned purchase."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 
 from frisket.actions.types import ActionRequest
@@ -14,7 +16,10 @@ from tests.engine.test_map_find_runtime import _queued_find
 def test_cancel_before_find_repair_preserves_returned_usage(tmp_path):
     project = Project.create(tmp_path / "find-cancel")
     router = ModelRouter(
-        keys={"anthropic": "test"}, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+        use_env_keys=False,
     )
     try:
         sheet = project.add_sheet("Sources")

@@ -9,6 +9,7 @@ and the preview-path fence.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -149,7 +150,9 @@ def test_worker_completes_when_cancel_reports_false(tmp_path, monkeypatch, engin
     )
     runner = MapRunner(
         p,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         concurrency=1,
         # Transcribe resolves an execution route, and a routed run
         # never dispatches unverified: a test runner builds the
@@ -219,7 +222,9 @@ def test_external_cancel_retains_returned_diagnosis_without_publishing_row(
     async def go():
         runner = MapRunner(
             p,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             concurrency=1,
             # Transcribe resolves an execution route, and a routed run
             # never dispatches unverified: a test runner builds the
@@ -292,7 +297,9 @@ def test_worker_timeout_stays_a_row_failure_not_cancellation(
     )
     runner = MapRunner(
         p,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         concurrency=1,
         # Transcribe resolves an execution route, and a routed run
         # never dispatches unverified: a test runner builds the
@@ -397,7 +404,9 @@ def test_preview_external_cancel_persists_no_row_values(tmp_path, monkeypatch):
     async def go():
         runner = MapRunner(
             p,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             concurrency=1,
             # Transcribe resolves an execution route, and a routed run
             # never dispatches unverified: a test runner builds the

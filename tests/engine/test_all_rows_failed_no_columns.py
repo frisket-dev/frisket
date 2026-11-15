@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
@@ -174,6 +175,7 @@ class TestMapKindAllRowsFailed:
             sheet, _ = _seed_text_sheet(project, texts)
             spec = _classify_spec(sheet)
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "k"},
                 cache=ResponseCache(tmp_path / "cache.db"),
                 cache_mode="replay",
@@ -234,6 +236,7 @@ class TestMapKindAllRowsFailed:
             cache = ResponseCache(tmp_path / "cache.db")
             _prime_cache(cache, spec, texts[:1])  # exactly 1 of 11 succeeds
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "k"},
                 cache=cache,
                 cache_mode="replay",
@@ -266,6 +269,7 @@ class TestMapKindAllRowsFailed:
             spec = _classify_spec(sheet)
             cache = ResponseCache(tmp_path / "cache.db")
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "k"},
                 cache=cache,
                 cache_mode="replay",
@@ -289,7 +293,10 @@ class TestMapKindAllRowsFailed:
             # over the failed scope; it never reopens the sealed first run.
             _prime_cache(cache, spec, texts)
             router2 = ModelRouter(
-                keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"anthropic": "k"},
+                cache=cache,
+                cache_mode="replay_strict",
             )
             runner2 = MapRunner(
                 project, router2, authority=UnroutedOnlyAuthority(project)
@@ -343,7 +350,12 @@ class TestMapKindAllRowsFailed:
                 "input_columns": ["text"],
                 "output_name": "relevance",
             }
-            router = ModelRouter(keys={}, cache=None, cache_mode="off")
+            router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            )
             runner = MapRunner(
                 project, router, concurrency=1, authority=UnroutedOnlyAuthority(project)
             )
@@ -385,7 +397,12 @@ class TestMapKindAllRowsFailed:
             assert "relevance" in [c["name"] for c in project.columns(sheet)]
 
             recipe.delay = 0.0
-            router2 = ModelRouter(keys={}, cache=None, cache_mode="off")
+            router2 = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            )
             runner2 = MapRunner(
                 project, router2, authority=UnroutedOnlyAuthority(project)
             )

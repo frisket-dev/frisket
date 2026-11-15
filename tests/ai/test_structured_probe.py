@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -66,7 +67,9 @@ def _resp(data: dict, *, tokens_in=10, tokens_out=5, cost=0.0001):
 
 
 def scripted_router(provider: str, outcomes: list[Any], *, max_retries: int = 0):
-    router = ModelRouter(keys={}, max_retries=max_retries)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=max_retries
+    )
     adapter = ScriptedAdapter(outcomes=list(outcomes))
     router._adapters[provider] = adapter
     return router, adapter

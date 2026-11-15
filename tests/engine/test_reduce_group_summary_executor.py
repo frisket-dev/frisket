@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -95,7 +96,12 @@ class _PricedSummaryAdapter(OpenAICompatAdapter):
 
 
 def _summary_router() -> tuple[ModelRouter, _SummaryAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _SummaryAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -103,7 +109,11 @@ def _summary_router() -> tuple[ModelRouter, _SummaryAdapter]:
 
 def _failing_router() -> tuple[ModelRouter, _FailingAdapter]:
     router = ModelRouter(
-        keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     adapter = _FailingAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
@@ -806,6 +816,7 @@ def test_reduce_group_summary_refuses_an_exhausted_project_key_before_provider_c
             spend_cap_micro=0,
         )
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             key_sources={"anthropic": "project_key"},
             cache=None,
@@ -839,7 +850,12 @@ def test_unknown_live_call_cost_never_becomes_exact_zero_in_receipt(
     from frisket.contracts.action import Receipt
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         adapter = _UnknownCostSummaryAdapter()
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         env.run_kwargs["router"] = router
@@ -913,6 +929,7 @@ def test_reduce_group_summary_persists_pricing_source_by_value(
     adapter = _PricedSummaryAdapter()
     if model.startswith("ollama/"):
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=None,
             cache_mode="off",
             use_env_keys=False,
@@ -928,6 +945,7 @@ def test_reduce_group_summary_persists_pricing_source_by_value(
         router._adapters["ollama"]._adapters["test-local"] = adapter  # type: ignore[attr-defined]  # noqa: SLF001
     else:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             cache=None,
             cache_mode="off",
@@ -971,6 +989,7 @@ def test_reduce_group_summary_traces_free_and_checkpointed_calls(
     if model.startswith("ollama/"):
         adapter: Any = _PricedSummaryAdapter()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=None,
             cache_mode="off",
             use_env_keys=False,

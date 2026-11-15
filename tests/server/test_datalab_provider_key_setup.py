@@ -1,6 +1,7 @@
 """Datalab inline setup shares encrypted keys, health validation and dispatch."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -42,7 +43,12 @@ def setup_client(tmp_path, monkeypatch):
         lambda provider, key: original_probe(provider, key, client=transport_client),
     )
     client = TestClient(
-        create_app(tmp_path / "ws", router=ModelRouter(use_env_keys=False))
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+            ),
+        )
     )
     pid = client.post("/api/projects", json={"name": "Datalab setup"}).json()["id"]
     write_project_settings(
@@ -217,7 +223,9 @@ def test_datalab_setup_respects_permissions_and_network(tmp_path, monkeypatch):
     client = TestClient(
         create_app(
             tmp_path / "ws",
-            router=ModelRouter(use_env_keys=False),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+            ),
             selector_capabilities_for=lambda _request, _pid: SelectorCapabilities(),
         )
     )

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from typing import Any
@@ -299,7 +300,12 @@ def test_dynamic_request_is_shared_by_estimate_cache_and_execution(source, tmp_p
     values = row_values(project, plan.program, spec, {"body": column}, row_id)
     rendered = plan.program.render(values, spec)
     cache = ResponseCache(tmp_path / "responses.db")
-    router = ModelRouter(cache=cache, cache_mode="replay_strict", use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=cache,
+        cache_mode="replay_strict",
+        use_env_keys=False,
+    )
     try:
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         assert isinstance(

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
@@ -223,7 +224,9 @@ def test_successful_queued_run_releases_output_claim(tmp_path: Path) -> None:
     register_project_run_handler(
         registry,
         workspace_root=client.app.state.workspace.root,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     worker = Worker(queue, registry, worker_id="queued-terminal-success")
     assert worker.run_once() is True
@@ -298,7 +301,9 @@ def test_queued_identity_corruption_refuses_before_recipe_or_runner(
     register_project_run_handler(
         registry,
         workspace_root=client.app.state.workspace.root,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     assert Worker(queue, registry, worker_id="invalid-identity").run_once() is True
 
@@ -350,7 +355,9 @@ def test_deleted_bound_local_endpoint_terminalizes_before_dispatch(
     register_project_run_handler(
         registry,
         workspace_root=client.app.state.workspace.root,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     worker = Worker(queue, registry, worker_id="deleted-endpoint")
     assert worker.run_once() is True
@@ -402,7 +409,9 @@ def test_terminal_run_duplicate_does_not_require_deleted_endpoint(
     register_project_run_handler(
         registry,
         workspace_root=client.app.state.workspace.root,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     worker = Worker(queue, registry, worker_id="terminal-binding")
     assert worker.run_once() is True

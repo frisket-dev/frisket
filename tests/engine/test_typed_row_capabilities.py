@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import struct
@@ -175,7 +176,13 @@ def test_custom_action_preview_borrows_one_reader_and_closes_on_row_errors(
     before = [dict(column) for column in project.columns(sheet)]
     preview = asyncio.run(
         _runner(
-            project, ModelRouter(cache=None, cache_mode="off", use_env_keys=False)
+            project,
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                cache=None,
+                cache_mode="off",
+                use_env_keys=False,
+            ),
         ).preview(plan.spec_dict(), program=plan.program)
     )
 
@@ -236,7 +243,12 @@ def test_custom_action_durable_run_uses_same_capability_and_only_active_publicat
         project,
         "project-1",
         _bound(source, reread=False),
-        ModelRouter(cache=None, cache_mode="off", use_env_keys=False),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        ),
         _runner,
     )
 

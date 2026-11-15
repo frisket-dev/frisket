@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from dataclasses import replace
@@ -88,7 +89,9 @@ def test_actual_derived_request_is_checked_and_error_never_echoes_arguments(
         calls.append(str(request.url))
         return httpx.Response(503, text="secret response")
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     body = {
         "action_id": "map.api_call",
@@ -320,7 +323,9 @@ def test_queued_http_request_replay_redelivery_and_backfill(
     )
     assert calls == ["/1", "/2"]
     project.add_rows(sheet, [{"id": "3"}], {"id": column})
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     backfill = {
         "action_id": "run.backfill",
         "scope": {"kind": "sheet_rows", "sheet_id": sheet},
@@ -351,7 +356,9 @@ def test_http_row_failures_do_not_halt_remaining_requests(tmp_path, _allow_egres
         calls.append(1)
         return httpx.Response(503, json={"error": "no"})
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
     body = {
         "action_id": "map.api_call",

@@ -1,5 +1,7 @@
 """Actual row publication keeps known usage through retry outcomes and Stop."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from contextlib import closing
 
 import pytest
@@ -34,7 +36,12 @@ def test_row_retry_retains_each_known_purchase_without_publishing_after_stop(
                 return response
 
         adapter = Adapter(["paid_error"] if final == "stop" else ["paid_error", final])
-        router = ModelRouter(keys={"anthropic": "test-key"}, max_retries=1, cache=None)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test-key"},
+            max_retries=1,
+            cache=None,
+        )
         router._adapters["anthropic"] = adapter
         result = run_action_with_confirmation(
             project,

@@ -1,5 +1,7 @@
 """Free media previews consume one validated ephemeral route, never an attempt."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 from dataclasses import replace
@@ -64,7 +66,9 @@ def test_media_preview_uses_exact_validated_connection_without_writes(
         )
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
             op_context_extras={"preview_execution": object()},
         )

@@ -1,3 +1,4 @@
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.ai.llm import ModelRouter
 import pytest
 from frisket.engine.executor.actions import run_action_spec
@@ -63,7 +64,7 @@ def test_fetch_publishes_file_and_actual_durable_occurrence(
             "output_names": {"media": "download"},
             "idempotency_key": "fetch-proof",
         }
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         quote = run_action_spec(project, body, project_id="fetch", router=router)
         assert quote.status == "needs_confirmation", quote.errors
         assert not calls

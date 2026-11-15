@@ -1,6 +1,6 @@
 """Invocation-owned implementations of the direct ``Classifier`` capability.
 
-FastEmbed cosine winner, no model call. The algorithm is the retired
+FastEmbed cosine winner over owned local embedding batches. The algorithm is the retired
 ``ClassifyRecipe.execute`` local path, moved verbatim: bounded deterministic
 chunking, a normalized mean row vector, and the highest-cosine label with the
 lowest index winning ties. The retired recipe ran with ``max_concurrency=1``;
@@ -31,6 +31,13 @@ from frisket.ai.embeddings.backends import PROVIDERLESS_CLASSIFY_MODEL
 from frisket.ai.embeddings.backends import (
     ProviderlessClassifierProvisionError,
     ensure_providerless_classifier_installed,
+)
+from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+    policy_for_context,
 )
 
 if TYPE_CHECKING:
@@ -187,17 +194,19 @@ class AdmittedClassifier:
         if self._cancelled is not None and self._cancelled():
             raise asyncio.CancelledError
 
-    def bind_row(self, row: Row, **_admission: object) -> _BoundClassifier:
+    def bind_row(self, row: Row, *, ctx=None, **_admission: object) -> _BoundClassifier:
         self._check_open()
-        return _BoundClassifier(self, row)
+        return _BoundClassifier(self, row, ctx)
 
     async def classify(
-        self, row: Row, text: str, fields: Sequence[ClassifyField]
+        self, row: Row, text: str, fields: Sequence[ClassifyField], *, ctx=None
     ) -> dict[str, Outcome[str]]:
         del row
         self._check_open()
         if self._engine in LOCAL_CLASSIFIER_ENGINE_IDS:
-            return await self._classify_native(text, fields)
+            if ctx is None:
+                raise RuntimeError("Native classifier requires its execution context")
+            return await self._classify_native(text, fields, ctx=ctx)
         return await self._classify_local_semantic(text, fields)
 
     async def _classify_local_semantic(
@@ -286,7 +295,7 @@ class AdmittedClassifier:
         )
 
     async def _classify_native(
-        self, text: str, fields: Sequence[ClassifyField]
+        self, text: str, fields: Sequence[ClassifyField], *, ctx
     ) -> dict[str, Outcome[str]]:
         if not text.strip():
             raise RowError(
@@ -317,11 +326,27 @@ class AdmittedClassifier:
         for field in fields:
             self._check_open()
             try:
-                result = await self._session.classify(
-                    text,
-                    list(field.labels),
-                    descriptions=dict(field.label_descriptions),
-                    instruction=self._instruction(field),
+                result = await execute_purchase(
+                    PurchaseRequest(
+                        provider="local",
+                        capability="classify",
+                        engine=self._engine,
+                        credential_source="none",
+                        prepared={"model_revision": spec.revision},
+                        context=ctx,
+                        quantity={"input_count": 1, "labels": len(field.labels)},
+                    ),
+                    policy=policy_for_context(ctx),
+                    dispatch=dispatch_for_context(ctx),
+                    invoke=lambda: self._session.classify(
+                        text,
+                        list(field.labels),
+                        descriptions=dict(field.label_descriptions),
+                        instruction=self._instruction(field),
+                    ),
+                    observe=lambda result: PurchaseObservation(
+                        result, {"input_count": 1}, 0
+                    ),
                 )
             except ClassifierError as error:
                 raise RowError(error.code, error.message) from error
@@ -380,13 +405,14 @@ class AdmittedClassifier:
 class _BoundClassifier:
     """A classifier admitted for exactly one row of its owning invocation."""
 
-    def __init__(self, owner: AdmittedClassifier, row: Row) -> None:
+    def __init__(self, owner: AdmittedClassifier, row: Row, ctx=None) -> None:
         self._owner = owner
         self._row = row
+        self._ctx = ctx
 
     async def classify(
         self, row: Row, text: str, fields: Sequence[ClassifyField]
     ) -> dict[str, Outcome[str]]:
         if row is not self._row:
             raise RowError("invalid_input_ref", "Classifier requires its admitted row.")
-        return await self._owner.classify(row, text, fields)
+        return await self._owner.classify(row, text, fields, ctx=self._ctx)

@@ -1,5 +1,7 @@
 """Retained work is independent of current publication and provider retries."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 
@@ -47,7 +49,11 @@ def work(tmp_path, monkeypatch):
             )
 
     router = ModelRouter(
-        keys={"anthropic": "test"}, use_env_keys=False, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        use_env_keys=False,
+        cache_mode="off",
+        max_retries=0,
     )
     adapter = Adapter()
     router._adapters["anthropic"] = adapter

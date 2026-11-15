@@ -1,6 +1,7 @@
 """Census typed lifecycle against real routing and replayed provider responses."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -66,7 +67,9 @@ def env(tmp_path, monkeypatch):
             200, json=json.loads((FIXTURES / "acs_2024_dc_tracts.json").read_text())
         )
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     deps = ExecutorDeps(
         execution_composition=open_execution_composition(

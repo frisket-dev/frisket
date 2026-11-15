@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import re
@@ -162,6 +163,7 @@ def test_sync_workspace_keeps_project_org_and_local_provenance_distinct(
     # A project key must still win it.
     project, sheet_id = _project(tmp_path, "sync-project")
     hosted_router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": org},
         key_sources={"openai": "org_byok"},
     )
@@ -256,6 +258,7 @@ def test_queued_router_keeps_runtime_precedence_in_persisted_facts(
     monkeypatch.setattr(project, "provider_model_keys", lambda: project_keys)
     try:
         base_router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": platform},
             key_sources={"openai": "platform_key"},
         )

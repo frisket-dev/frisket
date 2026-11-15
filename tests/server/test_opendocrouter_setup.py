@@ -1,5 +1,7 @@
 """Inline setup and engine discovery use the ordinary public API."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -32,7 +34,12 @@ def test_catalog_key_setup_and_target(tmp_path, monkeypatch, action):
         lambda provider, key: probe(provider, key, client=transport),
     )
     with TestClient(
-        create_app(tmp_path / "ws", router=ModelRouter(use_env_keys=False))
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+            ),
+        )
     ) as client:
         pid = client.post("/api/projects", json={"name": "Documents"}).json()["id"]
         write_project_settings(

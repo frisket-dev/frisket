@@ -22,6 +22,7 @@ Concretely:
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -210,7 +211,7 @@ def test_anchor_o1_atomic_prepare_reuses_the_resolution_provider(
             project, typed_action_for_request(_request(sheet_id))
         )
         composition_factory, counting_providers = counting_composition_factory
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         composition = composition_factory(
             project, router, ExecutionCompositionContext.direct()
         )
@@ -283,7 +284,7 @@ def test_anchor_o1_open_selfhost_local_run_pays_no_rent(
     register_project_run_handler(
         registry,
         workspace_root=client.app.state.workspace.root,
-        router=ModelRouter(),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         execution_composition_factory=composition_factory,
     )
     worker = Worker(client.app.state.workspace.queue, registry, worker_id="anchor-o1")

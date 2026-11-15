@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 
@@ -69,7 +70,12 @@ def run_extract(
         idempotency_key="extract@1",
     )
     requests = []
-    router = ModelRouter(keys={"anthropic": "stub"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "stub"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = _DataAdapter(requests, reply)
     gated = _run_third_party(project, request, router, REGISTERED)
     assert gated.status == "needs_confirmation", gated.errors

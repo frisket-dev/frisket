@@ -1,5 +1,7 @@
 """Returned purchases outlive publication authority closed during the request."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 from contextlib import closing
 
@@ -36,7 +38,10 @@ def test_undo_during_provider_call_retains_usage_and_response_without_publicatio
         spec, program = _bound(_spec(sheet))
         provider = _ReturnedProviderCall()
         router = ModelRouter(
-            keys={"anthropic": "test"}, use_env_keys=False, cache_mode="off"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            use_env_keys=False,
+            cache_mode="off",
         )
         router._adapters["anthropic"] = provider
         runner = _runner(project, router)

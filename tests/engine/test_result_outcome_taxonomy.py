@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import sqlite3
@@ -189,7 +190,7 @@ def test_missing_outputs_publish_explicit_null_or_error(tmp_path: Path) -> None:
         row_cells = asyncio.run(
             execute_row(
                 project,
-                ModelRouter(keys={}),
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                 AdaptiveThrottle(),
                 _LegacyOmissionRecipe(),
                 {"seed": "value"},

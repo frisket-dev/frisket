@@ -1,5 +1,7 @@
 """The queued owner closes cancellation and preserves existing terminal receipts."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from contextlib import closing
 
 import pytest
@@ -55,7 +57,11 @@ def test_queued_provider_error_does_not_overwrite_run_terminal_state(
             raise LLMError("rate limited", status=429, retryable=True)
 
     router = ModelRouter(
-        keys={"anthropic": "test"}, use_env_keys=False, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        use_env_keys=False,
+        cache_mode="off",
+        max_retries=0,
     )
     router._adapters["anthropic"] = RateLimited()
     monkeypatch.setattr(MapRunner, "_row_worker_count", lambda *_: 1)

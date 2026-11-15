@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from dataclasses import replace
 from pathlib import Path
@@ -516,7 +517,9 @@ def test_project_route_builds_composition_from_the_same_effective_router(
     from frisket.server.routes.actions import register_action_catalog_routes
 
     project = Project.create(tmp_path / "catalog.frisket", name="catalog")
-    router = ModelRouter(use_env_keys=False, local_endpoints=())
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False, local_endpoints=()
+    )
     composition = _platform_composition(with_offer=False)
     project_id = project.path.stem
 
@@ -571,6 +574,7 @@ def test_project_route_catalog_uses_injected_router_credentials(tmp_path: Path) 
     from frisket.server.workspace import Workspace
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "injected-openai-key"},
         use_env_keys=False,
         local_endpoints=(),

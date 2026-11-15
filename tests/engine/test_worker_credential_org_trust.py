@@ -15,6 +15,7 @@ queue-hosted-posture-explicit-v1) without needing Postgres.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -151,7 +152,9 @@ def test_forged_payload_org_never_resolves_credentials_and_fails_closed(
     register_project_run_handler(
         registry,
         workspace_root=ws,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         control_database_url=f"sqlite:///{tmp_path / 'control.db'}",
         require_storage_identity=True,
         worker_ports=WorkerPorts(credential_port=port),
@@ -196,7 +199,9 @@ def test_agreeing_payload_org_resolves_trusted_org_and_runs(tmp_path: Path) -> N
     register_project_run_handler(
         registry,
         workspace_root=ws,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         control_database_url=f"sqlite:///{tmp_path / 'control.db'}",
         require_storage_identity=True,
         worker_ports=WorkerPorts(credential_port=port),
@@ -235,7 +240,9 @@ def test_local_tier_without_org_is_unaffected(tmp_path: Path) -> None:
     register_project_run_handler(
         registry,
         workspace_root=ws,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         worker_ports=WorkerPorts(credential_port=port),
     )
 
@@ -287,7 +294,9 @@ def test_queued_cache_factory_uses_trusted_context_and_owns_cache(
     register_project_run_handler(
         registry,
         workspace_root=ws,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         require_storage_identity=True,
         worker_ports=WorkerPorts(credential_port=_RecordingCredentialPort()),
         response_cache_factory=cache_for,
@@ -328,7 +337,9 @@ def test_queued_cache_factory_closes_cache_when_composition_fails(
     register_project_run_handler(
         registry,
         workspace_root=ws,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         require_storage_identity=True,
         worker_ports=WorkerPorts(credential_port=_RecordingCredentialPort()),
         response_cache_factory=lambda _context: cache,
@@ -367,7 +378,11 @@ def test_queued_cache_factory_none_explicitly_disables_template_cache(
     register_project_run_handler(
         registry,
         workspace_root=ws,
-        router=ModelRouter(cache=template_cache, cache_mode="replay"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=template_cache,
+            cache_mode="replay",
+        ),
         require_storage_identity=True,
         worker_ports=WorkerPorts(credential_port=_RecordingCredentialPort()),
         response_cache_factory=lambda _context: None,
@@ -466,7 +481,9 @@ def test_column_present_payload_missing_org_fails_closed(tmp_path: Path) -> None
     register_project_run_handler(
         registry,
         workspace_root=ws,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         control_database_url=f"sqlite:///{tmp_path / 'control.db'}",
         require_storage_identity=True,
         worker_ports=WorkerPorts(credential_port=port),

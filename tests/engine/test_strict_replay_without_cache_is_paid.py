@@ -24,6 +24,7 @@ with the cached case (the genuine proof, so the exemption must survive).
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import copy
@@ -72,6 +73,7 @@ class _LiveAdapter:
 
 def _strict_router(*, cache: ResponseCache | None) -> tuple[ModelRouter, _LiveAdapter]:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "sk-ant-test"},
         cache=cache,
         cache_mode="replay_strict",

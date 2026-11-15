@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -418,7 +419,9 @@ def test_provider_setup_carries_backend_owned_scopes_and_never_key_material(
 ) -> None:
     client, _workspace, project_id = _app(
         tmp_path / "provider",
-        router=ModelRouter(keys={}, use_env_keys=False),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
+        ),
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
             may_author_actions=True,
             may_run_actions=True,
@@ -453,7 +456,11 @@ def test_configured_provider_is_runnable_only_with_run_capability(
     key = "test-openai-key-must-never-render"
     client, _workspace, project_id = _app(
         tmp_path / "configured",
-        router=ModelRouter(keys={"openai": key}, use_env_keys=False),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"openai": key},
+            use_env_keys=False,
+        ),
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
             may_author_actions=True,
             may_run_actions=True,
@@ -721,8 +728,16 @@ def test_clef_setup_distinguishes_gateway_and_cloudflare(
 def test_action_and_project_ask_use_their_distinct_effective_routers(
     tmp_path: Path,
 ) -> None:
-    ordinary = ModelRouter(keys={"anthropic": "ordinary-key"}, use_env_keys=False)
-    execution = ModelRouter(keys={"openai": "execution-key"}, use_env_keys=False)
+    ordinary = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "ordinary-key"},
+        use_env_keys=False,
+    )
+    execution = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "execution-key"},
+        use_env_keys=False,
+    )
     client, _workspace, project_id = _app(
         tmp_path / "routers",
         router=ordinary,
@@ -785,7 +800,11 @@ def test_catalog_discovers_only_effective_authenticated_local_endpoints(
         inference_token="inference-secret",
         edge_auth=True,
     )
-    router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        local_endpoints=(endpoint,),
+    )
     seen: list[tuple[str, str | None, bool]] = []
 
     def reachable(
@@ -823,7 +842,11 @@ def test_fixed_engine_selector_does_not_discover_local_models(
         origin="https://models.example.test",
         source="local_file",
     )
-    router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        local_endpoints=(endpoint,),
+    )
     probes: list[str] = []
 
     def unreachable(origin: str, **_kwargs: Any) -> dict[str, Any]:
@@ -1068,7 +1091,11 @@ def test_passive_gateway_status_projects_owner_scope_and_mutation_policy(
 def test_provider_bound_custom_embedding_id_is_preserved_and_placeholder_cannot_run(
     tmp_path: Path,
 ) -> None:
-    router = ModelRouter(keys={"openrouter": "configured-key"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openrouter": "configured-key"},
+        use_env_keys=False,
+    )
     client, _workspace, project_id = _app(
         tmp_path / "custom-embedding",
         router=router,
@@ -1156,7 +1183,7 @@ def test_network_off_preserves_policy_refusal_for_keyless_hosted_engine(
 ) -> None:
     client, workspace, project_id = _app(
         tmp_path / "off",
-        router=ModelRouter(use_env_keys=False),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False),
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
             may_author_actions=True,
             may_run_actions=True,
@@ -1188,7 +1215,7 @@ def test_ambient_embedding_key_does_not_unlock_an_unconfigured_effective_router(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "ambient-key-not-selected")
-    router = ModelRouter(use_env_keys=False)
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False)
     assert router.providers() == []
     with pytest.raises(LLMError, match="no embedding backend"):
         asyncio.run(
@@ -1241,7 +1268,11 @@ def test_embedding_picker_and_refresh_share_offline_provider_eligibility(
     monkeypatch.setattr(
         "frisket.ai.embeddings.capabilities._detect_local_text", lambda _env: True
     )
-    router = ModelRouter(keys={"openai": "configured-test-key"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "configured-test-key"},
+        use_env_keys=False,
+    )
     client, workspace, project_id = _app(
         tmp_path / provider,
         router=router,
@@ -1349,7 +1380,7 @@ def test_supported_custom_fastembed_current_uses_owner_registry_dimensions(
     )
     client, _workspace, project_id = _app(
         tmp_path / "custom-local",
-        router=ModelRouter(use_env_keys=False),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False),
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
             may_author_actions=True, may_run_actions=True
         ),
@@ -1452,6 +1483,7 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     monkeypatch.setattr(ModelRouter, "credential_source_for", source)
     monkeypatch.setattr(Project, "provider_spend_state", spend)
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "selected-project-key"},
         key_sources={"openai": "project_key"},
         use_env_keys=False,
@@ -1868,7 +1900,9 @@ def test_extract_defaults_to_llm_from_available_choices(
     tmp_path: Path, provider: str | None
 ) -> None:
     router = ModelRouter(
-        keys={provider: "test-key"} if provider else {}, use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={provider: "test-key"} if provider else {},
+        use_env_keys=False,
     )
     client, _workspace, project_id = _app(tmp_path / "workspace", router=router)
     with client:
@@ -1900,7 +1934,10 @@ def test_extract_defaults_to_llm_from_available_choices(
 
 def test_extract_preserves_explicit_clef_selection(tmp_path: Path) -> None:
     client, _workspace, project_id = _app(
-        tmp_path / "workspace", router=ModelRouter(keys={}, use_env_keys=False)
+        tmp_path / "workspace",
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
+        ),
     )
     with client:
         response = client.post(

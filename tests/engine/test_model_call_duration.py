@@ -19,6 +19,7 @@ for their perf_counter-derived fields.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -390,7 +391,9 @@ def _request() -> LLMRequest:
 
 
 def test_router_stamps_the_attempt_it_already_measured() -> None:
-    router = ModelRouter(keys={}, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=0
+    )
     router._adapters["mock"] = _ScriptedAdapter()
     trace: list[dict] = []
     resp = asyncio.run(
@@ -579,7 +582,13 @@ def test_replayed_response_reports_no_duration(tmp_path) -> None:
         == 987
     )
 
-    router = ModelRouter(keys={}, max_retries=0, cache=cache, cache_mode="replay")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={},
+        max_retries=0,
+        cache=cache,
+        cache_mode="replay",
+    )
     router._adapters["mock"] = _ScriptedAdapter()
     resp = asyncio.run(
         router.for_execution(STANDALONE).complete_transport(req, recipe_version="1")

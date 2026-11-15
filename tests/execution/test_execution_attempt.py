@@ -12,6 +12,7 @@ refused, not converted (``tests/engine/test_bundle_schema_fence.py``).
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import ast
 import json
@@ -302,13 +303,23 @@ def test_maprunner_without_an_authority_is_a_type_error(project):
     trusted to remember a keyword and an effect-site fence existed to notice
     when one didn't."""
     with pytest.raises(TypeError) as exc_info:
-        MapRunner(project, ModelRouter())
+        MapRunner(project, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY))
     assert "authority" in str(exc_info.value)
 
     # Positional is refused too — it is keyword-only, so the argument is
     # named at every site rather than hiding in a position.
     with pytest.raises(TypeError):
-        MapRunner(project, ModelRouter(), 1, None, None, {}, False, None, object())
+        MapRunner(
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            1,
+            None,
+            None,
+            {},
+            False,
+            None,
+            object(),
+        )
 
 
 # ---------------------------------------------------------------------------

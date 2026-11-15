@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 
@@ -49,7 +50,14 @@ def test_no_configuration_means_no_local_endpoint_or_catalog_row(tmp_path) -> No
         row["kind"] != "local_http"
         for row in provider_config.build_provider_catalog(tmp_path, {})["providers"]
     )
-    assert ModelRouter(use_env_keys=False, local_endpoints=()).local_endpoints == ()
+    assert (
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            local_endpoints=(),
+        ).local_endpoints
+        == ()
+    )
 
 
 def test_every_persisted_endpoint_uses_one_record_path_and_immutable_origin(
@@ -240,7 +248,11 @@ def test_queued_runner_spec_freezes_only_canonical_model_authority() -> None:
         origin="http://studio:1234",
         source="local_file",
     )
-    router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        local_endpoints=(endpoint,),
+    )
 
     bindings = _local_endpoint_bindings_for_runner_spec(
         {
@@ -269,7 +281,11 @@ async def test_router_sends_qualified_completion_and_embedding_to_selected_endpo
         origin="http://studio:1234",
         source="local_file",
     )
-    router = ModelRouter(use_env_keys=False, local_endpoints=(first, second))
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        local_endpoints=(first, second),
+    )
     seen: list[tuple[str, object]] = []
 
     def handle(request: httpx.Request) -> httpx.Response:
@@ -311,7 +327,7 @@ async def test_router_sends_qualified_completion_and_embedding_to_selected_endpo
     assert response.model == model_id
     assert vectors == [[0.1, 0.2]]
     with pytest.raises(LLMError, match="ollama/@"):
-        router.resolve_local_model("ollama/qwen3:8b")
+        router._resolve_local_model("ollama/qwen3:8b")
 
 
 def test_local_endpoint_routes_are_strict_patch_resources(

@@ -1,6 +1,7 @@
 """A routed consent's identity includes the billed quote, not just provider cost."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -105,7 +106,12 @@ def test_tariff_drift_invalidates_exact_match_without_rewriting_provider_basis(
     """
     project, sheet_id = routed_audio_project
     spec = _spec(sheet_id)
-    router = ModelRouter(keys={"openai": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     composition = open_execution_composition(
         project, router, ExecutionCompositionContext.direct()
     )

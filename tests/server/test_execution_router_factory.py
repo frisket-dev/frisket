@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from dataclasses import dataclass, replace
@@ -85,6 +86,7 @@ def test_non_action_consumers_never_resolve_the_execution_router(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ordinary_router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "ordinary-key"},
         key_sources={"anthropic": "local"},
         cache=None,
@@ -286,7 +288,12 @@ def test_direct_action_launch_resolves_one_router_for_gate_composition_and_dispa
     dispatched: list[ModelRouter] = []
 
     def fresh_router() -> ModelRouter:
-        router = ModelRouter(cache=cache, cache_mode="fresh", use_env_keys=False)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=cache,
+            cache_mode="fresh",
+            use_env_keys=False,
+        )
         bases.append(router)
         return router
 
@@ -350,6 +357,7 @@ def test_model_action_launch_reuses_one_router_across_preflight_and_queue(
 
     def fresh_router() -> ModelRouter:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "platform-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,

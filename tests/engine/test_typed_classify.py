@@ -36,6 +36,8 @@ from frisket.engine.executor.classify_read import (
     local_semantic_chunks,
 )
 from frisket.engine.store import Project
+from frisket.execution.dispatch_control import STANDALONE
+from frisket.ops.base import OpContext
 
 
 TOPIC_FIELD = {
@@ -663,7 +665,12 @@ async def test_native_classifier_publishes_scores_for_each_field(
         session_factory=lambda _engine, *, cancelled: session,
     )
 
-    outcomes = await classifier.classify(Row({}), STORY_B, fields)
+    outcomes = await classifier.classify(
+        Row({}),
+        STORY_B,
+        fields,
+        ctx=OpContext(extras={"standalone_dispatch": STANDALONE}),
+    )
 
     assert outcomes == {
         "topic": Outcome.ok("infrastructure", confidence=0.82),
@@ -694,12 +701,22 @@ async def test_native_classifier_refuses_blank_and_preserves_long_text() -> None
         session_factory=lambda _engine, *, cancelled: session,
     )
     with pytest.raises(RowError) as blank:
-        await classifier.classify(Row({}), " \n\t", TOPIC)
+        await classifier.classify(
+            Row({}),
+            " \n\t",
+            TOPIC,
+            ctx=OpContext(extras={"standalone_dispatch": STANDALONE}),
+        )
     assert blank.value.code == "classify_input_empty"
     assert session.calls == []
 
     with pytest.raises(RowError) as too_long:
-        await classifier.classify(Row({}), long_text, TOPIC)
+        await classifier.classify(
+            Row({}),
+            long_text,
+            TOPIC,
+            ctx=OpContext(extras={"standalone_dispatch": STANDALONE}),
+        )
     assert too_long.value.code == "classify_input_too_long"
     assert session.calls[0]["text"] == long_text
 
@@ -743,7 +760,12 @@ async def test_native_classifier_fails_closed_on_invalid_worker_output(
         session_factory=lambda _engine, *, cancelled: session,
     )
     with pytest.raises(RowError) as raised:
-        await classifier.classify(Row({}), STORY_A, TOPIC)
+        await classifier.classify(
+            Row({}),
+            STORY_A,
+            TOPIC,
+            ctx=OpContext(extras={"standalone_dispatch": STANDALONE}),
+        )
     assert raised.value.code == code
 
 

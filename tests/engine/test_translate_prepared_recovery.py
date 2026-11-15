@@ -1,5 +1,7 @@
 """Typed translation survives prepared-worker and receipt-repair boundaries."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from copy import deepcopy
 
 import pytest
@@ -34,6 +36,7 @@ def test_prepared_translate_retry_recovery_and_backfill_keep_typed_authority(
     monkeypatch.setattr(validation, "get_recipe", reject_translation_recipe)
     requests = []
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "fixture"},
         use_env_keys=False,
         cache=None,

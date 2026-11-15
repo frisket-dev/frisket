@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import time
@@ -65,7 +66,9 @@ class _ScriptedFailThenSucceed:
 
 
 def _router_with(adapter, *, max_retries=3) -> ModelRouter:
-    router = ModelRouter(keys={}, max_retries=max_retries)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=max_retries
+    )
     router._adapters["mock"] = adapter  # noqa: SLF001
     return router
 

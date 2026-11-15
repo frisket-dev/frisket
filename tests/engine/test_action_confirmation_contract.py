@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 from typing import Any
@@ -48,7 +49,12 @@ class _FailingAdapter:
 
 
 def _summary_router() -> tuple[ModelRouter, _SummaryAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _SummaryAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -56,7 +62,11 @@ def _summary_router() -> tuple[ModelRouter, _SummaryAdapter]:
 
 def _failing_router() -> tuple[ModelRouter, _FailingAdapter]:
     router = ModelRouter(
-        keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     adapter = _FailingAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001

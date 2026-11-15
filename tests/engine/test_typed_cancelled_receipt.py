@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 
@@ -110,7 +111,12 @@ def test_cancelled_typed_receipt_owns_only_produced_rows_and_replays_exact_heads
                 project,
                 "project-1",
                 bound,
-                ModelRouter(cache=None, cache_mode="off", use_env_keys=False),
+                ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                    use_env_keys=False,
+                ),
                 runner_factory,
             )
 

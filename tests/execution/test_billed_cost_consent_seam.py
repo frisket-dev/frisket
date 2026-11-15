@@ -5,6 +5,7 @@ actual accounting independently of persisted estimate display fields.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import re
@@ -225,7 +226,12 @@ def _classify_action(sheet_id: int) -> dict:
 def _gated_project(tmp_path, monkeypatch, *, name: str):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     adapter = _StubAdapter()
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     client = TestClient(create_app(tmp_path / "workspace", router=router))
     project_id = client.post("/api/projects", json={"name": name}).json()["id"]

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import base64
@@ -71,7 +72,9 @@ def _resp(
 
 
 def scripted_router(outcomes: list[Any], *, max_retries=3, provider="mock"):
-    router = ModelRouter(keys={}, max_retries=max_retries)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=max_retries
+    )
     adapter = ScriptedAdapter(outcomes=list(outcomes))
     router._adapters[provider] = adapter
     return router, adapter
@@ -438,7 +441,11 @@ def _anthropic_router(wire_bodies: list[dict], *, max_retries=3):
         counter["i"] += 1
         return httpx.Response(200, json=body)
 
-    router = ModelRouter(keys={"anthropic": "k"}, max_retries=max_retries)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        max_retries=max_retries,
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return router
 

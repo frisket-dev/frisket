@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import io
 import json
@@ -270,7 +271,12 @@ def _client(tmp_path) -> tuple[TestClient, _Transport]:
     transport = _Transport()
     app = create_app(
         tmp_path / "workspace",
-        router=ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+            max_retries=0,
+        ),
         cloud_connection_store=store,
         cloud_connection_client=cloud_client,
         cloud_execution_transport=transport,

@@ -1,3 +1,4 @@
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm.router import ModelRouter
@@ -270,7 +271,11 @@ def test_patch_null_scope_does_not_broaden_and_blank_title_is_friendly(tmp_path)
 def test_project_deletion_refuses_active_ask(tmp_path):
     import asyncio
 
-    router = ModelRouter(keys={"anthropic": "test"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        use_env_keys=False,
+    )
     with TestClient(create_app(tmp_path / "ws", router=router)) as client:
 
         async def runner(*args):

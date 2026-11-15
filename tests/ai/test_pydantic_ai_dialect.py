@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -301,7 +302,9 @@ def _openai_router_with_transport(
     bodies: list[dict],
 ) -> tuple[ModelRouter, list[dict]]:
     transport, seen = _openai_capturing_transport(bodies)
-    router = ModelRouter(keys={"openai": "k"}, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={"openai": "k"}, max_retries=0
+    )
     router._client = httpx.AsyncClient(transport=transport)
     return router, seen
 
@@ -356,7 +359,9 @@ def _anthropic_router_with_transport(
     bodies: list[dict],
 ) -> tuple[ModelRouter, list[dict]]:
     transport, seen = _capturing_transport(bodies)
-    router = ModelRouter(keys={"anthropic": "k"}, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}, max_retries=0
+    )
     router._client = httpx.AsyncClient(transport=transport)
     return router, seen
 

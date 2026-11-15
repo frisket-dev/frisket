@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import json
 import logging
 import os
@@ -595,11 +597,9 @@ class Workspace:
                     if base_router is not None
                     else self._local_endpoints()
                 ),
-                **(
-                    {"model_call_policy": base_router.model_call_policy}
-                    if base_router is not None
-                    else {}
-                ),
+                model_call_policy=base_router.model_call_policy
+                if base_router is not None
+                else LOCAL_PURCHASE_POLICY,
             )
         # Pure local tier: workspace file keys underneath any per-project keys,
         # plus the resolved atomic local-model endpoint bundle (origin/tokens/
@@ -610,6 +610,7 @@ class Workspace:
         local_endpoints = self._local_endpoints()
         if keys:
             return ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys=keys,
                 key_sources={
                     **dict.fromkeys(self._local_provider_keys(), "local"),
@@ -621,6 +622,7 @@ class Workspace:
                 local_endpoints=local_endpoints,
             )
         return ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=cache,
             cache_mode=self._local_cache_mode,
             env_key_source="local",
@@ -829,7 +831,7 @@ class Workspace:
         ``.frisket/provider_keys.json`` file keys (same precedence as
         ``router_for``'s pure-local branch: env wins per
         ``resolve_effective_keys``) instead of a bare env-only
-        ``ModelRouter()``.
+        ``ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)``.
 
         CACHE POSTURE (deliberate, and what ``/api/diagnose``'s replay-mode
         probe reports): every reconstructed branch below carries the SAME
@@ -856,6 +858,7 @@ class Workspace:
         if self._provider_keys_resolver is not None:
             keys = dict(self._provider_keys_resolver())
             return ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys=keys,
                 key_sources=dict.fromkeys(keys, "org_byok"),
                 use_env_keys=False,
@@ -876,6 +879,7 @@ class Workspace:
         keys = self._local_provider_keys()
         local_endpoints = self._local_endpoints()
         return ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys=keys,
             key_sources=dict.fromkeys(keys, "local"),
             env_key_source="local",

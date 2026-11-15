@@ -1,5 +1,7 @@
 """Prepared summary/find capabilities consume actual author arguments."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from decimal import Decimal
 
 import pytest
@@ -329,7 +331,12 @@ def test_find_queue_pins_actual_author_arguments_before_model_calls(
             return response
 
     adapter = Adapter("unused", matches=[])
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     def execute(project, envelope, *, execution):

@@ -31,6 +31,7 @@ tests/engine/test_cost_policy_confirmation_invariant.py.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 
@@ -279,7 +280,7 @@ def _validate(
     # figure no policy rated is the defect the pricing-policy port exists to
     # prevent, so omitting it is a TypeError here rather than an unrated quote
     # reaching a user.
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     composition = open_execution_composition(
         project, router, ExecutionCompositionContext.direct()
     )
@@ -376,7 +377,9 @@ def test_the_backfill_path_gates_on_the_same_absence(text_project) -> None:
     plan = _external_plan(project, sheet_id)
     spec = plan.spec_dict()
     runner = MapRunner(
-        project, ModelRouter(), authority=open_attempt_authority(project)
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        authority=open_attempt_authority(project),
     )
     # Exercise the host-bound typed program's prepare/resume cost gate directly.
     runner.allow_action_lifecycle_only_recipes = True

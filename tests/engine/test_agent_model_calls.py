@@ -1,5 +1,7 @@
 """Unit proofs for returned-call delivery; public host tests own authorization."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import copy
 from contextlib import closing
@@ -127,7 +129,12 @@ async def test_retry_then_agent_schema_repair_failure_records_each_leaf_once(
         "frisket.engine.executor.agent_model_calls.RunResultStore", Store
     )
     adapter = ReturnedAdapter(["paid_error", "invalid", "paid_error", "paid_error"])
-    inner = ModelRouter(keys={"anthropic": "test-key"}, cache=None, max_retries=1)
+    inner = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        max_retries=1,
+    )
     inner._adapters["anthropic"] = adapter
     ctx = agent_context
     accounting = {}

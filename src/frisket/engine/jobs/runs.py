@@ -7,6 +7,8 @@ spec, then resumes that run inside a worker process.
 
 from __future__ import annotations
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import contextlib
 import json
@@ -584,11 +586,9 @@ def _router_for(
                 if local_endpoints is None and router is not None
                 else local_endpoints or ()
             ),
-            **(
-                {"model_call_policy": router.model_call_policy}
-                if router is not None
-                else {}
-            ),
+            model_call_policy=router.model_call_policy
+            if router is not None
+            else LOCAL_PURCHASE_POLICY,
         )
     cache = (
         cast(ResponseCache | None, response_cache)
@@ -596,6 +596,7 @@ def _router_for(
         else ResponseCache(project.path / "project.cache.db")
     )
     return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys=keys,
         key_sources=dict.fromkeys(keys or {}, "local"),
         env_key_source="local",
@@ -609,7 +610,7 @@ def _router_for(
 def project_scoped_router(project: Project, router: ModelRouter | None) -> ModelRouter:
     """THE way an executor composes a router for one project's work.
 
-    Every map-runner factory used to spell this ``router or ModelRouter()``.
+    Every map-runner factory used to spell this ``router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)``.
     A bare ``ModelRouter`` reads the process env and nothing else, so a
     project whose provider key was configured in Settings > AI Providers had
     that key silently bypassed on every router-less entry point (``frisket
@@ -637,7 +638,10 @@ def project_scoped_router(project: Project, router: ModelRouter | None) -> Model
     """
     if router is not None:
         return router
-    return _router_for(project, ModelRouter(env_key_source="local"))
+    return _router_for(
+        project,
+        ModelRouter(env_key_source="local", model_call_policy=LOCAL_PURCHASE_POLICY),
+    )
 
 
 def _project_model_keys(project: Project) -> dict[str, str]:

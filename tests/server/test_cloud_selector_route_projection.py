@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from types import SimpleNamespace
 
@@ -94,7 +95,11 @@ def _cloud_selector_app(
         router=(
             router
             if router is not None
-            else ModelRouter(keys=local_keys, use_env_keys=False)
+            else ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys=local_keys,
+                use_env_keys=False,
+            )
             if local_keys is not None
             else None
         ),
@@ -248,6 +253,7 @@ def test_default_recommendation_respects_own_key_spend_cap(
         tmp_path,
         routes=[_llm_route()] if cloud_offered else [],
         router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "capped-key"},
             key_sources={"openai": "project_key"},
             use_env_keys=False,
@@ -1344,7 +1350,11 @@ def test_network_off_defaults_ask_and_actions_to_reachable_local_model(
         tmp_path,
         routes=[],
         preference="local_first",
-        router=ModelRouter(local_endpoints=(endpoint,), use_env_keys=False),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            local_endpoints=(endpoint,),
+            use_env_keys=False,
+        ),
     )
     workspace.get(project_id).set_network_policy(mode="off")
 
@@ -1399,7 +1409,7 @@ def test_omitted_ask_model_refuses_before_admission_when_network_off(tmp_path) -
         tmp_path,
         routes=[],
         preference="local_first",
-        router=ModelRouter(use_env_keys=False),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False),
     )
     workspace.get(project_id).set_network_policy(mode="off")
     project_qa = ProjectQAService(workspace)
@@ -1437,6 +1447,7 @@ def test_omitted_ask_model_uses_selector_eligible_spend_inventory(
         spend,
     )
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "capped", "openai": "available"},
         key_sources={"anthropic": "project_key", "openai": "project_key"},
         use_env_keys=False,

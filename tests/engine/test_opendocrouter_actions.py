@@ -1,5 +1,7 @@
 """Public action execution: admission, actual HTTP adapter, evidence and cost."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from contextlib import closing
 import asyncio
 import io
@@ -338,7 +340,7 @@ def test_paid_ocr_compare_uses_same_adapter(tmp_path, monkeypatch):
         calls.append(request)
         return httpx.Response(200, json=response())
 
-    router = ModelRouter(use_env_keys=False)
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False)
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     router._client = client
     with closing(

@@ -6,6 +6,7 @@ builder, and durable ``model_calls`` table all run unchanged.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -23,7 +24,12 @@ from frisket.engine.store.runs import RunResultStore
 
 
 def _router(handler: Any | None = None) -> ModelRouter:
-    router = ModelRouter(cache=None, cache_mode="off", env_key_source="local")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=None,
+        cache_mode="off",
+        env_key_source="local",
+    )
     if handler is not None:
         router._client = httpx.AsyncClient(  # noqa: SLF001 - injected transport seam
             transport=httpx.MockTransport(handler)

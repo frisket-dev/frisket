@@ -10,6 +10,8 @@ recipe child) is what actually refuses egress and out-of-scratch reads, and on
 macOS and Windows there is no filesystem confinement at all. The real
 perimeter, per platform, is pinned in test_sandbox_recipe_fence.py."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 import os
@@ -503,6 +505,7 @@ class TestBroker:
 
         async def run():
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "sk-ant-neverleaks"},
                 cache=cache,
                 cache_mode="replay_strict",
@@ -536,7 +539,9 @@ class TestBroker:
 
     def test_broker_surfaces_errors_cleanly(self, tmp_path, sock_dir):
         async def run():
-            router = ModelRouter(keys={"anthropic": "k"})
+            router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            )
             sock = str(sock_dir / "b.sock")
             broker = KeyBroker(router.for_execution(STANDALONE), sock)
             await broker.start()
@@ -597,7 +602,9 @@ def test_keybroker_normalizes_relative_socket_path(tmp_path, monkeypatch):
     relative filename becomes a URL *netloc* with an empty *path* --
     consumer could misparse it)."""
     monkeypatch.chdir(tmp_path)
-    router = ModelRouter(keys={"anthropic": "k"})
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+    )
     broker = KeyBroker(router, "relative.sock")
     assert Path(broker.socket_path).is_absolute()
     assert Path(broker.socket_path) == (tmp_path / "relative.sock").resolve()

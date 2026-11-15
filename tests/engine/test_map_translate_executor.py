@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -52,7 +53,11 @@ def _translate_router(adapter: Any, *, max_retries: int | None = None) -> ModelR
     kwargs: dict[str, Any] = {"keys": {"anthropic": "k"}, "cache": None}
     if max_retries is not None:
         kwargs["max_retries"] = max_retries
-    router = ModelRouter(cache_mode="off", **kwargs)
+    router = ModelRouter(
+        model_call_policy=kwargs.pop("model_call_policy", LOCAL_PURCHASE_POLICY),
+        cache_mode="off",
+        **kwargs,
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router
 

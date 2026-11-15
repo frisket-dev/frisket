@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import datetime as dt
@@ -168,7 +169,9 @@ def project(tmp_path: Path):
 def _runner(project: Project) -> MapRunner:
     return MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 
@@ -204,7 +207,9 @@ def test_prepared_publication_seam_leaves_legacy_control_behavior_unchanged(
     cells = asyncio.run(
         execute_row(
             store,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             AdaptiveThrottle(),
             _LegacyControlRecipe(llm=False),
             {},

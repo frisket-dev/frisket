@@ -21,6 +21,68 @@ from http_test_helpers import drain_queue
 PLUGIN = "frisket.opencorporates"
 
 
+@pytest.mark.parametrize(
+    "scenario", ["success", "invalid_response", "refused", "retry"]
+)
+def test_opencorporates_http_uses_purchase_owner(installed, monkeypatch, scenario):
+    from frisket.execution.purchases import (
+        LOCAL_PURCHASE_POLICY,
+        PurchasePolicyRequired,
+    )
+
+    _, project, project_id, sheet, _, calls, responses = installed
+    admitted, recorded = [], []
+
+    class Policy:
+        def admit_purchase(self, purchase):
+            admitted.append(purchase)
+            if scenario == "refused":
+                raise PurchasePolicyRequired("Purchase refused before HTTP")
+            return LOCAL_PURCHASE_POLICY.admit_purchase(purchase)
+
+        def record_purchase(self, purchase, admission, observation):
+            recorded.append((purchase, admission, observation))
+
+        def fail_purchase(self, purchase, admission, error):
+            pytest.fail(f"Unexpected transport failure: {error}")
+
+    monkeypatch.setattr(
+        opencorporates_read, "policy_for_context", lambda _ctx: Policy(), raising=False
+    )
+    if scenario == "invalid_response":
+        responses.append(httpx.Response(200, content=b"invalid JSON"))
+    elif scenario == "retry":
+        responses.append(httpx.Response(429, headers={"Retry-After": "0"}))
+    body, _ = confirm(project, project_id, request(sheet))
+    result = run_action_spec(project, body, project_id=project_id)
+    assert len(admitted) == (2 if scenario == "retry" else 1)
+    for purchase in admitted:
+        assert purchase.provider == "opencorporates"
+        assert purchase.credential_source == "project_key"
+        assert purchase.capability == opencorporates_read.CAPABILITY
+        assert purchase.estimated_cost_usd is None
+    if scenario == "refused":
+        assert result.status == "failed" and not calls and not recorded
+    else:
+        assert len(recorded) == len(calls) == len(admitted)
+        assert result.status == (
+            "failed" if scenario == "invalid_response" else "completed"
+        )
+        assert all(admission.disposition == "byok" for _, admission, _ in recorded)
+        assert all(
+            observation.usage == {"requests": 1} for _, _, observation in recorded
+        )
+        assert all(
+            observation.provider_cost_micro is None for _, _, observation in recorded
+        )
+        assert [item[2].result["status_code"] for item in recorded] == (
+            [429, 200] if scenario == "retry" else [200]
+        )
+    # Receipt replay must not create another provider purchase.
+    assert run_action_spec(project, body, project_id=project_id) == result
+    assert len(admitted) == (2 if scenario == "retry" else 1)
+
+
 @pytest.fixture
 def installed(tmp_path, monkeypatch):
     shipped = (

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from pathlib import Path
@@ -225,7 +226,9 @@ def test_row_local_runs_keep_scheduled_work_bounded(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             concurrency=5,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -260,7 +263,9 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
         )
         claim_token = "output-claim:test:queued-paged-scope"
@@ -295,7 +300,11 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
         progress = asyncio.run(
             MapRunner(
                 project,
-                ModelRouter(cache=None, cache_mode="off"),
+                ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                ),
                 concurrency=4,
                 authority=UnroutedOnlyAuthority(project),
             ).run(
@@ -333,7 +342,9 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
     try:
         prepared = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
         ).prepare_run(_spec(sheet_id), confirmed=True)
         output_col = project.db.execute(
@@ -380,7 +391,11 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
             run_with_output_claim(
                 MapRunner(
                     project,
-                    ModelRouter(cache=None, cache_mode="off"),
+                    ModelRouter(
+                        model_call_policy=LOCAL_PURCHASE_POLICY,
+                        cache=None,
+                        cache_mode="off",
+                    ),
                     concurrency=3,
                     authority=UnroutedOnlyAuthority(project),
                 ),
@@ -415,7 +430,9 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
     try:
         prepared = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
         ).prepare_run(_batch_spec(sheet_id), confirmed=True)
         output_col = project.db.execute(
@@ -457,7 +474,11 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
             run_with_output_claim(
                 MapRunner(
                     project,
-                    ModelRouter(cache=None, cache_mode="off"),
+                    ModelRouter(
+                        model_call_policy=LOCAL_PURCHASE_POLICY,
+                        cache=None,
+                        cache_mode="off",
+                    ),
                     concurrency=3,
                     authority=UnroutedOnlyAuthority(project),
                 ),

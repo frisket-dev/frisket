@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from dataclasses import replace
@@ -170,6 +171,7 @@ _STRUCTURED_ACTION = RegisteredAction(
 
 def _router(requests: list[LLMRequest]) -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-only"},
         cache=None,
         cache_mode="off",
@@ -181,6 +183,7 @@ def _router(requests: list[LLMRequest]) -> ModelRouter:
 
 def _failing_router() -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-only"},
         cache=None,
         cache_mode="off",
@@ -192,6 +195,7 @@ def _failing_router() -> ModelRouter:
 
 def _value_router(requests: list[LLMRequest], value: str) -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-only"},
         cache=None,
         cache_mode="off",
@@ -203,6 +207,7 @@ def _value_router(requests: list[LLMRequest], value: str) -> ModelRouter:
 
 def _data_router(requests: list[LLMRequest], data: dict[str, Any]) -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-only"},
         cache=None,
         cache_mode="off",
@@ -1663,7 +1668,12 @@ def test_model_request_exact_replay_ignores_empty_rows(tmp_path: Path) -> None:
                 model=spec["model"],
             ),
         )
-        router = ModelRouter(cache=cache, cache_mode="replay", use_env_keys=False)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=cache,
+            cache_mode="replay",
+            use_env_keys=False,
+        )
         from frisket.engine.runner import MapRunner
         from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 

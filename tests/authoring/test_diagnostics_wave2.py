@@ -18,6 +18,7 @@ fails.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -51,7 +52,9 @@ def test_replay_mode_report_replay_allows_live_calls_on_a_miss():
     cache miss falls through to a live call (frisket.llm.cache's own module
     docstring: 'replay -- hit returns cached; miss does live call then
     stores')."""
-    cache_mode_router = ModelRouter(cache_mode="replay")  # no cache attached
+    cache_mode_router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache_mode="replay"
+    )  # no cache attached
     r = diagnostics.replay_mode_report(cache_mode_router)
     assert r["cache_mode"] == "replay"
     assert r["live_calls_possible"] is True
@@ -59,7 +62,9 @@ def test_replay_mode_report_replay_allows_live_calls_on_a_miss():
 
 def test_replay_mode_report_replay_with_cache_describes_hit_vs_miss(tmp_path):
     cache = ResponseCache(tmp_path / "c.db")
-    router = ModelRouter(cache=cache, cache_mode="replay")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=cache, cache_mode="replay"
+    )
     r = diagnostics.replay_mode_report(router)
     assert r["cache_configured"] is True
     assert r["live_calls_possible"] is True
@@ -71,7 +76,9 @@ def test_replay_mode_report_replay_strict_with_cache_blocks_live_calls(tmp_path)
     """The ONE case that genuinely blocks a live call: replay_strict with a
     real cache attached raises CacheMiss instead of calling out."""
     cache = ResponseCache(tmp_path / "c.db")
-    router = ModelRouter(cache=cache, cache_mode="replay_strict")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=cache, cache_mode="replay_strict"
+    )
     r = diagnostics.replay_mode_report(router)
     assert r["live_calls_possible"] is False
     assert "replay_strict" in r["summary"]
@@ -81,14 +88,18 @@ def test_replay_mode_report_replay_strict_without_cache_allows_live_calls():
     """Edge case: an unconfigured cache skips the mode branch entirely in
     _complete_transport, so even replay_strict falls through to a live call
     when there's no ResponseCache to check."""
-    router = ModelRouter(cache=None, cache_mode="replay_strict")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="replay_strict"
+    )
     r = diagnostics.replay_mode_report(router)
     assert r["cache_configured"] is False
     assert r["live_calls_possible"] is True
 
 
 def test_replay_mode_report_fresh_allows_live_calls():
-    r = diagnostics.replay_mode_report(ModelRouter(cache_mode="fresh"))
+    r = diagnostics.replay_mode_report(
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache_mode="fresh")
+    )
     assert r["cache_mode"] == "fresh"
     assert r["live_calls_possible"] is True
 
@@ -116,7 +127,12 @@ def test_replay_mode_report_a_cache_miss_actually_reaches_a_live_provider(tmp_pa
     """Proves the router really does what the corrected report claims --
     not just that the report SAYS live calls are possible."""
     cache = ResponseCache(tmp_path / "c.db")
-    router = ModelRouter(keys={"anthropic": "k"}, cache=cache, cache_mode="replay")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=cache,
+        cache_mode="replay",
+    )
     adapter = _FakeLiveAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
@@ -142,7 +158,9 @@ class _FakeResponse:
 
 
 def test_provider_key_validation_report_no_keys_is_a_quiet_skip():
-    r = diagnostics.provider_key_validation_report(ModelRouter(use_env_keys=False))
+    r = diagnostics.provider_key_validation_report(
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False)
+    )
     assert r["providers"] == {}
     assert "no keyed providers" in r["summary"]
 
@@ -165,7 +183,11 @@ def test_provider_key_validation_report_authenticated_accept_sends_the_real_key(
 
     monkeypatch.setattr(httpx.Client, "get", fake_get)
     sentinel_key = "sk-SENTINEL-DO-NOT-LEAK"
-    router = ModelRouter(keys={"openai": sentinel_key}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": sentinel_key},
+        use_env_keys=False,
+    )
 
     r = diagnostics.provider_key_validation_report(router)
 
@@ -195,7 +217,11 @@ def test_provider_key_validation_report_anthropic_uses_x_api_key_header(monkeypa
 
     monkeypatch.setattr(httpx.Client, "get", fake_get)
     sentinel_key = "sk-ant-SENTINEL-DO-NOT-LEAK"
-    router = ModelRouter(keys={"anthropic": sentinel_key}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": sentinel_key},
+        use_env_keys=False,
+    )
 
     r = diagnostics.provider_key_validation_report(router)
 
@@ -214,7 +240,11 @@ def test_provider_key_validation_report_authenticated_reject(monkeypatch):
 
     monkeypatch.setattr(httpx.Client, "get", fake_get)
     sentinel_key = "sk-SENTINEL-BAD-KEY"
-    router = ModelRouter(keys={"openai": sentinel_key}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": sentinel_key},
+        use_env_keys=False,
+    )
 
     r = diagnostics.provider_key_validation_report(router)
 
@@ -242,7 +272,11 @@ def test_provider_key_validation_report_rate_limit_is_indeterminate_not_accepted
         return _FakeResponse(429)
 
     monkeypatch.setattr(httpx.Client, "get", fake_get)
-    router = ModelRouter(keys={"openai": "sk-whatever"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "sk-whatever"},
+        use_env_keys=False,
+    )
 
     r = diagnostics.provider_key_validation_report(router)
 
@@ -262,7 +296,11 @@ def test_provider_key_validation_report_network_failure_is_indeterminate_never_r
         raise httpx.ConnectError("no route to host")
 
     monkeypatch.setattr(httpx.Client, "get", fake_get)
-    router = ModelRouter(keys={"openai": "sk-whatever"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "sk-whatever"},
+        use_env_keys=False,
+    )
 
     r = diagnostics.provider_key_validation_report(router)
 
@@ -279,7 +317,11 @@ def test_provider_key_validation_report_never_raises_on_unexpected_error(monkeyp
         raise RuntimeError("unexpected probe bug")
 
     monkeypatch.setattr("frisket.server.provider_config.probe_provider", _boom)
-    router = ModelRouter(keys={"openai": "sk-x"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "sk-x"},
+        use_env_keys=False,
+    )
 
     r = diagnostics.provider_key_validation_report(router)
     assert r["providers"] == {}

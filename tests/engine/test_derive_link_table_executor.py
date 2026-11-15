@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -142,7 +143,9 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             project,
             action,
             project_id="project-derive-link-table",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
 
     def embed(texts):

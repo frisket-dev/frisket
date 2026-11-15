@@ -3,6 +3,12 @@
 from typing import Any, Literal
 
 from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase_sync,
+    policy_for_context,
+)
 
 from frisket.ops._sidecar import sidecar_post
 from frisket.ops.base import OpContext
@@ -32,7 +38,23 @@ class LocalNerExtractor:
             available, error = spacy_available()
             if not available:
                 raise RuntimeError(error or "The spacy NER engine is not available.")
-            results = run_spacy_ner_default([text], labels)
+            results = execute_purchase_sync(
+                PurchaseRequest(
+                    provider="local",
+                    capability="ner",
+                    engine="spacy",
+                    credential_source="none",
+                    prepared={"labels": labels},
+                    context=self.context,
+                    quantity={"input_count": 1},
+                ),
+                policy=policy_for_context(self.context),
+                dispatch=dispatch_for_context(self.context),
+                invoke=lambda: run_spacy_ner_default([text], labels),
+                observe=lambda result: PurchaseObservation(
+                    result, {"input_count": 1}, 0
+                ),
+            )
         else:
             response = await sidecar_post(
                 self.context,

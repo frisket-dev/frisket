@@ -36,6 +36,7 @@ would have failed opaquely per row, or worse.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from typing import Any
@@ -70,7 +71,10 @@ def _client(tmp_path, *, router: ModelRouter | None = None) -> TestClient:
     return TestClient(
         create_app(
             tmp_path / "workspace",
-            router=router or ModelRouter(cache=None, cache_mode="off"),
+            router=router
+            or ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
     )
 
@@ -186,7 +190,12 @@ def test_provider_with_configured_key_passes_the_gate(tmp_path) -> None:
     this is the FIRST check, not a blanket refusal."""
     client = _client(
         tmp_path,
-        router=ModelRouter(keys={"gemini": "a-real-key"}, cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"gemini": "a-real-key"},
+            cache=None,
+            cache_mode="off",
+        ),
     )
     project_id = _project_id(client)
 
@@ -199,7 +208,10 @@ def test_provider_with_configured_key_passes_the_gate(tmp_path) -> None:
 
 def test_connected_cloud_model_runs_through_queued_worker_composition(
     tmp_path,
+    monkeypatch,
 ) -> None:
+    # Exercise explicit consent, rather than the normal $2 standing preapproval.
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     model = "gemini/gemini-2.5-flash-lite"
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection(
@@ -308,7 +320,9 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
     client = TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             cloud_connection_store=store,
             cloud_connection_client=cloud_client,
             cloud_execution_transport=transport,
@@ -421,7 +435,9 @@ def test_replay_mode_with_cache_configured_bypasses_the_gate(tmp_path) -> None:
     client = _client(
         tmp_path,
         router=ModelRouter(
-            cache=ResponseCache(tmp_path / "cache.db"), cache_mode="replay"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=ResponseCache(tmp_path / "cache.db"),
+            cache_mode="replay",
         ),
     )
     project_id = _project_id(client)
@@ -440,6 +456,7 @@ def test_replay_strict_with_a_cache_bypasses_the_gate(tmp_path) -> None:
     client = _client(
         tmp_path,
         router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=ResponseCache(tmp_path / "gate.cache.db"),
             cache_mode="replay_strict",
         ),
@@ -462,7 +479,11 @@ def test_replay_strict_without_a_cache_object_still_gates(tmp_path) -> None:
     launch is admitted keyless, then bills (or fails opaquely) per row."""
     client = _client(
         tmp_path,
-        router=ModelRouter(cache=None, cache_mode="replay_strict"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="replay_strict",
+        ),
     )
     project_id = _project_id(client)
 
@@ -481,7 +502,9 @@ def test_replay_mode_without_a_cache_object_still_gates(tmp_path) -> None:
     above must not swallow."""
     client = _client(
         tmp_path,
-        router=ModelRouter(cache=None, cache_mode="replay"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="replay"
+        ),
     )
     project_id = _project_id(client)
 
@@ -512,7 +535,9 @@ def test_missing_provider_key_status_maps_to_400_not_402() -> None:
 
 
 def test_helper_returns_none_when_model_field_absent() -> None:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     assert (
         missing_model_key_error_for_request("sheet.refresh", {"sheet_id": 1}, router)
         is None
@@ -522,7 +547,9 @@ def test_helper_returns_none_when_model_field_absent() -> None:
 def test_helper_returns_none_for_unrecognized_provider() -> None:
     """An unrecognized provider id isn't this gate's concern — no key/settings
     story to offer; let normal validation/execution surface it instead."""
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     assert (
         missing_model_key_error_for_request(
             "map.extract", {"model": "made_up_provider/x"}, router

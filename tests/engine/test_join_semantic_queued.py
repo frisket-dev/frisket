@@ -1,6 +1,7 @@
 """Typed semantic-join queue: consent, publication, and writer fences."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 
@@ -76,7 +77,9 @@ def _client(tmp_path: Path) -> TestClient:
     return TestClient(
         create_app(
             tmp_path / "ws",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             run_status_grace_seconds=3600.0,
         )
     )

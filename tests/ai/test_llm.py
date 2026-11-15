@@ -2,6 +2,8 @@
 success-path mocks); success paths live in test_llm_live.py via the real
 response cache."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import os
 
@@ -313,7 +315,11 @@ class TestRouterFailureMechanics:
 
         async def run() -> None:
             router = ModelRouter(
-                keys={"anthropic": secret}, cache=None, cache_mode="off", max_retries=0
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"anthropic": secret},
+                cache=None,
+                cache_mode="off",
+                max_retries=0,
             )
             router._adapters["anthropic"] = EchoingAdapter()  # noqa: SLF001
             trace: list[dict] = []
@@ -332,6 +338,7 @@ class TestRouterFailureMechanics:
     def test_all_failures_exhaust_retries(self):
         async def run():
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "test-key-not-used"},
                 chaos=ChaosConfig(seed=7, enabled=True, fail_rate=1.0),
                 max_retries=2,
@@ -348,6 +355,7 @@ class TestRouterFailureMechanics:
     def test_401_not_retried(self):
         async def run():
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "test-key-not-used"},
                 chaos=ChaosConfig(seed=7, enabled=True, auth_fail_rate=1.0),
                 max_retries=3,
@@ -362,7 +370,9 @@ class TestRouterFailureMechanics:
 
     def test_unknown_provider_clear_error(self):
         async def run():
-            router = ModelRouter(keys={"anthropic": "k"})
+            router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            )
             with pytest.raises(LLMError, match="no adapter"):
                 await router.for_execution(STANDALONE).complete(
                     req(model="hologram/quantum-9000")
@@ -389,7 +399,11 @@ class TestRouterFailureMechanics:
 
         async def run() -> None:
             router = ModelRouter(
-                keys={"anthropic": secret}, cache=None, cache_mode="off", max_retries=0
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"anthropic": secret},
+                cache=None,
+                cache_mode="off",
+                max_retries=0,
             )
             router._adapters["anthropic"] = InvalidStructuredAdapter()  # noqa: SLF001
             with pytest.raises(LLMError) as excinfo:
@@ -418,6 +432,7 @@ class TestRouterFailureMechanics:
 
         async def run() -> None:
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"openai": secret},
                 cache=None,
                 cache_mode="off",
@@ -448,6 +463,7 @@ class TestRouterFailureMechanics:
 
         async def run() -> None:
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"openai": secret},
                 cache=None,
                 cache_mode="off",
@@ -470,6 +486,7 @@ class TestRouterFailureMechanics:
     def test_replay_strict_miss_fails_loudly(self, tmp_path):
         async def run():
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "k"},
                 cache=ResponseCache(tmp_path / "c.db"),
                 cache_mode="replay_strict",
@@ -496,6 +513,7 @@ class TestRouterFailureMechanics:
                 ),
             )
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "k"},
                 cache=cache,
                 cache_mode="replay",
@@ -513,7 +531,12 @@ class TestLocalEndpointThreading:
     """ModelRouter consumes one explicit plural endpoint authority."""
 
     def test_bare_router_has_no_synthetic_local_endpoint(self):
-        router = ModelRouter(cache=None, use_env_keys=False, local_endpoints=())
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            use_env_keys=False,
+            local_endpoints=(),
+        )
         assert router.local_endpoints == ()
         assert "ollama" not in router.providers()
 
@@ -527,11 +550,12 @@ class TestLocalEndpointThreading:
             source="env",
         )
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=None,
             use_env_keys=False,
             local_endpoints=(endpoint,),
         )
-        selected, adapter, bare_model = router.resolve_local_model(
+        selected, adapter, bare_model = router._resolve_local_model(
             "ollama/@heavy/qwen3:8b"
         )
         assert selected is endpoint
@@ -542,7 +566,7 @@ class TestLocalEndpointThreading:
     def test_bare_router_does_not_read_env_endpoint_authority(self, monkeypatch):
         monkeypatch.setenv("OLLAMA_URL", "https://llm.heavy.internal")
         monkeypatch.setenv("FRISKET_LLM_TOKEN", "secret-bearer")
-        router = ModelRouter(cache=None)
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache=None)
         assert router.local_endpoints == ()
         assert "ollama" not in router.providers()
 
@@ -553,9 +577,13 @@ class TestLocalEndpointThreading:
             origin="http://127.0.0.1:1234",
             source="local_file",
         )
-        router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            local_endpoints=(endpoint,),
+        )
         with pytest.raises(LLMError, match="ollama/@"):
-            router.resolve_local_model("ollama/qwen3:8b")
+            router._resolve_local_model("ollama/qwen3:8b")
 
 
 class TestRoutedProviderStamp:
@@ -587,7 +615,12 @@ class TestRoutedProviderStamp:
 
     def _router(self, **kw):
         kw.setdefault("cache", None)
-        router = ModelRouter(keys={"anthropic": "k"}, use_env_keys=False, **kw)
+        router = ModelRouter(
+            model_call_policy=kw.pop("model_call_policy", LOCAL_PURCHASE_POLICY),
+            keys={"anthropic": "k"},
+            use_env_keys=False,
+            **kw,
+        )
         router._adapters["anthropic"] = self._Stub()  # noqa: SLF001
         return router
 

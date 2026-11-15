@@ -1,5 +1,7 @@
 """Returned child facts retain their purchase owner across parent recovery."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import pytest
 
@@ -138,7 +140,12 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
         )
 
         async def trace_replay():
-            router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0)
+            router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                use_env_keys=False,
+                cache_mode="off",
+                max_retries=0,
+            )
             recorder = TraceWriter.open(
                 project.path, current_run, action_kind="map.extract", model=MODEL
             )

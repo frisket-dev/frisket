@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -55,7 +56,12 @@ async def test_domain_loop_uses_actual_goal_and_accounts_for_every_turn(
     adapter = ScriptedResearchAdapter(
         (["Memory answer"] if verify_first else []) + [SEARCH, "Cited answer"]
     )
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
     searches = []
 
@@ -92,7 +98,12 @@ async def test_domain_loop_uses_actual_goal_and_accounts_for_every_turn(
 @pytest.mark.asyncio
 async def test_domain_budget_failure_preserves_spent_model_calls():
     adapter = ScriptedResearchAdapter([SEARCH] * MAX_STEPS)
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
 
     async def search(query):
@@ -119,7 +130,12 @@ async def test_domain_budget_failure_preserves_spent_model_calls():
 @pytest.mark.asyncio
 async def test_domain_loop_preserves_paid_search_usage_and_citations():
     adapter = ScriptedResearchAdapter([SEARCH, "Cited answer"])
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
 
     async def search(query):

@@ -1,6 +1,7 @@
 """Base price-book fences after commercial venue pricing moved downstream."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import inspect
 from decimal import Decimal
@@ -183,7 +184,7 @@ def test_transcription_estimate_preserves_audio_rate_provenance(
     from frisket.execution.resolver import ResolvedExecution
 
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-audio-quote-key")
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
 
     project = Project.create(tmp_path / "audio-rate.frisket")
     try:

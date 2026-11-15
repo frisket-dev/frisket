@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import hashlib
 import io
@@ -908,7 +909,9 @@ def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
         registry,
         workspace_root=workspace.root,
         queue=workspace.queue,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
 
     child = project.db.execute(
@@ -1368,7 +1371,10 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     workspace = Workspace(
         tmp_path / "workspace-paid",
         router=ModelRouter(
-            keys={"anthropic": "test-key"}, cache=None, cache_mode="off"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test-key"},
+            cache=None,
+            cache_mode="off",
         ),
         executor_deps_factory=executor_deps,
         enable_local_model_pull=False,

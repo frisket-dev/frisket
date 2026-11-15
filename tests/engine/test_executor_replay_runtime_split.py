@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import importlib
 import asyncio
@@ -197,7 +198,9 @@ def test_result_from_receipt_reconstructs_map_columns(tmp_path, monkeypatch) -> 
         lambda url, **kwargs: ["93.184.216.34"],
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = client
     try:
         sheet_id = project.add_sheet("Data")

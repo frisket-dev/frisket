@@ -1,6 +1,7 @@
 """User-named HTTP secrets belong to the project, not the server process."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 
@@ -27,7 +28,12 @@ def request_project(tmp_path, monkeypatch, _allow_egress):
         sent.append(request)
         return httpx.Response(200, json={"ok": True})
 
-    router = ModelRouter(cache=None, cache_mode="off", use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
 
     def run(request):

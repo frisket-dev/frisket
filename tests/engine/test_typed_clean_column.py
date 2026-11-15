@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from pathlib import Path
@@ -44,7 +45,10 @@ def project(tmp_path: Path):
 def _runner(project: Project, router=None) -> MapRunner:
     return MapRunner(
         project,
-        router or ModelRouter(cache=None, cache_mode="off"),
+        router
+        or ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 

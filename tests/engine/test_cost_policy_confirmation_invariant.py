@@ -5,6 +5,7 @@ Params. Plugin declarations retain their own explicit confirmation wiring.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 
@@ -420,7 +421,12 @@ def _assert_prepared_model_request_confirmation_reaches_its_host_gate(
                 cost=0.0,
             )
 
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = Adapter()
     project = Project.create(tmp_path / f"{registered.action_id}-consent.frisket")
     try:
@@ -782,7 +788,9 @@ def test_typed_http_unknown_cost_requires_exact_consent_before_effect(
         calls.append(request)
         return httpx.Response(200, json={"ok": True})
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
     project = Project.create(tmp_path / "http-exact-consent.frisket")
     try:

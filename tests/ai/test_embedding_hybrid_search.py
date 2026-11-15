@@ -10,6 +10,7 @@ the vector neighbourhood diverge — that divergence is what fusion bridges.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 
@@ -410,7 +411,12 @@ def test_hybrid_preview_route_freshness_gate(tmp_path):
     from frisket.ai.llm import ModelRouter
     from frisket.server.app import create_app
 
-    client = TestClient(create_app(tmp_path / "ws", router=ModelRouter(keys={})))
+    client = TestClient(
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        )
+    )
     pid = client.post("/api/projects", json={"name": "hy"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet = project.add_sheet("s")

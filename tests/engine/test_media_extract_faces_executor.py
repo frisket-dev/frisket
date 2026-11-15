@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -375,7 +376,9 @@ def test_typed_media_preview_returns_inline_images_without_publication(media_cas
     plan = build_typed_map_rows_plan(project, bound)
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
     tables = ("runs", "receipts", "blobs", "results", "columns")

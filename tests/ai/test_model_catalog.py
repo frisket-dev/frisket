@@ -1,6 +1,7 @@
 """The curated model catalog is current, priced, generated, and wire-safe."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import subprocess
@@ -307,7 +308,11 @@ async def test_new_families_omit_deprecated_temperature(
             },
         )
 
-    router = ModelRouter(keys={provider: "k"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={provider: "k"},
+        use_env_keys=False,
+    )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         await router._adapters[provider].complete(_request(model), client)  # noqa: SLF001
     assert "temperature" not in seen

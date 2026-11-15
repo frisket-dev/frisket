@@ -1,6 +1,7 @@
 """Default, fail-open model-call trace behavior."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import gzip
 import json
@@ -55,7 +56,12 @@ class _StubAdapter:
 
 
 def _client(adapter: _StubAdapter, tmp_path) -> TestClient:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return TestClient(create_app(tmp_path / "ws", router=router))
 
@@ -354,7 +360,7 @@ def test_tracing_router_redacts_selected_adapter_key_from_prompt_and_response(
         api_key = secret
 
     class Inner:
-        def adapter_for(self, provider):  # noqa: ANN001
+        def has_provider(self, provider):  # noqa: ANN001
             assert provider == "anthropic"
             return Adapter()
 
@@ -410,7 +416,7 @@ def test_tracing_router_final_record_resolves_observed_models_without_key_cache(
             "openai": Adapter(borrowed_secret),
         }
 
-        def adapter_for(self, provider):  # noqa: ANN001
+        def has_provider(self, provider):  # noqa: ANN001
             return self.adapters.get(provider)
 
         def secret_values_for_model(self, model):  # noqa: ANN001
@@ -436,7 +442,7 @@ def test_tracing_router_final_record_resolves_observed_models_without_key_cache(
                 model="anthropic/test", messages=[{"role": "user", "content": "x"}]
             )
         )
-        assert router.adapter_for("openai") is not None
+        assert router.has_provider("openai")
         assert router._observed_models == ["anthropic/test", "openai"]  # noqa: SLF001
         assert not hasattr(router, "_observed_secret_values")
         return router.record(data={"first": first_secret, "borrowed": borrowed_secret})
@@ -448,7 +454,7 @@ def test_tracing_router_final_record_resolves_observed_models_without_key_cache(
 
     no_call_row = RowTrace(row_id=2, trace_id="trace")
     no_call_router = TracingRouter(Inner(), no_call_row)
-    assert no_call_router.adapter_for("openai") is not None
+    assert no_call_router.has_provider("openai")
     assert no_call_router._observed_models == ["openai"]  # noqa: SLF001
     assert not hasattr(no_call_router, "_observed_secret_values")
 
@@ -493,7 +499,12 @@ def test_trace_records_retry_attempts_with_errors(tmp_path, monkeypatch):
     cols = {"story": p.add_column(sheet, "story")}
     p.add_rows(sheet, [{"story": "Mayor Reyes met Quayle."}], cols)
 
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = _StubAdapter(  # noqa: SLF001
         {"beat": "a"}, fail_first=1
     )
@@ -598,6 +609,7 @@ def test_router_trace_collects_cache_and_attempt_events(tmp_path):
     from frisket.ai.llm.cache import ResponseCache
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "k"},
         cache=ResponseCache(tmp_path / "c.db"),
         cache_mode="replay",
@@ -625,7 +637,11 @@ def test_tracing_execution_view_preserves_calls_secrets_and_owner():
     from frisket.execution.dispatch_control import TransientDispatch
 
     async def run():
-        router = ModelRouter(keys={"anthropic": "provider-key"}, cache=None)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "provider-key"},
+            cache=None,
+        )
         router._adapters["anthropic"] = _StubAdapter({"answer": "ok"})
         row = RowTrace(row_id=1, trace_id="bound-row")
         traced = TracingRouter(router.for_execution(STANDALONE), row)

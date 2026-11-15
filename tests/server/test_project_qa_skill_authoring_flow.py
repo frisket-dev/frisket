@@ -1,6 +1,7 @@
 """Real Ask admission, skill tools, terminal Save and same-thread reuse."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import time
@@ -98,7 +99,11 @@ def test_skill_saved_after_answer_is_used_on_selected_row_in_same_chat(
             )
 
     router = ModelRouter(
-        keys={"anthropic": "test-key"}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
     provider = Provider()
     router._adapters["anthropic"] = provider

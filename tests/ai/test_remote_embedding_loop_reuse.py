@@ -7,6 +7,7 @@ job. Reproduced against a local OpenAI-shaped server (no keys, deterministic in 
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -60,7 +61,7 @@ def local_embed_server():
 
 
 def test_two_sequential_remote_embeds_survive(local_embed_server):
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     router._adapters["test"] = OpenAICompatAdapter(
         "k", f"http://127.0.0.1:{local_embed_server}"
     )
@@ -81,7 +82,7 @@ def test_router_client_is_loop_aware():
     async def _grab(router):
         return router.client, id(asyncio.get_running_loop())
 
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     c1, loop1 = asyncio.run(_grab(router))
     c2, loop2 = asyncio.run(_grab(router))
     assert loop1 != loop2  # asyncio.run made a fresh loop each time

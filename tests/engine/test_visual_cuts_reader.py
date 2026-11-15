@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import threading
@@ -157,7 +158,9 @@ def test_custom_action_renames_params_and_outputs_without_losing_source_binding(
     before = tuple(project.db.iterdump())
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
     preview = asyncio.run(runner.preview(plan.spec_dict(), program=plan.program))

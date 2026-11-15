@@ -6,6 +6,8 @@ column.patch action; the op lands in history and undoes/redoes. The frontend
 rendering half is covered by web/tests/e2e/markdown.spec.ts.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
@@ -25,7 +27,9 @@ MD_CSV = (
 
 
 def _client(tmp_path) -> TestClient:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     return TestClient(create_app(tmp_path / "ws", router=router))
 
 

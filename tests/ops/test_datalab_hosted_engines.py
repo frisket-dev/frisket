@@ -13,6 +13,7 @@ wall-clock poll deadline (4), fail-closed unknown poll statuses (5), and the
 OCR->/convert migration + input-type gating (6)."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
@@ -1060,7 +1061,9 @@ def test_document_estimate_uses_operator_or_provider_pricing(
         tmp_path, [{"doc": "<html>unknown page count</html>"}], "text"
     )
     try:
-        router = ModelRouter(cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
         runner = MapRunner(
             project, router, authority=open_attempt_authority(project, router)
         )

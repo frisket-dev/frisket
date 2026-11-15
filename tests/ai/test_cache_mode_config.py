@@ -7,6 +7,7 @@ of crashing the run or silently producing an empty cell.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 
@@ -52,7 +53,7 @@ class TestLiveCallsPossible:
     def test_router_default_cache_mode_is_still_replay(self):
         """The default mode stays replay: cache-first with a live call on a
         miss, so live_calls_possible is True."""
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         assert router.cache_mode == "replay"
         assert live_calls_possible(router.cache_mode) is True
 
@@ -127,7 +128,9 @@ class TestLocalServerRuntimeConfig:
 
     def test_reflects_an_injected_router_in_a_live_call_capable_mode(self, tmp_path):
         cache = ResponseCache(tmp_path / "c.db")
-        router = ModelRouter(cache=cache, cache_mode="fresh")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=cache, cache_mode="fresh"
+        )
         client = TestClient(create_app(tmp_path / "workspace", router=router))
         resp = client.get("/api/config")
         assert resp.json() == {
@@ -211,7 +214,10 @@ class TestReplayStrictCacheMissIsDistinctFromSuccess:
         spec = _classify_spec(sheet)
         cache = ResponseCache(tmp_path / "c.db")  # never primed: guaranteed miss
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
 
@@ -233,7 +239,10 @@ class TestReplayStrictCacheMissIsDistinctFromSuccess:
         spec = _classify_spec(sheet)
         cache = ResponseCache(tmp_path / "c.db")
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         progress = asyncio.run(run_with_output_claim(runner, spec))
@@ -297,7 +306,10 @@ class TestReplayStrictCacheMissIsDistinctFromSuccess:
             ),
         )
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         progress = asyncio.run(run_with_output_claim(runner, spec))

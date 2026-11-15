@@ -206,26 +206,23 @@ class OpenAITranscriptionAdapter:
         spec = project_transcription_engine_options(model_id, spec)
         provider, _, model = model_id.partition("/")
         router = (ctx.extras or {}).get("router")
-        adapter = (
-            router.adapter_for(provider)
-            if router is not None and provider != "ollama"
-            else None
-        )
-        local_endpoint = None
-        if provider == "ollama" and router is not None:
+        from frisket.ai.llm.router import _transcription_connection
+
+        base, key, edge_auth = None, None, False
+        if router is not None:
             try:
-                local_endpoint, adapter, model = router.resolve_local_model(model_id)
+                base, key, model, edge_auth = _transcription_connection(
+                    router, model_id
+                )
             except LLMError as exc:
                 raise RuntimeError(str(exc)) from exc
-        base = getattr(adapter, "base_url", None)
-        key = getattr(adapter, "api_key", None)
         if not base or not key:
             raise RuntimeError(
                 f"remote transcription needs a configured '{provider}' "
                 f"provider (set {provider.upper()}_API_KEY or an org key) — "
                 f"or use a local engine: {', '.join(engine_ids(TRANSCRIBE_ENGINE_TABLE, tier='local'))}"
             )
-        if provider == "ollama" and local_endpoint.edge_auth:
+        if provider == "ollama" and edge_auth:
             raise LocalTranscribeUnsupportedError(
                 "local-server transcription isn't supported through an authenticated front door"
             )

@@ -8,6 +8,8 @@
   no action
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import zipfile
 
 import pytest
@@ -49,7 +51,9 @@ def _spec(sheet, engine=None, **extra):
 
 
 def _run(p, spec, router=None):
-    router = router or ModelRouter(cache=None, cache_mode="off")
+    router = router or ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     return run_action_spec(p, spec, project_id="markdown", router=router)
 
 
@@ -306,7 +310,12 @@ def test_convert_listed_in_action_catalog(tmp_path):
 
     from frisket.server.app import create_app
 
-    app = create_app(tmp_path / "ws", router=ModelRouter(cache=None, cache_mode="off"))
+    app = create_app(
+        tmp_path / "ws",
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
     client = TestClient(app)
     entries = {
         entry["kind"]: entry

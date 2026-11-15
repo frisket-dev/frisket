@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -62,7 +63,11 @@ def test_openai_agent_replays_reasoning_and_parallel_tool_calls() -> None:
         return httpx.Response(200, json=outputs[len(requests) - 1])
 
     async def run():
-        router = ModelRouter(keys={"openai": "test-key"}, max_retries=0)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"openai": "test-key"},
+            max_retries=0,
+        )
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         router._client = client
         model = FrisketRouterModel(
@@ -195,7 +200,11 @@ def test_openai_response_failure_and_limit_do_not_return_an_answer() -> None:
                 },
             )
 
-        router = ModelRouter(keys={"openai": "test-key"}, max_retries=0)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"openai": "test-key"},
+            max_retries=0,
+        )
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         router._client = client
         model = FrisketRouterModel(
@@ -349,6 +358,7 @@ def test_failed_openai_tool_responses_record_provider_usage_once() -> None:
             )
 
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "test-key"},
             key_sources={"openai": "project_key"},
             max_retries=2,

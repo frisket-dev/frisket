@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from contextlib import closing
 import json
 from pathlib import Path
@@ -485,7 +487,10 @@ def test_url_import_failure_becomes_truthful_missing_document_without_provider_c
         }
 
         result = run_action_spec(
-            project, action, project_id=PROJECT_ID, router=NoCallRouter()
+            project,
+            action,
+            project_id=PROJECT_ID,
+            router=NoCallRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         )
         assert result.status == "failed", result.errors
         assert result.run_id is not None, result.errors

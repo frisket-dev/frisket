@@ -16,6 +16,7 @@ dispatch) exercise an actual POST to ``.../actions/v1/run`` for these four
 kinds, so this file is the genuine coverage gap."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from typing import Any
 
@@ -43,7 +44,9 @@ def _client(tmp_path) -> TestClient:
     return TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             executor_deps_factory=lambda _project_id, _request: ExecutorDeps(
                 url_capture_fetcher=_static_capture
             ),

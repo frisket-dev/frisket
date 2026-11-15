@@ -1,6 +1,7 @@
 """Focused contract tests for invocation-scoped recipe resources."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -290,7 +291,7 @@ def test_local_publication_batches_keep_row_errors_and_committed_progress(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
             on_progress=progress_committed,
@@ -342,7 +343,7 @@ def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
             on_progress=lambda progress: committed.append(progress.completed),
@@ -374,7 +375,7 @@ def test_local_pending_rows_drain_before_cancel_or_halt_finalization(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
             should_cancel=(lambda _run_id: len(scope_recipe.calls) >= 3)
@@ -426,7 +427,7 @@ def test_local_batch_publication_refusal_keeps_pending_rows_atomic(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -447,7 +448,7 @@ def test_local_rows_yield_to_external_cancellation_and_drain_pending_results(
     progress_seen = []
     runner = MapRunner(
         project,
-        ModelRouter(keys={}),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         concurrency=1,
         authority=UnroutedOnlyAuthority(project),
         on_progress=progress_seen.append,
@@ -520,7 +521,7 @@ def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=concurrency,
             authority=UnroutedOnlyAuthority(project),
             take_preferred_row=lambda: hints.pop(0) if hints else None,
@@ -590,7 +591,7 @@ def test_page_progress_is_best_effort_and_clears_before_the_next_row(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -690,7 +691,7 @@ def test_concurrent_page_progress_keeps_each_file_and_removes_only_finished_row(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=2,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -749,7 +750,7 @@ def test_exact_ner_rechecks_fresh_output_during_prepare(tmp_path) -> None:
     )
     runner = MapRunner(
         project,
-        ModelRouter(keys={}),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         authority=UnroutedOnlyAuthority(project),
     )
     spec = {
@@ -799,7 +800,7 @@ def test_exact_scope_rechecks_membership_inside_prepare_transaction(
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
     runner = MapRunner(
         project,
-        ModelRouter(keys={}),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         authority=UnroutedOnlyAuthority(project),
     )
     original_validate = runner._validate_prepare_spec  # noqa: SLF001
@@ -861,7 +862,7 @@ def test_local_dispatch_uses_prepared_source_ids_after_column_rename(
     scope_recipe.batch_local_results = True
     runner = MapRunner(
         project,
-        ModelRouter(keys={}),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         concurrency=1,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -918,7 +919,7 @@ def test_scope_enters_once_for_durable_run_and_preview(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=3,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -967,7 +968,7 @@ def test_scope_halt_preserves_committed_prefix_without_prefetch_deadlock(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -1015,7 +1016,7 @@ def test_halted_run_recovery_uses_fresh_scoped_generation(
     try:
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -1074,7 +1075,7 @@ def test_queue_style_recovery_uses_fresh_scoped_generation(
     try:
         first_runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -1095,7 +1096,9 @@ def test_queue_style_recovery_uses_fresh_scoped_generation(
         scope_recipe.halt_on_call = None
         scope_recipe.scope_run_snapshots.clear()
         run_store = MapRunner(
-            project, ModelRouter(keys={}), authority=UnroutedOnlyAuthority(project)
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+            authority=UnroutedOnlyAuthority(project),
         ).run_store
 
         def durable_cancelled(run_id: int) -> bool:
@@ -1104,7 +1107,7 @@ def test_queue_style_recovery_uses_fresh_scoped_generation(
 
         queued_runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             should_cancel=durable_cancelled,
             authority=UnroutedOnlyAuthority(project),
@@ -1154,7 +1157,7 @@ def test_pre_cancel_and_zero_work_never_enter_scope(
             run_with_output_claim(
                 MapRunner(
                     project,
-                    ModelRouter(keys={}),
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     should_cancel=lambda _run_id: True,
                     authority=UnroutedOnlyAuthority(project),
                 ),
@@ -1177,7 +1180,7 @@ def test_pre_cancel_and_zero_work_never_enter_scope(
                 run_with_output_claim(
                     MapRunner(
                         empty_project,
-                        ModelRouter(keys={}),
+                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                         authority=UnroutedOnlyAuthority(empty_project),
                     ),
                     _spec(scope_recipe, empty_sheet),
@@ -1208,7 +1211,7 @@ def test_outer_cancellation_joins_workers_before_scope_exit(
 
     runner = MapRunner(
         project,
-        ModelRouter(keys={}),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         concurrency=2,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -1271,7 +1274,7 @@ def test_outer_cancellation_fenced_terminalizes_batch_run_before_reraise(
     )
     runner = MapRunner(
         project,
-        ModelRouter(keys={}),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         authority=UnroutedOnlyAuthority(project),
     )
     spec = _spec(recipe, sheet_id)
@@ -1321,7 +1324,7 @@ def test_persistence_failure_still_joins_workers_and_exits_scope(
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=12)
     runner = MapRunner(
         project,
-        ModelRouter(keys={}),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         concurrency=2,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -1366,7 +1369,7 @@ def test_unprovable_sandbox_teardown_escapes_row_error_boundary(
         with pytest.raises(SandboxTeardownError, match="still alive") as caught:
             failing_runner = MapRunner(
                 project,
-                ModelRouter(keys={}),
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                 concurrency=1,
                 authority=UnroutedOnlyAuthority(project),
             )
@@ -1404,7 +1407,9 @@ def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=2)
     try:
         first_runner = MapRunner(
-            project, ModelRouter(keys={}), authority=UnroutedOnlyAuthority(project)
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+            authority=UnroutedOnlyAuthority(project),
         )
         first = asyncio.run(
             run_with_output_claim(
@@ -1423,7 +1428,9 @@ def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
             "local_engine_busy", "another invocation owns the local engine"
         )
         second_runner = MapRunner(
-            project, ModelRouter(keys={}), authority=UnroutedOnlyAuthority(project)
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+            authority=UnroutedOnlyAuthority(project),
         )
 
         def fail_finish(*_args: Any, **_kwargs: Any) -> None:
@@ -1466,7 +1473,9 @@ def test_batch_run_and_preview_each_own_one_execution_scope(
     )
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=3)
     runner = MapRunner(
-        project, ModelRouter(keys={}), authority=UnroutedOnlyAuthority(project)
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        authority=UnroutedOnlyAuthority(project),
     )
     try:
         progress = asyncio.run(run_with_output_claim(runner, _spec(recipe, sheet_id)))
@@ -1496,7 +1505,7 @@ def test_batch_recipe_never_flattens_unprovable_teardown(
         with pytest.raises(SandboxTeardownError, match="still alive") as caught:
             runner = MapRunner(
                 project,
-                ModelRouter(keys={}),
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                 authority=UnroutedOnlyAuthority(project),
             )
             asyncio.run(

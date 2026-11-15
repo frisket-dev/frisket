@@ -489,7 +489,7 @@ async def test_indra_pdf_uses_one_worker_and_preserves_physical_geometry(
     async def forbidden_raster(*args, **kwargs):
         raise AssertionError("Indra PDF rendering belongs inside its model worker")
 
-    async def recognize(self, path, scratch, *, dpi, page_count, report_progress):
+    async def recognize(self, path, scratch, *, dpi, page_count, report_progress, ctx):
         calls.append(path)
         assert len(pypdf.PdfReader(path).pages) == page_count
         assert page_count == (1 if selected_page else 3)
@@ -755,7 +755,7 @@ async def test_pdf_bad_tail_stops_partial_with_truthful_skipped_pages_and_progre
         def close(self):
             pass
 
-    async def indra(self, path, scratch, *, dpi, page_count, report_progress):
+    async def indra(self, path, scratch, *, dpi, page_count, report_progress, ctx):
         return indra_ocr_worker._pdf_pages(
             None,
             {"pdf": str(path), "out": str(scratch / "result.json"), "dpi": dpi},
@@ -1030,7 +1030,7 @@ async def test_pdf_without_probe_count_uses_bounded_renderer_count(
     async def recognize(*args, **kwargs):
         return [{"text": "", "blocks": []}]
 
-    async def indra(self, path, scratch, *, dpi, page_count, report_progress):
+    async def indra(self, path, scratch, *, dpi, page_count, report_progress, ctx):
         assert page_count == 3 and not first_chunks[0].exists()
         return [{"text": "", "blocks": [], "width": 12, "height": 8} for _ in range(3)]
 

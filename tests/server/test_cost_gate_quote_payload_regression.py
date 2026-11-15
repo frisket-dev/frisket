@@ -1,6 +1,7 @@
 """The authoritative 402 must carry the same quote as /estimate."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from fastapi.testclient import TestClient
 
@@ -16,7 +17,12 @@ def test_action_402_preserves_full_estimate_including_row_count(
     client = TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"anthropic": "k"},
+                cache=None,
+                cache_mode="off",
+            ),
         )
     )
     project_id = client.post("/api/projects", json={"name": "Quote"}).json()["id"]

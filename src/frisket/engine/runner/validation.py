@@ -1654,7 +1654,7 @@ def validate_spec(
         if (
             recipe_is_llm
             and not cache_can_serve_replay
-            and router.adapter_for(provider) is None
+            and not router.has_provider(provider)
         ):
             raise MissingProviderKey(provider)
 

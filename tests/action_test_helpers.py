@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -93,7 +94,10 @@ def run_typed_map_request(
     def runner_factory(target: Project, router: Any | None) -> MapRunner:
         return MapRunner(
             target,
-            router or ModelRouter(cache=None, cache_mode="off"),
+            router
+            or ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(target),
         )
 

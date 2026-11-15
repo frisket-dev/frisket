@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 
@@ -257,7 +258,10 @@ def test_to_geo_point_conversion_feeds_the_map(tmp_path):
     def runner_factory(current: Project, router: ModelRouter | None) -> MapRunner:
         return MapRunner(
             current,
-            router or ModelRouter(cache=None, cache_mode="off"),
+            router
+            or ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(current),
         )
 
@@ -265,7 +269,9 @@ def test_to_geo_point_conversion_feeds_the_map(tmp_path):
         project,
         "geo-project",
         BoundTypedActionRequest.bind(ACTION_REGISTRY.get(request.action_id), request),
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         runner_factory,
     )
 

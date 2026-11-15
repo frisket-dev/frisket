@@ -1,5 +1,7 @@
 """Reasoning-model sampling through desktop and hosted router construction."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 
@@ -46,10 +48,15 @@ def test_router_omits_custom_temperature_for_reasoning_models(
     async def go():
         if credentials == "platform_key":
             # Standalone hosted worker construction uses environment keys.
-            router = ModelRouter(env_key_source="platform_key", max_retries=0)
+            router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                env_key_source="platform_key",
+                max_retries=0,
+            )
         elif credentials == "org_byok":
             # Hosted per-organization router supplies explicit key provenance.
             router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"openai": "test-org"},
                 key_sources={"openai": "org_byok"},
                 env_key_source="platform_key",
@@ -57,7 +64,10 @@ def test_router_omits_custom_temperature_for_reasoning_models(
             )
         else:
             router = ModelRouter(
-                keys={"openai": "test-local"}, use_env_keys=False, max_retries=0
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"openai": "test-local"},
+                use_env_keys=False,
+                max_retries=0,
             )
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             router._client = client

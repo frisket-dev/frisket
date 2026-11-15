@@ -8,6 +8,7 @@ one `sys.modules["conftest"]` slot.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import importlib.util
 import io
@@ -583,6 +584,7 @@ def make_client(
 def replay_router() -> ModelRouter:
     """The canonical replay-strict router over the committed LLM cache."""
     return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "k", "gemini": "k", "openai": "k"},
         cache=ResponseCache(llm_cache_path()),
         cache_mode="replay_strict",

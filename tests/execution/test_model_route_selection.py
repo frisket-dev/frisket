@@ -1,6 +1,7 @@
 """Per-model route choice constrains the shared runtime resolver."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from dataclasses import replace
 from decimal import Decimal
@@ -130,7 +131,11 @@ def test_cloud_model_estimate_and_run_quote_the_same_uncapped_purchase(
             pricing_policy=policy,
             consent_coverage=coverage,
         )
-        router = ModelRouter(use_env_keys=False, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+        )
         with pytest.raises(validation.ClaimsGate) as caught:
             validation.validate_spec(
                 project, router, RunResultStore(project), spec, **kwargs

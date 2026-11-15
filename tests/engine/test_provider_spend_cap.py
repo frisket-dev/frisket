@@ -26,6 +26,7 @@ to" amount caps the customer debit while Frisket absorbs metered variance.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
@@ -603,7 +604,10 @@ def _runner_and_spec(project: Project, *, router: ModelRouter | None = None):
     cols = {"text": project.add_column(sheet_id, "text")}
     project.add_rows(sheet_id, [{"text": "hello there"}], cols)
     router = router or ModelRouter(
-        keys={"anthropic": "sk-ant-test"}, cache=None, cache_mode="off"
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "sk-ant-test"},
+        cache=None,
+        cache_mode="off",
     )
     runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
     return runner, _classify_spec(sheet_id)
@@ -679,6 +683,7 @@ def test_launch_refuses_under_the_default_replay_router(tmp_path) -> None:
         runner, spec = _runner_and_spec(
             project,
             router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "sk-ant-test"},
                 cache=ResponseCache(project.path / "project.cache.db"),
                 cache_mode="replay",
@@ -699,6 +704,7 @@ def test_replay_strict_never_refuses_on_the_cap(tmp_path) -> None:
         runner, spec = _runner_and_spec(
             project,
             router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "sk-ant-test"},
                 cache=ResponseCache(project.path / "project.cache.db"),
                 cache_mode="replay_strict",
@@ -724,7 +730,13 @@ def test_the_cap_answers_before_the_missing_key(tmp_path) -> None:
         # A router with NO key for the capped provider: the withheld-key
         # scene, whatever withheld it.
         runner, spec = _runner_and_spec(
-            project, router=ModelRouter(keys={}, cache=None, cache_mode="off")
+            project,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            ),
         )
         with pytest.raises(ProviderSpendCapExceeded):
             _prepare_after_exact_confirmation(runner, spec)

@@ -21,6 +21,8 @@ for machine differences, but the pinned defaults are the contract.
 The explicit ``-m network`` opts into tests that contact the local server.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import base64
 import os
@@ -87,6 +89,7 @@ def require_daemon() -> None:
 
 def make_router() -> ModelRouter:
     return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(

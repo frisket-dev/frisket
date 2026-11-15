@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -550,7 +551,9 @@ def test_cancel_intent_before_dispatch_converges_through_unclaimed_kernel(
         register_project_run_handler(
             replacement_registry,
             workspace_root=workspace_root,
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
         replacement = replacement_registry.get(RUN_PROJECT_KIND)
         assert replacement is not None

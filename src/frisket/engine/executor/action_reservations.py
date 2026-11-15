@@ -1054,11 +1054,11 @@ def _local_endpoint_bindings_for_runner_spec(
 
     bindings: dict[str, str] = {}
     for model_id in sorted(local_model_ids):
-        endpoint, _adapter, _bare_model = router.resolve_local_model(model_id)
-        previous_origin = bindings.setdefault(endpoint.endpoint_id, endpoint.origin)
-        if previous_origin != endpoint.origin:
+        endpoint_id, origin = router.local_endpoint_identity(model_id)
+        previous_origin = bindings.setdefault(endpoint_id, origin)
+        if previous_origin != origin:
             raise RuntimeError(
-                f"local endpoint {endpoint.endpoint_id!r} resolved to two origins"
+                f"local endpoint {endpoint_id!r} resolved to two origins"
             )
     return [
         {"endpoint_id": endpoint_id, "origin": origin}

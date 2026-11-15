@@ -9,6 +9,8 @@ local FastAPI app over httpx.ASGITransport, so the thin-client mapping
 live server or network.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 import sys
@@ -159,7 +161,12 @@ def replay_router(tmp_path, action=None, texts=None) -> ModelRouter:
     cache = ResponseCache(tmp_path / "c.db")
     if action is not None:
         prime_cache(cache, action, texts or [])
-    return ModelRouter(keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict")
+    return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=cache,
+        cache_mode="replay_strict",
+    )
 
 
 def payload(result) -> dict:
@@ -1516,7 +1523,12 @@ class TestRunAction:
             project.close()
         action = classify_action(sheet, row_ids=[row_id])
         adapter = _FlakyAdapter(fail_marker=None)
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         backend = LocalBackend(tmp_path / "ws", router=router)
 
@@ -1563,7 +1575,12 @@ class TestRunAction:
         action = classify_action(sheet, row_ids=[row_id])
         action["idempotency_key"] = "mcp-quote-drift@sha256:stable"
         adapter = _FlakyAdapter(fail_marker=None)
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         backend = LocalBackend(root, router=router)
 
@@ -1597,7 +1614,12 @@ class TestRunAction:
         action = classify_action(sheet, model="anthropic/claude-opus-4-8")
         backend = LocalBackend(
             tmp_path / "ws",
-            router=ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"anthropic": "k"},
+                cache=None,
+                cache_mode="off",
+            ),
         )
         out = call(backend, "run_action", {"project_id": "demo", "action": action})
         assert out["status"] == "needs_confirmation" and out["run_id"] is None
@@ -1613,7 +1635,12 @@ class TestRunAction:
         save_workspace_cost_preapproval_usd(root, "0")
         backend = LocalBackend(
             root,
-            router=ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"anthropic": "k"},
+                cache=None,
+                cache_mode="off",
+            ),
         )
         project = backend.ws.get("demo")
         row_ids = [
@@ -1670,7 +1697,12 @@ class TestRunAction:
         action = classify_action(sheet, model="anthropic/totally-unpriced-model")
         backend = LocalBackend(
             tmp_path / "ws",
-            router=ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"anthropic": "k"},
+                cache=None,
+                cache_mode="off",
+            ),
         )
         out = call(backend, "run_action", {"project_id": "demo", "action": action})
         assert out["status"] == "needs_confirmation"
@@ -1996,7 +2028,12 @@ class TestBackfillRun:
         sheet = seed_workspace(root, texts)
         save_workspace_cost_preapproval_usd(root, "0")
         adapter = _FlakyAdapter(fail_marker="boom")
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         backend = LocalBackend(root, router=router)
         action = classify_action(sheet)
@@ -2131,7 +2168,9 @@ class TestBackfillRun:
             async def post(self, url, **kwargs):
                 return _SidecarResponse()
 
-        router = ModelRouter(cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
         router._client = _SidecarHttp()  # noqa: SLF001
         backend = LocalBackend(tmp_path / "ws", router=router)
 

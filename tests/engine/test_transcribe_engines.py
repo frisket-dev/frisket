@@ -1,3 +1,4 @@
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.execution.dispatch_control import STANDALONE
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 import asyncio
@@ -770,7 +771,9 @@ def test_remote_engine_needs_configured_provider(tmp_path, monkeypatch):
     """engine='openai/whisper-1' without provider keys fails with a pointer
     to the local engines — never a silent fallback."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     ctx = OpContext(
         http=httpx.AsyncClient(),
         extras={"router": router, "standalone_dispatch": STANDALONE},
@@ -789,7 +792,9 @@ def test_remote_engine_posts_audio(tmp_path, monkeypatch):
     /audio/transcriptions with the router's credentials; segments and
     language come back in the whisper-engine shape."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -839,6 +844,7 @@ def test_remote_engine_posts_audio(tmp_path, monkeypatch):
 def test_mai_transcribe_2_posts_its_documented_openrouter_options(tmp_path):
     """MAI is an exact OpenRouter profile, never a widening of remote defaults."""
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openrouter": "or-test"},
         cache=None,
         cache_mode="off",
@@ -921,6 +927,7 @@ def test_mai_transcribe_2_posts_its_documented_openrouter_options(tmp_path):
 
 def test_mai_transcribe_2_rejects_unsupported_format_before_egress(tmp_path):
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openrouter": "or-test"},
         cache=None,
         cache_mode="off",
@@ -965,6 +972,7 @@ def test_declared_openrouter_model_does_not_inherit_mai_request_options(
         (*media.TRANSCRIBE_ENGINE_TABLE, declaration),
     )
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openrouter": "or-test"},
         cache=None,
         cache_mode="off",
@@ -1003,6 +1011,7 @@ def test_remote_engine_routes_qualified_local_model_and_records_local_facts(
 
     secret = "local-transcribe-token"
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(
@@ -1069,6 +1078,7 @@ def test_qualified_local_http_failure_still_records_known_zero(tmp_path) -> None
     from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(
@@ -1130,7 +1140,9 @@ def test_remote_engine_names_the_upload_from_the_media_row(tmp_path, monkeypatch
     """
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     seen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1188,7 +1200,9 @@ def test_remote_engine_upload_suffix_follows_the_media_mime(tmp_path, monkeypatc
     with no filename still gets an honest extension, derived from its mime."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     seen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1244,6 +1258,7 @@ def test_remote_engine_ollama_edge_auth_raises_typed_unsupported_error(
     from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(
@@ -1280,6 +1295,7 @@ def test_remote_engine_ollama_tokenless_keeps_todays_behavior(tmp_path) -> None:
     from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(
@@ -1315,7 +1331,11 @@ def test_remote_engine_ollama_tokenless_keeps_todays_behavior(tmp_path) -> None:
 def test_remote_engine_failure_redacts_borrowed_provider_key(tmp_path) -> None:
     secret = "checkpoint1b-transcribe-secret"
     router = ModelRouter(
-        keys={"openai": secret}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1342,7 +1362,11 @@ def test_remote_engine_normalizes_all_success_path_failures(
 ) -> None:
     secret = "checkpoint1b-remote-normalize-secret"
     router = ModelRouter(
-        keys={"openai": secret}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1370,7 +1394,11 @@ def test_remote_engine_normalizes_all_success_path_failures(
 def test_remote_engine_survives_hostile_transport_stringification(tmp_path) -> None:
     secret = "checkpoint1b-hostile-transcribe-transport-secret"
     router = ModelRouter(
-        keys={"openai": secret}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
 
     class HostileConnectError(httpx.ConnectError):
@@ -1399,7 +1427,11 @@ def test_remote_engine_survives_hostile_postprocess_stringification(
 ) -> None:
     secret = "checkpoint1b-hostile-transcribe-postprocess-secret"
     router = ModelRouter(
-        keys={"openai": secret}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
 
     class HostileValueError(ValueError):
@@ -1436,7 +1468,9 @@ def test_remote_engine_token_priced_model_costs_from_usage(tmp_path, monkeypatch
     """gpt-4o-transcribe-class models bill per token: cost comes from the
     response's usage block times the rates in pricing_data.json."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -1467,7 +1501,9 @@ def test_remote_engine_unknown_model_reports_unknown_cost(tmp_path, monkeypatch)
     """A model absent from pricing_data.json bills cost=None — 'price
     unknown', not a fabricated estimate and not a false $0."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"text": "hello", "duration": 60.0})
@@ -1545,7 +1581,12 @@ def test_parakeet_transcribes_speech_end_to_end(tmp_path):
             None,
             lambda project, router: MapRunner(
                 project,
-                router or ModelRouter(cache=None, cache_mode="off"),
+                router
+                or ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                ),
                 authority=open_attempt_authority(project),
             ),
         )
@@ -1741,7 +1782,11 @@ def test_remote_transcription_records_returned_usage_before_output_validation(
             200, json={"text": "transcript", "duration": 2.0, "segments": "bad"}
         )
 
-    router = ModelRouter(keys={"openai": "fake-test-key"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "fake-test-key"},
+        use_env_keys=False,
+    )
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     ctx = OpContext(
         http=client,

@@ -1,5 +1,7 @@
 """Media calls declare transport counts; unrelated attribution facts do not."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from frisket.execution.dispatch_control import STANDALONE
 import asyncio
 from types import SimpleNamespace
@@ -104,7 +106,9 @@ def test_ocr_vlm_cached_pages_do_not_count_as_requests(tmp_path, include_uncache
     second.write_bytes(b"second image")
     adapter = Adapter()
     router = ModelRouter(
-        cache=ResponseCache(tmp_path / "cache.db"), cache_mode="replay"
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=ResponseCache(tmp_path / "cache.db"),
+        cache_mode="replay",
     )
     try:
         router._adapters["mock"] = adapter

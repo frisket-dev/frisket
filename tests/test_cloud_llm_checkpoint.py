@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 
@@ -390,7 +391,12 @@ def test_router_selects_cloud_only_inside_exact_bound_model_scope(tmp_path):
         project = Project.create(tmp_path / "project.frisket")
         transport = _Transport([_response(execution_id="exec-1")])
         coordinator = _coordinator(project, transport)
-        router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+            max_retries=0,
+        )
         try:
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(coordinator=coordinator)

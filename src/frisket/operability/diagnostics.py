@@ -10,6 +10,8 @@ way from one source of truth.
 
 from __future__ import annotations
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import importlib.metadata
 import os
 import re
@@ -64,7 +66,7 @@ def provider_report(router: Any | None = None) -> dict[str, Any]:
     are a key-broker concern, doctor/diagnose never sees or reports them)."""
     from frisket.ai.llm import ModelRouter
 
-    router = router or ModelRouter()
+    router = router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     provs = router.providers()
     keyed = [x for x in provs if x != "ollama"]
     local_configured = bool(router.local_endpoints)
@@ -176,7 +178,7 @@ def provider_key_validation_report(router: Any | None = None) -> dict[str, Any]:
     from frisket.ai.llm import ModelRouter
     from frisket.server.provider_config import probe_provider
 
-    router = router or ModelRouter()
+    router = router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     keys = {
         name: key for name, key in router.configured_keys().items() if name != "ollama"
     }
@@ -255,7 +257,7 @@ def replay_mode_report(router: Any | None = None) -> dict[str, Any]:
     effective cache mode blocks live calls."""
     from frisket.ai.llm import ModelRouter
 
-    router = router or ModelRouter()
+    router = router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     mode = getattr(router, "cache_mode", "replay")
     cache_configured = getattr(router, "cache", None) is not None
     blocks_live_calls = mode == "replay_strict" and cache_configured

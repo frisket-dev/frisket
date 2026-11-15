@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 from typing import Any
@@ -135,7 +136,10 @@ def _request(
 def _runner(project: Project, router: Any | None) -> MapRunner:
     return MapRunner(
         project,
-        router or ModelRouter(cache=None, cache_mode="off"),
+        router
+        or ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 
@@ -186,7 +190,9 @@ def test_typed_action_reserves_runs_and_finalizes_generic_receipt_refs(
         "project-1",
         REGISTRY.get(request.action_id),
         request,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         factory,
     )
 

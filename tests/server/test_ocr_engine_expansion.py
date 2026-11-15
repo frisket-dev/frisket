@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import importlib.util
 import shutil
@@ -154,7 +155,10 @@ def test_tesseract_is_a_recognized_local_free_engine(tmp_path):
     assert ENGINE_ALIASES.get("tess") == "tesseract"
     with TestClient(
         create_app(
-            tmp_path / "workspace", router=ModelRouter(cache=None, cache_mode="off")
+            tmp_path / "workspace",
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
     ) as client:
         pid = client.post("/api/projects", json={"name": "OCR estimate"}).json()["id"]

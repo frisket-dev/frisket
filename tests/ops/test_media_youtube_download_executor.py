@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -25,7 +26,7 @@ CASES = []
 
 
 def run_action_with_confirmation(project, action, **kwargs):
-    kwargs.setdefault("router", ModelRouter())
+    kwargs.setdefault("router", ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY))
     result = run_action_spec(project, action, **kwargs)
     if result.status == "needs_confirmation":
         result = run_action_spec(
@@ -138,7 +139,7 @@ def test_typed_download_confirmation_identity_and_stale_replay(tmp_path, monkeyp
     )
     try:
         action = _youtube_action(sheet_id=sheet_id)
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         quote = run_action_spec(project, action, project_id=PROJECT_ID, router=router)
         assert quote.status == "needs_confirmation"
         assert calls == []

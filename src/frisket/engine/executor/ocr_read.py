@@ -654,6 +654,7 @@ class _BoundOcrReader:
             dpi=self._owner._options["dpi"],
             page_count=page_count,
             report_progress=self._report_page_progress,
+            ctx=self._ctx,
         )
         self._owner._check_open()
         images = {}

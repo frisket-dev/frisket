@@ -1,6 +1,7 @@
 """Runtime behavior for request-scoped, provider-neutral execution limits."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -528,7 +529,9 @@ def test_pdf_markdown_limit_stops_datalab_before_dispatch(
         return "ok", {"model_calls": []}
 
     monkeypatch.setattr(_BoundDocumentConverter, "_convert_datalab", fake_datalab)
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     composition = replace(
         open_execution_composition(
             project, router, ExecutionCompositionContext.direct()
@@ -662,7 +665,12 @@ def test_visual_cuts_limit_stops_pyscenedetect_before_dispatch(
                 ACTION_REGISTRY.get(request.action_id), request
             ),
         )
-        router = ModelRouter(cache=None, cache_mode="off", use_env_keys=False)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
         composition = replace(
             open_execution_composition(
                 project, router, ExecutionCompositionContext.direct()
@@ -794,7 +802,9 @@ def test_run_preview_and_row_clone_receive_the_same_execution_limits(
     project = Project.create(tmp_path / "propagation.frisket", name="propagation")
     sheet_id = project.add_sheet("Rows")
     row_id = project.add_rows(sheet_id, [{}], {})[0]
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     limits = _limits(max_media_seconds=60, max_pdf_pages=12)
     composition = replace(
         open_execution_composition(

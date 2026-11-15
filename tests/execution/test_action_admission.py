@@ -1,5 +1,7 @@
 """Every resolved entry point checks declared requirements before effects."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from contextlib import closing
 
 import pytest
@@ -201,7 +203,12 @@ def test_queued_cluster_rechecks_declared_requirements_after_admission(
     from frisket.server.app import create_app
     from frisket.engine.executor.queued_actions import queued_v1_payload_envelope
 
-    with TestClient(create_app(tmp_path / "workspace", router=ModelRouter())) as client:
+    with TestClient(
+        create_app(
+            tmp_path / "workspace",
+            router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        )
+    ) as client:
         pid = client.post("/api/projects", json={"name": "Gate"}).json()["id"]
         imported = client.post(
             f"/api/projects/{pid}/import/csv",

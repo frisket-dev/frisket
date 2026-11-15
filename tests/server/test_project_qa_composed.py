@@ -1,6 +1,7 @@
 """One complete HTTP → agent → SQL → citation → grid flow, with a fake provider."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import time
@@ -74,7 +75,11 @@ def test_ask_calculation_opens_exact_underlying_records(tmp_path, monkeypatch):
             )
 
     router = ModelRouter(
-        keys={"anthropic": "test-key"}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
     provider = Provider()
     router._adapters["anthropic"] = provider

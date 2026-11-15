@@ -355,14 +355,19 @@
     },
     {
       "id": "local-purchase-policy-belongs-to-composition",
-      "comment": "Only deployment composition and the standalone model-router owner select the local/operator policy. An action may not opt itself out of the hosted purchase owner.",
+      "comment": "Only deployment composition and the finite standalone model/backend owners select the local/operator policy. An action may not opt itself out of the hosted purchase owner.",
       "modules": [
         "frisket",
         "frisket.*"
       ],
       "exclude": [
         "frisket.execution.purchases",
-        "frisket.ai.llm.router"
+        "frisket.server.workspace",
+        "frisket.engine.jobs.runs",
+        "frisket.operability.diagnostics",
+        "frisket.cli.doctor",
+        "frisket.ai.embeddings.backends",
+        "frisket.ai.embeddings.runtime"
       ],
       "forbidden_members": [
         "frisket.execution.purchases.LocalPurchasePolicy",
@@ -372,7 +377,7 @@
     },
     {
       "id": "model-router-construction-belongs-to-composition",
-      "comment": "An action receives an execution-bound client. Constructing an env-key router with the standalone default policy belongs only to the existing finite composition/diagnostic owners. Imports used for annotations remain allowed.",
+      "comment": "An action receives an execution-bound client. Constructing an env-key router with an explicit deployment policy belongs only to the existing finite composition/diagnostic owners. Imports used for annotations remain allowed.",
       "modules": [
         "frisket",
         "frisket.*"
@@ -460,6 +465,167 @@
       "forbidden_calls": [
         "pydantic_ai.Agent",
         "pydantic_ai.agent.Agent"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "transcription-connection-belongs-to-hosted-transport",
+      "comment": "The router returns connection fields only to the hosted transcription purchase owner. New callers cannot borrow operator credentials through its private helper.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ai.llm.router",
+        "frisket.sdk.ops.transcription.hosted"
+      ],
+      "forbidden_members": [
+        "frisket.ai.llm.router._transcription_connection"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "private-local-model-resolution-belongs-to-router",
+      "comment": "The model router no longer hands raw adapters to callers. Its private resolution descriptor remains router-owned; public nonsecret readiness/identity APIs stay available.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ai.llm.router"
+      ],
+      "forbidden_members": [
+        "frisket.ai.llm.router.ModelRouter._resolve_local_model"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-ocr-inference-belongs-to-purchase-facade",
+      "comment": "Raw local OCR functions are implementation details of the purchase-owning OcrEngines fa\u00e7ade. Readiness, constants and setup helpers remain available to their existing consumers.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ops.ocr_engines_local",
+        "frisket.ops.ocr_engines"
+      ],
+      "forbidden_members": [
+        "frisket.ops.ocr_engines_local.ocr_rapidocr",
+        "frisket.ops.ocr_engines_local.run_rapidocr_pool",
+        "frisket.ops.ocr_engines_local.ocr_tesseract",
+        "frisket.ops.ocr_engines_local.ocr_indra",
+        "frisket.ops.ocr_engines.OcrEngines._ocr_rapidocr",
+        "frisket.ops.ocr_engines.OcrEngines._run_rapidocr_pool",
+        "frisket.ops.ocr_engines.OcrEngines._ocr_tesseract",
+        "frisket.ops.ocr_engines.OcrEngines._ocr_indra"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-transcription-adapters-belong-to-purchase-facade",
+      "comment": "Only the transcription purchase fa\u00e7ade constructs or borrows the raw FasterWhisper/Parakeet adapters. Public engine result types and setup helpers remain available.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.sdk.ops.transcribe_engines",
+        "frisket.sdk.ops.transcription.faster_whisper",
+        "frisket.sdk.ops.transcription.parakeet"
+      ],
+      "forbidden_members": [
+        "frisket.sdk.ops.transcription.faster_whisper.FasterWhisperAdapter",
+        "frisket.sdk.ops.transcription.parakeet.ParakeetAdapter"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-spacy-pipeline-belongs-to-purchase-facade",
+      "comment": "Real pipeline loading/inference belongs to the host spaCy purchase owner; pure extraction helpers and readiness checks remain available.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ops.spacy_ner",
+        "frisket.ops.ner_local"
+      ],
+      "forbidden_members": [
+        "frisket.ops.spacy_ner.run_spacy_ner_default",
+        "frisket.ops.spacy_ner._load_pipeline"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-spacy-session-belongs-to-purchase-facade",
+      "comment": "The private spaCy child is invoked by its gated parent NER fa\u00e7ade, not directly by another action. No purchase context is spread into child RPC internals.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.engine._workers.spacy_session",
+        "frisket.engine.executor.ner_read"
+      ],
+      "forbidden_members": [
+        "frisket.engine._workers.spacy_session.SpacySession"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-translation-inference-belongs-to-purchase-facade",
+      "comment": "TranslationEngine owns the purchase around raw host Opus/HY-MT2 batches. Language metadata, readiness and provisioning remain separate.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.ops.integrations.opus_mt",
+        "frisket.ops.integrations.hy_mt2",
+        "frisket.ops.integrations.translation_engine"
+      ],
+      "forbidden_members": [
+        "frisket.ops.integrations.opus_mt.translate_texts",
+        "frisket.ops.integrations.hy_mt2.translate_texts",
+        "frisket.ops.integrations.opus_mt._load_translator",
+        "frisket.ops.integrations.hy_mt2._load_model"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-translation-session-belongs-to-purchase-facade",
+      "comment": "The private Opus child belongs to the parent TranslationEngine purchase fa\u00e7ade; child RPC internals are not another purchase owner.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.engine._workers.opus_mt_session",
+        "frisket.ops.integrations.translation_engine"
+      ],
+      "forbidden_members": [
+        "frisket.engine._workers.opus_mt_session.OpusMtSession"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "local-classifier-session-belongs-to-purchase-facade",
+      "comment": "AdmittedClassifier owns native GLiClass/Jeff purchases. The raw private worker session and its factory cannot be borrowed by another action; pure classifier metadata and chunking helpers remain available.",
+      "modules": [
+        "frisket",
+        "frisket.*"
+      ],
+      "exclude": [
+        "frisket.engine._workers.classifier_session",
+        "frisket.engine.executor.classify_read"
+      ],
+      "forbidden_imports": [
+        "frisket.engine._workers.classifier_session"
+      ],
+      "forbidden_members": [
+        "frisket.engine._workers.classifier_session.ClassifierSession",
+        "frisket.engine.executor.classify_read._new_classifier_session"
       ],
       "reject_unresolved_dynamic": false
     }

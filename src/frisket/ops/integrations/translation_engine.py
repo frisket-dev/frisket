@@ -35,25 +35,68 @@ class TranslationEngine:
         if self._opus_session is not None:
             await self._opus_session.aclose()
 
-    async def _opus_translate(self, src: str, tgt: str, texts: list[str], cancel):
+    async def _opus_translate(
+        self, src: str, tgt: str, texts: list[str], cancel, *, ctx
+    ):
         import asyncio
 
         from frisket.ops.integrations import opus_mt
         from frisket.runtime.translation_install import host_present, is_installed
 
-        if host_present() or not is_installed():
-            return await asyncio.to_thread(opus_mt.translate_texts, src, tgt, texts)
-        from frisket.engine._workers.opus_mt_session import OpusMtSession
+        async def invoke():
+            if host_present() or not is_installed():
+                return await asyncio.to_thread(opus_mt.translate_texts, src, tgt, texts)
+            from frisket.engine._workers.opus_mt_session import OpusMtSession
 
-        if self._invocation_owned:
-            if self._opus_session is None:
-                self._opus_session = OpusMtSession(cancelled=cancel)
-            return await self._opus_session.translate(src, tgt, texts)
-        session = OpusMtSession(cancelled=cancel)
-        try:
-            return await session.translate(src, tgt, texts)
-        finally:
-            await session.aclose()
+            if self._invocation_owned:
+                if self._opus_session is None:
+                    self._opus_session = OpusMtSession(cancelled=cancel)
+                return await self._opus_session.translate(src, tgt, texts)
+            session = OpusMtSession(cancelled=cancel)
+            try:
+                return await session.translate(src, tgt, texts)
+            finally:
+                await session.aclose()
+
+        return await execute_purchase(
+            PurchaseRequest(
+                provider="local",
+                capability="translate",
+                engine="opus_mt",
+                credential_source="none",
+                prepared={"source_language": src, "target_language": tgt},
+                context=ctx,
+                quantity={"input_count": len(texts)},
+            ),
+            policy=policy_for_context(ctx),
+            dispatch=dispatch_for_context(ctx),
+            invoke=invoke,
+            observe=lambda result: PurchaseObservation(
+                result, {"input_count": len(texts)}, 0
+            ),
+        )
+
+    async def _hy_mt2_translate(self, target: str, texts: list[str], *, ctx):
+        import asyncio
+        from frisket.ops.integrations import hy_mt2
+
+        return await execute_purchase(
+            PurchaseRequest(
+                provider="local",
+                capability="translate",
+                engine="hy_mt2",
+                credential_source="none",
+                prepared={"target_language": target},
+                context=ctx,
+                quantity={"input_count": len(texts)},
+            ),
+            policy=policy_for_context(ctx),
+            dispatch=dispatch_for_context(ctx),
+            invoke=lambda: asyncio.to_thread(hy_mt2.translate_texts, target, texts),
+            observe=lambda result: PurchaseObservation(
+                result, {"input_count": len(texts)}, 0
+            ),
+        )
 
     @staticmethod
     def _translation_column(spec: dict) -> str:
@@ -256,7 +299,9 @@ class TranslationEngine:
                     # DeepL reports its own billed characters; fall back to source
                     # length only if the field is absent.
                     billed = results[0].get("billed_characters") if results else None
-                    char_count = billed if isinstance(billed, int) else len(text)
+                    char_count = (
+                        billed if type(billed) is int and billed >= 0 else len(text)
+                    )
                 else:
                     from frisket.ops.integrations.google_translate import (
                         google_translate,
@@ -380,7 +425,9 @@ class TranslationEngine:
                 ) from exc
             cancel = self._cancel_signal(ctx)
             try:
-                results = await self._opus_translate(src_code, tgt_code, [text], cancel)
+                results = await self._opus_translate(
+                    src_code, tgt_code, [text], cancel, ctx=ctx
+                )
             except opus_mt.OpusPairNotInstalled:
                 # Lazy pull-on-first-use: the run queue has no host
                 # affinity, so a row can land on any worker. If the pinned pair
@@ -394,7 +441,7 @@ class TranslationEngine:
                         should_cancel=cancel,
                     )
                     results = await self._opus_translate(
-                        src_code, tgt_code, [text], cancel
+                        src_code, tgt_code, [text], cancel, ctx=ctx
                     )
                 except artifact_pull.ProvisionCancelled as exc:
                     # The run was cancelled mid-download. Retryable so
@@ -477,17 +524,13 @@ class TranslationEngine:
             target = str(spec.get("target_language", "English"))
             cancel = self._cancel_signal(ctx)
             try:
-                results = await asyncio.to_thread(
-                    hy_mt2.translate_texts, target, [text]
-                )
+                results = await self._hy_mt2_translate(target, [text], ctx=ctx)
             except hy_mt2.HyMt2NotInstalled:
                 try:
                     await asyncio.to_thread(
                         hy_mt2.ensure_installed, should_cancel=cancel
                     )
-                    results = await asyncio.to_thread(
-                        hy_mt2.translate_texts, target, [text]
-                    )
+                    results = await self._hy_mt2_translate(target, [text], ctx=ctx)
                 except artifact_pull.ProvisionCancelled as exc:
                     # Cancelled mid-download -> retryable, backfill re-runs it.
                     raise TranslateEngineError(

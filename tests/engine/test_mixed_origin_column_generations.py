@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -567,7 +568,7 @@ def _run_fixture(
         run_with_output_claim(
             MapRunner(
                 project,
-                ModelRouter(keys={}),
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                 authority=UnroutedOnlyAuthority(project),
             ),
             spec,

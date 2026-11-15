@@ -6,6 +6,7 @@ JSON-RPC framing, which belongs to the runtime-client boundary.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -210,7 +211,11 @@ def _response(
 
 def _router(adapter: Any) -> ModelRouter:
     router = ModelRouter(
-        keys={"anthropic": "test"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router

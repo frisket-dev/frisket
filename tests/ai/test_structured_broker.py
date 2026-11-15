@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -219,7 +220,9 @@ def test_broker_routes_schema_bearing_request_through_completer_and_repairs(
     sock_dir,
 ):
     async def run():
-        router = ModelRouter(keys={"anthropic": "k"})
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+        )
         adapter = _RepairingAdapter()
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         sock = str(sock_dir / "broker.sock")
@@ -252,7 +255,9 @@ def test_broker_schemaless_request_still_bypasses_completer(sock_dir):
     adapter = _RepairingAdapter()
 
     async def run():
-        router = ModelRouter(keys={"anthropic": "k"})
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         sock = str(sock_dir / "broker.sock")
         broker = KeyBroker(router.for_execution(STANDALONE), sock)
@@ -320,7 +325,9 @@ def test_broker_clamps_repair_attempts_server_side(sock_dir):
     adapter = _AlwaysBadAdapter()
 
     async def run():
-        router = ModelRouter(keys={"anthropic": "k"})
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         sock = str(sock_dir / "broker.sock")
         broker = KeyBroker(router.for_execution(STANDALONE), sock)
@@ -361,7 +368,9 @@ def test_broker_wraps_structurally_invalid_schema_as_schema_violation(sock_dir):
     bad_schema = {"type": "not-a-real-json-schema-type"}
 
     async def run():
-        router = ModelRouter(keys={"anthropic": "k"})
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+        )
         router._adapters["anthropic"] = _AlwaysBadAdapter()  # never reached
         sock = str(sock_dir / "broker.sock")
         broker = KeyBroker(router.for_execution(STANDALONE), sock)
@@ -406,7 +415,11 @@ def test_schemaless_broker_sums_returned_retry_usage_without_exposing_carrier(so
     adapter = ReturnedAdapter(["paid_error", "ok"])
 
     async def run():
-        router = ModelRouter(keys={"anthropic": "test-key"}, max_retries=1)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test-key"},
+            max_retries=1,
+        )
         router._adapters["anthropic"] = adapter
         broker = KeyBroker(
             router.for_execution(STANDALONE), str(sock_dir / "retry.sock")

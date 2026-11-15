@@ -8,7 +8,7 @@ from dataclasses import replace
 import pytest
 
 from frisket.execution.dispatch_control import STANDALONE
-from frisket.execution.purchases import PurchaseAdmission
+from frisket.execution.purchases import PurchaseAdmission, LOCAL_PURCHASE_POLICY
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter, ResponseCache
 from frisket.ai.llm.cache import request_key
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
@@ -49,7 +49,9 @@ class _RecordingPolicy:
         return PurchaseAdmission("metered", "test-purchase")
 
     def fail_purchase(self, request, admission, error):
-        self.events.append(("failed_live", request.credential_source, error.status))
+        self.events.append(
+            ("failed_live", request.credential_source, getattr(error, "status", None))
+        )
 
     def record_purchase(self, request, admission, observation):
         credential_source = request.credential_source
@@ -121,7 +123,7 @@ def _router(
         cache_mode=cache_mode,  # type: ignore[arg-type]
         max_retries=max_retries,
         use_env_keys=False,
-        **({"model_call_policy": policy} if policy is not None else {}),
+        model_call_policy=policy if policy is not None else LOCAL_PURCHASE_POLICY,
     )
 
 
@@ -321,7 +323,7 @@ def test_queued_local_endpoint_overlay_retains_the_identical_policy(tmp_path) ->
         cache_mode="off",
         use_env_keys=False,
         local_endpoints=(original_endpoint,),
-        **({"model_call_policy": policy} if policy is not None else {}),
+        model_call_policy=policy if policy is not None else LOCAL_PURCHASE_POLICY,
     )
     try:
         rebuilt = _router_for(
@@ -338,9 +340,10 @@ def test_queued_local_endpoint_overlay_retains_the_identical_policy(tmp_path) ->
 
 
 @pytest.mark.asyncio
-async def test_router_default_local_policy_keeps_local_transport_behavior() -> None:
+async def test_explicit_local_policy_keeps_local_transport_behavior() -> None:
     events: list[tuple] = []
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "test-key"},
         key_sources={"openai": "local"},
         cache=None,

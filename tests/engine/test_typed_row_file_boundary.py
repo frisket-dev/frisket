@@ -1,5 +1,7 @@
 """Staged row-file ownership, declared shapes, and publication boundaries."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import hashlib
 from typing import Annotated
 
@@ -207,7 +209,7 @@ def fetch_run(tmp_path, monkeypatch):
         output_names={"first": "One", "second": "Two"},
         idempotency_key="review-fetch",
     )
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
 
     def run(*, partial=False):
         nonlocal request

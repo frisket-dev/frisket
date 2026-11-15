@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -100,7 +101,9 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
             sheet_id, [{"seed": "source"}], {"seed": source_id}
         )
         runner = MapRunner(
-            project, ModelRouter(keys={}), authority=UnroutedOnlyAuthority(project)
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+            authority=UnroutedOnlyAuthority(project),
         )
         spec = {
             "action_kind": "map.regex_extract",
@@ -484,7 +487,7 @@ def test_cancelled_batch_cannot_publish_returned_values_after_stop(
                 run_with_output_claim(
                     MapRunner(
                         project,
-                        ModelRouter(keys={}),
+                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                         should_cancel=(
                             (lambda _run_id: recipe.cancellation_observed)
                             if phase == "replacement"
@@ -563,7 +566,7 @@ def test_single_output_omission_publishes_an_explicit_error_head(
             run_with_output_claim(
                 MapRunner(
                     project,
-                    ModelRouter(keys={}),
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     authority=UnroutedOnlyAuthority(project),
                 ),
                 {
@@ -612,7 +615,7 @@ def test_single_output_omission_publishes_an_explicit_error_head(
             run_with_output_claim(
                 MapRunner(
                     project,
-                    ModelRouter(keys={}),
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     authority=UnroutedOnlyAuthority(project),
                 ),
                 {
@@ -666,7 +669,7 @@ def test_fresh_pre_dispatch_cancellation_still_seals_managed_binding(
             run_with_output_claim(
                 MapRunner(
                     project,
-                    ModelRouter(keys={}),
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     should_cancel=lambda _run_id: True,
                     authority=UnroutedOnlyAuthority(project),
                 ),
@@ -782,7 +785,7 @@ def test_queued_pre_run_failure_seals_zero_effect_binding_then_allows_replace(
             run_with_output_claim(
                 MapRunner(
                     project,
-                    ModelRouter(keys={}),
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     authority=UnroutedOnlyAuthority(project),
                     allow_action_lifecycle_only_recipes=True,
                 ),
@@ -1107,7 +1110,9 @@ def test_prepared_atomic_resume_declaration_failure_preserves_retry(
         recipe = _CancellationBatchRecipe(atomic_output_columns=True)
         recipe.keep_zero_success_output_columns = True
         runner = MapRunner(
-            project, ModelRouter(keys={}), authority=UnroutedOnlyAuthority(project)
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+            authority=UnroutedOnlyAuthority(project),
         )
         spec = {
             "action_kind": "map.regex_extract",
@@ -1187,7 +1192,7 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
                 run_with_output_claim(
                     MapRunner(
                         project,
-                        ModelRouter(keys={}),
+                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                         authority=UnroutedOnlyAuthority(project),
                         allow_action_lifecycle_only_recipes=True,
                     ),
@@ -1320,7 +1325,7 @@ def test_runner_fence_refuses_legacy_producer_on_managed_output(
                 run_with_output_claim(
                     MapRunner(
                         project,
-                        ModelRouter(keys={}),
+                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                         authority=UnroutedOnlyAuthority(project),
                     ),
                     {
@@ -1571,7 +1576,7 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
             run_with_output_claim(
                 MapRunner(
                     project,
-                    ModelRouter(keys={}),
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     authority=UnroutedOnlyAuthority(project),
                     allow_action_lifecycle_only_recipes=True,
                 ),

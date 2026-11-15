@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import threading
@@ -130,7 +131,10 @@ def test_context_normal_run_and_cancellation_use_shared_lifecycle(project, batch
     def factory(project, router):
         return MapRunner(
             project,
-            router or ModelRouter(cache=None, cache_mode="off"),
+            router
+            or ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
             should_cancel=lambda _run_id: event.is_set(),
             on_progress=observed_progress.append,
@@ -176,7 +180,9 @@ def test_context_preview_cancellation_is_not_a_row_failure(project, batch):
     )
     runner = MapRunner(
         store,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(store),
     )
     spec = plan.spec_dict()
@@ -254,7 +260,9 @@ def test_spontaneous_child_cancellation_without_host_stop_still_escapes(project,
     )
     runner = MapRunner(
         store,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(store),
         should_cancel=lambda _run: False,
         on_progress=observed_progress.append,
@@ -297,7 +305,10 @@ def test_circuit_breaker_stops_an_inflight_context_and_settles_receipt(project):
     def factory(project, router):
         return MapRunner(
             project,
-            router or ModelRouter(cache=None, cache_mode="off"),
+            router
+            or ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
             concurrency=2,
             halt_after_consecutive_failures=1,
@@ -381,7 +392,9 @@ def test_true_outer_cancellation_still_escapes_with_concurrent_intent(
         )
         runner = MapRunner(
             store,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(store),
             should_cancel=lambda _run: intent.is_set(),
         )

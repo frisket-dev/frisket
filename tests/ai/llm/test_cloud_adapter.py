@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from typing import Any
@@ -149,7 +150,12 @@ class _DirectAdapter:
 
 
 def _router(direct: _DirectAdapter | None = None) -> ModelRouter:
-    router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        cache_mode="off",
+        max_retries=0,
+    )
     if direct is not None:
         router._adapters["anthropic"] = direct  # noqa: SLF001 - coexistence proof
     return router
@@ -392,7 +398,7 @@ def test_cloud_binding_dispatches_without_overriding_configured_adapter():
         direct = _DirectAdapter()
         router = _router(direct)
         try:
-            assert router.adapter_for_model(MODEL) is direct
+            assert router._adapters["anthropic"] is direct
             transport = _CloudTransport()
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, _attempt())

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import sqlite3
@@ -110,7 +111,9 @@ class _FailingSidecarHttp:
 
 
 def _router_with_http(http: Any) -> ModelRouter:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = http  # noqa: SLF001
     return router
 

@@ -82,6 +82,9 @@ async def call_hosted_json(
             code="transport",
             message=f"Could not reach {provider_name}: {exc}",
             retryable=True,
+            post_egress_ambiguous=not isinstance(
+                exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+            ),
         ) from exc
     try:
         body = response.json()

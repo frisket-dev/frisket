@@ -13,6 +13,7 @@ from frisket.ai.llm.types import LLMResponse
 from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.project_qa_research import ProjectQAResearchStore
+from frisket.execution.purchases import PurchaseAdmission
 from frisket.server.services.project_qa_research import ResearchSession
 from frisket.server.services.project_qa_runner import run_turn
 
@@ -20,12 +21,38 @@ from frisket.server.services.project_qa_runner import run_turn
 MODEL_ID = "gemini/gemini-3.5-flash"
 
 
+class ScriptedPurchasePolicy:
+    """Explicit platform composition for the scripted provider below."""
+
+    def __init__(self):
+        self.requests = []
+        self.observations = []
+
+    def prepare(self, request, credential_source):
+        assert credential_source == "platform_key"
+        return request
+
+    def admit_purchase(self, request):
+        assert request.credential_source == "platform_key"
+        self.requests.append(request)
+        return PurchaseAdmission("metered", f"test-operation-{len(self.requests)}")
+
+    def record_purchase(self, request, admission, observation):
+        assert admission.operation_id == f"test-operation-{len(self.observations) + 1}"
+        self.observations.append(observation)
+
+    def fail_purchase(self, request, admission, error):
+        pytest.fail(f"Scripted provider unexpectedly failed: {type(error).__name__}")
+
+
 class ScriptedAdapter:
     def __init__(self, responses: list[LLMResponse]) -> None:
         self.responses = responses
         self.calls = 0
+        self.policy = ScriptedPurchasePolicy()
 
     async def complete(self, request, client) -> LLMResponse:
+        assert len(self.policy.requests) == self.calls + 1
         response = self.responses[self.calls]
         self.calls += 1
         return response
@@ -92,6 +119,7 @@ def _runtime(
         cache_mode="off",
         max_retries=0,
         use_env_keys=False,
+        model_call_policy=adapter.policy,
     )
     router._adapters["gemini"] = adapter
     return project, qa, ledger, research, session, router, adapter
@@ -120,6 +148,7 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
         result = await run_turn(project, router, turn, qa, research=session)
         assert result["text"] == "Investigation complete."
         assert adapter.calls == 10
+        assert len(adapter.policy.observations) == adapter.calls
         assert ledger.get(research["id"])["turn_count"] == 10
         completed_tools = [
             event
@@ -159,6 +188,7 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
         assert current["pending_approval"]["kind"] == "turn_limit"
         assert current["turn_count"] == 1
         assert adapter.calls == 1
+        assert len(adapter.policy.observations) == adapter.calls
     finally:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -207,6 +237,7 @@ async def test_cancellation_during_usage_recording_still_settles_actual_cost(
         [operation] = ledger.operations(research["id"])
         assert operation["actual_micros"] == 321
         assert ledger.budget_summary(research["id"])["reserved_micros"] == 0
+        assert len(_adapter.policy.observations) == _adapter.calls == 1
     finally:
         release.set()
         await router.aclose()
@@ -256,5 +287,6 @@ async def test_action_tool_exposes_and_validates_the_canonical_draft(tmp_path) -
         assert result["text"] == "Action prepared."
         assert prepared == [draft]
         assert adapter.calls == 3
+        assert len(adapter.policy.observations) == adapter.calls
     finally:
         project.close()

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from types import SimpleNamespace
@@ -1514,7 +1515,12 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
 
     runner = MapRunner(
         project,
-        ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+            max_retries=0,
+        ),
         concurrency=1,
         authority=AttemptAuthority(project, composition=composition),
         on_progress=bind_claim,

@@ -20,7 +20,6 @@ import httpx
 from frisket.redaction import canonical_error_code, redact_text, redact_value
 from frisket.execution.dispatch_control import DispatchControl
 from frisket.execution.purchases import (
-    LOCAL_PURCHASE_POLICY,
     PurchasePolicy,
     PurchaseRequest,
     PurchaseObservation,
@@ -226,7 +225,8 @@ class ModelRouter:
         max_retries: int = 3,
         use_env_keys: bool = True,
         local_endpoints: tuple[LocalModelEndpointConfig, ...] = (),
-        model_call_policy: PurchasePolicy = LOCAL_PURCHASE_POLICY,
+        *,
+        model_call_policy: PurchasePolicy,
     ):
         env = os.environ if use_env_keys else {}
         keys = keys or {}
@@ -357,23 +357,14 @@ class ModelRouter:
             provider, "local" if provider == "ollama" else "none"
         )
 
-    def adapter_for(self, provider: str):
-        """The configured adapter for a provider, or None. Bespoke non-chat
-        calls (e.g. the transcribe recipe's remote /audio/transcriptions
-        engine) borrow its credentials/base_url; the chat path stays
-        complete() — the router deliberately has no audio path."""
-        return self._adapters.get(provider)
+    def has_provider(self, provider: str) -> bool:
+        """Readiness without exposing an adapter that can bypass execution."""
+        return provider in self._adapters
 
-    def adapter_for_model(self, model: str):
-        """Return the configured local-endpoint or provider adapter for a model."""
-        provider = provider_from_model_id(model)
-        if provider == "ollama":
-            try:
-                _endpoint, adapter, _bare_model = self.resolve_local_model(model)
-            except LLMError:
-                return None
-            return adapter
-        return self._adapters.get(provider)
+    def local_endpoint_identity(self, model: str) -> tuple[str, str]:
+        """Non-secret route identity used by queued action admission."""
+        endpoint, _adapter, _bare_model = self._resolve_local_model(model)
+        return endpoint.endpoint_id, endpoint.origin
 
     def local_endpoint_url_for_model(self, model: str) -> str | None:
         """Return the exact local-server origin named by ``model``.
@@ -384,12 +375,12 @@ class ModelRouter:
         """
 
         try:
-            endpoint, _adapter, _bare_model = self.resolve_local_model(model)
+            endpoint, _adapter, _bare_model = self._resolve_local_model(model)
         except LLMError:
             return None
         return endpoint.origin
 
-    def resolve_local_model(
+    def _resolve_local_model(
         self, model: str
     ) -> tuple[LocalModelEndpointConfig, OpenAICompatAdapter, str]:
         adapter = self._adapters.get("ollama")
@@ -400,7 +391,7 @@ class ModelRouter:
     def secret_values_for_model(self, model: str) -> tuple[str, ...]:
         """Return only the credential selected by one exact model identity."""
         if provider_from_model_id(model) == "ollama":
-            _endpoint, adapter, _bare_model = self.resolve_local_model(model)
+            _endpoint, adapter, _bare_model = self._resolve_local_model(model)
             return self._adapter_secret_values(adapter)
         return self._adapter_secret_values(
             self._adapters.get(provider_from_model_id(model))
@@ -712,7 +703,7 @@ class ModelRouter:
             )
         wire_req = req
         if provider == "ollama" and cloud_adapter is None:
-            _endpoint, adapter, bare_model = self.resolve_local_model(req.model)
+            _endpoint, adapter, bare_model = self._resolve_local_model(req.model)
             wire_req = replace(req, model=f"ollama/{bare_model}")
         last: Exception | None = None
 
@@ -951,7 +942,7 @@ class ModelRouter:
         requested = model.split("/", 1)[-1]
         adapter = self._adapters.get(provider)
         if provider == "ollama":
-            _endpoint, adapter, requested = self.resolve_local_model(model)
+            _endpoint, adapter, requested = self._resolve_local_model(model)
         if adapter is None or not hasattr(adapter, "embed_with_meta"):
             raise LLMError(
                 f"no embedding backend for '{provider}' "
@@ -1173,3 +1164,21 @@ class ModelRouter:
                 # client bound to an already-closed event loop — nothing to
                 # release that process teardown won't handle
                 pass
+
+
+def _transcription_connection(
+    router, model_id: str
+) -> tuple[str | None, str | None, str, bool]:
+    """Private credential handoff to the accounted transcription transport."""
+    provider, _, model = model_id.partition("/")
+    endpoint = None
+    if provider == "ollama":
+        endpoint, adapter, model = router._resolve_local_model(model_id)
+    else:
+        adapter = router._adapters.get(provider)
+    return (
+        getattr(adapter, "base_url", None),
+        getattr(adapter, "api_key", None),
+        model,
+        bool(endpoint is not None and endpoint.edge_auth),
+    )

@@ -1,6 +1,7 @@
 """Formula's managed column publication is all or nothing."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import pickle
@@ -26,7 +27,10 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 def _runner(project: Project, router: object) -> MapRunner:
     return MapRunner(
         project,
-        router or ModelRouter(cache=None, cache_mode="off"),
+        router
+        or ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 

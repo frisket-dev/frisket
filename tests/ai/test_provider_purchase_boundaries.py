@@ -106,7 +106,7 @@ async def test_policy_failure_does_not_repurchase(stage, error):
                 LLMRequest(model="openai/gpt-5-mini", messages=[])
             )
     assert len(calls) == (stage == "accounting")
-    assert policy.failed == []
+    assert policy.failed == ([raised.value] if stage == "accounting" else [])
     if stage == "accounting":
         assert raised.value.__cause__ is error
         assert raised.value.provider_result.content == "known result"

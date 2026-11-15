@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -44,7 +45,11 @@ def _patch_embedder(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             (_fake_embed, "stub/semantic-join") if _BACKEND["available"] else None
         ),
     )
-    return {"router": ModelRouter(cache=None, cache_mode="off")}
+    return {
+        "router": ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
+    }
 
 
 def _join_action(

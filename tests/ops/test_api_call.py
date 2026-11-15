@@ -6,6 +6,7 @@ blocked-URL case (a link-local/metadata IP literal, deterministic offline).
 Secrets resolve only through the project's named secrets store."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -132,7 +133,9 @@ def test_control_like_output_names_are_safe_typed_columns(
 ):
     project, sheet = _sheet_with_columns(tmp_path)
     project.add_rows(sheet, [{}], {})
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda req: httpx.Response(
@@ -726,7 +729,9 @@ def test_receipt_status_provider_and_aggregate_errors(
             json={"ok": True},
         )
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     body = _bound(sheet, request={"url": "https://x/{{id}}"}).request.model_dump(
         mode="json"

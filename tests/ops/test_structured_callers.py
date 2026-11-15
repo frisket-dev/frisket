@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.execution.dispatch_control import STANDALONE
 import asyncio
@@ -53,7 +54,9 @@ def _resp(data: dict | None, *, tokens_in=50, tokens_out=10, cost=0.001):
 
 
 def _scripted_router(outcomes: list[Any], *, max_retries=3, provider="mock"):
-    router = ModelRouter(keys={}, max_retries=max_retries)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=max_retries
+    )
     adapter = _ScriptedAdapter(outcomes=list(outcomes))
     router._adapters[provider] = adapter  # noqa: SLF001
     return router, adapter
@@ -150,7 +153,12 @@ def test_ops_agent_dispatches_search_tool_through_real_wire_and_finishes(
         calls.append(query)
         return f"result for {query}", [f"https://example.test/{query}"]
 
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _AgentToolAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     data, meta = run(
@@ -180,7 +188,11 @@ def test_ops_agent_hits_step_limit_without_finishing(monkeypatch):
         return "nothing useful", []
 
     router = ModelRouter(
-        keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     # always request the search tool -- the agent never finishes on its own.
     adapter = _ScriptedAdapter(
@@ -252,7 +264,12 @@ def test_ops_agent_empty_model_turn_finishes_with_empty_answer():
     before pydantic-ai raises UnexpectedModelBehavior."""
     from frisket.ai.research.row_answer import run_research
 
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _EmptyTurnAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     data, meta = run(
@@ -306,7 +323,11 @@ def test_ops_agent_unknown_tool_call_continues_until_step_limit():
     from frisket.ai.research.row_answer import MAX_STEPS, run_research
 
     router = ModelRouter(
-        keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     adapter = _BogusToolAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001

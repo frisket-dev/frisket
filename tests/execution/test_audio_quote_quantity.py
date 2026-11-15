@@ -1,5 +1,7 @@
 """ASR estimates measure one admitted source per row, never guess a selection."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from dataclasses import dataclass
 
 import pytest
@@ -79,7 +81,9 @@ def _resolve(project, spec):
         spec,
         _AudioProgram(),
         composition=open_execution_composition(
-            project, ModelRouter(), ExecutionCompositionContext.direct()
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            ExecutionCompositionContext.direct(),
         ),
     )
 

@@ -5,6 +5,8 @@
 - engine param resolves local-light → sidecar (dots.mocr) → remote VLM (router)
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import base64
 import mimetypes
@@ -103,7 +105,13 @@ def test_ocr_image_light_engine_with_blocks(tmp_path):
     _require_nested_macos_sandbox()
     path = _render_png(tmp_path / "scan.png", "FRISKET OCR 4271")
     p, sheet = _project(tmp_path, [{"page": str(path)}])
-    prog = _execute(p, _spec(sheet), ModelRouter(cache=None, cache_mode="off"))
+    prog = _execute(
+        p,
+        _spec(sheet),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "ocr_text")
     assert "FRISKET" in text and "4271" in text
@@ -150,7 +158,11 @@ def test_ocr_light_language_rides_worker_payload(tmp_path, monkeypatch):
     path = _render_png(tmp_path / "scan.png", "BONJOUR")
     p, sheet = _project(tmp_path, [{"page": str(path)}])
     prog = _execute(
-        p, _spec(sheet, language="latin"), ModelRouter(cache=None, cache_mode="off")
+        p,
+        _spec(sheet, language="latin"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     assert prog.status == "completed", prog.errors
     assert captured["language"] == "latin"
@@ -167,7 +179,11 @@ def test_ocr_light_language_constructs_real_engine(tmp_path):
     path = _render_png(tmp_path / "scan.png", "FRISKET 4271")
     p, sheet = _project(tmp_path, [{"page": str(path)}])
     prog = _execute(
-        p, _spec(sheet, language="ch"), ModelRouter(cache=None, cache_mode="off")
+        p,
+        _spec(sheet, language="ch"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "ocr_text")
@@ -191,7 +207,11 @@ def test_ocr_light_unknown_language_fails_per_row(tmp_path):
     path = _render_png(tmp_path / "scan.png", "HELLO")
     p, sheet = _project(tmp_path, [{"page": str(path)}])
     prog = _execute(
-        p, _spec(sheet, language="klingon"), ModelRouter(cache=None, cache_mode="off")
+        p,
+        _spec(sheet, language="klingon"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     assert prog.status == "failed", prog.errors
     err = p.db.execute(
@@ -218,7 +238,13 @@ def test_ocr_pdf_rasterize_then_ocr(tmp_path):
     )
 
     p, sheet = _project(tmp_path, [{"page": str(pdf)}], coltype="file")
-    prog = _execute(p, _spec(sheet), ModelRouter(cache=None, cache_mode="off"))
+    prog = _execute(
+        p,
+        _spec(sheet),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "ocr_text")
     assert "ALPHA" in text and "1111" in text

@@ -1,6 +1,7 @@
 """Grounding-only files are admitted inputs, never model prompt values."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
@@ -49,7 +50,12 @@ class _Adapter:
 
 def _router(before_reply=None):
     adapter = _Adapter(before_reply)
-    router = ModelRouter(keys={"anthropic": "stub"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "stub"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
     return router, adapter
 

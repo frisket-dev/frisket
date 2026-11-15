@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from quick_search_helpers import patch_quick_search_model
 
@@ -557,7 +558,12 @@ class _SequenceAdapter:
 def _stub_router(
     reply: dict[str, object] | None = None,
 ) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _StubAdapter(reply)
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -565,7 +571,10 @@ def _stub_router(
 
 def _judge_router() -> tuple[ModelRouter, _SequenceAdapter]:
     router = ModelRouter(
-        keys={"anthropic": "k", "openai": "k"}, cache=None, cache_mode="off"
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k", "openai": "k"},
+        cache=None,
+        cache_mode="off",
     )
     adapter = _SequenceAdapter(
         [
@@ -626,7 +635,12 @@ class _ResearchAdapter:
 
 
 def _research_router() -> tuple[ModelRouter, _ResearchAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _ResearchAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -678,7 +692,9 @@ class _NerSidecarHttp:
 
 
 def _ner_router_with_http(http: Any) -> ModelRouter:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = http  # noqa: SLF001
     return router
 

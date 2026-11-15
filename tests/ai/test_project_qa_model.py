@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -115,7 +116,13 @@ class _TypedOutput(BaseModel):
 
 def test_schema_only_output_keeps_forced_output_mapping_over_tool_metadata() -> None:
     model = FrisketRouterModel(
-        ModelRouter(cache=None, cache_mode="off", use_env_keys=False), "anthropic/test"
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        ),
+        "anthropic/test",
     )
     response = model._to_model_response(  # noqa: SLF001 - regression at shim seam
         LLMResponse(
@@ -607,6 +614,7 @@ def test_saved_source_quotes_remain_data_in_later_model_requests(
             model="anthropic/test",
         )
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-key"},
             cache=None,
             cache_mode="off",
@@ -717,6 +725,7 @@ def test_followup_history_reopens_prior_source_without_reusing_stale_citation(
                 )
 
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-key"},
             cache=None,
             cache_mode="off",
@@ -743,6 +752,7 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
     project, store, turn = _project_turn(tmp_path, scope)
     try:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -896,6 +906,7 @@ def test_runner_repairs_fabricated_inline_references(
             )
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-key"},
         cache=None,
         cache_mode="off",
@@ -922,6 +933,7 @@ def test_runner_refuses_an_answer_that_repeats_an_unknown_citation(
     project, store, turn = _project_turn(tmp_path, scope)
     try:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -953,6 +965,7 @@ def test_runner_does_not_register_action_tools_when_suggestions_are_off(
     try:
         turn["suggest_actions"] = False
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -978,6 +991,7 @@ def test_runner_registers_web_tools_only_for_web_enabled_turns(
     try:
         turn["web"] = True
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -1028,6 +1042,7 @@ def test_runner_checks_project_key_spend_before_each_provider_request(
             spend_cap_micro=0,
         )
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-project-key"},
             key_sources={"anthropic": "project_key"},
             cache=None,
@@ -1054,6 +1069,7 @@ def test_runner_settles_a_durable_usage_call_before_stop_cancellation(
     project, store, turn = _project_turn(tmp_path, scope)
     try:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -1175,7 +1191,11 @@ def test_runner_searches_late_passage_then_continues_before_answering(tmp_path):
             )
 
     router = ModelRouter(
-        keys={"anthropic": "test-key"}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
     adapter = ReaderAdapter()
     router._adapters["anthropic"] = adapter

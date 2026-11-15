@@ -1,6 +1,7 @@
 """`map.ner` canonical scope and fresh-column lifecycle guards."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,9 @@ class _SidecarHttp:
 
 
 def _router() -> ModelRouter:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = _SidecarHttp()  # noqa: SLF001
     return router
 

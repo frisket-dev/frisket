@@ -1,3 +1,4 @@
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 from dataclasses import replace
 import threading
@@ -77,7 +78,7 @@ def test_unaccepted_download_never_backfills_channels(tmp_path, monkeypatch, dis
             "params": {"source": "url"},
             "idempotency_key": "unaccepted",
         }
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         quote = run_action_spec(project, body, project_id="unaccepted", router=router)
         assert quote.status == "needs_confirmation", quote.errors
         body["confirmation"] = quote.errors[0].details["promise_set_hash"]
@@ -202,7 +203,7 @@ def test_typed_download_publication_and_replay(
             "output_names": {media_type: "media"},
             "idempotency_key": "download-proof",
         }
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         quote = run_action_spec(project, body, project_id="download", router=router)
         assert quote.status == "needs_confirmation", quote.errors
         assert not calls
@@ -276,7 +277,7 @@ def test_downloader_is_reusable_with_renamed_params_and_derived_url(
             "params": {"address": "url"},
             "idempotency_key": "derived",
         }
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         quote = run_action_spec(project, body, project_id="derived", router=router)
         assert quote.status == "needs_confirmation", quote.errors
         body["confirmation"] = quote.errors[0].details["promise_set_hash"]
@@ -468,7 +469,7 @@ def test_download_batch_uses_two_row_slots(tmp_path, monkeypatch):
             "params": {"source": "url", "media_type": "video"},
             "idempotency_key": "bounded-downloads",
         }
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         quote = run_action_spec(
             project, body, project_id="bounded", router=router, deps=deps
         )

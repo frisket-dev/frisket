@@ -1,5 +1,7 @@
 """Public typed Geocode queue preserves exact consent and replay authority."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import httpx
 from fastapi.testclient import TestClient
 
@@ -35,7 +37,9 @@ def test_geocode_queue_and_replay(tmp_path, monkeypatch):
             200, json=[{"lat": "51.75", "lon": "-1.25", "display_name": "Oxford"}]
         )
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with TestClient(
         create_app(tmp_path / "workspace", router=router, run_status_grace_seconds=3600)

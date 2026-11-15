@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -73,7 +74,11 @@ def _router_with_responses(
         return httpx.Response(200, json=responses[len(requests) - 1])
 
     router = ModelRouter(
-        keys={"gemini": "test-key"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"gemini": "test-key"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
     return router, requests

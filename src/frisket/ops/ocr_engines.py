@@ -22,6 +22,13 @@ from frisket.engine.pdf_render import (
     render_pdf_pages,
 )
 from frisket.execution.targets import CAPABILITY_OCR
+from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+    policy_for_context,
+)
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 from frisket.ops.media_metadata import image_dimensions as _image_dimensions
 from frisket.ops import ocr_engines_hosted as hosted
@@ -188,12 +195,36 @@ class OcrEngines:
                 language=language,
                 keep_text_position=keep_text_position,
             )
-        if engine == LIGHT_ENGINE:
-            return await self._ocr_rapidocr(page_paths, scratch, language)
-        if engine == INDRA_OCR_ENGINE:
-            return await self._ocr_indra(page_paths, scratch)
-        if engine == "tesseract":
-            return await self._ocr_tesseract(page_paths, scratch, language)
+        if engine in LOCAL_ENGINES:
+            if not page_paths:
+                return []
+
+            async def invoke_local():
+                if engine == LIGHT_ENGINE:
+                    return await self._ocr_rapidocr(page_paths, scratch, language)
+                if engine == INDRA_OCR_ENGINE:
+                    return await self._ocr_indra(page_paths, scratch)
+                if engine == "tesseract":
+                    return await self._ocr_tesseract(page_paths, scratch, language)
+                raise ValueError(f"unknown local OCR engine {engine!r}")
+
+            return await execute_purchase(
+                PurchaseRequest(
+                    provider="local",
+                    capability=CAPABILITY_OCR,
+                    engine=engine,
+                    credential_source="none",
+                    prepared={"language": language},
+                    context=ctx,
+                    quantity={"pages": len(page_paths)},
+                ),
+                policy=policy_for_context(ctx),
+                dispatch=dispatch_for_context(ctx),
+                invoke=invoke_local,
+                observe=lambda result: PurchaseObservation(
+                    result, {"pages": len(page_paths)}, 0
+                ),
+            )
         if engine in SIDECAR_ENGINES:
             return await self._ocr_sidecar(engine, page_paths, ctx)
         if engine.startswith("opendocrouter/"):
@@ -357,15 +388,33 @@ class OcrEngines:
     async def _ocr_indra(self, pages, scratch):
         return await local.ocr_indra(pages, scratch, cancelled=self.cancelled)
 
-    async def _ocr_indra_pdf(self, path, scratch, *, dpi, page_count, report_progress):
-        return await local.ocr_indra(
-            [],
-            scratch,
-            cancelled=self.cancelled,
-            pdf=path,
-            dpi=dpi,
-            page_count=page_count,
-            report_progress=report_progress,
+    async def _ocr_indra_pdf(
+        self, path, scratch, *, dpi, page_count, report_progress, ctx
+    ):
+        return await execute_purchase(
+            PurchaseRequest(
+                provider="local",
+                capability=CAPABILITY_OCR,
+                engine=INDRA_OCR_ENGINE,
+                credential_source="none",
+                prepared={"dpi": dpi},
+                context=ctx,
+                quantity={"pages": page_count},
+            ),
+            policy=policy_for_context(ctx),
+            dispatch=dispatch_for_context(ctx),
+            invoke=lambda: local.ocr_indra(
+                [],
+                scratch,
+                cancelled=self.cancelled,
+                pdf=path,
+                dpi=dpi,
+                page_count=page_count,
+                report_progress=report_progress,
+            ),
+            observe=lambda result: PurchaseObservation(
+                result, {"pages": page_count}, 0
+            ),
         )
 
     async def _ocr_sidecar(self, engine, pages, ctx):

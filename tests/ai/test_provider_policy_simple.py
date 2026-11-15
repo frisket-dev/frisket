@@ -1,5 +1,7 @@
 """Native records, genuine dictionaries, and nullable absence on real wire shapes."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 
@@ -55,7 +57,12 @@ def complete(model, schema, data, *, params=None):
         return httpx.Response(200, json=payload)
 
     async def go():
-        router = ModelRouter(keys={provider: "test"}, use_env_keys=False, max_retries=0)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={provider: "test"},
+            use_env_keys=False,
+            max_retries=0,
+        )
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             router._client = client
             return await StructuredCompleter(router.for_execution(STANDALONE)).complete(

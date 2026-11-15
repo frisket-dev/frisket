@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from typing import Any
@@ -15,7 +16,10 @@ def _client(tmp_path) -> TestClient:
         create_app(
             tmp_path / "workspace",
             router=ModelRouter(
-                keys={"anthropic": "test-key"}, cache=None, cache_mode="off"
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={"anthropic": "test-key"},
+                cache=None,
+                cache_mode="off",
             ),
         )
     )

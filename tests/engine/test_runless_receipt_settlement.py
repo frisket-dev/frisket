@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import logging
@@ -40,7 +41,9 @@ def test_map_find_queue_persists_original_edition_context_on_receipt_replay(
     project_id = "runless-context"
     project = Project.create(tmp_path / f"{project_id}.frisket")
     queue = open_queue(workspace=tmp_path)
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     # The subject is the receipt's edition context, not Find's scan admission;
     # stub the typed admission seam the reservation pins as evidence.
     monkeypatch.setattr(

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import base64
 import io
@@ -126,7 +127,9 @@ async def test_positioned_ocr_uses_generic_contract_and_preserves_line_order(
         OpContext(
             http=None,
             extras={
-                "router": ModelRouter(use_env_keys=False),
+                "router": ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+                ),
                 "standalone_dispatch": STANDALONE,
             },
         ),
@@ -186,7 +189,9 @@ async def test_positioned_ocr_uses_known_yxyx_profile(
         OpContext(
             http=None,
             extras={
-                "router": ModelRouter(use_env_keys=False),
+                "router": ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+                ),
                 "standalone_dispatch": STANDALONE,
             },
         ),
@@ -223,7 +228,9 @@ async def test_positioned_ocr_reports_exif_display_coordinate_frame(
         OpContext(
             http=None,
             extras={
-                "router": ModelRouter(use_env_keys=False),
+                "router": ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+                ),
                 "standalone_dispatch": STANDALONE,
             },
         ),
@@ -264,7 +271,9 @@ async def test_text_only_ocr_retains_existing_request_and_result_shape(
         OpContext(
             http=None,
             extras={
-                "router": ModelRouter(use_env_keys=False),
+                "router": ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+                ),
                 "standalone_dispatch": STANDALONE,
             },
         ),
@@ -300,7 +309,9 @@ async def test_invalid_positioned_box_fails_after_preserving_wire_accounting(
             OpContext(
                 http=None,
                 extras={
-                    "router": ModelRouter(use_env_keys=False),
+                    "router": ModelRouter(
+                        model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+                    ),
                     "standalone_dispatch": STANDALONE,
                 },
             ),
@@ -329,7 +340,9 @@ async def test_minimax_positioned_resize_maps_back_to_original_page(
         OpContext(
             http=None,
             extras={
-                "router": ModelRouter(use_env_keys=False),
+                "router": ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+                ),
                 "standalone_dispatch": STANDALONE,
             },
         ),
@@ -380,7 +393,9 @@ async def test_openai_positioned_ocr_requests_tested_high_detail(
         OpContext(
             http=None,
             extras={
-                "router": ModelRouter(use_env_keys=False),
+                "router": ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+                ),
                 "standalone_dispatch": STANDALONE,
             },
         ),
@@ -430,7 +445,9 @@ async def test_claude_positioned_resize_maps_inference_pixels_to_original_page(
         OpContext(
             http=None,
             extras={
-                "router": ModelRouter(use_env_keys=False),
+                "router": ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+                ),
                 "standalone_dispatch": STANDALONE,
             },
         ),

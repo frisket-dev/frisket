@@ -1,5 +1,7 @@
 """Evidence publication failure settles paid work without authorizing repurchase."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 
 import pytest
@@ -25,6 +27,7 @@ def _invocation(tmp_path):
     path, sheet_id, _ = _seed_document_project(tmp_path, "evidence-settlement")
     _, adapter = _stub_router(_grounded_reply())
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-key"},
         key_sources={"anthropic": "project_key"},
         cache=None,

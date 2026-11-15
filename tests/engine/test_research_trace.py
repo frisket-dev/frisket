@@ -1,6 +1,7 @@
 """Research diagnostics remain bounded, complete across calls, and fail open."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import gzip
@@ -434,7 +435,11 @@ def test_research_only_cancellation_trace_is_persisted_and_cancellation_re_raise
             asyncio.run(
                 execute_row(
                     project,
-                    ModelRouter(cache=None, cache_mode="off"),
+                    ModelRouter(
+                        model_call_policy=LOCAL_PURCHASE_POLICY,
+                        cache=None,
+                        cache_mode="off",
+                    ),
                     AdaptiveThrottle(),
                     CancelledRecipe(llm=False),
                     {},

@@ -4,6 +4,8 @@ and the serve path's child-process spawn.
 The loop is the SAME code over both backends; backend semantics live in
 tests/test_job_queue.py, so the worker tests run on SQLite."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import functools
 import subprocess
 import threading
@@ -400,7 +402,12 @@ class TestExecution:
         queue = SqliteJobQueue(workspace / ".queue.db")
         ws = Workspace(
             workspace,
-            router=ModelRouter(cache=cache, cache_mode="fresh", use_env_keys=False),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                cache=cache,
+                cache_mode="fresh",
+                use_env_keys=False,
+            ),
             queue=queue,
             registry=registry,
             execution_router_factory=fresh_router,

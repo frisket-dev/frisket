@@ -7,6 +7,8 @@ To (re)populate after changing any prompt/schema here:
 then commit tests/cache/llm_cache.db. That run spends real (sub-cent) money.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import os
 
@@ -35,7 +37,11 @@ SNIPPET = (
 
 
 def make_router() -> ModelRouter:
-    return ModelRouter(cache=ResponseCache(CACHE_PATH), cache_mode=MODE)
+    return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=ResponseCache(CACHE_PATH),
+        cache_mode=MODE,
+    )
 
 
 def classify_request(model: str) -> LLMRequest:

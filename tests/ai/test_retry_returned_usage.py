@@ -1,5 +1,7 @@
 """Every returned retry purchase survives success, error, Stop and cache replay."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 from contextlib import closing
 
@@ -52,7 +54,12 @@ class ReturnedAdapter:
 
 
 def router_for(adapter, **kwargs):
-    router = ModelRouter(keys={"anthropic": "test-key"}, max_retries=1, **kwargs)
+    router = ModelRouter(
+        model_call_policy=kwargs.pop("model_call_policy", LOCAL_PURCHASE_POLICY),
+        keys={"anthropic": "test-key"},
+        max_retries=1,
+        **kwargs,
+    )
     router._adapters["anthropic"] = adapter
     return router
 

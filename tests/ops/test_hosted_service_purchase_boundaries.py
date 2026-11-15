@@ -11,6 +11,7 @@ from PIL import Image
 
 from frisket.credentials import ResolvedCredential
 from frisket.execution.credential_use import CredentialUseContext
+from frisket.execution.purchases import PurchaseAdmission, PurchaseRecordingError
 from frisket.ops.base import OpContext
 
 
@@ -19,17 +20,33 @@ class Purchases:
         self.events = []
         self.refuse = refuse
 
-    def admit_external_service(self, **request):
-        self.events.append(("admit", request))
+    def admit_purchase(self, request):
+        self.events.append(("admit", vars(request)))
         if self.refuse:
             raise ValueError("actual request cannot be funded")
-        return f"operation-{len(self.events)}"
+        return PurchaseAdmission("metered", f"operation-{len(self.events)}")
 
-    def finish_service(self, operation_id, **facts):
-        self.events.append(("finish", {"operation_id": operation_id, **facts}))
+    def record_purchase(self, request, admission, observation):
+        self.events.append(
+            (
+                "finish",
+                {
+                    "operation_id": admission.operation_id,
+                    **vars(observation),
+                },
+            )
+        )
 
-    def fail_service(self, operation_id, error):
-        self.events.append(("fail", {"operation_id": operation_id, "error": error}))
+    def fail_purchase(self, request, admission, error):
+        self.events.append(
+            (
+                "fail",
+                {
+                    "operation_id": admission.operation_id,
+                    "error": error,
+                },
+            )
+        )
 
 
 def context(policy, **kwargs):
@@ -166,9 +183,11 @@ async def test_direct_transcription_admits_before_http_and_preserves_usage_befor
 
     policy = Purchases(refuse=refuse)
     router = SimpleNamespace(
-        adapter_for=lambda provider: SimpleNamespace(
-            base_url="https://provider.test", api_key="fixture"
-        ),
+        _adapters={
+            "openai": SimpleNamespace(
+                base_url="https://provider.test", api_key="fixture"
+            )
+        },
         credential_source_for=lambda provider: "org_byok",
         model_call_policy=policy,
     )
@@ -355,27 +374,32 @@ async def test_ask_search_owns_authority_in_actual_search_task():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("body", [{}, {"pages": None}, {"pages": "not a list"}, []])
-async def test_sidecar_malformed_pages_fails_purchase_once(tmp_path, monkeypatch, body):
+async def test_sidecar_malformed_pages_records_returned_purchase_before_validation(
+    tmp_path, monkeypatch, body
+):
     from frisket.ops import ocr_engines_sidecar as sidecar
 
     policy, ctx, page, calls = _sidecar_purchase(tmp_path, monkeypatch, body)
     with pytest.raises(
         ValueError, match="OCR sidecar response must contain a pages list"
-    ) as error:
+    ):
         await sidecar.ocr_sidecar("dots.mocr", [page], ctx)
     assert len(calls) == 1
-    assert [kind for kind, _ in policy.events] == ["admit", "fail"]
-    assert policy.events[-1][1]["error"] is error.value
+    assert [kind for kind, _ in policy.events] == ["admit", "finish"]
+    assert policy.events[-1][1]["result"] == body
+    assert policy.events[-1][1]["usage"] == {}
+    assert policy.events[-1][1]["provider_cost_micro"] is None
     assert policy.events[-1][1]["operation_id"] == "sidecar-operation"
 
 
 def _sidecar_purchase(tmp_path, monkeypatch, body):
     from frisket.ops import ocr_engines_sidecar as sidecar
+    from frisket.ops import _sidecar
 
     class SidecarPurchases(Purchases):
-        def admit_ocr(self, **request):
-            self.events.append(("admit", request))
-            return "sidecar-operation"
+        def admit_purchase(self, request):
+            self.events.append(("admit", vars(request)))
+            return PurchaseAdmission("metered", "sidecar-operation")
 
     policy = SidecarPurchases()
     ctx = context(policy)
@@ -394,7 +418,7 @@ def _sidecar_purchase(tmp_path, monkeypatch, body):
         assert [kind for kind, _ in policy.events] == ["admit"]
         return body
 
-    monkeypatch.setattr(sidecar, "sidecar_post", post)
+    monkeypatch.setattr(_sidecar, "_sidecar_post_transport", post)
     return policy, ctx, page, calls
 
 
@@ -407,23 +431,32 @@ async def test_sidecar_valid_pages_retained_without_misclassifying_accounting_er
 
     body = {"pages": [{"text": "Saved OCR", "blocks": []}]}
     policy, ctx, page, calls = _sidecar_purchase(tmp_path, monkeypatch, body)
-    finish = policy.finish_service
+    finish = policy.record_purchase
 
-    def record(operation_id, **facts):
-        finish(operation_id, **facts)
+    def record(request, admission, observation):
+        finish(request, admission, observation)
         if accounting_fails:
             raise RuntimeError("accounting unavailable")
 
-    monkeypatch.setattr(policy, "finish_service", record)
+    monkeypatch.setattr(policy, "record_purchase", record)
     if accounting_fails:
-        with pytest.raises(RuntimeError, match="accounting unavailable"):
+        with pytest.raises(
+            PurchaseRecordingError, match="accounting unavailable"
+        ) as error:
             await sidecar.ocr_sidecar("dots.mocr", [page], ctx)
+        assert error.value.provider_result is body
+        assert error.value.observation.result is body
     else:
         assert await sidecar.ocr_sidecar("dots.mocr", [page], ctx) is body["pages"]
     assert len(calls) == 1
-    assert [kind for kind, _ in policy.events] == ["admit", "finish"]
-    assert policy.events[-1][1] == {
+    assert [kind for kind, _ in policy.events] == (
+        ["admit", "finish", "fail"] if accounting_fails else ["admit", "finish"]
+    )
+    if accounting_fails:
+        assert policy.events[-1][1]["error"] is error.value
+    assert policy.events[1][1] == {
         "operation_id": "sidecar-operation",
         "result": body,
         "usage": {"pages": 1},
+        "provider_cost_micro": None,
     }

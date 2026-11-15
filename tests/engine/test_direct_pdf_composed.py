@@ -1,6 +1,7 @@
 """PDF bytes survive real typed execution, structured completion and HTTP adapters."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import base64
 from io import BytesIO
@@ -120,6 +121,7 @@ def test_typed_pdf_action_delivers_whole_and_selected_page_and_publishes_only_ou
             }
         )
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={provider: "fixture-only"},
             use_env_keys=False,
             cache=None,

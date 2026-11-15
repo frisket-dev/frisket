@@ -26,6 +26,7 @@ from frisket.ai.llm import (
 from frisket.engine.store import Project
 from frisket.actions.classify import ClassifyField, ClassifyParams
 from frisket.actions.types import Row, RowError
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.executor.classify_read import (
     LOCAL_SEMANTIC_CHUNK_CHARS,
     LOCAL_SEMANTIC_MAX_CHUNKS,
@@ -73,14 +74,23 @@ class _FailingAdapter:
 
 
 def _stub_router(reply: dict[str, Any]) -> ModelRouter:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = _StubAdapter(reply)  # noqa: SLF001
     return router
 
 
 def _failing_router() -> ModelRouter:
     router = ModelRouter(
-        keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     router._adapters["anthropic"] = _FailingAdapter()  # noqa: SLF001
     return router
@@ -543,7 +553,9 @@ def test_map_classify_native_engine_is_free_and_publishes_review_scores(
             plan.spec_dict(),
             program=plan.program,
             composition=open_execution_composition(
-                env.project, ModelRouter(), ExecutionCompositionContext.direct()
+                env.project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+                ExecutionCompositionContext.direct(),
             ),
             pricing_policy=IdentityPricingPolicy(),
         )
@@ -970,7 +982,10 @@ def test_map_classify_cache_hits_write_non_billable_model_call_metadata(
                 ),
             )
         env.run_kwargs["router"] = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
 
         result = env.run(action)

@@ -9,6 +9,7 @@ Proves the recurring/source-triggered path is queue-shaped, not inline:
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from tests.watch_helpers import add_watch
 
@@ -317,7 +318,7 @@ def _remote_index_action(sheet_id):
 
 
 def test_server_workspace_registry_drains_embedding_refresh(tmp_path):
-    router = ModelRouter(keys={})
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
     router._adapters["openai"] = _FakeOpenAIAdapter()
     ws = Workspace(tmp_path / "ws", router=router)
     try:

@@ -8,6 +8,7 @@ provider (row anchors only).
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from tests.watch_helpers import post_watch
 
@@ -46,7 +47,12 @@ class _Gateway:
 
 
 def _client(tmp_path):
-    return TestClient(create_app(tmp_path / "ws", router=ModelRouter(keys={})))
+    return TestClient(
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        )
+    )
 
 
 def _seed(client):

@@ -1,5 +1,7 @@
 """Cancellation is checked at each dispatch, never by discarding a return."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 from contextlib import closing
 from types import SimpleNamespace
@@ -76,7 +78,12 @@ async def test_cancel_during_provider_failure_prevents_retry(owned):
         RunResultStore(project).request_cancel(run.run_id)
         return httpx.Response(429, json={"error": {"message": "busy"}})
 
-    router = ModelRouter(keys={"openai": "test"}, use_env_keys=False, max_retries=2)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "test"},
+        use_env_keys=False,
+        max_retries=2,
+    )
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         router._client = client
         with pytest.raises(asyncio.CancelledError):
@@ -114,7 +121,11 @@ async def test_structured_repair_keeps_dispatch_owner(owned):
         RunResultStore(project).request_cancel(run.run_id)
         return response("not json")
 
-    router = ModelRouter(keys={"openai": "test"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "test"},
+        use_env_keys=False,
+    )
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         router._client = client
         with pytest.raises(asyncio.CancelledError):
@@ -143,7 +154,11 @@ async def test_bound_runs_do_not_mutate_shared_router(owned):
         other.authority.writer_attempt_id,
         claim_token=other.authority.claim_token,
     )
-    router = ModelRouter(keys={"openai": "test"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "test"},
+        use_env_keys=False,
+    )
     one, two = router.for_execution(control), router.for_execution(other_control)
     RunResultStore(project).request_cancel(run.run_id)
     async with httpx.AsyncClient(
@@ -241,7 +256,11 @@ async def test_unbound_router_cannot_silently_dispatch_standalone():
         calls.append(req)
         return response()
 
-    router = ModelRouter(keys={"openai": "test"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "test"},
+        use_env_keys=False,
+    )
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
         router._client = client
         for method, args in (
@@ -276,7 +295,11 @@ def test_embedding_refresh_checks_run_cancellation_before_provider(
         sheet = project.add_sheet("data")
         column = project.add_column(sheet, "headline")
         project.add_rows(sheet, [{"headline": "hello"}], {"headline": column})
-        router = ModelRouter(keys={"openai": "test"}, use_env_keys=False)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"openai": "test"},
+            use_env_keys=False,
+        )
 
         class Adapter:
             base_url = "https://example.invalid"

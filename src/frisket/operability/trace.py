@@ -564,13 +564,13 @@ class TracingRouter:
         bound._extra_secret_values = self._extra_secret_values
         return bound
 
-    def adapter_for(self, provider: str) -> Any:
+    def has_provider(self, provider: str) -> bool:
         self._remember_model(provider)
-        return self._inner.adapter_for(provider)
+        return self._inner.has_provider(provider)
 
-    def resolve_local_model(self, model: str) -> tuple[Any, Any, str]:
+    def local_endpoint_identity(self, model: str) -> tuple[str, str]:
         self._remember_model(model)
-        return self._inner.resolve_local_model(model)
+        return self._inner.local_endpoint_identity(model)
 
     def _remember_model(self, model: str) -> None:
         if (

@@ -14,6 +14,7 @@ Two deliverables under test:
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import sys
 from types import ModuleType
@@ -373,7 +374,7 @@ async def test_router_embed_batch_returns_metadata_rich_result():
                 },
             )
 
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     router._adapters["openai"] = FakeAdapter()
     result = await router.for_execution(STANDALONE).embed_batch(
         ["x", "y"], model="openai/text-embedding-3-small"
@@ -412,7 +413,7 @@ async def test_router_embed_batch_preserves_hosted_cost_source(
                 meta["cost_source"] = meta_source
             return [[1.0, 0.0]] * len(texts), meta
 
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     router._adapters["openai"] = FakeAdapter()  # noqa: SLF001 - hermetic adapter
     result = await router.for_execution(STANDALONE).embed_batch(
         ["x"], model="openai/text-embedding-3-small"
@@ -439,7 +440,11 @@ async def test_canonical_ollama_embedding_mints_known_free_cost():
         origin="http://127.0.0.1:11434",
         source="local_file",
     )
-    router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        local_endpoints=(endpoint,),
+    )
     local_adapter = router._adapters["ollama"]  # noqa: SLF001 - hermetic adapter
     local_adapter._adapters["desk"] = FakeAdapter()  # noqa: SLF001
 
@@ -471,7 +476,7 @@ async def test_router_embed_stays_vector_only_for_legacy_callers():
                 {"actual_model_id": model, "dimension": 2},
             )
 
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     router._adapters["openai"] = FakeAdapter()
     vecs = await router.for_execution(STANDALONE).embed(
         ["x"], model="openai/text-embedding-3-small"
@@ -486,7 +491,10 @@ async def test_router_embed_stays_vector_only_for_legacy_callers():
 
 
 def test_capabilities_cover_all_modalities_at_shape_level():
-    caps = embedding_capabilities(router=ModelRouter(), local_available=True)
+    caps = embedding_capabilities(
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        local_available=True,
+    )
     covered = set().union(*(c["modalities"] for c in caps))
     # not text-only: the contract represents every modality from the start
     assert {"text", "image", "audio", "video", "file", "row"} <= covered
@@ -494,7 +502,10 @@ def test_capabilities_cover_all_modalities_at_shape_level():
 
 
 def test_capability_entries_have_full_shape():
-    caps = embedding_capabilities(router=ModelRouter(), local_available=True)
+    caps = embedding_capabilities(
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        local_available=True,
+    )
     required = {
         "provider_id",
         "provider_kind",
@@ -514,8 +525,14 @@ def test_capability_entries_have_full_shape():
 
 
 def test_local_text_available_with_base_runtime():
-    avail = embedding_capabilities(router=ModelRouter(), local_available=True)
-    unavail = embedding_capabilities(router=ModelRouter(), local_available=False)
+    avail = embedding_capabilities(
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        local_available=True,
+    )
+    unavail = embedding_capabilities(
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        local_available=False,
+    )
     local_text = [c for c in avail if c["provider_kind"] == "local_process"]
     assert local_text and any(c["available"] for c in local_text)
     # honest degradation: damaged base runtime → disabled with a reason, never hidden
@@ -529,7 +546,7 @@ def test_disable_flag_hides_installed_text_and_image_but_not_hosted(
 ):
     monkeypatch.delenv("FRISKET_DISABLE_LOCAL_EMBED", raising=False)
     caps = embedding_capabilities(
-        router=ModelRouter(),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         env={
             "FRISKET_DISABLE_LOCAL_EMBED": "1",
             "FRISKET_ENABLE_PROVIDERLESS_CLASSIFY": "1",
@@ -576,13 +593,19 @@ def test_disabled_custom_fastembed_resolution_never_reads_registry(
 
 
 def test_remote_capability_disabled_without_key_enabled_with_key():
-    no_key = embedding_capabilities(router=ModelRouter(keys={}), local_available=False)
+    no_key = embedding_capabilities(
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        local_available=False,
+    )
     openai_off = [c for c in no_key if c["provider_id"] == "openai"]
     assert openai_off and all(not c["available"] for c in openai_off)
     assert all(c["error"] for c in openai_off)
 
     with_key = embedding_capabilities(
-        router=ModelRouter(keys={"openai": "sk-test"}), local_available=False
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"openai": "sk-test"}
+        ),
+        local_available=False,
     )
     openai_on = [c for c in with_key if c["provider_id"] == "openai"]
     assert openai_on and any(c["available"] for c in openai_on)
@@ -592,7 +615,10 @@ def test_remote_capability_disabled_without_key_enabled_with_key():
 
 
 def test_unbuilt_sidecar_media_engines_are_disabled_with_reasons():
-    caps = embedding_capabilities(router=ModelRouter(), local_available=True)
+    caps = embedding_capabilities(
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        local_available=True,
+    )
     media = [
         c
         for c in caps

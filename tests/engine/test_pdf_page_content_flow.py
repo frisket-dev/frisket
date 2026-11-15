@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import io
 import hashlib
@@ -268,7 +269,12 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
                 }
             }
         )
-        router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         extracted = run_action_with_exact_confirmation(
             project,
@@ -449,7 +455,9 @@ def test_ocr_checkpoint_crash_replays_compact_prepared_page(
             typed_action_for_request(action),
             _allow_existing_outputs=True,
         )
-        runner = actions._default_map_runner_factory(project, ModelRouter())
+        runner = actions._default_map_runner_factory(
+            project, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+        )
         progress = __import__("asyncio").run(
             runner.run(
                 plan.spec_dict(),

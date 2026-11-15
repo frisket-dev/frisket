@@ -1,6 +1,7 @@
 """Typed Docling execution through the optional Solo-managed model server."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from contextlib import closing
 
@@ -55,13 +56,17 @@ def _run(project: Project, sheet_id: int, composition):
             "idempotency_key": "managed-docling-action",
         },
         project_id="managed-docling-test",
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         deps=ExecutorDeps(execution_composition=composition),
     )
 
 
 def _composition(project: Project, *, include_managed: bool = True):
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     return open_execution_composition(
         project,
         router,

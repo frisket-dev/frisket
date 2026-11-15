@@ -6,6 +6,7 @@ is exactly free, with an allowlisted venue whenever resolution is consumed.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -753,7 +754,9 @@ def test_real_api_call_exact_echo_refuses_before_row_effect(
         [row_id] = project.add_rows(sheet_id, [{"q": "alpha"}], {"q": source})
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
         )
         plan = _api_plan(sheet_id, [row_id], project=project)
@@ -804,7 +807,9 @@ def test_real_census_preview_refuses_before_execute_batch(
         )
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
         )
         plan = _census_plan(sheet_id, [row_id], project=project)
@@ -880,7 +885,9 @@ def test_real_dots_mocr_runs_once_at_operator_lan_without_writes(
         )
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
         )
         spec = plan.spec_dict()
@@ -940,7 +947,9 @@ def test_real_opus_mt_exact_free_local_preview_uses_actual_validation(
         )
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
         )
         from frisket.actions.system import typed_action_for_request

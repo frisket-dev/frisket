@@ -1,6 +1,8 @@
 """Computed (non-AI) columns + media ops: regex, template, python sandbox,
 face extraction. All offline."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 
 import pytest
@@ -22,7 +24,9 @@ def project(tmp_path):
 
 
 def run_recipe(p, spec):
-    router = ModelRouter(keys={"anthropic": "k"})
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+    )
     return asyncio.run(
         run_with_output_claim(
             MapRunner(p, router, authority=UnroutedOnlyAuthority(p)),

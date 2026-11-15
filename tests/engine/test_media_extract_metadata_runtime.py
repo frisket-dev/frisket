@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import copy
@@ -441,7 +442,11 @@ def test_preview_dedupes_sequential_references_without_populating_shared_cache(
         preview = asyncio.run(
             MapRunner(
                 project,
-                ModelRouter(cache=None, cache_mode="off"),
+                ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                ),
                 authority=UnroutedOnlyAuthority(project),
             ).preview(plan.spec_dict(), program=plan.program)
         )
@@ -1071,7 +1076,9 @@ def test_raw_maprunner_cannot_launch_metadata_without_action_lifecycle(
         ):
             asyncio.run(
                 MapRunner(
-                    project, ModelRouter(), authority=UnroutedOnlyAuthority(project)
+                    project,
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+                    authority=UnroutedOnlyAuthority(project),
                 ).run(
                     {
                         "action_kind": "media.extract_metadata",
@@ -1166,7 +1173,7 @@ def test_metadata_resume_never_recreates_changed_claimed_outputs(
         spec = plan.spec_dict()
         runner = MapRunner(
             project,
-            ModelRouter(),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -1314,7 +1321,7 @@ def test_direct_cancelled_metadata_family_has_receipt_and_reuses_on_retry(
         cancel_deps = ExecutorDeps(
             map_runner_factory=lambda p, router: MapRunner(
                 p,
-                router or ModelRouter(),
+                router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
                 concurrency=1,
                 should_cancel=lambda _run_id: True,
                 allow_action_lifecycle_only_recipes=True,

@@ -5,6 +5,8 @@ pre-populate the cache for chosen rows and chaos-fault everything else —
 partial failure, resume, and throttling become exact, network-free tests.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 from dataclasses import dataclass
@@ -238,7 +240,10 @@ class TestHappyPath:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, [f"text {i}" for i in range(10)])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -261,7 +266,10 @@ class TestHappyPath:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, ["a"])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -287,7 +295,10 @@ class TestHappyPath:
             score=7,
         )
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         first = asyncio.run(
             run_with_output_claim(
@@ -389,6 +400,7 @@ class TestPartialFailure:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, texts[:5])
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             cache=cache,
             cache_mode="replay",
@@ -431,6 +443,7 @@ class TestPartialFailure:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, texts[:3])
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             cache=cache,
             cache_mode="replay",
@@ -450,7 +463,10 @@ class TestPartialFailure:
         # now the missing rows become cacheable (provider "recovered")
         prime_cache(cache, project, sheet, spec, texts[3:])
         router2 = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner2 = MapRunner(
             project,
@@ -483,7 +499,9 @@ class TestCostGate:
         sheet, _ = seed_sheet(project, ["long text " * 200] * 300)
         spec = classify_spec(sheet)
         spec["model"] = spec["params"]["model"] = "anthropic/claude-opus-4-8"
-        router = ModelRouter(keys={"anthropic": "k"})
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+        )
         runner = MapRunner(
             project,
             router,
@@ -511,7 +529,9 @@ class TestCostGate:
         spec["model"] = spec["params"]["model"] = "anthropic/claude-opus-4-8"
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -550,7 +570,9 @@ class TestCostGate:
         spec["model"] = spec["params"]["model"] = "anthropic/claude-opus-4-8"
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -580,7 +602,12 @@ class TestCostGate:
         spec["row_ids"] = rows
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, [texts[0]] * 1)
-        router = ModelRouter(keys={"anthropic": "k"}, cache=cache, cache_mode="replay")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay",
+        )
         runner = MapRunner(
             project,
             router,
@@ -611,7 +638,9 @@ class TestResumeExtendCostGate:
         program = program or _program(spec)
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -644,7 +673,9 @@ class TestResumeExtendCostGate:
 
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -685,7 +716,9 @@ class TestResumeExtendCostGate:
 
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -739,7 +772,9 @@ class TestResumeExtendCostGate:
 
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -782,7 +817,10 @@ class TestUndoIntegration:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, ["a", "b"])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -811,7 +849,9 @@ class TestCodexFinalReviewRegressions:
         sheet, _ = seed_sheet(project, ["a"])
         spec = classify_spec(sheet)
         spec["params"]["fields"] = [{"name": "text", "type": "score"}]  # collides!
-        router = ModelRouter(keys={"anthropic": "k"})
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+        )
         runner = MapRunner(
             project,
             router,
@@ -835,7 +875,10 @@ class TestCodexFinalReviewRegressions:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, ["a"])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -912,7 +955,12 @@ class TestCancel:
         sheet, _ = seed_sheet(project, ["must not reach the provider"])
         spec = classify_spec(sheet)
         adapter = _SlowAdapter()
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         runner = MapRunner(
             project,
@@ -959,7 +1007,12 @@ class TestCancel:
             "input_columns": ["text"],
             "output_name": "relevance",
         }
-        router = ModelRouter(keys={}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={},
+            cache=None,
+            cache_mode="off",
+        )
         runner = MapRunner(
             project,
             router,
@@ -1026,7 +1079,12 @@ class TestCancel:
         run_store = RunResultStore(project)
         runner = MapRunner(
             project,
-            ModelRouter(keys={}, cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            ),
             concurrency=1,
             should_cancel=run_store.cancellation_requested,
             defer_cancel_terminal_close=True,
@@ -1151,7 +1209,12 @@ class TestCancel:
 
         runner = MapRunner(
             project,
-            ModelRouter(keys={}, cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            ),
             concurrency=1,
             should_cancel=cancel_after_attempt_load,
             defer_cancel_terminal_close=True,
@@ -1203,7 +1266,12 @@ class TestCancel:
         sheet, _ = seed_sheet(project, ["only row"])
         spec = classify_spec(sheet)
         adapter = _SlowAdapter()
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         runner = MapRunner(
             project,
@@ -1247,7 +1315,10 @@ class TestCancel:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, ["a", "b"])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -1371,6 +1442,7 @@ def _scripted_row_repair_router(
             source="local_file",
         )
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             use_env_keys=False,
             cache=None,
             cache_mode="off",
@@ -1381,6 +1453,7 @@ def _scripted_row_repair_router(
         endpoint_adapter.complete = adapter.complete
     else:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "test-key"},
             key_sources={"openai": "org_byok"},
             use_env_keys=False,
@@ -1565,7 +1638,12 @@ class TestStructuredArrayUnwrapMapPath:
 
     def test_array_schema_llm_row_returns_bare_list(self, project):
         items = [{"text": "Ada"}, {"text": "NYC"}]
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = _ArrayToolUseAdapter(items)  # noqa: SLF001
         recipe = _FakeArrayRecipe()
         spec = {"model": "anthropic/claude-haiku-4-5"}

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import io
@@ -1579,7 +1580,12 @@ async def test_update_required_keeps_instruction_and_never_retries_cloud_purchas
     attempt = CloudExecutionAttempt(
         "update-required", _payer(), CloudQuoteAuthority(None)
     )
-    router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=3)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        cache_mode="off",
+        max_retries=3,
+    )
     try:
         with cloud_llm_execution_scope(CloudLLMExecutionBinding(transport, attempt)):
             with pytest.raises(CloudExecutionRefused) as caught:

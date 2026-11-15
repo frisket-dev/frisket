@@ -1,5 +1,7 @@
 """Selector reads are part of the actual app, including incomplete action drafts."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
@@ -170,6 +172,7 @@ def test_native_hosted_selector_distinguishes_platform_and_byok_credentials(tmp_
             tmp_path / f"{source}-{type(funding).__name__}",
             serve_spa=False,
             router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"openai": "test-openai", "anthropic": "test-anthropic"},
                 key_sources={"openai": source, "anthropic": "platform_key"},
                 use_env_keys=False,

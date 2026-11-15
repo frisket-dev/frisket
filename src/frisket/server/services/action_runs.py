@@ -821,7 +821,7 @@ class ActionRunService:
                 router,
                 execution_composition=execution_composition_for(),
             )
-            if router.adapter_for(provider) is None and not exact_replay:
+            if not router.has_provider(provider) and not exact_replay:
                 return V1ActionResult(
                     action={
                         "kind": kind,
