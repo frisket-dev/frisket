@@ -508,7 +508,11 @@ def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
         (row_id, int(transcript_column["id"])),
     ).fetchone()
     assert evidence_link is not None
-    assert json.loads(evidence_link["subject_ref_json"]) == current_refs[row_id]
+    from frisket.engine.store.cell_reference import evidence_subject_ref
+
+    assert json.loads(evidence_link["subject_ref_json"]) == evidence_subject_ref(
+        current_refs[row_id]
+    )
     resolved = resolve_timestamped_transcript(
         project,
         sheet_id=sheet_id,

@@ -424,7 +424,11 @@ def test_scan_locates_distinct_occurrences_and_dedupes_exact_locations(
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         plans = plan_find_scan(params, sources)
 
-        scan = asyncio.run(scan_find_plans(params, plans, router=router))
+        scan = asyncio.run(
+            scan_find_plans(
+                params, plans, router=router, record_calls=lambda calls: None
+            )
+        )
         estimate = estimate_find_scan_cost(params, plans)
 
         assert [match.candidate.match for match in scan.matches] == [
@@ -498,7 +502,12 @@ def test_scan_keeps_distinct_occurrences_sharing_one_positive_span() -> None:
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router,
+            record_calls=lambda calls: None,
+        )
     )
 
     assert [match.candidate.match for match in scan.matches] == [
@@ -560,7 +569,12 @@ def test_scan_orders_multi_unit_citations_by_resolved_match_position() -> None:
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router,
+            record_calls=lambda calls: None,
+        )
     )
 
     assert [match.candidate.match for match in scan.matches] == ["EARLY", "LATE"]
@@ -614,7 +628,12 @@ def test_scan_exact_duplicate_retains_earliest_cited_evidence() -> None:
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router,
+            record_calls=lambda calls: None,
+        )
     )
 
     assert len(scan.matches) == 1
@@ -681,7 +700,12 @@ def test_scan_globally_orders_matches_across_overlap_windows() -> None:
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router,
+            record_calls=lambda calls: None,
+        )
     )
 
     assert [match.candidate.match for match in scan.matches] == ["MIDDLE", "LATE"]
@@ -739,7 +763,12 @@ def test_scan_preserves_visual_region_page_order() -> None:
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router,
+            record_calls=lambda calls: None,
+        )
     )
 
     assert all(isinstance(match, VisualFindMatch) for match in scan.matches)

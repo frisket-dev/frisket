@@ -334,7 +334,18 @@ def run_typed_find_action_job(project, envelope, *, deps=None):
                     details=dict(exc.details),
                 ),
             )
-    result = asyncio.run(scan_find_plans(prepared.operation, scan.plans, router=router))
+    from frisket.engine.store.runs import RunResultStore
+
+    def record_calls(calls):
+        RunResultStore(project).write_unscoped_model_calls(
+            calls, row_id=None, column_id=None
+        )
+
+    result = asyncio.run(
+        scan_find_plans(
+            prepared.operation, scan.plans, router=router, record_calls=record_calls
+        )
+    )
     action = _TypedProjectEnvelope(
         bound.action.action_id, bound.request.idempotency_key, bound.request.params
     )
@@ -347,7 +358,7 @@ def run_typed_find_action_job(project, envelope, *, deps=None):
             action_id=envelope.action_id,
             receipt_id=envelope.receipt_id,
             params_hash=envelope.params_hash,
-            wire_calls=result.wire_calls,
+            calls=result.model_calls,
             error=ActionError(
                 code="incomplete_scan",
                 message="No grounded findings could be published because the scan was incomplete",

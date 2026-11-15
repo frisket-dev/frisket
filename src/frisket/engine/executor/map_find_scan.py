@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -44,7 +45,7 @@ AnyFindMatch = FindMatch | VisualFindMatch
 class FindScanResult:
     plans: tuple[FindPlan, ...]
     matches: tuple[AnyFindMatch, ...]
-    wire_calls: tuple[Any, ...]
+    model_calls: tuple[dict[str, Any], ...]
     issues: tuple[ActionError, ...] = ()
 
 
@@ -53,10 +54,22 @@ async def scan_find_plans(
     plans: tuple[FindPlan, ...],
     *,
     router: Any,
+    record_calls: Callable[[list[dict[str, Any]]], None],
 ) -> FindScanResult:
     schema = find_response_schema(params)
     located_matches: list[tuple[tuple[int, int, int, int], AnyFindMatch]] = []
-    wire_calls: list[Any] = []
+    model_calls: list[dict[str, Any]] = []
+
+    def record_returned(wires):
+        # Construct each fact ID once, then retain it before parsing/publishing
+        # or issuing another window. Publication only attaches these same IDs.
+        from frisket.ai.models.accounting import wire_accounting_meta
+
+        calls = wire_accounting_meta(params.model, list(wires))["model_calls"]
+        if calls:
+            record_calls(calls)
+            model_calls.extend(calls)
+
     issues: list[ActionError] = []
     seen_occurrences: set[tuple[int, int, int, str, int | str, int, int]] = set()
     source_positions: dict[
@@ -85,8 +98,10 @@ async def scan_find_plans(
         if isinstance(plan, ImageFindPlan):
             try:
                 located = await HostedVLMRegionLocator(router).locate(plan.request)
-            except Exception as exc:
-                wire_calls.extend(getattr(exc, "wire_calls", ()) or ())
+            except BaseException as exc:
+                record_returned(getattr(exc, "wire_calls", ()) or ())
+                if not isinstance(exc, Exception):
+                    raise
                 issues.append(
                     ActionError(
                         code="incomplete_scan",
@@ -106,7 +121,7 @@ async def scan_find_plans(
                     )
                 )
                 continue
-            wire_calls.extend(located.wire_calls)
+            record_returned(located.wire_calls)
             if located.issues:
                 issues.append(
                     ActionError(
@@ -151,8 +166,10 @@ async def scan_find_plans(
                     temperature=0.0,
                 )
             )
-        except Exception as exc:
-            wire_calls.extend(getattr(exc, "wire_calls", ()) or ())
+        except BaseException as exc:
+            record_returned(getattr(exc, "wire_calls", ()) or ())
+            if not isinstance(exc, Exception):
+                raise
             issues.append(
                 ActionError(
                     code="incomplete_scan",
@@ -171,7 +188,7 @@ async def scan_find_plans(
                 )
             )
             continue
-        wire_calls.extend(response.wire_calls)
+        record_returned(response.wire_calls)
         raw_matches = (
             response.data.get("matches") if isinstance(response.data, dict) else None
         )
@@ -285,6 +302,6 @@ async def scan_find_plans(
             match
             for _position, match in sorted(located_matches, key=lambda item: item[0])
         ),
-        wire_calls=tuple(wire_calls),
+        model_calls=tuple(model_calls),
         issues=tuple(issues),
     )
