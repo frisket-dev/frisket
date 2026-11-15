@@ -1,7 +1,7 @@
 """Observed source baselines and validated keyed input, independent of Undo.
 
 Writers publish through normal cell/membership owners. This module decides which
-fields changed and keeps observations/checkpoints in the caller's transaction.
+fields changed and keeps observations in the caller's transaction.
 """
 
 from __future__ import annotations
@@ -28,18 +28,10 @@ CREATE TABLE IF NOT EXISTS keyed_observations (
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
   key TEXT NOT NULL,
   record TEXT NOT NULL,
-  record_hash TEXT NOT NULL,
   PRIMARY KEY(relationship_id,row_id)
 );
 CREATE INDEX IF NOT EXISTS idx_keyed_observation_key
  ON keyed_observations(relationship_id,key);
-CREATE TABLE IF NOT EXISTS keyed_publications (
-  op_id INTEGER PRIMARY KEY REFERENCES ops(id) ON DELETE CASCADE,
-  relationship_id TEXT NOT NULL REFERENCES keyed_relationships(id) ON DELETE CASCADE,
-  input_hash TEXT NOT NULL,
-  cursor INTEGER NOT NULL DEFAULT 0 CHECK(cursor>=0),
-  completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1))
-);
 """
 
 
@@ -52,12 +44,20 @@ def typed_equal(left: Any, right: Any) -> bool:
 
 
 def typed_key(values: Sequence[tuple[str, Any]]) -> str | None:
-    if any(
-        value is None or isinstance(value, str) and not value.strip()
-        for _, value in values
-    ):
-        return None
-    return canonical(values)
+    parts = []
+    for kind, value in values:
+        if value is None or isinstance(value, str) and not value.strip():
+            return None
+        if kind == "number":
+            if type(value) not in (int, float):
+                return None
+            value = float(value)
+        if kind == "integer" and type(value) is not int:
+            return None
+        if kind == "boolean" and type(value) is not bool:
+            return None
+        parts.append((kind, value))
+    return canonical(parts)
 
 
 @dataclass(frozen=True)
@@ -73,11 +73,12 @@ class ValidatedKeyedInput:
     """Bounded-memory index; nothing can publish before complete enumeration.
 
     The temporary index is rebuilt from immutable intake on process restart;
-    publication resumes at the durable cursor only if its complete digest matches.
+    publication resumes through the existing import session and its frozen source.
     It is not another retained source corpus.
     """
 
-    def __init__(self):
+    def __init__(self, *, retain_records: bool = True):
+        self.retain_records = retain_records
         self._directory = tempfile.TemporaryDirectory(prefix="frisket-keyed-")
         self.db = sqlite3.connect(Path(self._directory.name) / "keys.sqlite")
         self.db.row_factory = sqlite3.Row
@@ -111,6 +112,11 @@ class ValidatedKeyedInput:
                 for key, record in records:
                     self.count += 1
                     body = canonical(record)
+                    stored_body = (
+                        body
+                        if self.retain_records
+                        else hashlib.sha256(body.encode()).hexdigest()
+                    )
                     self._hash.update(canonical([key, record]).encode() + b"\n")
                     if key is None:
                         self.blank_keys += 1
@@ -118,7 +124,7 @@ class ValidatedKeyedInput:
                         "INSERT INTO records(ordinal,key,record) VALUES(?,?,?) "
                         "ON CONFLICT(key) DO UPDATE SET copies=records.copies+1,"
                         "conflicting=records.conflicting OR records.record<>excluded.record",
-                        (self.count, key, body),
+                        (self.count, key, stored_body),
                     )
         except BaseException:
             self.failed = True
@@ -152,6 +158,22 @@ class ValidatedKeyedInput:
             )
         ]
 
+    def first_record(self, ordinal: int) -> KeyedRecord | None:
+        if not self.sealed:
+            raise ValueError("key domain enumeration is incomplete")
+        row = self.db.execute(
+            "SELECT * FROM records WHERE ordinal=?", (ordinal,)
+        ).fetchone()
+        if row is None:
+            return None
+        return KeyedRecord(
+            int(row["ordinal"]),
+            row["key"],
+            json.loads(row["record"]) if self.retain_records else {},
+            bool(row["conflicting"]),
+            int(row["copies"]),
+        )
+
     def records(
         self, *, after: int = 0, limit: int | None = None
     ) -> Iterable[KeyedRecord]:
@@ -166,7 +188,7 @@ class ValidatedKeyedInput:
             yield KeyedRecord(
                 int(row["ordinal"]),
                 row["key"],
-                json.loads(row["record"]),
+                json.loads(row["record"]) if self.retain_records else {},
                 bool(row["conflicting"]),
                 int(row["copies"]),
             )
@@ -252,47 +274,31 @@ def observe(
     prior.update(incoming)
     body = canonical(prior)
     db.execute(
-        "INSERT INTO keyed_observations(relationship_id,row_id,key,record,record_hash) VALUES(?,?,?,?,?) "
-        "ON CONFLICT(relationship_id,row_id) DO UPDATE SET key=excluded.key,record=excluded.record,record_hash=excluded.record_hash",
-        (relationship_id, row_id, key, body, hashlib.sha256(body.encode()).hexdigest()),
+        "INSERT INTO keyed_observations(relationship_id,row_id,key,record) VALUES(?,?,?,?) "
+        "ON CONFLICT(relationship_id,row_id) DO UPDATE SET key=excluded.key,record=excluded.record",
+        (relationship_id, row_id, key, body),
     )
 
 
-def publication_cursor(
-    db: sqlite3.Connection,
-    *,
-    op_id: int,
-    relationship_id: str,
-    staged: ValidatedKeyedInput,
-) -> int:
+def purge_baseline_columns(db: sqlite3.Connection, column_ids: Sequence[int]) -> None:
+    """Remove only purged baseline fields; a purged key retires its relationship."""
     if not db.in_transaction:
-        raise RuntimeError("publication requires a caller transaction")
-    db.execute(
-        "INSERT INTO keyed_publications(op_id,relationship_id,input_hash) VALUES(?,?,?) ON CONFLICT(op_id) DO NOTHING",
-        (op_id, relationship_id, staged.input_hash),
-    )
-    row = db.execute(
-        "SELECT relationship_id,input_hash,cursor FROM keyed_publications WHERE op_id=?",
-        (op_id,),
-    ).fetchone()
-    if tuple(row[:2]) != (relationship_id, staged.input_hash):
-        raise ValueError("resumed keyed publication input changed")
-    return int(row[2])
-
-
-def checkpoint(
-    db: sqlite3.Connection,
-    *,
-    op_id: int,
-    previous: int,
-    through: int,
-    completed: bool = False,
-) -> None:
-    if not db.in_transaction or through < previous:
-        raise ValueError("invalid keyed publication checkpoint")
-    changed = db.execute(
-        "UPDATE keyed_publications SET cursor=?,completed=? WHERE op_id=? AND cursor=? AND completed=0",
-        (through, int(completed), op_id, previous),
-    ).rowcount
-    if changed != 1:
-        raise ValueError("keyed publication checkpoint changed")
+        raise RuntimeError("baseline purge requires a caller transaction")
+    columns = sorted(set(int(column) for column in column_ids))
+    for start in range(0, len(columns), 100):
+        batch = columns[start : start + 100]
+        placeholders = ",".join("?" for _ in batch)
+        db.execute(
+            "DELETE FROM keyed_relationships WHERE EXISTS ("
+            "SELECT 1 FROM json_each(key_definition) part "
+            f"WHERE CAST(json_extract(part.value,'$[0]') AS INTEGER) IN ({placeholders}))",
+            batch,
+        )
+        # SQLite transforms each row itself; never pull a source corpus into Python.
+        paths = [f'$."{column}"' for column in batch]
+        db.execute(
+            f"UPDATE keyed_observations SET record=json_remove(record,{placeholders}) "
+            "WHERE EXISTS (SELECT 1 FROM json_each(record) field "
+            f"WHERE CAST(field.key AS INTEGER) IN ({placeholders}))",
+            [*paths, *batch],
+        )
