@@ -35,6 +35,8 @@ def test_cancel_does_not_release_claimed_handler_authority(tmp_path) -> None:
 
         assert queue.cancel(job_id) is True
         assert queue.get(job_id).status == "cancelled"
+        assert not queue.job_execution_stopped(job_id)
+        assert not queue.job_execution_stopped(job_id + 1000)
         assert queue.has_active_project_handler("alpha", storage_org_id=17)
 
         assert (
@@ -52,6 +54,7 @@ def test_cancel_does_not_release_claimed_handler_authority(tmp_path) -> None:
             authority_id=claimed.handler_authority_id,
         )
         assert not queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.job_execution_stopped(job_id)
     finally:
         queue.close()
 

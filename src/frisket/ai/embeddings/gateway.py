@@ -192,7 +192,8 @@ class EmbeddingGateway:
             return asyncio.run(
                 self._router.embed_batch(texts, model=model_ref, modality=modality)
             )
-        except EmbeddingBackendUnavailable:
+        except (EmbeddingBackendUnavailable, TypeError):
+            # Dispatch/signature bugs are programming failures, not provider data.
             raise
         except Exception as exc:  # noqa: BLE001 — provider failure is data
             raise EmbeddingProviderError(_provider_error_message(exc)) from None

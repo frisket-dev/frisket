@@ -86,10 +86,9 @@ TERMINAL_ATTEMPT_STATES = ("effected", "halted", "superseded", "abandoned")
 #: detector). Recovery closes it explicitly BEFORE a resume is admitted, so a
 #: crash cannot leave one live forever and block the run permanently.
 #:
-#: This is the one liveness bound. Output-producing work renews the existing
-#: ``output_column_claims`` lease in each result transaction. A claimless
-#: direct effect has no output lease to renew, so its existing age-only bound
-#: remains the honest (and deliberately narrower) fallback.
+#: Output-producing work renews its existing claim lease. Claimless work has
+#: no such liveness clock: recovery needs a terminal linked queue job with no
+#: durable handler authority, never elapsed time alone.
 STALE_DISPATCHING_AGE = timedelta(hours=6)
 
 
@@ -574,7 +573,9 @@ def abandon_stale_dispatching_attempts(
 
     A claimed output run is stale only after its attempt is old enough *and*
     every active claim row bound to the run has an expired (or malformed
-    missing) lease. A claimless direct effect retains the same age-only bound.
+    missing) lease. Claimless work instead requires a terminal linked queue
+    job whose durable handlers have all exited. Unknown/unlinked work needs
+    explicit stopped-writer recovery; its age alone cannot revoke authority.
     The caller may join an existing project transaction with ``commit=False``;
     initial-attempt mint does exactly that.
     """

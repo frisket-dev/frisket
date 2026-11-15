@@ -521,6 +521,14 @@ class JobQueue(ABC):
         """
 
     @abstractmethod
+    def job_execution_stopped(self, job_id: int) -> bool:
+        """A terminal job has no remaining durable handler authority.
+
+        A missing job or an expired lease is not proof that executable code
+        has exited. Recovery must not infer death from heartbeat age alone.
+        """
+
+    @abstractmethod
     def has_active_project_handler(
         self,
         project_id: str,
@@ -1342,6 +1350,21 @@ class SqlAlchemyJobQueue(JobQueue):
             job_handler_authorities_table.delete().where(*filters)
         )
         return result.rowcount > 0
+
+    def job_execution_stopped(self, job_id):
+        job = jobs_table.c
+        authority = job_handler_authorities_table.c
+        with self.engine.connect() as cx:
+            return (
+                cx.execute(
+                    sa.select(job.id).where(
+                        job.id == job_id,
+                        job.status.in_(TERMINAL),
+                        ~sa.exists().where(authority.job_id == job.id),
+                    )
+                ).first()
+                is not None
+            )
 
     def has_active_project_handler(self, project_id, *, storage_org_id):
         c = job_handler_authorities_table.c

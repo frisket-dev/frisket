@@ -436,8 +436,29 @@ def test_the_attempt_receipt_route_serves_the_facts(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def _link_run_job(project, run_id, job_id):
+    from frisket.contracts.action import Receipt, ReceiptEvidence
+    from frisket.engine.store.receipts import ReceiptStore
+
+    receipt = Receipt(
+        receipt_id=f"receipt_job_{job_id}",
+        project_id="t",
+        action_id="act-test",
+        run_id=run_id,
+        action_kind="media.transcribe",
+        status="running",
+        evidence=[
+            ReceiptEvidence(
+                ref={"kind": "queued_action_job_enqueued", "job_id": job_id}
+            )
+        ],
+    )
+    ReceiptStore(project).insert(receipt)
+
+
+@pytest.mark.parametrize("age_days", [0, 2])
 def test_stale_dispatching_attempts_are_closed_before_a_retry_is_admitted(
-    project, consented_run
+    project, consented_run, age_days
 ):
     """A crash mid-dispatch leaves a ``dispatching`` row. Left alone it would
     make every future reconsent on that run 409 forever, so recovery closes
@@ -447,8 +468,24 @@ def test_stale_dispatching_attempts_are_closed_before_a_retry_is_admitted(
     crashed = _mint(project, run_id)
     _claim_unscoped(project, crashed)
 
-    # Age the row past the bound, exactly as a crashed worker would leave it.
-    old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds")
+    from frisket.engine.jobs import SqliteJobQueue
+
+    queue = SqliteJobQueue(project.path.parent / "queue.db")
+    project._frisket_run_queue = queue
+    job_id = queue.enqueue("action.run", {"project_id": "t", "run_id": run_id})
+    job = queue.claim("dead-worker")
+    assert job is not None
+    assert queue.fail(job_id, "dead-worker", "worker stopped", retry=False)
+    _link_run_job(project, run_id, job_id)
+    # Another live job in the same project is not this run's writer.
+    other_job_id = queue.enqueue("action.run", {"project_id": "t"})
+    other_job = queue.claim("other-worker")
+    assert other_job is not None and other_job.id == other_job_id
+
+    # Explicit handler exit proves death even before the age heuristic expires.
+    old = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat(
+        timespec="seconds"
+    )
     project.db.execute(
         "UPDATE execution_attempts SET created_at=? WHERE id=?",
         (old, crashed.attempt_id),
@@ -465,18 +502,73 @@ def test_stale_dispatching_attempts_are_closed_before_a_retry_is_admitted(
         ).fetchone()["current_attempt_id"]
         is None
     )
-    # A fresh mint runs the detector itself, so recovery needs no operator.
-    assert _mint(project, run_id).seq == 1
+    # Reopening the project preserves the stopped queue association.
+    reopened = Project(project.path)
+    try:
+        reopened._frisket_run_queue = queue
+        assert _mint(reopened, run_id).seq == 1
+    finally:
+        reopened.close()
+        queue.close()
 
 
 def test_a_live_dispatching_attempt_is_never_abandoned(project, consented_run):
-    """The bound is what makes the detector safe: a young dispatching attempt
-    is a run that is working, not a crash."""
+    """A recent attempt cannot be considered stale."""
     run_id, _route, _set, _consent = consented_run
     live = _mint(project, run_id)
     _claim_unscoped(project, live)
     assert abandon_stale_dispatching_attempts(project, run_id) == 0
     assert attempt_receipt(project, live.attempt_id)["state"] == "dispatching"
+
+
+@pytest.mark.parametrize(
+    "queue_state", ["unlinked", "live", "cancelled_with_handler", "unavailable"]
+)
+def test_old_claimless_attempt_requires_proof_its_handler_stopped(
+    project, consented_run, queue_state
+):
+    from frisket.engine.jobs import SqliteJobQueue
+
+    run_id, *_ = consented_run
+    live = _mint(project, run_id)
+    _claim_unscoped(project, live)
+    project.db.execute(
+        "UPDATE execution_attempts SET created_at=? WHERE id=?",
+        ((datetime.now(timezone.utc) - timedelta(days=2)).isoformat(), live.attempt_id),
+    )
+    project.db.commit()
+    queue = SqliteJobQueue(project.path.parent / "queue.db")
+    try:
+        project._frisket_run_queue = queue
+        if queue_state != "unlinked":
+            job_id = queue.enqueue("action.run", {"project_id": "t", "run_id": run_id})
+            job = queue.claim("live-worker")
+            assert job is not None
+            _link_run_job(project, run_id, job_id)
+            if queue_state == "cancelled_with_handler":
+                queue.cancel(job_id)
+            if queue_state == "unavailable":
+
+                class UnavailableQueue:
+                    def job_execution_stopped(self, job_id):
+                        raise OSError("queue unavailable")
+
+                project._frisket_run_queue = UnavailableQueue()
+        assert abandon_stale_dispatching_attempts(project, run_id) == 0
+        assert attempt_receipt(project, live.attempt_id)["state"] == "dispatching"
+        assert (
+            project.db.execute(
+                "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
+            ).fetchone()[0]
+            == live.attempt_id
+        )
+        if queue_state == "cancelled_with_handler":
+            assert queue.acknowledge_handler_exit(
+                job_id, "live-worker", authority_id=job.handler_authority_id
+            )
+            assert abandon_stale_dispatching_attempts(project, run_id) == 1
+    finally:
+        queue.close()
 
 
 # ---------------------------------------------------------------------------
