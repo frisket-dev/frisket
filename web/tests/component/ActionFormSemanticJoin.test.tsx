@@ -36,7 +36,7 @@ it('starts a fresh column launch with no optional carry columns', async () => {
   }));
   const view = renderJoinForm({ initialSourceColumn: 'city', resolveParams }, 'join.semantic');
   await ready();
-  fireEvent.click(screen.getByTestId('generated-action-run'));
+  await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
   expect(view.onExecute.mock.calls[0][0].params).toMatchObject({ source: 'city', carry: [] });
 });
 
@@ -49,7 +49,7 @@ it('uses the served generated contract with whole target, selected sources, inde
   expect(screen.getAllByTestId('field-semantic_target_column')).toHaveLength(1);
   expect(screen.getByTestId('field-output-source')).toHaveValue('Reported name');
   expect(screen.getByTestId('field-output-carry.state')).toHaveValue('Reported state');
-  fireEvent.click(screen.getByTestId('generated-action-run'));
+  await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
   expect(view.onExecute).toHaveBeenCalledWith({ ...saved, idempotency_key: expect.any(String) }, 'run');
   expect(view.onExecute.mock.calls[0][0]).not.toHaveProperty('confirmation');
 });
@@ -67,7 +67,7 @@ it('preserves comma-bearing carry names as typed list items and excludes the sel
   expect(menu.queryByRole('option', { name: /^city/, hidden: true })).not.toBeInTheDocument();
   expect(menu.getByRole('option', { name: /^amount, usd/, hidden: true })).toBeInTheDocument();
   await user.keyboard('{Escape}');
-  fireEvent.click(screen.getByTestId('generated-action-run'));
+  await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
   expect(view.onExecute.mock.calls[0][0].params.carry).toEqual(['amount, usd']);
 });
 
@@ -83,7 +83,7 @@ it('follows target renames by ID and refuses a same-name replacement until expli
   expect(screen.getByTestId('semantic-join-repair')).toHaveTextContent('Organization name');
   expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   choose('field-semantic_target_column', 'Organization name'); await ready();
-  fireEvent.click(screen.getByTestId('generated-action-run'));
+  await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
   expect(view.onExecute.mock.calls[0][0].params.target).toEqual({ sheet_id: 2, column: 'Organization name' });
 });
 
@@ -103,7 +103,7 @@ it('does not silently repair a deleted primary source or carry column by matchin
   await user.click(screen.getByTestId('field-semantic_carry_columns'));
   await user.click(within(screen.getByTestId('field-semantic_carry_columns-menu')).getByRole('option', { name: /^state/, hidden: true }));
   await user.keyboard('{Escape}'); await ready();
-  fireEvent.click(screen.getByTestId('generated-action-run'));
+  await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
   expect(view.onExecute.mock.calls[0][0].params).toMatchObject({ source: 'city', carry: ['state'] });
 });
 
@@ -115,7 +115,7 @@ it('keeps a missing target sheet as a repair and requires a deliberate target co
   expect(screen.getByTestId('field-semantic_target_column')).toHaveValue('');
   expect(screen.getByTestId('generated-action-run')).toBeDisabled();
   choose('field-semantic_target_column', 'zone'); await ready();
-  fireEvent.click(screen.getByTestId('generated-action-run'));
+  await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
   expect(view.onExecute.mock.calls[0][0]).toMatchObject({ scope: saved.scope,
     params: { target: { sheet_id: 2, column: 'zone' }, carry: ['state'] } });
 });
@@ -126,7 +126,7 @@ it('uses the host estimate and submits unchanged intent without manufacturing co
     hasExactRowScopeInitializer: true, estimateAction }, 'join.semantic');
   await ready(); await waitFor(() => expect(estimateAction).toHaveBeenCalled());
   expect(estimateAction.mock.calls[0][0]).toMatchObject(saved);
-  fireEvent.click(screen.getByTestId('generated-action-run'));
+  await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
   expect(view.onExecute.mock.calls[0][0]).not.toHaveProperty('confirmation');
   expect(view.onExecute.mock.calls[0][0]).not.toHaveProperty('confirmed');
 });

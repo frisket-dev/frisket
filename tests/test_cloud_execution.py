@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import traceback
 from dataclasses import replace
+from email.parser import BytesParser
+from email.policy import default as email_policy
 
 import httpx
 import pytest
@@ -896,6 +899,270 @@ def test_account_key_accounting_uses_provider_cost_not_zero_cloud_charge():
     assert call["units"]["cloud_charge_micro"] == 0
 
 
+async def _media_request_parts(request: httpx.Request):
+    # Multipart boundaries may vary; compare the complete metadata and file parts.
+    body = await request.aread()
+    message = BytesParser(policy=email_policy).parsebytes(
+        f"Content-Type: {request.headers['Content-Type']}\r\n\r\n".encode() + body
+    )
+    return tuple(
+        (
+            part.get_param("name", header="content-disposition"),
+            part.get_filename(),
+            part.get_content_type(),
+            part.get_payload(decode=True),
+        )
+        for part in message.iter_parts()
+    )
+
+
+async def _execute_admission_test_media(transport, request_id="media-admission"):
+    return await transport.execute_media(
+        CloudExecutionAttempt(request_id, _payer(), CloudQuoteAuthority(25_000)),
+        capability="ocr",
+        engine=_payer().engine,
+        options=CloudOCROptions(geometry=True),
+        uploads=[
+            CloudMediaUpload(
+                "source.png", "image/png", io.BytesIO(b"complete-original-image")
+            )
+        ],
+    )
+
+
+def _admission_refusal(**changes):
+    return {
+        "error": "rate_limited",
+        "message": "Concurrent media admission is full",
+        "retryable": True,
+        **changes,
+    }
+
+
+@pytest.mark.asyncio
+async def test_parallel_media_admission_waits_for_capacity_without_losing_files(
+    tmp_path, monkeypatch
+):
+    real_sleep = asyncio.sleep
+
+    async def fast_wait(_seconds):
+        await real_sleep(0.001)
+
+    monkeypatch.setattr("frisket.cloud_execution.asyncio.sleep", fast_wait)
+    active = 0
+    refused = 0
+    accepted = []
+    seen = {}
+
+    async def handler(request):
+        nonlocal active, refused
+        assert request.method == "POST"
+        key = request.headers["Idempotency-Key"]
+        seen.setdefault(key, []).append(await _media_request_parts(request))
+        if active >= 2:
+            refused += 1
+            return httpx.Response(429, json=_admission_refusal())
+        active += 1
+        try:
+            await real_sleep(0.01)
+            accepted.append(key)
+            return httpx.Response(200, json=_response().model_dump(mode="json"))
+        finally:
+            active -= 1
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    results = await asyncio.gather(
+        *(_execute_admission_test_media(transport, f"parallel-{i}") for i in range(6)),
+        return_exceptions=True,
+    )
+    assert all(isinstance(result, CloudExecutionResponse) for result in results), (
+        results
+    )
+    assert refused >= 4
+    assert sorted(accepted) == [f"parallel-{i}" for i in range(6)]
+    assert all(parts == attempts[0] for attempts in seen.values() for parts in attempts)
+    assert all(
+        attempts[0][1][3] == b"complete-original-image" for attempts in seen.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_media_admission_retry_keeps_quote_confirmation_and_complete_body(
+    tmp_path, monkeypatch
+):
+    real_sleep = asyncio.sleep
+
+    async def fast_wait(_seconds):
+        await real_sleep(0)
+
+    monkeypatch.setattr("frisket.cloud_execution.asyncio.sleep", fast_wait)
+    seen = []
+
+    async def handler(request):
+        seen.append(
+            (
+                request.headers["Idempotency-Key"],
+                request.headers.get("X-Frisket-Confirmation"),
+                await _media_request_parts(request),
+            )
+        )
+        if len(seen) in {1, 3}:
+            return httpx.Response(429, json=_admission_refusal())
+        if len(seen) == 2:
+            return httpx.Response(409, json=_quote().model_dump(mode="json"))
+        return httpx.Response(200, json=_response().model_dump(mode="json"))
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    result = await _execute_admission_test_media(transport)
+
+    assert result.status == "completed"
+    assert [key for key, _, _ in seen] == ["media-admission"] * 4
+    assert [confirmation for _, confirmation, _ in seen] == [
+        None,
+        None,
+        "quote-confirmation",
+        "quote-confirmation",
+    ]
+    assert all(parts == seen[0][2] for _, _, parts in seen)
+    assert seen[0][2][1][3] == b"complete-original-image"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,error,retryable,execution_id",
+    [
+        (401, "invalid_token", False, None),
+        (403, "account_forbidden", False, None),
+        (429, "rate_limited", False, None),
+        (429, "provider_failed", True, None),
+        (503, "rate_limited", True, None),
+        (429, "rate_limited", True, "existing-execution"),
+    ],
+)
+async def test_media_admission_does_not_retry_other_refusals(
+    tmp_path, status, error, retryable, execution_id
+):
+    seen = []
+
+    def handler(request):
+        seen.append(request.method)
+        return httpx.Response(
+            status,
+            json=_admission_refusal(
+                error=error, retryable=retryable, execution_id=execution_id
+            ),
+        )
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+        max_poll_seconds=0.02,
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await _execute_admission_test_media(transport)
+    assert caught.value.code == error
+    assert seen == ["POST"]
+
+
+@pytest.mark.asyncio
+async def test_media_admission_does_not_retry_terminal_provider_failure(tmp_path):
+    seen = []
+    failed = _response().model_dump(mode="json")
+    failed.update(
+        status="failed",
+        result=None,
+        error={
+            "error": "provider_failed",
+            "message": "Provider failed",
+            "retryable": True,
+        },
+    )
+
+    def handler(request):
+        seen.append(request.method)
+        return httpx.Response(200, json=failed)
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(CloudExecutionRefused, match="Provider failed"):
+        await _execute_admission_test_media(transport)
+    assert seen == ["POST"]
+
+
+@pytest.mark.asyncio
+async def test_media_admission_wait_is_cancellable_before_another_post(
+    tmp_path, monkeypatch
+):
+    waiting = asyncio.Event()
+    never_ready = asyncio.Event()
+    seen = []
+
+    async def wait_for_capacity(_seconds):
+        waiting.set()
+        await never_ready.wait()
+
+    monkeypatch.setattr("frisket.cloud_execution.asyncio.sleep", wait_for_capacity)
+
+    def handler(request):
+        seen.append(request.method)
+        return httpx.Response(429, json=_admission_refusal())
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+    )
+    task = asyncio.create_task(_execute_admission_test_media(transport))
+    waiting_task = asyncio.create_task(waiting.wait())
+    try:
+        done, _ = await asyncio.wait(
+            [task, waiting_task], timeout=1, return_when=asyncio.FIRST_COMPLETED
+        )
+        if task in done:
+            await task
+        assert waiting_task in done, "admission must enter a cancellable wait"
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert seen == ["POST"]
+    finally:
+        task.cancel()
+        waiting_task.cancel()
+        await asyncio.gather(task, waiting_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_media_admission_wait_has_a_deadline(tmp_path):
+    seen = []
+
+    def handler(request):
+        seen.append(request.method)
+        return httpx.Response(429, json=_admission_refusal())
+
+    transport = HttpCloudExecutionTransport(
+        _store(tmp_path),
+        "https://cloud.example.test",
+        http_transport=httpx.MockTransport(handler),
+        max_poll_seconds=0.01,
+    )
+    with pytest.raises(CloudExecutionRefused) as caught:
+        await asyncio.wait_for(_execute_admission_test_media(transport), timeout=1)
+    assert caught.value.code == "rate_limited"
+    assert len(seen) >= 1
+
+
 def test_account_key_accounting_keeps_unknown_provider_cost_unknown():
     payer = replace(_payer(), lane="account_key")
     attempt = CloudExecutionAttempt("request-1", payer, None)
@@ -1006,6 +1273,7 @@ async def test_cloud_response_errors_keep_server_correlation_without_changing_id
         _store(tmp_path),
         "https://cloud.example.test",
         http_transport=httpx.MockTransport(handler),
+        max_poll_seconds=0,
     )
     with pytest.raises(CloudExecutionRefused) as caught:
         await transport.execute_llm(

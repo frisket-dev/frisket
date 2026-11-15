@@ -14,7 +14,7 @@ from frisket.execution.claim_labels import (
 from frisket.execution.commercial import CommercialPresentation
 from frisket.execution.resolve_for_action import gate_claims_payload
 from frisket.execution.resolver import RouteRowFacts
-from frisket.execution.promises import EGRESS_ORDER_REF, Promise
+from frisket.execution.promises import EGRESS_ORDER_REF, Promise, promise_set_hash
 
 TRUST_LABEL_GOLDENS = {
     ("none", "self", "operator_borne"): "Media stays on this machine.",
@@ -106,6 +106,36 @@ def _facts(egress: str, operator: str, posture: str) -> RouteRowFacts:
         credential_source="local",
         cost_posture=posture,
     )
+
+
+def test_gate_cost_copy_uses_rated_purchase_including_zero_and_unknown():
+    cost = Promise.make(
+        "cost",
+        "unbounded",
+        None,
+        basis={"unit_rate": "1", "estimated_quantity": "1.25"},
+        audience="user_claim",
+    )
+    facts = _facts("frisket_shared", "frisket", "platform_metered")
+    original_hash = promise_set_hash([cost])
+    for billed, expected in (
+        (2_500_000, "Estimated cost $2.50;"),
+        (0, "Estimated cost $0.00;"),
+        (None, "Cost cannot be estimated for this run"),
+    ):
+        claims = gate_claims_payload(
+            [cost],
+            facts,
+            has_cost_claim=True,
+            rated_estimate={
+                "cost": 1.25,
+                "billed_cost": billed,
+                "policy_id": "test.retail.v1",
+            },
+        )
+        assert claims[0]["display"].startswith(expected)
+        assert "$1.25" not in claims[0]["display"]
+        assert promise_set_hash([cost]) == original_hash
 
 
 def test_egress_claim_display_golden():

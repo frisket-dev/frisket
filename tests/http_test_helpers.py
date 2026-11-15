@@ -132,9 +132,8 @@ def v1_action_from_canonical_run_spec(
                 "format_selector",
             ),
         )
-        # media.ytdlp_download is UNPRICEABLE (CostPolicy kind="unknown"): a
-        # row-supplied media URL has no readable meter, so every run gates on
-        # an unknown cost and the launch carries the consent.
+        # Preserve an explicit echo for deployments that install a tariff.
+        # The local downloader itself has no provider purchase.
         params["confirmed"] = confirmed
     elif kind == "map.python":
         output_name = str(spec.get("output_name") or "python_result")

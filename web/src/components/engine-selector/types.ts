@@ -91,6 +91,8 @@ export interface EngineSelectorProps {
   /** Caller-owned status or recovery content, kept inside the modal while open. */
   notice?: ReactNode;
   disabled?: boolean;
+  /** Keep the trigger mounted and empty while choices are loading. */
+  loading?: boolean;
   searchPlaceholder?: string;
   /** Optional focus target for host validation flows. */
   triggerRef?: Ref<HTMLButtonElement>;

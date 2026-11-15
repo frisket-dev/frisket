@@ -147,6 +147,8 @@ export function lastExecutedRequest(onExecute: { mock: { calls: unknown[][] } })
 export async function pressRun(): Promise<void> {
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   fireEvent.click(screen.getByTestId('generated-action-run'));
+  // A click during draft refresh awaits exact-request validation/quoting.
+  await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
 }
 
 /** Pick an execution choice through the combined engine/model picker. */

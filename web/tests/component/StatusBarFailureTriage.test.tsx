@@ -113,13 +113,13 @@ describe('StatusBar failure triage', () => {
     fireEvent.click(screen.getByTestId('run-watcher-toggle'));
     expect(screen.getByTestId('run-failure-triage')).toHaveTextContent('12 failed rows');
 
-    fireEvent.click(screen.getByTestId('run-failure-bucket-retry-model_error'));
-    expect(onRetryFailedRows).toHaveBeenCalledWith('relevance', 'model_error');
+    fireEvent.click(screen.getByTestId('run-failure-retry-all'));
+    expect(onRetryFailedRows).toHaveBeenCalledWith('relevance', 'any');
     // Retry keeps the popover open so "Retry requested" stays visible.
     expect(screen.getByTestId('run-failure-triage')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('run-failure-bucket-show-empty_output'));
-    expect(onShowFailedRows).toHaveBeenCalledWith('relevance', 'empty_output');
+    fireEvent.click(screen.getByTestId('run-failure-show-all'));
+    expect(onShowFailedRows).toHaveBeenCalledWith('relevance', 'any');
     // Show closes the popover so the freshly filtered grid is visible.
     expect(screen.queryByTestId('run-failure-triage')).not.toBeInTheDocument();
   });
@@ -128,8 +128,8 @@ describe('StatusBar failure triage', () => {
     renderBar(finishedRun({ targetColumnId: '' }));
     fireEvent.click(screen.getByTestId('run-watcher-toggle'));
     expect(screen.getByTestId('run-failure-bucket-model_error')).toBeInTheDocument();
-    expect(screen.queryByTestId('run-failure-bucket-show-model_error')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('run-failure-bucket-retry-model_error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('run-failure-show-all')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('run-failure-retry-all')).not.toBeInTheDocument();
   });
 
   it('an active run renders no triage (retry against a moving run is wrong)', () => {
@@ -335,6 +335,6 @@ it('keeps unavailable transform rows inspectable without offering row retry', ()
   renderBar(finishedRun({ actionKind: 'resolve.fill_missing', retrySupported: false }));
   fireEvent.click(screen.getByTestId('run-watcher-toggle'));
   expect(screen.getByTestId('run-failure-triage')).toBeInTheDocument();
-  expect(screen.queryByTestId('run-failure-bucket-retry-model_error')).not.toBeInTheDocument();
-  expect(screen.getByTestId('run-failure-bucket-show-model_error')).toBeInTheDocument();
+  expect(screen.queryByTestId('run-failure-retry-all')).not.toBeInTheDocument();
+  expect(screen.getByTestId('run-failure-show-all')).toBeInTheDocument();
 });

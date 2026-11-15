@@ -135,7 +135,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
       onChanged();
     }
   };
-  return <section className="selector-setup">
+  return <section className="selector-setup content-stack">
     {!setup.can_mutate && <p className="form-hint">Only an authorized owner can start or cancel this setup operation.</p>}
     {pull && !matching && <p className="form-hint">Another setup operation is active.</p>}
     {pull && <ModelPullProgress key={`${pull.id}:${pull.status}`} pull={pull} readOnly={!setup.can_mutate} fetchPull={fetchPull} cancelPull={cancelPull}

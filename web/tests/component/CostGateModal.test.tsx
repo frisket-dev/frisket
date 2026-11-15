@@ -42,6 +42,15 @@ const CLAIMED_ESTIMATE: RunEstimate = {
 };
 
 describe('CostGateModal claims rendering', () => {
+  it('shows each claim once instead of repeating the server summary above it', () => {
+    const displays = CLAIMED_ESTIMATE.claims!.map((claim) => claim.display);
+    const message = `this run needs confirmation: ${displays.join(' ')} Confirm to run it anyway.`;
+    render(<CostGateModal estimate={CLAIMED_ESTIMATE} message={message} onConfirm={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.queryByText(message)).not.toBeInTheDocument();
+    expect(screen.getByText('This run needs your confirmation.')).toBeInTheDocument();
+    for (const display of displays) expect(screen.getAllByText(display)).toHaveLength(1);
+  });
+
   it('renders one line per claim when the estimate carries claims', () => {
     render(
       <CostGateModal

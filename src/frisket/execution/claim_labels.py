@@ -99,6 +99,22 @@ def cost_posture_label(
     return _COST_POSTURE.get(cost_posture, f"cost posture '{cost_posture}'")
 
 
+def rated_cost_display(
+    amount_usd: float | None,
+    facts: RouteRowFacts,
+    presentation: CommercialPresentation | None = None,
+) -> str:
+    """Render the rated purchase estimate, independently of provider bounds."""
+    billing = cost_posture_label(facts.cost_posture, presentation)
+    amount = _usd(amount_usd) if amount_usd is not None else None
+    if amount is None:
+        return f"Cost cannot be estimated for this run ({billing})."
+    return (
+        f"Estimated cost ${amount}; this pre-run estimate is not a spending cap "
+        f"({billing})."
+    )
+
+
 def claim_display(
     promise: Promise,
     facts: RouteRowFacts,

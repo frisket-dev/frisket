@@ -1070,7 +1070,12 @@ def test_wrong_echo_refuses_without_executing(
     driver = _driver(kind)
     if driver is None:
         pytest.fail(f"{kind} is rostered but has no echo-gate closure driver")
-    if kind in {"enrich.census_demographics", "run.backfill"}:
+    if kind in {
+        "enrich.census_demographics",
+        "run.backfill",
+        "media.fetch_url",
+        "media.ytdlp_download",
+    }:
         # Free default routes need a real tariff to exercise explicit consent.
         # Keep this local: other drivers seed work under their normal pricing.
         install_pricing_policy(_PaidClosurePolicy())

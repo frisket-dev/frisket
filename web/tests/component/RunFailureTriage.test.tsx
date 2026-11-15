@@ -1,10 +1,6 @@
 // @vitest-environment jsdom
 //
-// Failure triage buckets ("show me everything that failed in this run,
-// bucketed by why, and let me act on a bucket"): outcome buckets with
-// per-bucket Show/Retry, the honest terminal empty_output copy (retry
-// allowed, never oversold), and no actions when the target column is
-// unknown or a bucket has no taxonomy outcome.
+// Failure reasons remain readable; actions apply to all failed rows.
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, render } from '@testing-library/react';
@@ -66,49 +62,33 @@ describe('RunFailureTriage', () => {
     expect(modelErrors).toHaveTextContent('model errors');
   });
 
-  it('Show rows filters to the bucket; Show all failed uses the any bucket', () => {
+  it('offers only Show all failed and Retry, both applying to every failure outcome', () => {
     const onShowRows = vi.fn();
-    render(<RunFailureTriage rowErrors={THREE_BUCKETS} onShowRows={onShowRows} />);
-    fireEvent.click(screen.getByTestId('run-failure-bucket-show-empty_output'));
-    expect(onShowRows).toHaveBeenLastCalledWith('empty_output');
-    fireEvent.click(screen.getByTestId('run-failure-show-all'));
-    expect(onShowRows).toHaveBeenLastCalledWith('any');
-  });
-
-  it('retryable bucket: plain "Retry N rows"; retry fires once then reports', () => {
     const onRetryRows = vi.fn();
-    render(<RunFailureTriage rowErrors={THREE_BUCKETS} onRetryRows={onRetryRows} />);
-    const retry = screen.getByTestId('run-failure-bucket-retry-model_error');
-    expect(retry).toHaveTextContent('Retry 8 rows');
+    render(<RunFailureTriage rowErrors={THREE_BUCKETS} onShowRows={onShowRows} onRetryRows={onRetryRows} />);
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual(['Show all failed', 'Retry']);
+    fireEvent.click(screen.getByRole('button', { name: 'Show all failed' }));
+    expect(onShowRows).toHaveBeenCalledWith('any');
+    const retry = screen.getByRole('button', { name: 'Retry' });
     fireEvent.click(retry);
-    expect(onRetryRows).toHaveBeenCalledWith('model_error');
-    // The button reports the request and stops re-firing.
+    expect(onRetryRows).toHaveBeenCalledWith('any');
     expect(retry).toBeDisabled();
     expect(retry).toHaveTextContent('Retry requested');
     fireEvent.click(retry);
     expect(onRetryRows).toHaveBeenCalledTimes(1);
-  });
-
-  it('terminal empty_output bucket: honest copy, "anyway" wording, retry still allowed', () => {
-    const onRetryRows = vi.fn();
-    render(<RunFailureTriage rowErrors={THREE_BUCKETS} onRetryRows={onRetryRows} />);
     expect(screen.getByTestId('run-failure-terminal-note')).toHaveTextContent(
       'the failure was real, and retrying may well do the same',
     );
-    const retry = screen.getByTestId('run-failure-bucket-retry-empty_output');
-    expect(retry).toHaveTextContent('Retry 3 anyway');
-    fireEvent.click(retry);
-    expect(onRetryRows).toHaveBeenCalledWith('empty_output');
   });
 
   it('without callbacks (unknown target column) buckets render with no actions', () => {
     render(<RunFailureTriage rowErrors={THREE_BUCKETS} />);
     expect(screen.getByTestId('run-failure-bucket-model_error')).toBeInTheDocument();
     expect(screen.queryByTestId('run-failure-show-all')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('run-failure-bucket-retry-model_error')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('run-failure-retry-all')).not.toBeInTheDocument();
   });
 
-  it('an unclassified bucket shows its count but offers no predicate-backed actions', () => {
+  it('an unclassified bucket keeps its count and the overall actions', () => {
     render(
       <RunFailureTriage
         rowErrors={summary([group({ outcome: null, terminal: false, count: 2 })])}
@@ -119,7 +99,8 @@ describe('RunFailureTriage', () => {
     const unclassified = screen.getByTestId('run-failure-bucket-unclassified');
     expect(unclassified).toHaveTextContent('2 ×');
     expect(unclassified).toHaveTextContent('failed');
-    expect(screen.queryByTestId('run-failure-bucket-show-unclassified')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('run-failure-bucket-retry-unclassified')).not.toBeInTheDocument();
+    expect(unclassified.querySelector('button')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Show all failed' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
 });

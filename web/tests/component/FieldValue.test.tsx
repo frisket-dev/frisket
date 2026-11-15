@@ -6,11 +6,12 @@
 // affect those contracts.
 
 import '@testing-library/jest-dom/vitest';
+import userEvent from '@testing-library/user-event';
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { RowField } from '../../src/components/RowDrawer';
-import { FieldValue } from '../../src/components/rowInspection/FieldValue';
+import { ClampedField, FieldValue } from '../../src/components/rowInspection/FieldValue';
 import { fieldValueDependencyColumnIds } from '../../src/components/fieldValueDependencies';
 import { createProjectApi } from '../../src/api/real';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
@@ -25,6 +26,7 @@ const { render } = createWorkspaceTestHarness({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('FieldValue renderer', () => {
@@ -137,6 +139,61 @@ describe('FieldValue renderer', () => {
     // the escaped literals must be gone, not shown verbatim
     expect(el.textContent).not.toContain('\\u2014');
     expect(el.textContent).not.toContain('\\n');
+  });
+
+  it('renders AI text as sanitized markdown without requiring a markdown column format', () => {
+    const col = columnDef({ id: 'summary', name: 'summary', type: 'text', ai: aiMeta() });
+    const value = '## Findings\\n\\n**Andrea** said:\\n\\n- First point\\n- Second point\\n\\n[Source](https://example.test/report)\\n\\n<script>alert(1)</script><a href="javascript:alert(1)">bad</a>';
+    render(<FieldValue col={col} columns={[col]} row={row({ summary: value })} value={value} />);
+
+    const markdown = screen.getByTestId('markdown-value');
+    expect(screen.getByRole('heading', { name: 'Findings' })).toBeInTheDocument();
+    expect(markdown.querySelector('strong')).toHaveTextContent('Andrea');
+    expect(markdown.querySelectorAll('li')).toHaveLength(2);
+    expect(screen.getByRole('link', { name: 'Source' })).toHaveAttribute('href', 'https://example.test/report');
+    expect(markdown.querySelectorAll('script, a[href^="javascript:"]')).toHaveLength(0);
+  });
+
+  it('renders AI text beginning with a markdown link without mistaking it for JSON', () => {
+    const col = columnDef({ id: 'summary', name: 'summary', type: 'text', ai: aiMeta() });
+    const value = '[Source](https://example.test/report) supports this finding.';
+    render(<FieldValue col={col} columns={[col]} row={row({ summary: value })} value={value} />);
+    expect(screen.getByRole('link', { name: 'Source' })).toHaveAttribute('href', 'https://example.test/report');
+    expect(screen.getByTestId('markdown-value')).toHaveTextContent('supports this finding.');
+  });
+
+  it('preserves explicit plain_text rendering for AI columns', () => {
+    const col = columnDef({ id: 'summary', name: 'summary', type: 'text', format: 'plain_text', ai: aiMeta() });
+    const value = '**Literal** <script>alert(1)</script>';
+    const { container } = render(<FieldValue col={col} columns={[col]} row={row({ summary: value })} value={value} />);
+    expect(container.querySelector('.row-field-value')).toHaveTextContent(value);
+    expect(container.querySelector('strong, script')).toBeNull();
+  });
+
+  it('offers a text disclosure on overflow and supports keyboard expansion and collapse', async () => {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(500);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(250);
+    const user = userEvent.setup();
+    const { container } = render(<ClampedField><p>Long result</p></ClampedField>);
+    const toggle = screen.getByRole('button', { name: '[show more]' });
+    expect(toggle).toHaveAttribute('data-button-variant', 'text');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveAttribute('aria-controls', screen.getByTestId('row-field-clamp').id);
+    expect(container.querySelector('.row-field-clamp')).toHaveAttribute('data-clamped', 'true');
+    await user.tab();
+    expect(toggle).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(toggle).toHaveTextContent('[show less]');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(container.querySelector('.row-field-clamp')).not.toHaveAttribute('data-clamped');
+    await user.keyboard(' ');
+    expect(toggle).toHaveTextContent('[show more]');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('keeps short values free of a disclosure', () => {
+    render(<ClampedField><p>Short result</p></ClampedField>);
+    expect(screen.queryByTestId('row-field-clamp-toggle')).toBeNull();
   });
 
   it('leaves a non-AI column\'s literal backslash path untouched', () => {

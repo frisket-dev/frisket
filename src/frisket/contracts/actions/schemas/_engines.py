@@ -614,7 +614,7 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     *LIGHTONOCR_ENGINES,
     EngineDeclaration(
         id="datalab",
-        label="Datalab Marker (hosted, pay-per-call, PDF/Office/image only)",
+        label="Datalab Marker (PDF, Office documents, and images only)",
         tier="hosted",
         provider="datalab",
         billable=True,

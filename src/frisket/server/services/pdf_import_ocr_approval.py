@@ -350,6 +350,7 @@ class PdfImportOcrApprovalQuoter:
                         promise.field == "cost"
                         for promise in bound.promise_set.promises
                     ),
+                    rated_estimate=rated,
                 )
                 payload["promise_set_hash"] = promise_hash
             estimate = ActionEstimate.model_validate(payload).model_dump(
@@ -449,6 +450,7 @@ class PdfImportOcrApprovalQuoter:
                 has_cost_claim=any(
                     promise.field == "cost" for promise in bound.promise_set.promises
                 ),
+                rated_estimate=rated,
             )
             estimate_payload["promise_set_hash"] = approval_hash
         estimate = ActionEstimate.model_validate(estimate_payload).model_dump(
@@ -569,6 +571,7 @@ def source_page_ocr_grant(
             bound.resolution.facts,
             bound.presentation,
             has_cost_claim=any(p.field == "cost" for p in bound.promise_set.promises),
+            rated_estimate=rated,
         )
         payload["promise_set_hash"] = approval_hash
     estimate = ActionEstimate.model_validate(payload).model_dump(

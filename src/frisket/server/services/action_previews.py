@@ -364,13 +364,13 @@ class ActionPreviewService:
                     estimate,
                     policy=runner.pricing_policy,
                 )
-            if not recipe.consumes_resolution:
-                from frisket.engine.runner.confirmation_context import quoted_usd
+                if not recipe.consumes_resolution:
+                    from frisket.engine.runner.confirmation_context import quoted_usd
 
-                price = quoted_usd(estimate)
-                estimate["requires_confirmation"] = price is None or price > float(
-                    coverage.threshold_usd
-                )
+                    price = quoted_usd(estimate)
+                    estimate["requires_confirmation"] = price is None or price > float(
+                        coverage.threshold_usd
+                    )
         except RowError as exc:
             raise ActionPreviewRouteError(
                 400, _row_input_action_error(action_kind, exc).model_dump(mode="json")

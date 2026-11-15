@@ -26,12 +26,17 @@ interface RefreshGroup extends RefreshRequest {
 }
 
 export interface RowCache {
+  /** Retained rows are display data while their replacement is pending. */
   getRow(rowIndex: number): Row | undefined;
+  /** Only current rows may back edits or other mutations. */
+  getFreshRow(rowIndex: number): Row | undefined;
   onVisibleRowsChanged(firstRow: number, lastRow: number): void;
   /** Re-fetch pages near the viewport in place (live-run animation). */
   refresh(): void;
   /** Bumps whenever cached data changes — use as a redraw dependency. */
   version: number;
+  /** The current row scope has an accepted anchor, including during revalidation. */
+  ready: boolean;
   /** Server-reported total for the current filter/sort/page scope. */
   rowCount: number;
   /** Scope-wide display metadata from the bounded anchor response. */
@@ -56,16 +61,18 @@ export function useRowCache(
     optionsRef.current = queryOptions;
   }, [queryOptions]);
 
-  // Staleness token: a response is dropped if the reset key changed while it
-  // was in flight (sheet switch / undo / redo / review invalidation).
+  // Revisions and column projections invalidate requests without discarding
+  // displayed rows. Only changes to the row scope/order clear the viewport.
+  const scopeKey = computeRowCacheKey(sheetId, 0, { ...queryOptions, columnIds: undefined });
   const resetKey = computeRowCacheKey(sheetId, dataVersion, queryOptions);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const totalRows = snapshot.key === resetKey && snapshot.totalRows !== null ? snapshot.totalRows : rowCount;
+  const ready = snapshot.scopeKey === scopeKey && snapshot.totalRows !== null;
+  const totalRows = ready ? snapshot.totalRows ?? rowCount : rowCount;
 
   const fetchPage = useCallback(
     async (page: number, epoch: number, includeMetadata: boolean, force = false) => {
       const existing = store.getPage(page);
-      if (!force && existing !== undefined) return true;
+      if (!force && existing !== undefined && store.isPageCurrent(page)) return true;
       if (!store.beginRequest(resetKey, epoch, page)) return false;
       if (existing === undefined) store.setLoading(page);
       try {
@@ -149,10 +156,10 @@ export function useRowCache(
     launch(requested);
   }, [fetchPage, resetKey, rowCount, store]);
 
-  // A new key clears the previous key's exact total before its anchor starts.
   // Old responses retain their original key/epoch and cannot publish here.
+  // Retained pages remain visible but stale until their replacement arrives.
   useEffect(() => {
-    store.activate(resetKey);
+    store.activate(resetKey, scopeKey);
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
@@ -166,7 +173,7 @@ export function useRowCache(
         refreshGroup.current = null;
       }
     };
-  }, [resetKey, startEpoch, store]);
+  }, [resetKey, scopeKey, startEpoch, store]);
 
   const onVisibleRowsChanged = useCallback(
     (firstRow: number, lastRow: number) => {
@@ -202,14 +209,20 @@ export function useRowCache(
   }, [startEpoch, store]);
 
   const getRow = useCallback((rowIndex: number): Row | undefined => {
+    if (store.getSnapshot().scopeKey !== scopeKey) return undefined;
     const page = store.getPage(Math.floor(rowIndex / PAGE_SIZE));
     if (page === undefined || page === 'loading') return undefined;
     return page[rowIndex % PAGE_SIZE];
-  }, [store]);
+  }, [scopeKey, store]);
+
+  const getFreshRow = useCallback((rowIndex: number): Row | undefined => {
+    if (store.getSnapshot().key !== resetKey || !store.isPageCurrent(Math.floor(rowIndex / PAGE_SIZE))) return undefined;
+    return getRow(rowIndex);
+  }, [getRow, resetKey, store]);
 
   return useMemo(
-    () => ({ getRow, onVisibleRowsChanged, refresh, version: snapshot.version, rowCount: totalRows,
+    () => ({ getRow, getFreshRow, onVisibleRowsChanged, refresh, ready, version: snapshot.version, rowCount: totalRows,
       columns: snapshot.key === resetKey ? snapshot.columns : undefined }),
-    [getRow, onVisibleRowsChanged, refresh, snapshot.version, snapshot.key, snapshot.columns, resetKey, totalRows],
+    [getRow, getFreshRow, onVisibleRowsChanged, refresh, ready, snapshot.version, snapshot.key, snapshot.columns, resetKey, totalRows],
   );
 }

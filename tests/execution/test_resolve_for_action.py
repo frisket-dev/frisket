@@ -585,6 +585,49 @@ def test_gate_claims_payload_shape(audio_project, monkeypatch):
     assert all(row["display"] for row in payload)
 
 
+@pytest.mark.parametrize(
+    ("billed_cost", "covered"),
+    [(0, True), (1_000_000, True), (1_000_001, False), (None, False)],
+)
+def test_selected_cloud_payer_standing_coverage_requires_known_rated_amount(
+    audio_project, monkeypatch, billed_cost, covered
+):
+    from frisket.cloud_execution import CloudPayerSubject
+    from frisket.engine.runner.validation import _bind_rated_quote
+    from frisket.execution.consent_coverage import ConsentCoverage
+    from frisket.execution.promises import Promise, PromiseSet
+    from frisket.execution.resolve_for_action import project_uncovered_user_claims
+    from frisket.project_settings import ProjectSettings, write_project_settings
+
+    project, resolved = _resolved_gateway_offering(audio_project, monkeypatch)
+    payer = CloudPayerSubject(7, 41, "frisket_credits", "openai", "test", "route-1")
+    payer_claim = Promise.make(
+        "cloud_payer", "eq", payer.to_snapshot(), audience="user_claim"
+    )
+    resolved = replace(
+        resolved,
+        promise_set=PromiseSet.make([*resolved.promise_set.promises, payer_claim]),
+    )
+    write_project_settings(
+        project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
+    )
+    quoted = _bind_rated_quote(
+        resolved,
+        {
+            "cost": float(resolved.cost_basis.bound),
+            "billed_cost": billed_cost,
+            "policy_id": "test.cloud-preapproval.v1",
+        },
+    )
+    uncovered = project_uncovered_user_claims(
+        project,
+        quoted.promise_set,
+        consent_coverage=ConsentCoverage(_PRINCIPAL, Decimal("1")),
+    )
+    assert (payer_claim not in uncovered) is covered
+    assert (uncovered == []) is covered
+
+
 def test_action_identity_hash_strips_retry_flow_flags(audio_project):
     _, sheet_id = audio_project
     base = _spec(sheet_id)

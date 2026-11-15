@@ -88,6 +88,7 @@ export interface ActionPanelProps {
    *  degrades to no context write, never blocks Diagnose. */
   project?: ProjectInfo | null;
   running: boolean;
+  launchPending?: boolean;
   runningLabel?: string;
   selectedRowIds?: string[];
   viewSelection?: ViewSelection | null;
@@ -149,6 +150,7 @@ export function ActionPanel({
   sheet,
   project,
   running,
+  launchPending = false,
   runningLabel = 'Running…',
   selectedRowIds = EMPTY_SELECTED_ROW_IDS,
   viewSelection = null,
@@ -622,6 +624,7 @@ export function ActionPanel({
             contextLabel={actionCompareContextLabel}
             catalogAccepted={catalogLoaded && currentGeneratedCatalogEntry !== undefined}
             running={running}
+            launchPending={launchPending}
             runningLabel={runningLabel}
             resolveParams={resolveGeneratedActionParams}
             estimateAction={estimateGeneratedAction}

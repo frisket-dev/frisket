@@ -1,3 +1,4 @@
+import { useJobsHandle } from '../bind/useJobsHandle';
 import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo } from 'react';
 import { ActionDrawer } from '../workbench/ActionDrawer';
@@ -34,6 +35,8 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
     project,
   } = useWorkspaceShell();
   const run = useRun();
+  const jobs = useJobsHandle();
+  const launchPending = useSelector(jobs.store, (state) => state.launchPending);
   const selectedRowIdsForSheet = useSelectedRowIdsForSheet();
   const { sheet } = useCurrentSheet();
   const sheetId = sheet?.id ?? null;
@@ -99,7 +102,8 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
           sheet={sheet ?? null}
           project={project}
           running={isRunActionBlockedStatus(run?.status)}
-          runningLabel={run?.status === 'queued' ? 'Queued…' : 'Running…'}
+          launchPending={launchPending}
+          runningLabel={launchPending ? 'Starting…' : run?.status === 'queued' ? 'Queued…' : 'Running…'}
           selectedRowIds={selectedRowIdsForSheet}
           viewSelection={viewSelection}
           hasExactRowScopeInitializer={hasExactRowScopeInitializer}

@@ -22,13 +22,14 @@ export type CachedPage = Row[] | 'loading';
 
 export interface RowCacheSnapshot {
   key: string;
+  scopeKey: string;
   version: number;
   totalRows: number | null;
   columns?: ColumnDef[];
 }
 
 export interface RowCacheSlot {
-  activate(key: string): void;
+  activate(key: string, scopeKey?: string): void;
   beginEpoch(key: string): number;
   beginRequest(key: string, epoch: number, page: number): boolean;
   deletePage(page: number): void;
@@ -40,6 +41,7 @@ export interface RowCacheSlot {
   getSnapshot(): RowCacheSnapshot;
   hasPage(page: number): boolean;
   isMetadataReady(key: string, epoch: number): boolean;
+  isPageCurrent(page: number): boolean;
   setLoading(page: number): void;
   setPage(
     key: string,
@@ -54,7 +56,8 @@ export interface RowCacheSlot {
 
 function createRowCacheSlot(): RowCacheSlot {
   let pages = new Map<number, CachedPage>();
-  let snapshot: RowCacheSnapshot = { key: '', version: 0, totalRows: null };
+  const pageKeys = new Map<number, string>();
+  let snapshot: RowCacheSnapshot = { key: '', scopeKey: '', version: 0, totalRows: null };
   let activeEpoch = 0;
   let metadataReadyEpoch = -1;
   const requests = new Set<string>();
@@ -68,11 +71,22 @@ function createRowCacheSlot(): RowCacheSlot {
   };
 
   return {
-    activate(key: string) {
+    activate(key: string, scopeKey = key) {
       if (snapshot.key === key) return;
-      pages = new Map();
+      // A revision or column projection change revalidates the same row
+      // scope in place. Different filters/orderings must never display the
+      // previous scope's rows, even briefly.
+      const retainRows = snapshot.scopeKey === scopeKey;
+      if (!retainRows) {
+        pages = new Map();
+        pageKeys.clear();
+      }
+      activeEpoch += 1;
       metadataReadyEpoch = -1;
-      snapshot = { key, version: snapshot.version + 1, totalRows: null };
+      snapshot = {
+        key, scopeKey, version: snapshot.version + 1,
+        totalRows: retainRows ? snapshot.totalRows : null,
+      };
       emit();
     },
     beginEpoch(key: string) {
@@ -93,6 +107,7 @@ function createRowCacheSlot(): RowCacheSlot {
     },
     deletePage(page: number) {
       pages.delete(page);
+      pageKeys.delete(page);
     },
     failPage(key: string, epoch: number, page: number) {
       if (snapshot.key !== key || activeEpoch !== epoch) return;
@@ -123,15 +138,20 @@ function createRowCacheSlot(): RowCacheSlot {
         && activeEpoch === epoch
         && metadataReadyEpoch === epoch;
     },
+    isPageCurrent(page: number) {
+      return pageKeys.get(page) === snapshot.key;
+    },
     setLoading(page: number) {
       pages.set(page, 'loading');
     },
     setPage(key, epoch, page, rows, totalRows, columns) {
       if (snapshot.key !== key || activeEpoch !== epoch) return false;
       pages.set(page, rows);
+      pageKeys.set(page, key);
       if (totalRows !== undefined) metadataReadyEpoch = epoch;
       snapshot = {
         key,
+        scopeKey: snapshot.scopeKey,
         version: snapshot.version + 1,
         totalRows: totalRows ?? snapshot.totalRows,
         ...(columns ? { columns } : snapshot.columns ? { columns: snapshot.columns } : {}),

@@ -140,7 +140,7 @@ def test_action_llm_quote_uses_the_cloud_wire_payload_formula():
     assert authority.maximum_charge_micro is None
 
 
-def test_structured_and_agent_llm_calls_use_explicit_unknown_quantity():
+def test_structured_llm_initial_estimate_is_not_a_spending_cap():
     price = CloudTokenPrice(
         kind="tokens",
         input_micro_per_million_tokens=100_000_000,
@@ -167,28 +167,41 @@ def test_structured_and_agent_llm_calls_use_explicit_unknown_quantity():
         max_tokens=plain.max_tokens,
     )
 
-    for recipe, call in (
-        (SimpleNamespace(), structured),
-        (SimpleNamespace(run_agent=lambda: None), plain),
-    ):
-        basis, quantity = _llm_cost_basis(
-            SimpleNamespace(provider=Provider()),
-            resolution,
-            {1: call},
-            recipe=recipe,
-        )
+    basis, quantity = _llm_cost_basis(
+        SimpleNamespace(provider=Provider()),
+        resolution,
+        {1: structured},
+        recipe=SimpleNamespace(),
+    )
 
-        assert quantity is None
-        assert basis.estimated_quantity is None
-        assert basis.row_quote_quantities is None
-        assert basis.pricing_key.endswith(
-            ":anthropic:llm.complete:anthropic/claude-sonnet-4-5"
-        )
-        assert basis.terms_version == "route-1"
-        assert basis.charge_authority == "frisket_cloud_receipt"
-        assert (
-            cloud_quote_authority_for_row(basis, row_id=1).maximum_charge_micro is None
-        )
+    expected = cloud_llm_estimated_spend_micro(
+        CloudLLMRequest(
+            model=_payer().engine,
+            messages=structured.messages,
+            schema=structured.schema,
+            max_tokens=structured.max_tokens,
+            temperature=0,
+        ),
+        price,
+    )
+    assert quantity == expected
+    assert float(basis.estimated_quantity) == expected / 1_000_000
+    assert basis.row_quote_quantities is None
+    assert basis.pricing_key.endswith(
+        ":anthropic:llm.complete:anthropic/claude-sonnet-4-5"
+    )
+    assert basis.terms_version == "route-1"
+    assert basis.charge_authority == "frisket_cloud_receipt"
+    assert cloud_quote_authority_for_row(basis, row_id=1).maximum_charge_micro is None
+
+    agent_basis, agent_quantity = _llm_cost_basis(
+        SimpleNamespace(provider=Provider()),
+        resolution,
+        {1: plain},
+        recipe=SimpleNamespace(run_agent=lambda: None),
+    )
+    assert agent_quantity is None
+    assert agent_basis.estimated_quantity is None
 
 
 def test_llm_quote_helper_includes_tools_in_the_canonical_wire_payload():

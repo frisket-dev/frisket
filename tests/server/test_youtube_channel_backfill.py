@@ -266,15 +266,6 @@ def test_download_backfills_empty_channel_cells_and_never_clobbers_non_empty(
 
     action = _youtube_download_action(sheet_id=sheet_id, row_ids=row_ids)
     router = ModelRouter()
-    challenge = run_action_spec(
-        project,
-        action,
-        project_id=PROJECT_ID,
-        router=router,
-    )
-    assert challenge.status == "needs_confirmation", challenge.errors
-    promise_set_hash = challenge.errors[0].details["promise_set_hash"]
-    action["confirmation"] = promise_set_hash
     result = run_action_spec(
         project,
         action,

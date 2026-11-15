@@ -11,14 +11,8 @@ import './run-failure-triage.css';
  *  buckets, not as one of them. */
 const YOUTUBE_PROVIDER_BLOCKED_CODE = 'youtube_provider_blocked';
 
-// Failure triage for a finished run: the run's row errors bucketed by the
-// backend's result-outcome taxonomy (never by parsing message text), with
-// per-bucket actions — filter the grid to the failing rows, or retry exactly
-// that bucket through the deliberate-retry backfill.
-//
-// Copy stance for the terminal empty_output bucket:
-// the failure was real and a retry may not change the outcome — the affordance
-// exists but is never oversold as a fix.
+// Keep failure reasons readable while the run offers one filter and one retry.
+// The original row-level errors remain available in the run inspector below.
 export function RunFailureTriage({
   rowErrors,
   onShowRows,
@@ -29,52 +23,52 @@ export function RunFailureTriage({
    *  ('any' = every failure bucket). Omitted when the run's target column is
    *  unknown — the buckets still render, the actions do not. */
   onShowRows?: (outcome: string) => void;
-  /** Retry exactly this bucket's rows (run.backfill row_ids). */
+  /** Retry failed rows; 'any' includes every failure outcome. */
   onRetryRows?: (outcome: string) => void;
 }) {
   const buckets = bucketRowErrors(rowErrors.groups);
   const blockedGroup = rowErrors.groups.find(
     (group) => group.code === YOUTUBE_PROVIDER_BLOCKED_CODE,
   );
-  // One retry in flight at a time; the button stays honest about what it did.
-  const [retriedOutcomes, setRetriedOutcomes] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
+  const [retried, setRetried] = useState(false);
   if (buckets.length === 0) return null;
 
-  const retry = (outcome: string) => {
-    if (!onRetryRows) return;
-    setRetriedOutcomes((current) => new Set([...current, outcome]));
-    onRetryRows(outcome);
+  const retry = () => {
+    if (!onRetryRows || retried) return;
+    setRetried(true);
+    onRetryRows('any');
   };
 
   return (
     <div className="run-failure-triage" data-testid="run-failure-triage">
       {blockedGroup && (
-        <MediaProxyRemediationCard group={blockedGroup} onRetryRows={onRetryRows} />
+        <MediaProxyRemediationCard group={blockedGroup} />
       )}
       <div className="run-failure-triage-head">
         <span className="run-failure-triage-title">
           {rowErrors.totalFailedRows.toLocaleString()} failed{' '}
           {rowErrors.totalFailedRows === 1 ? 'row' : 'rows'}
         </span>
-        {onShowRows && (
-          <Button
-            type="button"
-
-            data-testid="run-failure-show-all"
-            onClick={() => onShowRows('any')}
-          >
-            Show all failed
-          </Button>
-        )}
+        <div className="run-failure-triage-actions">
+          {onShowRows && (
+            <Button
+              type="button"
+              data-testid="run-failure-show-all"
+              onClick={() => onShowRows('any')}
+            >
+              Show all failed
+            </Button>
+          )}
+          {onRetryRows && (
+            <Button type="button" data-testid="run-failure-retry-all" disabled={retried} onClick={retry}>
+              {retried ? 'Retry requested' : 'Retry'}
+            </Button>
+          )}
+        </div>
       </div>
       <ul className="run-failure-buckets">
         {buckets.map((bucket) => {
-          // A bucket without a taxonomy outcome cannot be expressed as a
-          // server-side predicate — render its count, offer no actions.
           const outcome = bucket.outcome;
-          const retried = outcome !== null && retriedOutcomes.has(outcome);
           return (
             <li
               key={outcome ?? 'unclassified'}
@@ -85,31 +79,6 @@ export function RunFailureTriage({
                 {bucket.count.toLocaleString()} ×
               </span>
               <span className="run-failure-bucket-label">{bucket.label}</span>
-              {outcome !== null && onShowRows && (
-                <Button
-                  type="button"
-
-                  data-testid={`run-failure-bucket-show-${outcome}`}
-                  onClick={() => onShowRows(outcome)}
-                >
-                  Show rows
-                </Button>
-              )}
-              {outcome !== null && onRetryRows && (
-                <Button
-                  type="button"
-
-                  data-testid={`run-failure-bucket-retry-${outcome}`}
-                  disabled={retried}
-                  onClick={() => retry(outcome)}
-                >
-                  {retried
-                    ? 'Retry requested'
-                    : bucket.terminal
-                      ? `Retry ${bucket.count.toLocaleString()} anyway`
-                      : `Retry ${bucket.count.toLocaleString()} ${bucket.count === 1 ? 'row' : 'rows'}`}
-                </Button>
-              )}
               {bucket.terminal && (
                 <div
                   className="run-failure-bucket-note"

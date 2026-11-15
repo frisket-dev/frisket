@@ -292,7 +292,7 @@ describe('GeneratedActionForm', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Compare/ })).toBeEnabled());
     expect(screen.queryByTestId('generated-action-preview')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Choose run scope' })).not.toBeInTheDocument();
-    fireEvent.submit(screen.getByTestId('generated-action-form'));
+    await act(async () => { fireEvent.submit(screen.getByTestId('generated-action-form')); });
     expect(onCompare).toHaveBeenCalledOnce();
     expect(onExecute).not.toHaveBeenCalled();
   });
@@ -367,12 +367,12 @@ describe('GeneratedActionForm', () => {
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [2] },
     })));
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
-    fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-row-scope-all')); });
     expect(onExecute).not.toHaveBeenCalled();
     await waitFor(() => expect(estimateAction).toHaveBeenLastCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7 },
     })));
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7 },
     }), 'run');
@@ -389,7 +389,7 @@ describe('GeneratedActionForm', () => {
       running={false} resolveParams={resolveStaticParams} estimateAction={estimateAction} onExecute={onExecute} onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId('field-model'));
     await waitFor(() => expect(estimateAction).toHaveBeenCalledWith(expect.objectContaining({ scope: { kind: 'sheet_rows', sheet_id: 7, selection } })));
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({ scope: { kind: 'sheet_rows', sheet_id: 7, selection } }), 'run');
   });
 
@@ -420,20 +420,20 @@ describe('GeneratedActionForm', () => {
     );
 
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    expect(screen.getByText('Loading models…')).toBeVisible();
+    expect(screen.queryByText('Loading models…')).not.toBeInTheDocument();
     act(() => selectorHarness.emitState?.(selectorFixtureState(null)));
-    expect(screen.getByText('No models available')).toBeVisible();
+    expect(screen.queryByText('No models available')).not.toBeInTheDocument();
     expect(screen.queryByText('Loading models…')).not.toBeInTheDocument();
     act(() => selectorHarness.emitState?.({
       ...selectorFixtureState(null), error: new Error('offline'),
     }));
-    expect(screen.getByText('Couldn’t load models')).toBeVisible();
+    expect(screen.queryByText('Couldn’t load models')).not.toBeInTheDocument();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     act(() => selectorHarness.emitCurrent?.({
       authored_selection: { kind: 'model', model: 'needs-key' },
       can_run: false, status: 'needs_setup', label: 'Needs key', blocker: null,
     }));
-    expect(screen.getByText('Setup needed')).toBeVisible();
+    expect(screen.queryByText('Setup needed')).not.toBeInTheDocument();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     const filingModelStep = LAWSUIT_DOCUMENT_WALKTHROUGH.steps.find(
       (step) => step.id === 'choose-filing-model',
@@ -483,7 +483,7 @@ describe('GeneratedActionForm', () => {
     }));
 
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       params: expect.objectContaining({ model: 'served-default' }),
     }), 'run');
@@ -526,7 +526,7 @@ describe('GeneratedActionForm', () => {
     }));
 
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       params: { source: 'raw' },
     }), 'run');
@@ -592,7 +592,7 @@ describe('GeneratedActionForm', () => {
     expect(screen.queryByTestId('field-output-page')).not.toBeInTheDocument();
     fireEvent.change(screen.getByTestId('field-sheet_name'), { target: { value: 'Collected links' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute.mock.calls.at(-1)![0]).toMatchObject({
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [21] },
       params: { destination: 'child' }, sheet_name: 'Collected links', output_names: {},
@@ -600,7 +600,7 @@ describe('GeneratedActionForm', () => {
     fireEvent.change(screen.getByTestId('field-destination'), { target: { value: 'column' } });
     await waitFor(() => expect(screen.queryByTestId('field-sheet_name')).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute.mock.calls.at(-1)![0]).not.toHaveProperty('sheet_name');
     expect(onExecute.mock.calls.at(-1)![0].output_names).toEqual({ page: 'page' });
   });
@@ -780,7 +780,7 @@ describe('GeneratedActionForm', () => {
     });
     expect(await screen.findByTestId('field-template-error'))
       .toHaveTextContent('Unknown template column.');
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).not.toHaveBeenCalled();
   });
 
@@ -934,7 +934,7 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('field-template')).toHaveValue('Keep {{name}}');
     expect(screen.getByTestId('generated-action-preview')).toBeDisabled();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).not.toHaveBeenCalled();
   });
 
@@ -978,7 +978,7 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('field-output-rendered')).toHaveValue('salutation');
     expect(screen.getByText('1 selected rows will run')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onRun).toHaveBeenCalledWith({
       action_id: 'map.template',
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [2] },
@@ -1052,7 +1052,7 @@ describe('GeneratedActionForm', () => {
     });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-preview'));
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
 
     const expected = {
       action_id: 'map.template',
@@ -1113,7 +1113,7 @@ describe('GeneratedActionForm', () => {
 
     expect(await screen.findByTestId('field-output-extracted_1')).toHaveValue('first');
     expect(screen.getByTestId('field-output-extracted_2')).toHaveValue('second');
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onRun).toHaveBeenCalledWith(expect.objectContaining({
       action_id: 'map.regex_extract',
       params: expect.objectContaining({ input_columns: ['raw'], pattern: '(a)(b)' }),
@@ -1180,7 +1180,7 @@ describe('GeneratedActionForm', () => {
       'Saved action outputs no longer match its parameters.',
     ));
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).not.toHaveBeenCalled();
   });
 
@@ -1198,7 +1198,7 @@ describe('GeneratedActionForm', () => {
         { key: 'extracted_2', column_type: 'text' },
       ] }))} onExecute={onExecute} onClose={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({ output_names: {
       extracted_1: 'extracted_1', extracted_2: 'extracted_2', ...saved,
     } }), 'run');
@@ -1223,7 +1223,7 @@ describe('GeneratedActionForm', () => {
     // rename the saved target or overwrite source data.
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeDisabled());
     expect(screen.queryByTestId('default-output-name-collision-rendered')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).not.toHaveBeenCalled();
   });
 
@@ -1323,7 +1323,7 @@ describe('GeneratedActionForm', () => {
     fireEvent.change(screen.getByTestId('field-source'), { target: { value: 'name' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     expect(screen.getByTestId('field-output-cleaned')).toHaveValue('cleaned');
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       params: { source: 'name' }, output_names: { cleaned: 'cleaned' },
     }), 'run');
@@ -1367,7 +1367,7 @@ describe('GeneratedActionForm', () => {
     fireEvent.change(screen.getByTestId('field-pattern'), { target: { value: '(a)(b)' } });
     await waitFor(() => expect(screen.getByTestId('field-output-extracted_2')).toBeEnabled());
     expect(screen.getByTestId('generated-action-run')).toBeEnabled();
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       params: expect.objectContaining({ pattern: '(a)(b)' }),
       output_names: { extracted_1: 'extracted_1', extracted_2: 'extracted_2' },
@@ -1437,7 +1437,7 @@ describe('GeneratedActionForm', () => {
       target: { value: 'generated_text' },
     });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       output_names: { rendered: 'generated_text' },
     }), 'run');
@@ -1461,11 +1461,31 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('field-output-rendered-option-raw')).toBeInTheDocument();
     fireEvent.change(target, { target: { value: 'raw' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       output_names: { rendered: 'raw' },
     }), 'run');
     expect(onExecute.mock.calls[0][0]).not.toHaveProperty('replace_existing');
+  });
+
+  it('blocks admission clicks while preserving Queue for accepted running work', async () => {
+    const entry = generatedEntry('map.template');
+    const onExecute = vi.fn();
+    const props = { catalogEntry: entry, actionTemplate: generatedTemplate(entry), sheet: SHEET,
+      initialDraft: { action_id: 'map.template', scope: { kind: 'sheet_rows' as const, sheet_id: 7 },
+        params: { template: { text: '{{name}}' } }, output_names: { rendered: 'rendered' } },
+      resolveParams: resolveStaticParams, onExecute, onClose: vi.fn() };
+    const view = render(<GeneratedActionForm {...props} running={false} launchPending />);
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Starting…'));
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+    expect(screen.getByTestId('generated-action-preview')).toBeDisabled();
+    fireEvent.submit(screen.getByTestId('generated-action-form'));
+    expect(onExecute).not.toHaveBeenCalled();
+    view.rerender(<GeneratedActionForm {...props} running launchPending={false} />);
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
+    expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Queue');
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
+    expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
   it('keeps exact-empty scope, switching, backfill, and native submission in the host', async () => {
@@ -1495,15 +1515,15 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('generated-action-form').tagName).toBe('FORM');
     expect(screen.getByText('0 selected rows will run')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.submit(screen.getByTestId('generated-action-form'));
+    await act(async () => { fireEvent.submit(screen.getByTestId('generated-action-form')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [] },
     }), 'run');
 
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
-    fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-row-scope-all')); });
     expect(screen.getByTestId('generated-action-run')).toBeEnabled();
-    fireEvent.submit(screen.getByTestId('generated-action-form'));
+    await act(async () => { fireEvent.submit(screen.getByTestId('generated-action-form')); });
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7 },
     }), 'run');
@@ -1541,7 +1561,7 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('field-source')).toHaveValue('raw');
     expect(screen.getByTestId('clean-dates-format-select')).toHaveValue('auto');
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onRun).toHaveBeenLastCalledWith({
       action_id: 'map.clean_dates',
       scope: { kind: 'sheet_rows', sheet_id: 7 },
@@ -1555,7 +1575,7 @@ describe('GeneratedActionForm', () => {
       target: { value: '%Y-%m-%d' },
     });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
 
     expect(onRun).toHaveBeenLastCalledWith({
       action_id: 'map.clean_dates',
@@ -1600,7 +1620,7 @@ describe('GeneratedActionForm', () => {
     fireEvent.click(screen.getByTestId('field-blank_null_tokens'));
     expect(screen.getByTestId('field-null_tokens')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
 
     expect(onRun).toHaveBeenCalledWith({
       action_id: 'map.clean_column',
@@ -1660,7 +1680,7 @@ describe('GeneratedActionForm', () => {
     expect(screen.getByTestId('field-output-geo_point')).toHaveValue('geo_point');
 
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onRun).toHaveBeenCalledWith({
       action_id: 'map.to_geo_point',
       scope: { kind: 'sheet_rows', sheet_id: 7 },
@@ -1709,7 +1729,7 @@ describe('GeneratedActionForm', () => {
       'latitude and longitude must come from different columns',
     );
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    fireEvent.click(screen.getByTestId('generated-action-run'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
     expect(onRun).not.toHaveBeenCalled();
   });
 

@@ -198,8 +198,9 @@ function SelectorFieldContent({
     </div>;
   }
   if (state.loading || !state.response) {
-    return <div data-testid={testId} className="engine-selector-field-loading" aria-live="polite">
-      Loading choices…
+    return <div data-testid={testId}>
+      <EngineSelector label={label} groups={[]} value={null} recentNamespace={recentNamespace}
+        onSelect={() => undefined} loading disabled triggerRef={triggerRef} />
     </div>;
   }
   if (groups.length === 0) {

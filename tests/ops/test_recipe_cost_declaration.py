@@ -8,10 +8,10 @@ An unestimated recipe priced at $0.00 — under every threshold — and the
 launch and the run.backfill path. A run that spent real money launched without
 a word.
 
-The naive repair (absence always refuses) is a trap of its own: ``map.api_call``,
-``media.fetch_url`` and ``media.ytdlp_download`` can NEVER produce an estimate,
-because an author-supplied URL has no published price. Refusing them makes them
-permanently unrunnable. So the fix is a declaration, not a rule: each recipe
+The naive repair (absence always refuses) is a trap of its own: ``map.api_call``
+cannot price an arbitrary authored API request. Refusing it makes it
+permanently unrunnable. Local file/media downloads have no provider purchase.
+So the fix is a declaration, not a rule: each recipe
 says what absence MEANS for it, and an op whose answer is "unpriceable" is
 wired for an explicit unknown-cost consent instead of being priced at zero.
 
@@ -199,14 +199,12 @@ def test_absent_estimate_is_free_only_when_the_recipe_declared_free(
     assert unknown["requires_confirmation"] is True
     assert unknown["cost_source"] == "unknown"
 
-    fetch = _fetch_plan(project, sheet_id)
-    unknown = validation.unestimated_cost(fetch.program, fetch.spec_dict())
-    assert unknown["cost"] is None
-    assert unknown["requires_confirmation"] is True
-    media = _fetch_plan(project, sheet_id, action_id="media.ytdlp_download")
-    unknown = validation.unestimated_cost(media.program, media.spec_dict())
-    assert unknown["cost"] is None
-    assert unknown["requires_confirmation"] is True
+    for action_id in ("media.fetch_url", "media.ytdlp_download"):
+        download = _external_plan(project, sheet_id, action_id=action_id)
+        free = validation.unestimated_cost(download.program, download.spec_dict())
+        assert free["cost"] == 0
+        assert free["cost_source"] == "free_local"
+        assert not free.get("requires_confirmation")
 
 
 def test_local_ner_stays_free_while_the_llm_engine_is_metered() -> None:
@@ -246,11 +244,15 @@ def text_project(tmp_path: Path):
         project.close()
 
 
-def _fetch_plan(project: Project, sheet_id: int, *, action_id="media.fetch_url"):
+def _external_plan(project: Project, sheet_id: int, *, action_id="map.api_call"):
     request = ActionRequest(
         action_id=action_id,
         scope={"kind": "sheet_rows", "sheet_id": sheet_id},
-        params={"source": "text"},
+        params=(
+            {"request": {"url": "https://example.com/{{text}}"}}
+            if action_id == "map.api_call"
+            else {"source": "text"}
+        ),
         idempotency_key="fetch-cost-gate",
     )
     bound = BoundTypedActionRequest.bind(
@@ -319,7 +321,7 @@ def _validate(
 
 def test_unpriceable_run_gates_and_a_confirm_admits_it(text_project) -> None:
     project, sheet_id = text_project
-    plan = _fetch_plan(project, sheet_id)
+    plan = _external_plan(project, sheet_id)
     with pytest.raises(validation.CostGate) as exc:
         _validate(project, plan.spec_dict(), program=plan.program, confirmed=False)
     assert exc.value.estimate is None
@@ -342,6 +344,27 @@ def test_free_run_never_asks(text_project) -> None:
     assert validated.est["cost_source"] == "free_local"
 
 
+@pytest.mark.parametrize("action_id", ["media.fetch_url", "media.ytdlp_download"])
+def test_local_download_is_free_but_still_respects_network_policy(
+    text_project, action_id
+) -> None:
+    project, sheet_id = text_project
+    plan = _external_plan(project, sheet_id, action_id=action_id)
+    spec = plan.spec_dict()
+    assert plan.action.catalog_entry()["cost_policy"] == {
+        "kind": "none",
+        "requires_confirmation": False,
+    }
+    validated = _validate(project, spec, program=plan.program, confirmed=False)
+    assert validated.est["cost"] == 0
+    assert validated.est["billed_cost"] == 0
+    assert validated.est["requires_confirmation"] is False
+    assert validated.unrouted_confirmation_hash is None
+    project.set_network_policy(mode="off")
+    with pytest.raises(validation.NetworkDisabled):
+        _validate(project, spec, program=plan.program, confirmed=False)
+
+
 def test_the_backfill_path_gates_on_the_same_absence(text_project) -> None:
     """The second gate (run.backfill extends a run to newly visible rows). It
     reads the SAME estimate, so the manufactured zero disarmed it too — an
@@ -350,7 +373,7 @@ def test_the_backfill_path_gates_on_the_same_absence(text_project) -> None:
     from frisket.engine.runner import MapRunner
 
     project, sheet_id = text_project
-    plan = _fetch_plan(project, sheet_id)
+    plan = _external_plan(project, sheet_id)
     spec = plan.spec_dict()
     runner = MapRunner(
         project, ModelRouter(), authority=open_attempt_authority(project)
@@ -426,7 +449,7 @@ def test_a_free_ungated_run_launches_with_an_unclassified_estimate_key(
 
     # ...and the same key on a GATED run is still refused, so this is a
     # narrowing of the fence, not a removal of it.
-    metered_plan = _fetch_plan(project, sheet_id)
+    metered_plan = _external_plan(project, sheet_id)
     metered, metered_recipe = metered_plan.spec_dict(), metered_plan.program
     monkeypatch.setattr(
         type(metered_recipe),

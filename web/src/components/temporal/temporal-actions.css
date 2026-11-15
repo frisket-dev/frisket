@@ -2,13 +2,6 @@
   min-height: 100%;
 }
 
-.temporal-action-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-16);
-  padding: var(--space-16);
-}
-
 .temporal-source-empty,
 .temporal-preview {
   border: 1px solid var(--border);

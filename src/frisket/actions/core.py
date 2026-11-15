@@ -4188,7 +4188,7 @@ class RegisteredAction:
                     else "model_metered"
                     if model_backed or semantic
                     else "unknown"
-                    if agent_backed or http or fetch
+                    if agent_backed or http
                     else "external_metered"
                     if external or routed is not None or opencorporates
                     else "none"
@@ -4203,7 +4203,6 @@ class RegisteredAction:
                     or routed is not None
                     or http
                     or opencorporates
-                    or fetch
                 ),
             },
             "idempotency": {

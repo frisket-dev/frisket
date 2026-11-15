@@ -1392,6 +1392,7 @@ def _scratch_claims(project, plan: ScratchActionPreviewPlan):
             has_cost_claim=any(
                 promise.field == "cost" for promise in resolved.promise_set.promises
             ),
+            rated_estimate=estimate,
         )
         payload["promise_set_hash"] = consented_set_hash(resolved.promise_set)
     return (

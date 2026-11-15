@@ -86,6 +86,7 @@ interface QueuedJobTarget {
 export interface JobState {
   completedClusterReceiptId: string | null;
   run: RunProgress | null;
+  launchPending: boolean;
   actionJobs: ActionJobsState;
   costGate: CostGateState | null;
   outputColumnCollision: OutputColumnCollisionState | null;
@@ -132,6 +133,7 @@ function initialJobState(): JobState {
   return {
     completedClusterReceiptId: null,
     run: null,
+    launchPending: false,
     actionJobs: initialActionJobsState,
     costGate: null,
     outputColumnCollision: null,
@@ -337,7 +339,9 @@ export function createJobStore(
   }
 
   function retireActionLaunch(launch: ActionLaunch): void {
-    if (currentActionLaunch === launch) currentActionLaunch = null;
+    if (currentActionLaunch !== launch) return;
+    currentActionLaunch = null;
+    store.set((state) => state.launchPending ? { ...state, launchPending: false } : state);
   }
 
   function abortCurrentActionLaunch(): void {
@@ -654,9 +658,10 @@ export function createJobStore(
     }
   }
 
-  function optimisticRunFor(
+  function initialRunFor(
     req: ActionExecutionRequest,
     sheet: SheetMeta | null | undefined,
+    runId: string,
   ): RunProgress {
     const actionName = actionExecutionName(req);
     const rowIds = actionExecutionRowIds(req);
@@ -664,7 +669,7 @@ export function createJobStore(
       ? rowIds.length
       : (sheet?.rowCount ?? 0);
     return {
-      runId: `pending-${Date.now()}`,
+      runId,
       actionName,
       actionKind: actionExecutionId(req),
       sheetId: actionExecutionSheetId(req),
@@ -683,10 +688,7 @@ export function createJobStore(
     runId: string,
     deps: Pick<JobRunDeps, 'refreshSheets' | 'onLaunchAccepted'>,
   ): { sheetRefresh: Promise<void> | void } | null {
-    if (!performForCurrentActionLaunch(
-      launch,
-      () => setRun((current) => (current ? { ...current, runId } : current)),
-    )) return null;
+    if (!isCurrentActionLaunch(launch)) return null;
     // The run handle is back — rows are
     // coming. Close the launching drawer; the new-columns affordance takes
     // over the feedback role.
@@ -732,10 +734,13 @@ export function createJobStore(
     launch: ActionLaunch,
     result: RunActionLaunchResult,
     deps: JobRunDeps,
+    req: ActionExecutionRequest,
+    sheet: SheetMeta | null | undefined,
   ): void {
     if (!isCurrentActionLaunch(launch)) return;
     const { runId, jobId, receiptId, status, outputSheetId } = result;
     if (runId !== null) {
+      if (!performForCurrentActionLaunch(launch, () => setRun(initialRunFor(req, sheet, runId)))) return;
       const started = handleRunStarted(launch, runId, deps);
       if (started !== null) {
         openMaterializedSheetAfterRefresh(
@@ -795,7 +800,7 @@ export function createJobStore(
     deps: JobRunDeps,
     error: ConfirmationRequiredError,
   ): void {
-    if (!performForCurrentActionLaunch(launch, () => setRun(null))) return;
+    if (!isCurrentActionLaunch(launch)) return;
     const consentedPromiseSetHash = error.estimate.promise_set_hash;
     const priorGate = store.get().costGate;
     const cancelPriorGate = takeCostGateCancel(priorGate);
@@ -834,14 +839,16 @@ export function createJobStore(
     const startedAt = performance.now();
     if (!performForCurrentActionLaunch(
       launch,
-      () => setRun(optimisticRunFor(req, sheet)),
+      // Admission may still require cost confirmation. Keep transport activity
+      // separate from accepted work so the running dock never opens for a 402.
+      () => store.set((state) => ({ ...state, launchPending: true })),
     )) return;
     projectApi
       .runAction(req, { projectId, signal: launch.controller.signal })
       .then((result) => {
         if (!isCurrentActionLaunch(launch)) return;
         submittedTelemetry(req, sheet, startedAt, result);
-        handleRunLaunchSettled(launch, result, deps);
+        handleRunLaunchSettled(launch, result, deps, req, sheet);
         const canonicalKind = isDeriveCompositeRequest(req) ? req.extraction.action_id : req.action_id;
         if (canonicalKind === 'cluster.values'
           && result.status === 'completed' && result.receiptId) {
@@ -860,7 +867,7 @@ export function createJobStore(
           && e.code === 'output_column_exists'
           && req.replace_existing === true
         ) {
-          if (!performForCurrentActionLaunch(launch, () => setRun(null))) return;
+          if (!isCurrentActionLaunch(launch)) return;
           if (!performForCurrentActionLaunch(
             launch,
             () => setOutputColumnCollision(null),
@@ -883,7 +890,7 @@ export function createJobStore(
           // dead-end toast. Retrying re-submits the EXACT same request with
           // the request's one-run replacement flag. The server remains
           // authoritative about whether the target is replaceable.
-          if (!performForCurrentActionLaunch(launch, () => setRun(null))) return;
+          if (!isCurrentActionLaunch(launch)) return;
           const columns = Array.isArray(e.details?.columns)
             ? (e.details!.columns as string[]).filter((c): c is string => typeof c === 'string')
             : [];
@@ -912,7 +919,7 @@ export function createJobStore(
             onCancel: () => {},
           });
         } else {
-          if (!performForCurrentActionLaunch(launch, () => setRun(null))) return;
+          if (!isCurrentActionLaunch(launch)) return;
           performForCurrentActionLaunch(launch, () => deps.showError(e));
         }
       })
@@ -1430,6 +1437,7 @@ export function createJobStore(
       store.set((state) => ({
         ...state,
         completedClusterReceiptId: null,
+        launchPending: false,
         actionJobs: initialActionJobsState,
         costGate: null,
         outputColumnCollision: null,

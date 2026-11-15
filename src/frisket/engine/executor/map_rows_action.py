@@ -401,8 +401,12 @@ class _TypedMapRowsProgram(Recipe):
             cap in getattr(self._terminal, "capabilities", ())
             for cap in (HttpRequester, FileFetcher, MediaDownloader)
         ):
-            self.cost_class = "unpriceable"
             self.disable_failure_halt = True
+        # Downloading bytes with the local fetch/yt-dlp host has no provider
+        # purchase. Arbitrary authored API calls may spend money; absence of
+        # a price remains unknown for that capability alone.
+        if HttpRequester in getattr(self._terminal, "capabilities", ()):
+            self.cost_class = "unpriceable"
         if (
             WebSearcher in getattr(self._terminal, "capabilities", ())
             and self.cost_class == "free"
@@ -477,10 +481,7 @@ class _TypedMapRowsProgram(Recipe):
                 resolution.resolution.estimate_basis.quantity_hint
             )
 
-        if any(
-            cap in getattr(self._terminal, "capabilities", ())
-            for cap in (HttpRequester, FileFetcher, MediaDownloader)
-        ):
+        if HttpRequester in getattr(self._terminal, "capabilities", ()):
             estimate.update(cost=None, cost_source="unknown")
         return estimate
 

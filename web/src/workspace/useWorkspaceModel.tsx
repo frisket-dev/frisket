@@ -65,7 +65,7 @@ import { useWorkspaceViewController } from './useWorkspaceViewController';
 import { useWorkspaceContributionController } from './useWorkspaceContributionController';
 import { useWorkspaceNavigationController } from './useWorkspaceNavigationController';
 
-const EMPTY_ROW_CACHE_SNAPSHOT = { key: '', version: 0, totalRows: null };
+const EMPTY_ROW_CACHE_SNAPSHOT = { key: '', scopeKey: '', version: 0, totalRows: null };
 const subscribeNoop = () => () => undefined;
 const getEmptyRowCacheSnapshot = () => EMPTY_ROW_CACHE_SNAPSHOT;
 

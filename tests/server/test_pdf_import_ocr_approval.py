@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+from decimal import Decimal
 
 from frisket.ai.llm import ModelRouter
+from frisket.execution.pricing_policy import RatedQuote
 from frisket.server.services import pdf_import_ocr_approval
 from frisket.server.services.pdf_import_ocr_approval import (
     PdfImportOcrApprovalQuoter,
@@ -16,6 +19,21 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+
+    class RetailPolicy:
+        policy_id = "test.pdf-import-retail.v1"
+
+        def rate(self, facts):
+            return RatedQuote(
+                billed_cost=facts.provider_cost * 2,
+                provider_cost=facts.provider_cost,
+                lane="cost_plus",
+                policy_id=self.policy_id,
+            )
+
+    monkeypatch.setattr(
+        pdf_import_ocr_approval, "default_pricing_policy", lambda: RetailPolicy()
+    )
     router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
     workspace = Workspace(
         tmp_path / "workspace", router=router, enable_local_model_pull=False
@@ -75,6 +93,10 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
         child["quote"]["billed_cost"] for child in children
     )
     assert estimate["promise_set_hash"] == grant.promise_set_hash
+    cost_claim = next(c for c in estimate["claims"] if c["field"] == "cost")
+    displayed = re.match(r"Estimated cost \$(\d+(?:\.\d+)?);", cost_claim["display"])
+    assert displayed is not None
+    assert Decimal(displayed.group(1)) == Decimal(estimate["billed_cost"]) / 1_000_000
     assert grant.scope["storage_identity"] == "storage:test"
     assert grant.scope["draft_id"] == "pdf-draft-test"
     assert grant.scope["page_count"] == 10

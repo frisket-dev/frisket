@@ -729,8 +729,6 @@ def test_unpriceable_actions_route_their_gate_to_an_explicit_consent():
     }
     assert set(typed_unpriceable) >= {
         "map.api_call",
-        "media.fetch_url",
-        "media.ytdlp_download",
         "research.answer",
         "research.extract",
         "research.web_search",

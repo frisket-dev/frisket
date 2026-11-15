@@ -166,7 +166,7 @@ def _case(kind, seed, make, patch, output_key, output_name, row_count, capabilit
                     "stale_replay",
                 }
             ),
-            cost_policy_kind="unknown" if kind == "media.fetch_url" else "none",
+            cost_policy_kind="none",
         ),
         seed=seed,
         make_action=make,

@@ -34,6 +34,109 @@ function gridApi(overrides: {
 }
 
 describe('useRowCache request epochs', () => {
+  it('retains streamed rows on completion invalidation and revalidates stale pages', async () => {
+    const finalAnchor = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const obsoleteStream = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const getSheetData = vi.fn()
+      .mockResolvedValueOnce({ columns: [], total: 1_500, rows: [row(0)] })
+      .mockImplementationOnce(() => obsoleteStream.promise)
+      .mockImplementationOnce(() => finalAnchor.promise);
+    const getSheetRows = vi.fn()
+      .mockResolvedValueOnce({ rows: [row(500)] })
+      .mockResolvedValueOnce({ rows: [row(501, 500)] });
+    const api = gridApi({ getSheetData, getSheetRows });
+    const store = createRowCacheStore();
+    const { result, rerender } = renderHook(
+      ({ version }) => useRowCache('7', 1_500, version, store, null, api),
+      { initialProps: { version: 1 } },
+    );
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.onVisibleRowsChanged(500, 500));
+    await waitFor(() => expect(result.current.getRow(500)?.id).toBe('500'));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+
+    rerender({ version: 2 });
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(3));
+    expect(result.current.ready).toBe(true);
+    expect(result.current.rowCount).toBe(1_500);
+    expect(result.current.getRow(0)?.id).toBe('0');
+    expect(result.current.getRow(500)?.id).toBe('500');
+    expect(result.current.getFreshRow(0)).toBeUndefined();
+    expect(result.current.getFreshRow(500)).toBeUndefined();
+
+    await act(async () => obsoleteStream.resolve({ columns: [], total: 1, rows: [row(99)] }));
+    expect(result.current.rowCount).toBe(1_500);
+    expect(result.current.getRow(0)?.id).toBe('0');
+    await act(async () => finalAnchor.resolve({ columns: [], total: 1_600, rows: [row(1)] }));
+    await waitFor(() => expect(result.current.getRow(500)?.id).toBe('501'));
+    expect(result.current.getRow(0)?.id).toBe('1');
+    expect(result.current.getFreshRow(0)?.id).toBe('1');
+    expect(result.current.getFreshRow(500)?.id).toBe('501');
+    expect(result.current.rowCount).toBe(1_600);
+    expect(getSheetRows).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains row identity when the column projection changes while replacing stale fields', async () => {
+    const replacement = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const getSheetData = vi.fn()
+      .mockResolvedValueOnce({ columns: [], total: 1, rows: [{ ...row(7), cells: { old: 'streamed' } }] })
+      .mockImplementationOnce(() => replacement.promise);
+    const api = gridApi({ getSheetData });
+    const store = createRowCacheStore();
+    const { result, rerender } = renderHook(
+      ({ columns }) => useRowCache('7', 1, 1, store, { columnIds: columns }, api),
+      { initialProps: { columns: ['old'] } },
+    );
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    rerender({ columns: ['new'] });
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+    expect(result.current.ready).toBe(true);
+    expect(result.current.getRow(0)?.id).toBe('7');
+    expect(result.current.getFreshRow(0)).toBeUndefined();
+    await act(async () => replacement.resolve({ columns: [], total: 1, rows: [{ ...row(7), cells: { new: 'final' } }] }));
+    expect(result.current.getRow(0)?.cells).toEqual({ new: 'final' });
+    expect(result.current.getFreshRow(0)?.cells).toEqual({ new: 'final' });
+  });
+
+  it.each([
+    { sheetId: '7', options: { filter: { score: { gte: '2' } } } },
+    { sheetId: '7', options: { sort: [{ column: 'score', dir: 'asc' as const }] } },
+    { sheetId: '8', options: null },
+  ])('clears populated rows when the row scope changes to %j', async (next) => {
+    const pending = deferred<{ columns: []; total: number; rows: Row[] }>();
+    const getSheetData = vi.fn()
+      .mockResolvedValueOnce({ columns: [], total: 1_500, rows: [row(0)] })
+      .mockImplementationOnce(() => pending.promise);
+    const api = gridApi({ getSheetData });
+    const store = createRowCacheStore();
+    const { result, rerender } = renderHook(
+      ({ sheetId, options }: { sheetId: string; options: SheetDataOptions | null }) =>
+        useRowCache(sheetId, 999, 1, store, options, api),
+      { initialProps: { sheetId: '7', options: null } },
+    );
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    rerender(next);
+    await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(2));
+    expect(result.current.getRow(0)).toBeUndefined();
+    expect(result.current.ready).toBe(false);
+    expect(result.current.rowCount).toBe(999);
+    await act(async () => pending.resolve({ columns: [], total: 1, rows: [row(10)] }));
+    expect(result.current.getRow(0)?.id).toBe('10');
+    expect(result.current.ready).toBe(true);
+  });
+
+  it('stays ready after scrolling evicts the first page', async () => {
+    const api = gridApi({ getSheetData: vi.fn(async () => ({ columns: [], total: 10_000, rows: [row(0)] })) });
+    const store = createRowCacheStore();
+    const { result } = renderHook(() => useRowCache('7', 10_000, 1, store, null, api));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => result.current.onVisibleRowsChanged(5_000, 5_020));
+    await waitFor(() => expect(result.current.getRow(5_000)?.id).toBe('5000'));
+    expect(result.current.getRow(0)).toBeUndefined();
+    expect(result.current.ready).toBe(true);
+  });
+
   it('loads one full anchor initially, then rows-only pages while scrolling', async () => {
     const api = gridApi();
     const store = createRowCacheStore();

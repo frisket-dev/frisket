@@ -55,6 +55,22 @@ function response(): HttpSelectorChoicesResponse {
 }
 
 describe('SelectorField', () => {
+  it('keeps an empty disabled selector mounted until choices arrive', async () => {
+    let complete!: (value: ReturnType<typeof response>) => void;
+    const load = vi.fn(() => new Promise<ReturnType<typeof response>>((resolve) => { complete = resolve; }));
+    render(<SelectorField projectId="project-a" label="Model"
+      query={{ schema_version: 'frisket.selector_choices_query.v1', subject: { kind: 'project_ask' } }}
+      recentNamespace="loading-shell" load={load} onSelect={vi.fn()} />);
+    const trigger = screen.getByRole('button', { name: 'Loading model' });
+    expect(trigger).toBeDisabled();
+    expect(screen.getByTestId('engine-selector')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.queryByText('Loading choices…')).not.toBeInTheDocument();
+    await act(async () => complete(response()));
+    expect(await screen.findByRole('button', { name: /Ready model/ })).toBe(trigger);
+    expect(trigger).toBeEnabled();
+    expect(screen.getByTestId('engine-selector')).not.toHaveAttribute('aria-busy');
+  });
+
   it('refreshes after Cloud sign-in elsewhere without choosing another model', async () => {
     const load = vi.fn().mockResolvedValue(response());
     const onSelect = vi.fn();
@@ -302,6 +318,51 @@ describe('SelectorField', () => {
     await waitFor(() => expect(close).toBeEnabled());
     await userEvent.click(close);
     expect(screen.queryByTestId('engine-selector-dialog')).not.toBeInTheDocument();
+  });
+
+  it('retains Docling during a route refresh and adopts fresh availability without another selection request', async () => {
+    const before = response();
+    before.subject = { kind: 'action', action_id: 'media.to_markdown', field: 'engine' };
+    before.depends_on = [];
+    const selected = before.groups[0].choices[0];
+    selected.label = 'Docling';
+    selected.authored_selection = { kind: 'engine', engine: 'docling' };
+    selected.route_selection = {
+      model_id: 'docling', selected: 'cloud', can_mutate: true,
+      options: [
+        { id: 'cloud', label: 'Frisket Cloud', status: 'ready', disabled_reason: null },
+        { id: 'own', label: 'On this computer', status: 'ready', disabled_reason: null },
+      ],
+    };
+    const after = structuredClone(before);
+    const updated = after.groups[0].choices[0];
+    updated.route_selection!.selected = 'own';
+    updated.route_selection!.options[1].status = 'needs_setup';
+    updated.status = 'needs_setup';
+    updated.can_run = false;
+    updated.blocker = { code: 'engine_setup_required', message: 'Set up Docling', field: null };
+    let finishRefresh!: (value: HttpSelectorChoicesResponse) => void;
+    const refreshed = new Promise<HttpSelectorChoicesResponse>((resolve) => { finishRefresh = resolve; });
+    const load = vi.fn().mockResolvedValueOnce(before).mockReturnValueOnce(refreshed);
+    request.mockResolvedValue({ model_id: 'docling', route: 'own' });
+    render(<SelectorField projectId="project-a" label="Engine"
+      query={{ schema_version: 'frisket.selector_choices_query.v1',
+        subject: { kind: 'action', action_id: 'media.to_markdown', field: 'engine', params: { engine: 'docling' } } }}
+      recentNamespace="docling-refresh" load={load} onSelect={vi.fn()} />);
+    const trigger = await screen.findByRole('button', { name: /Docling/ });
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByTestId('model-route-own'));
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('engine-selector-dialog')).toBeVisible();
+    expect(trigger).toHaveTextContent('Docling');
+    expect(screen.queryByRole('button', { name: 'Loading engine' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('model-route-own')).toBeDisabled();
+    await act(async () => finishRefresh(after));
+    await waitFor(() => expect(screen.getByTestId('model-route-own')).toBeEnabled());
+    expect(screen.getByTestId('model-route-own')).toHaveAttribute('aria-pressed', 'true');
+    expect(within(screen.getByTestId('engine-selector-dialog')).getAllByText('Set up Docling').length).toBeGreaterThan(0);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it('withholds stale route controls after refresh failure and restores the authoritative route on Retry', async () => {

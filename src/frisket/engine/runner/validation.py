@@ -934,10 +934,23 @@ def estimate_run(
     categorical claim its own run already consented to, which is exactly what
     kept the resume gate's cost half unreachable.
     """
+    recipe = program if program is not None else recipe_for_spec(spec)
+    # Model-backed recipes can select Cloud without consumes_resolution.
+    # Standalone previews need the same route quote admission resolves; the
+    # legacy list-price estimate may describe a different purchase entirely.
+    if resolution is None and recipe.is_llm(spec) and composition is not None:
+        resolution = resolve_for_action(
+            project,
+            spec,
+            recipe,
+            composition=composition,
+            persistence="ephemeral",
+            scope_row_ids=scope_row_ids,
+        )
     return _estimate_run(
         project,
         spec,
-        program=program,
+        program=recipe,
         composition=composition,
         pricing_policy=pricing_policy,
         resolution=resolution,
@@ -1008,6 +1021,7 @@ def _estimate_run(
                 bound_resolution.resolution.facts,
                 bound_resolution.presentation,
                 has_cost_claim=True,
+                rated_estimate=rated,
             )
             out["promise_set_hash"] = consented_set_hash(bound_resolution.promise_set)
         return _EstimateRunResult(out, bound_resolution)
@@ -1083,6 +1097,7 @@ def _estimate_run(
                         promise.field == "cost"
                         for promise in bound_resolution.promise_set.promises
                     ),
+                    rated_estimate=rated,
                 )
                 out["promise_set_hash"] = consented_set_hash(
                     bound_resolution.promise_set
@@ -1396,6 +1411,7 @@ def validate_spec(
                         promise.field == "cost"
                         for promise in resolved_execution.promise_set.promises
                     ),
+                    rated_estimate=est,
                 )
                 claims_gate = refuse_unless_exact_echo(
                     confirmed=confirmed,

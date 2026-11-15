@@ -28,8 +28,10 @@ const refreshRows = vi.hoisted(() => vi.fn());
 vi.mock('../../src/grid/useRowCache', () => ({
   useRowCache: () => ({
     getRow: (index: number) => rows[index],
+    getFreshRow: (index: number) => rows[index],
     rowCount: 2,
     version: 0,
+    ready: true,
     refresh: refreshRows,
     onVisibleRowsChanged: visibleRowsChanged,
   }),

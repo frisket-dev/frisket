@@ -22,7 +22,7 @@ def test_file_actions_infer_semantic_top_level_and_nested_columns():
     assert "external_cost_requires_confirmation" in {
         item["code"] for item in fetch["errors"]
     }
-    assert fetch["cost_policy"] == {"kind": "unknown", "requires_confirmation": True}
+    assert fetch["cost_policy"] == {"kind": "none", "requires_confirmation": False}
 
 
 def test_file_output_serializers_cannot_move_declared_handle_positions():

@@ -44,7 +44,7 @@ export function TemporalExtractParamsBody({ sheet, params, setParams, request, F
     setParams({ ...params, selection: { kind: 'draft_range',
       start_ms: item?.start_ms ?? 0, end_ms: item?.end_ms ?? 0, repeat_for_rows: false } });
   };
-  return <div className="temporal-action-body" data-testid="temporal-extract-params">
+  return <div className="form-stack" data-testid="temporal-extract-params">
     <Field name="source" label="Audio or video" testId="extract-range-source" />
     {!(sheet?.columns ?? []).some((column) => column.type === 'audio' || column.type === 'video') && (
       <p role="status" data-testid="temporal-source-empty">Add a video or audio column before extracting a range.</p>
@@ -75,11 +75,11 @@ export function TemporalExtractParamsBody({ sheet, params, setParams, request, F
       <Field name="selection" label="Saved temporal selection" />
     </> : <>
       <div className="dense-grid">
-        <label className="field-group form-field"><span className="field-labels">Start</span>
+        <label className="dense-grid-item form-field"><span className="field-labels">Start</span>
           <TextInput data-testid="extract-range-start" value={start}
             placeholder="00:10" onChange={(event) => updateRange(event.target.value, end)} />
         </label>
-        <label className="field-group form-field"><span className="field-labels">End</span>
+        <label className="dense-grid-item form-field"><span className="field-labels">End</span>
           <TextInput data-testid="extract-range-end" value={end}
             placeholder="00:45" onChange={(event) => updateRange(start, event.target.value)} />
         </label>

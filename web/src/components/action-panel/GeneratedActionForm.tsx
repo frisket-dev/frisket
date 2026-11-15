@@ -225,6 +225,7 @@ export interface GeneratedActionFormProps {
    * its stale snapshot authorize new work. */
   catalogAccepted?: boolean;
   running: boolean;
+  launchPending?: boolean;
   runningLabel?: string;
   switchActions?: ActionTemplate[];
   onSwitchAction?(actionTemplate: ActionTemplate): void;
@@ -540,8 +541,9 @@ function GeneratedActionFormContents({
   initialDraft,
   initializeSelectorDefaults = initialDraft === undefined,
   catalogAccepted = true,
-  running,
-  runningLabel = 'Running…',
+  running: externallyRunning,
+  launchPending = false,
+  runningLabel: externallyRunningLabel = 'Running…',
   switchActions,
   onSwitchAction,
   onNavigateToAction,
@@ -561,6 +563,10 @@ function GeneratedActionFormContents({
   onExecute,
   onClose,
 }: GeneratedActionFormProps & { pluginUI?: GeneratedActionCustomization }) {
+  const [checkingSubmission, setCheckingSubmission] = useState(false);
+  const submissionInFlight = useRef(false);
+  const running = externallyRunning || checkingSubmission || launchPending;
+  const runningLabel = checkingSubmission ? 'Checking…' : launchPending ? 'Starting…' : externallyRunningLabel;
   const paramsOnly = editorPolicy?.mode === 'params-only';
   const replacementLaunch = launchMode?.kind === 'edit-existing'
     || launchMode?.kind === 'use-comparison-variant';
@@ -738,6 +744,9 @@ function GeneratedActionFormContents({
   }, [catalogEntry.ui_hints.logical_outputs, customization, draft, dynamicOutputs, initialDraft, columns]);
   const [setupVersion, setSetupVersion] = useState(0);
   const recheckRuntimeSetup = useCallback(() => setSetupVersion((version) => version + 1), []);
+  const resolutionIdentity = JSON.stringify({ action_id: catalogEntry.kind, scope: requestScope,
+    params: serializeCanonicalDraft(draft), setupVersion });
+  const [resolvedIdentity, setResolvedIdentity] = useState('');
   const [resolved, setResolved] = useState<{
     runtime_setup?: ActionParamResolution['runtime_setup'];
     outputs: ActionParamResolution['logical_outputs'];
@@ -818,6 +827,7 @@ function GeneratedActionFormContents({
               problem = 'The saved sheet destination does not match this action’s resolved output. Change its parameters or recreate the action.';
             }
           }
+          setResolvedIdentity(resolutionIdentity);
           setResolved({ outputs: (problem || diagnostic) && dynamicOutputs ? [] : nextOutputs,
             diagnostics: resolution.diagnostics, runtime_setup: resolution.runtime_setup, problem });
           if (!problem && !diagnostic) setResolvedCreatesSheet(resolution.creates_sheet);
@@ -852,6 +862,7 @@ function GeneratedActionFormContents({
         })
         .catch((error: unknown) => {
           if (!current) return;
+          setResolvedIdentity(resolutionIdentity);
           setResolved(dynamicOutputs
             ? { outputs: [], diagnostics: {}, problem: error instanceof Error
                 ? error.message : 'Could not resolve action outputs.' }
@@ -866,17 +877,10 @@ function GeneratedActionFormContents({
     };
   }, [actionTemplate, catalogEntry.kind, catalogEntry.ui_hints.logical_outputs, draft,
     staticCreatesSheet, requestScope, customization, dynamicOutputs, initialDraft, outputPrefix, paramsEdited, resolveParams,
-    columns, sheetId, setupVersion]);
+    columns, sheetId, setupVersion, resolutionIdentity]);
 
-  // All partial field writes invalidate the same authoritative resolution.
-  // Served defaults use this path without marking an authored user edit.
-  const invalidateParams = useCallback(() => {
-    setResolved((current) => ({
-      ...current,
-      diagnostics: {},
-      problem: dynamicOutputs ? 'Resolving outputs…' : 'Validating fields…',
-    }));
-  }, [dynamicOutputs]);
+  // Keep the last validation presentation while the next draft is checked.
+  // Submission separately fences validation by identity before executing.
   const writeFields = (updates: Record<string, CanonicalFieldValue>) => {
     const previous = latestDraft.current;
     const next = Object.entries(updates).reduce(
@@ -892,7 +896,6 @@ function GeneratedActionFormContents({
       return;
     }
     setLockedUpdateProblem(null);
-    invalidateParams();
     latestDraft.current = next;
     setDraft(next);
   };
@@ -954,9 +957,8 @@ function GeneratedActionFormContents({
     changed.forEach(markFieldTouched);
     latestDraft.current = params;
     setParamsEdited(true);
-    invalidateParams();
     setDraft(params);
-  }, [catalogEntry.kind, invalidateParams, lockReason, lockedParams, markFieldTouched, structureLocked]);
+  }, [catalogEntry.kind, lockReason, lockedParams, markFieldTouched, structureLocked]);
   const pdfInput = draftUsesPdf(catalogEntry, draft, columns);
   const renderField = (field: ActionParamFieldPresentationProps): ReactNode | undefined => {
     const CustomField = customization?.fields?.[field.name];
@@ -1130,7 +1132,10 @@ function GeneratedActionFormContents({
   const staleOutputNames = createsSheet && dynamicOutputs && !resolutionProblem && outputs.length
     ? Object.keys(outputNames).filter((key) => !outputs.some((output) => output.key === key)) : [];
   const missingCredentials = actionTemplate.missingCredentials ?? [];
-  const canRun = !resolved.runtime_setup && catalogAccepted && missingCredentials.length === 0 && !resolutionProblem && !hasInvalidDiagnostic
+  // A changed dynamic schema must finish reconciling its target names before
+  // execution. Static outputs keep Run steady while ordinary text is edited.
+  const canRun = (!dynamicOutputs || resolvedIdentity === resolutionIdentity)
+    && !resolved.runtime_setup && catalogAccepted && missingCredentials.length === 0 && !resolutionProblem && !hasInvalidDiagnostic
     && validIdentity && validParams && !outputNameProblem && !engineProblem && !editorProblem;
   const costSource = selectedEngine && selectedEngine !== 'auto'
     ? actionTemplate.costSourceOptions?.[selectedEngine] : actionTemplate.costSource;
@@ -1155,8 +1160,14 @@ function GeneratedActionFormContents({
     onDraftChange(estimateDraft);
   }, [estimateDraft, onDraftChange, publishedDraftIdentity]);
   const estimateIdentity = JSON.stringify(estimateDraft);
+  const latestSubmissionIdentity = useRef('');
+  useLayoutEffect(() => {
+    latestSubmissionIdentity.current = `${estimateIdentity}:${setupVersion}`;
+    return () => { latestSubmissionIdentity.current = ''; };
+  }, [estimateIdentity, setupVersion]);
   const [estimateState, setEstimateState] = useState<{
     identity: string;
+    actionId?: string;
     estimate: RunEstimate | null;
   }>({ identity: '', estimate: null });
 
@@ -1169,10 +1180,10 @@ function GeneratedActionFormContents({
         idempotency_key: freshActionRequestKey(catalogEntry.kind),
       })
         .then((estimate) => {
-          if (current) setEstimateState({ identity: estimateIdentity, estimate });
+          if (current) setEstimateState({ identity: estimateIdentity, actionId: catalogEntry.kind, estimate });
         })
         .catch(() => {
-          if (current) setEstimateState({ identity: estimateIdentity, estimate: null });
+          if (current) setEstimateState({ identity: estimateIdentity, actionId: catalogEntry.kind, estimate: null });
         });
     }, 350);
     return () => {
@@ -1182,17 +1193,18 @@ function GeneratedActionFormContents({
   }, [canRun, catalogEntry.kind, paramsOnly, priceable,
     estimateAction, estimateDraft, estimateIdentity]);
 
-  const currentEstimate = canRun && estimateState.identity === estimateIdentity
-    ? estimateState.estimate : null;
-  const currentEstimatePending = priceable && canRun
-    && estimateState.identity !== estimateIdentity;
-  const quotedEstimate = quotedUsd(currentEstimate);
-  const venueLabel = currentEstimate?.venue_label?.trim() || null;
-  const billingLabel = currentEstimate?.billing_label?.trim() || null;
-  const estimateWarning = currentEstimate?.warning?.trim() || null;
-  const estimateRowCount = currentEstimate?.rows
+  const previousEstimate = estimateState.identity !== estimateIdentity;
+  const currentEstimatePending = priceable && Boolean(estimateAction) && canRun && previousEstimate;
+  // The retained quote is presentation only. A current UNKNOWN result must
+  // replace an older known amount; it is never permission to execute.
+  const displayedEstimate = estimateState.actionId === catalogEntry.kind ? estimateState.estimate : null;
+  const quotedEstimate = quotedUsd(displayedEstimate);
+  const venueLabel = displayedEstimate?.venue_label?.trim() || null;
+  const billingLabel = displayedEstimate?.billing_label?.trim() || null;
+  const estimateWarning = displayedEstimate?.warning?.trim() || null;
+  const estimateRowCount = displayedEstimate?.rows
     ?? (sheet ? effectiveRunScope === 'selected' ? viewSelection ? null : scopeSelectedRowIds.length : sheet.rowCount : null);
-  const outputColumnCount = dynamicOutputs && resolving ? 0 : outputs.length;
+  const outputColumnCount = dynamicOutputs && resolvedIdentity !== resolutionIdentity ? 0 : outputs.length;
 
   const primaryOutputName = outputs[0] ? outputNames[outputs[0].key]?.trim() : '';
   const backfillTargetColumn = primaryOutputName
@@ -1208,8 +1220,8 @@ function GeneratedActionFormContents({
     : null;
   const backfillHasGaps = latestBackfillVersion?.status === 'partial';
 
-  const submit = (scope: 'all' | 'selected', intent: 'preview' | 'run') => {
-    if (!canRun || (!projectScoped && scope === 'selected'
+  const submit = async (scope: 'all' | 'selected', intent: 'preview' | 'run') => {
+    if (!canRun || launchPending || submissionInFlight.current || (!projectScoped && scope === 'selected'
       && scopeSelectedRowIds.length === 0 && !hasExactRowScopeInitializer)) return;
     const request = {
       ...estimateDraft,
@@ -1220,7 +1232,38 @@ function GeneratedActionFormContents({
         expected_output_columns: launchMode.expectedOutputColumns,
       } : {}),
     } satisfies GeneratedActionRequest;
-    onExecute(request, intent);
+    const capturedIdentity = `${JSON.stringify({ ...estimateDraft, scope: request.scope })}:${setupVersion}`;
+    const stillCurrent = () => latestSubmissionIdentity.current === capturedIdentity;
+    const sameScope = jsonValuesEqual(request.scope, requestScope);
+    submissionInFlight.current = true;
+    setCheckingSubmission(true);
+    try {
+      // Clicking during a refresh checks the exact clicked request immediately.
+      // Edits or unmounting while it waits invalidate the click, never substitute
+      // an old draft or carry an old quote's confirmation into the new request.
+      if (resolvedIdentity !== resolutionIdentity || !sameScope) {
+        const resolution = await resolveParams({
+          action_id: request.action_id, scope: request.scope, params: request.params,
+        });
+        if (!stillCurrent()) return;
+        if (resolution.runtime_setup || Object.values(resolution.diagnostics).some((item) => !item.ok)) return;
+        if (dynamicOutputs && (!jsonValuesEqual(resolution.logical_outputs, outputs)
+          || (resolution.creates_sheet ?? staticCreatesSheet) !== createsSheet)) return;
+      }
+      if (intent === 'run' && priceable && estimateAction
+        && (estimateState.identity !== estimateIdentity || !sameScope)) {
+        const estimate = await estimateAction(request).catch(() => null);
+        if (!stillCurrent()) return;
+        if (sameScope) setEstimateState({ identity: estimateIdentity, actionId: catalogEntry.kind, estimate });
+      }
+      if (stillCurrent()) onExecute(request, intent);
+    } catch (error: unknown) {
+      if (stillCurrent()) setResolved((current) => ({ ...current,
+        problem: error instanceof Error ? error.message : 'Could not validate action parameters.' }));
+    } finally {
+      submissionInFlight.current = false;
+      setCheckingSubmission(false);
+    }
   };
 
   const ocrCompareTarget: OcrCompareTarget = {
@@ -1237,16 +1280,16 @@ function GeneratedActionFormContents({
       </div>
     )}
     {(freePublicApi || priceable) && (
-      <div className={`cost-line ${freePublicApi || (!currentEstimatePending && quotedEstimate === 0)
-        ? 'cost-local' : 'cost-paid'}`} data-testid="cost-estimate">
+      <div className={`cost-line ${freePublicApi || quotedEstimate === 0
+        ? 'cost-local' : 'cost-paid'}`} data-testid="cost-estimate" aria-busy={currentEstimatePending}>
         <span className="cost-dot" aria-hidden />
         {freePublicApi ? <>
           <strong>No provider/API charge</strong> · {customization?.freePublicApiLabel ?? 'Free public API request'}
-        </> : currentEstimatePending
+        </> : currentEstimatePending && !displayedEstimate
           ? 'Estimating cost…'
-          : <>Estimated cost: <strong>{quotedEstimate === null
-            ? 'UNKNOWN' : formatUsd(quotedEstimate)}</strong>{currentEstimate?.audio_seconds != null
-              ? ` · ${formatDuration(currentEstimate.audio_seconds * 1000)} of audio`
+          : <>{previousEstimate && displayedEstimate ? 'Previous estimate' : 'Estimated cost'}: <strong>{quotedEstimate === null
+            ? 'UNKNOWN' : formatUsd(quotedEstimate)}</strong>{displayedEstimate?.audio_seconds != null
+              ? ` · ${formatDuration(displayedEstimate.audio_seconds * 1000)} of audio`
               : estimateRowCount !== null
                 ? ` · ${estimateRowCount.toLocaleString()} ${estimateRowCount === 1 ? 'row' : 'rows'}`
                 : null}
@@ -1255,6 +1298,7 @@ function GeneratedActionFormContents({
               : null}
             {venueLabel ? <> · <span data-testid="cost-venue-label">{venueLabel}</span></> : null}
             {billingLabel ? <> · <span data-testid="cost-billing-label">{billingLabel}</span></> : null}
+            {currentEstimatePending ? <> · Updating…</> : null}
             {estimateWarning ? <> · <span data-testid="cost-estimate-warning">{estimateWarning}</span></> : null}
           </>}
       </div>
@@ -1296,7 +1340,6 @@ function GeneratedActionFormContents({
         sheet={sheet} outputName={outputNames.pdf_tables ?? ''}
         onMaterialize={onMaterializePdfTables} onExport={onExportPdfTables} />}
       {resolved.runtime_setup && <RuntimeSetupGate setup={resolved.runtime_setup} onChanged={recheckRuntimeSetup} />}
-      {engineProblem && <p className="form-hint" role="alert">{engineProblem}</p>}
 
       {createsSheet && <div className="action-source-block">
         <label className="form-label" htmlFor="generated-sheet-name">New sheet name</label>
@@ -1465,7 +1508,7 @@ function GeneratedActionFormContents({
           : replacementLaunch
             ? 'Replace columns'
             : customization?.primaryLabel ?? 'Run'} rowCount={sheet?.rowCount ?? 0}
-        selectedCount={scopeSelectedRowIds.length} canRun={canRun}
+        selectedCount={scopeSelectedRowIds.length} canRun={canRun && !checkingSubmission && !launchPending}
         scopeSummary={launchMode
           ? effectiveRunScope === 'selected'
             ? selectedScopeSummary
@@ -1475,7 +1518,7 @@ function GeneratedActionFormContents({
         showPreview={launchMode?.kind !== 'compare-setup'}
         runOnScopeSelect={launchMode?.kind !== 'compare-setup' && (Boolean(launchMode)
           || catalogEntry.cost_policy?.requires_confirmation !== true
-          || (!currentEstimatePending && quotedEstimate === 0))}
+          || (estimateState.identity === estimateIdentity && quotedEstimate === 0))}
         allowedScopes={launchMode?.kind === 'compare-setup' ? ['all_rows'] : allowedScopes}
         allowEmptySelection={hasExactRowScopeInitializer}
         primaryButtonType={editComparePrimary ? 'button' : 'submit'}

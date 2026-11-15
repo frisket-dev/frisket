@@ -282,6 +282,10 @@ class _CloudOutcomeUncertain(CloudExecutionRefused):
         self.post_egress_ambiguous = True
 
 
+class _CloudAdmissionBusy(CloudExecutionRefused):
+    """Cloud refused a create before accepting an execution; waiting is safe."""
+
+
 @runtime_checkable
 class CloudExecutionTransport(Protocol):
     """Execute or recover one fixed Cloud purchase.
@@ -535,7 +539,8 @@ class HttpCloudExecutionTransport:
     async def _create(
         self, attempt: CloudExecutionAttempt, send: Any, *, capability: str
     ) -> CloudExecutionResponse:
-        response = await self._retry_uncertain_create(send, None)
+        deadline = asyncio.get_running_loop().time() + self._max_poll_seconds
+        response = await self._send_create(send, None, deadline=deadline)
         if response.status_code == 409:
             with self._response_errors(response):
                 if self._error_code(response) != "needs_confirmation":
@@ -546,7 +551,9 @@ class HttpCloudExecutionTransport:
                     attempt, challenge, authority
                 ):
                     raise CloudConfirmationRequired(challenge)
-            response = await self._retry_uncertain_create(send, challenge.confirmation)
+            response = await self._send_create(
+                send, challenge.confirmation, deadline=deadline
+            )
         return self._read_execution(attempt, response, capability=capability)
 
     @staticmethod
@@ -582,17 +589,31 @@ class HttpCloudExecutionTransport:
                 else parsed
             )
 
-    async def _retry_uncertain_create(
-        self, send: Any, confirmation: str | None
+    async def _send_create(
+        self, send: Any, confirmation: str | None, *, deadline: float
     ) -> httpx.Response:
-        last_error: _CloudOutcomeUncertain | None = None
-        for _attempt_number in range(2):
+        uncertain_failures = 0
+        delay = 0.5
+        loop = asyncio.get_running_loop()
+        while True:
             try:
                 return await send(confirmation)
-            except _CloudOutcomeUncertain as exc:
-                last_error = exc
-        assert last_error is not None
-        raise last_error
+            except _CloudOutcomeUncertain:
+                uncertain_failures += 1
+                if uncertain_failures >= 2:
+                    raise
+            except _CloudAdmissionBusy:
+                # The transport owns the exact key, confirmation and rewindable
+                # media streams. Capacity pressure waits here rather than
+                # escaping as a failed model row. Six blocked rows stay below
+                # Cloud's 120 admissions/device/minute request budget.
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise
+                await asyncio.sleep(min(delay, remaining))
+                if loop.time() >= deadline:
+                    raise
+                delay = min(delay * 2, 5.0)
 
     async def _await_terminal(
         self, attempt: CloudExecutionAttempt, response: CloudExecutionResponse
@@ -655,7 +676,15 @@ class HttpCloudExecutionTransport:
                 )
             if response.status_code in {200, 202, 409}:
                 return response
-            self._raise_error(response)
+            self._raise_error(
+                response,
+                create_admission=method == "POST"
+                and path
+                in {
+                    "/api/desktop/v1/llm-executions",
+                    "/api/desktop/v1/media-executions",
+                },
+            )
         raise AssertionError("Cloud error projection returned")
 
     def _access_token(self, attempt: CloudExecutionAttempt) -> str:
@@ -887,7 +916,9 @@ class HttpCloudExecutionTransport:
         )
 
     @staticmethod
-    def _raise_error(response: httpx.Response) -> None:
+    def _raise_error(
+        response: httpx.Response, *, create_admission: bool = False
+    ) -> None:
         update_required = response.status_code == 426
         try:
             error = CloudErrorResponse.model_validate(response.json())
@@ -899,12 +930,22 @@ class HttpCloudExecutionTransport:
                 else "Frisket Cloud could not complete the request",
                 retryable=False if update_required else response.status_code >= 500,
             ) from None
-        raise CloudExecutionRefused(
+        error_type = (
+            _CloudAdmissionBusy
+            if create_admission
+            and response.status_code == 429
+            and error.error == "rate_limited"
+            and error.retryable
+            and error.execution_id is None
+            else CloudExecutionRefused
+        )
+        raise error_type(
             "desktop_update_required" if update_required else error.error,
             error.message,
             retryable=False
             if update_required
             else error.retryable or response.status_code >= 500,
+            cloud_execution_id=error.execution_id,
         )
 
 
