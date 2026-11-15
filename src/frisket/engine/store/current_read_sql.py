@@ -52,9 +52,15 @@ def current_heads_sql(
     canonical = CHANGE_SCHEMA_SQL.split(
         "CREATE VIEW IF NOT EXISTS canonical_cell_heads AS", 1
     )[1].split(";", 1)[0]
+    contribution_scope = f"contribution.column_id IN ({columns})"
+    if rows is not None:
+        contribution_scope += f" AND contribution.row_id IN ({rows})"
     canonical = canonical.replace(
         "FROM cell_contributions contribution",
-        f"FROM cell_contributions contribution WHERE {coordinate}",
+        "FROM current_cell_repair dirty CROSS JOIN cell_contributions contribution "
+        "ON contribution.column_id=dirty.column_id "
+        "AND contribution.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end "
+        f"WHERE {contribution_scope}",
     )
     intersects = (
         "EXISTS (SELECT 1 FROM current_cell_repair dirty "

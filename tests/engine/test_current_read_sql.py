@@ -100,3 +100,30 @@ def test_autocommit_relation_cannot_capture_stale_clean_decision(tmp_path):
         assert (
             project.db.execute(f"SELECT value FROM {relation}").fetchone()[0] == "new"
         )
+
+
+def test_autocommit_clean_read_does_not_replay_retained_history(tmp_path):
+    project, sheet, source, target, rows = _seed(tmp_path)
+    with closing(project):
+        for version in range(80):
+            project.apply_edits(
+                [{"row_id": rows[0], "column_id": source, "value": str(version)}]
+            )
+        assert not project.db.in_transaction
+        steps = 0
+
+        def progress():
+            nonlocal steps
+            steps += 100
+            return steps > 5000
+
+        project.db.set_progress_handler(progress, 100)
+        try:
+            relation = current_values_sql(project.db, [source], [rows[0]])
+            assert (
+                project.db.execute(f"SELECT value FROM {relation}").fetchone()[0]
+                == "79"
+            )
+        finally:
+            project.db.set_progress_handler(None, 0)
+        assert steps < 5000
