@@ -720,7 +720,13 @@ def test_rejected_cross_attempt_call_id_cannot_leak_result_through_outer_commit(
 
     # Exercise the real leak window: a later owner commits ordinary run
     # finalization without knowing the rejected sink left mutations pending.
-    store.finish_run(run_id, "completed")
+    terminal = _writer_authority(project, run_id, attempt_id=attempt_b.attempt_id)
+    store.finish_run(
+        run_id,
+        "completed",
+        writer_attempt_id=terminal["writer_attempt_id"],
+        claim_token=terminal["claim_token"],
+    )
 
     result = project.db.execute(
         "SELECT value_kind, value FROM results "
@@ -812,7 +818,14 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
     # The caller still owns a live transaction and can finish its unrelated
     # work.  Committing it must not resurrect the rejected sibling result.
     assert project.db.in_transaction
-    store.finish_run(run_id, "completed", commit=False)
+    terminal = _writer_authority(project, run_id, attempt_id=attempt_b.attempt_id)
+    store.finish_run(
+        run_id,
+        "completed",
+        commit=False,
+        writer_attempt_id=terminal["writer_attempt_id"],
+        claim_token=terminal["claim_token"],
+    )
     project.db.commit()
 
     run = project.db.execute(
@@ -1568,8 +1581,8 @@ def test_a_replayed_batch_cannot_flip_a_failed_quoted_row_to_succeeded(
     }
     assert outcomes == {1: "failed", 2: "succeeded"}
 
-    # The refusal fires before the write and rolls the whole batch back:
-    # no replayed result cell, no replayed meter.
+    # The output and settlement row roll back, but a call fact included in a
+    # returned provider response is durable independently of publication.
     result = project.db.execute(
         "SELECT value, outcome FROM results WHERE run_id=? AND row_id=1",
         (run_id,),
@@ -1577,13 +1590,29 @@ def test_a_replayed_batch_cannot_flip_a_failed_quoted_row_to_succeeded(
     assert result is not None
     assert result["value"] is None
     assert result["outcome"] == "model_error"
-    assert (
-        project.db.execute(
-            "SELECT id FROM model_calls WHERE id=?",
-            ("terminal-immutable-row1-replay",),
-        ).fetchone()
-        is None
-    )
+    fact = project.db.execute(
+        "SELECT attempt_id,units FROM model_calls WHERE id=?",
+        ("terminal-immutable-row1-replay",),
+    ).fetchone()
+    assert fact is not None
+    assert fact["attempt_id"] == attempt.attempt_id
+
+    # Replaying the same returned fact cannot duplicate accounting, even
+    # though the result batch continues to refuse its terminal-outcome flip.
+    with pytest.raises(RuntimeError, match="terminal outcome is immutable"):
+        store.write_results(
+            run_id,
+            replay,
+            **_writer_authority(
+                project,
+                run_id,
+                attempt_id=attempt.attempt_id,
+            ),
+        )
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM model_calls WHERE id=?",
+        ("terminal-immutable-row1-replay",),
+    ).fetchone()[0] == 1
 
     # The money consequence the fence exists for: the successful-row debit
     # did not grow. A flipped row 1 would have minted the "0.2" charge.

@@ -996,6 +996,17 @@ class MapRunner:
                 self.run_store.revert_run_resume(run_id, admission)
                 return
             code, reason = pre_dispatch_refusal_markers(exc)
+            terminal_attempt_id = (
+                attempt.attempt_id if attempt is not None else admitted_attempt_id
+            )
+            if terminal_attempt_id is None:
+                prepared_attempts = self.project.db.execute(
+                    "SELECT id FROM execution_attempts WHERE run_id=? "
+                    "AND state IN ('created','admitted') ORDER BY seq",
+                    (run_id,),
+                ).fetchall()
+                if len(prepared_attempts) == 1:
+                    terminal_attempt_id = str(prepared_attempts[0]["id"])
             finalize_pre_dispatch_run(
                 self.project,
                 self.run_store,
@@ -1011,10 +1022,10 @@ class MapRunner:
                 ),
                 halted_code=code,
                 halted_reason=reason,
-                terminal_attempt_id=(
-                    attempt.attempt_id if attempt is not None else None
+                terminal_attempt_id=terminal_attempt_id,
+                terminal_attempt_state=(
+                    "halted" if terminal_attempt_id is not None else None
                 ),
-                terminal_attempt_state=("halted" if attempt is not None else None),
                 never_point_column_ids=never_point_column_ids,
             )
 

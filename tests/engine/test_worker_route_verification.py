@@ -656,6 +656,67 @@ def test_dead_target_at_claim_is_durable_no_live_target(
     assert _run_row(root, run_id)["status"] == "failed"
 
 
+def test_dead_target_after_abandoned_dispatch_uses_recovery_authority(
+    workspace, gateway_env, adapter_stub, monkeypatch
+):
+    """A failed redelivery must respect the run's earlier dispatch history."""
+    from frisket.execution.attempt import set_attempt_state
+
+    root, project, sheet_id = workspace
+    run_id, spec = _prepare_consented_gateway_run(project, sheet_id)
+    action_body, request, reservation = _PREPARED_QUEUES[(str(project.path), run_id)]
+    marked_spec = request.entry.mark_runner_spec(
+        {**spec, **reservation["runner_spec"]},
+        receipt_id=reservation["receipt_id"],
+        action_id=reservation["action_id"],
+        params_hash=reservation["params_hash"],
+    )
+    project.db.execute(
+        "UPDATE runs SET action_kind=?, params=? WHERE id=?",
+        ("media.transcribe", json.dumps(marked_spec, sort_keys=True), run_id),
+    )
+    project.db.commit()
+
+    # The first worker reached dispatch, then went stale and was abandoned.
+    # Its receipt evidence remains the durable authority for a retry failure.
+    attempt = open_attempt_authority(project).mint(
+        recipe=request.program,
+        spec=marked_spec,
+        run_id=run_id,
+        scope=tuple(RunResultStore(project).run_row_scope(run_id)),
+    )
+    project.db.execute(
+        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+        (attempt.attempt_id,),
+    )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id=? WHERE id=?",
+        (attempt.attempt_id, run_id),
+    )
+    project.db.commit()
+    set_attempt_state(project, attempt.attempt_id, "abandoned")
+    request.entry.mark_prepared(
+        project,
+        receipt_id=reservation["receipt_id"],
+        run_id=run_id,
+        attempt_id=attempt.attempt_id,
+        output_fields=reservation["output_fields"],
+        program=request.program,
+    )
+
+    # Credentials disappear before the redelivery can dispatch. It must
+    # terminalize the receipt through abandoned-run recovery, not claim that
+    # this run was never dispatched.
+    monkeypatch.delenv("FRISKET_MODELS_URL")
+    monkeypatch.delenv("FRISKET_MODELS_TOKEN")
+    result = _handle(root, run_id, spec)
+
+    assert result["status"] == "failed"
+    assert result["action_result"]["errors"][0]["code"] == "no_live_target"
+    assert adapter_stub == []
+    assert _run_row(root, run_id)["status"] == "failed"
+
+
 # ---------------------------------------------------------------------------
 # F5: actor authorization — foreign consents (restored bundle) fail closed
 # ---------------------------------------------------------------------------

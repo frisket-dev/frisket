@@ -849,7 +849,6 @@ def register_project_run_handler(
                     run_id=run_id,
                     status=terminal_status,
                     error=None if cancel_requested else pre_run_error,
-                    never_dispatched=not cancel_requested,
                     require_cancel_intent=cancel_requested,
                 )
                 _enqueue_search_index_after_completion(
@@ -1236,7 +1235,6 @@ def register_project_run_handler(
                     message=str(exc),
                     action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
                 ),
-                never_dispatched=not cancel_requested,
                 require_cancel_intent=cancel_requested,
             )
             row = run_store.get_run(run_id)

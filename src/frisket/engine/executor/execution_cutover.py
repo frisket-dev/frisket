@@ -139,6 +139,19 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                     publish=False,
                     commit=False,
                 )
+                # A wholly staged family never became the visible replacement.
+                # Retire its Change through the ordinary reversible history
+                # transition so canonical readers fall back to the prior
+                # published heads. Keep the operation, run, generations, and
+                # result facts for audit; this maintenance-only retirement is
+                # not a user redo candidate.
+                from frisket.engine.store.changes import ChangeStore
+
+                ChangeStore(project).revert(int(run["op_id"]))
+                db.execute(
+                    "UPDATE ops SET redo_eligible=0 WHERE id=?",
+                    (int(run["op_id"]),),
+                )
             if stored is None:
                 # Direct local work may have no receipt or output-generation owner.
                 if owned_claims or any(b.state != "sealed" for b in bindings):

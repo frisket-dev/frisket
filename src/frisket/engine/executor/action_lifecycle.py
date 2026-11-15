@@ -1282,6 +1282,11 @@ def _terminalize_unclaimed_prepared_run(
         terminal_attempt_id = (
             str(open_attempts[0]["id"]) if len(open_attempts) == 1 else None
         )
+        run_bound_claim = project.db.execute(
+            "SELECT 1 FROM output_column_claims WHERE run_id=? AND claim_token=? "
+            "AND status='active' LIMIT 1",
+            (run_id, claim_token),
+        ).fetchone()
         unbound_managed_outputs = not ResultGenerationStore(project).bindings_for_run(
             run_id
         )
@@ -1292,7 +1297,14 @@ def _terminalize_unclaimed_prepared_run(
             run_id=run_id,
             status="failed",
             out_cols=dict(prepared_run.out_cols),
-            generation_claim_token=claim_token,
+            # A failed prepared-output bind leaves the action reservation's
+            # claim attached to the receipt, not to this run. It does not
+            # grant this run terminal write authority; finish the exact
+            # unclaimed prepared run, then let the caller release its receipt
+            # reservation.
+            generation_claim_token=(
+                claim_token if run_bound_claim is not None else None
+            ),
             keep_zero_success_output_columns=bool(
                 prepared_run.recipe.keep_zero_success_output_columns
             ),
