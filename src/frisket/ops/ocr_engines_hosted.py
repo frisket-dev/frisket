@@ -399,6 +399,8 @@ async def ocr_vlm(
     coordinate_profile = ocr_coordinate_profile(model)
     out: list[dict] = []
     wire_history = []
+    # Runtime identities let the capability consume error accounting once.
+    usage["_wire_calls"] = wire_history
     usage["input_pages"] = 0
     for p in pages:
         mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
@@ -499,19 +501,19 @@ async def ocr_vlm(
             result = await StructuredCompleter(router).complete(
                 req, recipe_version=recipe_version
             )
-        except Exception as exc:
+        except BaseException as exc:
             page_wire_calls = list(getattr(exc, "wire_calls", []) or [])
             if page_wire_calls:
                 accumulate_vlm_response_usage(
                     usage, _sum_response(model, page_wire_calls)
                 )
                 usage["input_pages"] += 1
+            known = {id(call) for call in wire_history}
+            wire_history.extend(
+                call for call in page_wire_calls if id(call) not in known
+            )
             if wire_history:
-                known = {id(call) for call in wire_history}
-                exc.wire_calls = [
-                    *wire_history,
-                    *(call for call in page_wire_calls if id(call) not in known),
-                ]
+                exc.wire_calls = list(wire_history)
             raise
         resp = result.response
         accumulate_vlm_response_usage(usage, resp)

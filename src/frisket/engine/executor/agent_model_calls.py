@@ -32,7 +32,10 @@ class AccountedAgentRouter:
         return getattr(self._router, name)
 
     def retain_unrecorded_error_calls(self, error):
-        """The row exception path must not remint IDs for durable responses."""
+        """Hand off stable accounting and only wires not yet owned by this capability."""
+        accounting = self._accounting.get(self._ctx.extras.get("row_id"))
+        if accounting is not None:
+            error.accounting = copy.deepcopy(accounting)
         if getattr(error, "wire_calls", None):
             recorded = {id(response) for response in self._responses}
             error.wire_calls = [

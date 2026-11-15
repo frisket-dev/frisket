@@ -318,7 +318,15 @@ class _BoundOcrReader:
         if self._row_id in owner._called_rows:
             raise RuntimeError("OCR permits one recognition per admitted row")
         owner._called_rows.add(self._row_id)
-        return await owner._run(lambda: self._recognize(source_ref, engine))
+        try:
+            return await owner._run(lambda: self._recognize(source_ref, engine))
+        except BaseException as exc:
+            # This also covers Stop after a successful engine return, before
+            # the recognized document can be materialized or published.
+            accounting = owner.accounting_by_row.get(self._row_id)
+            if accounting is not None:
+                exc.accounting = copy.deepcopy(accounting)
+            raise
 
     async def _recognize(self, source, engine):
         owner, ctx = self._owner, self._ctx
@@ -405,6 +413,7 @@ class _BoundOcrReader:
                 page_images = {}
                 warnings = ()
                 returned = False
+                failure = None
                 try:
                     if is_pdf and cloud_pdf:
                         if type(page_count) is not int or page_count <= 0:
@@ -472,6 +481,9 @@ class _BoundOcrReader:
                             owner._check_open()
                             self._report_page_progress(1, 1)
                     returned = True
+                except BaseException as exc:
+                    failure = exc
+                    raise
                 finally:
                     if usage.get("model_calls") or usage["calls"] or returned:
                         calls = usage.get("model_calls") or [
@@ -493,6 +505,15 @@ class _BoundOcrReader:
                                 "model_calls": calls,
                             }
                         )
+                        # The invocation owns stable OCR facts now. Do not let
+                        # the row error handler mint them again as LLM facts.
+                        if failure is not None and usage.get("_wire_calls"):
+                            recorded = {id(call) for call in usage["_wire_calls"]}
+                            failure.wire_calls = [
+                                call
+                                for call in getattr(failure, "wire_calls", ())
+                                if id(call) not in recorded
+                            ]
                 if selected_page is not None and len(pages) != 1:
                     raise RuntimeError("page-scoped OCR must return exactly one page")
                 owner._check_open()

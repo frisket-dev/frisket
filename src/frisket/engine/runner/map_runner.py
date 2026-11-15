@@ -1309,6 +1309,7 @@ class MapRunner:
                 try:
                     batch_progress = await asyncio.shield(batch_task)
                 except asyncio.CancelledError:
+                    cancelled()
                     cooperative_stop = progress.cancelled
                     await _cancel_and_join_owned_task(batch_task)
                     if not cooperative_stop or asyncio.current_task().cancelling():
@@ -2246,6 +2247,7 @@ class MapRunner:
                 # under the shield above. A cooperative stop returns through
                 # the ordinary finalizer; actual owner-task cancellation must
                 # still propagate even when durable intent is also present.
+                cancelled()
                 cooperative_stop = progress.cancelled
                 progress.cancel()
                 if not cooperative_stop or asyncio.current_task().cancelling():

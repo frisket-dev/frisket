@@ -260,17 +260,15 @@ class _BoundResearcher:
             if include_sources:
                 output.root["sources"] = Outcome.ok(result.sources)
             return output
-        except LLMError as exc:
+        except BaseException as exc:
+            # The capability already owns these durable call IDs. Preserve the
+            # exception type, but do not let row-level Stop/halt handling remint
+            # the same returned purchases from structured repair history.
             router.retain_unrecorded_error_calls(exc)
-            raise
-        except (
-            asyncio.CancelledError,
-            RecipeInvocationHalt,
-            RowError,
-            HostedEngineError,
-        ):
-            raise
-        except Exception as exc:
+            if not isinstance(exc, Exception) or isinstance(
+                exc, (LLMError, RecipeInvocationHalt, RowError, HostedEngineError)
+            ):
+                raise
             raise RowError(
                 "research_failed", str(exc)[:500] or "Research failed"
             ) from exc

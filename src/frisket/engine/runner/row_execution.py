@@ -198,9 +198,33 @@ async def _execute_row(
         if recorder and row_trace:
             recorder.write_row(router.record(data=data, meta=meta, error=error))
 
-    def retain_returned_before_halt(error):
+    def returned_error_accounting(error):
+        # Capability owners already assigned durable IDs. Only unconsumed wire
+        # responses need row-level facts; using their raw history again charges
+        # the same purchase twice under a different ID.
+        recorded = getattr(error, "accounting", None)
         paid = list(getattr(error, "wire_calls", ()) or ())
         if not paid:
+            return recorded
+        raw = wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
+        if recorded is None:
+            return raw
+        return {
+            "tokens_in": (recorded.get("tokens_in") or 0) + (raw.get("tokens_in") or 0),
+            "tokens_out": (recorded.get("tokens_out") or 0)
+            + (raw.get("tokens_out") or 0),
+            "cost": None
+            if recorded.get("cost") is None or raw.get("cost") is None
+            else recorded["cost"] + raw["cost"],
+            "model_calls": [
+                *recorded.get("model_calls", ()),
+                *raw.get("model_calls", ()),
+            ],
+        }
+
+    def retain_returned_before_halt(error):
+        accounting = returned_error_accounting(error)
+        if accounting is None:
             return
         from frisket.execution.attempt import attempt_in_scope
         from frisket.engine.store.runs import RunResultStore
@@ -208,7 +232,6 @@ async def _execute_row(
         attempt = attempt_in_scope(ctx.extras)
         if attempt is None:
             return
-        accounting = wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
         RunResultStore(project).write_returned_call_accounting(
             attempt.run_id,
             [{"row_id": row_id, "column_id": None, **accounting}],
@@ -366,8 +389,8 @@ async def _execute_row(
         return out
     except asyncio.CancelledError as exc:
         persist_trace(error="cancelled: row execution cancelled")
-        paid = list(getattr(exc, "wire_calls", ()) or ())
-        if not paid or not field_names:
+        accounting = returned_error_accounting(exc)
+        if accounting is None or not field_names:
             raise
         returned = {
             name: {
@@ -379,9 +402,7 @@ async def _execute_row(
             }
             for name in field_names
         }
-        returned[field_names[0]].update(
-            wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
-        )
+        returned[field_names[0]].update(accounting)
         return returned
     except RecipeInvocationHalt as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
@@ -498,11 +519,9 @@ async def _execute_row(
             }
             for name in field_names
         }
-        paid_wire_calls = list(getattr(e, "wire_calls", []) or [])
-        if paid_wire_calls and field_names:
-            failed[field_names[0]].update(
-                wire_accounting_meta(model_name, paid_wire_calls)
-            )
+        accounting = returned_error_accounting(e)
+        if accounting is not None and field_names:
+            failed[field_names[0]].update(accounting)
         elif meta is not None and field_names:
             # Validation/postprocessing happens after a successful transport;
             # preserve its actual call and cost even when publication refuses
