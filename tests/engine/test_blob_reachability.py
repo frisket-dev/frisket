@@ -1,4 +1,4 @@
-"""Conservative ownership roots without a hashes-times-corpus scan."""
+"""Typed ownership roots, excluding ordinary text and historical provenance."""
 
 import hashlib
 import json
@@ -7,6 +7,9 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store import project_blobs
+from frisket.engine.store.blob_retention_migration import (
+    migrate_blob_derivation_ownership,
+)
 from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.import_intake import ImportIntakeHeader, write_import_header
 from frisket.engine.store.import_inventory import ImportInventory
@@ -19,6 +22,9 @@ from frisket.engine.store.prepared_content import (
 @pytest.fixture
 def project(tmp_path):
     project = Project.create(tmp_path / "roots.frisket")
+    with project.db:
+        project.db.execute("BEGIN")
+        migrate_blob_derivation_ownership(project.db)
     yield project
     project.close()
 
@@ -42,7 +48,7 @@ def test_redoable_manual_blob_edit_remains_reachable(project):
     assert project.get_values(sheet, column)[row] == {"blob": digest}
 
 
-def test_prepared_page_text_and_positions_remain_roots_after_undo(project):
+def test_prepared_text_and_citation_positions_do_not_own_mentioned_blobs(project):
     text_blob = project.add_blob(b"linked from prepared text")
     positions_blob = project.add_blob(b"linked from prepared positions")
     orphan = project.add_blob(b"unrelated orphan")
@@ -77,11 +83,17 @@ def test_prepared_page_text_and_positions_remain_roots_after_undo(project):
     project.undo()
     assert project.undo() == producing_op_id
 
-    assert project.gc_blobs()["hashes"] == [orphan]
-    assert project._referenced_blob_hashes() == {text_blob, positions_blob}
+    assert set(project.gc_blobs()["hashes"]) == {orphan, text_blob, positions_blob}
+    assert project._referenced_blob_hashes() == set()
+    assert (
+        project.db.execute(
+            "SELECT prepared_text FROM prepared_page_versions"
+        ).fetchone()[0]
+        == f"download blob:{text_blob}"
+    )
 
 
-def test_transitive_ancestry_is_live_and_dead_edges_are_collectable(project):
+def test_materialized_child_does_not_own_ancestry_but_keeps_source_identity(project):
     source, middle, leaf, dead_source, dead_leaf = [
         project.add_blob(value.encode())
         for value in ("source", "middle", "leaf", "dead-source", "dead-leaf")
@@ -91,19 +103,17 @@ def test_transitive_ancestry_is_live_and_dead_edges_are_collectable(project):
             derived_hash=child, source_hash=parent, op="test"
         )
     root_cell(project, {"blob": leaf})
-    assert project._referenced_blob_hashes() == {source, middle, leaf}
-    assert set(project.gc_blobs()["hashes"]) == {dead_source, dead_leaf}
-    assert len(project.blob_derivation_chain(leaf)) == 2
-    # A corrupt cycle still terminates conservatively.
-    project.record_blob_derivation(derived_hash=source, source_hash=leaf, op="cycle")
+    assert project._referenced_blob_hashes() == {leaf}
+    assert set(project.gc_blobs()["hashes"]) == {source, middle, dead_source, dead_leaf}
+    assert project.blob_derivation_chain(leaf)[0]["source_hash"] == middle
     assert project.gc_blobs()["hashes"] == []
 
 
-def test_embedded_overlapping_hashes_preserve_substring_retention(project):
+def test_hash_looking_text_does_not_own_blobs(project):
     digest = project.add_blob(b"inside longer hexadecimal token")
     orphan = project.add_blob(b"orphan")
     root_cell(project, "a" + digest + "b")
-    assert project.gc_blobs()["hashes"] == [orphan]
+    assert set(project.gc_blobs()["hashes"]) == {digest, orphan}
     with project.blob_store.materialize(digest) as path:
         assert path.read_bytes() == b"inside longer hexadecimal token"
 
@@ -125,7 +135,7 @@ def test_malformed_unresolved_effect_retains_every_blob(project, payload):
     assert not project.db.in_transaction
 
 
-def test_receipt_and_paid_effect_payloads_are_conservative_roots(project):
+def test_receipt_owns_exports_but_model_response_is_not_a_file_publication(project):
     receipt, effect, orphan = [
         project.add_blob(value.encode()) for value in ("receipt", "effect", "orphan")
     ]
@@ -142,7 +152,7 @@ def test_receipt_and_paid_effect_payloads_are_conservative_roots(project):
         (json.dumps({"response": {"blob_hash": effect}}),),
     )
     project.db.commit()
-    assert project.gc_blobs()["hashes"] == [orphan]
+    assert set(project.gc_blobs()["hashes"]) == {effect, orphan}
 
 
 @pytest.mark.parametrize("owner", ["export", "primary", "supplemental"])
@@ -349,7 +359,7 @@ def test_no_blobs_does_not_scan_root_text(project, monkeypatch):
     def refuse(*args):
         raise AssertionError("no blobs means no reachability corpus scan")
 
-    monkeypatch.setattr(project_blobs, "_root_texts", refuse)
+    monkeypatch.setattr(project_blobs, "_authority_blob_hashes", refuse)
     assert project.gc_blobs()["hashes"] == []
 
 
@@ -361,8 +371,10 @@ def test_delete_sheet_streams_surviving_roots_in_bounded_batches(project, monkey
     )
     project.db.commit()
     sheet = project.add_sheet("survivors")
-    column = project.add_column(sheet, "value")
-    project.add_rows(sheet, [{"value": value} for value in hashes], {"value": column})
+    column = project.add_column(sheet, "value", type="json")
+    project.add_rows(
+        sheet, [{"value": {"blob": value}} for value in hashes], {"value": column}
+    )
     doomed = project.add_sheet("delete me")
     original = project_blobs._insert_live_hashes
     observed = []

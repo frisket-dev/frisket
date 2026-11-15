@@ -8,11 +8,17 @@ from frisket.engine.store import Project
 from frisket.engine.store.import_intake import ImportIntakeHeader, write_import_header
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.project_blobs import reclaim_local_blobs
+from frisket.engine.store.blob_retention_migration import (
+    migrate_blob_derivation_ownership,
+)
 
 
 @pytest.fixture
 def project(tmp_path):
     project = Project.create(tmp_path / "cleanup.frisket")
+    with project.db:
+        project.db.execute("BEGIN")
+        migrate_blob_derivation_ownership(project.db)
     try:
         yield project
     finally:
@@ -53,7 +59,13 @@ def test_normal_gc_marks_only_registered_hashes_but_offline_marks_all_roots(proj
 
     known = project.add_blob(b"registered")
     unknown = [hashlib.sha256(str(i).encode()).hexdigest() for i in range(1200)]
-    root(project, " ".join([known, *unknown]))
+    sheet = project.add_sheet("files")
+    column = project.add_column(sheet, "files", type="json")
+    project.add_rows(
+        sheet,
+        [{"files": [{"blob": value} for value in [known, *unknown]]}],
+        {"files": column},
+    )
     with _live_blob_hashes(project) as db:
         assert [
             row[0] for row in db.execute("SELECT hash FROM temp.gc_live_blob_hashes")
@@ -115,7 +127,7 @@ def test_symlinks_unknown_layout_and_retention_are_respected(project, tmp_path):
         reclaim_local_blobs(project, dry_run=False)
 
 
-def test_redo_and_transitive_ancestry_remain_physical_roots(project):
+def test_redo_keeps_output_but_not_materialized_ancestry(project):
     parent = project.add_blob(b"source")
     child = project.add_blob(b"derived")
     project.record_blob_derivation(derived_hash=child, source_hash=parent, op="test")
@@ -125,8 +137,9 @@ def test_redo_and_transitive_ancestry_remain_physical_roots(project):
     )
     project.undo()
     reclaim_local_blobs(project, dry_run=False)
-    assert path_for(project, parent).exists()
+    assert not path_for(project, parent).exists()
     assert path_for(project, child).exists()
+    assert project.blob_derivation_chain(child)[0]["source_hash"] == parent
     project.redo()
 
 

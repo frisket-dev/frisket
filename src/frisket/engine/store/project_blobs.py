@@ -224,7 +224,6 @@ def blob_derivation_chain(project: Any, digest: str) -> list[dict[str, Any]]:
     return chain
 
 
-_HASH_CANDIDATE = re.compile(r"(?=([0-9a-f]{64}))")
 _ROOT_BATCH_SIZE = 512
 _logger = logging.getLogger(__name__)
 
@@ -250,51 +249,60 @@ def _insert_live_hashes(
     )
 
 
-def _decoded_texts(value):
-    """Yield every string a decoded JSON-compatible authority value contains."""
+def _value_blob_hashes(value):
+    """Media values own bytes; ordinary text and provenance only mention them.
 
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, list):
+    The existing media/file cell contract uses ``blob`` (including PDF pages
+    and virtual clips). Nested media values are valid JSON results as well.
+    ``blob_hash`` is deliberately not a generic JSON key: receipt publications
+    and artifact previews interpret it in their own typed envelopes below.
+    """
+    if isinstance(value, list):
         for item in value:
-            yield from _decoded_texts(item)
+            yield from _value_blob_hashes(item)
     elif isinstance(value, dict):
-        for key, item in value.items():
-            yield from _decoded_texts(key)
-            yield from _decoded_texts(item)
+        if "blob" in value:
+            digest = value["blob"]
+            if isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest):
+                yield digest
+            return
+        for item in value.values():
+            yield from _value_blob_hashes(item)
 
 
-def _authority_root_texts(db: sqlite3.Connection):
-    # Every authority value is history, including values on discarded ops and
-    # failed results. Preserve field-name-agnostic retention, including hashes
-    # embedded inside longer strings. Overlapping matches preserve the old
-    # substring semantics.
+def _authority_blob_hashes(db: sqlite3.Connection):
+    # Retained results and reversible/discarded history remain owners until
+    # explicit purge removes their payload. Application visibility isn't ownership.
     for table in ("cells", "results", "edits"):
         for value_kind, stored_value in db.execute(
-            f"SELECT value_kind,value FROM {table} WHERE value_kind IS NOT NULL"
+            f"SELECT value_kind,value FROM {table} "
+            "WHERE value_kind IN ('json','legacy_invalid')"
         ):
-            if value_kind == "legacy_invalid":
-                if not isinstance(stored_value, str):
-                    raise ValueError("legacy invalid payload is not SQLite text")
-                yield stored_value
-                continue
-            yield from _decoded_texts(decode_stored_value(value_kind, stored_value))
+            yield from _value_blob_hashes(decode_stored_value(value_kind, stored_value))
 
 
-def _root_texts(db: sqlite3.Connection):
-    yield from _authority_root_texts(db)
-    query = (
-        "SELECT external_ref_json FROM source_artifacts "
-        "UNION ALL SELECT metadata FROM source_artifacts "
-        "UNION ALL SELECT selector_json FROM source_spans "
-        "UNION ALL SELECT preview_json FROM source_spans "
-        "UNION ALL SELECT metadata FROM source_spans "
-        "UNION ALL SELECT prepared_text FROM prepared_page_versions "
-        "UNION ALL SELECT positions_json FROM prepared_page_versions"
-    )
-    for row in db.execute(query):
-        if row[0]:
-            yield row[0]
+def _artifact_blob_hashes(db: sqlite3.Connection):
+    # Sheet-attached originals survive even if page preparation failed before
+    # any file cell was made. Cell-addressed artifacts describe provenance:
+    # their actual retained media value must own the original. Keep its explicit
+    # page previews while that original is owned, not arbitrary metadata hashes.
+    for digest, metadata in db.execute(
+        "SELECT artifact.blob_hash,artifact.metadata FROM source_artifacts artifact "
+        "WHERE EXISTS (SELECT 1 FROM temp.gc_live_blob_hashes live "
+        "WHERE live.hash=artifact.blob_hash) OR "
+        "(artifact.source_row_id IS NULL AND artifact.source_column_id IS NULL "
+        "AND EXISTS (SELECT 1 FROM sheets owner WHERE owner.id=artifact.source_sheet_id))"
+    ):
+        if digest is not None:
+            yield validate_blob_digest(digest)
+        images = json.loads(metadata or "{}").get("page_images", {})
+        if not isinstance(images, dict):
+            raise ValueError("invalid owned artifact page images")
+        for image in images.values():
+            if not isinstance(image, dict):
+                raise ValueError("invalid owned artifact page image")
+            if image.get("blob_hash"):
+                yield validate_blob_digest(image["blob_hash"])
 
 
 def _file_output_hashes(ref):
@@ -305,8 +313,8 @@ def _file_output_hashes(ref):
         yield validate_blob_digest(blob["blob_hash"])
 
 
-def _retained_payloads(db: sqlite3.Connection):
-    """Published receipt ownership and conservatively retained effect payloads."""
+def _retained_payload_hashes(db: sqlite3.Connection):
+    """Published files and unresolved returned files, never prompt substrings."""
     for row in db.execute(
         "SELECT body, 'receipt' AS family, status AS state FROM receipts "
         "UNION ALL SELECT payload,family,state FROM effect_checkpoints "
@@ -346,10 +354,8 @@ def _retained_payloads(db: sqlite3.Connection):
                 if not isinstance(row_files, list):
                     raise ValueError("invalid returned files")
                 for occurrence in row_files:
-                    # Validate ownership before retaining the full effect payload.
-                    for _digest in _file_output_hashes(occurrence):
-                        pass
-        yield row[0]
+                    yield from _file_output_hashes(occurrence)
+                yield from _value_blob_hashes(response.get("value"))
 
 
 def _import_hashes(project: Any):
@@ -409,14 +415,12 @@ def _populate_live_blob_hashes(project: Any, *, strict: bool = False) -> None:
     try:
         _mark_hashes(
             db,
-            (
-                match[1]
-                for text in _retained_payloads(db)
-                for match in _HASH_CANDIDATE.finditer(text)
-            ),
+            _retained_payload_hashes(db),
             known_only=not strict,
         )
         _mark_hashes(db, _import_hashes(project), known_only=not strict)
+        _mark_hashes(db, _authority_blob_hashes(db), known_only=not strict)
+        _mark_hashes(db, _artifact_blob_hashes(db), known_only=not strict)
     except (
         ValueError,
         TypeError,
@@ -436,35 +440,6 @@ def _populate_live_blob_hashes(project: Any, *, strict: bool = False) -> None:
             "INSERT OR IGNORE INTO temp.gc_live_blob_hashes SELECT hash FROM blobs"
         )
         return
-    _mark_hashes(
-        db,
-        (
-            match[1]
-            for text in _root_texts(db)
-            for match in _HASH_CANDIDATE.finditer(text)
-        ),
-        known_only=not strict,
-    )
-    db.execute(
-        "INSERT OR IGNORE INTO temp.gc_live_blob_hashes "
-        + (
-            "SELECT blob_hash FROM source_artifacts WHERE blob_hash IS NOT NULL"
-            if strict
-            else "SELECT b.hash FROM source_artifacts a JOIN blobs b ON b.hash=a.blob_hash"
-        )
-    )
-    db.execute(
-        """WITH RECURSIVE reachable(hash) AS (
-        SELECT hash FROM temp.gc_live_blob_hashes
-        UNION SELECT d.source_hash FROM blob_derivations d JOIN reachable r ON d.derived_hash=r.hash
-    ) INSERT OR IGNORE INTO temp.gc_live_blob_hashes
-    """
-        + (
-            "SELECT hash FROM reachable"
-            if strict
-            else "SELECT r.hash FROM reachable r JOIN blobs b ON b.hash=r.hash"
-        )
-    )
 
 
 @contextmanager
@@ -531,6 +506,9 @@ def reclaim_local_blobs(project: Any, *, dry_run: bool = True) -> dict[str, Any]
         "dry_run": dry_run,
     }
     with _live_blob_hashes(project, writing=True, strict=True) as db:
+        from .bundle_cleanup import cleanup_unowned_bundle_content
+
+        counts.update(cleanup_unowned_bundle_content(project, dry_run=dry_run))
         # Files may predate metadata-only GC; reachability must not depend on
         # whether a blobs row still exists for their digest.
         if root.exists():
