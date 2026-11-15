@@ -743,7 +743,7 @@ def test_formula_invalid_row_scope_keeps_typed_refusal(tmp_path: Path) -> None:
         project.close()
 
 
-def test_formula_source_edit_before_publication_refuses_all_output(
+def test_formula_source_edit_before_publication_keeps_consumed_result_and_marks_stale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import inferred_batch_action
@@ -761,14 +761,12 @@ def test_formula_source_edit_before_publication_refuses_all_output(
 
         monkeypatch.setattr(inferred_batch_action, "_publish", edit_before_publish)
         result = _run(project, sheet, "={{amount}} + 1")
-        assert result.status == "failed", result.errors
-        assert result.errors[0].code == "stale_input"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM columns WHERE name='computed' AND hidden=0"
-            ).fetchone()[0]
-            == 0
-        )
+        assert result.status == "completed", result.errors
+        column = result.outputs[0].column_id
+        assert project.get_values(sheet, column)[rows[0]] == 3
+        from frisket.engine.store.consumed_sources import row_input_state
+
+        assert row_input_state(project, result.run_id, rows[0]) == "stale"
     finally:
         project.close()
 

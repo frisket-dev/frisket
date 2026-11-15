@@ -1455,7 +1455,14 @@ def column_ref_required(annotation: type) -> bool:
     explicit = getattr(annotation, "required_input", None)
     if isinstance(explicit, bool):
         return explicit
-    args = getattr(annotation, "__pydantic_generic_metadata__", {}).get("args", ())
+    args = next(
+        (
+            getattr(base, "__pydantic_generic_metadata__", {}).get("args", ())
+            for base in annotation.__mro__
+            if getattr(base, "__pydantic_generic_metadata__", {}).get("args", ())
+        ),
+        (),
+    )
     if not args:
         return True
     value_type = args[0]

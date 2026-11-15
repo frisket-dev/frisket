@@ -42,6 +42,14 @@ class OptionalInput(ActionParams):
     source: ColumnRef[int | None]
 
 
+class NullableInteger(ColumnRef[int | None]):
+    pass
+
+
+class InheritedOptionalInput(ActionParams):
+    source: NullableInteger
+
+
 class Output(BaseModel):
     answer: str
 
@@ -49,10 +57,11 @@ class Output(BaseModel):
 @pytest.mark.parametrize(
     "state", ["invalid", "pending", "failed", "not_completed", "null"]
 )
-@pytest.mark.parametrize("required", [True, False])
+@pytest.mark.parametrize("mode", ["required", "optional", "inherited_optional"])
 def test_dispatch_distinguishes_required_unavailable_from_optional_input(
-    tmp_path, state, required
+    tmp_path, state, mode
 ):
+    required = mode == "required"
     project = Project.create(tmp_path / "availability.frisket")
     try:
         sheet = project.add_sheet("source")
@@ -113,6 +122,12 @@ def test_dispatch_distinguishes_required_unavailable_from_optional_input(
             calls.append(params.source.read(row))
             return RowResult(output=Output(answer="handled"))
 
+        def inherited_optional_handler(
+            params: InheritedOptionalInput, row: Row
+        ) -> RowResult[Output]:
+            calls.append(params.source.read(row))
+            return RowResult(output=Output(answer="handled"))
+
         registry = ActionRegistry(
             [
                 ActionNamespace(
@@ -124,7 +139,11 @@ def test_dispatch_distinguishes_required_unavailable_from_optional_input(
                             description="Check input availability",
                             category=ActionCategory.TEXT,
                             run=map_rows(
-                                required_handler if required else optional_handler
+                                required_handler
+                                if required
+                                else inherited_optional_handler
+                                if mode == "inherited_optional"
+                                else optional_handler
                             ),
                         )
                     ],

@@ -2473,42 +2473,49 @@ class MapRunner:
         from frisket.engine.store.consumed_sources import read_consumed_source
         from frisket.engine.runner.row_inputs import RowSourcePage
 
-        source_ids = [
-            col_map[name] for name in recipe.source_columns(spec) if name in col_map
-        ]
-        refs: dict[int, dict[int, dict[str, Any]]] = {}
-        _, captured_values, batch_capture = read_consumed_source(
-            self.project,
-            spec["sheet_id"],
-            source_ids,
-            row_ids=row_ids,
-            scope_intent="selected",
-            refs_out=refs,
-            preserve_invalid_column_ids=[
-                col_map[name]
-                for name in getattr(recipe, "preserve_invalid_source_columns", ())
-                if name in col_map
-            ],
-        )
-        source_page = RowSourcePage(
-            spec["sheet_id"],
-            frozenset(row_ids),
-            {cid: (captured_values[cid], refs[cid]) for cid in source_ids},
-        )
-        values_by_row = {
-            row_id: row_values(
+        staged_capture = getattr(recipe, "staged_input_capture", None)
+        if staged_capture is not None:
+            # The existing inferred-batch spool owns both classifications and
+            # the source capture that produced its saved results.
+            batch_capture = staged_capture
+            values_by_row = {row_id: {} for row_id in row_ids}
+        else:
+            source_ids = [
+                col_map[name] for name in recipe.source_columns(spec) if name in col_map
+            ]
+            refs: dict[int, dict[int, dict[str, Any]]] = {}
+            _, captured_values, batch_capture = read_consumed_source(
                 self.project,
-                recipe,
-                spec,
-                col_map,
-                row_id,
-                for_model=False,
-                column_types=column_types,
-                admitted_work_scope=admitted_work_scope,
-                source_page=source_page,
+                spec["sheet_id"],
+                source_ids,
+                row_ids=row_ids,
+                scope_intent="selected",
+                refs_out=refs,
+                preserve_invalid_column_ids=[
+                    col_map[name]
+                    for name in getattr(recipe, "preserve_invalid_source_columns", ())
+                    if name in col_map
+                ],
             )
-            for row_id in row_ids
-        }
+            source_page = RowSourcePage(
+                spec["sheet_id"],
+                frozenset(row_ids),
+                {cid: (captured_values[cid], refs[cid]) for cid in source_ids},
+            )
+            values_by_row = {
+                row_id: row_values(
+                    self.project,
+                    recipe,
+                    spec,
+                    col_map,
+                    row_id,
+                    for_model=False,
+                    column_types=column_types,
+                    admitted_work_scope=admitted_work_scope,
+                    source_page=source_page,
+                )
+                for row_id in row_ids
+            }
         if cancelled and cancelled():
             raw_results: dict[int, Any] = {}
         else:
@@ -2568,7 +2575,8 @@ class MapRunner:
                 payload = {"row_id": row_id, "column_id": out_cols[name], **cell}
                 # One shared fingerprint for all outputs of this batch. Rows
                 # depend on the whole batch, not just their own source cells.
-                if row_id == row_ids[0] and name == field_names[0]:
+                capture_row = getattr(recipe, "staged_input_first_row_id", row_ids[0])
+                if row_id == capture_row and name == field_names[0]:
                     payload["__consumed_sources"] = batch_capture
                 pending.append(payload)
             if failed:

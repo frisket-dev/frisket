@@ -424,7 +424,7 @@ def _retained_dependencies(project: Any, scope: Mapping[str, Any]):
     return project.db.execute(
         "WITH wanted AS (SELECT value AS id FROM json_each(?)) "
         "SELECT id,capture_json FROM consumed_source_bundles WHERE run_id=? "
-        "AND (row_id IS NULL OR row_id IN (SELECT id FROM wanted) "
+        "AND (row_id IS NULL OR json_extract(capture_json,'$.shared_run')=1 OR row_id IN (SELECT id FROM wanted) "
         "OR (kind='aggregate' AND EXISTS(SELECT 1 FROM json_each(capture_json,'$.scopes') source "
         "JOIN json_each(source.value,'$.cohort') member ON member.value IN (SELECT id FROM wanted))))",
         (_json(scope["cohort"]), scope["run_id"]),
@@ -843,8 +843,13 @@ def row_input_state(
     states = []
     for bundle in rows:
         capture = json.loads(bundle["capture_json"])
-        if bundle["row_id"] is None or any(
-            row_id in (scope.get("cohort") or ()) for scope in capture.get("scopes", ())
+        if (
+            bundle["row_id"] is None
+            or capture.get("shared_run")
+            or any(
+                row_id in (scope.get("cohort") or ())
+                for scope in capture.get("scopes", ())
+            )
         ):
             states.append(
                 bundle_state(

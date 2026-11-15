@@ -528,7 +528,9 @@ async def run_preview(
             # Batch recipes compute the whole sample at once; cancel is checked
             # before dispatch and while collecting per-row results.
             values_by_row = {
-                row_id: row_values(
+                row_id: {}
+                if getattr(recipe, "staged_input_capture", None) is not None
+                else row_values(
                     project,
                     recipe,
                     spec,
