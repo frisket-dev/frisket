@@ -300,10 +300,13 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
             "SELECT status FROM runs WHERE id=?", (stored["id"],)
         ).fetchone()
         assert run_row["status"] == "cancelled"
-        assert case.project.db.execute(
-            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
-            (stored["id"],),
-        ).fetchone()[0] == 0
+        assert (
+            case.project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
+                (stored["id"],),
+            ).fetchone()[0]
+            == 0
+        )
         assert len(case.calls) == calls
         return
 
@@ -538,3 +541,65 @@ def test_child_retains_target_dependency_even_without_matches(
         case.left,
         case.right,
     }
+
+
+def test_partial_semantic_recovery_returns_concurrent_terminal_winner(
+    case, monkeypatch
+):
+    import sqlite3
+    from frisket.actions.types import RowError
+    from frisket.engine.executor import semantic_join_action as host
+    from frisket.execution.attempt import StaleAttemptWriter
+
+    async def partly_failing(
+        params: RenamedJoinParams, row: Row, matcher: SemanticMatcher
+    ) -> RowResult[SemanticJoinMatch]:
+        value = params.donor.read(row)
+        if value == "unavailable":
+            raise RowError("missing_reference", "No reference for this donor")
+        return RowResult(output=await matcher.match(value, target=params.registry))
+
+    original_action = ACTION_REGISTRY.get("join.semantic")
+    custom = RegisteredAction(
+        "custom.partial_join",
+        replace(
+            original_action.definition,
+            run=semantic_join(partly_failing),
+            _example_params=(),
+        ),
+    )
+    monkeypatch.setattr(
+        ACTION_REGISTRY,
+        "_actions",
+        {**ACTION_REGISTRY._actions, custom.action_id: custom},
+    )
+    case.project.add_rows(case.left, [{"donor": "unavailable"}], {"donor": case.donor})
+    params = {
+        "donor": "donor",
+        "registry": {"sheet_id": case.right, "column": "company"},
+    }
+    case.project.db.execute("""CREATE TRIGGER reject_partial_receipt BEFORE UPDATE ON receipts
+        WHEN NEW.status='partial' BEGIN SELECT RAISE(ABORT, 'receipt unavailable'); END""")
+    case.project.db.commit()
+    with pytest.raises(sqlite3.IntegrityError, match="receipt unavailable"):
+        case.run(action_id=custom.action_id, params=params)
+    case.project.db.execute("DROP TRIGGER reject_partial_receipt")
+    case.project.db.commit()
+    calls = len(case.calls)
+    original = host.finalize_semantic_join
+
+    def committed_winner(*args, **kwargs):
+        winner = original(*args, **kwargs)
+        assert winner.status == "partial"
+        raise StaleAttemptWriter("another exact owner committed first")
+
+    monkeypatch.setattr(host, "finalize_semantic_join", committed_winner)
+    recovered = case.run(action_id=custom.action_id, params=params)
+    assert recovered.status == "partial", recovered
+    assert len(case.calls) == calls
+    assert (
+        case.project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (recovered.run_id,)
+        ).fetchone()[0]
+        == "completed"
+    )

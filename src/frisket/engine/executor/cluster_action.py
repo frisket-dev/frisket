@@ -39,13 +39,12 @@ from frisket.engine.executor.value_cluster import (
 from frisket.contracts.action import ActionError, ReceiptEvidence
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
-    _finalize_reserved_action_receipt,
     _output_claim_token,
     _receipt_for_idempotency,
 )
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
+from frisket.execution.attempt import StaleAttemptWriter
 
 
 class AdmittedValueClusterer:
@@ -202,8 +201,9 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     if writer is None or claim != _output_claim_token(receipt_id):
         raise StaleAttemptWriter("Cluster publication needs its exact writer claim")
 
-    def abort(code, message, *, status="failed"):
-        project.db.execute("BEGIN IMMEDIATE")
+    def abort(code, message, *, status="failed", commit=True):
+        if commit:
+            project.db.execute("BEGIN IMMEDIATE")
         try:
             prior = ReceiptStore(project).parsed_by_id(receipt_id)
             terminal = prior.model_copy(
@@ -249,13 +249,16 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                         }
                     )
                 raise StaleAttemptWriter(f"Cluster abort refused: {outcome.reason}")
-            project.db.commit()
+            if commit:
+                project.db.commit()
         except BaseException:
             project.db.rollback()
             raise
         return _result_from_receipt(ReceiptStore(project).parsed_by_id(receipt_id))
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    if run["cancel_requested_at"] is not None:
+        return abort("cancelled", "Clustering was stopped", status="cancelled")
     from frisket.engine.store.effect_checkpoints import (
         EffectCheckpointStore,
         is_operator_attestation,
@@ -289,6 +292,13 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     plan = cluster_plan_from_state(bound, state)
     try:
         project.db.execute("BEGIN IMMEDIATE")
+        run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        if run["cancel_requested_at"] is not None:
+            result = abort(
+                "cancelled", "Clustering was stopped", status="cancelled", commit=False
+            )
+            project.db.commit()
+            return result
         claims = OutputColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
         claims.require_current_writer(
@@ -394,39 +404,26 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                 "provider_use": provider_use or receipt.provider_use,
             }
         )
-        result = _finalize_reserved_action_receipt(
-            project,
-            action,
-            params_hash=kwargs["params_hash"],
-            project_id=kwargs["project_id"],
-            receipt=receipt,
-            reservation_lost_message="Cluster reservation was lost",
-            update_failed_message="Cluster receipt update failed",
-            require_running_status=False,
-            replay_error_fn=lambda prior: _replay_error(project, prior),
-            commit=False,
-        )
-        if result is not None:
-            project.db.rollback()
-            return result
         del op_spec[CLUSTER_RESULT_SPEC_KEY]
         op_spec[CLUSTER_RESULT_STORAGE_SPEC_KEY] = CLUSTER_RESULT_RECEIPT_STORAGE
         project.db.execute(
             "UPDATE ops SET spec=? WHERE id=?",
             (json.dumps(op_spec, sort_keys=True, allow_nan=False), run["op_id"]),
         )
-        from frisket.engine.store.runs import RunResultStore
-
-        RunResultStore(project).finish_run(
-            run_id,
-            terminal_status,
+        outcome = terminalize_project_run(
+            project,
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status=receipt.status,
+            run_status=terminal_status,
+            authority=CurrentWriterTerminalAuthority(
+                writer_attempt_id=writer, claim_token=claim
+            ),
+            terminal_receipt=receipt,
             commit=False,
-            writer_attempt_id=writer,
-            claim_token=claim,
         )
-        set_attempt_state(project, writer, "effected", commit=False)
-        if not claims.release(claim_token=claim, status="released", commit=False):
-            raise StaleAttemptWriter("Cluster publication lost its output claim")
+        if outcome.disposition != "terminalized":
+            raise StaleAttemptWriter(f"Cluster publication refused: {outcome.reason}")
         project.db.commit()
         return _result_from_receipt(receipt)
     except ClusterSourceChanged as exc:
@@ -633,7 +630,9 @@ def run_typed_cluster_action(
             ).fetchone()
             if (
                 run is not None
-                and run["status"] in {"completed", "failed", "cancelled"}
+                and run["status"] == "running"
+                and run["total_rows"] is not None
+                and int(run["completed_rows"] or 0) >= int(run["total_rows"])
                 and run["current_attempt_id"] is not None
                 and any(
                     binding.state != "sealed"
