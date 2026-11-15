@@ -290,6 +290,14 @@ def _delete_obsolete_heads(
     )
 
 
+def _register_validity(db: sqlite3.Connection) -> None:
+    """Install UDFs before opening a cursor that spans projection batches."""
+    db.create_function("frisket_cell_validity", 3, cell_validity, deterministic=True)
+    db.create_function(
+        "frisket_cell_validity", 2, legacy_cell_validity, deterministic=True
+    )
+
+
 def _insert_candidates(
     db: sqlite3.Connection,
     *,
@@ -317,15 +325,6 @@ def _insert_candidates(
         retrieval_revision is None or retrieval_revision <= 0
     ):
         raise RuntimeError("retrieval-aware current-cell writes require a revision")
-    if has_validity:
-        if typed_authorities:
-            db.create_function(
-                "frisket_cell_validity", 3, cell_validity, deterministic=True
-            )
-        else:
-            db.create_function(
-                "frisket_cell_validity", 2, legacy_cell_validity, deterministic=True
-            )
     validity_column = ",validity" if has_validity else ""
     validity_value = (
         (
@@ -617,6 +616,7 @@ def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str)
     """Refresh exact keys from a caller-owned temporary SQL relation."""
 
     _require_transaction(db)
+    _register_validity(db)
     table = _temp_key_table(key_table)
     columns = db.execute(
         f"SELECT DISTINCT target.column_id,column_meta.sheet_id FROM {table} target "
@@ -694,6 +694,7 @@ def refresh_current_cells(
     """
 
     _require_transaction(db)
+    _register_validity(db)
     columns = _ordered_ids(column_ids)
     if not columns:
         return 0
@@ -749,6 +750,7 @@ def rebuild_current_cells(
     """
 
     _require_transaction(db)
+    _register_validity(db)
     retrieval_revision = None
     if invalidate_search:
         retrieval_revision = enqueue_dirty_scope(db)

@@ -9,45 +9,17 @@ from pathlib import Path
 from .disk_capacity import require_disk_headroom
 from .schema import (
     BundleSchemaMismatch,
-    SCALAR_CURRENT_CELL_VALUES_SQL,
     SCHEMA_DIGEST_META_KEY,
 )
 from .value_codec import migrate_legacy_json_value
+from .typed_storage_migration_schema import TYPED_STORAGE_STATEMENTS
 
 TYPED_VALUES_TO_DIGEST = "frisket.schema.v1:529f5f4e750711b310535f6ed083c331"
 
 
-def _fresh_schema_statement(prefix: str) -> str:
-    """Return one complete statement from the current fresh-bundle schema."""
-
-    from .schema import SCHEMA
-
-    start = SCHEMA.index(prefix)
-    statement = ""
-    for line in SCHEMA[start:].splitlines(keepends=True):
-        statement += line
-        if sqlite3.complete_statement(statement):
-            # This endpoint predates result warnings. Do not introduce the
-            # column before the intervening prepared-content table rebuild,
-            # whose pinned destination deliberately has the older columns.
-            return (
-                statement.replace(
-                    "  warnings TEXT NOT NULL DEFAULT '[]' CHECK (\n"
-                    "    json_valid(warnings) AND json_type(warnings)='array'\n"
-                    "  ),\n",
-                    "",
-                )
-                .replace("  warnings, error,", "  error,")
-                .replace("        OR NEW.warnings IS NOT OLD.warnings\n", "")
-                .replace("    OR NEW.warnings IS NOT OLD.warnings\n", "")
-                .strip()
-            )
-    raise RuntimeError(f"incomplete schema statement starting with {prefix!r}")
-
-
 def _typed_table_ddl(table: str, replacement: str) -> str:
     prefix = f"CREATE TABLE IF NOT EXISTS {table}"
-    return _fresh_schema_statement(prefix).replace(
+    return TYPED_STORAGE_STATEMENTS[prefix].replace(
         prefix, f"CREATE TABLE {replacement}", 1
     )
 
@@ -168,7 +140,7 @@ def migrate_typed_values(
             ):
                 db.execute(f"DROP TRIGGER {trigger}")
                 db.execute(
-                    _fresh_schema_statement(f"CREATE TRIGGER IF NOT EXISTS {trigger}")
+                    TYPED_STORAGE_STATEMENTS[f"CREATE TRIGGER IF NOT EXISTS {trigger}"]
                 )
 
             db.execute(_typed_table_ddl("current_cells", "current_cells"))
@@ -187,7 +159,11 @@ def migrate_typed_values(
                     "typed storage migration rebuilt a different number of current "
                     f"cells ({rebuilt}, expected {current_count})"
                 )
-            db.execute(SCALAR_CURRENT_CELL_VALUES_SQL)
+            db.execute(
+                TYPED_STORAGE_STATEMENTS[
+                    "CREATE VIEW IF NOT EXISTS current_cell_values"
+                ]
+            )
             from .citation_text import (
                 install_citation_text_schema,
                 migrate_legacy_citation_texts,
