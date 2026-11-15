@@ -75,3 +75,38 @@ def test_purged_undone_creation_does_not_block_later_redo(tmp_path):
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
                 step_operation(project, "restore", op_id=first_change)
+
+
+def test_partly_purged_append_remains_barrier_before_its_sheet_creator(tmp_path):
+    from frisket.engine.store.streaming_import import StreamingSheetWriter
+
+    path = tmp_path / "partial-append.frisket"
+    with closing(Project.create(path)) as project:
+        writer = StreamingSheetWriter.start(
+            project,
+            sheet_name="Documents",
+            columns=[{"name": "text", "type": "text"}],
+            project_id="test",
+            action_kind="import.csv",
+            idempotency_key="initial",
+            params_hash="sha256:initial",
+            action_id="act:initial",
+            receipt_id="receipt:initial",
+            source_ref={"kind": "file", "logical_path": "records.csv"},
+        )
+        writer.append_rows([{"text": "initial"}])
+        writer.publish()
+        sheet = writer.sheet_id
+        column = project.columns(sheet)[0]["id"]
+        doomed, kept = project.add_rows(
+            sheet, [{"text": "secret"}, {"text": "retained"}], {"text": column}
+        )
+        append = project.op_cursor
+    with closing(Project(path, maintenance=True)) as project:
+        finish_purge(project, begin_purge(project, row_ids=[doomed]))
+    with closing(Project(path)) as project:
+        assert operation_target(project, "undo")["id"] == append
+        with pytest.raises(PurgedMaterialUnavailable):
+            project.undo()
+        assert project.get_values(sheet, column)[kept] == "retained"
+        assert sheet in {item["id"] for item in project.sheets()}

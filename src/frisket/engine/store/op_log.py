@@ -156,7 +156,18 @@ def operation_target(project: Any, direction: str, *, op_id: int | None = None):
                     reverting=direction == "undo",
                 )
             except PurgedMaterialUnavailable:
-                continue
+                # A partial structural Change remains a barrier: skipping its
+                # surviving rows could undo their earlier sheet/column creator.
+                retained_structure = project.db.execute(
+                    "SELECT 1 FROM structural_changes effect "
+                    "WHERE effect.op_id=? AND NOT EXISTS ("
+                    "SELECT 1 FROM project_purge_targets target "
+                    "WHERE target.kind=effect.kind AND target.object_id=effect.object_id) LIMIT 1",
+                    (int(target["id"]),),
+                ).fetchone()
+                if retained_structure is None:
+                    continue
+
         return target
     return None
 
