@@ -198,7 +198,9 @@ def test_materialized_publication_failure_rolls_back_all_writes(
 
 
 @pytest.mark.parametrize("kind", ["import.rows", "import.ndjson", "import.csv"])
-def test_whole_sheet_undo_preserves_hidden_columns_and_refuses_claims(tmp_path, kind):
+def test_whole_sheet_undo_redo_preserves_hidden_columns_with_output_claims(
+    tmp_path, kind
+):
     params = {
         "columns": [
             {"name": "number", "type": "integer"},
@@ -245,13 +247,8 @@ def test_whole_sheet_undo_preserves_hidden_columns_and_refuses_claims(tmp_path, 
                 claim_token="claim:sheet-transition",
             )
             assert len(acquired) == 1 and conflict is None
-            with pytest.raises(ValueError, match="output_column_busy"):
-                transition()
-            assert project.db.execute("SELECT hidden FROM sheets").fetchone()[0] == (
-                1 - expected_hidden
-            )
-            claims.release(claim_token="claim:sheet-transition")
             assert transition() == result.op_ids[0]
+            claims.release(claim_token="claim:sheet-transition")
             assert (
                 project.db.execute("SELECT hidden FROM sheets").fetchone()[0]
                 == expected_hidden

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.op_log import RestorationUnavailable
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.search_index import drain_index, index_batch
@@ -72,26 +73,36 @@ def _publish_replacement(tmp_path: Path):
     return project, column_id, row_ids, generations, first, second
 
 
-def test_undo_redo_refuses_active_claim_then_rebuilds_every_managed_head(
+def test_undo_releases_owned_claim_then_redo_restores_every_managed_head(
     tmp_path: Path,
 ) -> None:
     project, column_id, row_ids, generations, first, second = _publish_replacement(
         tmp_path
     )
     try:
-        with pytest.raises(ValueError, match="output_column_busy"):
-            project.undo()
-        assert project.op_cursor == second.op_id
-        assert {
-            head.run_id for head in generations.read_cell_heads(column_id).values()
-        } == {second.run_id}
-
-        _release(project, second)
         assert project.undo() == second.op_id
+        assert (
+            project.db.execute(
+                "SELECT status FROM output_column_claims WHERE claim_token=?",
+                (second.authority.claim_token,),
+            ).fetchone()[0]
+            == "released"
+        )
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops WHERE id=?", (second.op_id,)
+            ).fetchone()[0]
+            == 1
+        )
         restored = generations.read_cell_heads(column_id)
         assert set(restored) == set(row_ids)
         assert {head.run_id for head in restored.values()} == {first.run_id}
 
+        # Restoring retained output must not silently restore a deleted row.
+        with pytest.raises(RestorationUnavailable, match="destination is unavailable"):
+            project.redo()
+        with project.db:
+            project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_ids[-1],))
         assert project.redo() == second.op_id
         reapplied = generations.read_cell_heads(column_id)
         assert set(reapplied) == set(row_ids)
@@ -177,10 +188,10 @@ def test_partial_generation_undo_redo_refreshes_only_its_result_coordinates(
         ).fetchall()
         assert {
             (int(row["row_id"]), int(row["column_id"])) for row in result_writes
-        } == {(row_ids[0], column_id)}
+        } == set()  # Legacy head cache is not the current-value authority.
         assert {
             (int(row["row_id"]), int(row["column_id"])) for row in current_writes
-        } == {(row_ids[0], column_id)}
+        } == {(row_ids[0], column_id)}  # Small scopes repair only their own coordinate.
         assert [
             tuple(row)
             for row in project.db.execute(
@@ -228,9 +239,8 @@ def test_undo_rolls_back_op_flip_when_head_rebuild_fails(
             raise RuntimeError("head rebuild failed")
 
         monkeypatch.setattr(
-            ResultGenerationStore, "rebuild_heads_from_key_table", fail_rebuild
+            "frisket.engine.store.op_log.refresh_current_cells", fail_rebuild
         )
-        monkeypatch.setattr(ResultGenerationStore, "rebuild_heads", fail_rebuild)
         with pytest.raises(RuntimeError, match="head rebuild failed"):
             project.undo()
 
@@ -245,7 +255,7 @@ def test_undo_rolls_back_op_flip_when_head_rebuild_fails(
         project.close()
 
 
-def test_direct_edit_undo_and_redo_refuse_claim_on_managed_column(
+def test_direct_edit_undo_and_redo_preserve_values_with_claimed_column(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
@@ -270,11 +280,9 @@ def test_direct_edit_undo_and_redo_refuse_claim_on_managed_column(
             claim_token="claim:edit-transition",
         )
         assert len(created) == 1 and conflict is None
-        with pytest.raises(ValueError, match="output_column_busy"):
-            project.undo()
-
-        claims.release(claim_token="claim:edit-transition")
         assert project.undo() == edit_op_id
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "first:0"
+        claims.release(claim_token="claim:edit-transition")
         created, conflict = claims.acquire(
             sheet_id=sheet_id,
             output_names=["generated"],
@@ -282,10 +290,9 @@ def test_direct_edit_undo_and_redo_refuse_claim_on_managed_column(
             claim_token="claim:edit-redo",
         )
         assert len(created) == 1 and conflict is None
-        with pytest.raises(ValueError, match="output_column_busy"):
-            project.redo()
-        claims.release(claim_token="claim:edit-redo")
         assert project.redo() == edit_op_id
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
+        claims.release(claim_token="claim:edit-redo")
     finally:
         project.close()
 
@@ -364,6 +371,7 @@ def test_compaction_preserves_discarded_generation_and_its_blob(
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
     generations = ResultGenerationStore(project)
+    project.set_column_type(column_id, "file")
     first_blob = project.add_blob(
         b"first generation", filename="first.bin", mime="application/octet-stream"
     )
@@ -448,8 +456,12 @@ def test_compaction_preserves_discarded_generation_and_its_blob(
 
         summary = project.compact(vacuum=False)
         assert summary["results_pruned"] == 0
+        # Stale legacy pointers cannot resurrect a discarded Change.
         head = generations.read_cell_heads(column_id)[row_ids[0]]
-        assert head.run_id == second.run_id
+        assert head.run_id == first.run_id
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == {
+            "blob": first_blob
+        }
         assert project.db.execute(
             "SELECT 1 FROM run_output_generations WHERE run_id=?", (second.run_id,)
         ).fetchone()
@@ -564,7 +576,7 @@ def test_compaction_does_not_mutate_generation_history(tmp_path: Path) -> None:
             project.db.execute(
                 "SELECT status FROM ops WHERE id=?", (second.op_id,)
             ).fetchone()[0]
-            == "discarded"
+            == "undone"
         )
 
         def snapshot() -> tuple[object, ...]:

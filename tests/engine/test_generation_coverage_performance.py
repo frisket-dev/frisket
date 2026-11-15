@@ -111,26 +111,32 @@ def _publication_work(root: Path, row_count: int):
             label="one-row replacement",
         )
         _declare(generations, second, column_id, write_mode="replace_scope")
-        _write(
-            project,
-            second,
-            [
-                {
-                    "row_id": target,
-                    "column_id": column_id,
-                    "value": "replacement",
-                    "publication_effect": "publish_value",
-                }
-            ],
-        )
-        project.db.execute("ANALYZE")
-        project.db.commit()
-        # A declared replacement masks the old value immediately. Its staged
-        # value becomes readable at publication; pending coverage must not
-        # expose the previous generation as though this run had succeeded.
         assert target not in generations.read_cell_heads(column_id)
         assert project.get_values(sheet_id, column_id, [target]) == {target: None}
+        project.db.execute("ANALYZE")
+        project.db.commit()
         measurements = {}
+        with _vm_work(project.db) as work:
+            _write(
+                project,
+                second,
+                [
+                    {
+                        "row_id": target,
+                        "column_id": column_id,
+                        "value": "replacement",
+                        "publication_effect": "publish_value",
+                    }
+                ],
+            )
+        measurements["publish"] = work[0]
+        project.db.execute("ANALYZE")
+        project.db.commit()
+        # Same-descriptor results publish progressively before terminal sealing.
+        assert generations.read_cell_heads(column_id)[target].run_id == second.run_id
+        assert project.get_values(sheet_id, column_id, [target]) == {
+            target: "replacement"
+        }
         with _vm_work(project.db) as work:
             _seal(generations, second, column_id)
         measurements["seal"] = work[0]
@@ -165,8 +171,8 @@ def test_sparse_seal_undo_redo_work_does_not_scan_unrelated_sheet_rows(
 ):
     small = _publication_work(tmp_path / "small", 1_000)
     large = _publication_work(tmp_path / "large", 10_000)
-    for phase in ("seal", "undo", "redo"):
+    for phase in ("publish", "seal", "undo", "redo"):
         record_property(f"{phase}_steps_1000", small[phase])
         record_property(f"{phase}_steps_10000", large[phase])
-    for phase in ("seal", "undo", "redo"):
+    for phase in ("publish", "seal", "undo", "redo"):
         assert large[phase] <= small[phase] * 2 + 500, (phase, small, large)
