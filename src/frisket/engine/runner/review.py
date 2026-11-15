@@ -763,6 +763,28 @@ def _execution_review_fields(project: Project, run_id: int) -> list[dict[str, An
     return [dict(row) for row in rows]
 
 
+def _saved_outputs(project: Project, run_id: int) -> list[dict[str, Any]]:
+    from frisket.engine.store.result_generations import ResultGenerationStore
+
+    names = dict(
+        project.db.execute(
+            "SELECT col.id,col.name FROM columns col JOIN run_output_generations binding "
+            "ON binding.column_id=col.id WHERE binding.run_id=?",
+            (run_id,),
+        )
+    )
+    return [
+        {
+            "key": binding.output_role,
+            "column_id": binding.column_id,
+            "column_name": names[binding.column_id],
+            "column_type": binding.output_descriptor["column_type"],
+        }
+        for binding in ResultGenerationStore(project).bindings_for_run(run_id)
+        if binding.column_id in names and binding.output_descriptor.get("column_type")
+    ]
+
+
 def review_runs_page(
     project: Project,
     *,
@@ -858,6 +880,7 @@ def review_runs_page(
                     for name in _COUNT_NAMES
                 },
                 "fields": fields,
+                "outputs": _saved_outputs(project, int(row["run_id"])),
             }
         )
     return offset_page_payload(

@@ -77,6 +77,7 @@ test('saved results can be reapplied from Review without another provider run', 
   const completed = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/projects/${pid}/actions/v1/run`
     && response.request().postDataJSON()?.action_id === 'run.reapply');
+  await expect(page.getByTestId('reapply-output-rendered')).toHaveValue('headline_2');
   await page.screenshot({ path: 'test-results/domain-reapply-confirm.png', fullPage: true });
   await page.getByRole('button', { name: 'Reapply results', exact: true }).click();
   const response = await completed;
@@ -87,12 +88,17 @@ test('saved results can be reapplied from Review without another provider run', 
   // survive the real grid response contract and remain readable.
   const data = await sheetData(page.request, pid, sheetId);
   const outputs = data.columns.filter(column => column.name !== 'title');
-  expect(outputs).toHaveLength(1);
-  for (const output of outputs) {
+  expect(outputs).toHaveLength(2);
+  const original = outputs.find(column => column.name === 'headline')!;
+  const copied = outputs.find(column => column.name === 'headline_2')!;
+  expect(response.request().postDataJSON()).toMatchObject({ replace_existing: false,
+    output_names: { rendered: 'headline_2' }, expected_output_columns: { headline_2: null } });
+  for (const output of [copied]) {
     expect(data.rows.map(row => row.cells[String(output.id)])).toEqual(['Story: Budget', 'Story: Road']);
     for (const row of data.rows) expect(row.meta?.[String(output.id)]).toMatchObject({
-      current_value_ref: { kind: 'copied_result', retained_result: { run_id: runId, row_id: row.id, column_id: output.id } },
+      current_value_ref: { kind: 'copied_result', retained_result: { run_id: runId, row_id: row.id, column_id: original.id } },
     });
   }
+  await openProject(page, pid, sheetId);
   await page.screenshot({ path: 'test-results/domain-reapply.png', fullPage: true });
 });

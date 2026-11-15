@@ -13082,6 +13082,7 @@ type HttpReviewRunsPage_ReviewRun = ({
   "copied_op_id"?: (((number)) | ((null)));
   "fields": (Array<(HttpReviewRunsPage_ReviewRunField)>);
   "model": (((string)) | ((null)));
+  "outputs"?: (Array<(HttpReviewRunsPage_ReviewSavedOutput)>);
   "retry_supported"?: (boolean);
   "review_completed_at": (((string)) | ((null)));
   "review_status": ("open" | "complete") & (string);
@@ -13103,6 +13104,13 @@ type HttpReviewRunsPage_ReviewRunField = ({
   "incorrect_count": (number);
   "reviewed_count": (number);
   "unreviewed_count": (number);
+});
+
+type HttpReviewRunsPage_ReviewSavedOutput = ({
+  "column_id": (number);
+  "column_name": (string);
+  "column_type": (string);
+  "key": (string);
 });
 
 export type HttpReviewRunsPage = ({

@@ -3990,6 +3990,7 @@ export interface ReviewRun {
   reviewCompletedAt: string | null;
   total: ReviewRunCounts;
   fields: ReviewRunField[];
+  outputs?: { key: string; columnId: string; columnName: string; columnType: ColumnType }[];
 }
 
 export interface ReviewRunsPage extends PageMeta {

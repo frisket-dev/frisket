@@ -647,6 +647,10 @@ function mapReviewRuns(wire: ReviewRunsWire): ReviewRunsPage {
       retrySupported: run.retry_supported,
       reviewCompletedAt: run.review_completed_at,
       total: mapReviewRunCounts(run.total),
+      outputs: (run.outputs ?? []).map((output) => ({
+        key: output.key, columnId: String(output.column_id),
+        columnName: output.column_name, columnType: output.column_type as ColumnType,
+      })),
       fields: run.fields.map((field) => ({
         columnId: String(field.column_id),
         columnName: field.column_name,

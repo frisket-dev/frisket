@@ -67,7 +67,7 @@ afterEach(() => {
 
 const options = { order: 'shuffle' as const };
 
-it.each([true, false])('reapplies saved results with retry capability %s', async (retrySupported) => {
+it.each([true, false])('reapplies saved results into new columns with retry capability %s', async (retrySupported) => {
   const counts = { eligibleCount: 1, reviewedCount: 0, acceptedCount: 0,
     incorrectCount: 0, unreviewedCount: 1, confidenceCount: 1 };
   vi.spyOn(stores.projectApi, 'listReviewRuns').mockResolvedValue({
@@ -76,8 +76,10 @@ it.each([true, false])('reapplies saved results with retry capability %s', async
     runs: [{ runId: '9', sourceId: '9', copiedOpId: null, sheetId: '2', sheetName: 'Stories', actionKind: 'map.ask',
       actionName: 'Ask', model: null, retrySupported, startedAt: '2026-11-14T00:00:00Z',
       reviewStatus: 'open', reviewCompletedAt: null, total: counts,
+      outputs: [{ key: 'answer', columnId: '4', columnName: 'Answer', columnType: 'text' }],
       fields: [{ columnId: '4', columnName: 'Answer', columnType: 'text', ...counts }] }],
   });
+  vi.spyOn(stores.projectApi, 'listSheets').mockResolvedValue([{ id: '2', name: 'Stories', rowCount: 1, columns: [{ id: '4', name: 'Answer', type: 'text' }] }]);
   vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(page('first'));
   const submit = vi.spyOn(stores.projectApi, 'runAction').mockResolvedValue({
     runId: null, jobId: null, receiptId: 'saved', status: 'completed', outputSheetId: '2',
@@ -92,9 +94,11 @@ it.each([true, false])('reapplies saved results with retry capability %s', async
   fireEvent.click(await screen.findByRole('button', { name: 'Reapply saved results' }));
   expect(submit).not.toHaveBeenCalled();
   expect(await screen.findByRole('dialog', { name: 'Reapply saved results?' })).toHaveTextContent('does not call a provider');
+  await waitFor(() => expect(screen.getByTestId('reapply-output-answer')).toHaveValue('Answer_2'));
   fireEvent.click(screen.getByRole('button', { name: 'Reapply results', exact: true }));
   await waitFor(() => expect(submit).toHaveBeenCalledWith(expect.objectContaining({
-    action_id: 'run.reapply', params: { source_run_id: 9 }, replace_existing: true,
+    action_id: 'run.reapply', params: { source_run_id: 9 }, replace_existing: false,
+    output_names: { answer: 'Answer_2' }, expected_output_columns: { Answer_2: null },
   })));
   await waitFor(() => expect(changed).toHaveBeenCalled());
 });

@@ -1,7 +1,6 @@
 import './ReviewQueue.css';
-import { ConfirmDialog } from './Modal';
+import { ReapplyResultsDialog } from './review/ReapplyResultsDialog';
 import { Button } from './Button';
-import { freshActionRequestKey } from '../api/open';
 import { retryWithConfirmation } from '../api/retryWithConfirmation';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useJobsHandle } from '../bind/useJobsHandle';
@@ -39,34 +38,23 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
     fieldId: fieldId ?? undefined, order: effectiveOrder,
   }), [effectiveOrder, fieldId]);
 
-  const runSavedAction = async (action: 'retry' | 'reapply') => {
+  const retry = async () => {
     if (!selectedRun?.runId || actionBusy) return;
     setActionBusy(true);
     setActionError(null);
     try {
-      if (action === 'retry') {
-        const result = await retryWithConfirmation(projectApi, requestCostConfirmation,
-          selectedRun.sheetId, selectedRun.runId);
-        if (result?.runId) { afterBackfill(result.runId); onClose(); }
-      } else {
-        await projectApi.runAction({ action_id: 'run.reapply',
-          idempotency_key: freshActionRequestKey('run.reapply'),
-          scope: { kind: 'sheet_rows', sheet_id: Number(selectedRun.sheetId) },
-          params: { source_run_id: Number(selectedRun.runId) }, output_names: {}, replace_existing: true });
-        setReapplyOpen(false);
-        projectData.invalidate();
-        onChanged(selectedRun.total.unreviewedCount);
-      }
+      const result = await retryWithConfirmation(projectApi, requestCostConfirmation,
+        selectedRun.sheetId, selectedRun.runId);
+      if (result?.runId) { afterBackfill(result.runId); onClose(); }
     } catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
     finally { setActionBusy(false); }
   };
-  const reapplyDialog = reapplyOpen && <ConfirmDialog title="Reapply saved results?"
-    confirmLabel="Reapply results" onConfirm={() => { void runSavedAction('reapply'); }}
-    onCancel={() => setReapplyOpen(false)} busy={actionBusy} testId="reapply-results-confirm">
-    <p className="modal-body-text">Saved results will be restored to their original output columns, replacing current values in generated columns.
-      This is undoable and does not call a provider or incur another charge.</p>
-    {actionError && <p role="alert" className="panel-error">{actionError}</p>}
-  </ConfirmDialog>;
+  const reapplyDialog = reapplyOpen && selectedRun && <ReapplyResultsDialog run={selectedRun}
+    onClose={() => setReapplyOpen(false)} onApplied={() => {
+      setReapplyOpen(false);
+      projectData.invalidate();
+      onChanged(selectedRun.total.unreviewedCount);
+    }} />;
 
   const toolbar = (navigation: ReactNode, leave: (action: () => void) => void, busy: boolean) => (
     <ReviewHeader busy={busy} onClose={() => leave(onClose)}>
@@ -80,7 +68,7 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
         onRunStatusChange={(_run, status) => leave(() => { void runs.setRunStatus(status); })}
         resultActions={(close) => selectedRun?.runId && <>
           {selectedRun.retrySupported !== false && <Button type="button" disabled={busy || actionBusy}
-            onClick={() => { close(); leave(() => { void runSavedAction('retry'); }); }}>Retry unfinished</Button>}
+            onClick={() => { close(); leave(() => { void retry(); }); }}>Retry unfinished</Button>}
           <Button type="button" disabled={busy || actionBusy}
             onClick={() => { close(); leave(() => { setActionError(null); setReapplyOpen(true); }); }}>Reapply saved results</Button>
         </>}>

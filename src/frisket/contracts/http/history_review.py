@@ -279,6 +279,13 @@ class ReviewRunField(ReviewDecisionCounts):
     column_type: str
 
 
+class ReviewSavedOutput(WireModel):
+    key: str
+    column_id: int = Field(gt=0)
+    column_name: str
+    column_type: str
+
+
 class ReviewRun(WireModel):
     run_id: int | None = Field(default=None, gt=0)
     copied_op_id: int | None = Field(default=None, gt=0)
@@ -294,6 +301,7 @@ class ReviewRun(WireModel):
     review_completed_at: str | None
     total: ReviewDecisionCounts
     fields: list[ReviewRunField]
+    outputs: list[ReviewSavedOutput] = Field(default_factory=list)
 
 
 class ReviewRunsPage(WireModel):

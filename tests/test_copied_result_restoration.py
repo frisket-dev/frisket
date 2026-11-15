@@ -121,3 +121,41 @@ def test_restore_copied_change_does_not_require_source_column(work):
     assert "Answer" not in {column["name"] for column in project.columns(sheet)}
     _step(project, "restore", op)
     assert dict(project.get_values(sheet, target)) == saved
+
+
+def test_review_lists_saved_output_roles_for_reapply_destinations(work):
+    from frisket.engine.runner.review import review_runs_page
+    from frisket.engine.store.result_generations import ResultGenerationStore
+
+    project, _, _, _, _, _, run = work
+    original = recovery.start(run)
+    source = review_runs_page(project, run_id=original.run_id)["runs"][0]
+    bindings = ResultGenerationStore(project).bindings_for_run(original.run_id)
+    assert source["outputs"] == [
+        {
+            "key": binding.output_role,
+            "column_id": binding.column_id,
+            "column_name": project.db.execute(
+                "SELECT name FROM columns WHERE id=?", (binding.column_id,)
+            ).fetchone()[0],
+            "column_type": binding.output_descriptor["column_type"],
+        }
+        for binding in bindings
+    ]
+
+
+def test_reapply_explicit_replacement_checks_selected_column_identity(work):
+    project, sheet, _, rows, _, _, run = work
+    original, target, _ = _copy_into_existing(work)
+    before = dict(project.get_values(sheet, target))
+    result = run(
+        "run.reapply",
+        {"source_run_id": original.run_id},
+        output_names={"answer": "Copy"},
+        replace_existing=True,
+        expected_output_columns={"Copy": target + 1000},
+        key="stale-replacement",
+    )
+    assert result.status == "failed"
+    assert dict(project.get_values(sheet, target)) == before
+    assert len(before) == len(rows)
