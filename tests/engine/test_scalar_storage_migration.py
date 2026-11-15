@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.engine.historical_schema import restore_pre_domain_schema
+
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
@@ -184,6 +186,7 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
 
 def _downgrade_to_scalar_predecessor(path: Path) -> None:
     with sqlite3.connect(path / "project.db") as db:
+        restore_pre_domain_schema(db)
         db.execute("PRAGMA foreign_keys=OFF")
         _remove_document_text_authority(db)
         _remove_extraction_layouts(db)
@@ -290,11 +293,17 @@ def test_scalar_migration_preserves_authority_values_history_and_reopen(
     ]
     assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 3
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 1
-    assert [str(row["kind"]) for row in project.history()] == [
+    assert [
+        str(row["kind"])
+        for row in project.db.execute("SELECT kind FROM ops ORDER BY id")
+    ] == [
         "add_rows",
         "map.regex_extract",
         "edit",
     ]
+    assert (
+        project.undo() is None
+    )  # Historical payloads survive; old navigation does not.
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
     project.close()
 

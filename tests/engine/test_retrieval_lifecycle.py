@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.engine.historical_schema import restore_pre_domain_schema
+
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cells
 from frisket.engine.store.evidence import (
@@ -194,6 +196,7 @@ def test_exact_prior_bundle_migrates_without_rewriting_history(tmp_path) -> None
     project, _sheet_id, row_id, column_id = _current_cell_project(path)
     # _current_cell_project nests its conventional project directory.
     bundle_path = project.path
+    restore_pre_domain_schema(project.db)
     history_before = [
         tuple(row)
         for row in project.db.execute(
@@ -247,6 +250,7 @@ def test_migration_rolls_back_column_revision_and_work_on_failed_stamp(
 ) -> None:
     project, _sheet_id, _row_id, _column_id = _current_cell_project(tmp_path)
     db = project.db
+    restore_pre_domain_schema(db)
     _remove_document_text_authority(db)
     db.execute("ALTER TABLE current_cells DROP COLUMN retrieval_revision")
     db.execute(

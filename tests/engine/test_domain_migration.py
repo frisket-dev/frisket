@@ -582,3 +582,91 @@ def test_results_rebuild_retains_data_indexes_triggers_and_accepts_retained_outc
         db.execute(
             "UPDATE results SET value_kind='text',value='illegal',error='failure' WHERE run_id=2"
         )
+
+
+def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
+    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.engine.store.schema import SCHEMA
+
+    def objects(db):
+        import re
+
+        return {
+            (kind, name): re.sub(r"\s+", " ", sql).strip()
+            for kind, name, sql in db.execute(
+                "SELECT type,name,sql FROM sqlite_schema "
+                "WHERE type IN ('index','view','trigger') AND sql IS NOT NULL"
+            )
+        }
+
+    _stamp_old(old_db)
+    migrate_domain(old_db)
+    with sqlite3.connect(":memory:") as fresh:
+        fresh.executescript(SCHEMA)
+        expected = objects(fresh)
+        actual = objects(old_db)
+    assert actual.keys() == expected.keys()
+    differences = {
+        name: (actual[name], expected[name])
+        for name in expected
+        if actual[name] != expected[name]
+    }
+    assert not differences
+
+
+def test_upgrade_reopen_keeps_file_bytes_and_corrections_as_new_undo_floor(tmp_path):
+    from contextlib import closing
+
+    from frisket.engine.store import Project
+    from tests.engine.historical_schema import restore_pre_domain_schema
+
+    path = tmp_path / "documents.frisket"
+    content = b"%PDF-1.4\nretained source document\n"
+    with closing(Project.create(path)) as project:
+        sheet = project.add_sheet("Documents")
+        file_column = project.add_column(sheet, "File", type="file")
+        title_column = project.add_column(sheet, "Title", type="text")
+        blob = project.add_blob(content, filename="source.pdf", mime="application/pdf")
+        row = project.add_rows(
+            sheet,
+            [{"File": {"blob": blob}, "Title": "Original"}],
+            {"File": file_column, "Title": title_column},
+        )[0]
+        project.apply_edits(
+            [{"row_id": row, "column_id": title_column, "value": "Corrected"}]
+        )
+        project.set_column_default_hidden(file_column, True)
+        restore_pre_domain_schema(project.db)
+        floor = project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0]
+
+    with closing(Project(path)) as project:
+        assert project.get_values(sheet, file_column)[row] == {"blob": blob}
+        assert project.read_blob(blob) == content
+        assert project.get_values(sheet, title_column)[row] == "Corrected"
+        assert (
+            project.get_values(sheet, title_column, apply_edits=False)[row]
+            == "Original"
+        )
+        assert (
+            project.db.execute(
+                "SELECT default_hidden FROM columns WHERE id=?", (file_column,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert int(project.get_meta("domain_history_floor")) == floor
+        assert project.undo() is None
+        assert project.redo() is None
+        edit = project.apply_edits(
+            [{"row_id": row, "column_id": title_column, "value": "New correction"}]
+        )
+        assert project.undo() == edit
+        assert project.get_values(sheet, title_column)[row] == "Corrected"
+        assert project.redo() == edit
+        assert project.get_values(sheet, title_column)[row] == "New correction"
+
+    with closing(Project(path)) as project:
+        assert project.get_values(sheet, title_column)[row] == "New correction"
+        assert project.undo() == edit
+        assert project.get_values(sheet, title_column)[row] == "Corrected"
+        assert project.read_blob(blob) == content
+        assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
