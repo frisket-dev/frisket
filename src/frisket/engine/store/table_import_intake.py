@@ -220,6 +220,7 @@ class TableImportUpdate:
     key_source_indices: tuple[int, ...]
     policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
     relationship_id: str | None = None
+    keep_existing_on_blank: bool = False
 
     def __post_init__(self) -> None:
         if not self.key_source_indices or len(set(self.key_source_indices)) != len(
@@ -321,6 +322,9 @@ class TableImportPlan:
                 key_source_indices=tuple(update["key_source_indices"]),
                 policy=update.get("policy", "keep_changes"),
                 relationship_id=update.get("relationship_id"),
+                keep_existing_on_blank=bool(
+                    update.get("keep_existing_on_blank", False)
+                ),
             ),
             dedup=(
                 None

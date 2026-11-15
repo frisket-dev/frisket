@@ -198,6 +198,7 @@ class TableImportKeyedUpdate(WireModel):
     key_source_indices: list[int] = Field(min_length=1)
     policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
     relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
+    keep_existing_on_blank: bool = False
 
 
 class TableImportExistingDestination(WireModel):
@@ -256,11 +257,20 @@ class TableImportDestinationComparison(WireModel):
     error: str | None
 
 
+class TableImportUpdateRelationship(WireModel):
+    relationship_id: str
+    key_column_ids: list[int]
+    label: str
+
+
 class TableImportDestination(WireModel):
     configuration: TableImportDestinationConfig
     mappings: list[TableImportMapping]
     dedup: TableImportDedup
     comparison: TableImportDestinationComparison
+    update_relationships: list[TableImportUpdateRelationship] = Field(
+        default_factory=list
+    )
 
 
 class TableImportCommitResponse(WireModel):

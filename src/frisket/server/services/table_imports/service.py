@@ -832,6 +832,9 @@ class TableImportService:
                         relationship_id=destination_request["destination"][
                             "update"
                         ].get("relationship_id"),
+                        keep_existing_on_blank=destination_request["destination"][
+                            "update"
+                        ].get("keep_existing_on_blank", False),
                     )
                     if destination_request["destination"].get("update") is not None
                     else None

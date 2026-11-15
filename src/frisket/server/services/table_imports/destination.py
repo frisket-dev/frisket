@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import secrets
 import sqlite3
 from pathlib import Path
@@ -136,6 +137,48 @@ def compare_destination(
             "invalid_destination",
             "Mappings must review every imported column.",
         )
+
+    update = destination.get("update")
+    if update is not None:
+        key_indices = update.get("key_source_indices", [])
+        mapping_by_index = {
+            mapping["source_index"]: mapping["target"] for mapping in mappings
+        }
+        if (
+            kind != "existing"
+            or not key_indices
+            or len(set(key_indices)) != len(key_indices)
+            or not set(key_indices) < set(choices)
+            or any(
+                mapping_by_index[index]["kind"] != "existing" for index in key_indices
+            )
+            or request.get("dedup", {}).get("enabled")
+        ):
+            raise _error(
+                422,
+                "invalid_update",
+                "Choose existing key columns and at least one field to update; duplicate skipping is separate from updating.",
+            )
+        relationship_id = update.get("relationship_id")
+        if relationship_id:
+            relationship = project.db.execute(
+                "SELECT sheet_id,key_definition FROM keyed_relationships WHERE id=?",
+                (relationship_id,),
+            ).fetchone()
+            expected = [
+                [mapping_by_index[index]["column_id"], choices[index]["target_type"]]
+                for index in sorted(key_indices)
+            ]
+            if (
+                relationship is None
+                or int(relationship[0]) != sheet_id
+                or json.loads(relationship[1]) != expected
+            ):
+                raise _error(
+                    409,
+                    "update_relationship_changed",
+                    "The selected source must use the same sheet and key columns.",
+                )
 
     duplicate_rows = 0
     import_rows = int(scan["data_rows"]) if scan and scan.get("complete") else None
@@ -310,7 +353,31 @@ def public_destination(
                 "detail": detail,
             }
         )
+    relationships = []
+    if request["destination"]["kind"] == "existing":
+        for row in project.db.execute(
+            "SELECT relation.id,relation.key_definition,session.created_at, "
+            "(SELECT json_extract(input.value,'$.ref.label') FROM json_each(receipt.body,'$.inputs') input WHERE json_extract(input.value,'$.ref.label') IS NOT NULL LIMIT 1) AS label "
+            "FROM keyed_relationships relation LEFT JOIN import_sessions session ON relation.id='import:'||session.id "
+            "LEFT JOIN receipts receipt ON receipt.id=session.receipt_id WHERE relation.sheet_id=? AND relation.id LIKE 'import:%' ORDER BY session.created_at DESC,relation.id",
+            (sheet_id,),
+        ):
+            key_ids = [int(part[0]) for part in json.loads(row["key_definition"])]
+            if not all(key in target_rows for key in key_ids):
+                continue
+            names = ", ".join(str(target_rows[key]["name"]) for key in key_ids)
+            label = row["label"] or f"Previous import ({names})"
+            if row["created_at"]:
+                label += " · " + str(row["created_at"])
+            relationships.append(
+                {
+                    "relationship_id": row["id"],
+                    "key_column_ids": key_ids,
+                    "label": label,
+                }
+            )
     return {
+        "update_relationships": relationships,
         "configuration": request["destination"],
         "mappings": mappings,
         "dedup": request["dedup"],
