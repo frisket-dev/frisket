@@ -1860,6 +1860,7 @@ CREATE TABLE IF NOT EXISTS watches (
   enabled INTEGER NOT NULL DEFAULT 1,
   last_evaluated_op INTEGER NOT NULL DEFAULT 0,
   last_run_id INTEGER,
+  baseline_run_id INTEGER,
   last_status TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1877,6 +1878,8 @@ CREATE TABLE IF NOT EXISTS watch_runs (
   error TEXT,
   resolved_query_hash TEXT,
   resolved_query TEXT NOT NULL DEFAULT '{}',
+  detection_policy TEXT,
+  notification_pending INTEGER NOT NULL DEFAULT 0,
   error_code TEXT,
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT

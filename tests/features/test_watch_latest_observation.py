@@ -8,7 +8,8 @@ from frisket.server.notifications.projections import watch_run_notification_cand
 
 @pytest.fixture
 def scene(tmp_path):
-    with Project.create(tmp_path / "alerts.frisket") as project:
+    project = Project.create(tmp_path / "alerts.frisket")
+    try:
         sheet = project.add_sheet("records")
         column = project.add_column(sheet, "value")
         rows = project.add_rows(
@@ -27,6 +28,8 @@ def scene(tmp_path):
             },
         )
         yield project, sheet, column, rows, watch
+    finally:
+        project.close()
 
 
 def record(scene, rows, *, status="ok", query_hash="scope-1", hits=None):
@@ -133,3 +136,93 @@ def test_all_changes_counted_with_bounded_previews_and_one_summary_key(scene):
     assert small["payload"]["event_count"] == 601
     assert small["dedupe_key"] == large["dedupe_key"]
     assert len(small["source_event_ids"]) == 5
+
+
+def test_detection_change_rebaselines_but_rename_does_not(scene):
+    project, _, _, rows, watch = scene
+    first = record(scene, rows[:1])
+    project.update_watch(watch, name="Renamed")
+    assert kinds(project, record(scene, rows[:2])) == ["row_entered"]
+    project.db.execute(
+        "UPDATE watches SET detection_policy=? WHERE id=?",
+        (
+            json.dumps({"kind": "conditions", "entered": True, "count_changed": True}),
+            watch,
+        ),
+    )
+    project.db.commit()
+    new_baseline = record(scene, rows)
+    assert kinds(project, new_baseline) == []
+    assert project.get_watch(watch)["baseline_run_id"] == new_baseline
+    assert project.get_watch_run(first)["detection_policy"] is not None
+
+
+def test_pending_monitored_value_preserves_successful_baseline(scene):
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from test_result_generation_store import _declare, _start_claimed_run
+
+    project, sheet, column, rows, watch = scene
+    baseline = record(scene, rows)
+    run = _start_claimed_run(
+        project,
+        sheet_id=sheet,
+        output_column_id=column,
+        row_ids=rows,
+        label="pending observation",
+    )
+    _declare(ResultGenerationStore(project), run, column, write_mode="replace_scope")
+    incomplete = record(scene, rows)
+    assert project.get_watch_run(incomplete)["status"] == "error"
+    assert project.get_watch_run(incomplete)["error_code"] == "watch_inputs_unavailable"
+    assert project.get_watch(watch)["baseline_run_id"] == baseline
+    assert project.db.execute("SELECT count(*) FROM watch_seen_rows").fetchone()[0] == 3
+
+
+def test_saved_observation_notification_recovers_without_requery(scene, monkeypatch):
+    from frisket.engine.jobs import open_queue
+    from frisket.engine.jobs.notifications_delivery import (
+        reconcile_notification_delivery_requests,
+    )
+    from frisket.server.notifications.projections import emit_watch_run_notification
+
+    project, _, _, rows, watch = scene
+    record(scene, [])
+    run = record(scene, rows)
+    assert project.get_watch_run(run)["notification_pending"] == 1
+    # Crash after baseline publication, before projecting any notification.
+    queue = open_queue(workspace=project.path.parent / "queue")
+    monkeypatch.setattr(
+        "frisket.features.watchlists.service.evaluate_watch",
+        lambda *args: pytest.fail("recovery must not query live data"),
+    )
+    reconcile_notification_delivery_requests(queue, workspace_root=project.path.parent)
+    assert project.get_watch_run(run)["notification_pending"] == 0
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+        ).fetchone()[0]
+        == 1
+    )
+    emit_watch_run_notification(project, watch_id=watch, run_id=run)
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+        ).fetchone()[0]
+        == 1
+    )
+
+
+def test_notification_persists_total_not_preview_count(scene):
+    from frisket.server.notifications.projections import emit_watch_run_notification
+
+    project, sheet, column, _, watch = scene
+    record(scene, [])
+    rows = project.add_rows(
+        sheet, [{"value": "extra"} for _ in range(501)], {"value": column}
+    )
+    run = record(scene, rows)
+    emit_watch_run_notification(project, watch_id=watch, run_id=run)
+    notification = project.db.execute(
+        "SELECT event_count FROM notification_items WHERE source_kind='watch'"
+    ).fetchone()
+    assert notification[0] == 501

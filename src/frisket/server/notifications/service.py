@@ -124,7 +124,7 @@ def emit_notification_candidate(
                 source_ref=_json(source_ref),
                 dedupe_key=dedupe_key,
                 source_event_ids=_json(event_ids),
-                event_count=max(1, len(event_ids)),
+                event_count=normalized["event_count"],
                 event_kinds=_json(event_kinds),
                 title=normalized["title"],
                 summary=normalized["summary"],
@@ -155,7 +155,9 @@ def emit_notification_candidate(
         material_update = {
             "source_event_ids": _json(merged_event_ids),
             "event_count": max(
-                int(existing["event_count"] or 1), len(merged_event_ids), 1
+                int(existing["event_count"] or 1),
+                len(merged_event_ids),
+                normalized["event_count"],
             ),
             "event_kinds": _json(merged_event_kinds),
             "title": normalized["title"],

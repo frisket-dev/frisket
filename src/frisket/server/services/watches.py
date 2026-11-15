@@ -294,6 +294,8 @@ def _watch_run_dict(
     hits_limit: int = 20,
 ) -> dict[str, Any]:
     data = dict(row)
+    data.pop("detection_policy", None)
+    data.pop("notification_pending", None)
     data["resolved_query"] = _json_obj(
         data.get("resolved_query"), field="resolved query"
     )
@@ -316,6 +318,7 @@ def _watch_hit_dict(row) -> dict[str, Any]:
 
 def _watch_dict(project: Project, row) -> dict[str, Any]:
     data = dict(row)
+    data.pop("baseline_run_id", None)
     data["enabled"] = bool(data.get("enabled"))
     data["query"] = _watch_query(row)
     data["detection_policy"] = _watch_detection_policy(row)

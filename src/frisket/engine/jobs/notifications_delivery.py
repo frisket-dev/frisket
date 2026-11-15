@@ -859,6 +859,35 @@ def reconcile_notification_delivery_requests(
             else project_opener(storage_key, project_path)
         )
         try:
+            from frisket.server.notifications.projections import (
+                emit_watch_run_notification,
+            )
+
+            pending_checks = project.db.execute(
+                "SELECT id,watch_id FROM watch_runs WHERE notification_pending=1 ORDER BY id LIMIT 100"
+            ).fetchall()
+            for check in pending_checks:
+                emit_watch_run_notification(
+                    project, watch_id=check["watch_id"], run_id=check["id"]
+                )
+                reconciled += 1
+            # Includes a crash after planning delivery but before enqueueing.
+            # Queue insertion already deduplicates a crash before job_id linking.
+            orphan_requests = project.db.execute(
+                "SELECT id FROM notification_delivery_requests WHERE status='queued' AND job_id IS NULL ORDER BY id LIMIT 100"
+            ).fetchall()
+            for request in orphan_requests:
+                enqueue_notification_delivery(
+                    queue,
+                    workspace_root=project_path.parent,
+                    project_id=project_path.stem,
+                    storage_org_id=storage_key.storage_org_id
+                    if storage_key is not None
+                    else None,
+                    request_id=int(request["id"]),
+                    project_opener=project_opener,
+                )
+                reconciled += 1
             for request in project.processing_notification_delivery_requests():
                 job = queue.get(int(request["job_id"]))
                 if job is None:

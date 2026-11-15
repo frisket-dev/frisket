@@ -350,12 +350,13 @@ def record_watch_run(
                     "another watch check completed during evaluation; retry"
                 )
             previous = db.execute(
-                "SELECT * FROM watch_runs WHERE watch_id=? AND status='ok' ORDER BY id DESC LIMIT 1",
-                (watch_id,),
+                "SELECT * FROM watch_runs WHERE id=? AND watch_id=? AND status='ok'",
+                (current["baseline_run_id"], watch_id),
             ).fetchone()
             baseline = (
                 previous is not None
                 and previous["resolved_query_hash"] == resolved_query_hash
+                and previous["detection_policy"] == canonical_json(policy)
             )
             previous_count = int(previous["matched_rows"]) if baseline else 0
             matched = db.execute(
@@ -363,8 +364,8 @@ def record_watch_run(
             ).fetchone()[0]
             run_id = db.execute(
                 "INSERT INTO watch_runs (watch_id,status,op_cursor_before,op_cursor_after,"
-                "matched_rows,new_rows,error,resolved_query_hash,resolved_query,error_code,finished_at) "
-                "VALUES (?,?,?,?,?,0,?,?,?,?,datetime('now'))",
+                "matched_rows,new_rows,error,resolved_query_hash,resolved_query,detection_policy,error_code,finished_at) "
+                "VALUES (?,?,?,?,?,0,?,?,?,?,?,datetime('now'))",
                 (
                     watch_id,
                     status,
@@ -374,6 +375,7 @@ def record_watch_run(
                     error,
                     resolved_query_hash,
                     canonical_json(resolved_query or {}),
+                    canonical_json(policy),
                     error_code,
                 ),
             ).lastrowid
@@ -527,8 +529,13 @@ def record_watch_run(
                     "SELECT ?,sheet_id,row_id,column_id,value_json,value_hash,? FROM watch_observation.fields",
                     (watch_id, run_id),
                 )
+                db.execute(
+                    "UPDATE watches SET baseline_run_id=? WHERE id=?",
+                    (run_id, watch_id),
+                )
             db.execute(
-                "UPDATE watch_runs SET new_rows=? WHERE id=?", (new_count, run_id)
+                "UPDATE watch_runs SET new_rows=?,notification_pending=? WHERE id=?",
+                (new_count, int(rank > 0), run_id),
             )
             db.execute(
                 "UPDATE watches SET last_evaluated_op=?,last_run_id=?,last_status=?,updated_at=datetime('now') WHERE id=?",
