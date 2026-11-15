@@ -140,6 +140,37 @@ def test_retry_stop_retains_known_response_without_a_second_dispatch():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("cache_mode", ["replay", "fresh"])
+@pytest.mark.parametrize("outcomes", [["ok"], ["paid_error", "ok"]])
+def test_cache_write_failure_preserves_response_and_every_purchase(
+    tmp_path, caplog, cache_mode, outcomes
+):
+    async def run():
+        with closing(ResponseCache(tmp_path / "calls.sqlite")) as cache:
+            # Reads still work, but a real SQLite cache write now fails.
+            cache.db.execute("PRAGMA query_only = ON")
+            adapter = ReturnedAdapter(outcomes)
+            router = router_for(adapter, cache=cache, cache_mode=cache_mode)
+            try:
+                response = await router.for_execution(STANDALONE).complete_transport(
+                    LLMRequest(model="anthropic/test", messages=[])
+                )
+                assert response.data == {"answer": "ok"}
+                assert not response.cached
+                assert adapter.calls == len(outcomes)
+                accounting = wire_accounting_meta("anthropic/test", [response])
+                assert len(accounting["model_calls"]) == len(outcomes)
+                assert accounting["cost"] == pytest.approx(
+                    0.01 if len(outcomes) == 1 else 0.03
+                )
+                assert cache.count() == 0
+            finally:
+                await router.aclose()
+
+    asyncio.run(run())
+    assert "could not cache model response" in caplog.text
+
+
 def test_structured_retry_and_repair_preserve_three_distinct_wires():
     async def run():
         adapter = ReturnedAdapter(["paid_error", "invalid", "ok"])

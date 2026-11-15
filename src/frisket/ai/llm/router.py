@@ -728,7 +728,10 @@ class ModelRouter:
             and self.cache_mode in ("replay", "fresh")
             and not (resp.output_limited and req.schema is not None)
         ):
-            self.cache.put(key, resp)
+            try:
+                self.cache.put(key, resp)
+            except Exception:  # noqa: BLE001 - rebuildable cache cannot discard a purchase
+                logging.getLogger(__name__).warning("could not cache model response")
         return resp
 
     def _finish_live_response(
