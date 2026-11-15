@@ -424,7 +424,16 @@ def test_api_list_dicts_invalid_identity_falls_back_with_warning() -> None:
 def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
     tmp_path: Path,
     restore_api_poller: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    append_sizes: list[int] = []
+    original_add_rows = Project.add_rows
+
+    def tracked_add_rows(project, sheet_id, records, *args, **kwargs):
+        append_sizes.append(len(records))
+        return original_add_rows(project, sheet_id, records, *args, **kwargs)
+
+    monkeypatch.setattr(Project, "add_rows", tracked_add_rows)
     records = [
         {"id": f"case-{index:05d}", "name": f"Case {index}"} for index in range(10_001)
     ]
@@ -451,6 +460,9 @@ def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
 
         assert result.status == "completed", result.errors
         assert _table_count(project, "source_items") == 10_001
+        assert sum(append_sizes) == 10_001
+        assert len(append_sizes) < 50
+        assert max(append_sizes) <= 1_000
         run_ref = next(
             output.ref for output in result.outputs if output.kind == "source_run"
         )

@@ -619,18 +619,47 @@ def _materialize_registered_source_poll_in_txn(
                 )
                 for row in batch_ids
             )
+        # Resolve identity before publishing, then append new targets in bounded
+        # batches. Per-item add_rows repeats projection/search invalidation for
+        # every cell and makes an otherwise ordinary feed grow quadratically.
+        existing_targets: dict[int, list[int]] = {}
+        new_ordinals: list[int] = []
+        for staged_item in staged.records():
+            if staged_item.conflicting or staged_item.key is None:
+                continue
+            targets = staged.targets(staged_item.key)
+            if not targets:
+                targets = retained_hidden_targets(project.db, relation, staged_item.key)
+            existing_targets[staged_item.ordinal] = targets
+            if not targets:
+                new_ordinals.append(staged_item.ordinal)
+        new_targets: dict[int, int] = {}
+        if new_ordinals:
+            op_id = _append_source_poll_op_in_txn(
+                project,
+                cur,
+                {"source_id": source_id, "source_run_id": source_run_id},
+                label=f"source poll {source_before['name']}",
+            )
+            producer_id = create_base_cell_producer(
+                project.db, stage_id=f"op:{op_id}", op_id=op_id
+            )
+            for offset in range(0, len(new_ordinals), 500):
+                ordinals = new_ordinals[offset : offset + 500]
+                appended = _add_source_poll_rows_in_txn(
+                    project,
+                    sheet_id,
+                    [records[ordinal - 1] for ordinal in ordinals],
+                    column_ids,
+                    producer_id=producer_id,
+                )
+                new_targets.update(zip(ordinals, appended, strict=True))
         for staged_item in staged.records():
             duplicates_collapsed += max(0, staged_item.copies - 1)
             if staged_item.conflicting or staged_item.key is None:
                 skipped += staged_item.copies
                 continue
-            targets = staged.targets(staged_item.key)
-            if len(targets) > 1:
-                skipped += staged_item.copies
-                continue
-            targets = targets or retained_hidden_targets(
-                project.db, relation, staged_item.key
-            )
+            targets = existing_targets[staged_item.ordinal]
             if len(targets) > 1:
                 skipped += staged_item.copies
                 continue
@@ -697,23 +726,7 @@ def _materialize_registered_source_poll_in_txn(
                 else:
                     skipped += 1
             else:
-                if op_id is None:
-                    op_id = _append_source_poll_op_in_txn(
-                        project,
-                        cur,
-                        {"source_id": source_id, "source_run_id": source_run_id},
-                        label=f"source poll {source_before['name']}",
-                    )
-                    producer_id = create_base_cell_producer(
-                        project.db, stage_id=f"op:{op_id}", op_id=op_id
-                    )
-                [target] = _add_source_poll_rows_in_txn(
-                    project,
-                    sheet_id,
-                    [records[staged_item.ordinal - 1]],
-                    column_ids,
-                    producer_id=producer_id,
-                )
+                target = new_targets[staged_item.ordinal]
                 row_ids.append(target)
                 published = True
                 created_ids.append(target)
