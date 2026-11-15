@@ -1738,7 +1738,7 @@ def test_run_store_refuses_current_writer_without_authority(
             "SELECT publication_closed FROM ops WHERE id=?",
             (op_id,),
         ).fetchone()[0]
-        == 0
+        == 1
     )
     result = terminalize_project_run(
         project,
@@ -1758,3 +1758,31 @@ def test_run_store_refuses_current_writer_without_authority(
         ).fetchone()[0]
         == 1
     )
+
+
+def test_current_writer_cannot_reclassify_a_terminal_run(project):
+    orphan = _seed_orphaned_run(project, request_cancel=False)
+    # A partially repaired historical tuple is not permission to change an
+    # already-terminal execution, even if a writer pointer remains attached.
+    project.db.execute(
+        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+        (orphan.attempt_id,),
+    )
+    project.db.execute(
+        "UPDATE runs SET status='completed',current_attempt_id=? WHERE id=?",
+        (orphan.attempt_id, orphan.run_id),
+    )
+    project.db.commit()
+    before = _durable_snapshot(project, orphan)
+    outcome = terminalize_project_run(
+        project,
+        run_id=orphan.run_id,
+        receipt_id=orphan.receipt_id,
+        status="failed",
+        authority=CurrentWriterTerminalAuthority(
+            writer_attempt_id=orphan.attempt_id, claim_token=orphan.claim_token
+        ),
+    )
+    assert outcome.disposition == "conflict"
+    assert outcome.reason == "run_already_terminal_with_different_outcome"
+    assert _durable_snapshot(project, orphan) == before

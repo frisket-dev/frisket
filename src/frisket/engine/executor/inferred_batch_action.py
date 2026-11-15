@@ -534,9 +534,6 @@ def _publish(
     should_cancel,
     **kwargs,
 ):
-    from frisket.engine.executor.action_reservations import (
-        _finalize_reserved_action_receipt,
-    )
     from frisket.engine.executor.project_run_terminalization import (
         CurrentWriterTerminalAuthority,
         terminalize_project_run,
@@ -544,7 +541,7 @@ def _publish(
     from frisket.engine.store.output_claims import OutputColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.result_generations import ResultGenerationStore
-    from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
+    from frisket.execution.attempt import StaleAttemptWriter
 
     run_id, receipt_id = kwargs["run_id"], kwargs["receipt_id"]
     writer, claim = kwargs["writer_attempt_id"], kwargs["claim_token"]
@@ -554,15 +551,12 @@ def _publish(
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
         claims = OutputColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
-        claims.require_current_writer(
-            project.db,
-            run_id=run_id,
-            writer_attempt_id=writer,
-            claim_token=claim,
-            output_column_ids=column_ids,
-        )
         error = None
-        cancelled = should_cancel() or run["status"] == "cancelled"
+        cancelled = (
+            should_cancel()
+            or run["status"] == "cancelled"
+            or run["cancel_requested_at"] is not None
+        )
         if cancelled:
             error = ActionError(
                 code="cancelled",
@@ -618,6 +612,13 @@ def _publish(
             if outcome.disposition not in {"terminalized", "already_terminal"}:
                 raise StaleAttemptWriter("Formula cancellation lost its current writer")
         else:
+            claims.require_current_writer(
+                project.db,
+                run_id=run_id,
+                writer_attempt_id=writer,
+                claim_token=claim,
+                output_column_ids=column_ids,
+            )
             ResultGenerationStore(project).seal(
                 run_id,
                 column_ids,
@@ -648,33 +649,22 @@ def _publish(
             receipt_status = kwargs.get("receipt_status")
             if receipt_status is not None:
                 receipt = receipt.model_copy(update={"status": receipt_status})
-            conflict = _finalize_reserved_action_receipt(
+            outcome = terminalize_project_run(
                 project,
-                action,
-                params_hash=kwargs["params_hash"],
-                project_id=kwargs["project_id"],
-                receipt=receipt,
-                reservation_lost_message="Formula reservation lost",
-                update_failed_message="Formula receipt update failed",
-                require_running_status=False,
-                replay_error_fn=_typed_replay_error(project, bound),
+                run_id=run_id,
+                receipt_id=receipt_id,
+                status=receipt.status,
+                run_status=terminal_status,
+                authority=CurrentWriterTerminalAuthority(
+                    writer_attempt_id=writer, claim_token=claim
+                ),
+                terminal_receipt=receipt,
                 commit=False,
             )
-            if conflict:
-                project.db.rollback()
-                return conflict
-            from frisket.engine.store.runs import RunResultStore
-
-            RunResultStore(project).finish_run(
-                run_id,
-                terminal_status,
-                commit=False,
-                writer_attempt_id=writer,
-                claim_token=claim,
-            )
-            set_attempt_state(project, writer, "effected", commit=False)
-            if not claims.release(claim_token=claim, status="released", commit=False):
-                raise StaleAttemptWriter("Formula publication lost its output claim")
+            if outcome.disposition != "terminalized":
+                raise StaleAttemptWriter(
+                    f"Formula publication refused: {outcome.reason}"
+                )
         project.db.commit()
         return _result_from_receipt(receipt)
     except BaseException:

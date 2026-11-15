@@ -779,10 +779,9 @@ class MapRunner:
         admission: RunResumeAdmission | None = None
         if resume_run_id is not None and prepared.row_count > 0:
             # A resume begins only after validation/cost gates have passed. A
-            # direct backfill may intentionally reopen an operator-cancelled
-            # run. Queue workers pass False, but an allowlisted internal halt
-            # remains resumable. Admission reads current durable state under
-            # the store transaction, never callback presence.
+            # closed Change requires explicit Retry with a new Change; only
+            # still-open interrupted work can resume. Admission reads current
+            # durable state under the store transaction, never callback presence.
             admission = self.run_store.begin_run_resume(
                 prepared.run_id,
                 reopen_operator_cancelled=reopen_operator_cancelled,
@@ -2252,15 +2251,13 @@ class MapRunner:
         # sandbox teardown.
         # a cancelled run keeps its partial results and lands in
         # status='cancelled' (resumable later via backfill, which re-runs
-        # only the rows without results). A cancel that lands AFTER every row
-        # already ran is a no-op: the run completed.
-        # progress.completed counts every finished row (failures included —
-        # failed is a subset), so it alone says whether work remained
+        # only the rows without results). Cancellation remains authoritative
+        # until the terminal transaction, including after the final row.
         cancelled()
         truly_cancelled = (
             publication_cancelled
             or progress.halted_code is not None
-            or (progress.cancelled and progress.completed < prepared.row_count)
+            or progress.cancelled
         )
         cooperative_cancel = bool(
             self.defer_cancel_terminal_close

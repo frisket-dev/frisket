@@ -197,3 +197,50 @@ def test_later_append_does_not_expand_a_compatible_replacement_cohort(
         assert row_input_state(project, result.run_id, row) == "stale"
     finally:
         project.close()
+
+
+def test_cancel_after_inference_before_publication_closes_retained_run(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.executor import inferred_batch_action
+    from frisket.engine.store.runs import RunResultStore
+
+    project = Project.create(tmp_path / "cancel-before-publish.frisket")
+    try:
+        sheet = project.add_sheet("source")
+        source = project.add_column(sheet, "amount", type="integer")
+        project.add_rows(sheet, [{"amount": 2}], {"amount": source})
+        publish = inferred_batch_action._publish
+
+        def stop_before_publish(project, *args, **kwargs):
+            assert RunResultStore(project).request_cancel(kwargs["run_id"])
+            return publish(project, *args, **kwargs)
+
+        monkeypatch.setattr(inferred_batch_action, "_publish", stop_before_publish)
+        result = _run(project, sheet, "={{amount}} + 1")
+        assert result.status == "cancelled", result.errors
+        run = RunResultStore(project).get_run(result.run_id)
+        assert run["status"] == "cancelled"
+        assert run["current_attempt_id"] is None
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (result.run_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?",
+                (result.run_id,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+                (result.run_id,),
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        project.close()

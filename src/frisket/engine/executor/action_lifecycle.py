@@ -2002,11 +2002,7 @@ def _run_reserved_maprunner_action(
     try:
         write_kwargs: dict[str, Any] = {}
         if deferred_terminal_close:
-            terminal_status = (
-                "cancelled"
-                if progress.cancelled and progress.completed < progress.total
-                else "completed"
-            )
+            terminal_status = "cancelled" if progress.cancelled else "completed"
             receipt_status = terminal_status
             if terminal_status == "completed" and progress.failed > 0:
                 receipt_status = (

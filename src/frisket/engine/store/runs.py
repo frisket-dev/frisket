@@ -3422,8 +3422,9 @@ class RunResultStore:
     def request_cancel(self, run_id: int, *, commit: bool = True) -> bool:
         """Durably request cooperative cancellation of a live run.
 
-        The request is an intent, not a terminal status transition. Repeated
-        requests preserve the first timestamp and remain successful while the
+        The request closes publication but leaves execution running until its
+        owner drains returned facts. Repeated requests preserve the first
+        timestamp and remain successful while the
         run is still live; a terminal run refuses a new request.
         """
 
@@ -3433,6 +3434,12 @@ class RunResultStore:
             "WHERE id=? AND status='running'",
             (run_id,),
         )
+        if requested.rowcount == 1:
+            # Stop withdraws publication immediately; the exact attempt still
+            # owns returned facts and terminal drain, like source deletion.
+            from .run_lifecycle import close_run_change
+
+            close_run_change(self.project, run_id)
         if commit:
             self.db.commit()
         return requested.rowcount == 1

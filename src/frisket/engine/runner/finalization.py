@@ -46,7 +46,7 @@ def _finalize_run_in_transaction(
 
     The public entry points below decide whether this is a pre-dispatch close
     (no effect authority exists yet) or a dispatched close (the current-writer
-    fence has already succeeded in this same transaction).
+    fence is checked here before any mutation).
 
     The transaction includes ``finish_run``'s status write, generation sealing,
     and the zero-success
@@ -66,6 +66,30 @@ def _finalize_run_in_transaction(
     never reaches the rollback, so its sealed partial publication remains
     visible until a fresh scoped action replaces selected heads.
     """
+    # Cancellation is a durable command until terminalization commits, even
+    # when it arrives after the final row. Select it under the same write lock
+    # as the exact-writer fence and generation publication.
+    run = run_store.get_run(run_id)
+    if (
+        run is not None
+        and run["status"] == "running"
+        and run["cancel_requested_at"] is not None
+    ):
+        status = "cancelled"
+    if writer_attempt_id is not None:
+        from frisket.engine.store.run_lifecycle import require_terminal_writer
+
+        require_terminal_writer(
+            project,
+            terminal_status=status,
+            run_id=run_id,
+            writer_attempt_id=writer_attempt_id,
+            claim_token=generation_claim_token,
+            output_column_ids=frozenset(
+                int(column_id) for column_id in out_cols.values()
+            ),
+            claimless_direct_effect=claimless_direct_effect,
+        )
     managed_column_ids = {
         int(row["column_id"])
         for row in project.db.execute(
@@ -227,20 +251,6 @@ def finalize_dispatched_run(
 
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        from frisket.engine.store.run_lifecycle import require_terminal_writer
-
-        require_terminal_writer(
-            project,
-            terminal_status=str(kwargs["status"]),
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            output_column_ids=frozenset(
-                int(column_id)
-                for column_id in dict(kwargs.get("out_cols") or {}).values()
-            ),
-            claimless_direct_effect=claimless_direct_effect,
-        )
         _finalize_run_in_transaction(
             project,
             run_store,

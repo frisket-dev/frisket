@@ -402,23 +402,9 @@ def terminalize_project_run(
             ).fetchall()
         claimless = authority.claimless_direct_effect
         current_status = str(run["status"])
-        # A deferred action finalizer can still own a provisional MapRunner
-        # terminal status.  In particular, join.semantic leaves its exact
-        # attempt dispatching and its claim active after the map run records
-        # ``completed``; only then can the worker promote a persisted provider
-        # failure to the action's honest ``failed`` outcome.  No recovery or
-        # unclaimed authority may reclassify a terminal run.
-        current_writer_reclassification = bool(
-            isinstance(authority, CurrentWriterTerminalAuthority)
-            and current_status in {"completed", "failed", "cancelled"}
-            and current_status != terminal_run_status
-            and stored_row is not None
-            and stored_row.status in {"queued", "running"}
-        )
-        if (
-            current_status not in {"running", terminal_run_status}
-            and not current_writer_reclassification
-        ):
+        # Coupled publication keeps the run running until the same transaction
+        # lands its receipt. A terminal run is never a provisional state.
+        if current_status not in {"running", terminal_run_status}:
             return complete(
                 _result(
                     "conflict",
@@ -862,7 +848,7 @@ def terminalize_project_run(
                 )
         run_status_written = False
         if not isinstance(authority, ReceiptOnlyOrphanAuthority) and (
-            current_status == "running" or current_writer_reclassification
+            current_status == "running"
         ):
             current_writer_id = (
                 authority.writer_attempt_id
@@ -951,8 +937,6 @@ def terminalize_project_run(
                     )
 
         if run_status_written or isinstance(authority, CurrentWriterTerminalAuthority):
-            # A coupled publisher may already have the same provisional terminal
-            # status, while its fenced Change still awaits publication closure.
             # The ordinary finisher and every recovery/admin terminal path
             # share one transactional Change close plus scope invalidation.
             from frisket.engine.store.run_lifecycle import close_run_change
