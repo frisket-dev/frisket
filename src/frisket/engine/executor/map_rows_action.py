@@ -2850,6 +2850,28 @@ def typed_map_rows_replay_result(
     existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
     if existing is None:
         return None
+    if existing["status"] == "running" and getattr(
+        bound.action.definition.run, "capabilities", ()
+    ):
+        from frisket.actions.cluster_types import ValueClusterer
+
+        if bound.action.definition.run.capabilities == (ValueClusterer,):
+            run_id = existing["run_id"]
+            ready = (
+                project.db.execute(
+                    "SELECT 1 FROM runs WHERE id=? AND status='running' "
+                    "AND total_rows IS NOT NULL AND completed_rows>=total_rows "
+                    "AND current_attempt_id IS NOT NULL",
+                    (run_id,),
+                ).fetchone()
+                if run_id is not None
+                else None
+            )
+            if ready is not None:
+                # A prior worker returned all rows but crashed during its
+                # coupled cluster publication. Let the cluster terminalizer
+                # reconcile its durable checkpoints and receipt atomically.
+                return None
     action = _TypedExecutionEnvelope(
         kind=bound.action.action_id,
         idempotency_key=bound.request.idempotency_key,

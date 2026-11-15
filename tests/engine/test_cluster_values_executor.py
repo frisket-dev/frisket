@@ -352,17 +352,17 @@ def _run_remote_cluster_with_exact_confirmation(
 def _recover_abandoned_cluster(project, action, *, router, project_id):
     """Model a dead process through the existing stale-lease recovery path."""
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
-    from frisket.execution.attempt import abandon_stale_dispatching_attempts
 
     project.db.execute(
         "UPDATE receipts SET created_at='2000-01-01T00:00:00Z' WHERE status='running'"
     )
     project.db.commit()
-    cleared = run_action_spec(project, action, project_id=project_id, router=router)
-    assert cleared.errors[0].code == "idempotency_stale_running", cleared.model_dump()
     live = run_action_spec(project, action, project_id=project_id, router=router)
-    assert live.errors[0].code == "output_column_busy", live.model_dump()
+    assert live.errors[0].code == "idempotency_in_progress", live.model_dump()
+
+    # Receipt age by itself does not prove its writer is dead. Expire the
+    # attempt and its output leases before asking the normal retry path to
+    # recover the checkpoint.
     project.db.execute(
         "UPDATE execution_attempts SET created_at='2000-01-01T00:00:00Z' WHERE state='dispatching'"
     )
@@ -370,16 +370,8 @@ def _recover_abandoned_cluster(project, action, *, router, project_id):
         "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' WHERE status='active'"
     )
     project.db.commit()
-    run_id = project.db.execute("SELECT id FROM runs").fetchone()[0]
-    assert abandon_stale_dispatching_attempts(project, run_id) == 1
-    claims = OutputColumnClaimStore(project)
-    for claim in project.db.execute(
-        "SELECT id FROM output_column_claims WHERE run_id=? AND status='active'",
-        (run_id,),
-    ).fetchall():
-        claims.release_stale(
-            claim_id=claim["id"], reason="test: expired abandoned writer"
-        )
+    recovered = run_action_spec(project, action, project_id=project_id, router=router)
+    assert recovered.status in {"completed", "failed"}, recovered.model_dump()
 
 
 @pytest.mark.parametrize("source", ["missing", "numeric"])
@@ -1014,7 +1006,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.engine.executor import cluster_action as host
+    from frisket.engine.store.receipts import ReceiptStore
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
@@ -1045,20 +1037,18 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             "funding_account_id": 17,
             "reservation_id": "atomic-transfer",
         }
-        original_finalize = host._finalize_reserved_action_receipt
+        original_update = ReceiptStore.update_if_status_in
         fail_next = True
 
-        def fail_first_receipt_update(*args, **kwargs):
+        def fail_first_receipt_update(self, *args, **kwargs):
             nonlocal fail_next
-            result = original_finalize(*args, **kwargs)
+            result = original_update(self, *args, **kwargs)
             if fail_next:
                 fail_next = False
                 raise sqlite3.OperationalError("injected receipt update failure")
             return result
 
-        monkeypatch.setattr(
-            host, "_finalize_reserved_action_receipt", fail_first_receipt_update
-        )
+        monkeypatch.setattr(ReceiptStore, "update_if_status_in", fail_first_receipt_update)
 
         with pytest.raises(
             sqlite3.OperationalError, match="injected receipt update failure"
@@ -1091,7 +1081,6 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             ).fetchone()
             is None
         )
-
         replay = run_action_spec(
             project,
             confirmed,

@@ -1282,7 +1282,33 @@ def _run_paid_embedding_dimension_probe(
         )
         if not landed:
             raise RuntimeError("embedding probe reservation was lost")
-        set_attempt_state(project, attempt_id, "effected", commit=False)
+        # This run records the provider effect, not the later index metadata
+        # write. Settle the returned probe with its paid fact so a metadata
+        # retry never needs to rewrite a terminal run.
+        cancelled_after_return = run_store.cancellation_requested(run_id)
+        if not cancelled_after_return:
+            settled = project.db.execute(
+                "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                "WHERE id=? AND total_rows=1 AND status='running'",
+                (run_id,),
+            )
+            if settled.rowcount != 1:
+                raise RuntimeError(
+                    "embedding probe run changed before returned-effect settlement"
+                )
+        run_store.finish_run(
+            run_id,
+            "cancelled" if cancelled_after_return else "completed",
+            commit=False,
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
+        set_attempt_state(
+            project,
+            attempt_id,
+            "halted" if cancelled_after_return else "effected",
+            commit=False,
+        )
         project.db.commit()
     except BaseException as exc:
         project.db.rollback()
@@ -1327,7 +1353,9 @@ def _run_paid_embedding_dimension_probe(
             "embedding probe reconciliation checkpoint could not be written",
         )
     if run_store.cancellation_requested(run_id):
-        run_store.finish_run(run_id, "cancelled")
+        probe_run = run_store.get_run(run_id)
+        if probe_run is not None and probe_run["status"] == "running":
+            run_store.finish_run(run_id, "cancelled")
         raise asyncio.CancelledError
     return {
         "receipt": checkpoint_receipt,
@@ -1738,17 +1766,23 @@ def _create_index(
         else:
             _insert_receipt(project, receipt)
         if probe_run_id is not None and probe_run_store is not None:
-            # A paid probe run has exactly one provider input.
-            settled = project.db.execute(
-                "UPDATE runs SET completed_rows=1, failed_rows=0 "
-                "WHERE id=? AND total_rows=1",
-                (probe_run_id,),
-            )
-            if settled.rowcount != 1:
-                raise RuntimeError(
-                    "embedding probe run disappeared or changed scope before completion"
+            # An exact metadata retry may reference the already terminal probe
+            # run that recorded the paid provider fact. Its run history is
+            # immutable; only a still-running probe is completed here.
+            probe = probe_run_store.get_run(probe_run_id)
+            if probe is None:
+                raise RuntimeError("embedding probe run disappeared before completion")
+            if probe["status"] == "running":
+                settled = project.db.execute(
+                    "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                    "WHERE id=? AND total_rows=1",
+                    (probe_run_id,),
                 )
-            probe_run_store.finish_run(probe_run_id, "completed", commit=False)
+                if settled.rowcount != 1:
+                    raise RuntimeError(
+                        "embedding probe run disappeared or changed scope before completion"
+                    )
+                probe_run_store.finish_run(probe_run_id, "completed", commit=False)
         project.db.commit()
     except BaseException as exc:
         project.db.rollback()

@@ -64,8 +64,9 @@ class EmbeddingRouteService:
     def similarity_preview(self, project_id: str, query: dict[str, Any]) -> dict:
         project = self._workspace.get(project_id)
         self._check_search_freshness(project, query)
+        router = self._workspace.router_for(project)
         gateway = EmbeddingGateway(
-            router=self._workspace.router_for(project).for_execution(STANDALONE)
+            router=router.for_execution(STANDALONE) if router is not None else None
         )
         try:
             result = resolve_embedding_similarity(project, query, gateway=gateway)
@@ -78,8 +79,9 @@ class EmbeddingRouteService:
         schedule = getattr(project, "_frisket_schedule_search_index", None)
         if schedule is not None:
             schedule()
+        router = self._workspace.router_for(project)
         gateway = EmbeddingGateway(
-            router=self._workspace.router_for(project).for_execution(STANDALONE)
+            router=router.for_execution(STANDALONE) if router is not None else None
         )
         for attempt in range(2):
             try:

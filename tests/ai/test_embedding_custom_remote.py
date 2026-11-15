@@ -429,7 +429,14 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
     assert float(checkpoint_receipt.provider_use[0]["cost_actual"]) == pytest.approx(
         probe_cost
     )
-    assert RunResultStore(project).get_run(first_run_id)["status"] == "failed"
+    probe_run = RunResultStore(project).get_run(first_run_id)
+    assert probe_run is not None
+    assert (
+        probe_run["status"],
+        probe_run["total_rows"],
+        probe_run["completed_rows"],
+        probe_run["failed_rows"],
+    ) == ("completed", 1, 1, 0)
 
     retried = _run(project, action, gateway=gw)
     assert retried.status == "completed", retried.errors

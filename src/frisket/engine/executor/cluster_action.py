@@ -634,12 +634,6 @@ def run_typed_cluster_action(
                 and run["total_rows"] is not None
                 and int(run["completed_rows"] or 0) >= int(run["total_rows"])
                 and run["current_attempt_id"] is not None
-                and any(
-                    binding.state != "sealed"
-                    for binding in ResultGenerationStore(project).bindings_for_run(
-                        receipt.run_id
-                    )
-                )
             ):
                 return finalize_cluster_action(
                     project,

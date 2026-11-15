@@ -254,8 +254,9 @@ def test_semantic_commit_uses_router_and_embeds_pre_txn(tmp_path, monkeypatch):
             router=sentinel_router,
         )
         assert result.status == "completed", result.errors
-        # the project's router reached the shared resolver (not router=None)
-        assert seen["router"] is sentinel_router
+        # The resolver receives the execution-bound view of the project's
+        # router, so provider calls retain the admitted execution identity.
+        assert seen["router"]._router is sentinel_router
         # each distinct surface embedded EXACTLY once (pre-txn warm); the in-txn
         # clustering re-read from cache — no re-embed => no network in the txn.
         assert sorted(stub.embedded) == ["ACME Corp", "ACME Inc.", "Acme Corporation"]

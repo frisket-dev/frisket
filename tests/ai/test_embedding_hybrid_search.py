@@ -234,6 +234,23 @@ def test_hybrid_route_service_resolves_inside_source_snapshot(env, monkeypatch):
     monkeypatch.setattr(
         embeddings, "EmbeddingGateway", lambda **kwargs: MappedGateway()
     )
+    seen = {}
+
+    def resolve(snapshot, query, *, gateway, effect_project):
+        seen.update(
+            snapshot=snapshot,
+            query=query,
+            gateway=gateway,
+            effect_project=effect_project,
+        )
+        return SimpleNamespace(sheet_id=sheet)
+
+    monkeypatch.setattr(embeddings, "resolve_embedding_hybrid", resolve)
+    monkeypatch.setattr(
+        embeddings,
+        "_embedding_hybrid_preview_payload",
+        lambda snapshot, result: {"sheet_id": result.sheet_id},
+    )
     service = embeddings.EmbeddingRouteService(
         SimpleNamespace(
             get=lambda _id: project,
@@ -242,6 +259,9 @@ def test_hybrid_route_service_resolves_inside_source_snapshot(env, monkeypatch):
     )
     result = service.hybrid_preview(PROJECT_ID, _hybrid_query(index_id, sheet, "drone"))
     assert result["sheet_id"] == sheet
+    assert seen["snapshot"] is not project
+    assert seen["effect_project"] is project
+    assert seen["query"]["embedding_index_id"] == index_id
 
 
 def test_typed_preview_preserves_local_hybrid_and_receipt_facts(env, monkeypatch):
