@@ -144,12 +144,22 @@ def copy_staged_outcomes(
     db: sqlite3.Connection, *, op_id: int, targets: dict[str, int]
 ) -> None:
     """Publish a complete selected family with copied, independently mutable judgments."""
-    from .changes import start_change
+    from types import SimpleNamespace
+
+    from .changes import ChangeStore
     from .current_cells import refresh_current_cells
+    from .purge import require_publication_targets
 
     if not db.in_transaction:
         raise RuntimeError("saved-result publication requires a caller transaction")
-    start_change(db, op_id)
+    ChangeStore(SimpleNamespace(db=db)).require_publication(op_id)
+    require_publication_targets(
+        db,
+        column_ids=targets.values(),
+        row_ids=(
+            row[0] for row in db.execute("SELECT row_id FROM reapply_selected_rows")
+        ),
+    )
     for role, target in targets.items():
         db.execute(
             "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id,review_state,review_decision,review_note) "

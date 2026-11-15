@@ -8,6 +8,7 @@ from frisket.engine.store.copied_results import (
     combined_execution_outcomes,
     copy_staged_outcomes,
 )
+from frisket.engine.store.changes import ChangeStore, ChangePublicationClosed
 
 
 work = recovery.work
@@ -19,6 +20,7 @@ def _copy(work, source_run, selected=None):
     with project.transaction_scope():
         target = project.add_column(sheet, "Copy", commit=False)
         op = project.append_op("run.reapply", commit=False)
+        ChangeStore(project).start(op)
         with combined_execution_outcomes(
             project, source_run, sheet_id=sheet, row_ids=selected
         ) as (_, unavailable):
@@ -27,7 +29,42 @@ def _copy(work, source_run, selected=None):
                 (source_run,),
             ).fetchone()[0]
             copy_staged_outcomes(project.db, op_id=op, targets={role: target})
+        ChangeStore(project).close(op)
     return op, target, unavailable
+
+
+def test_closed_change_cannot_publish_more_copied_results(work):
+    project, sheet, *_ = work
+    original = start(work[-1])
+    op, target, _ = _copy(work, original.run_id)
+    with project.transaction_scope():
+        with combined_execution_outcomes(
+            project, original.run_id, sheet_id=sheet, row_ids=None
+        ):
+            before = project.db.total_changes
+            with pytest.raises(ChangePublicationClosed):
+                copy_staged_outcomes(project.db, op_id=op, targets={"answer": target})
+            assert project.db.total_changes == before
+
+
+def test_copied_publication_refuses_permanently_removed_column(work):
+    from frisket.engine.store.purge import PurgedMaterialUnavailable, begin_purge
+
+    project, sheet, *_ = work
+    original = start(work[-1])
+    target = project.add_column(sheet, "Copy")
+    project.maintenance = True
+    begin_purge(project, column_ids=[target])
+    with project.transaction_scope():
+        op = project.append_op("run.reapply", commit=False)
+        ChangeStore(project).start(op)
+        with combined_execution_outcomes(
+            project, original.run_id, sheet_id=sheet, row_ids=None
+        ):
+            before = project.db.total_changes
+            with pytest.raises(PurgedMaterialUnavailable):
+                copy_staged_outcomes(project.db, op_id=op, targets={"answer": target})
+            assert project.db.total_changes == before
 
 
 def test_copy_keeps_error_and_success_without_charging_or_calling(work):
