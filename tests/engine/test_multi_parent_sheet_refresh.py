@@ -630,10 +630,10 @@ def test_single_parent_table_from_list_refresh_still_works(tmp_path: Path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_refresh_nonjoin_multiparent_still_unsupported(tmp_path: Path) -> None:
-    """A multi-parent child whose parent op is NOT derive.join (e.g. an
-    entity-resolution / reduce / link_table membership) stays
-    ``refresh_unsupported`` — only derive.join is lifted in this increment."""
+def test_refresh_historical_multiparent_without_typed_identity_is_unavailable(
+    tmp_path: Path,
+) -> None:
+    """Legacy membership without a typed derivation cannot be refreshed by guessing."""
     ctx = _seed_join(tmp_path / "unsupported.frisket")
     project = ctx["project"]
     try:
@@ -657,7 +657,7 @@ def test_refresh_nonjoin_multiparent_still_unsupported(tmp_path: Path) -> None:
             project, _refresh(sheet_id=other_child, key="refresh_unsupported@1")
         )
         assert result.status == "failed"
-        assert result.errors[0].code == "refresh_unsupported"
+        assert result.errors[0].code == "historical_refresh_unavailable"
     finally:
         project.close()
 
@@ -750,5 +750,56 @@ def test_join_refresh_absence_is_reversible_and_does_not_rehide_undo(tmp_path):
         refreshed = _run(project, _refresh(sheet_id=child, key="absence-unchanged"))
         assert refreshed.status == "completed", refreshed.errors
         assert project.visible_row_ids(child) == rows
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("policy", ["keep_changes", "incoming_wins"])
+@pytest.mark.parametrize("local_delete", [True, False])
+def test_join_reappearance_respects_later_explicit_row_deletion(
+    tmp_path, policy, local_delete
+):
+    ctx = _seed_join(tmp_path / "reappearing-pair.frisket")
+    project, child = ctx["project"], ctx["child_id"]
+    try:
+        rows = project.visible_row_ids(child)
+        source = ctx["right_rows"][0]
+        source_column = ctx["right_cols"]["state_fips"]
+        _run(
+            project,
+            _cell_edit(
+                row_id=source, column_id=source_column, value=99, key="remove-pair"
+            ),
+        )
+        assert (
+            _run(project, _refresh(sheet_id=child, key="absent")).status == "completed"
+        )
+        assert project.visible_row_ids(child) == rows[1:]
+        if local_delete:
+            project.undo()
+            assert project.visible_row_ids(child) == rows
+            deleted = _run(
+                project,
+                {
+                    "action_id": "row.delete",
+                    "scope": {"kind": "project"},
+                    "params": {"sheet_id": child, "row_ids": [rows[0]]},
+                    "idempotency_key": "explicit-delete",
+                },
+            )
+            assert deleted.status == "completed", deleted.errors
+        _run(
+            project,
+            _cell_edit(
+                row_id=source, column_id=source_column, value=1, key="pair-returns"
+            ),
+        )
+        request = _refresh(sheet_id=child, key="reappeared")
+        request["params"]["update_policy"] = policy
+        result = _run(project, request)
+        assert result.status == "completed", result.errors
+        assert project.visible_row_ids(child) == (
+            rows if policy == "incoming_wins" or not local_delete else rows[1:]
+        )
     finally:
         project.close()

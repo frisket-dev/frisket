@@ -170,6 +170,22 @@ def publish_refresh(
         )
     }
     conflicts.update(duplicates)
+    # Reappearance may reverse this derivation's absence, but not a later
+    # explicit deletion. Use the same ordered membership contributions as Undo.
+    hidden_ids = [int(row["row_id"]) for row in observed.values() if row["hidden"]]
+    refresh_hidden = {
+        int(row["object_id"])
+        for row in db.execute(
+            "WITH ranked AS (SELECT effect.object_id,effect.after_visible,owner.kind,owner.spec,"
+            "ROW_NUMBER() OVER (PARTITION BY effect.object_id ORDER BY owner.change_order DESC) AS rank "
+            "FROM structural_changes effect JOIN ops owner ON owner.id=effect.op_id "
+            "WHERE effect.kind='row' AND effect.object_id IN (SELECT value FROM json_each(?)) "
+            "AND owner.status='applied' AND owner.change_order IS NOT NULL) "
+            "SELECT object_id FROM ranked WHERE rank=1 AND after_visible=0 "
+            "AND kind='sheet.refresh' AND json_extract(spec,'$.sheet_id')=?",
+            (json.dumps(hidden_ids), sheet_id),
+        )
+    }
     target_ids = [
         int(observed[key]["row_id"])
         for key in incoming
@@ -240,14 +256,17 @@ def publish_refresh(
             baseline_key = key
             baseline = json.loads(previous["record"])
             reappeared = not previous["observed_present"]
+            restore_absence = reappeared and row_id in refresh_hidden
             changes, restore = reconcile_fields(
                 current[row_id],
                 incoming_values,
                 baseline,
                 policy,
-                deleted=bool(previous["hidden"]) and not reappeared,
+                deleted=bool(previous["hidden"]) and not restore_absence,
             )
-            if previous["hidden"] and (restore or reappeared):
+            if previous["hidden"] and (
+                restore or restore_absence or (reappeared and policy == "incoming_wins")
+            ):
                 db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row_id,))
                 info["restored_rows"].append(row_id)
             if changes:
