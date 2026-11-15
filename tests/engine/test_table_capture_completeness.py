@@ -20,7 +20,11 @@ def _assert_captured(project, result):
 
 
 def _assert_equal_contribution_roundtrip(project, output, sheet, column, row):
-    unrelated = project.add_column(sheet, "unrelated")
+    unrelated = next(
+        (c["id"] for c in project.columns(sheet) if c["name"] == "unrelated"), None
+    )
+    if unrelated is None:
+        unrelated = project.add_column(sheet, "unrelated")
     project.apply_edits([{"row_id": row, "column_id": unrelated, "value": "unrelated"}])
     assert sheet_freshness(project, output) == "synced"
     value = project.get_values(sheet, column)[row]
@@ -68,6 +72,112 @@ def test_positioned_document_table_keeps_nested_sheet_reader_capture(tmp_path):
         _assert_equal_contribution_roundtrip(project, output, sheet, column, rows[0])
 
 
+def test_temporal_media_table_captures_media_and_inherited_transcript(tmp_path):
+    from tests.engine.test_temporal_split import (
+        _seed_media,
+        _request,
+        _run,
+        _fake_stage,
+    )
+    from tests.engine.test_temporal_transcript_inheritance import (
+        _add_timestamped_transcript,
+    )
+    from frisket.engine.store.artifact_timeline import resolve_timeline
+
+    with closing(Project.create(tmp_path / "media.frisket")) as project:
+        source = _seed_media(project)
+        lease = resolve_timeline(
+            project,
+            sheet_id=source["sheet_id"],
+            row_id=source["row_id"],
+            column_id=source["columns"]["video"],
+        )
+        source["columns"]["transcript"], _ = _add_timestamped_transcript(
+            project,
+            sheet_id=source["sheet_id"],
+            row_id=source["row_id"],
+            artifact_id=lease.anchor.artifact_id,
+            name="transcript",
+            text="First sentence. Second sentence.",
+            span_values=[
+                (0, 3000, "First sentence."),
+                (3000, 7000, "Second sentence."),
+            ],
+        )
+        result = _run(
+            project,
+            _request(
+                source,
+                {"kind": "draft_ranges", "items": [{"start_ms": 1000, "end_ms": 4000}]},
+            ),
+            stage_fn=_fake_stage,
+            project_id="capture",
+        )
+        output = _assert_captured(project, result)
+        _assert_equal_contribution_roundtrip(
+            project,
+            output,
+            source["sheet_id"],
+            source["columns"]["video"],
+            source["row_id"],
+        )
+        _assert_equal_contribution_roundtrip(
+            project,
+            output,
+            source["sheet_id"],
+            source["columns"]["transcript"],
+            source["row_id"],
+        )
+
+
+def test_temporal_clock_uses_the_value_and_ref_already_read(tmp_path, monkeypatch):
+    from frisket.engine.executor import temporal_materialization
+    from tests.engine.test_temporal_split import _seed_media, _request, _plan
+    from frisket.engine.store.media_blobs import owned_media_metadata_document
+
+    with closing(Project.create(tmp_path / "clock-read.frisket")) as project:
+        source = _seed_media(project)
+        newer = project.add_blob(
+            b"new recording",
+            filename="new.mp4",
+            mime="video/mp4",
+            metadata=owned_media_metadata_document(
+                probe={"duration_seconds": 10, "kind": "video"}
+            ),
+        )
+        resolve = temporal_materialization.resolve_source_timeline
+
+        def interleave(*args, **kwargs):
+            project.apply_edits(
+                [
+                    {
+                        "row_id": source["row_id"],
+                        "column_id": source["columns"]["video"],
+                        "value": {
+                            "blob": newer,
+                            "filename": "new.mp4",
+                            "mime": "video/mp4",
+                        },
+                    }
+                ]
+            )
+            return resolve(*args, **kwargs)
+
+        monkeypatch.setattr(
+            temporal_materialization, "resolve_source_timeline", interleave
+        )
+        plan = _plan(
+            project,
+            _request(
+                source,
+                {"kind": "draft_ranges", "items": [{"start_ms": 1000, "end_ms": 4000}]},
+            ),
+        )
+        captured = plan.sources[0].source
+        assert captured.value["blob"] == captured.lease.blob_hash == source["blob_hash"]
+        assert captured.value_ref == captured.lease.current_value_ref
+
+
 def test_semantic_link_table_captures_both_actual_sides(tmp_path):
     from tests.engine.test_derive_link_table_executor import _seed, _derive_link_action
 
@@ -91,6 +201,43 @@ def test_semantic_link_table_captures_both_actual_sides(tmp_path):
             company,
             source["target_row_ids"][0],
         )
+
+
+def test_semantic_join_raw_child_inherits_actual_comparison_corpus(
+    tmp_path, monkeypatch
+):
+    def embed(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    embed.embedding_dimension = 2
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.backends.resolve_embedder",
+        lambda *args, **kwargs: (embed, "fastembed/test"),
+    )
+    with closing(Project.create(tmp_path / "raw-join.frisket")) as project:
+        left = project.add_sheet("Donors")
+        donor = project.add_column(left, "donor")
+        [row] = project.add_rows(left, [{"donor": "ACME"}], {"donor": donor})
+        right = project.add_sheet("Registry")
+        company = project.add_column(right, "company")
+        [target] = project.add_rows(right, [{"company": "Acme"}], {"company": company})
+        result = run_action_spec(
+            project,
+            {
+                "action_id": "join.semantic",
+                "scope": {"kind": "sheet_rows", "sheet_id": left},
+                "params": {
+                    "source": "donor",
+                    "target": {"sheet_id": right, "column": "company"},
+                },
+                "sheet_name": "Raw links",
+                "idempotency_key": "raw-capture",
+            },
+            project_id="capture",
+        )
+        output = _assert_captured(project, result)
+        _assert_equal_contribution_roundtrip(project, output, right, company, target)
+        _assert_equal_contribution_roundtrip(project, output, left, donor, row)
 
 
 def test_entity_table_captures_actual_cluster_source(tmp_path):

@@ -90,6 +90,7 @@ class ResolvedTemporalSource:
     selection_hash: str
     selection_column_id: int | None
     ranges: tuple[NormalizedRange, ...]
+    consumed_capture: dict[str, Any]
     warnings: tuple[str, ...] = ()
 
 
@@ -413,9 +414,24 @@ def prepare_bound_sources(
     if set(visible) != set(row_ids):
         return action_error(action_kind, "invalid_input_ref", "row_ids are not visible")
 
-    source_values, source_refs = project.get_values_with_refs(
-        scope.sheet_id, column_id, row_ids=row_ids
+    from frisket.engine.store.consumed_sources import read_consumed_source
+
+    columns = [column_id]
+    if input_columns.selection_column_id is not None:
+        columns.append(input_columns.selection_column_id)
+    refs = {}
+    _, values, consumed_capture = read_consumed_source(
+        project,
+        scope.sheet_id,
+        columns,
+        row_ids=row_ids,
+        scope_intent="whole" if scope.row_ids is None else "selected",
+        refs_out=refs,
     )
+    for by_row in refs.values():
+        for ref in by_row.values():
+            ref.pop("validity", None)
+    source_values, source_refs = values[column_id], refs[column_id]
     selection_column = None
     selection_values: dict[int, Any] = {}
     selection_refs: dict[int, dict[str, Any]] = {}
@@ -424,11 +440,8 @@ def prepare_bound_sources(
             "id": input_columns.selection_column_id,
             "type": input_columns.selection_column_type,
         }
-        selection_values, selection_refs = project.get_values_with_refs(
-            scope.sheet_id,
-            input_columns.selection_column_id,
-            row_ids=row_ids,
-        )
+        selection_values = values[input_columns.selection_column_id]
+        selection_refs = refs[input_columns.selection_column_id]
 
     resolved: list[ResolvedTemporalSource] = []
     for row_id in row_ids:
@@ -439,17 +452,13 @@ def prepare_bound_sources(
                 action_kind, "invalid_input_ref", "source cell is empty"
             )
         try:
-            captured = (
-                {"value": source_value, "current_value_ref": source_ref}
-                if source_resolver is not None
-                else {}
-            )
             lease = (source_resolver or resolve_source_timeline)(
                 project,
                 sheet_id=scope.sheet_id,
                 row_id=row_id,
                 column_id=column_id,
-                **captured,
+                value=source_value,
+                current_value_ref=source_ref,
             )
             selection_value, selection_ref, selection_type = selection_for_row(
                 selection,
@@ -529,6 +538,7 @@ def prepare_bound_sources(
                     else None
                 ),
                 ranges=tuple(ranges),
+                consumed_capture=consumed_capture,
                 warnings=tuple(warnings),
             )
         )
@@ -988,31 +998,54 @@ def transcript_snapshot_ref(transcript: Any) -> dict[str, Any]:
 
 
 def resolve_source_timeline(
-    project: Any, *, sheet_id: int, row_id: int, column_id: int
+    project: Any,
+    *,
+    sheet_id: int,
+    row_id: int,
+    column_id: int,
+    value: Any,
+    current_value_ref: dict[str, Any],
 ) -> TimelineLease:
-    try:
-        return resolve_timeline(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=column_id,
-        )
-    except TimelineError as exc:
-        if exc.code != "timeline_duration_required":
-            raise
-    # Probe missing immutable media facts once, then resolve the timeline again.
-    values = project.get_values(sheet_id, column_id, row_ids=[row_id])
-    value = values.get(row_id)
-    if not isinstance(value, dict) or not isinstance(value.get("blob"), str):
-        raise TimelineError("timeline_not_found", "source cell is not blob-backed")
-    from frisket.engine.store.media_blobs import update_blob_metadata
+    from frisket.engine.store.artifact_timeline import (
+        read_timeline_source,
+        ensure_media_timeline,
+    )
 
-    update_blob_metadata(project, value["blob"], force=True)
-    return resolve_timeline(
-        project,
+    arguments = dict(
         sheet_id=sheet_id,
         row_id=row_id,
         column_id=column_id,
+        value=value,
+        current_value_ref=current_value_ref,
+    )
+    try:
+        source = read_timeline_source(project, **arguments)
+    except TimelineError as exc:
+        if exc.code != "timeline_duration_required":
+            raise
+        from frisket.engine.store.media_blobs import update_blob_metadata
+
+        update_blob_metadata(project, value["blob"], force=True)
+        source = read_timeline_source(project, **arguments)
+    anchor = ensure_media_timeline(
+        project,
+        blob_hash=source.blob_hash,
+        duration_ms=source.duration_ms,
+        media_type=source.media_type,
+        filename=source.filename,
+        source_sheet_id=sheet_id,
+        source_row_id=row_id,
+        source_column_id=column_id,
+    )
+    return TimelineLease(
+        anchor=anchor,
+        blob_hash=source.blob_hash,
+        media_type=source.media_type,
+        media_kind=source.media_kind,
+        filename=source.filename,
+        source_cell_ref=source.source_cell_ref,
+        current_value_ref=source.current_value_ref,
+        source_value_hash=source.source_value_hash,
     )
 
 

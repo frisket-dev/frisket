@@ -254,6 +254,28 @@ def _materialize(
     sheet_id = state["source"]["sheet_id"]
     target_id = state["target"]["sheet_id"]
     names = state["child_names"]
+    from frisket.engine.store.consumed_sources import (
+        capture_read_scope,
+        capture_retained_results,
+        merge_captures,
+        store_capture,
+    )
+
+    prior_captures = []
+    if existing_child_id is not None:
+        prior_captures = [
+            json.loads(row["capture_json"])
+            for row in project.db.execute(
+                "SELECT b.capture_json FROM consumed_source_bundles b JOIN ops op ON op.id=b.owner_op_id "
+                "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND b.row_id IS NULL AND op.status='applied' "
+                "AND instr(b.capture_key,':shared:')=0 AND b.owner_op_id=("
+                "SELECT b2.owner_op_id FROM consumed_source_bundles b2 JOIN ops op2 ON op2.id=b2.owner_op_id "
+                "WHERE b2.output_sheet_id=b.output_sheet_id AND b2.kind='aggregate' AND b2.row_id IS NULL "
+                "AND instr(b2.capture_key,':shared:')=0 AND op2.status='applied' AND op2.change_order IS NOT NULL "
+                "ORDER BY op2.change_order DESC,b2.id DESC LIMIT 1)",
+                (existing_child_id,),
+            )
+        ]
     output_ids = {
         binding.output_role: binding.column_id
         for binding in ResultGenerationStore(project).bindings_for_run(run["id"])
@@ -287,6 +309,34 @@ def _materialize(
                 values[key][row["parent_row_id"]] = previous_values.get(row["id"])
         if copied_values is not None:
             values[key].update(copied_values[key])
+    # These are the exact source/carry/result reads used by this publication,
+    # inside its existing writer transaction. Saved matches retain their actual
+    # comparison inputs rather than inventing a current target snapshot.
+    capture = merge_captures(
+        [
+            *prior_captures,
+            capture_read_scope(
+                project,
+                sheet_id,
+                [
+                    *(column["id"] for column in copied.values()),
+                    *output_ids.values(),
+                ],
+                state["source"]["row_ids"],
+            ),
+            capture_retained_results(
+                project,
+                sheet_id,
+                output_ids["match_value"],
+                run["id"],
+                state["source"]["row_ids"],
+            ),
+        ]
+    )
+    if existing_child_id is not None and not prior_captures:
+        # An older child without consumed identities cannot acquire invented
+        # historical certainty merely because a later delta was backfilled.
+        capture["incomplete"] = True
     op_id = project.append_op(
         "derive",
         {
@@ -365,6 +415,7 @@ def _materialize(
         },
         commit=False,
     )
+    store_capture(project, capture, owner_op_id=op_id, output_sheet_id=child_id)
     ChangeStore(project).close(op_id)
     edges = [
         {

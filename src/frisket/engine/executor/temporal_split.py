@@ -79,6 +79,7 @@ StageTemporalRange = Callable[
 @dataclass(frozen=True)
 class SplitSourcePlan(ResolvedTemporalMediaSource):
     topic_span_ids_by_item: dict[str, frozenset[str]]
+    consumed_capture: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -178,7 +179,27 @@ def resolve_temporal_split_plan(
     source_plans: list[SplitSourcePlan] = []
     for source in resolved:
         try:
-            media_source = resolve_temporal_media_source(project, source)
+            with project.read_snapshot() as snapshot:
+                media_source = resolve_temporal_media_source(snapshot, source)
+                from frisket.engine.store.consumed_sources import (
+                    capture_read_scope,
+                    merge_captures,
+                )
+
+                columns = {
+                    item.transcript_column_id for item in media_source.transcripts
+                }
+                columns.update(item.column_id for item in media_source.annotations)
+                if media_source.topic_analysis is not None:
+                    columns.add(media_source.topic_analysis.sidecar_column_id)
+                captures = [source.consumed_capture]
+                if columns:
+                    captures.append(
+                        capture_read_scope(
+                            snapshot, source.sheet_id, sorted(columns), [source.row_id]
+                        )
+                    )
+                consumed_capture = merge_captures(captures)
         except TimelineError as exc:
             return _error(
                 exc.code,
@@ -218,6 +239,7 @@ def resolve_temporal_split_plan(
                 annotations=media_source.annotations,
                 topic_analysis=media_source.topic_analysis,
                 topic_span_ids_by_item=topic_span_ids_by_item,
+                consumed_capture=consumed_capture,
                 warnings=media_source.warnings,
             )
         )
