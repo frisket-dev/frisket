@@ -35,29 +35,61 @@ def _captured_transcript(project, sources, *, sheet_id, row_id):
 
     for source in sources.values():
         ref = source.get("value_ref") or {}
-        if ref.get("kind") != "run_result" or ref.get("run_id") is None:
+        if ref.get("kind") == "copied_result":
+            from frisket.engine.executor.temporal_transcripts import (
+                resolve_timestamped_transcript,
+            )
+            from frisket.engine.store.cell_reference import evidence_subject_ref
+
+            anchor = source.get("transcript_anchor")
+            if anchor is None:
+                copied = resolve_timestamped_transcript(
+                    project,
+                    sheet_id=sheet_id,
+                    row_id=row_id,
+                    column_id=ref["column_id"],
+                )
+                # The existing resolver checks copied ownership and retained
+                # coordinates. Only evidence for the captured value can enrich
+                # this request; freeze those immutable refs before dispatch.
+                if copied is None or evidence_subject_ref(
+                    copied.transcript_value_ref
+                ) != evidence_subject_ref(ref):
+                    continue
+                anchor = {
+                    "subject_ref": evidence_subject_ref(ref),
+                    "artifact_id": copied.artifact_id,
+                    "span_ids": [span["id"] for span in copied.spans],
+                }
+                source["transcript_anchor"] = anchor
+            if anchor["subject_ref"] != evidence_subject_ref(ref):
+                continue
+            artifact_id, span_ids = anchor["artifact_id"], anchor["span_ids"]
+        elif ref.get("kind") == "run_result" and ref.get("run_id") is not None:
+            spans = project.db.execute(
+                "SELECT s.id, s.artifact_id FROM evidence_links l "
+                "JOIN evidence_link_spans ls ON ls.link_id=l.id "
+                "JOIN source_spans s ON s.id=ls.span_id "
+                # A transcription's segment-list output shares the text output's
+                # evidence. Resolve through the captured producing run, not through
+                # the selected sibling column (and never through the latest row).
+                "WHERE l.run_id=? AND l.row_id=? AND l.sheet_id=? "
+                "AND l.link_role='media_transcribe_temporal' AND s.span_kind='temporal' "
+                "ORDER BY l.id DESC,ls.rank",
+                (ref["run_id"], row_id, sheet_id),
+            ).fetchall()
+            if not spans:
+                continue
+            artifact_id = spans[0]["artifact_id"]
+            span_ids = [
+                span["id"] for span in spans if span["artifact_id"] == artifact_id
+            ]
+        else:
             continue
-        spans = project.db.execute(
-            "SELECT s.id, s.artifact_id FROM evidence_links l "
-            "JOIN evidence_link_spans ls ON ls.link_id=l.id "
-            "JOIN source_spans s ON s.id=ls.span_id "
-            # A transcription's segment-list output shares the text output's
-            # evidence. Resolve through the captured producing run, not through
-            # the selected sibling column (and never through the latest row).
-            "WHERE l.run_id=? AND l.row_id=? AND l.sheet_id=? "
-            "AND l.link_role='media_transcribe_temporal' AND s.span_kind='temporal' "
-            "ORDER BY l.id DESC,ls.rank",
-            (ref["run_id"], row_id, sheet_id),
-        ).fetchall()
-        if not spans:
-            continue
-        artifact_id = spans[0]["artifact_id"]
         units, tokens, indices = _segments_for_artifact(
             project,
             artifact_id,
-            span_ids=[
-                span["id"] for span in spans if span["artifact_id"] == artifact_id
-            ],
+            span_ids=span_ids,
         )
         if units:
             return ResolvedSegmentStream(
@@ -73,8 +105,6 @@ def extract_prompt_values(project, values, spec, *, prompt_source_columns):
     """Add numbered transcript anchors from the selected, captured input version."""
     from frisket.engine.runner.grounding import looks_like_segment_list
 
-    if any(looks_like_segment_list(value) for value in values.values()):
-        return values
     # All admitted sources remain captured for evidence publication, but only
     # selected prompt sources may contribute model-visible transcript anchors.
     sources = {
@@ -87,7 +117,7 @@ def extract_prompt_values(project, values, spec, *, prompt_source_columns):
             source["value_ref"]["row_id"]
             for source in sources.values()
             if isinstance(source.get("value_ref"), dict)
-            and source["value_ref"].get("kind") == "run_result"
+            and source["value_ref"].get("kind") in {"run_result", "copied_result"}
             and source["value_ref"].get("row_id") is not None
         ),
         None,
@@ -97,6 +127,8 @@ def extract_prompt_values(project, values, spec, *, prompt_source_columns):
     transcript = _captured_transcript(
         project, sources, sheet_id=spec["sheet_id"], row_id=row_id
     )
+    if any(looks_like_segment_list(value) for value in values.values()):
+        return values
     if transcript is None:
         return values
     segments = []
