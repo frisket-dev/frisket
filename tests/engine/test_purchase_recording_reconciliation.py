@@ -1,6 +1,7 @@
 """Accounting persistence failures cannot make a purchased row retryable."""
 
 import asyncio
+import pytest
 from types import SimpleNamespace
 
 
@@ -114,6 +115,69 @@ def test_accounting_failure_halts_without_automatic_repurchase_and_retains_usage
                 )
             )
         assert len(calls) == 2
+    finally:
+        asyncio.run(router.aclose())
+        project.close()
+
+
+@pytest.mark.parametrize("engine", ["datalab", "docling"])
+def test_native_document_accounting_failure_retains_one_returned_fact(
+    tmp_path, monkeypatch, engine
+):
+    import json
+    from frisket.execution.purchases import LocalPurchasePolicy
+    from frisket.engine.store.runs import RunResultStore
+    from tests.engine.test_document_convert import (
+        _accepted_fact,
+        _execute,
+        _seed,
+        _two_page_pdf,
+    )
+    from frisket.engine.store.media_blobs import media_cell
+
+    calls = []
+
+    class BrokenRecording(LocalPurchasePolicy):
+        def record_purchase(self, request, admission, observation):
+            raise RuntimeError("accounting database unavailable")
+
+    async def datalab(*args, on_accepted, credential_source, **kwargs):
+        calls.append(engine)
+        on_accepted({"cost": None, "model_calls": [_accepted_fact(credential_source)]})
+        return {"markdown": "returned", "page_count": 2}, 0.03
+
+    async def sidecar(*args, **kwargs):
+        calls.append(engine)
+        return {"documents": [{"markdown": "returned", "ocr_used": [False, True]}]}
+
+    monkeypatch.setenv("DATALAB_API_KEY", "fixture")
+    monkeypatch.setenv("FRISKET_MODELS_URL", "http://gateway.test:9000")
+    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "fixture")
+    monkeypatch.setattr("frisket.ops.integrations.datalab.datalab_convert", datalab)
+    monkeypatch.setattr("frisket.ops._sidecar._sidecar_post_transport", sidecar)
+    project = Project.create(tmp_path / "native-recording.frisket")
+    router = ModelRouter(model_call_policy=BrokenRecording(), cache_mode="off")
+    try:
+        digest = project.add_blob(
+            _two_page_pdf(), filename="file.pdf", mime="application/pdf"
+        )
+        sheet, _, _ = _seed(
+            project,
+            media_cell(digest, filename="file.pdf", mime="application/pdf"),
+            coltype="file",
+        )
+        result = _execute(project, sheet, engine, router=router)
+        assert result.status == "failed", result
+        assert result.errors[0].code == "external_effect_reconciliation_required", (
+            result.errors
+        )
+        assert calls == [engine]
+        facts = RunResultStore(project).model_calls(result.run_id)
+        assert len(facts) == 1, facts
+        assert json.loads(facts[0]["units"])["pages"] == 2
+        if engine == "datalab":
+            assert facts[0]["id"] == "datalab_accepted_ABC"
+            assert facts[0]["provider_cost_usd"] == 0.03
     finally:
         asyncio.run(router.aclose())
         project.close()

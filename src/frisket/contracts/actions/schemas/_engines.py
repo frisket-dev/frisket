@@ -90,6 +90,8 @@ ToMarkdownTransport = Literal[
 #: differ (DeepL reports ``billed_characters``; Google v2 does not, so its count
 #: is the source length).
 TranslateTransport = Literal["local", "deepl.v2", "google.translate.v2"]
+NerTransport = Literal["local", "sidecar.ner"]
+
 ClassifyTransport = Literal[
     "local", "sidecar.classify", "cloudflare.clef", "openai.decisions"
 ]
@@ -552,6 +554,14 @@ if _missing_transcription_capabilities:
         "transcription engine declarations are missing capabilities: "
         + ", ".join(_missing_transcription_capabilities)
     )
+
+
+NER_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
+    EngineDeclaration(id="spacy", label="spaCy", tier="local", provider="local"),
+    EngineDeclaration(
+        id="gliner", label="GLiNER", tier="sidecar", provider="frisket-sidecar"
+    ),
+)
 
 
 CLASSIFY_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (

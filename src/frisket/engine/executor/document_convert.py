@@ -781,52 +781,70 @@ class _BoundDocumentConverter:
                     error.provider_job_accepted = True
                 raise
 
-        body, cost_usd = await execute_purchase(
-            PurchaseRequest(
-                provider="datalab",
-                capability=CAPABILITY_TO_MARKDOWN,
-                engine=DATALAB_ENGINE,
-                credential_source=credential.source,
-                prepared={"document_digest": digest, "mime": mime, "pages": pages},
-                estimated_cost_usd=rate * pages
-                if rate is not None and pages is not None
-                else None,
-                context=ctx,
-            ),
-            policy=policy_for_context(ctx),
-            dispatch=dispatch_for_context(ctx),
-            invoke=invoke,
-            observe=lambda result: PurchaseObservation(
-                result=result[0],
-                usage={"pages": result[0].get("page_count")},
-                provider_cost_micro=cost_micro(result[1]),
-            ),
-        )
+        def observe(result):
+            body, cost_usd = result
+            if accepted_accounting is None:
+                raise RuntimeError(
+                    "Datalab returned without its accepted-job accounting"
+                )
+            if accepted_accounting is not None:
+                meta = accepted_accounting
+                provider_reported_cost = cost_usd
+                page_count = body.get("page_count")
+                pages = (
+                    page_count if isinstance(page_count, int) and page_count > 0 else 1
+                )
+                if cost_usd is None:
+                    # One /convert call can cover a multi-page document — scale the
+                    # per-page estimate by the response's own page_count.
+                    unit_price = external_unit_price_usd(DATALAB_CONVERT_PAGE)
+                    meta["cost"] = (
+                        unit_price * pages if unit_price is not None else None
+                    )
+                    if meta["cost"] is not None:
+                        meta["cost_source"] = "estimated"
+                else:
+                    meta["cost"] = cost_usd
+                [fact] = meta["model_calls"]
+                fact["provider_reported_cost_usd"] = provider_reported_cost
+                fact["provider_cost_usd"] = meta["cost"]
+                fact["cost_source"] = (
+                    "provider_reported"
+                    if provider_reported_cost is not None
+                    else str(meta.get("cost_source") or "unknown")
+                )
+                fact["units"] = {"pages": pages, "requests": 1}
+            return PurchaseObservation(
+                result=body,
+                usage={"pages": body.get("page_count")},
+                provider_cost_micro=cost_micro(cost_usd),
+            )
+
+        try:
+            body, cost_usd = await execute_purchase(
+                PurchaseRequest(
+                    provider="datalab",
+                    capability=CAPABILITY_TO_MARKDOWN,
+                    engine=DATALAB_ENGINE,
+                    credential_source=credential.source,
+                    prepared={"document_digest": digest, "mime": mime, "pages": pages},
+                    estimated_cost_usd=rate * pages
+                    if rate is not None and pages is not None
+                    else None,
+                    context=ctx,
+                ),
+                policy=policy_for_context(ctx),
+                dispatch=dispatch_for_context(ctx),
+                invoke=invoke,
+                observe=observe,
+            )
+        except BaseException as error:
+            if accepted_accounting is not None:
+                error.accounting = accepted_accounting
+            raise
         if accepted_accounting is None:
             raise RuntimeError("Datalab returned without its accepted-job accounting")
-        meta = accepted_accounting
-        provider_reported_cost = cost_usd
-        page_count = body.get("page_count")
-        pages = page_count if isinstance(page_count, int) and page_count > 0 else 1
-        if cost_usd is None:
-            # One /convert call can cover a multi-page document — scale the
-            # per-page estimate by the response's own page_count.
-            unit_price = external_unit_price_usd(DATALAB_CONVERT_PAGE)
-            meta["cost"] = unit_price * pages if unit_price is not None else None
-            if meta["cost"] is not None:
-                meta["cost_source"] = "estimated"
-        else:
-            meta["cost"] = cost_usd
-        [fact] = meta["model_calls"]
-        fact["provider_reported_cost_usd"] = provider_reported_cost
-        fact["provider_cost_usd"] = meta["cost"]
-        fact["cost_source"] = (
-            "provider_reported"
-            if provider_reported_cost is not None
-            else str(meta.get("cost_source") or "unknown")
-        )
-        fact["units"] = {"pages": pages, "requests": 1}
-        return str(body.get("markdown") or ""), meta
+        return str(body.get("markdown") or ""), accepted_accounting
 
     def _halt_unless_consented_credential(
         self, route: Any, selected_source: Any, effect: str, *, selected_owner: Any

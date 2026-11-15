@@ -791,6 +791,15 @@ class ModelRouter:
                         response.duration_ms = int((time.perf_counter() - t0) * 1000)
                         return llm_observation(response)
 
+                    def observe_error(error):
+                        responses = getattr(error, "wire_calls", ())
+                        if not responses:
+                            return None
+                        # This adapter invocation is one physical purchase;
+                        # prior attempts are carried outside its observation.
+                        (response,) = responses
+                        return observe(response)
+
                     resp = await execute_purchase(
                         PurchaseRequest(
                             provider="frisket-cloud"
@@ -806,10 +815,7 @@ class ModelRouter:
                         dispatch=_execution,
                         invoke=invoke,
                         observe=observe,
-                        observe_error=lambda error: (
-                            observe(response)
-                            for response in getattr(error, "wire_calls", ())
-                        ),
+                        observe_error=observe_error,
                     )
                 except LLMError as e:
                     safe_error = self._safe_llm_error(e, secret_values)

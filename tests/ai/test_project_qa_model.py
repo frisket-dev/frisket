@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from tests.execution_composition_helpers import RecordingPurchasePolicy
 
 import asyncio
 import json
@@ -752,7 +753,7 @@ def test_runner_combines_read_and_typed_output_repairs_citations_and_accounts(
     project, store, turn = _project_turn(tmp_path, scope)
     try:
         router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
+            model_call_policy=RecordingPurchasePolicy(),
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -933,7 +934,7 @@ def test_runner_refuses_an_answer_that_repeats_an_unknown_citation(
     project, store, turn = _project_turn(tmp_path, scope)
     try:
         router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
+            model_call_policy=RecordingPurchasePolicy(),
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -965,7 +966,7 @@ def test_runner_does_not_register_action_tools_when_suggestions_are_off(
     try:
         turn["suggest_actions"] = False
         router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
+            model_call_policy=RecordingPurchasePolicy(),
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -991,7 +992,7 @@ def test_runner_registers_web_tools_only_for_web_enabled_turns(
     try:
         turn["web"] = True
         router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
+            model_call_policy=RecordingPurchasePolicy(),
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,
@@ -1069,7 +1070,7 @@ def test_runner_settles_a_durable_usage_call_before_stop_cancellation(
     project, store, turn = _project_turn(tmp_path, scope)
     try:
         router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
+            model_call_policy=RecordingPurchasePolicy(),
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,

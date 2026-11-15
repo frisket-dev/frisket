@@ -48,6 +48,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
     CLASSIFY_ENGINE_TABLE,
+    NER_ENGINE_TABLE,
     GEOCODE_ENGINE_TABLE,
     ocr_engine_table,
     to_markdown_engine_table,
@@ -72,6 +73,7 @@ from frisket.execution.provider import (
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY,
+    CAPABILITY_NER,
     CAPABILITY_GEOCODE,
     CAPABILITY_LLM,
     CAPABILITY_OCR,
@@ -513,6 +515,7 @@ def _llm_inability(
 #: a capability adds a row, never a branch inside a caller.
 _CAPABILITY_INABILITY = {
     CAPABILITY_CLASSIFY: _to_markdown_inability,
+    CAPABILITY_NER: _to_markdown_inability,
     CAPABILITY_TRANSCRIBE: _transcription_inability,
     CAPABILITY_OCR: _ocr_inability,
     CAPABILITY_TRANSLATE: _translate_inability,
@@ -526,6 +529,7 @@ _CAPABILITY_INABILITY = {
 #: the capability token.
 _CAPABILITY_WORD = {
     CAPABILITY_CLASSIFY: "classification",
+    CAPABILITY_NER: "entity extraction",
     CAPABILITY_TRANSCRIBE: "transcription",
     CAPABILITY_OCR: "OCR",
     CAPABILITY_TRANSLATE: "translation",
@@ -562,6 +566,7 @@ def capability_engine_table(capability: str) -> tuple[EngineDeclaration, ...]:
     )
     tables: dict[str, tuple[EngineDeclaration, ...]] = {
         CAPABILITY_CLASSIFY: CLASSIFY_ENGINE_TABLE,
+        CAPABILITY_NER: NER_ENGINE_TABLE,
         CAPABILITY_TRANSCRIBE: TRANSCRIBE_ENGINE_TABLE,
         CAPABILITY_OCR: ocr_engine_table(),
         CAPABILITY_TRANSLATE: TRANSLATE_ENGINE_TABLE,

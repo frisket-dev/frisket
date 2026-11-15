@@ -250,7 +250,10 @@ def test_paid_search_keeps_returned_receipt_when_accounting_write_fails(monkeypa
             raise RuntimeError("accounting write unavailable")
 
         def fail_purchase(self, request, admission, error):
-            pytest.fail("Returned search must not be treated as a failed purchase")
+            assert admission.operation_id == "search-operation"
+            assert error.provider_result.provider == "tavily"
+            assert error.observation.provider_cost_micro == 8000
+            assert error.observation.usage == {"requests": 1, "credits": 1}
 
     def transport(request):
         events.append("provider")

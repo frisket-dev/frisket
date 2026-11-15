@@ -770,6 +770,8 @@ def test_over_cap_remote_transcription_is_refused_before_provider_egress(
         ("http_error", 1, 1),
         ("malformed_200", 1, 1),
         ("transport_error", 0, 0),
+        ("read_timeout", 0, 0),
+        ("write_error", 0, 0),
     ],
 )
 def test_remote_transcription_records_only_response_proven_provider_calls(
@@ -791,11 +793,17 @@ def test_remote_transcription_records_only_response_proven_provider_calls(
     from frisket.team.security.secrets import encrypt_secret
 
     responses = 0
+    requests = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal responses
+        nonlocal responses, requests
+        requests += 1
         if response_kind == "transport_error":
             raise httpx.ConnectError("provider unavailable", request=request)
+        if response_kind == "read_timeout":
+            raise httpx.ReadTimeout("response lost", request=request)
+        if response_kind == "write_error":
+            raise httpx.WriteError("upload interrupted", request=request)
         responses += 1
         if response_kind == "http_error":
             return httpx.Response(503, json={"error": "temporarily unavailable"})
@@ -826,6 +834,11 @@ def test_remote_transcription_records_only_response_proven_provider_calls(
         result = env.run(action)
 
         assert result.status == "failed"
+        assert requests == 1
+        if response_kind in {"read_timeout", "write_error"}:
+            assert result.errors[0].code == "external_effect_reconciliation_required"
+        elif response_kind == "transport_error":
+            assert result.errors[0].code != "external_effect_reconciliation_required"
         assert responses == expected_response_count
         facts = RunResultStore(project).model_calls(result.run_id)
         assert len(facts) == expected_fact_count

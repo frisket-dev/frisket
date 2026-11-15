@@ -15,6 +15,7 @@ SONNET = "anthropic/claude-sonnet-5-5"
 
 @pytest.fixture
 def queued(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     monkeypatch.setattr(
         "frisket.ai.llm.pricing_refresh.start_pricing_refresh", lambda: None
     )

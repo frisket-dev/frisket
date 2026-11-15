@@ -81,6 +81,7 @@ from frisket.execution.price_book import (
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY,
+    CAPABILITY_NER,
     CAPABILITY_GEOCODE,
     CAPABILITY_LLM,
     CAPABILITY_OCR,
@@ -125,6 +126,7 @@ from frisket.execution.resolver import (
 # hint and searchable-PDF composition.
 _CAPABILITY_OPTION_KEYS: dict[str, tuple[str, ...]] = {
     CAPABILITY_CLASSIFY: (),
+    CAPABILITY_NER: (),
     CAPABILITY_TRANSCRIBE: (
         "vad",
         "language",
@@ -534,6 +536,15 @@ def _selected_row_count(project: Any, spec: Mapping[str, Any]) -> int:
     from frisket.engine.runner.validation import target_rows
 
     return len(target_rows(project, dict(spec)))
+
+
+def _ner_cost_basis(project, spec, recipe, resolution, composition):
+    """Current NER venues are operator-owned or explicitly included."""
+    if _free_local_or(CAPABILITY_NER, resolution, composition) is not None:
+        raise ValueError(
+            "Priced NER execution requires a declared pricing implementation"
+        )
+    return OperatorBorneZeroCost(), None
 
 
 def _classify_cost_basis(
@@ -1231,6 +1242,8 @@ def _default_engine(capability: str) -> str:
         return "opus_mt"
     if capability == CAPABILITY_CENSUS:
         return "us_census_acs"
+    if capability == CAPABILITY_NER:
+        return "spacy"
     if capability == CAPABILITY_CLASSIFY:
         return "local_semantic"
     from frisket.sdk.ops.transcribe_engines import DEFAULT_ENGINE
@@ -1245,6 +1258,7 @@ def _default_engine(capability: str) -> str:
 #: second capability.
 _CAPABILITY_COST_BASIS: dict[str, Any] = {
     CAPABILITY_CLASSIFY: _classify_cost_basis,
+    CAPABILITY_NER: _ner_cost_basis,
     CAPABILITY_TRANSCRIBE: _transcribe_cost_basis,
     CAPABILITY_OCR: _ocr_cost_basis,
     CAPABILITY_TRANSLATE: _translate_cost_basis,

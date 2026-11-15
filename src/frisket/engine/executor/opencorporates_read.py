@@ -10,6 +10,10 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from frisket.actions.types import RowError
+from frisket.ops.integrations.hosted_error import (
+    HostedEngineError,
+    transport_outcome_is_uncertain,
+)
 from frisket.execution.dispatch_control import dispatch_for_context
 from frisket.execution.purchases import (
     PurchaseObservation,
@@ -189,6 +193,17 @@ class AdmittedOpenCorporates:
                         + quote(arguments.company_number, safe="")
                     )
 
+            async def send():
+                try:
+                    return await invoke()
+                except (httpx.RequestError, OSError) as error:
+                    raise HostedEngineError(
+                        code="transport",
+                        message="OpenCorporates request transport failed.",
+                        retryable=True,
+                        post_egress_ambiguous=transport_outcome_is_uncertain(error),
+                    ) from None
+
             response = await execute_purchase(
                 PurchaseRequest(
                     provider="opencorporates",
@@ -203,7 +218,7 @@ class AdmittedOpenCorporates:
                 ),
                 policy=policy_for_context(ctx),
                 dispatch=dispatch_for_context(ctx),
-                invoke=invoke,
+                invoke=send,
                 observe=lambda response: PurchaseObservation(
                     result={"status_code": response.status_code},
                     usage={"requests": 1},

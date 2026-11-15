@@ -134,12 +134,18 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         )
         engine = model.engine
     if scenario == "ledger_failure":
+        write_accounting = RunResultStore.write_returned_call_accounting
+        failed_write = False
 
-        def fail_persist(*args):
-            raise RuntimeError("ledger unavailable")
+        def fail_persist(self, *args, **kwargs):
+            nonlocal failed_write
+            if not failed_write:
+                failed_write = True
+                raise RuntimeError("ledger temporarily unavailable")
+            return write_accounting(self, *args, **kwargs)
 
         monkeypatch.setattr(
-            "frisket.ops.opendocrouter.persist_hosted_accepted_accounting", fail_persist
+            RunResultStore, "write_returned_call_accounting", fail_persist
         )
 
     def handler(request):
@@ -257,6 +263,9 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         assert len(calls) == 1
         if scenario == "ledger_failure":
             assert result.errors[0].code == "external_effect_reconciliation_required"
+            [fact] = RunResultStore(project).model_calls(result.run_id)
+            assert fact["provider_cost_usd"] == 0.00397
+            assert fact["epoch_id"] is not None
             asyncio.run(client.aclose())
             return
         [fact] = RunResultStore(project).model_calls(result.run_id)

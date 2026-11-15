@@ -6,7 +6,7 @@ The policy is deployment composition, not a caller-selected ``free`` flag.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, TypeVar
 
@@ -23,10 +23,20 @@ class PurchaseRecordingError(RuntimeError):
     post_egress_ambiguous = True
     provider_job_accepted = True
 
-    def __init__(self, message: str, *, provider_result: Any, observation: Any = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider_result: Any,
+        observation: Any = None,
+        purchase_request: Any = None,
+        purchase_admission: Any = None,
+    ):
         super().__init__(message)
         self.provider_result = provider_result
         self.observation = observation
+        self.purchase_request = purchase_request
+        self.purchase_admission = purchase_admission
 
 
 class PurchaseNotDispatched(RuntimeError):
@@ -222,21 +232,19 @@ class _PurchaseExecution:
     def failed(self, error: BaseException) -> None:
         try:
             known = (
-                tuple(self.observe_error(error))
-                if self.observe_error is not None
-                else ()
+                self.observe_error(error) if self.observe_error is not None else None
             )
         except Exception as observation_error:
             error.purchase_observation_error = observation_error
             self._fail(error)
             return
-        if not known:
+        if known is None:
             self._fail(error)
             return
         try:
-            for observation in known:
-                self.policy.record_purchase(self.request, self.admission, observation)
+            self.policy.record_purchase(self.request, self.admission, known)
         except Exception as accounting_error:
+            error.observation = known
             error.purchase_recording_error = accounting_error
             self._fail(error)
 
@@ -258,6 +266,8 @@ class _PurchaseExecution:
                 str(error),
                 provider_result=result,
                 observation=observation,
+                purchase_request=self.request,
+                purchase_admission=self.admission,
             )
             self._fail(recording_error)
             import asyncio
@@ -265,6 +275,8 @@ class _PurchaseExecution:
             if isinstance(error, asyncio.CancelledError):
                 error.provider_result = result
                 error.observation = observation
+                error.purchase_request = self.request
+                error.purchase_admission = self.admission
                 raise
             raise recording_error from error
         return result
@@ -277,8 +289,7 @@ async def execute_purchase(
     dispatch: DispatchControl,
     invoke: Callable[[], Awaitable[T]],
     observe: Callable[[T], PurchaseObservation],
-    observe_error: Callable[[BaseException], Iterable[PurchaseObservation]]
-    | None = None,
+    observe_error: Callable[[BaseException], PurchaseObservation | None] | None = None,
 ) -> T:
     """Own one logical purchase; recording never retries the provider.
 
@@ -302,8 +313,7 @@ def execute_purchase_sync(
     dispatch: DispatchControl,
     invoke: Callable[[], T],
     observe: Callable[[T], PurchaseObservation],
-    observe_error: Callable[[BaseException], Iterable[PurchaseObservation]]
-    | None = None,
+    observe_error: Callable[[BaseException], PurchaseObservation | None] | None = None,
 ) -> T:
     """The same owner for synchronous backend batches, without an event loop."""
     owner = _PurchaseExecution(request, policy, dispatch, observe, observe_error)

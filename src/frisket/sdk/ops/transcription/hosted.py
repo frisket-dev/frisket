@@ -38,7 +38,10 @@ from frisket.execution.credential_use import (
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.local_model_ids import bare_model_name
 from frisket.ops.base import OpContext, RecipeInvocationHalt, media_upload_filename
-from frisket.ops.integrations.hosted_error import HostedEngineError
+from frisket.ops.integrations.hosted_error import (
+    HostedEngineError,
+    transport_outcome_is_uncertain,
+)
 from frisket.redaction import redact_text
 
 from .common import (
@@ -286,19 +289,29 @@ class OpenAITranscriptionAdapter:
         )
 
         async def invoke():
-            response = await ctx.http.post(
-                f"{base.rstrip('/')}/audio/transcriptions",
-                **(
-                    {"json": payload}
-                    if payload is not None
-                    else {
-                        "data": data,
-                        "files": {"file": (fname, file_bytes, content_type)},
-                    }
-                ),
-                headers={"Authorization": f"Bearer {key}"},
-                timeout=600.0,
-            )
+            try:
+                response = await ctx.http.post(
+                    f"{base.rstrip('/')}/audio/transcriptions",
+                    **(
+                        {"json": payload}
+                        if payload is not None
+                        else {
+                            "data": data,
+                            "files": {"file": (fname, file_bytes, content_type)},
+                        }
+                    ),
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=600.0,
+                )
+            except (httpx.HTTPError, OSError) as error:
+                raise _RemoteTranscriptionResponseError(
+                    code="transport",
+                    message=_safe_remote_exception(
+                        "remote transcription transport error: ", error, key
+                    ),
+                    retryable=True,
+                    post_egress_ambiguous=transport_outcome_is_uncertain(error),
+                ) from None
             if response.status_code != 200:
                 error = _RemoteTranscriptionResponseError(
                     code="http",
@@ -390,20 +403,13 @@ class OpenAITranscriptionAdapter:
                 provider_cost_micro=None if cost is None else round(cost * 1_000_000),
             )
 
-        try:
-            resp = await execute_purchase(
-                request,
-                policy=policy_for_context(ctx),
-                dispatch=dispatch_for_context(ctx),
-                invoke=invoke,
-                observe=observe,
-            )
-        except (httpx.HTTPError, OSError) as error:
-            raise RuntimeError(
-                _safe_remote_exception(
-                    "remote transcription transport error: ", error, key
-                )
-            ) from None
+        resp = await execute_purchase(
+            request,
+            policy=policy_for_context(ctx),
+            dispatch=dispatch_for_context(ctx),
+            invoke=invoke,
+            observe=observe,
+        )
         # Accounting owns the returned response before transcript validation or
         # publication, including when cancellation happened during the request.
         try:

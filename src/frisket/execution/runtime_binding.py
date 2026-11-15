@@ -160,6 +160,7 @@ ZERO_TARIFF_TRANSPORTS = frozenset(
         # about who owns the compute, not about which capability is asking.
         "sidecar.convert",
         "sidecar.classify",
+        "sidecar.ner",
     }
 )
 _TRANSPORT_PROVIDER_KIND = {
@@ -168,6 +169,7 @@ _TRANSPORT_PROVIDER_KIND = {
     "sidecar.ocr": "local_http",
     "sidecar.convert": "local_http",
     "sidecar.classify": "local_http",
+    "sidecar.ner": "local_http",
     "cloudflare.clef": "platform_api",
     "openai.decisions": "platform_api",
     "remote": "platform_api",

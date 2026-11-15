@@ -125,7 +125,7 @@ def _png():
     return stream.getvalue()
 
 
-def test_typed_download_confirmation_identity_and_stale_replay(tmp_path, monkeypatch):
+def test_typed_free_download_identity_and_stale_replay(tmp_path, monkeypatch):
     from frisket.ops import ytdlp
 
     project, sheet_id, _ = _seed_youtube_project(tmp_path)
@@ -140,20 +140,9 @@ def test_typed_download_confirmation_identity_and_stale_replay(tmp_path, monkeyp
     try:
         action = _youtube_action(sheet_id=sheet_id)
         router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        quote = run_action_spec(project, action, project_id=PROJECT_ID, router=router)
-        assert quote.status == "needs_confirmation"
-        assert calls == []
-        wrong = run_action_spec(
-            project,
-            {**action, "confirmation": "0" * 64},
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert wrong.status == "needs_confirmation"
-        assert calls == []
-        result = run_action_with_confirmation(
-            project, action, project_id=PROJECT_ID, router=router
-        )
+        # Free downloads do not require approval, even at zero preapproval.
+        monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+        result = run_action_spec(project, action, project_id=PROJECT_ID, router=router)
         assert result.status == "completed", result.errors
         assert len(calls) == 2
         replay = run_action_with_confirmation(

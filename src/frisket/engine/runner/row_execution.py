@@ -206,6 +206,34 @@ async def _execute_row(
         recorded = getattr(error, "accounting", None)
         paid = list(getattr(error, "wire_calls", ()) or ())
         if not paid:
+            observation = getattr(error, "observation", None)
+            purchase = getattr(error, "purchase_request", None)
+            if recorded is None and observation is not None and purchase is not None:
+                from frisket.ai.models.metadata import ModelCallMeta
+
+                expense = observation.provider_cost_micro
+                cost = None if expense is None else expense / 1_000_000
+                fact = ModelCallMeta.provider_call(
+                    capability=purchase.capability,
+                    engine=purchase.engine,
+                    provider=purchase.provider,
+                    provider_kind="local_http"
+                    if purchase.provider == "frisket-models"
+                    else "platform_api",
+                    credential_source=purchase.credential_source,
+                    provider_reported_cost_usd=cost,
+                    provider_cost_usd=cost,
+                    units=observation.usage,
+                    cost_source="provider_reported" if cost is not None else "unknown",
+                    duration_ms=None,
+                ).as_dict()
+                admission = routed_admission_in_scope(ctx.extras)
+                if admission is not None:
+                    fact = bind_fact_to_route(admission.route, fact)
+                recorded = {"model_calls": [fact], "cost": cost}
+                # The same exception may cross preview/row/agent consumers.
+                # Mint this fact once rather than charging it under new IDs.
+                error.accounting = recorded
             return recorded
         raw = wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
         return merge_accounting_meta(recorded, raw)
@@ -378,6 +406,12 @@ async def _execute_row(
     except asyncio.CancelledError as exc:
         persist_trace(error="cancelled: row execution cancelled")
         accounting = returned_error_accounting(exc)
+        if ctx.extras.get("preview"):
+            if accounting is not None:
+                exc.accounting = accounting
+            # The preview owner retains usage and propagates cancellation;
+            # durable runs instead return a non-publishing accounting row.
+            raise
         if accounting is None or not field_names:
             raise
         returned = {
@@ -406,9 +440,11 @@ async def _execute_row(
         raise
     except PurchaseRecordingError as e:
         persist_trace(
+            data=e.provider_result,
+            meta=returned_error_accounting(e),
             error=safe_error(
                 "external_effect_reconciliation_required", e, max_chars=500
-            ).text
+            ).text,
         )
         retain_returned_before_halt(e)
         raise RecipeInvocationHalt(

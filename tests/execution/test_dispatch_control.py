@@ -107,7 +107,10 @@ async def test_return_after_cancel_retains_usage_and_response(owned):
         router._client = client
         result = await router.for_execution(control).complete(request())
     assert result.content == "done"
-    assert policy.responses == [result]
+    assert len(policy.responses) == 1
+    assert policy.responses[0]["content"] == result.content
+    assert policy.responses[0]["tokens_in"] == result.tokens_in
+    assert policy.responses[0]["tokens_out"] == result.tokens_out
     assert result.tokens_out == 2
 
 
@@ -219,6 +222,7 @@ async def test_sidecar_checks_before_retry_but_preserves_successful_return(
         operation = sidecar_post(
             SimpleNamespace(http=client),
             "/ocr",
+            data={"engine": "dots.mocr"},
             connection=SimpleNamespace(
                 base_url="https://test",
                 token="test",

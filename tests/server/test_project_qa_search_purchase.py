@@ -7,7 +7,11 @@ import pytest
 
 from frisket.ai.research.search import SearchService
 from frisket.execution.dispatch_control import STANDALONE, TransientDispatch
-from frisket.execution.purchases import PurchaseAdmission, PurchasePolicyRequired
+from frisket.execution.purchases import (
+    PurchaseAdmission,
+    PurchasePolicyRequired,
+    PurchaseRecordingError,
+)
 from frisket.server.services.project_qa_runner import _search_with_purchase
 
 
@@ -16,6 +20,7 @@ class RecordingPolicy:
         self.fail_record = fail_record
         self.admissions = []
         self.observations = []
+        self.failures = []
 
     def admit_purchase(self, request):
         self.admissions.append(request)
@@ -27,7 +32,7 @@ class RecordingPolicy:
             raise RuntimeError("private accounting failure details")
 
     def fail_purchase(self, request, admission, error):
-        pytest.fail("A known returned search must not be recorded as failed")
+        self.failures.append((request, admission, error))
 
 
 @pytest.mark.asyncio
@@ -62,11 +67,13 @@ async def test_search_cancellation_stops_new_work_but_keeps_returned_usage(cance
             with pytest.raises(asyncio.CancelledError):
                 await operation
             assert calls == policy.admissions == policy.observations == []
+            assert policy.failures == []
         else:
             result = await operation
             assert result.usage.provider_cost_usd == 0.007
             assert len(calls) == len(policy.admissions) == len(policy.observations) == 1
             assert policy.observations[0].provider_cost_micro == 7000
+            assert policy.failures == []
 
 
 @pytest.mark.asyncio
@@ -95,6 +102,14 @@ async def test_search_accounting_failure_retains_result_without_retry(caplog):
         )
     assert result.usage.provider_cost_usd == 0.007
     assert len(calls) == len(policy.admissions) == len(policy.observations) == 1
+    assert len(policy.failures) == 1
+    request, admission, error = policy.failures[0]
+    assert request is policy.admissions[0]
+    assert admission.operation_id == "operation-test"
+    assert isinstance(error, PurchaseRecordingError)
+    assert error.provider_result is result
+    assert error.observation is policy.observations[0]
+    assert error.observation.provider_cost_micro == 7000
     assert "purchase accounting could not be recorded" in caplog.text
     assert "private search query" not in caplog.text
     assert "private accounting failure details" not in caplog.text

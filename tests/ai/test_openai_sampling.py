@@ -1,6 +1,7 @@
 """Reasoning-model sampling through desktop and hosted router construction."""
 
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from tests.execution_composition_helpers import RecordingPurchasePolicy
 
 import asyncio
 import json
@@ -49,7 +50,7 @@ def test_router_omits_custom_temperature_for_reasoning_models(
         if credentials == "platform_key":
             # Standalone hosted worker construction uses environment keys.
             router = ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY,
+                model_call_policy=RecordingPurchasePolicy(),
                 env_key_source="platform_key",
                 max_retries=0,
             )

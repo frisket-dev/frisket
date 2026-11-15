@@ -206,7 +206,7 @@ def test_sidecar_post_uses_route_connection_timeout_when_caller_omits_it():
         sidecar_post(
             OpContext(http=FakeHttp()),
             "/ner",
-            json={"texts": ["hello"]},
+            json={"engine": "gliner", "texts": ["hello"]},
             connection=connection,
             dispatch=STANDALONE,
         )
@@ -285,7 +285,7 @@ def test_sidecar_post_route_connection_missing_material_fails_loudly():
             sidecar_post(
                 ctx,
                 "/ocr",
-                data={},
+                data={"engine": "dots.mocr"},
                 connection=ConnectionConfig(token="t"),
                 dispatch=STANDALONE,
             )

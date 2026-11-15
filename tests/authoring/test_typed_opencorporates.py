@@ -83,6 +83,45 @@ def test_opencorporates_http_uses_purchase_owner(installed, monkeypatch, scenari
     assert len(admitted) == (2 if scenario == "retry" else 1)
 
 
+@pytest.mark.parametrize("error_type", [httpx.ConnectError, httpx.ReadTimeout])
+def test_opencorporates_transport_failure_keeps_purchase_uncertainty(
+    installed, monkeypatch, error_type
+):
+    from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+    from frisket.ops.integrations.hosted_error import HostedEngineError
+
+    _, project, project_id, sheet, _, calls, responses = installed
+    failures = []
+
+    class Policy:
+        admit_purchase = LOCAL_PURCHASE_POLICY.admit_purchase
+
+        def record_purchase(self, *args):
+            pytest.fail("A lost response is not known returned usage")
+
+        def fail_purchase(self, purchase, admission, error):
+            failures.append(error)
+
+    monkeypatch.setattr(
+        opencorporates_read, "policy_for_context", lambda _ctx: Policy()
+    )
+    responses.append(error_type("transport failed"))
+    body, _ = confirm(project, project_id, request(sheet))
+    result = run_action_spec(project, body, project_id=project_id)
+    assert result.status == "failed"
+    assert len(calls) == len(failures) == 1
+    assert isinstance(failures[0], HostedEngineError)
+    assert failures[0].post_egress_ambiguous is (error_type is httpx.ReadTimeout)
+    if error_type is httpx.ReadTimeout:
+        assert result.errors[0].code == "external_effect_reconciliation_required"
+    else:
+        assert result.errors[0].code != "external_effect_reconciliation_required"
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt.provider_use == []
+    assert run_action_spec(project, body, project_id=project_id) == result
+    assert len(calls) == 1
+
+
 @pytest.fixture
 def installed(tmp_path, monkeypatch):
     shipped = (
@@ -157,7 +196,10 @@ def installed(tmp_path, monkeypatch):
             calls.append(request)
             assert request.headers["X-API-TOKEN"] == "test-token"
             if responses:
-                return responses.pop(0)
+                response = responses.pop(0)
+                if isinstance(response, Exception):
+                    raise response
+                return response
             if request.method == "POST":
                 return httpx.Response(
                     200,

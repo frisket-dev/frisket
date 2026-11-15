@@ -206,3 +206,47 @@ def test_router_requires_composition_to_choose_policy():
 
     with pytest.raises(TypeError, match="model_call_policy"):
         ModelRouter(use_env_keys=False)
+
+
+@pytest.mark.parametrize("sync", [False, True])
+def test_one_failed_invocation_records_one_observation_and_retains_it_on_write_error(
+    sync,
+):
+    from frisket.execution.dispatch_control import STANDALONE
+
+    original = ValueError("unusable provider result")
+    observation = PurchaseObservation({"returned": True}, {"tokens_in": 17}, 42)
+    recorded, failures = [], []
+
+    def record(request, admission, value):
+        recorded.append(value)
+        raise RuntimeError("accounting temporarily unavailable")
+
+    policy = SimpleNamespace(
+        admit_purchase=lambda request: PurchaseAdmission("metered", "p1"),
+        record_purchase=record,
+        fail_purchase=lambda request, admission, error: failures.append(error),
+    )
+
+    def invoke():
+        raise original
+
+    async def async_invoke():
+        return invoke()
+
+    request = PurchaseRequest("provider", "llm.complete", "model", "platform_key", {})
+    kwargs = dict(
+        policy=policy,
+        dispatch=STANDALONE,
+        observe=lambda result: pytest.fail("No usable result"),
+        observe_error=lambda error: observation,
+    )
+    with pytest.raises(ValueError) as caught:
+        if sync:
+            execute_purchase_sync(request, invoke=invoke, **kwargs)
+        else:
+            asyncio.run(execute_purchase(request, invoke=async_invoke, **kwargs))
+    assert caught.value is original
+    assert recorded == [observation]
+    assert failures == [original]
+    assert failures[0].observation is observation
