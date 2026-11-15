@@ -279,6 +279,11 @@ def _sheet_row_scope_plan(
 ) -> SheetRowScopePlan:
     """Build one shared row-scope plan, optionally joining live values once."""
 
+    from frisket.engine.store.current_read_sql import (
+        current_heads_sql,
+        current_values_sql,
+    )
+
     cols = project.columns(sheet_id)
     columns_by_name = {c["name"]: c for c in cols}
     columns_by_id = {
@@ -335,7 +340,9 @@ def _sheet_row_scope_plan(
             )
             join = "JOIN" if required else "LEFT JOIN"
             numeric = column_id in required_numeric_columns
-            relation = "effective_current_cells" if numeric else "current_cell_values"
+            relation = (current_heads_sql if numeric else current_values_sql)(
+                project.db, [column_id], row_ids
+            )
             numeric_scope = (
                 f" AND {alias}.validity='valid' "
                 f"AND {alias}.inline_value_kind IN ('integer','real')"
@@ -358,7 +365,12 @@ def _sheet_row_scope_plan(
     ) -> tuple[str, list[Any]]:
         if not join_live_values:
             return sheet_live_value_sql(
-                row_alias, column, preserve_invalid=preserve_invalid
+                row_alias,
+                column,
+                preserve_invalid=preserve_invalid,
+                values_relation=current_values_sql(
+                    project.db, [int(column["id"])], row_ids
+                ),
             )
         alias = scope_live_alias(row_alias, column)
         if int(column["id"]) in required_numeric_columns:
@@ -374,7 +386,13 @@ def _sheet_row_scope_plan(
 
     def scope_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
         if not join_live_values:
-            return sheet_live_value_kind_sql(row_alias, column)
+            return sheet_live_value_kind_sql(
+                row_alias,
+                column,
+                values_relation=current_values_sql(
+                    project.db, [int(column["id"])], row_ids
+                ),
+            )
         alias = scope_live_alias(row_alias, column)
         field = (
             "inline_value_kind"
@@ -409,7 +427,12 @@ def _sheet_row_scope_plan(
         if isinstance(filter_item, GroupLocatorPredicate):
             column = columns_by_id[filter_item.column_id]
             predicate_sql, predicate_params = _group_locator_where(
-                "r", column, filter_item
+                "r",
+                column,
+                filter_item,
+                values_relation=current_values_sql(
+                    project.db, [int(column["id"])], row_ids
+                ),
             )
             where.append(predicate_sql)
             where_params.extend(predicate_params)
@@ -431,7 +454,7 @@ def _sheet_row_scope_plan(
                 outcome_params = [value]
             if is_generation_managed(column):
                 where.append(
-                    "EXISTS (SELECT 1 FROM effective_current_cells head "
+                    f"EXISTS (SELECT 1 FROM {current_heads_sql(project.db, [int(column['id'])], row_ids)} head "
                     "JOIN results res ON res.run_id = head.origin_run_id "
                     "AND res.row_id = head.row_id "
                     "AND res.column_id = head.column_id "
@@ -858,6 +881,8 @@ def count_sheet_filter_values(
     reference_date: date | None = None,
 ) -> tuple[list[tuple[str, Any, int]], bool]:
     """Exact filter-scoped value groups, capped only at the response edge."""
+    from frisket.engine.store.current_read_sql import current_values_sql
+
     column = next(
         (c for c in project.columns(sheet_id) if int(c["id"]) == column_id), None
     )
@@ -874,7 +899,7 @@ def count_sheet_filter_values(
     rows = project.db.execute(
         "WITH count_values AS (SELECT "
         "live.value, live.value_kind, live.validity "
-        f"FROM {plan.filter_from_sql} LEFT JOIN current_cell_values live "
+        f"FROM {plan.filter_from_sql} LEFT JOIN {current_values_sql(project.db, [column_id], row_ids)} live "
         "ON live.column_id=? AND live.row_id=r.id "
         f"WHERE {plan.where_sql}), "
         "count_groups AS (SELECT CASE "
@@ -938,6 +963,7 @@ def sheet_live_value_sql(
     column: Any,
     *,
     preserve_invalid: bool = False,
+    values_relation: str = "current_cell_values",
 ) -> tuple[str, list[Any]]:
     """Lookup the same current value used by ordinary cell readers."""
     value = (
@@ -947,16 +973,18 @@ def sheet_live_value_sql(
     )
     return (
         f"(SELECT {value} "
-        "FROM current_cell_values live "
+        f"FROM {values_relation} live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
         [column["id"]],
     )
 
 
-def sheet_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
+def sheet_live_value_kind_sql(
+    row_alias: str, column: Any, *, values_relation: str = "current_cell_values"
+) -> tuple[str, list[Any]]:
     """Return the semantic kind paired with :func:`sheet_live_value_sql`."""
     return (
-        "(SELECT live.value_kind FROM current_cell_values live "
+        f"(SELECT live.value_kind FROM {values_relation} live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
         [column["id"]],
     )
@@ -1009,13 +1037,17 @@ def _parse_group_locator_predicate(column: Any, raw: Any) -> GroupLocatorPredica
 
 
 def _group_locator_where(
-    row_alias: str, column: Any, predicate: GroupLocatorPredicate
+    row_alias: str,
+    column: Any,
+    predicate: GroupLocatorPredicate,
+    *,
+    values_relation: str = "current_cell_values",
 ) -> tuple[str, list[Any]]:
     value_sql, value_params = sheet_live_value_sql(
-        row_alias, column, preserve_invalid=True
+        row_alias, column, preserve_invalid=True, values_relation=values_relation
     )
     validity_sql = (
-        "(SELECT live.validity FROM current_cell_values live "
+        f"(SELECT live.validity FROM {values_relation} live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)"
     )
     validity_params = [column["id"]]
@@ -1026,7 +1058,9 @@ def _group_locator_where(
         )
     if predicate.kind == "value":
         value = json.loads(str(predicate.value_json))
-        kind_sql, kind_params = sheet_live_value_kind_sql(row_alias, column)
+        kind_sql, kind_params = sheet_live_value_kind_sql(
+            row_alias, column, values_relation=values_relation
+        )
         if column["type"] == "boolean":
             accepted_kind = f"{kind_sql}='boolean'"
             comparison = int(bool(value))
@@ -1053,7 +1087,9 @@ def _group_locator_where(
             f"{validity_sql}='valid' AND {accepted_kind} AND {value_sql}=?",
             [*validity_params, *kind_params, *value_params, comparison],
         )
-    kind_sql, kind_params = sheet_live_value_kind_sql(row_alias, column)
+    kind_sql, kind_params = sheet_live_value_kind_sql(
+        row_alias, column, values_relation=values_relation
+    )
     scalar = value_sql
     if predicate.kind == "invalid":
         if column["type"] != "date":

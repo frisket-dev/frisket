@@ -74,7 +74,12 @@ def _seek(
 
 
 def _descriptor_sql(
-    source: Any, title: Any | None, *, row_id_sql: str = "?", title_only: bool = False
+    source: Any,
+    title: Any | None,
+    *,
+    row_id_sql: str = "?",
+    title_only: bool = False,
+    values_relation: str = "current_cell_values",
 ) -> tuple[str, list[Any]]:
     # Values stay inside SQLite. Only capped labels and scalar metadata leave it.
     media = source["type"] in {"file", "image", "audio", "video"}
@@ -88,7 +93,7 @@ def _descriptor_sql(
         "CASE WHEN s.validity='valid' THEN s.value_kind END" if read_source else "NULL"
     )
     source_join = (
-        "LEFT JOIN current_cell_values s ON s.row_id=r.id AND s.column_id=?"
+        f"LEFT JOIN {values_relation} s ON s.row_id=r.id AND s.column_id=?"
         if read_source
         else ""
     )
@@ -113,7 +118,7 @@ def _descriptor_sql(
             SELECT r.id AS row_id,r.position,{source_value} AS sv,
                 {source_kind} AS sk,{title_value} AS tv,{title_kind} AS tk
             FROM rows r {source_join}
-            LEFT JOIN current_cell_values t ON t.row_id=r.id AND t.column_id=?
+            LEFT JOIN {values_relation} t ON t.row_id=r.id AND t.column_id=?
             WHERE r.id={row_id_sql}
         )
         SELECT *, CASE WHEN raw_title IS NOT NULL AND trim(CAST(raw_title AS TEXT))<>''
@@ -241,7 +246,11 @@ def _document_browse(
     } and source_column_id not in annotated_text_column_ids(project, sheet_id):
         raise ValueError("column is not a document source")
     title = by_id.get(title_column_id)
-    descriptor, descriptor_params = _descriptor_sql(source, title)
+    from frisket.engine.store.current_read_sql import current_values_sql
+
+    descriptor_columns = [int(source["id"])] + (
+        [int(title["id"])] if title is not None else []
+    )
     terms = list(scope_plan.order_terms)
     order_params = [value for term in terms for value in term.params]
     ctes: list[str] = []
@@ -271,7 +280,13 @@ def _document_browse(
         membership_params = []
         ordered_source += " JOIN ranked z ON z.id=r.id"
         title_query, title_params = _descriptor_sql(
-            source, title, row_id_sql="outer_row.id", title_only=True
+            source,
+            title,
+            row_id_sql="outer_row.id",
+            title_only=True,
+            values_relation=current_values_sql(
+                project.db, descriptor_columns, scope_row_ids
+            ),
         )
         where = f"EXISTS (SELECT 1 FROM rows outer_row WHERE outer_row.id=r.id AND frisket_document_contains(COALESCE((SELECT display_title FROM ({title_query})),'Row '||z.ordinal),?))"
         where_params = [*title_params, q]
@@ -392,7 +407,7 @@ def _document_browse(
         placeholders = ",".join("?" for _ in row_ids)
         for provenance in project.db.execute(
             "SELECT link.row_id, span.page_start, span.page_end "
-            "FROM current_cell_values cell JOIN evidence_links link "
+            f"FROM {current_values_sql(project.db, [int(source['id'])], row_ids)} cell JOIN evidence_links link "
             "ON link.row_id=cell.row_id AND link.column_id=cell.column_id "
             "JOIN evidence_link_spans member ON member.link_id=link.id "
             "JOIN source_spans span ON span.id=member.span_id "
@@ -418,6 +433,13 @@ def _document_browse(
                     "end": int(provenance["page_end"]),
                 },
             )
+    descriptor, descriptor_params = _descriptor_sql(
+        source,
+        title,
+        values_relation=current_values_sql(
+            project.db, descriptor_columns, [int(row["id"]) for row in rows]
+        ),
+    )
     items = []
     for index, row in enumerate(rows):
         detail_params: list[Any] | dict[str, Any]

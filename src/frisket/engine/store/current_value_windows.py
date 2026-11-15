@@ -182,9 +182,13 @@ authority AS NOT MATERIALIZED (
 """
 
 
-def _authority_cte(row_ids: list[int]) -> str:
+def _authority_cte(db: sqlite3.Connection, column_id: int, row_ids: list[int]) -> str:
+    from .current_read_sql import current_heads_sql
+
     placeholders = ",".join(f":row_{index}" for index in range(len(row_ids)))
-    return _AUTHORITY_CTE.format(row_ids=placeholders)
+    return _AUTHORITY_CTE.replace(
+        "effective_current_cells", current_heads_sql(db, [column_id], row_ids)
+    ).format(row_ids=placeholders)
 
 
 def _params(
@@ -557,7 +561,7 @@ def read_current_column(
             continue
         sql = (
             "WITH "
-            + _authority_cte(chunk)
+            + _authority_cte(db, column_id, chunk)
             + " SELECT row_id,retrieval_revision,origin_kind,origin_op_id,"
             "origin_run_id,base_producer_id,validity,stored_kind,outcome,"
             "copied_run_id,copied_row_id,copied_column_id,"
@@ -679,7 +683,7 @@ def current_text_metadata(
     params = _params(sheet_id, column_id, [row_id], include_hidden=include_hidden)
     row = db.execute(
         "WITH "
-        + _authority_cte([row_id])
+        + _authority_cte(db, column_id, [row_id])
         + " SELECT stored_kind,CASE WHEN stored_kind='prepared_content_ref' "
         "THEN stored_value END AS prepared_ref_id,retrieval_revision,"
         "CASE WHEN origin_kind='source_cell' THEN (SELECT source.rowid FROM cells AS source "
@@ -718,7 +722,7 @@ def current_text_metadata(
             )
     sizes = db.execute(
         "WITH "
-        + _authority_cte([row_id])
+        + _authority_cte(db, column_id, [row_id])
         + " SELECT length(CAST(stored_value AS TEXT)),"
         "length(CAST(stored_value AS BLOB)),instr(stored_value,char(0))>0 FROM authority",
         params,
@@ -731,7 +735,7 @@ def current_text_metadata(
             for chunk in _blob_text_chunks(
                 db,
                 "WITH "
-                + _authority_cte([row_id])
+                + _authority_cte(db, column_id, [row_id])
                 + " SELECT stored_value AS value FROM authority",
                 params,
                 byte_size,
@@ -783,7 +787,7 @@ def read_current_text(
     return _sql_text_slice(
         db,
         "WITH "
-        + _authority_cte([row_id])
+        + _authority_cte(db, column_id, [row_id])
         + " SELECT CAST(stored_value AS TEXT) AS value FROM authority",
         _params(sheet_id, column_id, [row_id], include_hidden=include_hidden),
         start=start,
@@ -812,7 +816,7 @@ def locate_current_text(
     if metadata.prepared_ref_id is None and not metadata.has_nul:
         row = db.execute(
             "WITH "
-            + _authority_cte([row_id])
+            + _authority_cte(db, column_id, [row_id])
             + " SELECT instr(CAST(stored_value AS TEXT),:literal)-1 FROM authority",
             {**_params(sheet_id, column_id, [row_id]), "literal": literal},
         ).fetchone()
@@ -923,7 +927,7 @@ def iter_current_value(
         yield from _blob_text_chunks(
             db,
             "WITH "
-            + _authority_cte([row_id])
+            + _authority_cte(db, column_id, [row_id])
             + " SELECT CAST(stored_value AS TEXT) AS value FROM authority",
             _params(sheet_id, column_id, [row_id]),
             metadata.total_bytes,

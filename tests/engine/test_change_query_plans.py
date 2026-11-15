@@ -2,7 +2,7 @@
 
 from frisket.engine.store import Project
 from frisket.engine.store.current_value_windows import _authority_cte, _params
-from frisket.engine.store.cell_projection import repair_current_cells
+from frisket.engine.store.cell_projection import invalidate_region, repair_current_cells
 from frisket.querysets import resolve_sheet_filter_rows
 
 
@@ -27,11 +27,18 @@ def test_bounded_current_read_query_plan(tmp_path):
         rows = project.add_rows(
             sheet, [{"value": i} for i in range(700)], {"value": column}
         )
+        # Exercise an actual deferred invalidation independently of whether
+        # fresh-source insertion can initialize its new heads cheaply.
+        project.db.execute("BEGIN")
+        invalidate_region(project.db, column, rows[0], rows[-1])
+        project.db.commit()
         # This uses the actual CTE used by bounded grid/window reads.
         _assert_point_scope(
             _plan(
                 project.db,
-                "WITH " + _authority_cte(rows[:1]) + " SELECT * FROM authority",
+                "WITH "
+                + _authority_cte(project.db, column, rows[:1])
+                + " SELECT * FROM authority",
                 _params(sheet, column, rows[:1]),
             )
         )
