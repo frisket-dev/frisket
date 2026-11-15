@@ -41,7 +41,7 @@ from frisket.engine.store.import_intake import (
     write_import_header,
 )
 from frisket.engine.store.import_inventory import ImportInventory
-from frisket.engine.store.import_sessions import ImportSessionStore
+from frisket.engine.store.import_sessions import ImportSessionConflict, ImportSessionStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.engine.store.pdf_split import PdfSplitWriter
 from frisket.engine.store.pdf_split_intake import (
@@ -177,9 +177,16 @@ class ImportSessionService:
         from frisket.engine.executor.table_import_admission import admit_table_import
 
         project = self._workspace.get(project_id)
-        admit_table_import(project, project_id, frozen, max_rows=max_rows)
+        try:
+            admit_table_import(project, project_id, frozen, max_rows=max_rows)
+        except ImportSessionConflict as exc:
+            raise ImportBulkRouteError(409, str(exc)) from exc
         directory = frozen.intake_dir
         header = read_import_header(directory)
+
+        session = ImportSessionStore(project).get(frozen.import_ref)
+        if session is not None and session.state in {"completed", "kept"}:
+            return self._status(project, frozen.import_ref, directory, header)
         await self._enqueue_table(project_id, frozen.import_ref)
         return self._status(project, frozen.import_ref, directory, header)
 
@@ -1005,6 +1012,13 @@ class ImportSessionService:
                     header.project_id, receipt_id
                 )
             )
+        sheet = (
+            None
+            if session is None or session.sheet_id is None
+            else project.db.execute(
+                "SELECT name FROM sheets WHERE id=?", (session.sheet_id,)
+            ).fetchone()
+        )
         return ImportSessionStatus(
             import_ref=ref,
             intake_kind=header.intake_kind,
@@ -1016,7 +1030,9 @@ class ImportSessionService:
             committed_bytes=0 if session is None else session.committed_bytes,
             sheet_id=None if session is None else session.sheet_id,
             sheet_name=(
-                table_frozen.plan.sheet_name
+                str(sheet["name"])
+                if sheet is not None
+                else table_frozen.plan.sheet_name
                 if table_frozen is not None
                 else str(header.envelope["action"].get("sheet_name") or "files")
             ),

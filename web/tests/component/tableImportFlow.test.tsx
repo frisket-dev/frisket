@@ -19,6 +19,15 @@ vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
 afterEach(() => { document.body.innerHTML = ''; telemetry.mockClear(); });
 
 
+function destination(name: string): NonNullable<TableImportDraft['destination']> {
+  return {
+    configuration: { kind: 'new', sheet_name: name },
+    mappings: [],
+    dedup: { enabled: false, key_source_index: null },
+    comparison: { state: 'ready', matched_columns: 0, new_columns: 1, type_clashes: 0, duplicate_rows: 0, import_rows: 2, complete: true, error: null },
+  };
+}
+
 function mockApi(initial = draft()) {
   const updateDestination = vi.fn(async (_project: string, _id: string, _revision: number, destination: { kind: string }, mappings?: TableImportMappingRequest[]) => draft({
     revision: 4,
@@ -96,6 +105,25 @@ describe('TableImportFlow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Import 2 rows' }));
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(41));
     expect(importSessionSnapshot()).toBeGreaterThan(progressVersion);
+  });
+
+  it.each(['file', 'paste'] as const)('keeps the server-suggested name for a new %s import', async (inputKind) => {
+    const name = inputKind === 'paste' ? 'Pasted rows-2' : 'contributions-2';
+    const initial = draft({ source: { ...draft().source, input_kind: inputKind }, destination: destination(name) });
+    const api = mockApi(initial);
+    renderFlow(api, inputKind === 'paste' ? { initialFile: null } : {});
+    if (inputKind === 'paste') {
+      fireEvent.click(screen.getByTestId('table-import-source-paste'));
+      fireEvent.change(screen.getByRole('textbox', { name: 'Paste rows' }), { target: { value: 'name\nAda' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Check rows →' }));
+    }
+    fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    expect(await screen.findByRole('textbox', { name: 'Sheet name' })).toHaveValue(name);
+    expect(api.updateDestination).toHaveBeenCalledWith(
+      'project-1', initial.draft_id, initial.revision,
+      { kind: 'new', sheet_name: name }, expect.any(Array), expect.any(Object),
+    );
   });
 
   it('does not commit a previously saved destination when the required final save fails', async () => {
@@ -212,6 +240,7 @@ describe('TableImportFlow', () => {
   it('keeps a locked workbook selected and disables both forward actions until a password is entered', async () => {
     const locked = draft({ state: 'password_required', preview: null, columns: [], can_commit: false, commit_blocked_reason: 'password_required' });
     const api = mockApi(locked);
+    vi.mocked(api.unlock).mockResolvedValue(draft({ destination: destination('contributions-2') }));
     renderFlow(api);
 
     expect(await screen.findByRole('heading', { name: 'This workbook is password-protected' })).toBeVisible();
@@ -221,6 +250,10 @@ describe('TableImportFlow', () => {
     expect(screen.getByRole('button', { name: 'Check rows →' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'secret' } });
     expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Columns →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    expect(await screen.findByRole('textbox', { name: 'Sheet name' })).toHaveValue('contributions-2');
   });
 
   it('sends an extensionless file to server content inspection as soon as it is chosen', async () => {
@@ -332,6 +365,7 @@ describe('TableImportFlow', () => {
     });
     const next = draft({
       draft_id: 'rerun-draft-8', id: 'rerun-draft-8', state: 'ready',
+      destination: destination('workbook-2'),
       source: retained.source,
       settings: retained.settings,
     });
@@ -345,6 +379,9 @@ describe('TableImportFlow', () => {
     expect(api.get).toHaveBeenCalledWith('project-1', 'import-ref-7', expect.anything());
     expect(api.rerun).toHaveBeenCalledWith('project-1', 'import-ref-7', 'January', expect.anything());
     expect(screen.getByRole('combobox', { name: /Sheet/ })).toHaveValue('January');
+    fireEvent.click(screen.getByRole('button', { name: 'Columns →' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue →' }));
+    expect(await screen.findByRole('textbox', { name: 'Sheet name' })).toHaveValue('workbook-2');
   });
 
   it('restarts a retained workbook rerun after Strict Mode cleanup and ignores the stale read', async () => {

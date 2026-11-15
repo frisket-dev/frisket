@@ -33,6 +33,7 @@ from frisket.engine.store.import_sessions import (
     ImportSessionStore,
 )
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.sheet_names import available_sheet_name
 
 
 @dataclass(frozen=True)
@@ -208,6 +209,7 @@ class StreamingSheetWriter:
         receipt_id: str,
         source_ref: Mapping[str, Any],
         operation_kind: str | None = None,
+        allocate_sheet_name: bool = False,
     ) -> Self:
         """Create one visible, resumable sheet under a running receipt."""
 
@@ -250,6 +252,8 @@ class StreamingSheetWriter:
                         idempotency_key=idempotency_key,
                         params_hash=duplicate.params_hash,
                     )
+            if allocate_sheet_name:
+                requested_name = available_sheet_name(db, requested_name)
             cursor = db.execute(
                 "INSERT INTO sheets (name,position,hidden) VALUES "
                 "(?,(SELECT COALESCE(MAX(position),0)+1 FROM sheets),0)",

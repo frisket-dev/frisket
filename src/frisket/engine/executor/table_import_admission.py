@@ -17,7 +17,10 @@ from frisket.engine.store.import_intake import (
     import_worker_lock,
     read_import_header,
 )
-from frisket.engine.store.import_sessions import ImportSessionStore
+from frisket.engine.store.import_sessions import (
+    ImportSessionConflict,
+    ImportSessionStore,
+)
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.engine.store.table_import_intake import (
@@ -35,6 +38,8 @@ def admit_table_import(
     max_rows: int | None = None,
     admitted_bound: Any | None = None,
 ) -> ActionJobEnvelope:
+    from frisket.engine.executor.map_rows_action import typed_request_hash
+
     directory = import_intake_dir(project.path, frozen.import_ref)
     if directory.resolve() != frozen.intake_dir.resolve():
         raise ValueError("frozen table intake belongs to another project")
@@ -146,14 +151,23 @@ def admit_table_import(
             and current.exact_rows > effective_max_rows
         ):
             raise ValueError("table import exceeds the configured row limit")
-        reserved = reserve_typed_action_job(project, project_id, bound)
+        if header.envelope:
+            reserved = ActionJobEnvelope.from_json(header.envelope)
+            if (
+                reserved.project_id != project_id
+                or reserved.action_kind != bound.request.action_id
+                or reserved.idempotency_key != bound.request.idempotency_key
+                or reserved.params_hash != typed_request_hash(bound)
+            ):
+                raise ValueError("table import reservation identity changed")
+        else:
+            reserved = reserve_typed_action_job(project, project_id, bound)
         if isinstance(reserved, ActionResult):
             # Generic RowsUpdater handlers can already own their ordinary
             # queued-action receipt when they begin staging in the worker.
             stored = ReceiptStore(project).find_by_idempotency_key(
                 bound.request.idempotency_key
             )
-            from frisket.engine.executor.map_rows_action import typed_request_hash
 
             if (
                 stored is None
@@ -175,6 +189,26 @@ def admit_table_import(
                 resolve_phase="worker",
             )
         envelope: ActionJobEnvelope = reserved
+        receipts = ReceiptStore(project)
+        stored = receipts.find_by_id(envelope.receipt_id)
+        if stored is None:
+            raise RuntimeError("table import reservation disappeared")
+        if (
+            stored.action_id != envelope.action_id
+            or stored.action_kind != envelope.action_kind
+            or stored.params_hash != envelope.params_hash
+            or stored.idempotency_key != envelope.idempotency_key
+        ):
+            raise ValueError("table import reservation identity changed")
+        session = ImportSessionStore(project).get(frozen.import_ref)
+        if session is not None and session.receipt_id != envelope.receipt_id:
+            raise ValueError("table import session identity changed")
+        if session is not None and session.state in {"completed", "kept"}:
+            return envelope
+        if header.cancel_requested or (
+            session is not None and session.state in {"cancelled", "removed"}
+        ):
+            raise ImportSessionConflict("This import was cancelled.")
         mark_table_committed(
             directory,
             expected_plan_hash=frozen.plan_hash,
@@ -182,10 +216,6 @@ def admit_table_import(
             destination_sheet_id=destination_sheet_id,
             max_rows=effective_max_rows,
         )
-        receipts = ReceiptStore(project)
-        stored = receipts.find_by_id(envelope.receipt_id)
-        if stored is None:
-            raise RuntimeError("table import reservation disappeared")
         if stored.status == "queued":
             receipts.update_body_status(
                 stored.parsed().model_copy(update={"status": "running"}),
@@ -211,7 +241,9 @@ def admit_table_import(
             }
             if destination_sheet_id is None:
                 StreamingSheetWriter.start_session(
-                    **common, sheet_name=frozen.plan.sheet_name
+                    **common,
+                    sheet_name=frozen.plan.sheet_name,
+                    allocate_sheet_name=True,
                 ).abort()
             else:
                 StreamingSheetWriter.start_append_session(

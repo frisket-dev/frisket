@@ -69,6 +69,12 @@ function sameDraft(current: TableImportDraft | null, next: TableImportDraft): bo
   return current === null || current.draft_id === next.draft_id;
 }
 
+function initialDestination(draft: TableImportDraft): TableImportDestinationConfig {
+  return draft.destination?.configuration ?? {
+    kind: 'new', sheet_name: tableImportDefaultSheetName(draft.source.filename, draft.source.input_kind),
+  };
+}
+
 function mappingsFor(
   draft: TableImportDraft,
   destination: TableImportDestinationConfig,
@@ -190,7 +196,7 @@ export function TableImportFlow({
       if (generation.current !== epoch || controller.signal.aborted) return;
       publish(next);
       if (source.kind === 'paste') setLargePasteConfirmed(source.confirmed);
-      setDestination({ kind: 'new', sheet_name: source.kind === 'paste' ? 'Pasted rows' : tableImportDefaultSheetName(next.source.filename, next.source.input_kind) });
+      setDestination(initialDestination(next));
       setStage(source.kind === 'file' && next.state === 'password_required' ? 'add' : 'rows');
     } catch (problem) {
       if (generation.current !== epoch || controller.signal.aborted) return;
@@ -248,7 +254,7 @@ export function TableImportFlow({
         const next = await api.rerun(projectId, initialRerunDraftId, worksheet, { signal: controller.signal });
         if (generation.current !== epoch || controller.signal.aborted) return;
         publish(next);
-        setDestination({ kind: 'new', sheet_name: tableImportDefaultSheetName(next.source.filename, next.source.input_kind) });
+        setDestination(initialDestination(next));
         setStage(next.state === 'password_required' ? 'add' : 'rows');
       } catch (problem) {
         if (generation.current === epoch && !controller.signal.aborted) reportError(problem);
@@ -350,7 +356,7 @@ export function TableImportFlow({
   const openImportStep = useCallback(async () => {
     const source = latestSnapshot.current;
     if (!source) return;
-    const defaultDestination: TableImportDestinationConfig = { kind: 'new', sheet_name: tableImportDefaultSheetName(source.source.filename, source.source.input_kind) };
+    const defaultDestination = initialDestination(source);
     const desired = destination.kind === 'new' && destination.sheet_name === 'Imported table' ? defaultDestination : destination;
     setDestination(desired);
     const saved = await saveDestination(desired);
@@ -365,6 +371,7 @@ export function TableImportFlow({
     try {
       const next = await api.unlock(projectId, source.draft_id, password);
       publish(next);
+      setDestination(initialDestination(next));
       setPassword('');
       setStage('rows');
     } catch (problem) { reportError(problem); }
