@@ -148,7 +148,7 @@ def _open_lock(db_path: Path) -> threading.Lock:
         return lock
 
 
-def open_bundle(project: Any) -> None:
+def open_bundle(project: Any, *, maintenance: bool = False) -> None:
     """Upgrade the known prior schema, fence, then reconcile policy rows."""
     with _open_lock(project.db_path):
         _migrate_receipt_attempts(project.db)
@@ -185,6 +185,11 @@ def open_bundle(project: Any) -> None:
         migrate_action_submissions(project.db)
         migrate_domain(project.db)
         require_current_schema(project.db, bundle_path=project.path)
+        if maintenance:
+            return
+        from .purge import require_no_pending_purge
+
+        require_no_pending_purge(project.db)
         _reconcile_open_time_policy(project)
         from frisket.retrieval.upgrade import prepare_retrieval_on_open
 

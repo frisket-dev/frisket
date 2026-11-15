@@ -229,6 +229,7 @@ class Project:
         bundle_path: str | Path,
         *,
         blob_store: ProjectBlobStore | None = None,
+        maintenance: bool = False,
     ):
         self.path = Path(bundle_path)
         self.db_path = self.path / "project.db"
@@ -244,7 +245,11 @@ class Project:
         self._connections_lock = threading.Lock()
         self._closed = False
         _ = self.db  # open the creating thread's connection eagerly
-        bundle_open.open_bundle(self)
+        try:
+            bundle_open.open_bundle(self, maintenance=maintenance)
+        except BaseException:
+            self.close()
+            raise
 
     @property
     def db(self) -> sqlite3.Connection:

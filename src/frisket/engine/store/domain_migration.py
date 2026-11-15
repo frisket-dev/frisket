@@ -125,7 +125,7 @@ def archive_history(db: sqlite3.Connection) -> None:
 
 
 # Pinned endpoint: later schema changes must extend this cutover explicitly.
-DOMAIN_TO_DIGEST = "frisket.schema.v1:4c227148137867a71f2da439dd609064"
+DOMAIN_TO_DIGEST = "frisket.schema.v1:dcb5327cd7de0357d88f54ee68f86465"
 
 
 def _execute_ddl(db: sqlite3.Connection, sql: str) -> None:
@@ -155,45 +155,70 @@ def _version_source_cells(db: sqlite3.Connection) -> None:
             "WHERE origin_kind='source_cell' AND base_producer_id IS NULL",
             (producer,),
         )
-    old_sql = db.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='cells'"
-    ).fetchone()[0]
-    sql, count = re.subn(
-        r"UNIQUE\s*\(\s*row_id\s*,\s*column_id\s*\)",
-        "UNIQUE (row_id, column_id, producer_id)",
-        old_sql,
-        flags=re.I,
+    _rebuild_table(db, "cells")
+
+
+def _rebuild_table(db: sqlite3.Connection, table: str) -> None:
+    """Rebuild one known cutover table, retaining IDs, indexes and triggers."""
+    from .schema import SCHEMA
+
+    if table not in {"cells", "sheets", "current_cells"}:
+        raise ValueError("Unknown domain table rebuild")
+    match = re.search(
+        r"CREATE TABLE IF NOT EXISTS " + table + r" \(.*?\n\);", SCHEMA, re.S
     )
-    if count != 1:
-        raise BundleSchemaMismatch("Unexpected source-cell layout; upgrade rolled back")
-    sql = re.sub(
-        r"^CREATE TABLE(?: IF NOT EXISTS)? cells", "CREATE TABLE domain_cells_new", sql
-    )
+    if match is None:
+        raise RuntimeError(f"Missing current table definition: {table}")
+    original_columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+    high_water = db.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name=?", (table,)
+    ).fetchone()
     objects = [
         row[0]
         for row in db.execute(
-            "SELECT sql FROM sqlite_master WHERE tbl_name='cells' "
-            "AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name"
+            "SELECT sql FROM sqlite_master WHERE tbl_name=? AND type IN ('index','trigger') "
+            "AND sql IS NOT NULL ORDER BY type,name",
+            (table,),
         )
     ]
-    db.execute(sql)
-    db.execute("INSERT INTO domain_cells_new SELECT * FROM cells")
-    db.execute("DROP TABLE cells")
-    db.execute("ALTER TABLE domain_cells_new RENAME TO cells")
+    replacement = f"domain_{table}_new"
+    db.execute(match.group().replace(f"IF NOT EXISTS {table}", replacement, 1))
+    columns = [
+        row[1]
+        for row in db.execute(f"PRAGMA table_info({replacement})")
+        if row[1] in original_columns
+    ]
+    names = ",".join('"' + column + '"' for column in columns)
+    db.execute(f"INSERT INTO {replacement}({names}) SELECT {names} FROM {table}")
+    db.execute(f"DROP TABLE {table}")
+    db.execute(f"ALTER TABLE {replacement} RENAME TO {table}")
     for statement in objects:
         db.execute(statement)
+    if high_water is not None:
+        db.execute(
+            "UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name=?",
+            (high_water[0], table),
+        )
 
 
 def migrate_domain(db: sqlite3.Connection) -> None:
     """Atomically upgrade the last pre-Change schema; never reset user data."""
     from .blob_retention_migration import migrate_blob_derivation_ownership
     from .change_schema import CHANGE_SCHEMA_SQL
+    from .column_descriptors import DESCRIPTOR_SCHEMA_SQL
+    from .structural_changes import STRUCTURAL_SCHEMA_SQL
+    from .copied_results import COPIED_RESULTS_SCHEMA_SQL
+    from .domain_alert_migration import migrate_alert_baselines
+    from .document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
     from .current_cells import register_current_cell_functions
     from .domain_document_text_migration import adopt_legacy_document_text
     from .domain_identity_migration import migrate_identity_high_water
     from .keyed_updates import KEYED_UPDATE_SCHEMA
+    from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
+    from .purge import PURGE_SCHEMA_SQL
     from .schema import (
         CURRENT_CELL_VALUES_SQL,
+        UNMODIFIED_CELL_VALUES_SQL,
         SCHEMA,
         SCHEMA_DIGEST,
         SCHEMA_DIGEST_META_KEY,
@@ -228,6 +253,10 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         adopt_legacy_document_text(db)
         _version_source_cells(db)
         capture_current_baseline(db)
+        _rebuild_table(db, "sheets")
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_visible_sheet_name ON sheets(name) WHERE hidden=0"
+        )
         retire_unfinished_work(db)
         db.execute("ALTER TABLE ops ADD COLUMN change_order INTEGER")
         db.execute(
@@ -239,11 +268,15 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         db.execute(
             "ALTER TABLE results ADD COLUMN published INTEGER NOT NULL DEFAULT 0 CHECK(published IN (0,1))"
         )
-        db.execute(
-            "ALTER TABLE current_cells ADD COLUMN outcome TEXT NOT NULL DEFAULT 'completed' CHECK(outcome IN ('completed','pending','failed','not_completed'))"
-        )
+        _rebuild_table(db, "current_cells")
+        _execute_ddl(db, COPIED_RESULTS_SCHEMA_SQL)
         _execute_ddl(db, CHANGE_SCHEMA_SQL)
+        _execute_ddl(db, DESCRIPTOR_SCHEMA_SQL)
+        _execute_ddl(db, STRUCTURAL_SCHEMA_SQL)
+        migrate_alert_baselines(db)
         _execute_ddl(db, KEYED_UPDATE_SCHEMA)
+        _execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
+        _execute_ddl(db, PURGE_SCHEMA_SQL)
         install_current_baseline(db)
         # Saved-but-unpublished checkpoints must not become visible.
         db.execute(
@@ -256,6 +289,9 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         db.execute("INSERT INTO meta(key,value) VALUES ('change_sequence','0')")
         db.execute("DROP VIEW current_cell_values")
         _execute_ddl(db, CURRENT_CELL_VALUES_SQL)
+        _execute_ddl(db, UNMODIFIED_CELL_VALUES_SQL)
+        db.execute("DROP VIEW current_document_text_selections")
+        _execute_ddl(db, DOCUMENT_TEXT_SELECTION_VIEW_SQL)
         for name in (
             "trg_cell_result_heads_require_publishable_result",
             "trg_cell_result_heads_update_publishable_result",

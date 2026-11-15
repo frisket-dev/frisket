@@ -18,6 +18,8 @@ from pathlib import Path
 
 from .change_schema import CHANGE_SCHEMA_SQL
 from .copied_results import COPIED_RESULTS_SCHEMA_SQL
+from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
+from .purge import PURGE_SCHEMA_SQL
 from .keyed_updates import KEYED_UPDATE_SCHEMA
 from .column_descriptors import DESCRIPTOR_SCHEMA_SQL
 from .structural_changes import STRUCTURAL_SCHEMA_SQL
@@ -2534,6 +2536,7 @@ SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
 SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + COPIED_RESULTS_SCHEMA_SQL + "\n"
+SCHEMA += CONSUMED_SOURCE_SCHEMA_SQL + PURGE_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + CHANGE_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + KEYED_UPDATE_SCHEMA + "\n"
 SCHEMA += "\n" + DESCRIPTOR_SCHEMA_SQL + STRUCTURAL_SCHEMA_SQL + "\n"

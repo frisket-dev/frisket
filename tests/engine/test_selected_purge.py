@@ -2,7 +2,6 @@ from contextlib import closing
 import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.purge import (
-    PURGE_SCHEMA_SQL,
     PurgedMaterialUnavailable,
     begin_purge,
     finish_purge,
@@ -10,35 +9,11 @@ from frisket.engine.store.purge import (
     require_publication_targets,
     require_restore_available,
 )
-from frisket.engine.store.blob_retention_migration import (
-    migrate_blob_derivation_ownership,
-)
 
 
 @pytest.fixture
 def project(tmp_path):
     with closing(Project.create(tmp_path / "purge.frisket")) as project:
-        project.db.executescript(PURGE_SCHEMA_SQL)
-        from frisket.engine.store.keyed_updates import KEYED_UPDATE_SCHEMA
-
-        project.db.executescript(KEYED_UPDATE_SCHEMA)
-        from frisket.engine.store.consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
-        from frisket.engine.store.column_descriptors import DESCRIPTOR_SCHEMA_SQL
-
-        project.db.executescript(CONSUMED_SOURCE_SCHEMA_SQL + DESCRIPTOR_SCHEMA_SQL)
-        # Exact reference-owner seam supplied by the concurrent Reapply lane.
-        project.db.executescript("""
-        CREATE TABLE IF NOT EXISTS copied_result_outcomes (
-          op_id INTEGER NOT NULL REFERENCES ops(id),row_id INTEGER NOT NULL,
-          column_id INTEGER NOT NULL,source_run_id INTEGER,source_row_id INTEGER,
-          source_column_id INTEGER,PRIMARY KEY(op_id,row_id,column_id),
-          FOREIGN KEY(source_run_id,source_row_id,source_column_id)
-            REFERENCES results(run_id,row_id,column_id) ON DELETE RESTRICT
-        ) WITHOUT ROWID;
-        """)
-        with project.db:
-            project.db.execute("BEGIN")
-            migrate_blob_derivation_ownership(project.db)
         yield project
 
 
@@ -446,3 +421,17 @@ def test_purge_preserves_shared_descriptor_authority_for_other_columns(project):
     assert descriptor_identity(project, retained)["format"] == "percent"
     finish_purge(project, begin_purge(project, column_ids=[selected]))
     assert descriptor_identity(project, retained)["format"] == "percent"
+
+
+def test_normal_open_refuses_interrupted_purge_and_maintenance_can_finish(tmp_path):
+    path = tmp_path / "resume.frisket"
+    with closing(Project.create(path)) as original:
+        sheet, column, row = add(original, "first", "private content")
+        purge = begin_purge(original, row_ids=[row])
+    with pytest.raises(PurgedMaterialUnavailable, match="unfinished"):
+        Project(path)
+    with closing(Project(path, maintenance=True)) as maintenance:
+        finish_purge(maintenance, purge)
+    with closing(Project(path)) as restored:
+        assert restored.visible_row_ids(sheet) == []
+        assert restored.db.execute("PRAGMA foreign_key_check").fetchall() == []
