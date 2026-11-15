@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -40,6 +42,8 @@ from .project_opener import (
     require_opener_storage_org_id,
 )
 
+
+LOG = logging.getLogger(__name__)
 
 NOTIFICATION_DELIVER_KIND = "notification.deliver"
 TERMINAL_REQUEST_STATUSES = {
@@ -247,14 +251,24 @@ def register_notification_handlers(
         _handle,
         origin="frisket.production.notification_delivery",
     )
-    registry.register_recovery_hook(
-        lambda job_queue: reconcile_notification_delivery_requests(
+    last_sweep: float | None = None
+
+    def maintain(job_queue: JobQueue) -> None:
+        nonlocal last_sweep
+        now = time.monotonic()
+        # Run at startup, then periodically even without an expired job lease.
+        # Opening every bundle is deliberately less frequent than queue polling.
+        if last_sweep is not None and now - last_sweep < 30:
+            return
+        last_sweep = now
+        reconcile_notification_delivery_requests(
             job_queue,
             workspace_root=workspace,
             storage_org_id=storage_org_id,
             project_opener=project_opener,
         )
-    )
+
+    registry.register_maintenance_hook(maintain)
     return registration
 
 
@@ -863,11 +877,15 @@ def reconcile_notification_delivery_requests(
     for storage_key, project_path in targets:
         if not (project_path / "project.db").exists():
             continue
-        project = (
-            Project(project_path)
-            if project_opener is None
-            else project_opener(storage_key, project_path)
-        )
+        try:
+            project = (
+                Project(project_path)
+                if project_opener is None
+                else project_opener(storage_key, project_path)
+            )
+        except Exception:
+            LOG.warning("notification_recovery_open_failed", exc_info=True)
+            continue
         try:
             from frisket.server.notifications.projections import (
                 emit_watch_run_notification,
@@ -877,9 +895,15 @@ def reconcile_notification_delivery_requests(
                 "SELECT id,watch_id FROM watch_runs WHERE notification_pending=1 ORDER BY id LIMIT 100"
             ).fetchall()
             for check in pending_checks:
-                emit_watch_run_notification(
-                    project, watch_id=check["watch_id"], run_id=check["id"]
-                )
+                try:
+                    emit_watch_run_notification(
+                        project, watch_id=check["watch_id"], run_id=check["id"]
+                    )
+                except Exception:
+                    LOG.warning(
+                        "notification_observation_recovery_failed", exc_info=True
+                    )
+                    continue
                 reconciled += 1
             # Includes a crash after planning delivery but before enqueueing.
             # Queue insertion already deduplicates a crash before job_id linking.
@@ -933,6 +957,8 @@ def reconcile_notification_delivery_requests(
                         error=job.error or "notification delivery job cancelled",
                     )
                     reconciled += 1
+        except Exception:
+            LOG.warning("notification_delivery_recovery_failed", exc_info=True)
         finally:
             project.close()
     return reconciled

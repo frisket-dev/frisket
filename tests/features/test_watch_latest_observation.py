@@ -159,18 +159,24 @@ def test_detection_change_rebaselines_but_rename_does_not(scene):
 
 def test_pending_monitored_value_preserves_successful_baseline(scene):
     from frisket.engine.store.result_generations import ResultGenerationStore
-    from test_result_generation_store import _declare, _start_claimed_run
+    from frisket.engine.store.runs import RunResultStore
+    from helpers import run_writer_authority_fixture
 
     project, sheet, column, rows, watch = scene
     baseline = record(scene, rows)
-    run = _start_claimed_run(
-        project,
-        sheet_id=sheet,
-        output_column_id=column,
-        row_ids=rows,
-        label="pending observation",
+    op = project.append_op("map.ask", label="pending observation")
+    run = RunResultStore(project).start_run(
+        op, sheet, "map.ask", row_ids=rows, total_rows=len(rows)
     )
-    _declare(ResultGenerationStore(project), run, column, write_mode="replace_scope")
+    authority = run_writer_authority_fixture(project, run, output_column_ids={column})
+    ResultGenerationStore(project).declare(
+        run,
+        column,
+        output_role="answer",
+        compatibility_key="sha256:test",
+        write_mode="replace_scope",
+        claim_token=authority.claim_token,
+    )
     incomplete = record(scene, rows)
     assert project.get_watch_run(incomplete)["status"] == "error"
     assert project.get_watch_run(incomplete)["error_code"] == "watch_inputs_unavailable"
@@ -226,3 +232,70 @@ def test_notification_persists_total_not_preview_count(scene):
         "SELECT event_count FROM notification_items WHERE source_kind='watch'"
     ).fetchone()
     assert notification[0] == 501
+
+
+def test_worker_recovers_saved_notification_without_an_expired_lease(scene):
+    from frisket.engine.jobs import (
+        HandlerRegistry,
+        Worker,
+        open_queue,
+        register_notification_handlers,
+    )
+
+    project, _, _, rows, _ = scene
+    record(scene, [])
+    run = record(scene, rows)
+    queue = open_queue(workspace=project.path.parent / "queue")
+    registry = HandlerRegistry()
+    register_notification_handlers(registry, workspace_root=project.path.parent)
+    # No queued/leased jobs exist: recovery must run from the real idle worker.
+    worker = Worker(queue, registry, worker_id="notification-restart")
+    assert worker.run_once() is False
+    assert project.get_watch_run(run)["notification_pending"] == 0
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert worker.run_once() is False
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+        ).fetchone()[0]
+        == 1
+    )
+
+
+def test_failed_notification_does_not_block_later_checks(scene, monkeypatch):
+    from frisket.engine.jobs import open_queue
+    from frisket.engine.jobs.notifications_delivery import (
+        reconcile_notification_delivery_requests,
+    )
+    from frisket.server.notifications import projections
+
+    project, _, _, rows, _ = scene
+    record(scene, [])
+    first = record(scene, rows[:1])
+    second = record(scene, rows)
+    original = projections.emit_watch_run_notification
+
+    def fail_first(project, *, watch_id, run_id):
+        if run_id == first:
+            raise RuntimeError("transient projection failure")
+        return original(project, watch_id=watch_id, run_id=run_id)
+
+    monkeypatch.setattr(projections, "emit_watch_run_notification", fail_first)
+    queue = open_queue(workspace=project.path.parent / "queue")
+    reconcile_notification_delivery_requests(queue, workspace_root=project.path.parent)
+    assert project.get_watch_run(first)["notification_pending"] == 1
+    assert project.get_watch_run(second)["notification_pending"] == 0
+    monkeypatch.setattr(projections, "emit_watch_run_notification", original)
+    reconcile_notification_delivery_requests(queue, workspace_root=project.path.parent)
+    assert project.get_watch_run(first)["notification_pending"] == 0
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
+        ).fetchone()[0]
+        == 2
+    )
