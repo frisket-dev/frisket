@@ -72,6 +72,13 @@ def test_direct_selection_full_cohort_and_authored_replay(tmp_path, monkeypatch)
         changed["scope"]["selection"]["limit"] = 599
         conflict = run_action_spec(project, changed, project_id="p")
         assert any(error.code == "idempotency_conflict" for error in conflict.errors)
+        # Planning a changed draft must not inherit an unrelated old cohort.
+        monkeypatch.undo()
+        from frisket.engine.executor.selection_scope import resolve_action_selection
+
+        planned = resolve_action_selection(project, typed_action_for_request(changed))
+        assert len(planned.request.scope.row_ids) == 599
+        assert max(planned.request.scope.row_ids) > rows[-1]
 
 
 def test_project_run_queue_freezes_selection_without_worker_query(

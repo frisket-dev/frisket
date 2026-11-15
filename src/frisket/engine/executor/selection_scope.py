@@ -60,7 +60,13 @@ def resolve_action_selection(
     # output existence checks). Do not consult a mutable selection first.
     if existing is not None and replay_before_resolution:
         return bound
-    if existing is not None and existing.parsed().run_id is not None:
+    from frisket.engine.executor.map_rows_action import typed_request_hash
+
+    if (
+        existing is not None
+        and existing.parsed().run_id is not None
+        and existing.parsed().params_hash == typed_request_hash(bound)
+    ):
         from frisket.engine.store.runs import RunResultStore
 
         rows = RunResultStore(project).run_row_scope_if_present(
