@@ -180,13 +180,28 @@ authority AS NOT MATERIALIZED (
 """
 
 
-def _authority_cte(db: sqlite3.Connection, column_id: int, row_ids: list[int]) -> str:
+def _authority_cte(
+    db: sqlite3.Connection,
+    column_id: int,
+    row_ids: list[int],
+    *,
+    exclude_op_id: int | None = None,
+) -> str:
     from .current_read_sql import current_heads_sql
 
+    from .current_read_sql import reconciliation_heads_sql
+
+    heads = (
+        current_heads_sql(db, [column_id], row_ids)
+        if exclude_op_id is None
+        else reconciliation_heads_sql(
+            db, column_id, row_ids, exclude_op_id=exclude_op_id
+        )
+    )
     placeholders = ",".join(f":row_{index}" for index in range(len(row_ids)))
-    return _AUTHORITY_CTE.replace(
-        "effective_current_cells", current_heads_sql(db, [column_id], row_ids)
-    ).format(row_ids=placeholders)
+    return _AUTHORITY_CTE.replace("effective_current_cells", heads).format(
+        row_ids=placeholders
+    )
 
 
 def _params(
@@ -549,6 +564,7 @@ def read_current_column(
     bounded: bool,
     preserve_invalid: bool = False,
     include_hidden: bool = False,
+    _exclude_op_id: int | None = None,
 ) -> dict[int, CurrentCellRead]:
     """Read one column for a row page, omitting only oversized bounded values."""
 
@@ -559,7 +575,7 @@ def read_current_column(
             continue
         sql = (
             "WITH "
-            + _authority_cte(db, column_id, chunk)
+            + _authority_cte(db, column_id, chunk, exclude_op_id=_exclude_op_id)
             + " SELECT row_id,retrieval_revision,origin_kind,origin_op_id,"
             "origin_run_id,base_producer_id,validity,stored_kind,outcome,"
             "copied_run_id,copied_row_id,copied_column_id,"

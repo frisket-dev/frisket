@@ -704,6 +704,7 @@ def mint_direct_effect_attempt(
     action_kind: str,
     run_id: int,
     scope: tuple[int, ...],
+    claim_token: str | None = None,
 ) -> AttemptCommitment:
     """Mint AND claim the attempt that authorizes one direct family's egress.
 
@@ -734,7 +735,12 @@ def mint_direct_effect_attempt(
         run_id=run_id,
         scope=scope,
     )
-    claim(project, commitment, claimless_direct_effect=True)
+    claim(
+        project,
+        commitment,
+        claim_token=claim_token,
+        claimless_direct_effect=claim_token is None,
+    )
     return commitment
 
 

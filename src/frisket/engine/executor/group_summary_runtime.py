@@ -43,23 +43,12 @@ from frisket.engine.executor.project_run_terminalization import (
     CurrentWriterTerminalAuthority,
     terminalize_project_run,
 )
-from frisket.engine.runner.publication import (
-    PUBLISH_ERROR,
-    PUBLISH_NULL,
-    PUBLISH_VALUE,
-)
-from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.engine.store.materialization import (
-    AggregateColumnSpec,
-    AggregateMaterializedRow,
-    AggregateSheetPlan,
     active_materialized_row_sources,
     load_materialized_row_sources_for_op,
     materialized_row_sources_ref_matches,
-    write_aggregate_sheet,
 )
-from frisket.engine.store.derived_updates import MaterializedIdentity
 from frisket.ai.llm import LLMRequest, ModelRouter
 from frisket.ops.group_summary import (
     estimate_group_summary,
@@ -68,7 +57,6 @@ from frisket.ops.group_summary import (
 )
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
@@ -342,6 +330,24 @@ def _resolve_reduce_group_summary_inputs(
     }
 
 
+def _recoverable_group_run(project, receipt, params_hash):
+    if (
+        receipt is None
+        or receipt["status"] != "running"
+        or receipt["params_hash"] != params_hash
+        or receipt["run_id"] is None
+    ):
+        return None
+    return project.db.execute(
+        "SELECT run.* FROM runs run JOIN ops op ON op.id=run.op_id "
+        "LEFT JOIN execution_attempts attempt ON attempt.id=run.current_attempt_id "
+        "WHERE run.id=? AND run.status='running' AND run.cancel_requested_at IS NULL "
+        "AND op.status='applied' AND op.publication_closed=0 "
+        "AND (attempt.id IS NULL OR attempt.state IN ('abandoned','halted'))",
+        (receipt["run_id"],),
+    ).fetchone()
+
+
 def _precheck_reduce_group_summary_target(
     project: Project,
     params: GroupSummaryPlan,
@@ -351,11 +357,19 @@ def _precheck_reduce_group_summary_target(
 
         return validate_target(project, params)
     existing = project.db.execute(
-        "SELECT id FROM sheets WHERE name=?",
+        "SELECT id,parent_op_id FROM sheets WHERE name=?",
         (params.target_sheet_name,),
     ).fetchone()
     if existing is None:
         return None
+    receipt = _receipt_for_idempotency(project, params.request["idempotency_key"])
+    if receipt is not None:
+        run = _recoverable_group_run(project, receipt, receipt["params_hash"])
+        if run is not None and (
+            int(run["sheet_id"]) == int(existing["id"])
+            or existing["parent_op_id"] == run["op_id"]
+        ):
+            return None
     return ActionError(
         code="duplicate_sheet_name",
         message="reduce.group_summary target sheet name already exists",
@@ -436,7 +450,8 @@ def _reduce_group_summary_unit_plans(
     for group in resolved["groups"]:
         messages = _reduce_group_summary_messages(params, group)
         unit_key = (
-            "group:" + hashlib.sha256(str(group["name"]).encode("utf-8")).hexdigest()
+            "group:"
+            + hashlib.sha256(str(group["identity_key"]).encode("utf-8")).hexdigest()
         )
         identity_payload = {
             "schema_version": "frisket.reduce_group_summary_effect_identity.v1",
@@ -526,6 +541,7 @@ async def _complete_reduce_group_summaries(
     resolved: dict[str, Any],
     *,
     router: ModelRouter,
+    publication,
 ) -> list[dict[str, Any]] | ActionError:
     """Per-group provider calls, under effect-checkpoint authority when paid.
 
@@ -557,10 +573,10 @@ async def _complete_reduce_group_summaries(
         params, router
     ):
         return await _complete_reduce_group_summaries_unfenced(
-            project, params, resolved, router=router
+            project, params, resolved, router=router, publication=publication
         )
     return await _complete_reduce_group_summaries_checkpointed(
-        project, params, resolved, router=router
+        project, params, resolved, router=router, publication=publication
     )
 
 
@@ -671,6 +687,7 @@ async def _complete_reduce_group_summaries_unfenced(
     resolved: dict[str, Any],
     *,
     router: ModelRouter,
+    publication,
 ) -> list[dict[str, Any]] | ActionError:
     from frisket.execution.attempt import AttemptClaimRefused, set_attempt_state
     from frisket.execution.attempt_authority import mint_direct_effect_attempt
@@ -680,32 +697,39 @@ async def _complete_reduce_group_summaries_unfenced(
     # durable dispatch claim before the first call; only the checkpoint
     # representation is omitted.
     estimate = _estimate_reduce_group_summary_cost(params, resolved)
-    op_id = project.append_op(
-        params.action_kind,
-        {
-            "kind": params.action_kind,
-            "request": params.request,
-            "execution_sources": _group_source_binding(resolved),
-        },
-        label=f"reduce.group_summary {params.target_sheet_name}",
-    )
     run_store = RunResultStore(project)
-    run_id = run_store.start_run(
-        op_id,
-        int(resolved["sheet_id"]),
-        params.action_kind,
-        model=params.model,
-        prompt_hash=_reduce_group_summary_prompt_hash(params),
-        params={},
-        total_rows=len(resolved["groups"]),
-        cost_estimate=estimate["cost"],
-    )
+    if publication.recovery_run is not None:
+        op_id, run_id = (
+            int(publication.recovery_run["op_id"]),
+            int(publication.recovery_run["id"]),
+        )
+    else:
+        op_id = project.append_op(
+            params.action_kind,
+            {
+                "kind": params.action_kind,
+                "request": params.request,
+                "execution_sources": _group_source_binding(resolved),
+            },
+            label=f"reduce.group_summary {params.target_sheet_name}",
+        )
+        run_id = run_store.start_run(
+            op_id,
+            int(resolved["sheet_id"]),
+            params.action_kind,
+            model=params.model,
+            prompt_hash=_reduce_group_summary_prompt_hash(params),
+            params={},
+            total_rows=len(resolved["groups"]),
+            cost_estimate=estimate["cost"],
+        )
     try:
         commitment = mint_direct_effect_attempt(
             project,
             action_kind=params.action_kind,
             run_id=run_id,
             scope=tuple(int(row_id) for row_id in resolved["source_row_ids"]),
+            claim_token=publication.recovery_claim_token(),
         )
     except AttemptClaimRefused as exc:
         return ActionError(
@@ -719,14 +743,25 @@ async def _complete_reduce_group_summaries_unfenced(
         "run_id": run_id,
         "attempt_id": commitment.attempt_id,
     }
+    resolved["execution_effect"] = envelope
+    publication.start(resolved, envelope)
     from frisket.execution.dispatch_control import RunDispatch
 
-    router = router.for_execution(RunDispatch(project, run_id, commitment.attempt_id))
-    resolved["execution_effect"] = envelope
+    router = router.for_execution(
+        RunDispatch(
+            project, run_id, commitment.attempt_id, claim_token=publication.claim_token
+        )
+    )
     recorder = _reduce_group_summary_trace_writer(project, params, run_id)
     computations: list[dict[str, Any]] = []
     try:
         for group in resolved["groups"]:
+            if publication.stopped():
+                break
+            saved = publication.saved(group)
+            if saved is not None:
+                computations.append(saved)
+                continue
             messages = _reduce_group_summary_messages(params, group)
             request = LLMRequest(
                 model=params.model,
@@ -757,6 +792,8 @@ async def _complete_reduce_group_summaries_unfenced(
                         "_trace_record": trace_record[0],
                     }
                 )
+                if not publication.publish(computations[-1]):
+                    break
                 continue
             summary = response.content
             if summary is None:
@@ -778,6 +815,8 @@ async def _complete_reduce_group_summaries_unfenced(
                     "_trace_record": trace_record[0],
                 }
             )
+            if not publication.publish(computations[-1]):
+                break
     except BaseException:
         set_attempt_state(project, commitment.attempt_id, "halted")
         raise
@@ -790,6 +829,7 @@ async def _complete_reduce_group_summaries_checkpointed(
     resolved: dict[str, Any],
     *,
     router: ModelRouter,
+    publication,
 ) -> list[dict[str, Any]] | ActionError:
     from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
     from frisket.execution.attempt import AttemptClaimRefused, set_attempt_state
@@ -854,7 +894,15 @@ async def _complete_reduce_group_summaries_checkpointed(
     # The durable accounting envelope: reused from the crashed invocation's
     # checkpoints when one exists (facts and spend already live on that run),
     # minted fresh — BEFORE any egress — otherwise.
-    envelope: dict[str, Any] | None = None
+    envelope: dict[str, Any] | None = (
+        {
+            "op_id": int(publication.recovery_run["op_id"]),
+            "run_id": int(publication.recovery_run["id"]),
+            "attempt_id": None,
+        }
+        if publication.recovery_run is not None
+        else None
+    )
     for checkpoint in existing.values():
         effect = (checkpoint["payload"] or {}).get("effect") or {}
         run_id = effect.get("run_id")
@@ -902,6 +950,7 @@ async def _complete_reduce_group_summaries_checkpointed(
                 action_kind=params.action_kind,
                 run_id=int(envelope["run_id"]),
                 scope=tuple(int(row_id) for row_id in resolved["source_row_ids"]),
+                claim_token=publication.recovery_claim_token(),
             )
         except AttemptClaimRefused as exc:
             return ActionError(
@@ -913,6 +962,8 @@ async def _complete_reduce_group_summaries_checkpointed(
         minted_attempt_id = commitment.attempt_id
         envelope["attempt_id"] = minted_attempt_id
 
+    resolved["execution_effect"] = envelope
+    publication.start(resolved, envelope)
     # The attempt covers both provider dispatch and the later project-result
     # transaction. It must remain dispatching until that transaction commits:
     # otherwise the effect-site fence would correctly reject its own writer.
@@ -923,6 +974,7 @@ async def _complete_reduce_group_summaries_checkpointed(
             existing,
             envelope=envelope,
             group_key=group_key,
+            publication=publication,
             store=store,
             run_store=run_store,
             router=router,
@@ -954,18 +1006,28 @@ async def _reduce_group_summary_checkpointed_loop(
     run_store: RunResultStore,
     router: ModelRouter,
     recorder: TraceWriter | None,
+    publication,
 ) -> list[dict[str, Any]] | ActionError:
     from frisket.engine.store.effect_checkpoints import require_model_call_ids
     from frisket.execution.dispatch_control import RunDispatch
 
     router = router.for_execution(
         RunDispatch(
-            run_store.project, int(envelope["run_id"]), str(envelope["attempt_id"])
+            run_store.project,
+            int(envelope["run_id"]),
+            str(envelope["attempt_id"]),
+            claim_token=publication.claim_token,
         )
     )
 
     computations: list[dict[str, Any]] = []
     for plan in plans:
+        if publication.stopped():
+            break
+        saved = publication.saved(plan["group"])
+        if saved is not None:
+            computations.append(saved)
+            continue
         unit_effect = {
             "family": _REDUCE_EFFECT_FAMILY,
             "group_key": group_key,
@@ -979,6 +1041,8 @@ async def _reduce_group_summary_checkpointed_loop(
             replayed["group"] = plan["group"]
             replayed["effect"] = {**unit_effect, "checkpoint_id": prior["id"]}
             computations.append(replayed)
+            if not publication.publish(replayed):
+                break
             continue
 
         checkpoint_id = (
@@ -998,7 +1062,8 @@ async def _reduce_group_summary_checkpointed_loop(
             payload={"effect": envelope, "consumed_capture": plan["consumed_capture"]},
             run_id=int(envelope["run_id"]),
             writer_attempt_id=str(envelope["attempt_id"]),
-            claimless_direct_effect=True,
+            claim_token=publication.claim_token,
+            claimless_direct_effect=False,
         )
         if not created:
             return _reduce_effect_reconciliation_error(
@@ -1040,12 +1105,15 @@ async def _reduce_group_summary_checkpointed_loop(
                 payload={"effect": envelope, "computation": failure},
                 run_id=int(envelope["run_id"]),
                 writer_attempt_id=str(envelope["attempt_id"]),
-                claimless_direct_effect=True,
+                claim_token=publication.claim_token,
+                claimless_direct_effect=False,
             )
             computation = {"group": plan["group"], **failure}
             computation["effect"] = {**unit_effect, "checkpoint_id": checkpoint_id}
             computation["_trace_record"] = trace_record[0]
             computations.append(computation)
+            if not publication.publish(computation):
+                break
             continue
 
         summary = response.content
@@ -1089,7 +1157,8 @@ async def _reduce_group_summary_checkpointed_loop(
                 _run_id,
                 _batch,
                 writer_attempt_id=str(envelope["attempt_id"]),
-                claimless_direct_effect=True,
+                claim_token=publication.claim_token,
+                claimless_direct_effect=False,
                 authorized_attempt_id=checkpoint["authorized_attempt_id"],
                 commit=False,
             )
@@ -1105,12 +1174,15 @@ async def _reduce_group_summary_checkpointed_loop(
             accrue=accrue,
             run_id=int(envelope["run_id"]),
             writer_attempt_id=str(envelope["attempt_id"]),
-            claimless_direct_effect=True,
+            claim_token=publication.claim_token,
+            claimless_direct_effect=False,
         )
         computation = {"group": plan["group"], **replay_computation}
         computation["effect"] = {**unit_effect, "checkpoint_id": checkpoint_id}
         computation["_trace_record"] = trace_record[0]
         computations.append(computation)
+        if not publication.publish(computation):
+            break
     return computations
 
 
@@ -1163,45 +1235,9 @@ def _write_reduce_group_summary_result(
     resolved: dict[str, Any],
     estimate: dict[str, Any],
     computations: list[dict[str, Any]],
+    publication,
 ) -> ActionResult:
-    # Effect-checkpointed computations carry their envelope (op/run/attempt)
-    # and per-unit checkpoint coordinates; the write must reuse that envelope
-    # and retire every checkpoint in the SAME transaction as the results.
-    effects = [computation.get("effect") for computation in computations]
-    direct_effects = [computation.get("direct_effect") for computation in computations]
-    effect: dict[str, Any] | None = None
-    if any(isinstance(item, dict) for item in effects):
-        if not all(isinstance(item, dict) for item in effects):
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="project_write_failed",
-                    message=(
-                        "reduce.group_summary computations mix checkpointed and "
-                        "unfenced effects; refusing an inconsistent write"
-                    ),
-                    action_kind=action.kind,
-                ),
-            )
-        effect = effects[0]
-    direct_effect: dict[str, Any] | None = None
-    if any(isinstance(item, dict) for item in direct_effects):
-        if not all(isinstance(item, dict) for item in direct_effects):
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="project_write_failed",
-                    message=(
-                        "reduce.group_summary computations mix claimed and "
-                        "unclaimed direct effects; refusing an inconsistent write"
-                    ),
-                    action_kind=action.kind,
-                ),
-            )
-        direct_effect = direct_effects[0]
-    authority_effect = effect or direct_effect or resolved.get("execution_effect")
+    authority_effect = publication.envelope
     trace_run_id = (
         int(authority_effect["run_id"])
         if authority_effect is not None and authority_effect.get("run_id") is not None
@@ -1209,6 +1245,10 @@ def _write_reduce_group_summary_result(
     )
     traces_bound = False
 
+    if not any(
+        item.get("error") for item in computations
+    ) and publication.completed == len(resolved["groups"]):
+        publication.complete_membership()
     cur = project.db.cursor()
     try:
         cur.execute("BEGIN IMMEDIATE")
@@ -1251,28 +1291,19 @@ def _write_reduce_group_summary_result(
         ):
             cancelled_run = int(authority_effect["run_id"])
             writer_attempt = str(authority_effect["attempt_id"])
-            # Paid responses already live in their checkpoints. Retain the
-            # same diagnostic facts for free/direct responses before closing.
-            returned = [
-                {"row_id": None, "column_id": None, "model_calls": [item["model_call"]]}
-                for item in computations
-                if isinstance(item.get("model_call"), dict)
-            ]
-            if returned:
-                run_store.write_returned_call_accounting(
-                    cancelled_run,
-                    returned,
-                    writer_attempt_id=writer_attempt,
-                    claimless_direct_effect=True,
-                    authorized_attempt_id=writer_attempt,
-                    commit=False,
-                )
             from frisket.engine.store.receipts import ReceiptStore
 
             cancelled_receipt = (
                 ReceiptStore(project)
                 .parsed_by_id(receipt_id)
                 .model_copy(update={"run_id": cancelled_run, "status": "cancelled"})
+            )
+            ResultGenerationStore(project).seal(
+                cancelled_run,
+                [publication.write.column_ids[params.summary_column_name]],
+                claim_token=publication.claim_token,
+                terminal_disposition="cancelled",
+                commit=False,
             )
             terminal = terminalize_project_run(
                 project,
@@ -1282,8 +1313,8 @@ def _write_reduce_group_summary_result(
                 terminal_receipt=cancelled_receipt,
                 authority=CurrentWriterTerminalAuthority(
                     writer_attempt_id=writer_attempt,
-                    claim_token=None,
-                    claimless_direct_effect=True,
+                    claim_token=publication.claim_token,
+                    claimless_direct_effect=False,
                 ),
                 commit=False,
             )
@@ -1301,271 +1332,18 @@ def _write_reduce_group_summary_result(
                 receipt_id=receipt_id,
             )
 
-        duplicate = _precheck_reduce_group_summary_target(project, params)
-        if duplicate is not None:
-            project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=duplicate,
-            )
-
-        op_spec = dict(params.request)
-        op_spec["params"] = dict(op_spec["params"])
-        op_spec["params"].pop("confirmed", None)
-        op_spec["params"].pop("consented_promise_set_hash", None)
-        op_spec["params_hash"] = params_hash
-        from frisket.actions.group_summary_types import GROUP_SUMMARY_COLUMNS
-
-        physical_names = {
-            "group": params.group_column_name,
-            "rows": params.row_count_column_name,
-            "summary": params.summary_column_name,
-        }
-        column_specs = [
-            (physical_names[column.key], column.type, column.key == "summary")
-            for column in GROUP_SUMMARY_COLUMNS
-        ]
-        publication = None
-        if params.refresh_target is not None:
-            from frisket.engine.executor.group_summary_refresh import (
-                publish_group_refresh,
-            )
-
-            if authority_effect is None:
-                raise ValueError("group refresh requires its model execution owner")
-            write, publication = publish_group_refresh(
-                project,
-                params,
-                op_id=int(authority_effect["op_id"]),
-                op_spec=op_spec,
-                resolved=resolved,
-                computations=computations,
-                columns=[
-                    AggregateColumnSpec(name=name, type=typ, ai_generated=ai)
-                    for name, typ, ai in column_specs
-                ],
-            )
-        else:
-            write = write_aggregate_sheet(
-                cur,
-                AggregateSheetPlan(
-                    action_kind=params.action_kind,
-                    label=f"reduce.group_summary {params.target_sheet_name}",
-                    target_sheet_name=params.target_sheet_name,
-                    parent_sheet_id=int(resolved["sheet_id"]),
-                    op_spec=op_spec,
-                    columns=[
-                        AggregateColumnSpec(
-                            name=name,
-                            type=type_name,
-                            ai_generated=ai_generated,
-                        )
-                        for name, type_name, ai_generated in column_specs
-                    ],
-                    rows=[
-                        AggregateMaterializedRow(
-                            values={
-                                params.group_column_name: computation["group"]["name"],
-                                params.row_count_column_name: len(
-                                    computation["group"]["source_row_ids"]
-                                ),
-                            },
-                            source_row_ids=computation["group"]["source_row_ids"],
-                        )
-                        for computation in computations
-                    ],
-                    reuse_op_id=(
-                        int(authority_effect["op_id"])
-                        if authority_effect is not None
-                        else None
-                    ),
-                    refresh_identity=MaterializedIdentity(
-                        "group",
-                        [
-                            str(computation["group"]["identity_key"])
-                            for computation in computations
-                        ],
-                        (
-                            [
-                                (
-                                    int(resolved["group_column"]["column_id"]),
-                                    str(resolved["group_column"]["type"]),
-                                )
-                            ]
-                            if resolved["group_column"] is not None
-                            else []
-                        ),
-                    ),
-                ),
-            )
-        op_id = write.op_id
-        summary_sheet_id = write.sheet_id
-        column_ids = write.column_ids
-        summary_row_ids = write.row_ids
-
-        run_store = RunResultStore(project)
-        if authority_effect is not None:
-            # The accounting envelope was minted before egress;
-            # repoint the SAME run at the materialized summary sheet and the
-            # final op spec instead of minting a second run.
-            run_id = int(authority_effect["run_id"])
-            run_store.repoint_run_for_result(
-                run_id,
-                sheet_id=summary_sheet_id,
-                params=op_spec["params"],
-                total_rows=len(computations),
-                cost_estimate=estimate["cost"],
-            )
-        else:
-            run_id = run_store.start_run(
-                op_id,
-                summary_sheet_id,
-                params.action_kind,
-                model=params.model,
-                prompt_hash=_reduce_group_summary_prompt_hash(params),
-                params=op_spec["params"],
-                total_rows=len(computations),
-                cost_estimate=estimate["cost"],
-                commit=False,
-            )
-        # Group-summary result rows are materialized after the source groups
-        # have been reduced. Freeze this exact output cohort before declaring
-        # the result generation, so canonical reads and completion checks can
-        # resolve the run through its real summary rows.
-        run_store.record_run_row_scope(run_id, summary_row_ids)
+        write = publication.write
+        op_id, summary_sheet_id, column_ids, summary_row_ids = (
+            write.op_id,
+            write.sheet_id,
+            write.column_ids,
+            write.row_ids,
+        )
+        run_id = int(authority_effect["run_id"])
         summary_column_id = column_ids[params.summary_column_name]
-        claim_token = f"output-claim:{receipt_id}"
-        output_field = {
-            "name": params.summary_column_name,
-            "column_type": "text",
-        }
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=summary_sheet_id,
-            output_names=[params.summary_column_name],
-            action_kind=action.kind,
-            receipt_id=receipt_id,
-            run_id=run_id,
-            op_id=op_id,
-            claim_token=claim_token,
-            details={"output_fields": [output_field]},
-            commit=False,
-        )
-        if conflict is not None or len(claims) != 1:
-            raise StaleAttemptWriter(
-                "reduce.group_summary could not acquire its exact output claim"
-            )
-        OutputColumnClaimStore(project).bind_to_run(
-            claim_token=claim_token,
-            run_id=run_id,
-            expected_output_names=[params.summary_column_name],
-            commit=False,
-        )
+        claim_token = publication.claim_token
         generations = ResultGenerationStore(project)
-        generations.declare(
-            run_id,
-            summary_column_id,
-            output_role="summary",
-            compatibility_key=_compatibility_key(field=output_field),
-            write_mode="replace_scope"
-            if params.refresh_target is not None
-            else "create",
-            claim_token=claim_token,
-            commit=False,
-        )
-        result_batch: list[dict[str, Any]] = []
-        failed_groups = 0
-        for row_id, computation in zip(summary_row_ids, computations, strict=True):
-            error = computation.get("error")
-            if error:
-                failed_groups += 1
-            result: dict[str, Any] = {
-                "row_id": row_id,
-                "column_id": summary_column_id,
-                "value": computation.get("summary"),
-                "tokens_in": computation.get("tokens_in"),
-                "tokens_out": computation.get("tokens_out"),
-                "confidence": None,
-                "justification": None,
-                "error": error,
-                "error_code": computation.get("error_code"),
-                "cost": float(computation.get("cost") or 0.0),
-                "publication_effect": (
-                    PUBLISH_ERROR
-                    if error
-                    else (
-                        PUBLISH_NULL
-                        if computation.get("summary") is None
-                        else PUBLISH_VALUE
-                    )
-                ),
-            }
-            if publication is not None and not publication[row_id]:
-                result["publication_effect"] = "retain"
-            call = computation.get("model_call")
-            if isinstance(call, dict):
-                call = dict(call)
-                call["run_id"] = run_id
-                call["row_id"] = row_id
-                call["column_id"] = summary_column_id
-                result["model_calls"] = [call]
-            result_batch.append(result)
-        run_store.write_results(
-            run_id,
-            result_batch,
-            writer_attempt_id=(
-                str(authority_effect["attempt_id"])
-                if authority_effect is not None and authority_effect.get("attempt_id")
-                else None
-            ),
-            authorized_attempt_id=(
-                str(authority_effect["attempt_id"])
-                if authority_effect is not None and authority_effect.get("attempt_id")
-                else None
-            ),
-            claim_token=claim_token,
-            claimless_direct_effect=False,
-            commit=False,
-        )
-        from frisket.engine.store.keyed_updates import observe
-
-        derived_refresh = json.loads(
-            project.db.execute("SELECT spec FROM ops WHERE id=?", (op_id,)).fetchone()[
-                0
-            ]
-            or "{}"
-        ).get("derived_refresh")
-        if not isinstance(derived_refresh, dict):
-            raise ValueError("group summary output identity was not established")
-        for row_id, computation in zip(summary_row_ids, computations, strict=True):
-            if computation.get("error"):
-                continue
-            observe(
-                project.db,
-                relationship_id=str(derived_refresh["relationship_id"]),
-                row_id=int(row_id),
-                key=str(computation["group"]["identity_key"]),
-                incoming={str(summary_column_id): computation.get("summary")},
-            )
-        from frisket.engine.store.consumed_sources import merge_captures, store_capture
-
-        captures = [
-            computation["consumed_capture"]
-            for computation in computations
-            if isinstance(computation.get("consumed_capture"), dict)
-        ]
-        if captures:
-            consumed = merge_captures(captures)
-            consumed["incomplete"] = consumed.get("incomplete", False) or len(
-                captures
-            ) != len(computations)
-            store_capture(
-                project,
-                consumed,
-                owner_op_id=op_id,
-                output_sheet_id=summary_sheet_id,
-                run_id=run_id,
-            )
+        failed_groups = sum(bool(item.get("error")) for item in computations)
         run_status = (
             "failed"
             if computations and failed_groups == len(computations)
@@ -1579,28 +1357,6 @@ def _write_reduce_group_summary_result(
             commit=False,
         )
         run_store.point_column_at_run(op_id, summary_column_id, run_id, commit=False)
-        if effect is not None:
-            # Retire every group's checkpoint in the SAME transaction as its
-            # result: the summary can never commit while replay authority
-            # survives, and a rollback keeps both for the next resume.
-            from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-
-            checkpoint_store = EffectCheckpointStore(project.db)
-            for computation in computations:
-                unit_effect = computation["effect"]
-                checkpoint_store.consume_and_retire(
-                    str(unit_effect["checkpoint_id"]),
-                    family=str(unit_effect["family"]),
-                    group_key=str(unit_effect["group_key"]),
-                    unit_key=str(unit_effect["unit_key"]),
-                    action_kind=params.action_kind,
-                    identity=str(unit_effect["identity"]),
-                    run_id=run_id,
-                    writer_attempt_id=str(effect["attempt_id"]),
-                    claim_token=claim_token,
-                    claimless_direct_effect=False,
-                    commit=False,
-                )
         action_status = _reduce_group_summary_action_status(
             failed_groups, len(computations)
         )

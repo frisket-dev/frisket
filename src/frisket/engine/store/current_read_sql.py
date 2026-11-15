@@ -126,3 +126,30 @@ def current_result_coordinate_sql(coordinate_alias: str) -> str:
         "(SELECT column_id,row_id,origin_run_id AS run_id FROM (" + canonical + ") "
         "WHERE origin_kind='run_result' AND outcome IN ('completed','failed'))"
     )
+
+
+def reconciliation_heads_sql(db, column_id, row_ids, *, exclude_op_id):
+    """Recover working values beneath this writer's mask, using real authority.
+
+    Internal reconciliation reads never consult cached heads or suppress later
+    independent Changes. The omitted Change is still active everywhere else.
+    """
+    from .change_schema import CHANGE_SCHEMA_SQL
+
+    owner = db.execute(
+        "SELECT change_order FROM ops WHERE id=?", (exclude_op_id,)
+    ).fetchone()
+    if owner is None or owner[0] is None:
+        raise ValueError("Reconciliation requires an ordered owning Change")
+    canonical = CHANGE_SCHEMA_SQL.split(
+        "CREATE VIEW IF NOT EXISTS canonical_cell_heads AS", 1
+    )[1].split(";", 1)[0]
+    scope = f"contribution.column_id IN ({_ids([column_id])}) AND contribution.row_id IN ({_ids(row_ids)}) AND contribution.change_order != {int(owner[0])}"
+    return (
+        "("
+        + canonical.replace(
+            "FROM cell_contributions contribution",
+            "FROM cell_contributions contribution WHERE " + scope,
+        )
+        + ")"
+    )

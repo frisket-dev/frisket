@@ -39,12 +39,17 @@ def compute_sync_states(
         sheet_id = pending.pop()
         if sheet_id in own:
             continue
+        # A grouped recovery may consume several source versions under the same
+        # owning Change. Row-action shared corpora are not sheet refreshes.
         bundles = project.db.execute(
             "SELECT b.id,b.owner_op_id,b.capture_json,o.kind,o.spec FROM consumed_source_bundles b "
             "JOIN ops o ON o.id=b.owner_op_id "
-            "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND b.row_id IS NULL AND o.status='applied' "
-            # Row consumers' shared corpora belong to those result rows; they
-            # do not replace the derived sheet's materialization capture.
+            "JOIN sheets target ON target.id=b.output_sheet_id "
+            "LEFT JOIN ops materializer ON materializer.id=target.parent_op_id "
+            "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND o.status='applied' "
+            "AND (b.row_id IS NULL OR "
+            "json_extract(o.spec,'$.derived_refresh.relationship_id')="
+            "json_extract(materializer.spec,'$.derived_refresh.relationship_id')) "
             "AND instr(b.capture_key,':shared:')=0 "
             "AND o.change_order IS NOT NULL "
             "ORDER BY o.change_order DESC,b.id",

@@ -1108,10 +1108,9 @@ def test_model_failure_writes_failed_receipt_and_replays_it(
         assert len(failing_adapter.requests) == 2
 
 
-def test_provider_error_trace_survives_without_a_materialized_summary_row(
+def test_materialization_failure_prevents_provider_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from frisket.engine.executor import group_summary_runtime
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         failing_router, failing_adapter = _failing_router()
@@ -1120,8 +1119,10 @@ def test_provider_error_trace_survives_without_a_materialized_summary_row(
         def refuse_materialization(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("summary materialization unavailable")
 
+        from frisket.engine.executor import group_summary_publication
+
         monkeypatch.setattr(
-            group_summary_runtime, "write_aggregate_sheet", refuse_materialization
+            group_summary_publication, "write_aggregate_sheet", refuse_materialization
         )
         result = env.run(
             _reduce_action(
@@ -1132,7 +1133,7 @@ def test_provider_error_trace_survives_without_a_materialized_summary_row(
 
         assert result.status == "failed"
         assert result.errors[0].code == "project_write_failed"
-        assert len(failing_adapter.requests) == 2
+        assert len(failing_adapter.requests) == 0
         run_id = int(
             env.project.db.execute(
                 "SELECT id FROM runs WHERE action_kind='reduce.group_summary'"
@@ -1144,13 +1145,7 @@ def test_provider_error_trace_survives_without_a_materialized_summary_row(
             ).fetchone()[0]
             == 0
         )
-        trace = read_trace(env.project.path, run_id)
-        assert trace is not None
-        assert len(trace["rows"]) == 2
-        assert {row["row_id"] for row in trace["rows"]} == {None}
-        assert {row["error"] for row in trace["rows"]} == {
-            "summary provider unavailable"
-        }
+        assert read_trace(env.project.path, run_id) is None
 
 
 def _insert_running_reservation(

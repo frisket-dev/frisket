@@ -298,3 +298,54 @@ def test_ancestry_is_acyclic_by_construction(tmp_path: Path) -> None:
                 seen.add(cur)
     finally:
         project.close()
+
+
+def test_row_action_shared_corpus_does_not_become_sheet_derivation(tmp_path):
+    from frisket.engine.store.consumed_sources import (
+        read_consumed_source,
+        store_capture,
+    )
+
+    project = _build(tmp_path)
+    try:
+        parent, column, rows = _ids(project, "Filings")
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": column, "value": [{"vendor": "Changed"}]}]
+        )
+        assert _state(project, "Vendors")["sync_state"] == "stale"
+        target = int(
+            project.db.execute("SELECT id FROM sheets WHERE name='Vendors'").fetchone()[
+                0
+            ]
+        )
+        target_row = project.visible_row_ids(target)[0]
+        target_column = project.columns(target)[0]["id"]
+        project.apply_edits(
+            [
+                {
+                    "row_id": target_row,
+                    "column_id": target_column,
+                    "value": "A row action result",
+                }
+            ]
+        )
+        owner = int(
+            project.db.execute(
+                "SELECT id FROM ops ORDER BY change_order DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        _, _, capture = read_consumed_source(project, parent, [column])
+        project.db.execute("BEGIN IMMEDIATE")
+        store_capture(
+            project,
+            capture,
+            owner_op_id=owner,
+            output_sheet_id=target,
+            row_id=target_row,
+        )
+        project.db.commit()
+        # This latest, freshly read corpus belongs to a row operation. It must
+        # not mask the older derived sheet's still-stale input snapshot.
+        assert _state(project, "Vendors")["sync_state"] == "stale"
+    finally:
+        project.close()

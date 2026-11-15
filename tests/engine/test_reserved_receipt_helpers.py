@@ -117,7 +117,7 @@ def test_finalize_reserved_receipt_reports_lost_reservation(tmp_path: Path) -> N
         project.close()
 
 
-def test_finalize_reserved_receipt_reports_guarded_update_failure(
+def test_finalize_reserved_receipt_preserves_existing_terminal_result(
     tmp_path: Path,
 ) -> None:
     from frisket.engine.executor import (
@@ -140,10 +140,9 @@ def test_finalize_reserved_receipt_reports_guarded_update_failure(
         )
 
         assert result is not None
-        assert result.status == "failed"
-        assert result.receipt_id is None
-        assert result.errors[0].code == "project_write_failed"
-        assert result.errors[0].message == "test receipt update failed"
+        assert result.status == "completed"
+        assert result.receipt_id == _receipt(status="completed").receipt_id
+        assert not result.errors
         assert _receipt_row(project)["status"] == "completed"
     finally:
         project.close()
@@ -453,13 +452,20 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
             "failed_result_maprunner_finalization",
         }:
             assert result.receipt_id is None
-        assert (
-            env.project.db.execute(
-                "SELECT 1 FROM receipts WHERE idempotency_key=?",
+        if fault == "failed_result_child_sheet_finalization":
+            owned = env.project.db.execute(
+                "SELECT run_id,status FROM receipts WHERE idempotency_key=?",
                 (action["idempotency_key"],),
             ).fetchone()
-            is None
-        )
+            assert owned["run_id"] is not None and owned["status"] == "running"
+        else:
+            assert (
+                env.project.db.execute(
+                    "SELECT 1 FROM receipts WHERE idempotency_key=?",
+                    (action["idempotency_key"],),
+                ).fetchone()
+                is None
+            )
         if fault == "model_completion":
             assert env.counts() == before
         elif fault == "failed_result_child_sheet_finalization":
@@ -468,12 +474,17 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
                 "ops": before["ops"] + 1,
                 "runs": before["runs"] + 1,
                 "model_calls": before["model_calls"] + 2,
+                "sheets": before["sheets"] + 1,
+                "columns": before["columns"] + 3,
+                "rows": before["rows"] + 2,
+                "results": before["results"] + 2,
+                "receipts": before["receipts"] + 1,
             }
             assert (
                 env.project.db.execute(
                     "SELECT COUNT(*) FROM effect_checkpoints WHERE state='returned'"
                 ).fetchone()[0]
-                == 2
+                == 0
             )
             assert len(module._ADAPTERS[0].requests) == 2
         elif fault == "failed_result_maprunner_finalization":

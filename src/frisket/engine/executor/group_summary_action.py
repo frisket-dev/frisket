@@ -170,7 +170,8 @@ def run_typed_group_summary_action(
     )
     identity = typed_request_hash(bound)
     existing = _receipt_for_idempotency(project, action.idempotency_key)
-    if existing is not None:
+    recovery_run = runtime._recoverable_group_run(project, existing, identity)
+    if existing is not None and recovery_run is None:
         return runtime._reduce_group_summary_result_from_existing_receipt(
             project,
             existing,
@@ -253,16 +254,38 @@ def run_typed_group_summary_action(
                     details=dict(exc.details),
                 ),
             )
-    reservation = _reserve_running_action_receipt(
-        project,
-        action,
-        params_hash=identity,
-        project_id=project_id,
-        reservation_kind="reduce_group_summary_idempotency_reservation",
-        result_from_existing_fn=runtime._reduce_group_summary_result_from_existing_receipt,
-    )
+    if recovery_run is not None:
+        reservation = {
+            "receipt_id": str(existing["id"]),
+            "action_id": str(existing["action_id"]),
+        }
+        receipt = ReceiptStore(project).parsed_by_id(reservation["receipt_id"])
+        cohort = next(
+            item.ref["row_ids"]
+            for item in receipt.inputs
+            if item.ref.get("kind") == "reduce_group_summary_source_rows"
+        )
+        prepared.resolved["source_row_ids"] = cohort
+    else:
+        reservation = _reserve_running_action_receipt(
+            project,
+            action,
+            params_hash=identity,
+            project_id=project_id,
+            reservation_kind="reduce_group_summary_idempotency_reservation",
+            result_from_existing_fn=runtime._reduce_group_summary_result_from_existing_receipt,
+        )
     if isinstance(reservation, ActionResult):
         return reservation
+    from .group_summary_publication import GroupPublication, GroupPublicationError
+
+    publication = GroupPublication(
+        project,
+        prepared.operation,
+        receipt_id=reservation["receipt_id"],
+        params_hash=identity,
+        recovery_run=recovery_run,
+    )
     try:
         computations = asyncio.run(
             runtime._complete_reduce_group_summaries(
@@ -270,10 +293,12 @@ def run_typed_group_summary_action(
                 prepared.operation,
                 prepared.resolved,
                 router=router,
+                publication=publication,
             )
         )
         if isinstance(computations, ActionError):
-            ReceiptStore(project).delete_running(reservation["receipt_id"])
+            if publication.envelope is None and recovery_run is None:
+                ReceiptStore(project).delete_running(reservation["receipt_id"])
             return _failed_result(
                 project_id=project_id, action_kind=action.kind, error=computations
             )
@@ -288,6 +313,7 @@ def run_typed_group_summary_action(
             resolved=prepared.resolved,
             estimate=estimate,
             computations=computations,
+            publication=publication,
         )
     except StaleAttemptWriter as exc:
         return _failed_result(
@@ -297,8 +323,19 @@ def run_typed_group_summary_action(
                 code="stale_attempt_writer", message=str(exc), action_kind=action.kind
             ),
         )
+    except GroupPublicationError as exc:
+        if publication.envelope is None:
+            ReceiptStore(project).delete_running(reservation["receipt_id"])
+        return _failed_result(
+            project_id=project_id,
+            action_kind=action.kind,
+            error=ActionError(
+                code="project_write_failed", message=str(exc), action_kind=action.kind
+            ),
+        )
     except Exception as exc:
-        ReceiptStore(project).delete_running(reservation["receipt_id"])
+        if publication.envelope is None:
+            ReceiptStore(project).delete_running(reservation["receipt_id"])
         return _failed_result(
             project_id=project_id,
             action_kind=action.kind,
@@ -306,6 +343,12 @@ def run_typed_group_summary_action(
                 code="model_run_failed", message=str(exc), action_kind=action.kind
             ),
         )
-    if result.status == "failed" and result.receipt_id is None:
+    finally:
+        publication.close()
+    if (
+        result.status == "failed"
+        and result.receipt_id is None
+        and publication.envelope is None
+    ):
         ReceiptStore(project).delete_running(reservation["receipt_id"])
     return result

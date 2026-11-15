@@ -170,7 +170,7 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
 
     # Both per-group provider invoices are durable truth already: facts under
     # the authorizing attempt, project-key cap spend, run cost — even though
-    # no summary sheet, result cell, or receipt committed.
+    # the terminal receipt transaction has not committed.
     assert len(provider.requests) == 2
     run_id = int(project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0])
     # A crash leaves the pre-egress op visible. It must retain the same public
@@ -187,8 +187,12 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
         "sheet_ids": [project._sheet_id],
         "column_ids": [column["id"] for column in project.columns(project._sheet_id)],
     }
-    assert op_spec == bound.request.model_dump(mode="json", exclude={"confirmation"})
-    assert typed_action_for_request(op_spec).params == bound.params
+    request = bound.request.model_dump(mode="json", exclude={"confirmation"})
+    assert {key: op_spec[key] for key in request} == request
+    assert (
+        typed_action_for_request({key: op_spec[key] for key in request}).params
+        == bound.params
+    )
     attempt = project.db.execute(
         "SELECT id, state FROM execution_attempts WHERE run_id=?", (run_id,)
     ).fetchone()
@@ -210,12 +214,18 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
     ).fetchone()
     assert run["cost_actual"] == pytest.approx(0.012)
     checkpoints = project.db.execute("SELECT state FROM effect_checkpoints").fetchall()
-    assert [row["state"] for row in checkpoints] == ["returned", "returned"]
+    assert checkpoints == []  # Each result retired its checkpoint atomically.
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM sheets WHERE name='Beat Summaries'"
         ).fetchone()[0]
-        == 0
+        == 1
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        == 2
     )
     # The writer stays live through the result/checkpoint transaction. This
     # assertion is the regression fence for the old pre-commit `effected`
@@ -225,6 +235,10 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
         "UPDATE execution_attempts SET created_at=datetime('now', '-7 hours') "
         "WHERE id=?",
         (attempt["id"],),
+    )
+    project.db.execute(
+        "UPDATE output_column_claims SET lease_expires_at=datetime('now','-7 hours') WHERE run_id=?",
+        (run_id,),
     )
     project.db.commit()
     assert abandon_stale_dispatching_attempts(project, run_id) == 1
@@ -364,10 +378,7 @@ def test_reduce_terminalizer_joins_materialization_transaction(
     checkpoints = project.db.execute(
         "SELECT state, authorized_attempt_id FROM effect_checkpoints ORDER BY id"
     ).fetchall()
-    assert [(row["state"], row["authorized_attempt_id"]) for row in checkpoints] == [
-        ("returned", attempt_id),
-        ("returned", attempt_id),
-    ]
+    assert checkpoints == []
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (run_id,)
@@ -380,29 +391,29 @@ def test_reduce_terminalizer_joins_materialization_transaction(
         (action["idempotency_key"],),
     ).fetchone()
     assert reservation is not None
-    assert reservation["run_id"] is None
+    assert reservation["run_id"] == run_id
     assert reservation["status"] == "running"
     reservation_body = Receipt.model_validate_json(str(reservation["body"]))
-    assert reservation_body.run_id is None
+    assert reservation_body.run_id == run_id
     assert reservation_body.status == "running"
 
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM sheets WHERE name='Beat Summaries'"
         ).fetchone()[0]
-        == 0
+        == 1
     )
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
         ).fetchone()[0]
-        == 0
+        == 2
     )
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM output_column_claims WHERE run_id=?", (run_id,)
         ).fetchone()[0]
-        == 0
+        == 1
     )
 
 

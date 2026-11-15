@@ -107,7 +107,12 @@ def publish_refresh(
         project,
         "sheet.refresh",
         label=f"Refresh sheet {sheet_id}",
-        spec={"sheet_id": sheet_id, "policy": policy, **(spec or {})},
+        spec={
+            "sheet_id": sheet_id,
+            "policy": policy,
+            **(spec or {}),
+            "derived_refresh": config,
+        },
         commit=False,
     )
     ChangeStore(project).start(op_id)
@@ -220,8 +225,8 @@ def reconcile_rows_into_open_change(
             "WHERE effect.kind='row' AND effect.object_id IN (SELECT value FROM json_each(?)) "
             "AND owner.status='applied' AND owner.change_order IS NOT NULL) "
             "SELECT object_id FROM ranked WHERE rank=1 AND after_visible=0 "
-            "AND kind='sheet.refresh' AND json_extract(spec,'$.sheet_id')=?",
-            (json.dumps(hidden_ids), sheet_id),
+            "AND json_extract(spec,'$.derived_refresh.relationship_id')=?",
+            (json.dumps(hidden_ids), relationship_id),
         )
     }
     target_ids = [
@@ -363,6 +368,20 @@ def _refresh_membership_batch(db, op_id, sheet_id, info, initialized_columns=())
             ],
             row_ids=changed,
         )
+
+
+def restore_derived_rows(db, *, op_id, sheet_id, row_ids):
+    """Publish row restoration chosen by the same keyed field reconciliation."""
+    from types import SimpleNamespace
+    from .changes import ChangeStore
+    from .purge import require_publication_targets
+    from .structural_changes import record_structural_changes
+
+    ChangeStore(SimpleNamespace(db=db)).require_publication(op_id)
+    require_publication_targets(db, sheet_id=sheet_id, row_ids=row_ids)
+    info = {"restored_rows": list(row_ids)}
+    record_structural_changes(db, op_id, info)
+    _refresh_membership_batch(db, op_id, sheet_id, info)
 
 
 def absent_derived_batches(db, *, config, seen, batch_size=256):

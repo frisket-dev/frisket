@@ -337,3 +337,526 @@ def test_group_refresh_rechecks_original_action_in_current_edition(
         assert len(adapter.requests) == 2
     finally:
         project.close()
+
+
+def test_group_results_publish_before_next_call_and_stop_keeps_completed(tmp_path):
+    from frisket.engine.store.runs import RunResultStore
+
+    project = Project.create(tmp_path / "stream.frisket", name="stream")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        complete = adapter.complete
+        calls = 0
+        outputs = {}
+
+        async def stop_second(req, client):
+            nonlocal calls
+            calls += 1
+            assert not project.db.in_transaction
+            run = project.db.execute(
+                "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            sheet = int(run["sheet_id"])
+            rows = project.visible_row_ids(sheet)
+            summary = next(
+                int(c["id"]) for c in project.columns(sheet) if c["name"] == "summary"
+            )
+            outputs.update(sheet=sheet, rows=rows, summary=summary, run=int(run["id"]))
+            if calls == 2:
+                values = project.get_values(sheet, summary)
+                assert values[rows[0]] is not None
+                assert values[rows[1]] is None
+                RunResultStore(project).request_cancel(int(run["id"]))
+            return await complete(req, client)
+
+        adapter.complete = stop_second
+        result = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+        )
+        assert result.status == "cancelled", result.errors
+        values = project.get_values(outputs["sheet"], outputs["summary"])
+        assert values[outputs["rows"][0]] is not None
+        assert values[outputs["rows"][1]] is None
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (outputs["run"],)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (outputs["run"],)
+            ).fetchone()[0]
+            == 2
+        )
+        assert project.undo() is not None
+        assert project.visible_row_ids(outputs["sheet"]) == []
+    finally:
+        project.close()
+
+
+def test_group_refresh_failure_does_not_retire_absent_groups(tmp_path):
+    from test_reduce_group_summary_executor import _failing_router
+
+    project = Project.create(tmp_path / "partial.frisket", name="partial")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, _ = _summary_router()
+        original = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+        )
+        assert original.status == "completed", original.errors
+        sheet = original.outputs[0].sheet_id
+        original_rows = project.visible_row_ids(sheet)
+        source_rows = project.visible_row_ids(seeded["sheet_id"])
+        # Remove the sole education source group; provider failure in the
+        # remaining group must not infer completion of the refreshed sheet.
+        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (source_rows[-1],))
+        project.db.commit()
+        failing_router, _ = _failing_router()
+        bound = typed_action_for_request(
+            {
+                "action_id": "sheet.refresh",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet},
+                "idempotency_key": "partial-refresh",
+            }
+        )
+        result = run_typed_sheet_refresh_action(project, "p", bound, failing_router)
+        assert result.status == "failed", result.errors
+        assert project.visible_row_ids(sheet) == original_rows
+    finally:
+        project.close()
+
+
+def test_failed_initial_summary_then_manual_is_preserved_without_baseline(tmp_path):
+    from test_reduce_group_summary_executor import _failing_router
+
+    project = Project.create(tmp_path / "no-baseline.frisket", name="no-baseline")
+    try:
+        seeded = _seed(project, tmp_path)
+        failing, _ = _failing_router()
+        original = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), failing
+        )
+        assert original.status == "failed"
+        sheet = original.outputs[0].sheet_id
+        row = project.visible_row_ids(sheet)[0]
+        summary = next(
+            int(c["id"]) for c in project.columns(sheet) if c["name"] == "summary"
+        )
+        project.apply_edits(
+            [{"row_id": row, "column_id": summary, "value": "Manual correction"}]
+        )
+        success, _ = _summary_router()
+        for key, router in [("failed-again", failing), ("success-later", success)]:
+            bound = typed_action_for_request(
+                {
+                    "action_id": "sheet.refresh",
+                    "scope": {"kind": "project"},
+                    "params": {"sheet_id": sheet},
+                    "idempotency_key": key,
+                }
+            )
+            result = run_typed_sheet_refresh_action(project, "p", bound, router)
+            assert project.get_values(sheet, summary)[row] == "Manual correction", (
+                result.errors
+            )
+            assert (
+                project.db.execute(
+                    "SELECT publication_effect FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+                    (result.run_id, row, summary),
+                ).fetchone()[0]
+                == "retain"
+            )
+    finally:
+        project.close()
+
+
+def test_custom_group_refresh_restores_its_own_absent_members(tmp_path):
+    from test_typed_sheet_refresh import _bound, _derived_refresh
+
+    project = Project.create(tmp_path / "custom-return.frisket", name="custom-return")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, _ = _summary_router()
+        original = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+        )
+        assert original.status == "completed", original.errors
+        sheet = original.outputs[0].sheet_id
+        members = project.visible_row_ids(sheet)
+        project.db.execute(
+            "UPDATE rows SET hidden=1 WHERE sheet_id=?", (seeded["sheet_id"],)
+        )
+        project.db.commit()
+        gone = run_typed_sheet_refresh_action(
+            project,
+            "p",
+            _bound(
+                _derived_refresh, {"reference": f"sheet:{sheet}"}, key="custom-empty"
+            ),
+            router,
+        )
+        assert gone.status == "completed", gone.errors
+        assert project.visible_row_ids(sheet) == []
+        project.db.execute(
+            "UPDATE rows SET hidden=0 WHERE sheet_id=?", (seeded["sheet_id"],)
+        )
+        project.db.commit()
+        returned = run_typed_sheet_refresh_action(
+            project,
+            "p",
+            _bound(
+                _derived_refresh, {"reference": f"sheet:{sheet}"}, key="custom-return"
+            ),
+            router,
+        )
+        assert returned.status == "completed", returned.errors
+        assert project.visible_row_ids(sheet) == members
+    finally:
+        project.close()
+
+
+def test_hidden_group_summary_only_publishes_with_its_restore_decision(tmp_path):
+    from frisket.engine.executor.actions import run_action_spec
+
+    project = Project.create(tmp_path / "hidden-group.frisket", name="hidden-group")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        original = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+        )
+        assert original.status == "completed", original.errors
+        sheet = original.outputs[0].sheet_id
+        row = project.visible_row_ids(sheet)[0]
+        summary = next(
+            int(c["id"]) for c in project.columns(sheet) if c["name"] == "summary"
+        )
+        deleted = run_action_spec(
+            project,
+            {
+                "action_id": "row.delete",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet, "row_ids": [row]},
+                "idempotency_key": "hide-group",
+            },
+            project_id="p",
+        )
+        assert deleted.status == "completed", deleted.errors
+
+        def request(key):
+            return typed_action_for_request(
+                {
+                    "action_id": "sheet.refresh",
+                    "scope": {"kind": "project"},
+                    "params": {"sheet_id": sheet, "update_policy": "incoming_wins"},
+                    "idempotency_key": key,
+                }
+            )
+
+        unchanged = run_typed_sheet_refresh_action(
+            project, "p", request("same-incoming"), router
+        )
+        assert unchanged.status == "completed", unchanged.errors
+        assert row not in project.visible_row_ids(sheet)
+        assert (
+            project.db.execute(
+                "SELECT publication_effect FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+                (unchanged.run_id, row, summary),
+            ).fetchone()[0]
+            == "retain"
+        )
+        complete = adapter.complete
+
+        async def changed(req, client):
+            response = await complete(req, client)
+            response.content = "Changed summary"
+            return response
+
+        adapter.complete = changed
+        refreshed = run_typed_sheet_refresh_action(
+            project, "p", request("changed-incoming"), router
+        )
+        assert refreshed.status == "completed", refreshed.errors
+        assert row in project.visible_row_ids(sheet)
+        assert project.get_values(sheet, summary)[row] == "Changed summary"
+        assert project.undo() is not None
+        assert row not in project.visible_row_ids(sheet)
+    finally:
+        project.close()
+
+
+def test_group_refresh_crash_recovery_excludes_only_its_pending_mask(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.executor.group_summary_publication import GroupPublication
+
+    project = Project.create(
+        tmp_path / "recovered-refresh.frisket", name="recovered-refresh"
+    )
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        original = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+        )
+        assert original.status == "completed", original.errors
+        sheet = original.outputs[0].sheet_id
+        rows = project.visible_row_ids(sheet)
+        summary = next(
+            int(c["id"]) for c in project.columns(sheet) if c["name"] == "summary"
+        )
+        complete = adapter.complete
+
+        async def changed(req, client):
+            response = await complete(req, client)
+            response.content = "New summary"
+            return response
+
+        adapter.complete = changed
+        publish = GroupPublication.publish
+        calls = 0
+
+        def interrupted(self, computation):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("process interrupted before second publication")
+            return publish(self, computation)
+
+        monkeypatch.setattr(GroupPublication, "publish", interrupted)
+        bound = typed_action_for_request(
+            {
+                "action_id": "sheet.refresh",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet},
+                "idempotency_key": "recover-refresh",
+            }
+        )
+        failed = run_typed_sheet_refresh_action(project, "p", bound, router)
+        assert failed.status == "failed"
+        assert project.get_values(sheet, summary)[rows[0]] == "New summary"
+        project.apply_edits(
+            [
+                {"row_id": row, "column_id": summary, "value": "Later manual"}
+                for row in rows
+            ]
+        )
+        resumed = run_typed_sheet_refresh_action(project, "p", bound, router)
+        assert resumed.status == "completed", resumed.errors
+        assert len(adapter.requests) == 4
+        assert list(project.get_values(sheet, summary).values()) == [
+            "Later manual",
+            "Later manual",
+        ]
+        assert (
+            project.db.execute(
+                "SELECT publication_effect FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+                (resumed.run_id, rows[1], summary),
+            ).fetchone()[0]
+            == "retain"
+        )
+    finally:
+        project.close()
+
+
+def test_undo_during_group_call_keeps_accounting_and_never_reopens_output(tmp_path):
+    project = Project.create(tmp_path / "undo-running.frisket", name="undo-running")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        complete = adapter.complete
+        count = 0
+        run_id = None
+
+        async def undo_second(req, client):
+            nonlocal count, run_id
+            count += 1
+            run = project.db.execute(
+                "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            run_id = int(run["id"])
+            if count == 2:
+                assert project.undo() is not None
+            return await complete(req, client)
+
+        adapter.complete = undo_second
+        result = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+        )
+        assert result.status == "cancelled", result.errors
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=0").fetchone()[
+                0
+            ]
+            == 1
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 2
+        )
+        owner = project.db.execute(
+            "SELECT op.status,op.publication_closed FROM ops op JOIN runs r ON r.op_id=op.id WHERE r.id=?",
+            (run_id,),
+        ).fetchone()
+        assert tuple(owner) == ("undone", 1)
+    finally:
+        project.close()
+
+
+def test_group_recovers_created_sheet_before_first_result_generation(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.executor import group_summary_publication
+
+    project = Project.create(
+        tmp_path / "metadata-resume.frisket", name="metadata-resume"
+    )
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        reconcile = group_summary_publication.reconcile_rows_into_open_change
+        first = True
+
+        def interrupted(*args, **kwargs):
+            nonlocal first
+            result = reconcile(*args, **kwargs)
+            if first:
+                first = False
+                raise RuntimeError("crash during first metadata page")
+            return result
+
+        monkeypatch.setattr(
+            group_summary_publication, "reconcile_rows_into_open_change", interrupted
+        )
+        bound = _bound_request(_reduce_action(seeded["sheet_id"]))
+        failed = run_typed_group_summary_action(project, "p", bound, router)
+        assert failed.status == "failed"
+        assert len(adapter.requests) == 0
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM run_output_generations"
+            ).fetchone()[0]
+            == 0
+        )
+        resumed = run_typed_group_summary_action(project, "p", bound, router)
+        assert resumed.status == "completed", resumed.errors
+        assert len(adapter.requests) == 2
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 2
+    finally:
+        project.close()
+
+
+def test_group_checkpoint_identity_does_not_use_the_display_label(tmp_path):
+    project = Project.create(tmp_path / "typed-groups.frisket", name="typed-groups")
+    try:
+        seeded = _seed(project, tmp_path)
+        rows = project.visible_row_ids(seeded["sheet_id"])
+        group_column = next(
+            int(c["id"])
+            for c in project.columns(seeded["sheet_id"])
+            if c["name"] == "beat"
+        )
+        project.apply_edits(
+            [
+                {"row_id": row, "column_id": group_column, "value": value}
+                for row, value in zip(rows, [None, "null", "Other"], strict=True)
+            ]
+        )
+        router, adapter = _summary_router()
+        original = run_typed_group_summary_action(
+            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+        )
+        assert original.status == "completed", original.errors
+        sheet = original.outputs[0].sheet_id
+        assert len(project.visible_row_ids(sheet)) == 3
+        assert len(adapter.requests) == 3
+        refresh = run_typed_sheet_refresh_action(
+            project,
+            "p",
+            typed_action_for_request(
+                {
+                    "action_id": "sheet.refresh",
+                    "scope": {"kind": "project"},
+                    "params": {"sheet_id": sheet},
+                    "idempotency_key": "typed-refresh",
+                }
+            ),
+            router,
+        )
+        assert refresh.status == "completed", refresh.errors
+        assert len(project.visible_row_ids(sheet)) == 3
+        assert len(adapter.requests) == 6
+    finally:
+        project.close()
+
+
+def test_recovery_preserves_both_actual_read_versions_across_source_edit(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.executor.group_summary_publication import GroupPublication
+    from frisket.engine.store.staleness import sheet_freshness
+
+    project = Project.create(tmp_path / "mixed-capture.frisket", name="mixed-capture")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        publish = GroupPublication.publish
+        first = True
+
+        def interrupted(self, computation):
+            nonlocal first
+            result = publish(self, computation)
+            if first:
+                first = False
+                raise RuntimeError("crash after first committed group")
+            return result
+
+        monkeypatch.setattr(GroupPublication, "publish", interrupted)
+        bound = _bound_request(_reduce_action(seeded["sheet_id"]))
+        failed = run_typed_group_summary_action(project, "p", bound, router)
+        assert failed.status == "failed"
+        assert len(adapter.requests) == 1
+        source_rows = project.visible_row_ids(seeded["sheet_id"])
+        story = next(
+            int(c["id"])
+            for c in project.columns(seeded["sheet_id"])
+            if c["name"] == "story"
+        )
+        project.apply_edits(
+            [
+                {
+                    "row_id": source_rows[-1],
+                    "column_id": story,
+                    "value": "New source read after recovery",
+                }
+            ]
+        )
+        resumed = run_typed_group_summary_action(project, "p", bound, router)
+        assert resumed.status == "completed", resumed.errors
+        assert len(adapter.requests) == 2
+        sheet = resumed.outputs[0].sheet_id
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM consumed_source_bundles WHERE run_id=?",
+                (resumed.run_id,),
+            ).fetchone()[0]
+            == 2
+        )
+        assert sheet_freshness(project, sheet) == "stale"
+        assert project.undo() is not None
+        assert sheet_freshness(project, sheet) == "stale"
+    finally:
+        project.close()

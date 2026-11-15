@@ -2,7 +2,7 @@
 
 import json
 
-from frisket.engine.executor import group_summary_runtime as reduces
+from frisket.engine.executor.group_summary_publication import GroupPublication
 from frisket.engine.store.staleness import sheet_freshness
 from frisket.execution.attempt import abandon_stale_dispatching_attempts
 from frisket.team.security.secrets import encrypt_secret, key_hint
@@ -28,19 +28,21 @@ def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
     )
     router = _project_key_router(provider)
     action = _action(project._sheet_id, key="group-capture-recovery")
-    write = reduces._write_reduce_group_summary_result
+    write = GroupPublication.publish
     crashed_once = False
 
+    calls = 0
+
     def crash_before_publication(*args, **kwargs):
+        nonlocal calls
+        calls += 1
         nonlocal crashed_once
-        if not crashed_once:
+        if not crashed_once and calls == 2:
             crashed_once = True
             raise RuntimeError("injected result publication crash")
         return write(*args, **kwargs)
 
-    monkeypatch.setattr(
-        reduces, "_write_reduce_group_summary_result", crash_before_publication
-    )
+    monkeypatch.setattr(GroupPublication, "publish", crash_before_publication)
     crashed = _run(project, action, router)
     assert crashed.status == "failed"
     assert len(provider.requests) == 2, crashed.errors
@@ -60,7 +62,9 @@ def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
         (run_id,),
     )
     project.db.commit()
-    assert abandon_stale_dispatching_attempts(project, run_id) == 1
+    assert (
+        abandon_stale_dispatching_attempts(project, run_id) == 0
+    )  # Interrupted owner is already halted.
     resumed = _run(project, action, router)
     assert resumed.status == "completed", resumed.errors
     assert len(provider.requests) == 2

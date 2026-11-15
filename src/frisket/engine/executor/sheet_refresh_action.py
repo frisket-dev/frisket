@@ -324,12 +324,16 @@ def run_typed_sheet_refresh_action(
         if existing is None:
             return None
         if existing["params_hash"] != request_hash:
-            _fail(
+            return _fail(
                 project_id=project_id,
                 code="idempotency_conflict",
                 message="idempotency_key was already used with a different request",
                 field="idempotency_key",
             )
+        from .group_summary_runtime import _recoverable_group_run
+
+        if _recoverable_group_run(project, existing, request_hash) is not None:
+            return None
         return _result_from_receipt(
             Receipt.model_validate(json.loads(existing["body"]))
         )
