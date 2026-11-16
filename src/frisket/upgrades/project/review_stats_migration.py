@@ -1,14 +1,11 @@
 """Add and backfill compact per-run review summaries."""
 
 from __future__ import annotations
-
 import sqlite3
-
 from frisket.review_predicate import primary_params, primary_where
-
-from .runs import REVIEWABLE_OUTCOMES
-from .schema import SCHEMA_DIGEST_META_KEY
-from .typed_storage_migration import TYPED_VALUES_TO_DIGEST
+from frisket.engine.store.runs import REVIEWABLE_OUTCOMES
+from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.typed_storage_migration import TYPED_VALUES_TO_DIGEST
 
 
 REVIEW_STATS_FROM_DIGEST = TYPED_VALUES_TO_DIGEST

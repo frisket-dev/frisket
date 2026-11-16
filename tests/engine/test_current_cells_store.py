@@ -25,7 +25,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
 )
 from frisket.engine.store.schema import SCHEMA
-from frisket.engine.store.value_codec import migrate_legacy_json_value
+from frisket.upgrades.project.typed_storage_migration import migrate_legacy_json_value
 
 
 def _database() -> sqlite3.Connection:

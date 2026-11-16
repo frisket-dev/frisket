@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store import bundle_open
+from frisket.upgrades.project import chain as bundle_open
 from frisket.engine.store.bundle_io import export_database
 from frisket.engine.store.project import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY

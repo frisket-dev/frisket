@@ -4,7 +4,7 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.action_submissions_migration import (
+from frisket.upgrades.project.action_submissions_migration import (
     ACTION_SUBMISSIONS_FROM_DIGEST,
     ACTION_SUBMISSIONS_TO_DIGEST,
     migrate_action_submissions,

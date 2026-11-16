@@ -11,7 +11,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.scalar_storage_migration import (
+from frisket.upgrades.project.scalar_storage_migration import (
     SCALAR_CURRENT_VALUES_FROM_DIGEST,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY

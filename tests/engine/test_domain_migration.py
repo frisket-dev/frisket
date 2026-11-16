@@ -7,7 +7,7 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store.domain_migration import (
+from frisket.upgrades.project.domain_migration import (
     archive_history,
     capture_current_baseline,
     install_current_baseline,
@@ -159,7 +159,7 @@ def test_old_history_is_inspectable_but_not_navigable(old_db):
 
 
 def _stamp_old(db):
-    from frisket.engine.store.domain_migration import DOMAIN_FROM_DIGEST
+    from frisket.upgrades.project.domain_migration import DOMAIN_FROM_DIGEST
 
     db.execute(
         "INSERT INTO meta(key,value) VALUES ('schema_digest',?)", (DOMAIN_FROM_DIGEST,)
@@ -168,7 +168,7 @@ def _stamp_old(db):
 
 
 def test_full_cutover_preserves_values_and_starts_new_history(old_db):
-    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.upgrades.project.domain_migration import migrate_domain
     from frisket.engine.store.schema import SCHEMA_DIGEST
 
     db = old_db
@@ -220,7 +220,7 @@ def test_full_cutover_preserves_values_and_starts_new_history(old_db):
 
 
 def test_cutover_preserves_anonymous_source_identity(old_db):
-    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.upgrades.project.domain_migration import migrate_domain
 
     db = old_db
     db.execute("DELETE FROM edits")
@@ -247,7 +247,10 @@ def test_cutover_preserves_anonymous_source_identity(old_db):
 
 
 def test_full_cutover_failure_restores_schema_and_pragmas(old_db):
-    from frisket.engine.store.domain_migration import migrate_domain, DOMAIN_FROM_DIGEST
+    from frisket.upgrades.project.domain_migration import (
+        migrate_domain,
+        DOMAIN_FROM_DIGEST,
+    )
 
     db = old_db
     db.execute(
@@ -271,7 +274,7 @@ def test_full_cutover_failure_restores_schema_and_pragmas(old_db):
 
 
 def test_cutover_preserves_saved_answer_beneath_manual_correction(old_db):
-    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.upgrades.project.domain_migration import migrate_domain
     from frisket.engine.store.changes import start_change, ChangePublicationClosed
 
     db = old_db
@@ -327,7 +330,7 @@ def test_cutover_preserves_saved_answer_beneath_manual_correction(old_db):
 
 
 def test_cutover_normalizes_swapped_output_roles_atomically(old_db):
-    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.upgrades.project.domain_migration import migrate_domain
 
     db = old_db
     db.execute("INSERT INTO columns(id,sheet_id,name) VALUES (2,1,'Other')")
@@ -372,7 +375,10 @@ def test_cutover_normalizes_swapped_output_roles_atomically(old_db):
 def test_cutover_retains_data_when_optional_output_metadata_is_malformed(
     old_db, details, params
 ):
-    from frisket.engine.store.domain_migration import migrate_domain, DOMAIN_TO_DIGEST
+    from frisket.upgrades.project.domain_migration import (
+        migrate_domain,
+        DOMAIN_TO_DIGEST,
+    )
     from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
 
     db = old_db
@@ -412,7 +418,7 @@ def test_cutover_retains_data_when_optional_output_metadata_is_malformed(
 
 def test_released_runs_migrate_as_singleton_execution_identities(old_db):
     from types import SimpleNamespace
-    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.upgrades.project.domain_migration import migrate_domain
     from frisket.engine.store.execution_groups import execution_runs
 
     db = old_db
@@ -469,7 +475,7 @@ def _check_constraints(sql):
 
 
 def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
-    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.upgrades.project.domain_migration import migrate_domain
     from frisket.engine.store.schema import SCHEMA
 
     _stamp_old(old_db)
@@ -519,7 +525,7 @@ def test_migrated_schema_matches_fresh_columns_and_constraints(old_db):
 def test_results_rebuild_retains_data_indexes_triggers_and_accepts_retained_outcomes(
     old_db,
 ):
-    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.upgrades.project.domain_migration import migrate_domain
 
     db = old_db
     db.execute(
@@ -585,7 +591,7 @@ def test_results_rebuild_retains_data_indexes_triggers_and_accepts_retained_outc
 
 
 def test_migrated_indexes_views_and_triggers_match_fresh_schema(old_db):
-    from frisket.engine.store.domain_migration import migrate_domain
+    from frisket.upgrades.project.domain_migration import migrate_domain
     from frisket.engine.store.schema import SCHEMA
 
     def objects(db):
@@ -673,7 +679,9 @@ def test_upgrade_reopen_keeps_file_bytes_and_corrections_as_new_undo_floor(tmp_p
 
 
 def test_attempt_handler_lineage_upgrade_preserves_unknown_historical_owner(old_db):
-    from frisket.engine.store.domain_migration import install_attempt_handler_lineage
+    from frisket.upgrades.project.domain_migration import (
+        install_attempt_handler_lineage,
+    )
 
     old_db.execute(
         "INSERT INTO execution_attempts (id,seq,state,action_identity_hash,scope_json,created_at) "
@@ -690,3 +698,21 @@ def test_attempt_handler_lineage_upgrade_preserves_unknown_historical_owner(old_
     assert "job_id" not in {
         row[1] for row in old_db.execute("PRAGMA table_info(execution_attempts)")
     }
+
+
+def test_current_project_does_not_run_historical_conversion(tmp_path, monkeypatch):
+    from contextlib import closing
+
+    from frisket.engine.store import Project
+    from frisket.upgrades.project import chain
+
+    path = tmp_path / "current.frisket"
+    with closing(Project.create(path)) as project:
+        sheet = project.add_sheet("Retained")
+
+    def unexpected_conversion(*args, **kwargs):
+        raise AssertionError("Current project entered historical conversion")
+
+    monkeypatch.setattr(chain, "upgrade_project_schema", unexpected_conversion)
+    with closing(Project(path)) as project:
+        assert project.sheets()[0]["id"] == sheet

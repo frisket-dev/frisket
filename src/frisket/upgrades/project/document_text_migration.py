@@ -1,16 +1,16 @@
 """Add designated document-text roles and sparse manual provenance pins."""
 
 from __future__ import annotations
-
 import sqlite3
 from pathlib import Path
-
-from .document_text import (
+from frisket.engine.store.document_text import (
     DOCUMENT_TEXT_SCHEMA_SQL,
     LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL,
 )
-from .execution_metadata_migration import EXECUTION_METADATA_TO_DIGEST
-from .schema import SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.execution_metadata_migration import (
+    EXECUTION_METADATA_TO_DIGEST,
+)
+from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
 
 
 DOCUMENT_TEXT_FROM_DIGEST = EXECUTION_METADATA_TO_DIGEST

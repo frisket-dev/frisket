@@ -1,7 +1,7 @@
 import json
 
 from frisket.engine.store import Project
-from frisket.engine.store.domain_view_migration import migrate_unified_views
+from frisket.upgrades.project.domain_view_migration import migrate_unified_views
 from frisket.engine.views.evaluate import open_selection
 
 

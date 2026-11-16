@@ -8,8 +8,8 @@ import pytest
 
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
-from frisket.engine.store.document_text_migration import DOCUMENT_TEXT_FROM_DIGEST
-from frisket.engine.store.execution_metadata_migration import (
+from frisket.upgrades.project.document_text_migration import DOCUMENT_TEXT_FROM_DIGEST
+from frisket.upgrades.project.execution_metadata_migration import (
     EXECUTION_METADATA_FROM_DIGEST,
     EXECUTION_METADATA_TO_DIGEST,
     migrate_execution_metadata,

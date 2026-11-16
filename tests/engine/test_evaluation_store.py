@@ -7,7 +7,7 @@ import pytest
 from tests.engine.historical_schema import restore_pre_domain_schema
 
 from frisket.engine.store import Project
-from frisket.engine.store.evaluation_migration import (
+from frisket.upgrades.project.evaluation_migration import (
     EVALUATION_FROM_DIGEST,
     migrate_evaluation,
 )

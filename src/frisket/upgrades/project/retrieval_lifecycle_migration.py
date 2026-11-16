@@ -1,14 +1,15 @@
 """Add monotonic current-cell revisions for retrieval binding authority."""
 
 from __future__ import annotations
-
 import sqlite3
 from pathlib import Path
+from frisket.upgrades.project.historical_current_cells import stamp_retrieval_revision
+from frisket.upgrades.project.prepared_content_migration import (
+    PREPARED_CONTENT_TO_DIGEST,
+)
+from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.search_index_work import enqueue_dirty_scope
 
-from .historical_current_cells import stamp_retrieval_revision
-from .prepared_content_migration import PREPARED_CONTENT_TO_DIGEST
-from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
-from .search_index_work import enqueue_dirty_scope
 
 RETRIEVAL_LIFECYCLE_FROM_DIGEST = PREPARED_CONTENT_TO_DIGEST
 RETRIEVAL_LIFECYCLE_TO_DIGEST = "frisket.schema.v1:4aade3b42272e8da098dabcf418502f8"

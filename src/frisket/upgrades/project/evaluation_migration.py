@@ -1,10 +1,9 @@
 """Add expected-answer metadata while preserving all ordinary source/result cells."""
 
 from __future__ import annotations
-
 import sqlite3
+from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
 
-from .schema import SCHEMA_DIGEST_META_KEY
 
 EVALUATION_FROM_DIGEST = "frisket.schema.v1:bba6b2017e73276ec859d32dc995b59a"
 EVALUATION_TO_DIGEST = "frisket.schema.v1:eacabe5ca733e513082aeeb74d2ad676"

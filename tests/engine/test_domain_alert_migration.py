@@ -1,6 +1,6 @@
 import sqlite3
 
-from frisket.engine.store.domain_alert_migration import migrate_alert_baselines
+from frisket.upgrades.project.domain_alert_migration import migrate_alert_baselines
 
 
 def test_cutover_keeps_definitions_and_history_and_silently_rebaselines():

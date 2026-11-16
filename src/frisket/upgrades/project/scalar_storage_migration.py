@@ -1,16 +1,15 @@
 """Add bounded native scalar copies to the current-cell projection."""
 
 from __future__ import annotations
-
 import sqlite3
-
-from .historical_current_cells import backfill_inline_scalar_values
-from .review_confidence_migration import REVIEW_CONFIDENCE_TO_DIGEST
-from .schema import (
-    BundleSchemaMismatch,
-    SCALAR_CURRENT_CELL_VALUES_SQL,
-    SCHEMA_DIGEST_META_KEY,
+from frisket.upgrades.project.historical_current_cells import (
+    backfill_inline_scalar_values,
 )
+from frisket.upgrades.project.review_confidence_migration import (
+    REVIEW_CONFIDENCE_TO_DIGEST,
+)
+from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.historical_schema import SCALAR_CURRENT_CELL_VALUES_SQL
 
 
 SCALAR_CURRENT_VALUES_FROM_DIGEST = REVIEW_CONFIDENCE_TO_DIGEST

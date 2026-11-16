@@ -1,7 +1,7 @@
 """Transactional maintenance of the rebuildable visible-cell projection.
 
 All current writers use one ordered authority. Historical schema migrations
-use the separate frozen historical_current_cells module.
+use the isolated upgrades.project package.
 """
 
 from __future__ import annotations

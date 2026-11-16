@@ -87,48 +87,6 @@ class DerivedRefreshRow:
     sources: Sequence[tuple[int, str]] = ()
 
 
-def publish_refresh(
-    db, *, sheet_id, config, columns, rows, policy="keep_changes", spec=None
-):
-    """Publish an entirely enumerated deterministic refresh in the caller txn.
-
-    Only declared output columns and observed generated members are owned here.
-    Other columns and user-added rows remain independent working data.
-    """
-    from types import SimpleNamespace
-
-    from .changes import ChangeStore
-    from .op_log import append_op
-
-    if not db.in_transaction:
-        raise RuntimeError("derived refresh requires a caller transaction")
-    project = SimpleNamespace(db=db)
-    op_id = append_op(
-        project,
-        "sheet.refresh",
-        label=f"Refresh sheet {sheet_id}",
-        spec={
-            "sheet_id": sheet_id,
-            "policy": policy,
-            **(spec or {}),
-            "derived_refresh": config,
-        },
-        commit=False,
-    )
-    ChangeStore(project).start(op_id)
-    output_ids = reconcile_into_open_change(
-        db,
-        op_id=op_id,
-        sheet_id=sheet_id,
-        config=config,
-        columns=columns,
-        rows=rows,
-        policy=policy,
-    )
-    ChangeStore(project).close(op_id)
-    return op_id, output_ids
-
-
 def reconcile_rows_into_open_change(
     db, *, op_id, sheet_id, config, columns, rows, policy="keep_changes"
 ):
@@ -425,33 +383,3 @@ def complete_derived_membership(db, *, op_id, sheet_id, config, observed_rows):
     info = {"deleted_rows": hidden}
     record_structural_changes(db, op_id, info)
     _refresh_membership_batch(db, op_id, sheet_id, info)
-
-
-def reconcile_into_open_change(
-    db, *, op_id, sheet_id, config, columns, rows, policy="keep_changes"
-):
-    """Compatibility wrapper for complete in-transaction enumeration callers."""
-    from .derived_refresh_stage import DerivedRefreshStage
-
-    with DerivedRefreshStage(keyed=bool(config["keyed"])) as stage:
-        for row in rows:
-            stage.add(row)
-        stage.seal()
-        output_ids = []
-        for batch in stage.batches():
-            written = reconcile_rows_into_open_change(
-                db,
-                op_id=op_id,
-                sheet_id=sheet_id,
-                config=config,
-                columns=columns,
-                rows=[row for _, row, _ in batch],
-                policy=policy,
-            )
-            stage.record_published(written)
-            output_ids.extend(row for row in written if row is not None)
-        for absent in absent_derived_batches(db, config=config, seen=stage):
-            complete_derived_membership(
-                db, op_id=op_id, sheet_id=sheet_id, config=config, observed_rows=absent
-            )
-        return output_ids

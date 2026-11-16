@@ -5,10 +5,8 @@ Nothing is evaluated and no model/index preparation runs during conversion.
 """
 
 from __future__ import annotations
-
 import json
 from typing import Any
-
 from frisket.engine.views.specs import legacy_selection
 
 

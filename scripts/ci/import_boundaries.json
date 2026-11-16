@@ -1,6 +1,14 @@
 {
   "rules": [
     {
+      "id": "project-upgrades-have-one-entry",
+      "comment": "Runtime may invoke upgrades.project.upgrade_project, never individual historical converters. Removing the upgrade package must not require untangling runtime readers or writers.",
+      "modules": ["frisket.*"],
+      "exclude": ["frisket.upgrades", "frisket.upgrades.*"],
+      "forbidden_imports": ["frisket.upgrades.project.*"],
+      "reject_unresolved_dynamic": false
+    },
+    {
       "id": "no-public-to-private-imports",
       "comment": "No module of the public package may import an optional composition package at module level, inside a function, under TYPE_CHECKING, or through a literal dynamic import. Optional packages may import public code; public code must remain independently installable.",
       "modules": [

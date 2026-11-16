@@ -1,10 +1,9 @@
 """Add submitted action settings without changing execution or undo history."""
 
 from __future__ import annotations
-
 import sqlite3
+from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
 
-from .schema import SCHEMA_DIGEST_META_KEY
 
 ACTION_SUBMISSIONS_FROM_DIGEST = "frisket.schema.v1:eacabe5ca733e513082aeeb74d2ad676"
 ACTION_SUBMISSIONS_TO_DIGEST = "frisket.schema.v1:7e339a8995763aa40346e7d36187837d"

@@ -19,12 +19,12 @@ from frisket.engine.store.retrieval_lifecycle import (
     read_binding_revisions,
     touch_binding_revisions,
 )
-from frisket.engine.store.retrieval_lifecycle_migration import (
+from frisket.upgrades.project.retrieval_lifecycle_migration import (
     RETRIEVAL_LIFECYCLE_FROM_DIGEST,
     RETRIEVAL_LIFECYCLE_TO_DIGEST,
     migrate_retrieval_lifecycle,
 )
-from frisket.engine.store.execution_metadata_migration import (
+from frisket.upgrades.project.execution_metadata_migration import (
     EXECUTION_METADATA_FROM_DIGEST,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY

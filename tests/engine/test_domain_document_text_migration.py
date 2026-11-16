@@ -2,7 +2,7 @@ from contextlib import closing
 
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
-from frisket.engine.store.domain_document_text_migration import (
+from frisket.upgrades.project.domain_document_text_migration import (
     adopt_legacy_document_text,
 )
 from frisket.engine.store.evidence import record_source_artifact

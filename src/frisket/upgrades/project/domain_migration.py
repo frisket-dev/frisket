@@ -7,13 +7,12 @@ calling current execution commands against an older database.
 """
 
 from __future__ import annotations
-
 import json
 import re
 import sqlite3
 from uuid import uuid4
+from frisket.engine.store.schema import BundleSchemaMismatch
 
-from .schema import BundleSchemaMismatch
 
 DOMAIN_FROM_DIGEST = "frisket.schema.v1:7e339a8995763aa40346e7d36187837d"
 HISTORY_FLOOR_KEY = "domain_history_floor"
@@ -235,7 +234,7 @@ def _rebuild_table(
     db: sqlite3.Connection, table: str, *, fallback_producer_id: int | None = None
 ) -> None:
     """Rebuild one known cutover table, retaining IDs, indexes and triggers."""
-    from .schema import SCHEMA
+    from frisket.engine.store.schema import SCHEMA
 
     if table not in {
         "cells",
@@ -307,23 +306,31 @@ def install_attempt_handler_lineage(db: sqlite3.Connection) -> None:
 
 def migrate_domain(db: sqlite3.Connection) -> None:
     """Atomically upgrade the last pre-Change schema; never reset user data."""
-    from .blob_retention_migration import migrate_blob_derivation_ownership
-    from .change_schema import CHANGE_SCHEMA_SQL
-    from .column_descriptors import DESCRIPTOR_SCHEMA_SQL
-    from .structural_changes import STRUCTURAL_SCHEMA_SQL
-    from .copied_results import COPIED_RESULTS_SCHEMA_SQL
-    from .domain_alert_migration import migrate_alert_baselines
-    from .document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
-    from .current_cells import register_current_cell_functions
-    from .domain_document_text_migration import adopt_legacy_document_text
-    from .domain_identity_migration import migrate_identity_high_water
-    from .keyed_updates import KEYED_UPDATE_SCHEMA
-    from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
-    from .purge import PURGE_SCHEMA_SQL
-    from .materialized_lineage import migrate_materialized_lineage
-    from .domain_view_migration import migrate_unified_views
-    from .review_judgments import JUDGMENT_SCHEMA_SQL
-    from .schema import (
+    from frisket.upgrades.project.blob_retention_migration import (
+        migrate_blob_derivation_ownership,
+    )
+    from frisket.engine.store.change_schema import CHANGE_SCHEMA_SQL
+    from frisket.engine.store.column_descriptors import DESCRIPTOR_SCHEMA_SQL
+    from frisket.engine.store.structural_changes import STRUCTURAL_SCHEMA_SQL
+    from frisket.engine.store.copied_results import COPIED_RESULTS_SCHEMA_SQL
+    from frisket.upgrades.project.domain_alert_migration import migrate_alert_baselines
+    from frisket.engine.store.document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
+    from frisket.engine.store.current_cells import register_current_cell_functions
+    from frisket.upgrades.project.domain_document_text_migration import (
+        adopt_legacy_document_text,
+    )
+    from frisket.upgrades.project.domain_identity_migration import (
+        migrate_identity_high_water,
+    )
+    from frisket.engine.store.keyed_updates import KEYED_UPDATE_SCHEMA
+    from frisket.engine.store.consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
+    from frisket.engine.store.purge import PURGE_SCHEMA_SQL
+    from frisket.upgrades.project.domain_identity_migration import (
+        migrate_materialized_lineage,
+    )
+    from frisket.upgrades.project.domain_view_migration import migrate_unified_views
+    from frisket.engine.store.review_judgments import JUDGMENT_SCHEMA_SQL
+    from frisket.engine.store.schema import (
         CURRENT_CELL_VALUES_SQL,
         UNMODIFIED_CELL_VALUES_SQL,
         SCHEMA,
@@ -380,7 +387,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         db.execute(
             "ALTER TABLE runs ADD COLUMN execution_root_run_id INTEGER REFERENCES runs(id) ON DELETE RESTRICT"
         )
-        from .execution_groups import EXECUTION_GROUP_SCHEMA_SQL
+        from frisket.engine.store.execution_groups import EXECUTION_GROUP_SCHEMA_SQL
 
         _execute_ddl(db, EXECUTION_GROUP_SCHEMA_SQL)
         _retain_output_descriptors(db)

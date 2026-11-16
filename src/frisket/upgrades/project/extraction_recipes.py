@@ -1,9 +1,7 @@
 """One-time workspace recipe upgrade for document extraction layouts."""
 
 from __future__ import annotations
-
 import logging
-
 from frisket.contracts.http.document_extraction import ExtractionTemplateSave
 from frisket.engine.store import extraction_layouts
 

@@ -9,7 +9,7 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store.domain_identity_migration import (
+from frisket.upgrades.project.domain_identity_migration import (
     migrate_identity_high_water,
 )
 
@@ -210,7 +210,7 @@ def test_consumed_operation_and_producer_identities_are_never_reused():
 
 
 def test_view_and_watch_high_water_survives_shape_conversion_and_deletion():
-    from frisket.engine.store.domain_view_migration import migrate_unified_views
+    from frisket.upgrades.project.domain_view_migration import migrate_unified_views
 
     db = _prior()
     db.execute(

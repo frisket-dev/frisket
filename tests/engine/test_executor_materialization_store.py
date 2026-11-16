@@ -70,7 +70,7 @@ def test_refresh_versions_group_contributors_and_undo_restores_prior_set(tmp_pat
     from frisket.engine.store.derived_updates import (
         MaterializedIdentity,
         DerivedRefreshRow,
-        publish_refresh,
+        reconcile_rows_into_open_change,
         refresh_config,
     )
     from frisket.engine.store.materialization import (
@@ -114,8 +114,16 @@ def test_refresh_versions_group_contributors_and_undo_restores_prior_set(tmp_pat
                 "SELECT * FROM ops WHERE id=?", (write.op_id,)
             ).fetchone()
         )
-        _, new_ids = publish_refresh(
+        from frisket.engine.store.changes import ChangeStore
+
+        refresh_op = project.append_op(
+            "sheet.refresh", {"sheet_id": write.sheet_id}, commit=False
+        )
+        changes = ChangeStore(project)
+        changes.start(refresh_op)
+        new_ids = reconcile_rows_into_open_change(
             project.db,
+            op_id=refresh_op,
             sheet_id=write.sheet_id,
             config=config,
             columns=columns,
@@ -127,6 +135,7 @@ def test_refresh_versions_group_contributors_and_undo_restores_prior_set(tmp_pat
                 )
             ],
         )
+        changes.close(refresh_op)
         project.db.commit()
         assert new_ids == write.row_ids
         current = active_materialized_row_sources(
@@ -156,6 +165,8 @@ def test_materialized_lineage_upgrade_preserves_edges_and_foreign_keys():
     import sqlite3
     from frisket.engine.store.materialized_lineage import (
         MATERIALIZED_LINEAGE_SCHEMA_SQL,
+    )
+    from frisket.upgrades.project.domain_identity_migration import (
         migrate_materialized_lineage,
     )
 

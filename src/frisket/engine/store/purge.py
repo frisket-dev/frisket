@@ -478,14 +478,6 @@ def _scrub_content(project, p, batch_size):
             _delete_batches(
                 db, table, predicate, p, batch_size=batch_size, project=project
             )
-    _delete_batches(
-        db,
-        "results",
-        f"(row_id IN ({_targets('row')}) OR column_id IN ({_targets('column')})) AND NOT EXISTS (SELECT 1 FROM copied_result_outcomes copy WHERE copy.source_run_id=results.run_id AND copy.source_row_id=results.row_id AND copy.source_column_id=results.column_id)",
-        p,
-        batch_size=batch_size,
-        project=project,
-    )
     from .keyed_updates import purge_baseline_columns
 
     cursor = 0

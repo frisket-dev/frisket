@@ -1,18 +1,24 @@
 """One-time migration from JSON cell payloads to native SQLite values."""
 
 from __future__ import annotations
-
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
-
-from .disk_capacity import require_disk_headroom
-from .schema import (
-    BundleSchemaMismatch,
-    SCHEMA_DIGEST_META_KEY,
+from frisket.engine.store.disk_capacity import require_disk_headroom
+from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.typed_storage_migration_schema import (
+    TYPED_STORAGE_STATEMENTS,
 )
-from .value_codec import migrate_legacy_json_value
-from .typed_storage_migration_schema import TYPED_STORAGE_STATEMENTS
+from frisket.engine.store.value_codec import (
+    SQLiteValue,
+    _reject_non_json_constant,
+    _encode_complex,
+    encode_stored_value,
+)
+from frisket.engine.store.value_codec import repair_unicode_value
+import json
+from frisket.engine.store.citation_text import store_captured_text
+
 
 TYPED_VALUES_TO_DIGEST = "frisket.schema.v1:529f5f4e750711b310535f6ed083c331"
 
@@ -151,7 +157,9 @@ def migrate_typed_values(
                 "CREATE UNIQUE INDEX idx_current_cells_column_row "
                 "ON current_cells(column_id,row_id)"
             )
-            from .historical_current_cells import rebuild_current_cells
+            from frisket.upgrades.project.historical_current_cells import (
+                rebuild_current_cells,
+            )
 
             rebuilt = rebuild_current_cells(db)
             if rebuilt != current_count:
@@ -164,10 +172,7 @@ def migrate_typed_values(
                     "CREATE VIEW IF NOT EXISTS current_cell_values"
                 ]
             )
-            from .citation_text import (
-                install_citation_text_schema,
-                migrate_legacy_citation_texts,
-            )
+            from frisket.engine.store.citation_text import install_citation_text_schema
 
             install_citation_text_schema(db)
             migrate_legacy_citation_texts(db)
@@ -195,3 +200,71 @@ def migrate_typed_values(
     finally:
         db.execute(f"PRAGMA legacy_alter_table={legacy_alter}")
         db.execute(f"PRAGMA foreign_keys={foreign_keys}")
+
+
+def migrate_legacy_json_value(encoded: str | None) -> tuple[str, SQLiteValue]:
+    """Convert one historical JSON payload without losing invalid JSON bytes.
+
+    Valid arrays and objects retain their original serialized bytes unless
+    ill-formed Unicode requires repair. Valid scalars move to native SQLite
+    storage. SQL NULL historically decoded as an empty value and becomes an
+    explicit null authority row; callers that use SQL NULL for an absent/error
+    payload must handle that case before invoking this helper.
+    """
+
+    if encoded is None:
+        return "null", None
+    try:
+        decoded = json.loads(encoded, parse_constant=_reject_non_json_constant)
+        # Reject overflow-to-infinity and non-finite values nested in containers.
+        json.dumps(decoded, allow_nan=False)
+    except (TypeError, ValueError, OverflowError, RecursionError):
+        return "legacy_invalid", encoded
+    try:
+        repaired = repair_unicode_value(decoded)
+    except RecursionError:
+        return "legacy_invalid", encoded
+    if isinstance(repaired, (list, dict)):
+        return "json", encoded if repaired == decoded else _encode_complex(repaired)
+    return encode_stored_value(repaired)
+
+
+def migrate_legacy_citation_texts(db: sqlite3.Connection) -> None:
+    """Deduplicate legacy inline contexts without discarding saved history."""
+
+    after_id = 0
+    while True:
+        rows = db.execute(
+            "SELECT id,metadata FROM source_artifacts WHERE id>? ORDER BY id LIMIT 500",
+            (after_id,),
+        ).fetchall()
+        if not rows:
+            return
+        for row in rows:
+            after_id = int(row[0])
+            try:
+                metadata = json.loads(row[1])
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(metadata, dict) or not isinstance(
+                metadata.get("captured_text"), str
+            ):
+                continue
+            stored = store_captured_text(
+                db,
+                metadata=metadata,
+                text=metadata["captured_text"],
+                native=False,
+            )
+            db.execute(
+                "UPDATE source_artifacts SET metadata=? WHERE id=?",
+                (
+                    json.dumps(
+                        stored,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    int(row[0]),
+                ),
+            )

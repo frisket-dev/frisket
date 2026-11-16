@@ -1,12 +1,12 @@
 """Add execution telemetry and successful-result warnings without rewriting history."""
 
 from __future__ import annotations
-
 import sqlite3
 from pathlib import Path
-
-from .retrieval_lifecycle_migration import RETRIEVAL_LIFECYCLE_TO_DIGEST
-from .schema import SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.retrieval_lifecycle_migration import (
+    RETRIEVAL_LIFECYCLE_TO_DIGEST,
+)
+from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
 
 
 EXECUTION_METADATA_FROM_DIGEST = RETRIEVAL_LIFECYCLE_TO_DIGEST

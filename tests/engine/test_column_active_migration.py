@@ -7,7 +7,7 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.bundle_open import (
+from frisket.upgrades.project.chain import (
     _ACTIVE_COLUMNS_TO_DIGEST,
     _migrate_active_columns,
 )

@@ -18,17 +18,14 @@ from frisket.contracts.http.document_extraction import (
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import extraction_layouts as layouts
-from frisket.engine.store import extraction_layouts_migration as migration
-from frisket.engine.store.extraction_layouts_migration import (
+from frisket.upgrades.project import extraction_layouts_migration as migration
+from frisket.upgrades.project.extraction_layouts_migration import (
     EXTRACTION_LAYOUTS_FROM_DIGEST,
 )
-from frisket.engine.store.schema import (
-    SCALAR_CURRENT_CELL_VALUES_SQL,
-    SCHEMA_DIGEST,
-    SCHEMA_DIGEST_META_KEY,
-)
+from frisket.upgrades.project.historical_schema import SCALAR_CURRENT_CELL_VALUES_SQL
+from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.server.services.document_extraction import DocumentExtractionService
-from frisket.server.extraction_layouts_upgrade import (
+from frisket.upgrades.project.extraction_recipes import (
     LEGACY_EXTRACTION_LAYOUTS_META_KEY,
     LEGACY_EXTRACTION_LAYOUTS_VERSION,
 )

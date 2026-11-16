@@ -1,11 +1,9 @@
 """Add the ordered result index used by confidence review pages."""
 
 from __future__ import annotations
-
 import sqlite3
-
-from .review_stats_migration import REVIEW_STATS_TO_DIGEST
-from .schema import SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_TO_DIGEST
+from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
 
 
 REVIEW_CONFIDENCE_FROM_DIGEST = REVIEW_STATS_TO_DIGEST

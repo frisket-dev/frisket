@@ -1,7 +1,6 @@
 """Preserve alert definitions/history while starting a coherent observation baseline."""
 
 from __future__ import annotations
-
 import sqlite3
 
 

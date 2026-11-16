@@ -1,8 +1,8 @@
 """Freeze pre-cutover implicit document text into explicit column roles once."""
 
 from __future__ import annotations
-
 import sqlite3
+
 
 # Pinned pre-cutover selection relation. Do not import the new runtime resolver:
 # migration preserves the old effective choice before removing that fallback.

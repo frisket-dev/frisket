@@ -1013,19 +1013,12 @@ class Workspace:
                 raise HTTPException(404, f"no project '{project_id}'")
             project = self._open_project(project_id, path)
             try:
-                from frisket.server.extraction_layouts_upgrade import (
-                    LEGACY_EXTRACTION_LAYOUTS_META_KEY,
-                    LEGACY_EXTRACTION_LAYOUTS_VERSION,
-                    upgrade_legacy_extraction_layouts,
-                )
+                from frisket.upgrades.project import upgrade_project
 
-                if (
-                    project.get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY)
-                    != LEGACY_EXTRACTION_LAYOUTS_VERSION
-                ):
-                    with self._saved_recipes_lock:
-                        recipes = self._read_saved_recipes()
-                    upgrade_legacy_extraction_layouts(project, project_id, recipes)
+                with self._saved_recipes_lock:
+                    upgrade_project(
+                        project, project_id=project_id, recipes=self._read_saved_recipes
+                    )
                 self._attach_project_jobs(project_id, project)
             except BaseException:
                 project.close()

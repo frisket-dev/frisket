@@ -9,7 +9,7 @@ import pytest
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
-from frisket.engine.store.short_text_cache_migration import (
+from frisket.upgrades.project.short_text_cache_migration import (
     SHORT_TEXT_CACHE_FROM_DIGEST,
     SHORT_TEXT_CACHE_TO_DIGEST,
     migrate_short_text_cache,

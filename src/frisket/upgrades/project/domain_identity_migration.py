@@ -5,11 +5,11 @@ stamp. This helper neither commits nor changes object visibility/history.
 """
 
 from __future__ import annotations
-
 import json
 import re
 import sqlite3
 from collections.abc import Iterator
+from frisket.engine.store.materialized_lineage import MATERIALIZED_LINEAGE_SCHEMA_SQL
 
 
 IDENTITY_TABLES = (
@@ -225,7 +225,7 @@ def migrate_identity_high_water(db: sqlite3.Connection) -> dict[str, int]:
         if table == "sheets":
             # This helper is the domain cutover: install its final sheet shape
             # while assigning durable IDs, avoiding a second whole-table copy.
-            from .schema import SCHEMA
+            from frisket.engine.store.schema import SCHEMA
 
             final = re.search(
                 r"CREATE TABLE IF NOT EXISTS sheets \(.*?\n\);", SCHEMA, re.S
@@ -287,3 +287,33 @@ def migrate_identity_high_water(db: sqlite3.Connection) -> dict[str, int]:
                 (table, floors[table]),
             )
     return floors
+
+
+def migrate_materialized_lineage(db):
+    """Retain existing source edges while allowing new owner-qualified sets."""
+    if not db.in_transaction:
+        raise RuntimeError("lineage migration requires a caller transaction")
+    primary_key = [
+        row[1]
+        for row in db.execute("PRAGMA table_info(materialized_row_sources)")
+        if row[5]
+    ]
+    if primary_key and len(primary_key) != 4:
+        db.execute("DROP VIEW IF EXISTS current_materialized_row_sources")
+        db.execute(
+            "ALTER TABLE materialized_row_sources RENAME TO materialized_row_sources_previous"
+        )
+        for name in (
+            "idx_materialized_row_sources_source",
+            "idx_materialized_row_sources_materialized",
+            "idx_materialized_row_sources_op",
+        ):
+            db.execute(f"DROP INDEX IF EXISTS {name}")
+    for statement in MATERIALIZED_LINEAGE_SCHEMA_SQL.split(";"):
+        if statement.strip():
+            db.execute(statement)
+    if primary_key and len(primary_key) != 4:
+        db.execute(
+            "INSERT INTO materialized_row_sources SELECT * FROM materialized_row_sources_previous"
+        )
+        db.execute("DROP TABLE materialized_row_sources_previous")

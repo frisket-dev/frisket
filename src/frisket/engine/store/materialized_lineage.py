@@ -31,33 +31,3 @@ WHERE m.op_id = (
   ORDER BY COALESCE(owner.change_order,0) DESC,owner.id DESC LIMIT 1
 );
 """
-
-
-def migrate_materialized_lineage(db):
-    """Retain existing source edges while allowing new owner-qualified sets."""
-    if not db.in_transaction:
-        raise RuntimeError("lineage migration requires a caller transaction")
-    primary_key = [
-        row[1]
-        for row in db.execute("PRAGMA table_info(materialized_row_sources)")
-        if row[5]
-    ]
-    if primary_key and len(primary_key) != 4:
-        db.execute("DROP VIEW IF EXISTS current_materialized_row_sources")
-        db.execute(
-            "ALTER TABLE materialized_row_sources RENAME TO materialized_row_sources_previous"
-        )
-        for name in (
-            "idx_materialized_row_sources_source",
-            "idx_materialized_row_sources_materialized",
-            "idx_materialized_row_sources_op",
-        ):
-            db.execute(f"DROP INDEX IF EXISTS {name}")
-    for statement in MATERIALIZED_LINEAGE_SCHEMA_SQL.split(";"):
-        if statement.strip():
-            db.execute(statement)
-    if primary_key and len(primary_key) != 4:
-        db.execute(
-            "INSERT INTO materialized_row_sources SELECT * FROM materialized_row_sources_previous"
-        )
-        db.execute("DROP TABLE materialized_row_sources_previous")

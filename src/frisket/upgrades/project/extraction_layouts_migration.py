@@ -1,11 +1,11 @@
 """Add project-local extraction drafts without changing source or result data."""
 
 from __future__ import annotations
-
 import sqlite3
-
-from .scalar_storage_migration import SCALAR_CURRENT_VALUES_TO_DIGEST
-from .schema import SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.scalar_storage_migration import (
+    SCALAR_CURRENT_VALUES_TO_DIGEST,
+)
+from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
 
 
 EXTRACTION_LAYOUTS_FROM_DIGEST = SCALAR_CURRENT_VALUES_TO_DIGEST

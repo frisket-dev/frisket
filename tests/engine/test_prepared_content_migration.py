@@ -9,8 +9,8 @@ import pytest
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import extraction_layouts as live_extraction_layouts
-from frisket.engine.store import extraction_layouts_migration
-from frisket.engine.store import prepared_content_migration
+from frisket.upgrades.project import extraction_layouts_migration
+from frisket.upgrades.project import prepared_content_migration
 from frisket.engine.store import schema as live_schema
 from frisket.engine.store.extraction_layouts import (
     get_layout,
@@ -18,23 +18,20 @@ from frisket.engine.store.extraction_layouts import (
     save_layout,
     selected_layout_id,
 )
-from frisket.engine.store.prepared_content_migration import (
+from frisket.upgrades.project.prepared_content_migration import (
     PREPARED_CONTENT_FROM_DIGEST,
     PREPARED_CONTENT_TO_DIGEST,
     migrate_prepared_content,
 )
-from frisket.engine.store.retrieval_lifecycle_migration import (
+from frisket.upgrades.project.retrieval_lifecycle_migration import (
     RETRIEVAL_LIFECYCLE_FROM_DIGEST,
 )
-from frisket.engine.store.extraction_layouts_migration import (
+from frisket.upgrades.project.extraction_layouts_migration import (
     EXTRACTION_LAYOUTS_FROM_DIGEST,
     EXTRACTION_LAYOUTS_TO_DIGEST,
 )
-from frisket.engine.store.schema import (
-    SCALAR_CURRENT_CELL_VALUES_SQL,
-    SCHEMA_DIGEST,
-    SCHEMA_DIGEST_META_KEY,
-)
+from frisket.upgrades.project.historical_schema import SCALAR_CURRENT_CELL_VALUES_SQL
+from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.runs import RunResultStore
 from tests.engine.test_scalar_storage_migration import _seed_mixed_origins
 from tests.engine.test_bundle_schema_fence import _remove_execution_metadata

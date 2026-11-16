@@ -8,7 +8,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.import_intake import ImportIntakeHeader, write_import_header
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.project_blobs import reclaim_local_blobs
-from frisket.engine.store.blob_retention_migration import (
+from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
 )
 

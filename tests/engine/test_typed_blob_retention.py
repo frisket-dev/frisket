@@ -8,7 +8,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import BlobNotFoundError
-from frisket.engine.store.blob_retention_migration import (
+from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
 )
 from frisket.engine.store.evidence import record_source_artifact

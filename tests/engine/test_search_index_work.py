@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store.bundle_open import _migrate_search_work
+from frisket.upgrades.project.chain import _migrate_search_work
 from frisket.engine.store.project import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.value_codec import encode_stored_value

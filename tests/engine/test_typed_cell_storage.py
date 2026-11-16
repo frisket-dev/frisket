@@ -7,7 +7,7 @@ import pytest
 from helpers import stored_output_descriptor
 
 from frisket.engine.store import Project
-from frisket.engine.store.bundle_open import _TYPED_VALUES_FROM_DIGEST
+from frisket.upgrades.project.chain import _TYPED_VALUES_FROM_DIGEST
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     EditCellWrite,
@@ -17,19 +17,19 @@ from frisket.engine.store.cell_writes import (
 )
 from frisket.engine.store.current_cells import register_current_cell_functions
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.review_stats_migration import REVIEW_STATS_FROM_DIGEST
+from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DIGEST
 from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST_META_KEY
-from frisket.engine.store.typed_storage_migration import (
+from frisket.upgrades.project.typed_storage_migration import (
     TYPED_VALUES_TO_DIGEST,
     migrate_typed_values,
 )
 from frisket.engine.store.value_codec import (
     decode_stored_value,
     encode_stored_value,
-    migrate_legacy_json_value,
     repair_unicode_text,
     repair_unicode_value,
 )
+from frisket.upgrades.project.typed_storage_migration import migrate_legacy_json_value
 from frisket.search import drain_index, search_project
 from frisket.search_index import index_needs_work
 from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities

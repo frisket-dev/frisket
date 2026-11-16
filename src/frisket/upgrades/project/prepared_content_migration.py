@@ -1,18 +1,18 @@
 """Add immutable prepared-page content and its internal value reference kind."""
 
 from __future__ import annotations
-
 import sqlite3
 from pathlib import Path
-
-from .disk_capacity import require_disk_headroom
-from .prepared_content_migration_schema import (
+from frisket.engine.store.disk_capacity import require_disk_headroom
+from frisket.upgrades.project.prepared_content_migration_schema import (
     PREPARED_AUTHORITY_TABLE_SQL,
     PREPARED_CONTENT_SCHEMA_SQL,
     PREPARED_CURRENT_CELL_VALUES_SQL,
 )
-from .schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
-from .extraction_layouts_migration import EXTRACTION_LAYOUTS_TO_DIGEST
+from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.extraction_layouts_migration import (
+    EXTRACTION_LAYOUTS_TO_DIGEST,
+)
 
 
 PREPARED_CONTENT_FROM_DIGEST = EXTRACTION_LAYOUTS_TO_DIGEST

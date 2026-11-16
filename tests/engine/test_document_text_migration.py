@@ -8,15 +8,13 @@ import pytest
 from tests.engine.historical_schema import restore_pre_domain_schema
 
 from frisket.engine.store import Project
-from frisket.engine.store.document_text_migration import (
+from frisket.upgrades.project.document_text_migration import (
     DOCUMENT_TEXT_FROM_DIGEST,
     DOCUMENT_TEXT_TO_DIGEST,
     migrate_document_text,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
-from frisket.engine.store.bundle_open import (
-    _IMPORT_SESSION_ROWS_FROM_DIGEST,
-)
+from frisket.upgrades.project.chain import _IMPORT_SESSION_ROWS_FROM_DIGEST
 
 
 def _restore_prior_layout(project: Project) -> None:

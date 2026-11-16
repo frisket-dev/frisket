@@ -1,7 +1,6 @@
 """Keep derivation identity without making provenance own source bytes."""
 
 from __future__ import annotations
-
 import sqlite3
 
 
