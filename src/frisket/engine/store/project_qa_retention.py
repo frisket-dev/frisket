@@ -1,15 +1,25 @@
-"""Remove affected conversation content while retaining accounting identities.
+"""Remove source-tool payloads while preserving questions, answers and usage.
 
-Reads create source handles even if the final answer does not cite them. Tool
-start events cover interrupted reads; whole-sheet tools conservatively depend
-on that sheet. Later turns reuse history, so the retention unit is the thread.
-The existing purge target relation makes batch cleanup resumable.
+A thread's persisted source handles identify affected reads, including reads
+whose final answers did not cite the source. Cleanup is bounded and repeatable.
 """
 
 from __future__ import annotations
 
 import sqlite3
+import json
 
+
+_SOURCE_TOOLS = (
+    "inspect_sheets",
+    "read_rows",
+    "query_rows",
+    "search_cells",
+    "open_source",
+    "find_in_source",
+    "list_sources",
+    "analytics",
+)
 
 _AFFECTED_SHEETS = """
 SELECT object_id FROM project_purge_targets WHERE purge_id=:purge AND kind='sheet'
@@ -75,34 +85,50 @@ def purge_qa_content(db: sqlite3.Connection, purge_id: int, *, limit: int = 500)
         raise RuntimeError("Q&A purge cleanup requires a caller transaction")
     if not 1 <= limit <= 10_000:
         raise ValueError("Q&A purge batch size must be between 1 and 10000")
-    params = {"purge": purge_id, "limit": limit}
+    params = {"purge": purge_id, "limit": limit, "tools": json.dumps(_SOURCE_TOOLS)}
     statements = [
         f"""DELETE FROM project_qa_events WHERE (thread_id,seq) IN (
           SELECT thread_id,seq FROM project_qa_events WHERE thread_id IN ({_THREADS})
-          AND kind!='usage' LIMIT :limit)""",
+          AND kind='tool_completed' AND json_extract(payload_json,'$.tool') IN (SELECT value FROM json_each(:tools)) LIMIT :limit)""",
         f"""DELETE FROM project_qa_citations WHERE id IN (
           SELECT id FROM project_qa_citations WHERE turn_id IN ({_TURNS}) LIMIT :limit)""",
-        f"""UPDATE project_qa_research_runs SET state='completed',skills_json='[]',
-          saved_messages_json='[]',pending_approval_json=NULL,output_grants_json='[]',revision=revision+1
-          WHERE id IN (SELECT id FROM project_qa_research_runs WHERE turn_id IN ({_TURNS})
-          AND (state!='completed' OR skills_json!='[]' OR saved_messages_json!='[]'
-            OR pending_approval_json IS NOT NULL OR output_grants_json!='[]') LIMIT :limit)""",
-        f"""UPDATE project_qa_research_operations SET metadata_json='{{}}'
-          WHERE (research_id,operation_id) IN (SELECT research_id,operation_id
-          FROM project_qa_research_operations WHERE research_id IN ({_RESEARCH})
-          AND metadata_json!='{{}}' LIMIT :limit)""",
-        f"""UPDATE project_qa_turns SET question='[Content removed]',
-          research_json=NULL,error_summary=NULL WHERE id IN (SELECT id FROM project_qa_turns
-          WHERE thread_id IN ({_THREADS}) AND (question!='[Content removed]'
-            OR research_json IS NOT NULL OR error_summary IS NOT NULL)
-          LIMIT :limit)""",
-        f"""UPDATE project_qa_threads SET title='[Content removed]',
-          research_json=NULL,revision=revision+1 WHERE id IN (SELECT id FROM project_qa_threads
-          WHERE id IN ({_THREADS}) AND (title!='[Content removed]'
-            OR research_json IS NOT NULL) LIMIT :limit)""",
     ]
     for statement in statements:
         changed = db.execute(statement, params).rowcount
         if changed:
             return changed
-    return 0
+    rows = db.execute(
+        f"SELECT id,saved_messages_json FROM project_qa_research_runs WHERE turn_id IN ({_TURNS}) "
+        "AND EXISTS (SELECT 1 FROM json_tree(saved_messages_json) part "
+        "WHERE (part.key='role' AND part.value='tool') "
+        "OR (part.key='part_kind' AND part.value='tool-return'))",
+        params,
+    )
+    changed = 0
+    for identity, encoded in rows:
+        messages = json.loads(encoded)
+        dirty = False
+        for message in messages:
+            parts = (
+                [message] if message.get("role") == "tool" else message.get("parts", [])
+            )
+            for part in parts:
+                if (
+                    (
+                        part.get("role") == "tool"
+                        or part.get("part_kind") == "tool-return"
+                    )
+                    and part.get("tool_name") in (None, *_SOURCE_TOOLS)
+                    and part.get("content") != "[Source unavailable]"
+                ):
+                    part["content"] = "[Source unavailable]"
+                    dirty = True
+        if dirty:
+            db.execute(
+                "UPDATE project_qa_research_runs SET saved_messages_json=?,revision=revision+1 WHERE id=?",
+                (json.dumps(messages), identity),
+            )
+            changed += 1
+            if changed == limit:
+                break
+    return changed

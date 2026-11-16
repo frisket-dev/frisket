@@ -58,8 +58,49 @@ def _conversation(project, target, *, handle=True, tool=False, terminal=True):
         write_mode="ask_each",
         max_turns=None,
     )
+    from pydantic_ai.messages import (
+        ModelMessagesTypeAdapter,
+        ModelRequest,
+        ToolReturnPart,
+        UserPromptPart,
+        ModelResponse,
+        TextPart,
+    )
+
     research_store.checkpoint(
-        research["id"], [{"role": "tool", "content": "sensitive tool response"}]
+        research["id"],
+        json.loads(
+            ModelMessagesTypeAdapter.dump_json(
+                [
+                    ModelRequest(
+                        parts=[
+                            UserPromptPart(content="sensitive question"),
+                            ToolReturnPart(
+                                tool_name="read_rows",
+                                content="sensitive tool response",
+                                tool_call_id="read-1",
+                            ),
+                            ToolReturnPart(
+                                tool_name="execute_action",
+                                content="independent action output",
+                                tool_call_id="action-1",
+                            ),
+                        ]
+                    ),
+                    ModelResponse(parts=[TextPart(content="sensitive AI answer")]),
+                ]
+            )
+        ),
+    )
+    store.append_event(
+        turn["id"],
+        kind="tool_completed",
+        payload={"tool": "read_rows", "text": "sensitive tool response"},
+    )
+    store.append_event(
+        turn["id"],
+        kind="tool_completed",
+        payload={"tool": "execute_action", "value": "independent action output"},
     )
     research_store.publish_approval(
         research["id"],
@@ -120,7 +161,7 @@ def _drain(project, purge):
         counts.append(count)
 
 
-def test_uncited_read_removes_whole_thread_content_but_keeps_cost_and_other_thread(
+def test_source_read_removes_tool_payload_but_keeps_questions_answers_and_cost(
     tmp_path,
 ):
     with closing(Project.create(tmp_path / "qa")) as project:
@@ -143,20 +184,42 @@ def test_uncited_read_removes_whole_thread_content_but_keeps_cost_and_other_thre
         project.db.execute("BEGIN IMMEDIATE")
         assert purge_qa_content(project.db, purge, limit=1) == 1
         project.db.rollback()
-        assert len(_drain(project, purge)) > 3
+        assert len(_drain(project, purge)) == 3
         assert _drain(project, purge) == []
-        assert store.get_thread(thread["id"])["title"] == "[Content removed]"
-        assert store.get_turn(later["id"])["question"] == "[Content removed]"
+        assert store.get_thread(thread["id"])["title"] == "sensitive title"
+        assert (
+            store.get_turn(later["id"])["question"] == "repeat sensitive prior answer"
+        )
         events = project.db.execute(
             "SELECT kind,payload_json FROM project_qa_events WHERE thread_id=?",
             (thread["id"],),
         ).fetchall()
-        assert [(r["kind"], json.loads(r["payload_json"])) for r in events] == [
-            ("usage", {"cost_actual": 0.23})
+        assert [
+            json.loads(r["payload_json"])
+            for r in events
+            if r["kind"] == "tool_completed"
+        ] == [{"tool": "execute_action", "value": "independent action output"}]
+        assert [
+            (r["kind"], json.loads(r["payload_json"]))
+            for r in events
+            if r["kind"] in {"answer", "usage"}
+        ] == [
+            ("answer", {"text": "sensitive answer without any citation"}),
+            ("usage", {"cost_actual": 0.23}),
+            ("answer", {"text": "sensitive follow-up"}),
         ]
         kept = ProjectQAResearchStore(project).get(research["id"])
-        assert kept["state"] == "completed"
-        assert kept["saved_messages"] == [] and kept["pending_approval"] is None
+        serialized = json.dumps(kept["saved_messages"])
+        assert "sensitive tool response" not in serialized
+        assert (
+            "sensitive question" in serialized and "sensitive AI answer" in serialized
+        )
+        assert "[Source unavailable]" in serialized
+        assert "independent action output" in serialized
+        from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+        ModelMessagesTypeAdapter.validate_python(kept["saved_messages"])
+        assert kept["pending_approval"] is None
         assert store.get_turn(turn["id"])["cost_actual"] == 0.23
         assert (
             project.db.execute(
@@ -169,7 +232,10 @@ def test_uncited_read_removes_whole_thread_content_but_keeps_cost_and_other_thre
             "SELECT actual_micros,metadata_json FROM project_qa_research_operations WHERE research_id=?",
             (research["id"],),
         ).fetchone()
-        assert tuple(operation) == (230000, "{}")
+        assert tuple(operation) == (
+            230000,
+            json.dumps({"response": "sensitive output"}),
+        )
         assert store.get_thread(other_thread["id"])["title"] == "sensitive title"
         assert (
             project.db.execute("SELECT COUNT(*) FROM project_qa_citations").fetchone()[
@@ -182,12 +248,15 @@ def test_uncited_read_removes_whole_thread_content_but_keeps_cost_and_other_thre
 def test_interrupted_read_without_source_handle_still_scrubs(tmp_path):
     with closing(Project.create(tmp_path / "qa")) as project:
         target = _sheet(project, "target")
-        thread, _, _ = _conversation(project, target, handle=False, tool=True)
+        thread, _, research = _conversation(project, target, handle=False, tool=True)
         purge = _begin(project, target)
         _drain(project, purge)
         assert (
             ProjectQAStore(project).get_thread(thread["id"])["title"]
-            == "[Content removed]"
+            == "sensitive title"
+        )
+        assert "sensitive tool response" not in json.dumps(
+            ProjectQAResearchStore(project).get(research["id"])["saved_messages"]
         )
 
 
@@ -217,7 +286,7 @@ def test_active_conversation_and_unsettled_usage_refuse_discovery_atomically(tmp
 def test_sheet_query_and_project_search_scope_without_cell_citations(tmp_path, kind):
     with closing(Project.create(tmp_path / "qa")) as project:
         target = _sheet(project, "target")
-        thread, turn, _ = _conversation(project, target, handle=False)
+        thread, turn, research = _conversation(project, target, handle=False)
         # These are persisted tool facts; neither a final answer citation nor
         # a literal occurrence of the removed value is necessary to find them.
         if kind == "query":
@@ -248,6 +317,11 @@ def test_sheet_query_and_project_search_scope_without_cell_citations(tmp_path, k
         project.db.commit()
         purge = _begin(project, target)
         _drain(project, purge)
-        assert ProjectQAStore(project).get_thread(thread["id"])["title"] == (
-            "sensitive title" if kind == "web" else "[Content removed]"
+        assert (
+            ProjectQAStore(project).get_thread(thread["id"])["title"]
+            == "sensitive title"
         )
+        messages = json.dumps(
+            ProjectQAResearchStore(project).get(research["id"])["saved_messages"]
+        )
+        assert ("sensitive tool response" in messages) == (kind == "web")

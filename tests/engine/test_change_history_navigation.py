@@ -64,11 +64,19 @@ def test_descriptor_identity_tracks_effective_contribution_and_selective_revert(
 
 def test_navigation_uses_first_mutation_order_and_retains_selective_restore(tmp_path):
     with closing(Project.create(tmp_path / "order.frisket")) as project:
+        from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
+
+        sheet = project.add_sheet("data")
+        column = project.add_column(sheet, "value")
+        row = project.add_rows(sheet, [{"value": "original"}], {"value": column})[0]
         early_admission = project.append_op("prepared")
         later_admission = project.append_op("prepared")
         for op in (later_admission, early_admission):
             with project.db:
-                project.db.execute("UPDATE ops SET label=label WHERE id=?", (op,))
+                project.db.execute("BEGIN IMMEDIATE")
+                insert_edits(
+                    project.db, op_id=op, edits=[EditCellWrite(row, column, str(op))]
+                )
                 start_change(project.db, op)
         assert operation_target(project, "undo")["id"] == early_admission
         _step(project, "undo")

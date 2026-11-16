@@ -5,9 +5,12 @@ from contextlib import closing
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.op_log import operation_target, step_operation
+from frisket.engine.store.op_log import (
+    OperationUnavailable,
+    operation_target,
+    step_operation,
+)
 from frisket.engine.store.purge import (
-    PurgedMaterialUnavailable,
     begin_purge,
     finish_purge,
 )
@@ -41,8 +44,8 @@ def test_purged_creation_does_not_block_unrelated_undo_redo(tmp_path):
         assert project.get_values(sheet, column)[row] == "original"
         assert project.redo() == edit
         assert project.get_values(sheet, column)[row] == "changed"
-        # The skip is navigation only: explicit transitions remain fenced.
-        with pytest.raises(PurgedMaterialUnavailable, match="permanently purged"):
+        # An empty Change has no transition, including selective history.
+        with pytest.raises(OperationUnavailable):
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
                 step_operation(project, "revert", op_id=creation)
@@ -71,7 +74,7 @@ def test_purged_undone_creation_does_not_block_later_redo(tmp_path):
         assert operation_target(project, "redo")["id"] == second_change
         assert project.redo() == second_change
         assert project.get_values(sheet, column) == {second: "retained"}
-        with pytest.raises(PurgedMaterialUnavailable, match="permanently purged"):
+        with pytest.raises(OperationUnavailable):
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
                 step_operation(project, "restore", op_id=first_change)
@@ -91,8 +94,14 @@ def test_partly_purged_append_preserves_navigation_and_never_restores_purged_row
         )
         sheet = project.add_sheet("Documents")
         column = project.add_column(sheet, "content")
-        doomed, kept = project.add_rows(
-            sheet, [{"content": "secret"}, {"content": "retained"}], {"content": column}
+        doomed, kept, also_kept = project.add_rows(
+            sheet,
+            [
+                {"content": "secret"},
+                {"content": "retained"},
+                {"content": "also retained"},
+            ],
+            {"content": column},
         )
         append = project.op_cursor
         if purge_after_undo:
@@ -109,7 +118,10 @@ def test_partly_purged_append_preserves_navigation_and_never_restores_purged_row
         assert project.redo() == edit
         assert project.redo() == append
         assert project.get_values(other, text)[row] == "edited"
-        assert project.get_values(sheet, column) == {kept: "retained"}
+        assert project.get_values(sheet, column) == {
+            kept: "retained",
+            also_kept: "also retained",
+        }
         assert (
             project.db.execute(
                 "SELECT hidden FROM rows WHERE id=?", (doomed,)
@@ -123,7 +135,7 @@ def test_partly_purged_append_preserves_navigation_and_never_restores_purged_row
         assert project.visible_row_ids(sheet) == []
         with project.transaction_scope():
             step_operation(project, "restore", op_id=append)
-        assert project.visible_row_ids(sheet) == [kept]
+        assert project.visible_row_ids(sheet) == [kept, also_kept]
         assert (
             project.db.execute(
                 "SELECT publication_closed FROM ops WHERE id=?", (append,)

@@ -16,7 +16,7 @@ from typing import Any
 PURGE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS project_purges (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
- phase TEXT NOT NULL DEFAULT 'content' CHECK(phase IN ('content','files','complete')),
+ phase TEXT NOT NULL DEFAULT 'content' CHECK(phase IN ('content','complete')),
  created_at TEXT NOT NULL DEFAULT(datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS project_purge_targets (
@@ -29,6 +29,11 @@ CREATE TABLE IF NOT EXISTS project_purge_imports (
  purge_id INTEGER NOT NULL REFERENCES project_purges(id),
  session_id TEXT NOT NULL,
  PRIMARY KEY(purge_id,session_id)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS project_purge_blobs (
+ purge_id INTEGER NOT NULL REFERENCES project_purges(id),
+ hash TEXT NOT NULL,
+ PRIMARY KEY(purge_id,hash)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS idx_project_purge_targets_object ON project_purge_targets(kind,object_id);
 """
@@ -56,14 +61,11 @@ def _require_maintenance(project: Any) -> None:
         )
 
 
-def require_restore_available(
-    db, *, sheet_ids=(), column_ids=(), row_ids=(), op_ids=()
-):
+def require_restore_available(db, *, sheet_ids=(), column_ids=(), row_ids=()):
     for kind, ids in (
         ("sheet", sheet_ids),
         ("column", column_ids),
         ("row", row_ids),
-        ("change", op_ids),
     ):
         remaining = iter(ids)
         while batch := list(islice(remaining, 500)):
@@ -158,7 +160,7 @@ def begin_purge(
                 p,
             )
         db.execute(
-            f"INSERT INTO project_purge_imports SELECT :purge,id FROM import_sessions WHERE sheet_id IN ({_targets('sheet')}) OR sheet_id IN (SELECT sheet_id FROM columns WHERE id IN ({_targets('column')})) OR id IN (SELECT session_id FROM import_session_rows WHERE row_id IN ({_targets('row')}))",
+            f"INSERT INTO project_purge_imports SELECT :purge,id FROM import_sessions WHERE sheet_id IN ({_targets('sheet')}) OR sheet_id IN (SELECT sheet_id FROM columns WHERE id IN ({_targets('column')})) OR id IN (SELECT session_id FROM import_session_rows WHERE row_id IN ({_targets('row')})) OR id IN (SELECT session_id FROM import_session_pdf_sources WHERE {_scope(sheet='sheet_id', row='row_id', column='column_id')})",
             p,
         )
         if db.execute(
@@ -215,7 +217,13 @@ def begin_purge(
         )
         remember(
             "change",
-            f"SELECT op_id id FROM structural_changes WHERE object_id IN ({_targets('sheet')}) OR object_id IN ({_targets('column')}) OR object_id IN ({_targets('row')})",
+            "SELECT op_id id FROM structural_changes effect WHERE EXISTS (SELECT 1 "
+            "FROM project_purge_targets target WHERE target.purge_id=:purge "
+            "AND target.kind=effect.kind AND target.object_id=effect.object_id)",
+        )
+        remember(
+            "change",
+            f"SELECT op_id id FROM column_descriptor_changes WHERE column_id IN ({_targets('column')})",
         )
         remember(
             "change",
@@ -227,6 +235,7 @@ def begin_purge(
             ("row", "created_rows"),
             ("sheet", "deleted_sheets"),
             ("row", "deleted_rows"),
+            ("row", "restored_rows"),
             ("column", "deleted_columns"),
         ):
             remember(
@@ -248,6 +257,12 @@ def begin_purge(
             "artifact",
             f"SELECT id FROM source_artifacts WHERE {_scope(sheet='source_sheet_id', column='source_column_id', row='source_row_id')}",
         )
+        _remember_source_blobs(db, p)
+        remember(
+            "artifact",
+            "SELECT id FROM source_artifacts WHERE blob_hash IN "
+            "(SELECT hash FROM project_purge_blobs WHERE purge_id=:purge)",
+        )
         remember(
             "text_surface",
             f"SELECT id FROM text_surfaces WHERE {_scope(sheet='text_sheet_id', column='text_column_id', row='text_row_id')} OR {_scope(sheet="json_extract(surface_ref_json,'$.identity.sheet_id')", row="json_extract(surface_ref_json,'$.identity.row_id')")}",
@@ -259,20 +274,13 @@ def begin_purge(
         # Offline destructive maintenance also stops affected producers. Keep
         # completed contributions applied; never turn purge into a cascade.
         from .changes import ChangeStore
-        from .runs import RunResultStore
 
         changes = ChangeStore(project)
-        runs = RunResultStore(project)
         for operation in db.execute(
             f"SELECT id FROM ops WHERE publication_closed=0 AND status='applied' AND id IN ({_targets('change')})",
             p,
         ):
             changes.close(int(operation[0]))
-        for run in db.execute(
-            f"SELECT id FROM runs WHERE status='running' AND id IN ({_targets('run')})",
-            p,
-        ):
-            runs.request_cancel(int(run[0]), commit=False)
         db.execute(f"UPDATE rows SET hidden=1 WHERE id IN ({_targets('row')})", p)
         db.execute(
             f"UPDATE columns SET active=0,hidden=1 WHERE id IN ({_targets('column')})",
@@ -301,6 +309,16 @@ def _delete_batches(db, table, predicate, parameters, *, batch_size, project=Non
     while True:
         db.execute("BEGIN IMMEDIATE")
         try:
+            trigger = None
+            if table == "run_output_generations":
+                _require_maintenance(project)
+                trigger = db.execute(
+                    "SELECT sql FROM sqlite_schema WHERE name='trg_run_output_generations_delete_discarded_only'"
+                ).fetchone()
+                if trigger:
+                    db.execute(
+                        "DROP TRIGGER trg_run_output_generations_delete_discarded_only"
+                    )
             if table == "results":
                 result_rows = db.execute(
                     "SELECT run_id,row_id,column_id FROM results WHERE "
@@ -326,6 +344,8 @@ def _delete_batches(db, table, predicate, parameters, *, batch_size, project=Non
                     f"DELETE FROM {table} WHERE {key} IN (SELECT {','.join(keys) if keys else 'rowid'} FROM {table} WHERE {predicate} LIMIT :batch)",
                     {**parameters, "batch": batch_size},
                 ).rowcount
+            if trigger:
+                db.execute(trigger[0])
             db.commit()
         except BaseException:
             db.rollback()
@@ -371,25 +391,27 @@ def finish_purge(project: Any, purge_id: int, *, batch_size: int = 1000) -> dict
         raise ValueError("Unknown purge")
     if state[0] == "complete":
         return {"purge_id": purge_id, "phase": "complete"}
-    if state[0] == "content":
-        _scrub_content(project, p, batch_size)
-        with db:
-            db.execute("UPDATE project_purges SET phase='files' WHERE id=:purge", p)
+    _scrub_content(project, p, batch_size)
     _purge_files(project, p)
+    erased = _erase_source_blobs(project, p)
     from .project_blobs import reclaim_local_blobs
 
     summary = reclaim_local_blobs(project, dry_run=False)
-    # Secure delete removes DB freelist payloads; checkpoint removes old WAL
-    # copies. This does not promise erasure from backups or SSD snapshots.
-    db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    summary["blobs_removed"] += erased["blobs_removed"]
+    summary["bytes_freed"] += erased["bytes_freed"]
     with db:
         db.execute("UPDATE project_purges SET phase='complete' WHERE id=:purge", p)
+        db.execute(
+            "DELETE FROM project_purge_targets WHERE purge_id=:purge AND kind NOT IN ('sheet','column','row')",
+            p,
+        )
+        db.execute("DELETE FROM project_purge_imports WHERE purge_id=:purge", p)
+        db.execute("DELETE FROM project_purge_blobs WHERE purge_id=:purge", p)
     return {**summary, "purge_id": purge_id, "phase": "complete"}
 
 
 def _scrub_content(project, p, batch_size):
     db = project.db
-    db.execute("PRAGMA secure_delete=ON")
     from .project_qa_retention import purge_qa_content
 
     while True:
@@ -409,24 +431,15 @@ def _scrub_content(project, p, batch_size):
         column="json_extract(locator_json,'$.column_id')",
         row="json_extract(locator_json,'$.row_id')",
     )
-    _scrub_judgments(db, p)
-    # Structural rows are replay instructions. Neutralize them for tombstones
-    # so every later projection keeps the identity unavailable while the index
-    # still identifies the structural Changes that must not be replayed.
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        db.execute(
-            "UPDATE structural_changes SET before_visible=0,after_visible=0 "
-            "WHERE EXISTS (SELECT 1 FROM project_purge_targets target "
+    _scrub_history(db, p, batch_size)
+    deletions = (
+        (
+            "structural_changes",
+            "EXISTS (SELECT 1 FROM project_purge_targets target "
             "WHERE target.purge_id=:purge AND target.kind=structural_changes.kind "
             "AND target.object_id=structural_changes.object_id)",
-            p,
-        )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-    deletions = (
+        ),
+        ("result_judgment_changes", _judgment_scope()),
         (
             "runtime_projection_artifacts",
             _scope(
@@ -439,6 +452,7 @@ def _scrub_content(project, p, batch_size):
         ("current_cells", cell),
         ("cell_baseline", cell),
         ("cell_result_heads", cell),
+        ("run_output_generations", _scope(column="column_id")),
         ("copied_result_outcomes", cell),
         (
             "results",
@@ -448,10 +462,10 @@ def _scrub_content(project, p, batch_size):
         ("edits", cell),
         ("cells", cell),
         ("run_rows", _scope(row="row_id")),
-        ("source_items", _scope(row="row_id")),
         ("keyed_observations", _scope(row="row_id")),
         ("keyed_relationships", _scope(sheet="sheet_id")),
         ("import_session_rows", _scope(row="row_id")),
+        ("import_session_pdf_sources", scope),
         ("replay_edit_dismissals", cell),
         ("column_descriptor_changes", _scope(column="column_id")),
         ("evidence_links", scope),
@@ -497,23 +511,14 @@ def _scrub_content(project, p, batch_size):
         cursor = ids[-1]
     _purge_captures(db, p, batch_size)
     _purge_text_surface_payloads(db, p, batch_size)
+    _purge_citation_snapshots(db, p, batch_size)
     # Historical identity remains, while data-bearing descriptors disappear.
     updates = (
-        (
-            "source_items",
-            "raw_ref_json='{}'",
-            f"source_id IN (SELECT id FROM sources WHERE sheet_id IN (SELECT sheet_id FROM columns WHERE id IN ({_targets('column')})))",
-        ),
         ("effect_checkpoints", "payload='{}'", _effect_scope()),
         (
             "project_qa_citations",
             "label='Unavailable source',excerpt=NULL,metadata_json='{}'",
             citation_scope,
-        ),
-        (
-            "ops",
-            "spec='{}',undo_info=" + _retained_descriptor_info() + ",label=NULL",
-            f"id IN ({_targets('change')})",
         ),
         ("runs", "params='{}',work_progress=NULL", f"id IN ({_targets('run')})"),
         (
@@ -544,90 +549,77 @@ def _scrub_content(project, p, batch_size):
     _scrub_receipts(project, p, batch_size)
 
 
-def _scrub_judgments(db, p):
-    """Remove purged result references and their private review notes."""
+def _judgment_scope():
     tokenized = "'[\"' || replace(target,':','\",\"') || '\"]'"
-    prefix = f"json_extract({tokenized},'$[0]')"
-    copy_key = f"({prefix}='copy')"
-    row = f"CAST(json_extract({tokenized},CASE WHEN {copy_key} THEN '$[2]' ELSE '$[1]' END) AS INTEGER)"
-    column = f"CAST(json_extract({tokenized},CASE WHEN {copy_key} THEN '$[3]' ELSE '$[2]' END) AS INTEGER)"
-    db.execute("DROP TABLE IF EXISTS temp.purged_judgment_targets")
-    db.execute(
-        "CREATE TEMP TABLE purged_judgment_targets("
-        "op_id INTEGER NOT NULL,target TEXT NOT NULL,PRIMARY KEY(op_id,target)) WITHOUT ROWID"
-    )
-    try:
-        db.execute(
-            "INSERT OR IGNORE INTO temp.purged_judgment_targets(op_id,target) "
-            "SELECT change.op_id,change.target FROM result_judgment_changes change "
-            "WHERE "
-            f"{row} IN ({_targets('row')}) OR {column} IN ({_targets('column')})",
-            p,
-        )
-        db.commit()
-        cursor = 0
-        while True:
-            operation_ids = [
-                int(item[0])
-                for item in db.execute(
-                    "SELECT DISTINCT op_id FROM temp.purged_judgment_targets "
-                    "WHERE op_id>? ORDER BY op_id LIMIT 200",
-                    (cursor,),
-                )
-            ]
-            if not operation_ids:
-                break
-            marks = ",".join("?" for _ in operation_ids)
-            rows = db.execute(
-                "SELECT op_id,target FROM temp.purged_judgment_targets "
-                f"WHERE op_id IN ({marks}) ORDER BY op_id,target",
-                operation_ids,
-            ).fetchall()
-            targets_by_operation: dict[int, set[str]] = {}
-            for op_id, target in rows:
-                targets_by_operation.setdefault(int(op_id), set()).add(str(target))
-            db.execute("BEGIN IMMEDIATE")
-            try:
-                for op_id, targets in targets_by_operation.items():
-                    operation = db.execute(
-                        "SELECT undo_info FROM ops WHERE id=?", (op_id,)
-                    ).fetchone()
-                    if operation is not None:
-                        try:
-                            info = json.loads(operation[0] or "{}")
-                        except (TypeError, ValueError) as exc:
-                            raise ValueError(
-                                f"cannot safely purge review history for Change {op_id}"
-                            ) from exc
-                        for field in (
-                            "review_states",
-                            "review_states_after",
-                            "review_metadata",
-                            "review_metadata_after",
-                        ):
-                            values = info.get(field)
-                            if isinstance(values, dict):
-                                for target in targets:
-                                    values.pop(target, None)
-                        db.execute(
-                            "UPDATE ops SET undo_info=? WHERE id=?",
-                            (json.dumps(info, sort_keys=True), op_id),
+    copy = f"json_extract({tokenized},'$[0]')='copy'"
+    row = f"CAST(json_extract({tokenized},CASE WHEN {copy} THEN '$[2]' ELSE '$[1]' END) AS INTEGER)"
+    column = f"CAST(json_extract({tokenized},CASE WHEN {copy} THEN '$[3]' ELSE '$[2]' END) AS INTEGER)"
+    return _scope(row=row, column=column)
+
+
+def _scrub_history(db, p, batch_size):
+    """Erase selected effects, retaining each surviving object's undo data."""
+    cursor = 0
+    while operations := db.execute(
+        f"SELECT id,undo_info FROM ops WHERE id>:cursor AND (id IN ({_targets('change')}) "
+        f"OR id IN (SELECT op_id FROM result_judgment_changes WHERE {_judgment_scope()})) "
+        "ORDER BY id LIMIT :batch",
+        {**p, "cursor": cursor, "batch": batch_size},
+    ).fetchall():
+        with db:
+            for op_id, encoded in operations:
+                info = json.loads(encoded or "{}")
+                for field, value in list(info.items()):
+                    kind = next(
+                        (
+                            kind
+                            for kind in ("sheet", "column", "row")
+                            if field.startswith(kind + "_")
+                            or field.endswith(kind + "s")
+                        ),
+                        None,
+                    )
+                    if kind and isinstance(value, (dict, list)):
+                        identity = "key" if isinstance(value, dict) else "value"
+                        removed = {
+                            str(item[0])
+                            for item in db.execute(
+                                f"SELECT {identity} FROM json_each(:values) WHERE CAST({identity} AS INTEGER) IN ({_targets(kind)})",
+                                {**p, "values": json.dumps(value)},
+                            )
+                        }
+                        info[field] = (
+                            {
+                                key: item
+                                for key, item in value.items()
+                                if key not in removed
+                            }
+                            if isinstance(value, dict)
+                            else [item for item in value if str(item) not in removed]
                         )
-                    db.executemany(
-                        "DELETE FROM result_judgment_changes WHERE op_id=? AND target=?",
-                        [(op_id, target) for target in targets],
-                    )
-                    db.executemany(
-                        "DELETE FROM temp.purged_judgment_targets WHERE op_id=? AND target=?",
-                        [(op_id, target) for target in targets],
-                    )
-                db.commit()
-            except BaseException:
-                db.rollback()
-                raise
-            cursor = operation_ids[-1]
-    finally:
-        db.execute("DROP TABLE IF EXISTS temp.purged_judgment_targets")
+                    if field in (
+                        "review_states",
+                        "review_states_after",
+                        "review_metadata",
+                        "review_metadata_after",
+                    ):
+                        removed = {
+                            item[0]
+                            for item in db.execute(
+                                f"SELECT target FROM result_judgment_changes WHERE op_id=:op AND ({_judgment_scope()})",
+                                {**p, "op": op_id},
+                            )
+                        }
+                        info[field] = {
+                            key: item
+                            for key, item in value.items()
+                            if key not in removed
+                        }
+                db.execute(
+                    "UPDATE ops SET spec='{}',label=NULL,undo_info=? WHERE id=?",
+                    (json.dumps(info), op_id),
+                )
+        cursor = operations[-1][0]
 
 
 def _scrub_receipts(project, p, batch_size):
@@ -643,7 +635,7 @@ def _scrub_receipts(project, p, batch_size):
     cursor = None
     while True:
         rows = project.db.execute(
-            "SELECT id,run_id,action_kind,action_id,idempotency_key,params_hash "
+            "SELECT id,run_id,action_kind,action_id,idempotency_key,params_hash,body "
             f"FROM receipts WHERE ({predicate}) AND (:cursor IS NULL OR id>:cursor) "
             "ORDER BY id LIMIT :batch",
             {**p, "cursor": cursor, "batch": batch_size},
@@ -660,6 +652,7 @@ def _scrub_receipts(project, p, batch_size):
                     run_id=(int(row["run_id"]) if row["run_id"] is not None else None),
                     idempotency_key=row["idempotency_key"],
                     params_hash=row["params_hash"],
+                    provider_use=json.loads(row["body"]).get("provider_use", []),
                     status="failed",
                     errors=[
                         ActionError(
@@ -674,32 +667,6 @@ def _scrub_receipts(project, p, batch_size):
                     (receipt_body(receipt), str(row["id"])),
                 )
         cursor = str(rows[-1]["id"])
-
-
-def _retained_descriptor_info():
-    # Descriptor contributions are shared authority, not diagnostic recovery.
-    # Keep only those typed before/after fields for surviving columns; blanket
-    # removal would break an unrelated column changed by the same operation.
-    fields = (
-        "column_types",
-        "column_types_after",
-        "column_formats",
-        "column_formats_after",
-        "column_semantic_types",
-        "column_semantic_types_after",
-        "column_hidden_after",
-    )
-    values = {
-        "column_hidden_after": "json(CASE type WHEN 'true' THEN 'true' ELSE 'false' END)",
-    }
-    return (
-        "json_object("
-        + ",".join(
-            f"'{field}',json((SELECT json_group_object(key,{values.get(field, 'value')}) FROM json_each(ops.undo_info,'$.{field}') WHERE CAST(key AS INTEGER) NOT IN (SELECT object_id FROM project_purge_targets WHERE kind='column')))"
-            for field in fields
-        )
-        + ")"
-    )
 
 
 def _update_batches(db, table, assignments, predicate, parameters, *, batch_size):
@@ -720,6 +687,70 @@ def _update_batches(db, table, assignments, predicate, parameters, *, batch_size
                 ids,
             )
         cursor = ids[-1]
+
+
+def _remember_source_blobs(db, p):
+    """Source values own originals; saved action results remain independent."""
+    from .project_blobs import _value_blob_hashes
+    from .value_codec import decode_stored_value
+    from .blob_backend import validate_blob_digest
+
+    def remember(hashes):
+        db.executemany(
+            "INSERT OR IGNORE INTO project_purge_blobs(purge_id,hash) VALUES (?,?)",
+            ((p["purge"], validate_blob_digest(digest)) for digest in hashes),
+        )
+
+    for table in ("cells", "edits"):
+        for kind, value in db.execute(
+            f"SELECT value_kind,value FROM {table} WHERE {_scope(row='row_id', column='column_id')} "
+            "AND value_kind IN ('json','legacy_invalid')",
+            p,
+        ):
+            remember(_value_blob_hashes(decode_stored_value(kind, value)))
+    for (digest,) in db.execute(
+        f"SELECT blob_hash FROM source_artifacts WHERE id IN ({_targets('artifact')}) AND blob_hash IS NOT NULL",
+        p,
+    ):
+        remember([digest])
+    # Page images are owned previews. Derivation edges alone are provenance,
+    # and do not authorize erasing independent clips or other action outputs.
+    for (metadata,) in db.execute(
+        f"SELECT metadata FROM source_artifacts WHERE id IN ({_targets('artifact')}) "
+        "OR blob_hash IN (SELECT hash FROM project_purge_blobs WHERE purge_id=:purge)",
+        p,
+    ):
+        images = json.loads(metadata or "{}").get("page_images", {})
+        remember(
+            image["blob_hash"] for image in images.values() if image.get("blob_hash")
+        )
+
+
+def _erase_source_blobs(project, p):
+    """Erase selected bytes even when another row references the same hash."""
+    from .blob_backend import validate_blob_digest, _fsync_directory
+
+    root = project.path / "blobs"
+    if root.is_symlink():
+        raise ValueError("Refusing symlinked blob directory during purge")
+    counts = {"blobs_removed": 0, "bytes_freed": 0}
+    for (digest,) in project.db.execute(
+        "SELECT hash FROM project_purge_blobs WHERE purge_id=:purge",
+        p,
+    ):
+        digest = validate_blob_digest(digest)
+        path = root / digest[:2] / digest
+        if path.parent.is_symlink() or path.is_symlink():
+            raise ValueError("Refusing symlinked source blob during purge")
+        if path.exists():
+            size = path.stat().st_size
+            path.unlink()
+            _fsync_directory(path.parent)
+            counts["blobs_removed"] += 1
+            counts["bytes_freed"] += size
+        with project.db:
+            project.db.execute("DELETE FROM blobs WHERE hash=?", (digest,))
+    return counts
 
 
 def _purge_files(project, p):
@@ -760,7 +791,6 @@ def _purge_retrieval(project, p):
 
     with RetrievalStore(project.path) as store:
         db = store.db
-        db.execute("PRAGMA secure_delete=ON")
         db.execute("ATTACH DATABASE ? AS authority", (str(project.db_path),))
         scope = _scope(sheet="sheet_id", row="row_id", column="column_id").replace(
             "FROM project_purge_targets", "FROM authority.project_purge_targets"
@@ -772,6 +802,8 @@ def _purge_retrieval(project, p):
             db,
             "bindings",
             scope
+            + " OR source_key IN (SELECT source_key FROM sources WHERE source_kind='blob' "
+            "AND version_value IN (SELECT hash FROM authority.project_purge_blobs WHERE purge_id=:purge))"
             + f" OR EXISTS (SELECT 1 FROM binding_dependencies dependency WHERE dependency.binding_key=bindings.binding_key AND {dependency_scope})",
             p,
             batch_size=500,
@@ -811,7 +843,6 @@ def _purge_retrieval(project, p):
             batch_size=500,
         )
         db.execute("DETACH DATABASE authority")
-        db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
 
 def _purge_imports(project, p):
@@ -832,6 +863,24 @@ def _purge_imports(project, p):
         if read_import_header(directory).storage_identity != project.storage_identity:
             raise ValueError("Import inventory belongs to another project")
         shutil.rmtree(directory)
+
+
+def _purge_citation_snapshots(db, p, batch_size):
+    while hashes := db.execute(
+        "SELECT content_hash FROM citation_texts WHERE content_hash IN ("
+        f"SELECT json_extract(metadata,'$.captured_text_hash') FROM source_artifacts WHERE id IN ({_targets('artifact')})) LIMIT :batch",
+        {**p, "batch": batch_size},
+    ).fetchall():
+        with db:
+            db.execute("BEGIN IMMEDIATE")
+            trigger = db.execute(
+                "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='trg_citation_texts_no_delete'"
+            ).fetchone()
+            if trigger:
+                db.execute("DROP TRIGGER trg_citation_texts_no_delete")
+            db.executemany("DELETE FROM citation_texts WHERE content_hash=?", hashes)
+            if trigger:
+                db.execute(trigger[0])
 
 
 def _purge_text_surface_payloads(db, p, batch_size):

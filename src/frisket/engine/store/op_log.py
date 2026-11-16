@@ -122,10 +122,15 @@ def operation_target(project: Any, direction: str, *, op_id: int | None = None):
     """Use the same target selection for execution, HTTP history and navigation."""
     if direction in {"revert", "restore"}:
         status = "applied" if direction == "revert" else "undone"
-        return project.db.execute(
+        target = project.db.execute(
             "SELECT * FROM ops WHERE id=? AND status=? AND change_order IS NOT NULL",
             (op_id, status),
         ).fetchone()
+        return (
+            target
+            if target is not None and _change_has_effects(project.db, target)
+            else None
+        )
     cursor = project.db.execute(
         "SELECT change_order FROM ops WHERE id=?", (project.op_cursor,)
     ).fetchone()
@@ -137,28 +142,12 @@ def operation_target(project: Any, direction: str, *, op_id: int | None = None):
         ordering = "ASC"
     else:
         raise ValueError(f"unknown operation transition {direction!r}")
-    from .purge import PurgedMaterialUnavailable
-
     for target in project.db.execute(
-        f"SELECT ops.*, EXISTS(SELECT 1 FROM project_purge_targets purged "
-        f"WHERE purged.kind='change' AND purged.object_id=ops.id) AS purged "
-        f"FROM ops WHERE {predicate} ORDER BY change_order {ordering}",
+        f"SELECT * FROM ops WHERE {predicate} ORDER BY change_order {ordering}",
         (order,),
     ):
-        if target["purged"]:
-            # Purged recovery material is unavailable, not a project-wide
-            # history barrier. Partially retained edits remain navigable.
-            try:
-                _require_retained_transition(
-                    project,
-                    int(target["id"]),
-                    json.loads(target["undo_info"] or "{}"),
-                    reverting=direction == "undo",
-                )
-            except PurgedMaterialUnavailable:
-                continue
-
-        return target
+        if _change_has_effects(project.db, target):
+            return target
     return None
 
 
@@ -202,39 +191,6 @@ def _require_restoration_targets(project, op_id, info, *, reverting):
     if not reverting:
         restoring_rows = [*restoring_rows, *info.get("restored_rows", [])]
     db = project.db
-    if db.execute(
-        "SELECT 1 FROM project_purge_targets WHERE kind='change' AND object_id=?",
-        (op_id,),
-    ).fetchone():
-        # Purge scrubs diagnostic undo JSON but retains the typed structural
-        # authority for surviving objects. Restore still checks those destinations.
-        visibility = (
-            "before_visible=1 AND after_visible=0"
-            if reverting
-            else "before_visible=0 AND after_visible=1"
-        )
-        retained = db.execute(
-            f"SELECT kind,object_id FROM structural_changes WHERE op_id=? AND ({visibility}) AND kind!='row'",
-            (op_id,),
-        ).fetchall()
-        restoring_sheets = sorted(
-            set(restoring_sheets)
-            | {int(row[1]) for row in retained if row[0] == "sheet"}
-        )
-        restoring_columns = sorted(
-            set(restoring_columns)
-            | {int(row[1]) for row in retained if row[0] == "column"}
-        )
-        if db.execute(
-            "SELECT 1 FROM structural_changes effect JOIN rows row ON row.id=effect.object_id "
-            "JOIN sheets sheet ON sheet.id=row.sheet_id WHERE effect.op_id=? "
-            f"AND effect.kind='row' AND ({visibility}) AND sheet.hidden=1 "
-            "AND sheet.id NOT IN (SELECT value FROM json_each(?)) LIMIT 1",
-            (op_id, json.dumps(restoring_sheets)),
-        ).fetchone():
-            raise RestorationUnavailable(
-                "The original destination sheet is unavailable"
-            )
     for sheet_id in restoring_sheets:
         sheet = db.execute("SELECT name FROM sheets WHERE id=?", (sheet_id,)).fetchone()
         if sheet is None:
@@ -337,8 +293,14 @@ def _plain_edit_preserves_pending_review_count(
     return bool(facts["has_edits"]) and not bool(facts["has_runs"])
 
 
-def _has_retained_change_effects(db, op_id):
-    """Consult contribution owners, not operation names or current winners."""
+def _change_has_effects(db, target):
+    """Navigate contribution owners; corrupt metadata must still be reported."""
+    try:
+        info = json.loads(target["undo_info"] or "{}")
+    except (TypeError, ValueError):
+        return True
+    if validate_operation_undo_info(info) is not None:
+        return True
     return bool(
         db.execute(
             "SELECT EXISTS(SELECT 1 FROM structural_changes WHERE op_id=:op "
@@ -351,45 +313,9 @@ def _has_retained_change_effects(db, op_id):
             "EXISTS(SELECT 1 FROM result_judgment_changes WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM runs run JOIN run_output_generations generation "
             "ON generation.run_id=run.id JOIN run_rows scope ON scope.run_id=run.id "
-            "WHERE run.op_id=:op AND NOT EXISTS(SELECT 1 FROM project_purge_targets target "
-            "WHERE (target.kind='row' AND target.object_id=scope.row_id) "
-            "OR (target.kind='column' AND target.object_id=generation.column_id)))",
-            {"op": op_id},
+            "WHERE run.op_id=:op AND generation.state!='staged')",
+            {"op": target["id"]},
         ).fetchone()[0]
-    )
-
-
-def _require_retained_transition(project, target_op_id, undo_info, *, reverting):
-    from .purge import require_restore_available
-
-    # Purge removes selected payloads and neutralizes their structural facts.
-    # Its owner marker does not erase independent retained effects of that same
-    # Change. Only an entirely erased owner is unavailable for navigation.
-    if project.db.execute(
-        "SELECT 1 FROM project_purge_targets WHERE kind='change' AND object_id=?",
-        (target_op_id,),
-    ).fetchone() and not _has_retained_change_effects(project.db, target_op_id):
-        require_restore_available(project.db, op_ids=(target_op_id,))
-    require_restore_available(
-        project.db,
-        sheet_ids=(
-            undo_info.get("deleted_sheets", [])
-            if reverting
-            else undo_info.get("created_sheets", [])
-        ),
-        column_ids=(
-            undo_info.get("deleted_columns", [])
-            if reverting
-            else undo_info.get("created_columns", [])
-        ),
-        row_ids=(
-            undo_info.get("deleted_rows", [])
-            if reverting
-            else [
-                *undo_info.get("created_rows", []),
-                *undo_info.get("restored_rows", []),
-            ]
-        ),
     )
 
 
@@ -436,30 +362,6 @@ def step_operation(
     validation_error = validate_operation_undo_info(undo_info)
     if validation_error is not None:
         raise CorruptOperation(target_op_id, validation_error)
-    _require_retained_transition(project, target_op_id, undo_info, reverting=reverting)
-    from .structural_changes import record_structural_changes
-
-    record_structural_changes(project.db, target_op_id, undo_info)
-    if project.db.execute(
-        "SELECT 1 FROM project_purge_targets WHERE kind='change' AND object_id=?",
-        (target_op_id,),
-    ).fetchone():
-        # Recover only the retained typed creation identities needed by the
-        # existing visibility handling; purge erased diagnostic undo JSON.
-        retained_columns = [
-            int(row[0])
-            for row in project.db.execute(
-                "SELECT object_id FROM structural_changes WHERE op_id=? AND kind='column' "
-                "AND before_visible=0 AND after_visible=1",
-                (target_op_id,),
-            )
-        ]
-        if retained_columns:
-            undo_info["created_columns"] = retained_columns
-            set_undo_info(project, target_op_id, undo_info, commit=False)
-            target = project.db.execute(
-                "SELECT * FROM ops WHERE id=?", (target_op_id,)
-            ).fetchone()
     _require_restoration_targets(project, target_op_id, undo_info, reverting=reverting)
     column_ids = operation_touched_column_ids(project, target_op_id, undo_info)
     claims = OutputColumnClaimStore(project)
@@ -754,28 +656,6 @@ def operation_membership_column_ids(
             (json.dumps(info.get(field, [])),),
         )
     }
-
-    if project.db.execute(
-        "SELECT 1 FROM project_purge_targets WHERE kind='change' AND object_id=?",
-        (op_id,),
-    ).fetchone():
-        # Purge removes diagnostic undo lists, not the retained membership
-        # authority. Keep row scope in SQLite and invalidate every affected
-        # column, including columns these rows never populated.
-        columns.update(
-            int(row[0])
-            for row in project.db.execute(
-                "WITH affected_sheets AS ("
-                "SELECT row.sheet_id FROM structural_changes effect INDEXED BY idx_structural_change_op "
-                "JOIN rows row ON effect.kind='row' AND row.id=effect.object_id "
-                "WHERE effect.op_id BETWEEN ? AND ? AND effect.before_visible!=effect.after_visible "
-                "UNION SELECT effect.object_id FROM structural_changes effect INDEXED BY idx_structural_change_op "
-                "WHERE effect.op_id BETWEEN ? AND ? AND effect.kind='sheet' "
-                "AND effect.before_visible!=effect.after_visible) "
-                "SELECT col.id FROM affected_sheets affected JOIN columns col ON col.sheet_id=affected.sheet_id",
-                (op_id, op_id, op_id, op_id),
-            )
-        )
 
     for field in ("created_rows_import_session_id", "replaced_rows_import_session_id"):
         if info.get(field) is not None:

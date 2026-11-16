@@ -26,7 +26,7 @@ def add(project, name, value):
     return sheet, column, row
 
 
-def test_scope_preserves_independent_owner_and_blocks_stale_publication(project):
+def test_source_erasure_removes_shared_bytes_and_blocks_stale_publication(project):
     blob = project.add_blob(b"original")
     first = add(project, "first", {"blob": blob})
     second = add(project, "copy", {"blob": blob})
@@ -39,7 +39,8 @@ def test_scope_preserves_independent_owner_and_blocks_stale_publication(project)
         require_restore_available(project.db, row_ids=[first[2]])
     require_publication_targets(project.db, row_ids=[second[2]])
     result = finish_purge(project, purge, batch_size=1)
-    assert result["blobs_removed"] == 0
+    assert result["blobs_removed"] == 1
+    assert not (project.path / "blobs" / blob[:2] / blob).exists()
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM cells WHERE row_id=?", (first[2],)
@@ -55,7 +56,7 @@ def test_scope_preserves_independent_owner_and_blocks_stale_publication(project)
     require_no_pending_purge(project.db)
     assert finish_purge(project, purge)["phase"] == "complete"
     final = begin_purge(project, sheet_ids=[second[0]])
-    assert finish_purge(project, final)["blobs_removed"] == 1
+    assert finish_purge(project, final)["blobs_removed"] == 0
     assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -135,7 +136,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
             )
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        with pytest.raises(PurgedMaterialUnavailable):
+        with pytest.raises(OperationUnavailable):
             step_operation(project, "revert", op_id=column_op)
     with pytest.raises(OperationUnavailable):
         with project.db:
@@ -193,7 +194,7 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
 
 
 def test_purged_undone_row_cannot_be_restored(project):
-    from frisket.engine.store.op_log import step_operation
+    from frisket.engine.store.op_log import OperationUnavailable, step_operation
 
     _sheet, _column, row = add(project, "restore", "secret")
     row_op = project.db.execute(
@@ -202,7 +203,7 @@ def test_purged_undone_row_cannot_be_restored(project):
     ).fetchone()[0]
     assert project.undo() == row_op
     finish_purge(project, begin_purge(project, row_ids=[row]))
-    with pytest.raises(PurgedMaterialUnavailable):
+    with pytest.raises(OperationUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
             step_operation(project, "restore", op_id=row_op)
@@ -418,7 +419,10 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
     assert first not in project.visible_row_ids(sheet)
 
 
-def test_purge_removes_unowned_published_result_but_retains_shared_result(project):
+@pytest.mark.parametrize("scope", ["row", "column"])
+def test_purge_removes_unowned_published_result_but_retains_shared_result(
+    project, scope
+):
     import sqlite3
 
     from frisket.engine.store.changes import ChangeStore, start_change
@@ -501,7 +505,25 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(projec
         refresh_current_cells(project.db, column_ids=[saved_column])
         ChangeStore(project).close(copy_op)
 
-    finish_purge(project, begin_purge(project, row_ids=[unowned]))
+    selected = {"row_ids": [unowned]} if scope == "row" else {"column_ids": [output]}
+    finish_purge(project, begin_purge(project, **selected))
+    if scope == "column":
+        assert (
+            project.db.execute(
+                "SELECT count(*) FROM run_output_generations WHERE column_id=?",
+                (output,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert project.db.execute(
+            "SELECT 1 FROM sqlite_schema WHERE name='trg_run_output_generations_delete_discarded_only'"
+        ).fetchone()
+        with pytest.raises(sqlite3.IntegrityError):
+            with project.db:
+                project.db.execute(
+                    "UPDATE results SET value='changed' WHERE run_id=? AND row_id=?",
+                    (run_id, shared),
+                )
     assert (
         project.db.execute(
             "SELECT count(*) FROM results WHERE run_id=? AND row_id=?",
@@ -573,7 +595,7 @@ def test_interrupted_content_cleanup_resumes(project, monkeypatch):
         project.db.execute(
             "SELECT phase FROM project_purges WHERE id=?", (purge,)
         ).fetchone()[0]
-        == "files"
+        == "content"
     )
     with pytest.raises(PurgedMaterialUnavailable):
         require_no_pending_purge(project.db)
@@ -771,6 +793,7 @@ def test_purged_receipt_replays_as_valid_refusal(project):
             idempotency_key="purged-material-key",
             params_hash="sha256:fixture",
             status="completed",
+            provider_use=[{"model": "test", "cost_actual": 0.23, "input_tokens": 30}],
             outputs=[{"name": "value", "ref": {"kind": "cell", "row_id": row}}],
         )
     )
@@ -786,6 +809,9 @@ def test_purged_receipt_replays_as_valid_refusal(project):
     assert parsed.status == "failed"
     assert parsed.errors[0].code == "purged_material_unavailable"
     assert parsed.outputs == []
+    assert parsed.provider_use == [
+        {"model": "test", "cost_actual": 0.23, "input_tokens": 30}
+    ]
 
 
 def test_late_result_refusal_keeps_paid_usage(project):
@@ -1176,3 +1202,152 @@ def test_normal_open_refuses_interrupted_purge_and_maintenance_can_finish(tmp_pa
     with closing(Project(path)) as restored:
         assert restored.visible_row_ids(sheet) == []
         assert restored.db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
+    project, monkeypatch
+):
+    from pathlib import Path
+    from frisket.engine.store.blob_backend import BlobNotFoundError
+    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.project_blobs import reclaim_local_blobs
+    from frisket.retrieval.store import RetrievalStore
+
+    original = project.add_blob(b"original source")
+    preview = project.add_blob(b"source page preview")
+    output = project.add_blob(b"independent transformed output")
+    first = add(project, "source", {"blob": original})
+    alias = add(project, "same bytes", {"blob": original})
+    retained = add(project, "independent output", {"blob": output})
+    for location in (first, alias):
+        record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=original,
+            source_sheet_id=location[0],
+            source_row_id=location[2],
+            source_column_id=location[1],
+            metadata={
+                "page_images": {"1": {"blob_hash": preview}},
+                "captured_text": "original searchable text",
+            },
+        )
+    with RetrievalStore(project.path) as store:
+        for number, location, digest in (
+            (1, first, original),
+            (2, alias, original),
+            (3, retained, output),
+        ):
+            store.db.execute(
+                "INSERT OR IGNORE INTO sources(source_key,source_id,source_kind,version_kind,version_value,version_type) VALUES (?,?, 'blob','blob_digest',?,'text')",
+                (number, f"blob:{digest}", digest),
+            )
+            source_key = store.db.execute(
+                "SELECT source_key FROM sources WHERE version_value=?", (digest,)
+            ).fetchone()[0]
+            store.db.execute(
+                "INSERT INTO bindings(binding_id,source_key,sheet_id,row_id,column_id) VALUES (?,?,?,?,?)",
+                (str(number), source_key, location[0], location[2], location[1]),
+            )
+        store.db.commit()
+    purge = begin_purge(project, row_ids=[first[2]])
+    unlink = Path.unlink
+
+    def fail_source(path, **kwargs):
+        if path.name == original:
+            raise OSError("source unlink interrupted")
+        return unlink(path, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_source)
+    with pytest.raises(OSError, match="interrupted"):
+        finish_purge(project, purge, batch_size=1)
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM cells WHERE row_id=?", (first[2],)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM project_purge_blobs WHERE purge_id=?", (purge,)
+        ).fetchone()[0]
+        == 2
+    )
+    with pytest.raises(PurgedMaterialUnavailable):
+        require_no_pending_purge(project.db)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    assert finish_purge(project, purge, batch_size=1)["phase"] == "complete"
+    assert project.get_values(alias[0], alias[1])[alias[2]] == {"blob": original}
+    with pytest.raises(BlobNotFoundError):
+        project.read_blob(original)
+    with pytest.raises(BlobNotFoundError):
+        project.read_blob(preview)
+    assert project.read_blob(output) == b"independent transformed output"
+    assert project.db.execute("SELECT count(*) FROM citation_texts").fetchone()[0] == 0
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM source_artifacts WHERE metadata!='{}' OR blob_hash IS NOT NULL"
+        ).fetchone()[0]
+        == 0
+    )
+    with RetrievalStore(project.path) as store:
+        assert [
+            row[0] for row in store.db.execute("SELECT binding_id FROM bindings")
+        ] == ["3"]
+    assert reclaim_local_blobs(project, dry_run=False)["blobs_removed"] == 0
+    assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_citation_snapshot_failure_restores_immutability_and_reruns(project):
+    import sqlite3
+    from frisket.engine.store.evidence import record_source_artifact
+
+    source = add(project, "source", "original text")
+    record_source_artifact(
+        project,
+        artifact_kind="text",
+        media_type="text/plain",
+        source_sheet_id=source[0],
+        source_row_id=source[2],
+        source_column_id=source[1],
+        metadata={"captured_text": "original text"},
+    )
+    with project.db:
+        project.db.execute(
+            "CREATE TRIGGER fail_citation_delete BEFORE DELETE ON citation_texts BEGIN SELECT RAISE(ABORT,'interrupted citation cleanup'); END"
+        )
+    purge = begin_purge(project, row_ids=[source[2]])
+    with pytest.raises(sqlite3.IntegrityError, match="interrupted citation"):
+        finish_purge(project, purge)
+    assert project.db.execute(
+        "SELECT 1 FROM sqlite_schema WHERE name='trg_citation_texts_no_delete'"
+    ).fetchone()
+    assert (
+        project.db.execute("SELECT text FROM citation_texts").fetchone()[0]
+        == "original text"
+    )
+    with project.db:
+        project.db.execute("DROP TRIGGER fail_citation_delete")
+    finish_purge(project, purge)
+    assert project.db.execute("SELECT count(*) FROM citation_texts").fetchone()[0] == 0
+    assert project.db.execute(
+        "SELECT 1 FROM sqlite_schema WHERE name='trg_citation_texts_no_delete'"
+    ).fetchone()
+
+
+def test_resumed_source_erasure_refuses_replaced_blob_root(project):
+    blob = project.add_blob(b"source")
+    _, _, row = add(project, "source", {"blob": blob})
+    purge = begin_purge(project, row_ids=[row])
+    root = project.path / "blobs"
+    outside = project.path.parent / "moved-blobs"
+    root.rename(outside)
+    root.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlinked blob directory"):
+        finish_purge(project, purge)
+    assert (outside / blob[:2] / blob).read_bytes() == b"source"
+    root.unlink()
+    outside.rename(root)
+    finish_purge(project, purge)
+    assert not (root / blob[:2] / blob).exists()
