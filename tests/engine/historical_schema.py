@@ -72,7 +72,7 @@ def restore_pre_domain_schema(db: sqlite3.Connection) -> None:
         heads = {
             tuple(row)
             for row in db.execute(
-                "SELECT column_id,row_id,run_id FROM current_result_heads"
+                "SELECT column_id,row_id,run_id FROM generated_result_candidates"
             )
         }
         heads.update(

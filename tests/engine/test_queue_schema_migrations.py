@@ -109,6 +109,7 @@ def test_migrate_replaces_an_older_queue_once_under_the_advisory_lock() -> None:
             # The runtime role can write the replacement tables, and project
             # stores' old ids (up to 701) are never handed out again.
             assert queue.enqueue("project.run", {"project_id": "alpha"}) == 702
+            assert queue.job_execution_stopped(700) is True
         finally:
             queue.close()
 

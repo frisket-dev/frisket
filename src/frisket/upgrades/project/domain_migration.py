@@ -32,7 +32,7 @@ def capture_current_baseline(db: sqlite3.Connection) -> None:
         "base_producer_id FROM current_cells"
     )
     # Keep the saved answer underneath an ordinary correction too. It remains
-    # available for Review and apply_edits=False without duplicating payloads.
+    # available for Review by saved-result identity without duplicating payloads.
     db.execute(
         "INSERT INTO domain_baseline_capture "
         "SELECT current.row_id,current.column_id,"
@@ -138,7 +138,7 @@ def archive_history(db: sqlite3.Connection) -> None:
 
 
 # Pinned endpoint: later schema changes must extend this cutover explicitly.
-DOMAIN_TO_DIGEST = "frisket.schema.v1:cfcb0f402abffdd27cc16a20f50169d1"
+DOMAIN_TO_DIGEST = "frisket.schema.v1:3a719329aa776f5c77d3702182dd34fa"
 
 
 def _execute_ddl(db: sqlite3.Connection, sql: str) -> None:
@@ -332,7 +332,6 @@ def migrate_domain(db: sqlite3.Connection) -> None:
     from frisket.engine.store.review_judgments import JUDGMENT_SCHEMA_SQL
     from frisket.engine.store.schema import (
         CURRENT_CELL_VALUES_SQL,
-        UNMODIFIED_CELL_VALUES_SQL,
         SCHEMA,
         SCHEMA_DIGEST,
         SCHEMA_DIGEST_META_KEY,
@@ -367,6 +366,21 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         adopt_legacy_document_text(db)
         _version_source_cells(db)
         capture_current_baseline(db)
+        # Baseline capture is complete. Replace dependent read views rather
+        # than retaining IF NOT EXISTS definitions from the previous schema.
+        for view in (
+            "current_document_text_selections",
+            "current_cell_values",
+            "unmodified_cell_values",
+            "current_result_heads",
+            "generated_result_candidates",
+            "unmodified_cell_heads",
+            "effective_current_cells",
+            "dirty_cell_heads",
+            "canonical_cell_heads",
+            "cell_contributions",
+        ):
+            db.execute(f"DROP VIEW IF EXISTS {view}")
         db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_visible_sheet_name ON sheets(name) WHERE hidden=0"
         )
@@ -405,6 +419,8 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         _execute_ddl(db, KEYED_UPDATE_SCHEMA)
         _execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
         _execute_ddl(db, PURGE_SCHEMA_SQL)
+        # Reconciliation uses keyed baselines; this ledger had no readers.
+        db.execute("DROP TABLE source_items")
 
         install_current_baseline(db)
         # Saved-but-unpublished checkpoints must not become visible.
@@ -416,10 +432,7 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         )
         archive_history(db)
         db.execute("INSERT INTO meta(key,value) VALUES ('change_sequence','0')")
-        db.execute("DROP VIEW current_cell_values")
         _execute_ddl(db, CURRENT_CELL_VALUES_SQL)
-        _execute_ddl(db, UNMODIFIED_CELL_VALUES_SQL)
-        db.execute("DROP VIEW current_document_text_selections")
         _execute_ddl(db, DOCUMENT_TEXT_SELECTION_VIEW_SQL)
         for name in (
             "trg_cell_result_heads_require_publishable_result",

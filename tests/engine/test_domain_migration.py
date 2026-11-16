@@ -306,13 +306,13 @@ def test_cutover_preserves_saved_answer_beneath_manual_correction(old_db):
     )
     assert (
         db.execute(
-            "SELECT value FROM unmodified_cell_values WHERE row_id=1 AND column_id=1"
+            "SELECT value FROM results WHERE run_id=1 AND row_id=1 AND column_id=1"
         ).fetchone()[0]
         == "original answer"
     )
     assert (
         db.execute(
-            "SELECT run_id FROM current_result_heads WHERE row_id=1 AND column_id=1"
+            "SELECT run_id FROM generated_result_candidates WHERE row_id=1 AND column_id=1"
         ).fetchone()[0]
         == 1
     )
@@ -650,7 +650,10 @@ def test_upgrade_reopen_keeps_file_bytes_and_corrections_as_new_undo_floor(tmp_p
         assert project.read_blob(blob) == content
         assert project.get_values(sheet, title_column)[row] == "Corrected"
         assert (
-            project.get_values(sheet, title_column, apply_edits=False)[row]
+            project.db.execute(
+                "SELECT value FROM cells WHERE row_id=? AND column_id=?",
+                (row, title_column),
+            ).fetchone()[0]
             == "Original"
         )
         assert (
