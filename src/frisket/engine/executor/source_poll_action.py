@@ -216,6 +216,18 @@ def _resolve_and_poll_source(
     source_before = dict(resolved["source"])
     source_id = int(source_before["id"])
     source_kind = str(source_before["kind"])
+    try:
+        _require_source_poll_destination(project, source_before)
+    except ValueError as exc:
+        if resolved["created"]:
+            SourceStore(project).delete_source(source_id)
+        return ActionError(
+            code="invalid_input_ref",
+            message=str(exc),
+            action_kind=action.kind,
+            field="params",
+            details={"source_id": source_id},
+        )
     poller = rss_poller_for_fetch_override(
         source_kind,
         rss_fetcher,
@@ -542,7 +554,11 @@ def _materialize_registered_source_poll_in_txn(
         _source_poll_row(source_id, source_run_id, item) for item in poll_result.items
     ]
     column_ids = _ensure_source_poll_columns_in_txn(
-        cur, sheet_id, records, source_kind=str(source_before["kind"])
+        cur,
+        sheet_id,
+        records,
+        source_kind=str(source_before["kind"]),
+        bound_columns=_source_poll_key_columns(project, source_id, sheet_id),
     )
     if not records:
         return {
@@ -617,6 +633,7 @@ def _materialize_registered_source_poll_in_txn(
             writer=writer,
             create_rows=create_rows,
             preserve_invalid=True,
+            prefer_observed_targets=True,
         )
     row_ids = list(publication.published.values())
     enclosure_row_ids = [
@@ -708,18 +725,65 @@ def _nonempty_text(value: Any) -> str | None:
     return value.strip()
 
 
+def _source_poll_key_columns(
+    project: Project, source_id: int, sheet_id: int
+) -> dict[str, int]:
+    """Source keys retain physical identity when the user renames their columns."""
+    relationship = project.db.execute(
+        "SELECT sheet_id,key_definition FROM keyed_relationships WHERE id=?",
+        (f"source:{source_id}",),
+    ).fetchone()
+    if relationship is None:
+        return {}
+    if relationship["sheet_id"] != sheet_id:
+        raise ValueError(
+            "Source destination no longer matches its retained relationship"
+        )
+    definition = json.loads(relationship["key_definition"])
+    if len(definition) != 2 or [part[1] for part in definition] != ["integer", "text"]:
+        raise ValueError("Source key definition is unavailable")
+    columns = {}
+    for name, (column_id, _kind) in zip(
+        ("source_id", "source_item_id"), definition, strict=True
+    ):
+        if (
+            project.db.execute(
+                "SELECT 1 FROM columns WHERE id=? AND sheet_id=? AND active=1 AND hidden=0",
+                (column_id, sheet_id),
+            ).fetchone()
+            is None
+        ):
+            raise ValueError(
+                "Source key column is unavailable; restore it before polling"
+            )
+        columns[name] = int(column_id)
+    return columns
+
+
+def _require_source_poll_destination(project: Project, source: dict[str, Any]) -> None:
+    sheet_id = source.get("sheet_id")
+    if sheet_id is not None:
+        if (
+            project.db.execute(
+                "SELECT 1 FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
+            ).fetchone()
+            is None
+        ):
+            raise ValueError(
+                "Source destination is unavailable; restore it before polling"
+            )
+        _source_poll_key_columns(project, int(source["id"]), int(sheet_id))
+
+
 def _source_poll_sheet_id_in_txn(
     project: Project, cur: Any, source: dict[str, Any]
 ) -> int:
     """Resolve (or create-and-bind) the target sheet on the open cursor. Inlines
     `project.add_sheet` + the source's sheet_id update so they join the core's txn."""
     sheet_id = source.get("sheet_id")
-    sheet_ids = {
-        int(row["id"])
-        for row in cur.execute("SELECT id FROM sheets WHERE hidden=0").fetchall()
-    }
-    if isinstance(sheet_id, int) and sheet_id in sheet_ids:
-        return sheet_id
+    _require_source_poll_destination(project, source)
+    if sheet_id is not None:
+        return int(sheet_id)
     name = str(source.get("name") or "source")[:80] or "source"
     cur.execute(
         "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
@@ -743,6 +807,7 @@ def _ensure_source_poll_columns_in_txn(
     records: list[dict[str, Any]],
     *,
     source_kind: str,
+    bound_columns: dict[str, int] | None = None,
 ) -> dict[str, int]:
     """Create-or-reuse the source-poll columns on the open cursor (inlines
     `project.add_column`, including its hidden-column revive)."""
@@ -753,6 +818,7 @@ def _ensure_source_poll_columns_in_txn(
             (sheet_id,),
         ).fetchall()
     }
+    col_ids.update(bound_columns or {})
     for name in _source_poll_column_order(records):
         default_hidden = _source_poll_column_default_hidden(source_kind, name)
         if name not in col_ids:

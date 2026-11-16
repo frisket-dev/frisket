@@ -225,9 +225,14 @@ def observation(
     return None if row is None else json.loads(row[0])
 
 
-def retained_hidden_targets(
-    db: sqlite3.Connection, relationship_id: str, key: str
+def observed_key_targets(
+    db: sqlite3.Connection,
+    relationship_id: str,
+    key: str,
+    *,
+    hidden: bool = True,
 ) -> list[int]:
+    """Find observed identities whose current key still matches the relationship."""
     from .value_codec import decode_stored_value
 
     relationship = db.execute(
@@ -238,8 +243,8 @@ def retained_hidden_targets(
     definition = json.loads(relationship[0])
     rows = db.execute(
         "SELECT observation.row_id FROM keyed_observations observation JOIN rows r ON r.id=observation.row_id "
-        "WHERE observation.relationship_id=? AND observation.key=? AND r.hidden=1",
-        (relationship_id, key),
+        "WHERE observation.relationship_id=? AND observation.key=? AND r.hidden=?",
+        (relationship_id, key, int(hidden)),
     )
     matches = []
     for candidate in rows:

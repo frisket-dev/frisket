@@ -9,7 +9,7 @@ from frisket.engine.store.keyed_updates import (
     observe,
     observation,
     require_relationship,
-    retained_hidden_targets,
+    observed_key_targets,
     typed_key,
 )
 
@@ -124,12 +124,12 @@ def test_observations_advance_when_kept_and_do_not_rewind_with_op_status(tmp_pat
             == {}
         )
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row,))
-        assert retained_hidden_targets(
+        assert observed_key_targets(
             project.db, "test:baseline", typed_key([("text", "a")])
         ) == [row]
         project.db.execute("UPDATE rows SET hidden=0 WHERE id=?", (row,))
         assert (
-            retained_hidden_targets(
+            observed_key_targets(
                 project.db, "test:baseline", typed_key([("text", "a")])
             )
             == []

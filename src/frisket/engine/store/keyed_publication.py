@@ -15,7 +15,7 @@ from .keyed_updates import (
     observe,
     reconcile_fields,
     require_relationship,
-    retained_hidden_targets,
+    observed_key_targets,
     typed_key,
 )
 from .structural_changes import note_row_membership_change
@@ -72,6 +72,7 @@ def publish_keyed_records(
     keep_existing_on_blank: bool = False,
     preserve_invalid: bool = False,
     import_writer_authority: str | None = None,
+    prefer_observed_targets: bool = False,
 ) -> KeyedPublication:
     """Apply a page atomically with its observations; never infer absence.
 
@@ -99,8 +100,17 @@ def publish_keyed_records(
             continue
         targets = staged.targets(admitted.key)
         hidden = False
+        # Older polls retained visible revisions with the same key. Their
+        # tracked current-key identity can disambiguate those visible rows;
+        # a deleted association cannot displace a visible current-key match.
+        if len(targets) > 1 and prefer_observed_targets:
+            preferred = observed_key_targets(
+                db, relationship_id, admitted.key, hidden=False
+            )
+            if len(preferred) == 1:
+                targets = preferred
         if not targets:
-            targets = retained_hidden_targets(db, relationship_id, admitted.key)
+            targets = observed_key_targets(db, relationship_id, admitted.key)
             hidden = bool(targets)
         if len(targets) > 1 or not targets and create_rows is None:
             result.skipped += admitted.copies

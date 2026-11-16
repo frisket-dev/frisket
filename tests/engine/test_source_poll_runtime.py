@@ -169,6 +169,112 @@ def test_source_poll_materializes_boolean_columns_as_valid_booleans(
         unregister_source_poller("fake")
 
 
+def test_poll_hidden_destination_is_unavailable_until_undo(tmp_path):
+    from contextlib import closing
+    from frisket.engine.executor import run_action_spec
+
+    poller = FakePoller()
+    poller.items = [SourcePollItem(dedupe_key="entry", row={"title": "Original"})]
+    register_source_poller(poller)
+    try:
+        with closing(Project.create(tmp_path / "hidden-feed.frisket")) as project:
+            source = SourceStore(project).add_source("Feed", kind="fake")
+            first = run_action_spec(
+                project, _source_poll_action(source_id=source), project_id=PROJECT_ID
+            )
+            assert first.status == "completed", first.errors
+            sheet = int(SourceStore(project).get_source(source)["sheet_id"])
+            project.delete_sheet(sheet)
+            refused = run_action_spec(
+                project,
+                _source_poll_action(
+                    source_id=source, idempotency_key="poll@sha256:hidden"
+                ),
+                project_id=PROJECT_ID,
+            )
+            assert refused.status == "failed"
+            assert refused.errors[0].code == "invalid_input_ref"
+            assert poller.calls == 1
+            assert len(project.sheets(include_hidden=True)) == 1
+            assert SourceStore(project).get_source(source)["sheet_id"] == sheet
+            assert project.undo() is not None
+            resumed = run_action_spec(
+                project,
+                _source_poll_action(
+                    source_id=source, idempotency_key="poll@sha256:restored"
+                ),
+                project_id=PROJECT_ID,
+            )
+            assert resumed.status == "completed", resumed.errors
+            assert poller.calls == 2
+            assert SourceStore(project).get_source(source)["sheet_id"] == sheet
+    finally:
+        unregister_source_poller("fake")
+
+
+def test_poll_key_column_rename_preserves_binding_and_manual_changes(tmp_path):
+    from contextlib import closing
+    from frisket.engine.executor import run_action_spec
+
+    poller = FakePoller()
+    poller.items = [SourcePollItem(dedupe_key="entry", row={"title": "Original"})]
+    register_source_poller(poller)
+    try:
+        with closing(Project.create(tmp_path / "renamed-feed.frisket")) as project:
+            source = SourceStore(project).add_source("Feed", kind="fake")
+            first = run_action_spec(
+                project, _source_poll_action(source_id=source), project_id=PROJECT_ID
+            )
+            assert first.status == "completed", first.errors
+            sheet = int(SourceStore(project).get_source(source)["sheet_id"])
+            columns = {
+                column["name"]: int(column["id"]) for column in project.columns(sheet)
+            }
+            [row] = project.visible_row_ids(sheet)
+            project.apply_edits(
+                [
+                    {
+                        "row_id": row,
+                        "column_id": columns["title"],
+                        "value": "My correction",
+                    }
+                ]
+            )
+            with project.db:
+                for name in ("source_id", "source_item_id"):
+                    project.db.execute(
+                        "UPDATE columns SET name=? WHERE id=?",
+                        (f"renamed_{name}", columns[name]),
+                    )
+            poller.items = [
+                SourcePollItem(
+                    dedupe_key="entry", row={"title": "Revised", "new_field": "New"}
+                )
+            ]
+            second = run_action_spec(
+                project,
+                _source_poll_action(
+                    source_id=source, idempotency_key="poll@sha256:renamed"
+                ),
+                project_id=PROJECT_ID,
+            )
+            assert second.status == "completed", second.errors
+            assert project.visible_row_ids(sheet) == [row]
+            assert (
+                project.get_values(sheet, columns["title"], [row])[row]
+                == "My correction"
+            )
+            after = {
+                column["name"]: int(column["id"]) for column in project.columns(sheet)
+            }
+            assert "source_id" not in after and "source_item_id" not in after
+            assert after["renamed_source_id"] == columns["source_id"]
+            assert after["renamed_source_item_id"] == columns["source_item_id"]
+            assert project.get_values(sheet, after["new_field"], [row])[row] == "New"
+    finally:
+        unregister_source_poller("fake")
+
+
 class _RenamedPollParams(ActionParams):
     target: str
 
