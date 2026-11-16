@@ -13,6 +13,7 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import importlib.metadata
+import logging
 import os
 import re
 import shutil
@@ -23,6 +24,7 @@ import tempfile
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from frisket.redaction import redact_text
 from frisket.engine._workers.rapidocr_models import (
@@ -31,6 +33,23 @@ from frisket.engine._workers.rapidocr_models import (
     rapidocr_default_model_requirements,
     rapidocr_model_root_complete,
 )
+
+
+def _probe_failure(label: str, error: Exception) -> dict[str, Any]:
+    # Team members can read diagnostics, but not operator exception details.
+    support_id = f"diag-{uuid4().hex}"
+    logging.getLogger(__name__).warning(
+        "Diagnostic %s failed [%s]: %s",
+        label,
+        support_id,
+        redact_text(str(error)),
+    )
+    return {
+        "ok": False,
+        "error": type(error).__name__,
+        "diag_id": support_id,
+        "summary": f"{label} unavailable (support ID {support_id})",
+    }
 
 
 def python_version_report() -> dict[str, Any]:
@@ -221,7 +240,7 @@ def provider_key_validation_report(router: Any | None = None) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001 — validation probe, never raises
         return {
             "providers": {},
-            "summary": f"provider key validation unavailable ({e})",
+            "summary": _probe_failure("provider key validation", e)["summary"],
         }
 
     if invalid:
@@ -334,7 +353,7 @@ def disk_free_report(path: str | Path | None = None) -> dict[str, Any]:
     try:
         usage = shutil.disk_usage(probe_path)
     except OSError as e:  # noqa: BLE001 — report, never raise
-        return {"path": str(target), "summary": f"disk usage unavailable ({e})"}
+        return {"path": str(target), **_probe_failure("disk usage", e)}
     free_gb = round(usage.free / (1024**3), 1)
     total_gb = round(usage.total / (1024**3), 1)
     low = usage.free < 2 * (1024**3)
@@ -417,7 +436,7 @@ def plugin_health_report(
             "active": 0,
             "failed": 0,
             "failed_names": [],
-            "summary": f"plugin health unavailable ({e})",
+            "summary": _probe_failure("plugin health", e)["summary"],
         }
     plugins = index.get("plugins") or []
     live = [p for p in plugins if p.get("installState") != "uninstalled"]
@@ -1026,7 +1045,8 @@ def entities_report() -> dict[str, Any]:
             False,
             (
                 "FollowTheMoney entity support failed to load "
-                f"({exc}). Install with pip install 'frisket-data[entities]'."
+                f"({_probe_failure('entity support', exc)['summary']}). "
+                "Install with pip install 'frisket-data[entities]'."
             ),
         )
     preflight = pyicu_install_preflight()
@@ -1159,7 +1179,10 @@ def ytdlp_update_report(
             "installed": installed,
             "latest": None,
             "update_available": None,
-            "summary": f"yt-dlp {installed} installed; PyPI unreachable ({e})",
+            "summary": (
+                f"yt-dlp {installed} installed; PyPI unreachable; "
+                f"{_probe_failure('update check', e)['summary']}"
+            ),
         }
 
     installed_key = _numeric(installed)
@@ -1212,7 +1235,7 @@ def _info_probe(label: str, fn: Any) -> dict[str, Any]:
     try:
         return fn()
     except Exception as e:  # noqa: BLE001 — INFO probes report, never crash the caller
-        return {"ok": False, "error": str(e), "summary": f"{label} unavailable ({e})"}
+        return _probe_failure(label, e)
 
 
 def run_diagnostics(
@@ -1241,7 +1264,7 @@ def run_diagnostics(
     try:
         core["project_store"] = {"ok": True, **store_roundtrip_report()}
     except Exception as e:  # noqa: BLE001 — report, never crash the caller
-        core["project_store"] = {"ok": False, "error": str(e)}
+        core["project_store"] = _probe_failure("project store", e)
 
     info = {
         "python": _info_probe("python", python_version_report),

@@ -556,13 +556,15 @@ def test_plugin_health_report_keeps_stable_shape_on_index_exception(
             _boom,
         )
         r = diagnostics.plugin_health_report(project, project_id="p")
+        assert r["summary"].startswith("plugin health unavailable (support ID diag-")
+        assert "index blew up" not in r["summary"]
         assert r == {
             "available": False,
             "installed": 0,
             "active": 0,
             "failed": 0,
             "failed_names": [],
-            "summary": "plugin health unavailable (index blew up)",
+            "summary": r["summary"],
         }
     finally:
         project.close()
@@ -585,7 +587,8 @@ def test_plugin_health_report_keeps_stable_shape_when_bootstrap_raises(
         assert r["available"] is False
         assert r["installed"] == 0 and r["active"] == 0 and r["failed"] == 0
         assert r["failed_names"] == []
-        assert "bootstrap blew up" in r["summary"]
+        assert r["summary"].startswith("plugin health unavailable (support ID diag-")
+        assert "bootstrap blew up" not in r["summary"]
     finally:
         project.close()
 
