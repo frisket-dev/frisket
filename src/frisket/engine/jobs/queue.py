@@ -524,16 +524,17 @@ class JobQueue(ABC):
     def handler_execution_stopped(self, job_id: int, authority_id: str) -> bool:
         """The original handler exited; a successor on the same job is distinct.
 
-        Requires the job still to exist. A missing job/queue is unknown, never
-        proof that an original handler died.
+        A never-issued job id is unknown, never proof that a handler died. An
+        issued id whose row is gone belonged to a replaced older queue.
         """
 
     @abstractmethod
     def job_execution_stopped(self, job_id: int) -> bool:
         """A terminal job has no remaining durable handler authority.
 
-        A missing job or an expired lease is not proof that executable code
-        has exited. Recovery must not infer death from heartbeat age alone.
+        A never-issued job id or an expired lease is not proof that executable
+        code has exited. Recovery must not infer death from heartbeat age alone.
+        An issued id whose row is gone belonged to a replaced older queue.
         """
 
     @abstractmethod
@@ -873,6 +874,8 @@ jobs_metadata = sa.MetaData()
 jobs_table = sa.Table(
     "jobs",
     jobs_metadata,
+    # Project stores keep job ids; a SQLite rowid restarts on an empty table,
+    # so new local queues never reuse an id (see frisket.upgrades.queue).
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("kind", sa.String, nullable=False),
     sa.Column("payload", sa.Text, nullable=False, default="{}", server_default="{}"),
@@ -956,6 +959,7 @@ jobs_table = sa.Table(
     ),
     sa.Index("idx_jobs_receipt", "receipt_id"),
     sa.Index("idx_jobs_dedupe", "kind", "project_id", "dedupe_key", "status"),
+    sqlite_autoincrement=True,
 )
 
 # ``-1`` groups unscoped rows because NULL index keys are distinct; real org
@@ -1036,18 +1040,22 @@ class SqlAlchemyJobQueue(JobQueue):
         if self._is_sqlite:
             _install_sqlite_begin_immediate(self.engine)
         if schema_mode == "initialize":
-            from frisket.engine.jobs.queue_migrations import apply_pending_migrations
+            from frisket.upgrades.queue import ensure_current_queue_schema
 
-            if self._is_sqlite:
-                with _sqlite_initialization_lock(self.engine):
-                    _negotiate_sqlite_wal(self.engine)
+            try:
+                if self._is_sqlite:
+                    with _sqlite_initialization_lock(self.engine):
+                        _negotiate_sqlite_wal(self.engine)
+                        with self._write_transaction() as cx:
+                            ensure_current_queue_schema(cx)
+                else:
                     with self._write_transaction() as cx:
-                        apply_pending_migrations(cx)
-            else:
-                with self._write_transaction() as cx:
-                    apply_pending_migrations(cx)
+                        ensure_current_queue_schema(cx)
+            except BaseException:
+                self.engine.dispose()
+                raise
         elif schema_mode == "strict":
-            from frisket.engine.jobs.queue_migrations import validate_queue_schema
+            from frisket.engine.jobs.queue_schema import validate_queue_schema
 
             try:
                 validate_queue_schema(self.engine)
@@ -1365,30 +1373,64 @@ class SqlAlchemyJobQueue(JobQueue):
         job = jobs_table.c
         authority = job_handler_authorities_table.c
         with self.engine.connect() as cx:
+            if cx.execute(sa.select(job.id).where(job.id == job_id)).first() is None:
+                return self._retired_job_id(cx, job_id)
             return (
                 cx.execute(
-                    sa.select(job.id).where(
-                        job.id == job_id,
-                        ~sa.exists().where(authority.authority_id == authority_id),
+                    sa.select(authority.authority_id).where(
+                        authority.authority_id == authority_id
                     )
                 ).first()
-                is not None
+                is None
             )
 
     def job_execution_stopped(self, job_id):
         job = jobs_table.c
         authority = job_handler_authorities_table.c
         with self.engine.connect() as cx:
+            row = cx.execute(sa.select(job.status).where(job.id == job_id)).first()
+            if row is None:
+                return self._retired_job_id(cx, job_id)
             return (
-                cx.execute(
-                    sa.select(job.id).where(
-                        job.id == job_id,
-                        job.status.in_(TERMINAL),
-                        ~sa.exists().where(authority.job_id == job.id),
-                    )
+                row.status in TERMINAL
+                and cx.execute(
+                    sa.select(authority.authority_id).where(authority.job_id == job_id)
                 ).first()
-                is not None
+                is None
             )
+
+    def _retired_job_id(self, cx, job_id) -> bool:
+        """An issued id with no row belonged to a queue that
+        ``frisket.upgrades.queue`` replaced. Jobs are never deleted otherwise,
+        and that replacement only runs once no user handler holds authority,
+        so such a job is as stopped as its terminal row would have shown."""
+        if self._is_sqlite:
+            issued = cx.execute(
+                sa.text(
+                    "SELECT seq FROM sqlite_sequence WHERE name = 'jobs'"
+                    if cx.execute(
+                        sa.text(
+                            "SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'"
+                        )
+                    ).first()
+                    else "SELECT NULL"
+                )
+            ).scalar()
+        else:
+            sequence = cx.execute(
+                sa.text("SELECT pg_get_serial_sequence('jobs', 'id')")
+            ).scalar()
+            issued = (
+                cx.execute(
+                    sa.text(
+                        "SELECT CASE WHEN is_called THEN last_value END FROM "
+                        + sequence
+                    )
+                ).scalar()
+                if sequence
+                else None
+            )
+        return issued is not None and 0 < int(job_id) <= int(issued)
 
     def has_active_project_handler(self, project_id, *, storage_org_id):
         c = job_handler_authorities_table.c

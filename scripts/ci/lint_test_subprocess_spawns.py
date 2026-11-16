@@ -44,7 +44,6 @@ ALLOWED: dict[str, str] = {
     "tests/authoring/test_authoring_cli_polish.py": "plugin dev watch loops: liveness, terminate/kill, streamed stdout",
     "tests/engine/test_transcribe_engines.py": "worker stdio protocol child with PYTHONPATH injection",
     "tests/engine/test_job_queue.py": "cross-process queue-db visibility",
-    "tests/engine/test_queue_schema_migrations.py": "hosted-worker children against real postgres, env+timeout",
     "tests/runtime_foundation_test_helpers.py": "queue provisioning children: env, timeouts, long-lived Popen",
     "tests/test_direct_action_validation_registry.py": "fresh-interpreter registry closure",
     "tests/test_action_contract_definition_registry.py": "fresh-interpreter registry closure",

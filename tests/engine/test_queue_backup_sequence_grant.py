@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from frisket.engine.jobs.queue_migrations import _grant_runtime_privileges
+from frisket.engine.jobs.queue_schema import grant_runtime_privileges
 from frisket.engine.jobs.queue_provision import RUN_QUEUE_RUNTIME_ROLE
 
 
@@ -15,7 +15,7 @@ class _StatementRecorder:
 def test_runtime_role_sequence_grant_is_read_only_backup_capable() -> None:
     connection = _StatementRecorder()
 
-    _grant_runtime_privileges(connection)
+    grant_runtime_privileges(connection)
 
     sequence_grants = [
         statement

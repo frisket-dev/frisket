@@ -9,45 +9,16 @@ from typing import Iterator
 import sqlalchemy as sa
 from filelock import FileLock
 
-# `frisket.jobs.model_pull_store` registers its `model_pulls` table onto the
-# SAME `jobs_metadata` `sa.MetaData` as a module-level side effect of being
-# imported -- `jobs_metadata.tables` only contains `model_pulls` once that
-# module has been imported at least once in this process. `frisket.team.app`
-# happens to import `operational_routes` (which imports `model_pull_store`)
-# before it imports this module, so the snapshot below is always complete
-# THROUGH THAT PATH -- but any other caller that imports
-# `frisket.team.team_bootstrap` first (a fresh interpreter, a direct `import
-# frisket.team.team_bootstrap`, a different composition/test) would take the
-# snapshot before `model_pulls` exists, and then treat a shared-database
-# team deployment's own `model_pulls` table as an "unexpected schema table"
-# and refuse to boot. Import every `jobs_metadata` contributor explicitly,
-# right here, before computing the allowlist -- this module does not depend
-# on what some OTHER module happened to import first.
-from frisket.engine.jobs import model_pull_store as _model_pull_store  # noqa: F401
-from frisket.engine.jobs.queue import jobs_metadata
-from frisket.engine.jobs.queue_migrations import QUEUE_SCHEMA_LEDGER
+from frisket.engine.jobs.queue_schema import queue_table_names
 from frisket.team.bootstrap import PreSplitSchemaError, SCHEMA_VERSION, schema_marker
 from frisket.team.schema import metadata, orgs
 
 
 def _queue_tables() -> set[str]:
-    # The team composition's run queue is now the SAME
-    # database as its control-plane schema (`create_team_app`'s
-    # `open_queue(database_url=...)`), so a team control-plane database
-    # legitimately carries the run-queue's own tables (`jobs`,
-    # `worker_heartbeats`, `model_pulls`, the schema-migration ledger)
-    # alongside the team schema's tables -- these are a known, expected
-    # co-tenant, not an "unexpected table" that should fail this clean-cut
-    # check. A database pointed at by a SEPARATE
-    # `FRISKET_RUN_QUEUE_DATABASE_URL` never has these at all, so this
-    # addition is a no-op for that (also still-supported) shape.
-    #
-    # Computed lazily (not a module-level constant) as defense in depth on
-    # top of the explicit import above: any FUTURE `jobs_metadata` contributor
-    # is picked up the moment it has been imported by anyone, anywhere, by
-    # the time this function actually runs, rather than only by whatever set
-    # of modules happened to be imported at THIS module's own import time.
-    return set(jobs_metadata.tables) | {QUEUE_SCHEMA_LEDGER}
+    # A team database that also hosts the run queue legitimately carries the
+    # queue's own tables; they are an expected co-tenant, not an unexpected
+    # table that should fail the clean-cut check.
+    return queue_table_names()
 
 
 def _validate_existing_tables(cx: sa.Connection, tables: set[str]) -> None:

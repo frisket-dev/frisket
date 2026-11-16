@@ -7,19 +7,17 @@ import sys
 
 def queue_admin(argv: list[str]) -> int:
     """Provision or migrate the privilege-separated Postgres run queue."""
-    from frisket.engine.jobs.queue_migrations import (
-        QueueSchemaError,
-        migrate_run_queue_schema,
-    )
     from frisket.engine.jobs.queue_provision import (
         QueueProvisionError,
         provision_run_queue_database,
     )
+    from frisket.engine.jobs.queue_schema import QueueSchemaError
+    from frisket.upgrades.queue import migrate_run_queue_schema
 
     parser = argparse.ArgumentParser(prog="frisket queue")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("provision", help="provision fixed queue roles/database")
-    commands.add_parser("migrate", help="apply ordered queue schema migrations")
+    commands.add_parser("migrate", help="create or upgrade the queue schema")
     args = parser.parse_args(argv)
 
     try:

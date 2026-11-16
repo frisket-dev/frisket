@@ -43,7 +43,7 @@ def _run(snippet: str) -> None:
 def test_team_bootstrap_import_alone_registers_model_pulls_in_the_allowlist() -> None:
     """Importing ONLY ``frisket.team.team_bootstrap`` -- never
     ``frisket.jobs.model_pull_store``, ``frisket.team.app``, or
-    ``frisket.team.operational_routes`` -- must still see ``model_pulls`` in
+    ``frisket.team.operational_routes`` -- must still see every queue table in
     its own queue-table allowlist. Otherwise the allowlist's completeness
     depends on which module some OTHER caller happened to import first."""
     _run(
@@ -52,13 +52,14 @@ def test_team_bootstrap_import_alone_registers_model_pulls_in_the_allowlist() ->
         assert "frisket.engine.jobs.model_pull_store" not in sys.modules
 
         import frisket.team.team_bootstrap as team_bootstrap
-        from frisket.engine.jobs.queue import jobs_metadata
 
-        assert "model_pulls" in jobs_metadata.tables, (
-            "importing frisket.team.team_bootstrap alone did not register "
-            "model_pulls onto jobs_metadata -- the allowlist is "
-            "import-order-dependent"
-        )
+        allowlist = team_bootstrap._queue_tables()
+        for table in ("model_pulls", "search_preparation_batches"):
+            assert table in allowlist, (
+                f"importing frisket.team.team_bootstrap alone left {table} out "
+                "of its queue-table allowlist -- the allowlist is "
+                "import-order-dependent"
+            )
         """
     )
 

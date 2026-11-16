@@ -2476,8 +2476,8 @@ SCHEMA += "\n" + UNMODIFIED_CELL_VALUES_SQL + "\n"
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres
 # in production. Its schema is owned entirely by frisket.jobs.queue as a single
-# SQLAlchemy MetaData (jobs_metadata) provisioned through the ordered version
-# ledger (frisket.jobs.queue_migrations), so both backends share one definition.
+# SQLAlchemy MetaData (jobs_metadata) created by frisket.engine.jobs.queue_schema,
+# so both backends share one definition.
 
 
 class BundleSchemaMismatch(Exception):
