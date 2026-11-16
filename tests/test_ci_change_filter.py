@@ -35,6 +35,7 @@ import yaml
 def test_ci_change_filter_executes_real_workflow(tmp_path, files, enabled, target):
     # Execute the workflow artifact; Git is the only replaced transport.
     workflow = yaml.safe_load(
+        # rule19: executes this workflow shell with real pipeline/SIGPIPE behavior.
         (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
     )
     script = next(
