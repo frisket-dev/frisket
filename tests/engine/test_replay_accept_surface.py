@@ -188,6 +188,7 @@ def test_edited_cell_no_longer_hard_errors_but_structural_staleness_does(fx):
             sheet_id=fx.sheet,
             column_id=fx.col,
             row_ids=list(fx.row_ids),
+            run_id=run_id,
         )
         == expected
     ), "the raw current-run result hash bypasses the edit overlay"
