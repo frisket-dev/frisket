@@ -86,6 +86,8 @@ jobs:
       - name: Native Windows guardian console proof
         env:
           PYTHONPATH: desktop/resources/python
+          # Native guardian tests require only pytest's built-in fixtures.
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         # Exercise the built wheel with its exported, locked application dependencies.
         run: >-
           uv run --no-project --with-requirements desktop/resources/requirements.txt
@@ -210,6 +212,8 @@ jobs:
       - name: Native Windows guardian console proof
         env:
           PYTHONPATH: desktop/resources/python
+          # Native guardian tests require only pytest's built-in fixtures.
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
         # Exercise the built wheel with its exported, locked application dependencies.
         run: >-
           uv run --no-project --with-requirements desktop/resources/requirements.txt
