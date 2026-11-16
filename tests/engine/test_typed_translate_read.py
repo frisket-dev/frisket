@@ -1,3 +1,4 @@
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from types import SimpleNamespace
 
@@ -183,7 +184,10 @@ async def test_hosted_actual_response_and_empty_failure_retain_accounting(
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
         ctx = OpContext(
-            project=None, http=http, credential_use_context=CredentialUseContext.open()
+            project=None,
+            http=http,
+            credential_use_context=CredentialUseContext.open(),
+            extras={"standalone_dispatch": STANDALONE},
         )
         spec = {
             "engine": engine,
@@ -338,7 +342,10 @@ async def test_local_provisioning_integrity_cancellation_and_artifact_facts(
     def signal():
         return False
 
-    ctx = OpContext(project=None, extras={"cancelled": signal})
+    ctx = OpContext(
+        project=None,
+        extras={"cancelled": signal, "standalone_dispatch": STANDALONE},
+    )
     spec = {
         "engine": engine,
         "target_language": "Spanish",
