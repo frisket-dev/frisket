@@ -271,7 +271,9 @@ def _write_extract_in_transaction(
         ),
     )
     op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+    from frisket.engine.store.changes import ChangeStore
+
+    ChangeStore(project).start(op_id)
     cur.execute(
         "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden) "
         "VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM columns "
@@ -352,13 +354,7 @@ def _write_extract_in_transaction(
         annotation_column_id = int(cur.lastrowid)
         annotation_column_ids[source_column_id] = annotation_column_id
         created_column_ids.append(annotation_column_id)
-    cur.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?",
-        (
-            json.dumps({"created_columns": created_column_ids}, sort_keys=True),
-            op_id,
-        ),
-    )
+    project.set_undo_info(op_id, {"created_columns": created_column_ids}, commit=False)
 
     from frisket.engine.executor.temporal_transcripts import (
         persist_projected_transcript_evidence,
@@ -580,7 +576,5 @@ def _write_extract_in_transaction(
     )
     if not updated:
         raise RuntimeError("temporal extract receipt update did not land")
-    from frisket.engine.store.changes import ChangeStore
-
     ChangeStore(project).close(op_id)
     return _result_from_receipt(receipt)

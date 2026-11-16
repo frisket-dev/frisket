@@ -273,9 +273,7 @@ class PdfSplitWriter(StreamingSheetWriter):
             undo["created_rows_import_session_id"] = self._session_id
             if replace:
                 undo["replaced_rows_import_session_id"] = self._session_id
-            db.execute(
-                "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(undo), self._op_id)
-            )
+            self.project.set_undo_info(self._op_id, undo, commit=False)
             db.commit()
         except BaseException:
             db.rollback()
@@ -351,6 +349,16 @@ class PdfSplitWriter(StreamingSheetWriter):
                 )
                 if changed.rowcount != 1:
                     raise ImportSessionConflict("split source visibility changed")
+            from .structural_changes import record_structural_changes
+
+            record_structural_changes(
+                db,
+                self._op_id,
+                {
+                    "created_rows": row_ids,
+                    "deleted_rows": [int(source["row_id"])] if replace else [],
+                },
+            )
             db.execute(
                 "UPDATE import_session_pdf_sources SET state='published',replaced=?,error=? WHERE session_id=? AND ordinal=?",
                 (

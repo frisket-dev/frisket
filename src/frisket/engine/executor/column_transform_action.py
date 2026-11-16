@@ -381,7 +381,7 @@ def preflight_column_transform_request(
 
 
 def _write_column(
-    cur: Any,
+    project: Any,
     *,
     action_id: str,
     sheet_id: int,
@@ -390,6 +390,9 @@ def _write_column(
     output_type: str,
     op_spec: Mapping[str, Any],
 ) -> tuple[int, int]:
+    from frisket.engine.store.changes import ChangeStore
+
+    cur = project.db.cursor()
     cur.execute(
         "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, 0)",
         (
@@ -401,7 +404,7 @@ def _write_column(
         ),
     )
     op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+    ChangeStore(project).start(op_id)
     position = int(
         cur.execute(
             "SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?",
@@ -414,10 +417,7 @@ def _write_column(
         (sheet_id, output_name, output_type, position),
     )
     column_id = int(cur.lastrowid)
-    cur.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?",
-        (json.dumps({"created_columns": [column_id]}, sort_keys=True), op_id),
-    )
+    project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
     return op_id, column_id
 
 
@@ -655,7 +655,7 @@ def run_typed_column_transform_action(
             "output_name": output_name,
         }
         op_id, output_column_id = _write_column(
-            cur,
+            project,
             action_id=bound.action.action_id,
             sheet_id=int(source["sheet_id"]),
             source_name=str(source["column_name"]),

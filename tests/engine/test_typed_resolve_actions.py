@@ -88,6 +88,25 @@ def _counts(project: Project) -> dict[str, int]:
     }
 
 
+def test_empty_column_transform_creates_one_restorable_column(tmp_path):
+    with closing(Project.create(tmp_path / "empty-transform.frisket")) as project:
+        sheet = project.add_sheet("Empty")
+        project.add_column(sheet, "source")
+        result = run_action_spec(
+            project,
+            _request("resolve.substitute", sheet, {"mapping": {"a": "b"}}, key="empty"),
+            project_id=PROJECT_ID,
+        )
+        assert result.status == "completed", result.errors
+        column = result.outputs[0].column_id
+        assert project.get_column(column)["active"] == 1
+        assert project.undo() == result.op_ids[0]
+        assert project.get_column(column)["active"] == 0
+        assert project.redo() == result.op_ids[0]
+        assert project.get_column(column)["active"] == 1
+        assert project.get_values(sheet, column) == {}
+
+
 @pytest.mark.parametrize(
     ("action_id", "params", "expected"),
     [

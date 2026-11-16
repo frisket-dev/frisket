@@ -60,6 +60,51 @@ def _children(count):
     return [{"file": {"blob": f"{index + 10:064x}"}} for index in range(count)]
 
 
+def test_null_split_membership_projects_selective_restore_after_later_deletion(
+    tmp_path,
+):
+    from frisket.engine.executor.actions import run_action_spec
+
+    project = Project.create(tmp_path / "split-membership.frisket")
+    try:
+        sheet, column, rows, values = _seed(project)
+        writer = _start(project, sheet, column, rows, values)
+        children = writer.publish_source([{"file": None}] * 2, expected_cursor=0)
+        publication = writer.finalize(expected_cursor=1, stopped=True)
+        assert {
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT object_id,before_visible,after_visible FROM structural_changes "
+                "WHERE op_id=? AND kind='row'",
+                (publication.op_id,),
+            )
+        } == {(rows[0], 1, 0), *((child, 0, 1) for child in children)}
+        assert project.undo() == publication.op_id
+        assert project.visible_row_ids(sheet) == rows
+        assert project.redo() == publication.op_id
+        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+        deleted = run_action_spec(
+            project,
+            {
+                "action_id": "row.delete",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet, "row_ids": [children[0]]},
+                "idempotency_key": "delete-split-child",
+            },
+            project_id="project",
+        )
+        assert deleted.status == "completed", deleted.errors
+        for direction in ("revert", "restore"):
+            with project.transaction_scope():
+                op_log.step_operation(project, direction, op_id=publication.op_id)
+        # Restoring the split must respect the independent later deletion.
+        assert project.visible_row_ids(sheet) == [children[1], *rows[1:]]
+        assert project.undo() == deleted.op_ids[0]
+        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+    finally:
+        project.close()
+
+
 def test_partial_split_is_one_fenced_operation_and_one_undo(tmp_path: Path):
     project = Project.create(tmp_path / "partial.frisket", name="partial")
     try:
