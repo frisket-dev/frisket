@@ -193,7 +193,7 @@ public static class FrisketWindowsGuard {
     $result = [FrisketWindowsGuard]::Run([string]$launch.command, [string[]]$launch.args,
         [uint32]$launch.parentPid, [uint32]$launch.ownerPid, [string]$launch.stop, [string]$launch.proof,
         [string]$launch.runtimeLock, [string]$launch.runtimeReady, [bool]$launch.runtimeExclusive,
-        [ulong]$launch.memoryLimitBytes, [uint32]$launch.cpuLimitSeconds)
+        [System.UInt64]$launch.memoryLimitBytes, [uint32]$launch.cpuLimitSeconds)
     exit $result
 } catch {
     [Console]::Error.WriteLine('Windows runtime guardian failed: ' + $_.Exception.Message)
