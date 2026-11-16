@@ -200,15 +200,18 @@ def test_ytdlp_download_wire_kind_uses_queued_placement(tmp_path) -> None:
         "output_names": {"video": "media"},
         "idempotency_key": "ytdlp-download@queued-placement",
     }
-    _, response = _post_after_exact_confirmation(
-        client,
+    # Local yt-dlp is operator-borne work: even zero preapproval must queue
+    # the first request without a purchase/confirmation retry.
+    _pin_zero_preapproval(client)
+    response = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
-        action=action_body,
+        json=action_body,
     )
 
     assert response.status_code == 200, response.text
     result = ActionResult.model_validate(response.json())
     assert result.status == "queued"
+    assert result.errors == []
     assert result.action.kind == "media.ytdlp_download"
     assert result.run_id is not None
     assert result.job_id is not None
@@ -227,8 +230,7 @@ def test_ytdlp_download_wire_kind_uses_queued_placement(tmp_path) -> None:
         .fetchone()
     )
     assert receipt_row is not None
-    # Confirmation is outside typed request identity, so an exact-token retry
-    # retains the first submission's receipt.
+    # The first submission records the typed request identity directly.
     assert receipt_row["params_hash"] == typed_request_hash(bound)
 
     replay = client.post(
