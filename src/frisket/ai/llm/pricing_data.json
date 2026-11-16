@@ -4,7 +4,7 @@
     "openrouter": "https://openrouter.ai/api/v1/models",
     "opendocrouter": "https://www.opendocrouter.ai/v1/models"
   },
-  "updated": "2026-11-15",
+  "updated": "2026-11-16",
   "text": {
     "claude-sonnet-5-5": [
       2.0,
@@ -203,8 +203,8 @@
       1.2
     ],
     "z-ai/glm-5.3": [
-      0.084,
-      3.6
+      0.0699,
+      1.4
     ],
     "qwen/qwen3.8-flash": [
       0.15,
@@ -255,8 +255,8 @@
       1.125
     ],
     "qwen/qwen3.5-397b-a17b": [
-      0.6,
-      3.6
+      0.45,
+      3.0
     ],
     "qwen/qwen3.5-122b-a10b": [
       0.26,
@@ -271,8 +271,8 @@
       2.6
     ],
     "qwen/qwen3.5-9b": [
-      0.17,
-      0.25
+      0.048,
+      0.07
     ],
     "xiaomi/mimo-v2.5-pro": [
       0.435,
