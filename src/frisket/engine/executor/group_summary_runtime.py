@@ -431,7 +431,7 @@ def _group_source_binding(resolved: Mapping[str, Any]) -> dict[str, list[int]]:
 
 
 async def _complete_reduce_group_summaries(
-    project, params, resolved, *, router, publication
+    project, params, resolved, *, router, publication, composition
 ):
     """Materialize group identities, then execute ordinary model rows."""
     from frisket.engine.runner.map_runner import MapRunner
@@ -439,10 +439,6 @@ async def _complete_reduce_group_summaries(
     from frisket.engine.runner.row_inputs import RowInputValues
     from frisket.execution.attempt import claim
     from frisket.execution.attempt_authority import AttemptAuthority
-    from frisket.execution.provider import (
-        open_execution_composition,
-        ExecutionCompositionContext,
-    )
     from .group_summary_program import GroupSummaryProgram
 
     resolved["groups"].close()
@@ -482,9 +478,6 @@ async def _complete_reduce_group_summaries(
             total_rows=len(resolved["groups"]),
             cost_estimate=_estimate_reduce_group_summary_cost(params, resolved)["cost"],
         )
-    composition = open_execution_composition(
-        project, router, ExecutionCompositionContext.direct()
-    )
     authority = AttemptAuthority(project, composition=composition)
     commitment = authority.mint(
         recipe=program,

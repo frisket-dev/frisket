@@ -229,6 +229,16 @@ def run_typed_group_summary_action(
             ],
         )
     router = project_scoped_router(project, router)
+    from frisket.execution.provider import (
+        ExecutionCompositionContext,
+        open_execution_composition,
+    )
+
+    composition = deps.execution_composition if deps is not None else None
+    if composition is None:
+        composition = open_execution_composition(
+            project, router, ExecutionCompositionContext.direct()
+        )
     if not model_call_cannot_go_live(router):
         if (
             project.effective_network_policy() == "off"
@@ -300,6 +310,7 @@ def run_typed_group_summary_action(
                 prepared.resolved,
                 router=router,
                 publication=publication,
+                composition=composition,
             )
         )
         if isinstance(computations, ActionError):
