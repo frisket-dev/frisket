@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from test_cell_edit_executor import _cell_edit_action
+from tests.engine.test_cell_edit_executor import _cell_edit_action
 
 from executor_harness import (
     CatalogEntry,

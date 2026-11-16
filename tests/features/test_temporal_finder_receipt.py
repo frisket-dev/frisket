@@ -82,24 +82,19 @@ def _topic_value_and_sidecar() -> tuple[dict[str, Any], dict[str, Any]]:
     }
 
 
-class _Project:
+class _SavedResults:
     def __init__(self, value: dict[str, Any], sidecar: dict[str, Any]) -> None:
-        self.value = value
-        self.sidecar = sidecar
+        self.values = {41: value, 42: sidecar}
 
-    def get_values(
-        self,
-        sheet_id: int,
-        column_id: int,
-        *,
-        row_ids: list[int],
-        apply_edits: bool,
-    ) -> dict[int, Any]:
-        assert sheet_id == 3
-        assert column_id in {41, 42}
-        assert row_ids == [17]
-        assert apply_edits is False
-        return {17: self.value if column_id == 41 else self.sidecar}
+    def decoded_result_rows(self, coordinates):
+        assert all(run_id == 29 and row_id == 17 for run_id, row_id, _ in coordinates)
+        return {
+            coordinate: {
+                "value": self.values[coordinate[2]],
+                "publication_effect": "publish_value",
+            }
+            for coordinate in coordinates
+        }
 
 
 def _contains_key(value: Any, key: str) -> bool:
@@ -110,7 +105,9 @@ def _contains_key(value: Any, key: str) -> bool:
     return False
 
 
-def test_topic_sidecar_binds_exact_value_without_visible_self_reference() -> None:
+def test_topic_sidecar_binds_exact_value_without_visible_self_reference(
+    monkeypatch,
+) -> None:
     value, sidecar = _topic_value_and_sidecar()
     expected_hash = canonical_temporal_hash("timeline_ranges", value)
 
@@ -138,8 +135,14 @@ def test_topic_sidecar_binds_exact_value_without_visible_self_reference() -> Non
         input_column_ids={"Transcript": 40},
         cost_actual=0.0,
     )
+    # This unit checks receipt formatting against exact saved result coordinates.
+    # Current cell values must never supply these historical facts.
+    monkeypatch.setattr(
+        "frisket.engine.store.runs.RunResultStore",
+        lambda project: _SavedResults(value, sidecar),
+    )
     provenance = topic_receipt_evidence(
-        _Project(value, sidecar),
+        None,
         facts,
         [
             {

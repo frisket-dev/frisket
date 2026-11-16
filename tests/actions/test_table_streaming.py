@@ -234,7 +234,21 @@ def test_whole_sheet_undo_redo_preserves_hidden_columns_with_output_claims(
         sheet_id = result.outputs[0].ref["sheet_id"]
         assert json.loads(
             project.db.execute("SELECT undo_info FROM ops").fetchone()[0]
-        ) == {"created_sheets": [sheet_id]}
+        ) == {
+            "created_sheets": [sheet_id],
+            "created_columns": [
+                row[0]
+                for row in project.db.execute(
+                    "SELECT id FROM columns WHERE sheet_id=? ORDER BY id", (sheet_id,)
+                )
+            ],
+            "created_rows": [
+                row[0]
+                for row in project.db.execute(
+                    "SELECT id FROM rows WHERE sheet_id=? ORDER BY id", (sheet_id,)
+                )
+            ],
+        }
         original_columns = [
             tuple(column) for column in project.db.execute("SELECT * FROM columns")
         ]
