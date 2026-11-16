@@ -293,13 +293,22 @@ class TestUndoRedo:
 
     def test_started_barrier_blocks_undo(self, project):
         from frisket.engine.store.changes import start_change
+        from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 
         op_id = project.append_op("compaction", barrier=True)
         # Reservation alone is not an undoable change. A real maintenance
         # mutation starts its barrier when it changes project state.
         assert project.undo() is None
+        sheet = project.add_sheet("Maintenance")
+        column = project.add_column(sheet, "value")
         project.db.execute("BEGIN IMMEDIATE")
-        start_change(project.db, op_id)
+        row = project.db.execute(
+            "INSERT INTO rows(sheet_id,position) VALUES (?,1)", (sheet,)
+        ).lastrowid
+        start_change(project.db, op_id, writing=True)
+        insert_edits(
+            project.db, op_id=op_id, edits=[EditCellWrite(row, column, "maintained")]
+        )
         project.db.commit()
         with pytest.raises(ValueError):
             project.undo()

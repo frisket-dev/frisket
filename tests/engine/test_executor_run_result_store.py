@@ -172,6 +172,9 @@ def test_pre_dispatch_undo_cannot_be_finished_as_completed(tmp_path: Path) -> No
         ChangeStore(project).start(op_id, writing=True)
         project.db.commit()
         assert project.undo() == op_id
+        # Cancellation targets this ordered execution, leaving the earlier
+        # source-row import visible rather than falling through to undo it.
+        assert project.visible_row_ids(sheet_id) == row_ids
         run = store.get_run(run_id)
         assert run["cancel_requested_at"] is not None
         with pytest.raises(StaleAttemptWriter, match="cancellation intent"):

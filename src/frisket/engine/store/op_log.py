@@ -303,14 +303,20 @@ def _change_has_effects(db, target):
         return True
     return bool(
         db.execute(
-            "SELECT EXISTS(SELECT 1 FROM structural_changes WHERE op_id=:op "
+            "SELECT EXISTS(SELECT 1 FROM structural_changes "
+            "INDEXED BY idx_structural_change_op WHERE op_id BETWEEN :op AND :op "
             "AND before_visible!=after_visible) OR "
-            "EXISTS(SELECT 1 FROM base_cell_producers producer JOIN cells cell "
+            "EXISTS(SELECT 1 FROM base_cell_producers producer CROSS JOIN cells cell "
             "ON cell.producer_id=producer.id WHERE producer.op_id=:op) OR "
             "EXISTS(SELECT 1 FROM edits WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM copied_result_outcomes WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM column_descriptor_changes WHERE op_id=:op) OR "
             "EXISTS(SELECT 1 FROM result_judgment_changes WHERE op_id=:op) OR "
+            "EXISTS(SELECT 1 FROM evidence_links WHERE op_id=:op) OR "
+            "EXISTS(SELECT 1 FROM materialized_row_sources WHERE op_id=:op) OR "
+            # Ordered work is cancellable even before its first visible output.
+            "EXISTS(SELECT 1 FROM runs WHERE op_id=:op AND status='running' "
+            "AND cancel_requested_at IS NULL) OR "
             "EXISTS(SELECT 1 FROM runs run JOIN run_output_generations generation "
             "ON generation.run_id=run.id JOIN run_rows scope ON scope.run_id=run.id "
             "WHERE run.op_id=:op AND generation.state!='staged')",

@@ -710,6 +710,11 @@ class StreamingSheetWriter:
                     for offset, row_id in enumerate(row_ids, start=1)
                 ),
             )
+            # Membership is an effect even when every imported cell is null.
+            # Register only this page, rather than rereading the whole session.
+            from .structural_changes import record_structural_changes
+
+            record_structural_changes(db, self._op_id, {"created_rows": row_ids})
             if blob_plan is not None:
                 publish_import_blobs(
                     self.project,

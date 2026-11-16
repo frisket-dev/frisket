@@ -8,6 +8,48 @@ from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.changes import ChangePublicationClosed, ChangeStore
 from frisket.engine.store.op_log import operation_target, step_operation
+from frisket.engine.store.streaming_import import StreamingSheetWriter
+
+
+def test_null_only_append_pages_have_restorable_membership(tmp_path):
+    with closing(Project.create(tmp_path / "null-append.frisket")) as project:
+        sheet = project.add_sheet("Existing")
+        column = project.add_column(sheet, "value")
+        original = project.add_rows(sheet, [{"value": "old"}], {"value": column})
+        writer = StreamingSheetWriter.start_append_session(
+            project,
+            session_id="null-append",
+            writer_authority="writer",
+            sheet_id=sheet,
+            columns=[{"name": "value", "type": "text"}],
+            project_id="project",
+            action_kind="import.append_rows",
+            idempotency_key="null-append",
+            params_hash="hash",
+            action_id="action",
+            receipt_id="receipt",
+            source_ref={"kind": "file", "label": "nulls.csv"},
+        )
+        added = []
+        for cursor in range(2):
+            added += writer.append_page(
+                [{"value": None}], expected_cursor=cursor, next_cursor=cursor + 1
+            )
+        writer.finalize_session(expected_cursor=2, enumeration_complete=True)
+        op_id = operation_target(project, "undo")["id"]
+        assert [
+            row[0]
+            for row in project.db.execute(
+                "SELECT object_id FROM structural_changes "
+                "WHERE op_id=? AND kind='row' ORDER BY object_id",
+                (op_id,),
+            )
+        ] == added
+        assert project.undo() == op_id
+        assert project.visible_row_ids(sheet) == original
+        assert project.redo() == op_id
+        assert project.visible_row_ids(sheet) == original + added
+        assert project.get_values(sheet, column, added) == dict.fromkeys(added)
 
 
 @pytest.mark.parametrize("rows", [[], [{"value": None}], [{"value": "hello"}]])
