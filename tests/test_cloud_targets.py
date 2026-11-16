@@ -1297,7 +1297,7 @@ def test_local_first_preserves_media_route_when_cloud_target_also_has_llm():
     assert media.facts.cloud_payer is None
 
 
-def test_structured_cloud_llm_action_requires_explicit_unknown_quantity_consent(
+def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceiling(
     tmp_path,
 ):
     from frisket.actions.system import typed_action_for_request
@@ -1384,11 +1384,18 @@ def test_structured_cloud_llm_action_requires_explicit_unknown_quantity_consent(
     assert isinstance(resolved.cost_basis, PricedCostBasis)
     assert resolved.cost_basis.meter_key == "cloud_effective_cost_micro"
     assert resolved.cost_basis.row_quote_quantities is None
-    assert resolved.cost_basis.bound is None
+    assert resolved.cost_basis.estimated_quantity is not None
+    assert resolved.cost_basis.bound is not None
+    assert resolved.cost_basis.bound > 0
     [cost_claim] = [
         claim for claim in resolved.promise_set.promises if claim.field == "cost"
     ]
+    # A measured estimate is still a user cost claim, not a spending ceiling.
     assert cost_claim.op == "unbounded"
+    assert cost_claim.audience == "user_claim"
+    assert (
+        cost_claim.basis["estimated_quantity"] == resolved.cost_basis.estimated_quantity
+    )
     assert cost_claim.basis["pricing_key"] == resolved.cost_basis.pricing_key
 
 

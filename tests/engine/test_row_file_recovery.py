@@ -45,9 +45,6 @@ def source(tmp_path, monkeypatch):
         "idempotency_key": "review-recovery",
     }
     router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-    quote = actions.run_action_spec(project, body, project_id="review", router=router)
-    assert quote.status == "needs_confirmation", quote.errors
-    body["confirmation"] = quote.errors[0].details["promise_set_hash"]
     try:
         yield project, row, body, router, calls
     finally:
