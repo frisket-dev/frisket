@@ -125,6 +125,7 @@ def test_doctor_entities_probe_stays_info_never_fails(
 
 def test_diagnose_info_probes_are_individually_protected(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """One broken INFO probe must not crash
     `run_diagnostics()` (and therefore `/api/diagnose`). Simulate
@@ -138,7 +139,12 @@ def test_diagnose_info_probes_are_individually_protected(
     monkeypatch.setattr(diagnostics, "entities_report", _boom)
     full = diagnostics.run_diagnostics()
     assert full["info"]["entities_extra"]["ok"] is False
-    assert "simulated probe crash" in full["info"]["entities_extra"]["error"]
+    failure = full["info"]["entities_extra"]
+    assert failure["error"] == "RuntimeError"
+    assert "simulated probe crash" not in str(full)
+    assert failure["diag_id"] in failure["summary"]
+    assert failure["diag_id"] in caplog.text
+    assert "simulated probe crash" in caplog.text
     # Every other probe still ran normally.
     assert "summary" in full["info"]["local_engines"]
     assert "summary" in full["info"]["media_toolbelt"]
