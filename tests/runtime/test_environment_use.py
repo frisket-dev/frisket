@@ -108,7 +108,12 @@ def test_guard_keeps_usage_lease_after_application_parent_death(tmp_path):
         "print(child.stdout.readline().strip(),flush=True)\nos._exit(0)\n"
     )
     parent = subprocess.Popen(
-        [sys.executable, str(controller), str(tmp_path)],  # subprocess-boundary: kill the actual application parent.
+        [
+            # subprocess-boundary: kill the actual application parent.
+            sys.executable,
+            str(controller),
+            str(tmp_path),
+        ],
         stdout=subprocess.PIPE,
         text=True,
     )
