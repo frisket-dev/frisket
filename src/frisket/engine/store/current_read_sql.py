@@ -3,7 +3,7 @@
 A clean read uses cached heads only after checking the exact requested scope in
 its transaction. Dirty reads resolve all candidates before applying value
 predicates, including candidates absent from the old cache. SQL is generated
-from the authoritative view definitions, not a second precedence algorithm.
+by the shared canonical builder, not parsed from persisted view DDL.
 """
 
 from __future__ import annotations
@@ -47,20 +47,16 @@ def current_heads_sql(
     ):
         return f"(SELECT * FROM current_cells WHERE {coordinate})"
 
-    from .change_schema import CHANGE_SCHEMA_SQL
+    from .change_schema import canonical_heads_sql
 
-    canonical = CHANGE_SCHEMA_SQL.split(
-        "CREATE VIEW IF NOT EXISTS canonical_cell_heads AS", 1
-    )[1].split(";", 1)[0]
     contribution_scope = f"contribution.column_id IN ({columns})"
     if rows is not None:
         contribution_scope += f" AND contribution.row_id IN ({rows})"
-    canonical = canonical.replace(
-        "FROM cell_contributions contribution",
-        "FROM current_cell_repair dirty CROSS JOIN cell_contributions contribution "
+    canonical = canonical_heads_sql(
+        "current_cell_repair dirty CROSS JOIN cell_contributions contribution "
         "ON contribution.column_id=dirty.column_id "
         "AND contribution.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end "
-        f"WHERE {contribution_scope}",
+        f"WHERE {contribution_scope}"
     )
     intersects = (
         "EXISTS (SELECT 1 FROM current_cell_repair dirty "
@@ -79,53 +75,28 @@ def current_values_sql(
     row_ids: Collection[int] | None = None,
 ) -> str:
     """Expose the canonical value decoder over the same scoped head relation."""
-    from .schema import CURRENT_CELL_VALUES_SQL
+    from .current_value_sql import current_value_select_sql
 
-    heads = current_heads_sql(db, column_ids, row_ids)
-    values = CURRENT_CELL_VALUES_SQL.split(" AS", 1)[1].rstrip(";\n ")
     return (
-        "("
-        + values.replace(
-            "FROM effective_current_cells AS head", f"FROM {heads} AS head"
-        )
-        + ")"
+        "(" + current_value_select_sql(current_heads_sql(db, column_ids, row_ids)) + ")"
     )
 
 
-def current_result_coordinate_sql(coordinate_alias: str) -> str:
-    """Resolve unmodified result authority for one correlated row/column key.
-
-    A run-only filter cannot push through the winner window: run ownership is
-    chosen *after* comparing contributions. Correlate on its partition keys
-    before ranking, using the same authoritative definition as broad reads.
-    """
+def generated_result_coordinate_sql(coordinate_alias: str) -> str:
+    """Discover a top non-edit result identity for one correlated coordinate."""
     import re
-    from .change_schema import CHANGE_SCHEMA_SQL
+    from .change_schema import CELL_CONTRIBUTION_ARMS, generated_candidates_sql
 
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", coordinate_alias):
         raise ValueError("coordinate SQL alias must be an identifier")
-    canonical = CHANGE_SCHEMA_SQL.split(
-        "CREATE VIEW IF NOT EXISTS canonical_cell_heads AS", 1
-    )[1].split(";", 1)[0]
-    contributions = CHANGE_SCHEMA_SQL.split(
-        "CREATE VIEW IF NOT EXISTS cell_contributions AS", 1
-    )[1].split(";", 1)[0]
     # SQLite does not push a correlated predicate through this UNION/window.
-    # Scope each unchanged contribution arm before combining and ranking it.
     scoped = " UNION ALL ".join(
         "SELECT * FROM (" + arm + ") candidate "
         f"WHERE candidate.column_id={coordinate_alias}.column_id "
         f"AND candidate.row_id={coordinate_alias}.row_id"
-        for arm in contributions.split("\nUNION ALL\n")
+        for arm in CELL_CONTRIBUTION_ARMS
     )
-    canonical = canonical.replace(
-        "FROM cell_contributions contribution",
-        f"FROM ({scoped}) contribution WHERE contribution.origin_kind!='manual_edit'",
-    )
-    return (
-        "(SELECT column_id,row_id,origin_run_id AS run_id FROM (" + canonical + ") "
-        "WHERE origin_kind='run_result' AND outcome IN ('completed','failed'))"
-    )
+    return "(" + generated_candidates_sql(f"({scoped}) contribution") + ")"
 
 
 def reconciliation_heads_sql(db, column_id, row_ids, *, exclude_op_id):
@@ -134,22 +105,16 @@ def reconciliation_heads_sql(db, column_id, row_ids, *, exclude_op_id):
     Internal reconciliation reads never consult cached heads or suppress later
     independent Changes. The omitted Change is still active everywhere else.
     """
-    from .change_schema import CHANGE_SCHEMA_SQL
+    from .change_schema import canonical_heads_sql
 
     owner = db.execute(
         "SELECT change_order FROM ops WHERE id=?", (exclude_op_id,)
     ).fetchone()
     if owner is None or owner[0] is None:
         raise ValueError("Reconciliation requires an ordered owning Change")
-    canonical = CHANGE_SCHEMA_SQL.split(
-        "CREATE VIEW IF NOT EXISTS canonical_cell_heads AS", 1
-    )[1].split(";", 1)[0]
     scope = f"contribution.column_id IN ({_ids([column_id])}) AND contribution.row_id IN ({_ids(row_ids)}) AND contribution.change_order != {int(owner[0])}"
     return (
         "("
-        + canonical.replace(
-            "FROM cell_contributions contribution",
-            "FROM cell_contributions contribution WHERE " + scope,
-        )
+        + canonical_heads_sql("cell_contributions contribution WHERE " + scope)
         + ")"
     )

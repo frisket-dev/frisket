@@ -1,8 +1,7 @@
 """Sheet/column/row store and cell value resolution for a project bundle.
 
 Normal reads use the transactionally maintained current-cell projection.
-Explicit candidate reads omit manual edits, resolving exact result heads
-over source cells.
+Replay discovers candidate identities separately and reads their saved results.
 
 Also hosts the replay preserve+surface derivation (hand-edited ai_generated
 cells whose current-run value differs) and the column type/format registries.
@@ -104,7 +103,7 @@ def replay_generated_snapshot(
     if run_id is None:
         return {"run_id": None}
     head_join = (
-        "JOIN current_result_heads head ON head.column_id=res.column_id "
+        "JOIN generated_result_candidates head ON head.column_id=res.column_id "
         "AND head.row_id=res.row_id AND head.run_id=res.run_id "
         if managed
         else ""
@@ -608,7 +607,6 @@ def _current_cell_rows(
     row_ids: list[int] | None,
     *,
     with_refs: bool,
-    apply_edits: bool = True,
 ) -> Iterator[sqlite3.Row]:
     """Page the current read representation, including never-populated blanks."""
     if row_ids is not None and not row_ids:
@@ -638,21 +636,9 @@ def _current_cell_rows(
             row_filter = f" AND r.id IN ({','.join('?' * len(chunk))})"
             params.extend(chunk)
         rows_source = "rows r NOT INDEXED" if chunk is not None else "rows r"
-        if apply_edits:
-            from .current_read_sql import current_values_sql
+        from .current_read_sql import current_values_sql
 
-            relation = current_values_sql(project.db, [column_id], chunk)
-        else:
-            relation = "unmodified_cell_values"
-        if chunk is not None and not apply_edits:
-            # A compound current-value view on the right of a LEFT JOIN is
-            # materialized by SQLite. Scope it before joining, so a viewport
-            # cannot materialize every row or historical contribution.
-            relation = (
-                f"(SELECT * FROM {relation} WHERE column_id=? "
-                f"AND row_id IN ({','.join('?' * len(chunk))}))"
-            )
-            params = [column_id, *chunk, *params]
+        relation = current_values_sql(project.db, [column_id], chunk)
         yield from project.db.execute(
             f"SELECT {fields} FROM {rows_source} LEFT JOIN {relation} c "
             "ON c.column_id=? AND c.row_id=r.id "
@@ -668,20 +654,14 @@ def get_values_with_refs(
     column_id: int,
     row_ids: list[int] | None = None,
     *,
-    apply_edits: bool = True,
     tolerate_decode_errors: bool = False,
     preserve_invalid: bool = False,
     include_validity: bool = False,
 ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
-    """Read current values, or the explicit generated candidate beneath edits.
+    """Read current values and their exact winning contribution references.
 
     The resolver is row-page aware: callers that pass row_ids should never
     scan full-run result/edit history to answer a viewport-sized request.
-
-    ``apply_edits=False`` drops the manual-edit overlay layer, resolving to
-    the underlying source-cell/current-run-result value the run wrote — the
-    "fresh generated value" beneath a human edit (replay-accept-surface-v1;
-    the read-time pending derivation compares this against the live value).
 
     ``tolerate_decode_errors=True`` treats malformed/non-strict source and
     edit JSON as null at its normal precedence. Ordinary callers keep the
@@ -695,7 +675,7 @@ def get_values_with_refs(
     values: dict[int, Any] = {}
     refs: dict[int, dict[str, Any]] = {}
     for row in _current_cell_rows(
-        project, sheet_id, column_id, row_ids, with_refs=True, apply_edits=apply_edits
+        project, sheet_id, column_id, row_ids, with_refs=True
     ):
         row_id = int(row["id"])
         values[row_id] = decode_stored_value(
@@ -719,38 +699,24 @@ def get_values(
     column_id: int,
     row_ids: list[int] | None = None,
     *,
-    apply_edits: bool = True,
     tolerate_decode_errors: bool = False,
     preserve_invalid: bool = False,
 ) -> dict[int, Any]:
-    """Read current values without building unused provenance dictionaries.
-
-    ``apply_edits=False`` drops the manual-edit overlay (see
-    ``get_values_with_refs``)."""
-    if apply_edits:
-        return {
-            int(row["id"]): decode_stored_value(
-                None
-                if row["validity"] == "invalid" and not preserve_invalid
-                else row["value_kind"],
-                None
-                if row["validity"] == "invalid" and not preserve_invalid
-                else row["value"],
-                tolerate_errors=tolerate_decode_errors,
-            )
-            for row in _current_cell_rows(
-                project, sheet_id, column_id, row_ids, with_refs=False
-            )
-        }
-    out, _refs = project.get_values_with_refs(
-        sheet_id,
-        column_id,
-        row_ids=row_ids,
-        apply_edits=apply_edits,
-        tolerate_decode_errors=tolerate_decode_errors,
-        preserve_invalid=preserve_invalid,
-    )
-    return out
+    """Read current values without building unused provenance dictionaries."""
+    return {
+        int(row["id"]): decode_stored_value(
+            None
+            if row["validity"] == "invalid" and not preserve_invalid
+            else row["value_kind"],
+            None
+            if row["validity"] == "invalid" and not preserve_invalid
+            else row["value"],
+            tolerate_errors=tolerate_decode_errors,
+        )
+        for row in _current_cell_rows(
+            project, sheet_id, column_id, row_ids, with_refs=False
+        )
+    }
 
 
 def apply_edits(
@@ -986,7 +952,7 @@ def _replay_candidate_query(
         return None
     run_id = int(source_run_id)
     head_join = (
-        "JOIN current_result_heads head ON head.column_id=res.column_id "
+        "JOIN generated_result_candidates head ON head.column_id=res.column_id "
         "AND head.row_id=res.row_id AND head.run_id=res.run_id "
         if generation_managed
         else ""

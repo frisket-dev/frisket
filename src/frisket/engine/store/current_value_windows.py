@@ -124,7 +124,7 @@ heads AS MATERIALIZED (
   JOIN sheets AS sheet ON sheet.id=r.sheet_id AND sheet.hidden=0
   JOIN columns AS col ON col.sheet_id=r.sheet_id
     AND col.id=:column_id AND (:include_hidden=1 OR col.hidden=0)
-  LEFT JOIN (SELECT * FROM effective_current_cells
+  LEFT JOIN (SELECT * FROM {heads}
              WHERE column_id=:column_id AND row_id IN ({row_ids})) AS head
     ON head.row_id=r.id AND head.column_id=:column_id
   LEFT JOIN copied_result_outcomes copy ON head.origin_kind='copied_result'
@@ -199,9 +199,7 @@ def _authority_cte(
         )
     )
     placeholders = ",".join(f":row_{index}" for index in range(len(row_ids)))
-    return _AUTHORITY_CTE.replace("effective_current_cells", heads).format(
-        row_ids=placeholders
-    )
+    return _AUTHORITY_CTE.format(heads=heads, row_ids=placeholders)
 
 
 def _params(

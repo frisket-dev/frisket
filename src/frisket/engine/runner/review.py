@@ -12,6 +12,7 @@ from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.review_stats import (
     current_review_run_predicate,
     ensure_run_review_stats,
+    ensure_run_review_fields,
 )
 from frisket.engine.store.review_values import read_review_results
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
@@ -794,7 +795,7 @@ def review_runs_page(
     offset: int = 0,
     limit: int = 25,
 ) -> dict[str, Any]:
-    """List current review runs, or resolve one explicit historical run."""
+    """List saved review executions, or resolve one explicit historical run."""
 
     from .copied_review import copied_review_source
     from frisket.authoring.action_metadata import action_supports_row_retry
@@ -816,7 +817,19 @@ def review_runs_page(
         for member in group:
             ensure_run_review_stats(project.db, member)
     else:
-        _ensure_current_review_stats(project, sheet_id=sheet_id)
+        # History eligibility cannot depend on a current-only summary cache.
+        # Ensure only the lightweight field roster; full counts are rebuilt
+        # by _execution_review_fields for the selected page below.
+        dirty = project.db.execute(
+            "SELECT id FROM runs WHERE review_stats_ready=0"
+            + (" AND sheet_id=?" if sheet_id is not None else ""),
+            (sheet_id,) if sheet_id is not None else (),
+        ).fetchall()
+        if dirty:
+            with project.transaction_scope():
+                for item in dirty:
+                    ensure_run_review_fields(project.db, int(item["id"]))
+
     filters = [
         "runs.execution_root_run_id IS NULL",
     ]
@@ -831,7 +844,13 @@ def review_runs_page(
         "EXISTS (SELECT 1 FROM run_review_fields review_field "
         "JOIN runs member ON member.id=review_field.run_id "
         "WHERE (member.id=runs.id OR member.execution_root_run_id=runs.id) "
-        "AND review_field.is_primary=1 AND review_field.eligible_count>0)"
+        "AND review_field.is_primary=1 AND ("
+        "(member.review_stats_ready=1 AND review_field.eligible_count>0) OR "
+        "(member.review_stats_ready=0 AND EXISTS (SELECT 1 FROM results saved "
+        "JOIN columns descriptor ON descriptor.id=saved.column_id "
+        "JOIN rows member_row ON member_row.id=saved.row_id AND member_row.sheet_id=descriptor.sheet_id "
+        "WHERE saved.run_id=member.id AND saved.column_id=review_field.column_id "
+        f"AND saved.outcome IN ({REVIEWABLE_OUTCOMES_SQL})))))"
     )
     where = " AND ".join(f"({item})" for item in filters)
     source_sql = f"""SELECT runs.id run_id,NULL copied_op_id,runs.sheet_id,sheets.name sheet_name,

@@ -429,14 +429,11 @@ def test_exact_heads_resolve_value_null_error_and_manual_overlay(
         "outcome": "completed",
     }
 
-    underlying, underlying_refs = fixture.project.get_values_with_refs(
-        fixture.sheet_id,
-        fixture.output_column_id,
-        row_ids=fixture.row_ids,
-        apply_edits=False,
-    )
-    assert underlying[fixture.row_ids[0]] == "second-value"
-    assert underlying_refs[fixture.row_ids[0]]["run_id"] == fixture.second_run_id
+    from frisket.engine.store.runs import RunResultStore
+
+    coordinate = (fixture.second_run_id, fixture.row_ids[0], fixture.output_column_id)
+    saved = RunResultStore(fixture.project).decoded_result_rows([coordinate])
+    assert saved[coordinate]["value"] == "second-value"
 
     generations = ResultGenerationStore(fixture.project)
     assert generations.has_mixed_origins(fixture.output_column_id)

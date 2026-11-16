@@ -167,10 +167,12 @@ def _resolve_backfill_target(
             # their retained owner still identifies a whole-column transform.
             from frisket.authoring.action_metadata import action_supports_row_retry
 
+            from frisket.engine.store.change_schema import generated_candidates_sql
+
             owners = project.db.execute(
-                "SELECT DISTINCT run.action_kind FROM unmodified_cell_heads head "
-                "JOIN runs run ON run.id=head.origin_run_id "
-                "WHERE head.column_id=? AND head.origin_kind='run_result' "
+                f"SELECT DISTINCT run.action_kind FROM ({generated_candidates_sql()}) head "
+                "JOIN runs run ON run.id=head.run_id "
+                "WHERE head.column_id=? "
                 "AND head.outcome='not_completed' "
                 "AND head.row_id IN (SELECT value FROM json_each(?))",
                 (column_id, json.dumps(missing_heads)),

@@ -471,7 +471,10 @@ def test_unkeyed_refresh_retains_enrichment_history_without_guessing_new_row_ide
         assert list(values[context_id].values()) == ["Q1", "Q1", "Q2"]
         assert values[output_id][child_rows[0]] == "Reviewed supplier"
         assert (
-            project.get_values(child_id, output_id, apply_edits=False)[child_rows[0]]
+            project.db.execute(
+                "SELECT value FROM results WHERE run_id=? AND column_id=? AND row_id=?",
+                (enriched.run_id, output_id, child_rows[0]),
+            ).fetchone()[0]
             == "Acme"
         )
         assert sheet_supports_refresh(project, child_id) is True

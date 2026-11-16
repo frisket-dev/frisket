@@ -88,13 +88,6 @@ def test_current_reads_and_sql_filter_resolve_prepared_content(
         assert refs[row_ids[0]]["prepared_ref_id"] == document_ref.ref_id
         assert refs[row_ids[1]]["prepared_ref_id"] == page_ref.ref_id
 
-        candidate_values, candidate_refs = project.get_values_with_refs(
-            sheet_id, body_id, row_ids, apply_edits=False
-        )
-        assert candidate_values == values
-        assert candidate_refs[row_ids[0]]["prepared_ref_id"] == document_ref.ref_id
-        assert candidate_refs[row_ids[1]]["prepared_ref_id"] == page_ref.ref_id
-
         crossing = resolve_sheet_filter_rows(
             project,
             sheet_id,

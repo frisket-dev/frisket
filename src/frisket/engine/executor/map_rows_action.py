@@ -2210,7 +2210,6 @@ def _strict_evaluation_subject_context(
         sheet_id,
         subject_column_id,
         row_ids=ordered_row_ids,
-        apply_edits=True,
     )
     manual_edit_row_ids = [
         row_id

@@ -251,7 +251,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
 
         heads = project.db.execute(
             "SELECT head.row_id,result.publication_effect "
-            "FROM current_result_heads head JOIN results result "
+            "FROM generated_result_candidates head JOIN results result "
             "ON result.run_id=head.run_id AND result.row_id=head.row_id "
             "AND result.column_id=head.column_id WHERE head.column_id=? "
             "ORDER BY head.row_id",
@@ -296,7 +296,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         assert project.undo() == op_id
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM current_result_heads WHERE column_id=?",
+                "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
                 (output_column_id,),
             ).fetchone()[0]
             == 0
@@ -314,7 +314,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         assert project.redo() == op_id
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM current_result_heads WHERE column_id=?",
+                "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
                 (output_column_id,),
             ).fetchone()[0]
             == 3
@@ -369,9 +369,9 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(tmp_path, monkeypa
         assert len(calls) == 1
         assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
         assert (
-            project.db.execute("SELECT COUNT(*) FROM current_result_heads").fetchone()[
-                0
-            ]
+            project.db.execute(
+                "SELECT COUNT(*) FROM generated_result_candidates"
+            ).fetchone()[0]
             == 0
         )
         assert (

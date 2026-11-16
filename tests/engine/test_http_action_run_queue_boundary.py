@@ -3103,12 +3103,17 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
     details = project.get_values(
         sheet_id, details_id, row_ids=[target_row, untargeted_row]
     )
-    raw_details = project.get_values(
-        sheet_id,
-        details_id,
-        row_ids=[target_row, untargeted_row],
-        apply_edits=False,
-    )
+    raw_details = {
+        row_id: result["value"]
+        for (_, row_id, _), result in RunResultStore(project)
+        .decoded_result_rows(
+            [
+                (new_run_id, target_row, details_id),
+                (prior_run_id, untargeted_row, details_id),
+            ]
+        )
+        .items()
+    }
     assert raw_details[target_row]["normalized"]["filename"] == "queued-after.png"
     assert details[target_row] == raw_details[target_row]
     assert details[untargeted_row] == manual_value
@@ -3135,6 +3140,7 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
     )
     assert details_ref["value_hash"] == output_column_result_value_hash(
         project,
+        run_id=new_run_id,
         sheet_id=sheet_id,
         column_id=details_id,
         row_ids=[target_row],

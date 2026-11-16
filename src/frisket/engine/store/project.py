@@ -170,7 +170,6 @@ class ProjectReadSnapshot:
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
         include_validity: bool = False,
@@ -180,7 +179,6 @@ class ProjectReadSnapshot:
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
             include_validity=include_validity,
@@ -192,7 +190,6 @@ class ProjectReadSnapshot:
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
     ) -> dict[int, Any]:
@@ -201,7 +198,6 @@ class ProjectReadSnapshot:
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
         )
@@ -767,7 +763,6 @@ class Project:
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
         include_validity: bool = False,
@@ -777,7 +772,6 @@ class Project:
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
             include_validity=include_validity,
@@ -789,7 +783,6 @@ class Project:
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
     ) -> dict[int, Any]:
@@ -798,7 +791,6 @@ class Project:
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
         )

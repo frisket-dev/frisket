@@ -1422,7 +1422,7 @@ class ResultGenerationStore:
                 "result.publication_effect,result.value_kind,result.value,result.error,"
                 "result.error_code,result.outcome,result.review_state,"
                 "result.confidence,result.justification,result.warnings,run.op_id "
-                "FROM current_result_heads head "
+                "FROM generated_result_candidates head "
                 "JOIN results result ON result.run_id=head.run_id "
                 "AND result.row_id=head.row_id "
                 "AND result.column_id=head.column_id AND result.published=1 "
@@ -1482,7 +1482,7 @@ class ResultGenerationStore:
             return []
         if ordered_row_ids is None:
             rows = self.db.execute(
-                "SELECT DISTINCT run_id FROM current_result_heads "
+                "SELECT DISTINCT run_id FROM generated_result_candidates "
                 "WHERE column_id=? ORDER BY run_id DESC LIMIT ?",
                 (int(column_id), int(limit)),
             ).fetchall()
@@ -1492,7 +1492,7 @@ class ResultGenerationStore:
         for row_id_batch in _chunks(ordered_row_ids):
             placeholders = ",".join("?" for _ in row_id_batch)
             rows = self.db.execute(
-                "SELECT DISTINCT run_id FROM current_result_heads "
+                "SELECT DISTINCT run_id FROM generated_result_candidates "
                 f"WHERE column_id=? AND row_id IN ({placeholders}) "
                 "ORDER BY run_id DESC LIMIT ?",
                 (int(column_id), *row_id_batch, int(limit)),
@@ -1503,7 +1503,19 @@ class ResultGenerationStore:
     def has_mixed_origins(
         self, column_id: int, row_ids: Collection[int] | None = None
     ) -> bool:
-        return len(self.origin_run_ids(column_id, row_ids, limit=2)) > 1
+        """Whether actual current generated cells have multiple producing runs."""
+        from .current_read_sql import current_heads_sql
+
+        heads = current_heads_sql(self.db, [int(column_id)], row_ids)
+        return (
+            len(
+                self.db.execute(
+                    f"SELECT DISTINCT origin_run_id FROM {heads} "
+                    "WHERE origin_kind='run_result' AND outcome IN ('completed','failed') LIMIT 2"
+                ).fetchall()
+            )
+            > 1
+        )
 
     @contextmanager
     def _empty_key_table(self) -> Iterator[str]:

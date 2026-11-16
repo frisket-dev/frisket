@@ -276,26 +276,17 @@ def _input_source_run_id(
     origin_run_ids = sorted({head.run_id for head in heads.values()}, reverse=True)[:2]
     missing_head_row_ids = [row_id for row_id in ordered_row_ids if row_id not in heads]
 
-    # The public resolver owns the exact-head/static/manual overlay ordering.
-    # A divergent manual overlay has no run id and therefore cannot be
-    # collapsed into this receipt's column-level source_run_id.
-    underlying_values, _underlying_refs = project.get_values_with_refs(
+    # Capture current input ownership. An ordinary edit is its own contribution,
+    # even when its bytes happen to equal an older generated answer.
+    _live_values, live_refs = project.get_values_with_refs(
         sheet_id,
         column_id,
         row_ids=ordered_row_ids,
-        apply_edits=False,
-    )
-    live_values, live_refs = project.get_values_with_refs(
-        sheet_id,
-        column_id,
-        row_ids=ordered_row_ids,
-        apply_edits=True,
     )
     divergent_edit_row_ids = [
         row_id
         for row_id in ordered_row_ids
         if live_refs.get(row_id, {}).get("kind") == "manual_edit"
-        and live_values.get(row_id) != underlying_values.get(row_id)
     ]
 
     # Zero generated heads is honestly representable as a baseline/no-run
@@ -413,7 +404,7 @@ def capture_maprunner_facts(
         # function of the op's replay scope (sdk/replay.py), not of whether
         # the hash was captured.
         value_hash = output_column_result_value_hash(
-            project, sheet_id=sheet_id, column_id=col_id, row_ids=row_ids
+            project, run_id=run_id, sheet_id=sheet_id, column_id=col_id, row_ids=row_ids
         )
         output_facts.append(
             OutputFact(

@@ -127,3 +127,30 @@ def test_autocommit_clean_read_does_not_replay_retained_history(tmp_path):
         finally:
             project.db.set_progress_handler(None, 0)
         assert steps < 5000
+
+
+def test_clean_grid_metadata_uses_current_cache_across_long_history(tmp_path):
+    from frisket.engine.store.result_generations import ResultGenerationStore
+    from frisket.server.services.sheet_grid import _result_metadata
+
+    project, sheet, source, target, rows = _seed(tmp_path)
+    with closing(project):
+        for version in range(100):
+            project.apply_edits(
+                [{"row_id": rows[0], "column_id": source, "value": str(version)}]
+            )
+        steps = 0
+
+        def progress():
+            nonlocal steps
+            steps += 100
+            return steps > 15000
+
+        with project.read_snapshot() as snapshot:
+            snapshot.db.set_progress_handler(progress, 100)
+            try:
+                assert not ResultGenerationStore(snapshot).has_mixed_origins(source)
+                assert _result_metadata(snapshot, source, [rows[0]]) == {}
+            finally:
+                snapshot.db.set_progress_handler(None, 0)
+        assert steps < 15000

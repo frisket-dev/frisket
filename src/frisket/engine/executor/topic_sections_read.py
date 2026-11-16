@@ -353,14 +353,19 @@ class _BoundTopicSectionsReader:
 
 def topic_receipt_evidence(project, facts, output_refs, hidden_refs):
     """Read back committed values: Params and author returns supply no facts."""
+    from frisket.engine.store.runs import RunResultStore
+
     evidence = []
+    store = RunResultStore(project)
     for hidden in hidden_refs:
-        values = project.get_values(
-            facts.sheet_id,
-            hidden["column_id"],
-            row_ids=facts.row_ids,
-            apply_edits=False,
+        saved = store.decoded_result_rows(
+            [(facts.run_id, row_id, hidden["column_id"]) for row_id in facts.row_ids]
         )
+        values = {
+            row_id: result["value"]
+            for (_, row_id, _), result in saved.items()
+            if result["publication_effect"] == "publish_value"
+        }
         rows = []
         for row_id, payload in values.items():
             if (
@@ -379,9 +384,14 @@ def topic_receipt_evidence(project, facts, output_refs, hidden_refs):
             )
             if output is None:
                 continue
-            value = project.get_values(
-                facts.sheet_id, output["column_id"], row_ids=[row_id], apply_edits=False
-            ).get(row_id)
+            coordinate = (facts.run_id, row_id, output["column_id"])
+            result = store.decoded_result_rows([coordinate]).get(coordinate)
+            value = (
+                result["value"]
+                if result is not None
+                and result["publication_effect"] == "publish_value"
+                else None
+            )
             if value is None:
                 continue
             compact = {

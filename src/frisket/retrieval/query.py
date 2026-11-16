@@ -223,7 +223,6 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
     ) -> dict[int, Any]:
@@ -232,7 +231,6 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
         )
@@ -243,7 +241,6 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
         include_validity: bool = False,
@@ -253,7 +250,6 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
             include_validity=include_validity,

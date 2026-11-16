@@ -1279,12 +1279,15 @@ def _result_metadata(project: Project, column_id: int, row_ids: list[int]) -> di
     for start in range(0, len(row_ids), 400):
         chunk = row_ids[start : start + 400]
         placeholders = ",".join("?" for _ in chunk)
+        from frisket.engine.store.current_read_sql import current_heads_sql
+
+        heads = current_heads_sql(project.db, [column_id], chunk)
         rows = project.db.execute(
             "SELECT head.row_id,result.publication_effect,result.confidence,"
             "result.justification,result.error,result.review_state,result.outcome, "
             "result.warnings AS warnings_json "
-            "FROM current_result_heads head JOIN results result "
-            "ON result.run_id=head.run_id AND result.row_id=head.row_id "
+            f"FROM {heads} head JOIN results result "
+            "ON head.origin_kind='run_result' AND result.run_id=head.origin_run_id AND result.row_id=head.row_id "
             "AND result.column_id=head.column_id "
             f"WHERE head.column_id=? AND head.row_id IN ({placeholders})",
             (column_id, *chunk),

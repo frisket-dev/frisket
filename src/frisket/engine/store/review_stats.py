@@ -24,10 +24,10 @@ def current_review_run_predicate(
     run_alias: str = "runs", *, terminal_only: bool = False
 ) -> str:
     """A saved result still belonging to a visible output, ignoring ordinary edits."""
-    from .current_read_sql import current_result_coordinate_sql
+    from .current_read_sql import generated_result_coordinate_sql
 
     run = _require_alias(run_alias)
-    heads = current_result_coordinate_sql("review_result")
+    heads = generated_result_coordinate_sql("review_result")
     terminal = f"{run}.status <> 'running' AND " if terminal_only else ""
     return (
         f"{terminal}"
@@ -39,7 +39,7 @@ def current_review_run_predicate(
         f"AND EXISTS (SELECT 1 FROM {heads} review_head "
         "WHERE review_head.column_id=review_result.column_id "
         "AND review_head.row_id=review_result.row_id "
-        "AND review_head.run_id=review_result.run_id))"
+        "AND review_head.run_id=review_result.run_id AND review_head.outcome IN ('completed','failed')))"
     )
 
 
@@ -54,8 +54,8 @@ def _is_resolved(state: object, decision: object) -> bool:
     return state != "unreviewed" or decision is not None
 
 
-def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
-    """Rebuild one run's stable aggregate without reclassifying known fields."""
+def ensure_run_review_fields(db: sqlite3.Connection, run_id: int) -> None:
+    """Ensure the saved output roster without reading or recounting result values."""
 
     run_id = int(run_id)
     run = db.execute(
@@ -113,6 +113,12 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
                 is_primary,
             ),
         )
+
+
+def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
+    """Rebuild one run's stable aggregate without reclassifying known fields."""
+    run_id = int(run_id)
+    ensure_run_review_fields(db, run_id)
 
     db.execute(
         "UPDATE run_review_fields SET eligible_count=0,reviewed_count=0,"
