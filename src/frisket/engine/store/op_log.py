@@ -303,6 +303,8 @@ def _change_has_effects(db, target):
         return True
     return bool(
         db.execute(
+            # After ANALYZE, equality can scan a large import's entire op index.
+            # An explicit equal-bounds range keeps this membership probe bounded.
             "SELECT EXISTS(SELECT 1 FROM structural_changes "
             "INDEXED BY idx_structural_change_op WHERE op_id BETWEEN :op AND :op "
             "AND before_visible!=after_visible) OR "
