@@ -112,6 +112,11 @@ function renderPanel({
 function installRunTransport(posts: Record<string, unknown>[]) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
+    if (path === `/api/projects/${PROJECT}/actions/v1/estimate`) {
+      return jsonResponse({ schema_version: 'frisket.action_estimate_result.v1',
+        action: { kind: JSON.parse(String(init?.body)).action_id }, project_id: PROJECT,
+        estimate: { rows: 1, cost: 0, billed_cost: 0, cost_source: 'free_local', policy_id: 'test' } });
+    }
     if (path === `/api/projects/${PROJECT}/actions/v1/run`) {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       posts.push(body);
@@ -174,7 +179,10 @@ describe('temporal extract-range typed canonical launch', () => {
       },
       idempotency_key: 'web-temporal.extract_range:fresh-literal',
     }]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestedPaths = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(requestedPaths.filter((path) => path.endsWith('/run'))).toHaveLength(1);
+    expect(requestedPaths.every((path) => path === `/api/projects/${PROJECT}/actions/v1/run`
+      || path === `/api/projects/${PROJECT}/actions/v1/estimate`)).toBe(true);
   });
 
   it('posts a fresh range-column selection for all rows without row_ids', async () => {

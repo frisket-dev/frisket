@@ -138,6 +138,11 @@ function renderPanel({
 function installRunTransport(posts: Record<string, unknown>[]) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
+    if (path === `/api/projects/${PROJECT}/actions/v1/estimate`) {
+      return jsonResponse({ schema_version: 'frisket.action_estimate_result.v1',
+        action: { kind: JSON.parse(String(init?.body)).action_id }, project_id: PROJECT,
+        estimate: { rows: 1, cost: 0, billed_cost: 0, cost_source: 'free_local', policy_id: 'test' } });
+    }
     if (path === `/api/projects/${PROJECT}/actions/v1/run`) {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       posts.push(body);
@@ -200,7 +205,10 @@ describe('temporal child-sheet typed canonical launch', () => {
       },
       idempotency_key: 'web-derive.temporal_segments:fresh-media',
     }]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestedPaths = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(requestedPaths.filter((path) => path.endsWith('/run'))).toHaveLength(1);
+    expect(requestedPaths.every((path) => path === `/api/projects/${PROJECT}/actions/v1/run`
+      || path === `/api/projects/${PROJECT}/actions/v1/estimate`)).toBe(true);
     expect(JSON.stringify(posts[0])).not.toContain('consented_promise_set_hash');
   });
 
@@ -221,6 +229,7 @@ describe('temporal child-sheet typed canonical launch', () => {
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     await user.click(screen.getByTestId('generated-action-run'));
 
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute.mock.calls[0][0]).toEqual({
       action_id: 'derive.transcript_segments',
       scope: { kind: 'sheet_rows', sheet_id: 7 },
@@ -303,6 +312,7 @@ describe('temporal child-sheet typed canonical launch', () => {
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     await user.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute.mock.calls[0][0]).toEqual({ ...draft, idempotency_key: expect.any(String) });
   });
 
@@ -318,6 +328,7 @@ describe('temporal child-sheet typed canonical launch', () => {
     fireEvent.change(screen.getByTestId('split-points-textarea'), { target: { value: '20s,Opening' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute.mock.calls[0][0]).toMatchObject({ scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [101] },
       params: { source: 'timestamped_transcript', selection: { kind: 'draft_points',
         items: [{ at_ms: 20_000, label: 'Opening' }], repeat_for_rows: false } } });
@@ -344,6 +355,7 @@ describe('temporal child-sheet typed canonical launch', () => {
     expect(screen.getByTestId('split-batch-confirm')).toBeChecked();
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute.mock.calls[0][0]).toEqual({ ...draft, sheet_name: 'Renamed excerpts', idempotency_key: expect.any(String) });
     expect(onExecute.mock.calls[0][0]).not.toHaveProperty('confirmation');
     expect(onExecute.mock.calls[0][0].params).not.toHaveProperty('confirmed');

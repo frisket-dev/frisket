@@ -115,7 +115,7 @@ describe('typed topic sections authoring', () => {
       id: 'texttiling', label: 'TextTiling', tier: 'local', available: false,
       error: 'Install the segmentation extra.',
     }] } });
-    expect(await screen.findByRole('alert')).toHaveTextContent('Install the segmentation extra.');
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toHaveAttribute('title', 'Install the segmentation extra.'));
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(await openActionSelector()).toHaveTextContent('Install the segmentation extra.');
     expect(onExecute).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ describe('typed topic sections authoring', () => {
   it('blocks an empty engine list without silently changing a saved engine', async () => {
     form({ actionTemplate: { ...template, engines: [] } });
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
-    await waitFor(() => expect(screen.getByRole('alert')).not.toHaveTextContent('Checking engine availability…'));
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toHaveAttribute('title', expect.stringContaining('Saved choice is not offered')));
     expect(selectorTrigger()).toHaveTextContent(/texttiling/i);
     expect(await openActionSelector()).toHaveTextContent('Saved choice is not offered');
   });

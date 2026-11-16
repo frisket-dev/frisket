@@ -45,9 +45,11 @@ function form(initialDraft?: GeneratedActionDraft, available = true, roster?: En
     estimateAction={vi.fn(async () => ({ cost: 0, rows: 2, billed_cost: 0 }))} />);
   return { onExecute, entry };
 }
-async function run() {
+async function run(onExecute: ReturnType<typeof vi.fn>) {
+  const previousCalls = onExecute.mock.calls.length;
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
   fireEvent.click(screen.getByTestId('generated-action-run'));
+  await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(previousCalls + 1));
 }
 async function choose(engine: string) {
   await chooseActionSelector(engine);
@@ -65,7 +67,7 @@ describe('typed Markdown form', () => {
     expect(screen.getByTestId('field-engine').compareDocumentPosition(screen.getByTestId('field-output-markdown'))
       & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.change(screen.getByTestId('field-output-markdown'), { target: { value: 'Readable' } });
-    await run();
+    await run(onExecute);
     expect(onExecute.mock.calls[0][0]).toEqual({ action_id: 'media.to_markdown',
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [3, 8] },
       params: { source: 'html', engine: 'markitdown' }, output_names: { markdown: 'Readable' },
@@ -117,11 +119,11 @@ describe('typed Markdown form', () => {
     await choose('docling');
     await screen.findByTestId('field-output-ocr_used');
     fireEvent.change(screen.getByTestId('field-output-ocr_used'), { target: { value: 'Page OCR' } });
-    await run();
+    await run(onExecute);
     expect(onExecute.mock.calls[0][0].output_names.ocr_used).toBe('Page OCR');
     await choose('trafilatura_html');
     await waitFor(() => expect(screen.queryByTestId('field-output-ocr_used')).not.toBeInTheDocument());
-    await run();
+    await run(onExecute);
     expect(onExecute.mock.calls[1][0].params.engine).toBe('trafilatura_html');
     expect(onExecute.mock.calls[1][0].output_names).toEqual({ markdown: 'markdown' });
   });
@@ -134,7 +136,7 @@ describe('typed Markdown form', () => {
     const { onExecute } = form(draft);
     await waitFor(() => expect(selectorTrigger()).toHaveTextContent(engine ? /Docling/i : /MarkItDown/i));
     expect(encodeSavedActionSpec(decodeSavedActionSpec(catalog, draft))).toEqual(draft);
-    await run();
+    await run(onExecute);
     expect(onExecute.mock.calls[0][0]).toEqual({ ...draft, idempotency_key: expect.any(String) });
   });
 

@@ -57,7 +57,7 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('saved typed
     const run = screen.getByTestId(createsSheet ? 'run-button' : 'generated-action-run');
     await waitFor(() => expect(run).toBeEnabled());
     fireEvent.click(run);
-    expect(execute).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
     expect(execute.mock.calls[0][0].params).toEqual({ ...params, [field]: { text: next } });
     expect(execute.mock.calls[0][0].output_names).toEqual(outputs);
   });

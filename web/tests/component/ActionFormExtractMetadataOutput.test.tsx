@@ -83,6 +83,7 @@ describe('typed metadata output naming', () => {
     if (rowScope === 'all') {
       fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
       fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
+      await waitFor(() => expect(onExecute).toHaveBeenCalled());
       expect(onExecute).toHaveBeenLastCalledWith(expect.objectContaining({
         scope: { kind: 'sheet_rows', sheet_id: 7 },
       }), 'run');
@@ -146,7 +147,9 @@ describe('typed metadata output naming', () => {
     const { onExecute } = renderMetadata();
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-preview'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(2));
     const preview = onExecute.mock.calls[0][0];
     expect(onExecute.mock.calls[0][1]).toBe('preview');
     expect(onExecute.mock.calls[1][1]).toBe('run');
