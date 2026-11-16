@@ -37,7 +37,7 @@ from .project_opener import (
     require_opener_storage_org_id,
 )
 from .ports import JobHandlerContext
-from .worker import HandlerRegistration, HandlerRegistry
+from .worker import HandlerRegistration, HandlerRegistry, NonRetryableJobError
 
 SOURCE_POLL_KIND = "source.poll"
 LOG = logging.getLogger(__name__)
@@ -149,16 +149,31 @@ def register_source_poll_handler(
                 ),
             )
             if result.status != "completed":
+                message = "; ".join(error.message for error in result.errors) or (
+                    f"source.poll returned {result.status}"
+                )
+                refused = result.receipt_id is None and any(
+                    error.code == "invalid_input_ref" for error in result.errors
+                )
+                # A refused check still advances cadence. Restoring its input
+                # permits the next scheduled poll; immediate job retries cannot.
+                refused_run_id = (
+                    source_store.record_source_run(
+                        source_id, status="error", error=message
+                    )
+                    if refused
+                    else None
+                )
                 _emit_source_health_notification(
                     project,
                     project_id=project_id,
                     source=src,
                     status="failed",
                     result=result,
+                    source_run_id=refused_run_id,
                 )
-                message = "; ".join(error.message for error in result.errors) or (
-                    f"source.poll returned {result.status}"
-                )
+                if refused:
+                    raise NonRetryableJobError(message)
                 raise RuntimeError(message)
             summary = _source_poll_summary_from_result(project, result.receipt_id)
             source_after = _source_dict(source_store.get_source(source_id) or src)
