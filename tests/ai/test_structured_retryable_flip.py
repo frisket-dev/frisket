@@ -199,18 +199,18 @@ def test_explicit_ambiguous_provider_outcome_survives_retry_exhaustion(
 
 
 @pytest.mark.parametrize(
-    "exception_class, expected_kind",
+    "exception_class, expected_kind, ambiguous",
     [
-        (httpx.ReadTimeout, "timeout"),
-        (httpx.WriteTimeout, "timeout"),
-        (httpx.ConnectTimeout, "timeout"),
-        (httpx.ReadError, "read"),
-        (httpx.WriteError, "write"),
-        (httpx.RemoteProtocolError, "protocol"),
+        (httpx.ReadTimeout, "timeout", True),
+        (httpx.WriteTimeout, "timeout", True),
+        (httpx.ConnectTimeout, "connect", False),
+        (httpx.ReadError, "read", True),
+        (httpx.WriteError, "write", True),
+        (httpx.RemoteProtocolError, "protocol", True),
     ],
 )
 def test_provider_transport_diagnostics_keep_kind_at_retry_limit(
-    exception_class, expected_kind
+    exception_class, expected_kind, ambiguous
 ):
     adapter = _ScriptedFailThenSucceed(lambda: exception_class(""), fail_times=1)
     router = _router_with(adapter, max_retries=0)
@@ -220,7 +220,7 @@ def test_provider_transport_diagnostics_keep_kind_at_retry_limit(
             with pytest.raises(LLMError) as caught:
                 await router.for_execution(STANDALONE).complete(req())
             assert caught.value.transport_kind == expected_kind
-            assert caught.value.post_egress_ambiguous is True
+            assert caught.value.post_egress_ambiguous is ambiguous
         finally:
             await router.aclose()
 

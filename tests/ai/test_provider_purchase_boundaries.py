@@ -142,7 +142,7 @@ async def test_embedding_batch_is_one_purchase_with_usage_and_known_vectors(
     assert policy.admitted[0].prepared["input"] == ["one", "two"]
     assert policy.admitted[0].credential_source == "platform_key"
     assert policy.responses[0].result["vectors"] == [[1.0, 0.0], [0.0, 1.0]]
-    assert policy.responses[0].usage == {"prompt_tokens": 100}
+    assert policy.responses[0].usage == {"prompt_tokens": 100, "input_tokens": 100}
     assert policy.responses[0].provider_cost_micro == 2
     assert (response if vector_only else response["vectors"]) == [
         [1.0, 0.0],

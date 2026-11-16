@@ -30,17 +30,20 @@ def test_model_call_provider_use_tolerates_missing_or_invalid_units() -> None:
         [
             {
                 "provider": "anthropic",
+                "capability": "llm.complete",
                 "engine": "anthropic/claude-haiku-4-5",
                 "provider_cost_usd": 0.001,
             },
             {
                 "provider": "anthropic",
+                "capability": "llm.complete",
                 "engine": "anthropic/claude-haiku-4-5",
                 "provider_cost_usd": 0.002,
                 "units": "not-json",
             },
             {
                 "provider": "anthropic",
+                "capability": "llm.complete",
                 "engine": "anthropic/claude-haiku-4-5",
                 "provider_cost_usd": 0.003,
                 "units": {"tokens_in": 7, "tokens_out": 3},
@@ -50,14 +53,15 @@ def test_model_call_provider_use_tolerates_missing_or_invalid_units() -> None:
         run={"cost_actual": 0.006},
     )
 
+    # Missing token facts make the aggregate unknown, never a partial total.
     assert provider_use == [
         {
             "provider": "anthropic",
             "model": "anthropic/claude-haiku-4-5",
             "model_call_count": 3,
             "cost_actual": 0.006,
-            "tokens_in": 7,
-            "tokens_out": 3,
+            "tokens_in": None,
+            "tokens_out": None,
         }
     ]
 
@@ -70,12 +74,14 @@ def test_model_call_provider_use_preserves_unknown_cost_vs_known_zero() -> None:
         [
             {
                 "provider": "unknown-price",
+                "capability": "llm.complete",
                 "engine": "unknown-price/model",
                 "provider_cost_usd": None,
                 "units": {"tokens_in": 11},
             },
             {
                 "provider": "known-free",
+                "capability": "llm.complete",
                 "engine": "known-free/model",
                 "provider_cost_usd": 0.0,
                 "units": {"tokens_in": 7},
@@ -95,6 +101,7 @@ def test_receipt_cost_derivation_excludes_historical_cache_cost() -> None:
     calls = [
         {
             "provider": "anthropic",
+            "capability": "llm.complete",
             "engine": "anthropic/claude-haiku-4-5",
             "credential_source": "cache",
             # Even a legacy cache row carrying its original provider price did
@@ -103,6 +110,7 @@ def test_receipt_cost_derivation_excludes_historical_cache_cost() -> None:
         },
         {
             "provider": "anthropic",
+            "capability": "llm.complete",
             "engine": "anthropic/claude-haiku-4-5",
             "credential_source": "platform_key",
             "provider_cost_usd": 0.001,

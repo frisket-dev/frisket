@@ -10,6 +10,7 @@ import pytest
 
 from frisket.engine.executor.group_input_stage import GroupInputStage
 from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
+from frisket.engine.executor.group_summary_program import GroupSummaryProgram
 from frisket.engine.executor import group_summary_runtime as runtime
 from frisket.engine.store import Project, cells
 from frisket.ops.group_summary import (
@@ -79,30 +80,13 @@ def test_stage_preserves_typed_groups_original_order_prompt_bytes_and_hashes(
             ).hexdigest()
         )
         params = plan(1)
-        resolved = {"groups": stage, "consumed_capture": None}
-        lazy = runtime._reduce_group_summary_unit_plans(params, resolved)
-        assert iter(lazy) is lazy
-        for unit, message in zip(lazy, messages, strict=True):
-            assert unit["messages"] == message
-            assert "rows" not in unit["group"]
-            expected_identity = {
-                "schema_version": "frisket.reduce_group_summary_effect_identity.v1",
-                "model": params.model,
-                "action_version": "group_summary.v1",
-                "messages": message,
-            }
-            assert (
-                unit["identity"]
-                == hashlib.sha256(
-                    json.dumps(
-                        expected_identity,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                        ensure_ascii=False,
-                        allow_nan=False,
-                    ).encode()
-                ).hexdigest()
+        program = GroupSummaryProgram(params, publication=None)
+        for group, message in zip(stage, messages, strict=True):
+            rendered = program.render(
+                {"messages": group_summary_messages(params.instruction, group)}, {}
             )
+            assert rendered.messages == message
+            assert rendered.schema is None
     finally:
         stage.close()
     assert not directory.exists()
@@ -156,10 +140,17 @@ def test_preparation_pages_and_spools_a_large_corpus_without_retaining_payloads(
                 plan(sheet), resolved
             )
             assert estimate["groups"] == 100
-            lazy = runtime._reduce_group_summary_unit_plans(plan(sheet), resolved)
+            params = plan(sheet)
+            program = GroupSummaryProgram(params, publication=None)
+            lazy = (
+                program.render(
+                    {"messages": group_summary_messages(params.instruction, group)}, {}
+                )
+                for group in resolved["groups"]
+            )
             first = next(lazy)
-            assert first["messages"][1]["content"].count('"row_id"') == 100
-            assert first["messages"][1]["content"].count("x") == 100 * width
+            assert first.messages[1]["content"].count('"row_id"') == 100
+            assert first.messages[1]["content"].count("x") == 100 * width
             assert resolved["groups"].count == count
             lazy.close()
             _current, peak = tracemalloc.get_traced_memory()

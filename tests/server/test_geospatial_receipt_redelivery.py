@@ -222,7 +222,8 @@ def test_recovered_summary_counts_actual_http_without_inventing_charges(
                 return httpx.Response(
                     200, json={"results": [{"geometry": {"lat": 1, "lng": 2}}]}
                 )
-            raise httpx.ConnectError("transport outcome unknown")
+            # A read failure is ambiguous; ConnectError proves no dispatch.
+            raise httpx.ReadError("response lost after dispatch")
 
         monkeypatch.setattr(httpx.AsyncClient, "get", geocode_get)
     url = f"/api/projects/{project_id}/actions/v1/run"

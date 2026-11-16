@@ -176,7 +176,7 @@ def test_every_production_map_runner_consumes_the_composition_carrier() -> None:
     found = _production_calls_to("MapRunner")
     # The retired semantic recipe used a separate constructor; its typed host
     # now uses the existing composition-bound factory.
-    assert len(found) == 8, found  # Installed rows share the builtin runner host.
+    assert len(found) == 9, found  # Includes grouped summaries on the row runner.
     missing = [
         (module, owner, line)
         for module, owner, line, keys in found
@@ -192,7 +192,7 @@ def test_every_production_attempt_authority_consumes_the_full_composition() -> N
         for name in ("AttemptAuthority", "admit_routed", "build_attempt_authority")
     }
     assert {name: len(calls) for name, calls in found.items()} == {
-        "AttemptAuthority": 5,  # Ordinary and uploaded previews own attempts.
+        "AttemptAuthority": 6,  # Includes grouped summaries on the row runner.
         "admit_routed": 2,
         "build_attempt_authority": 5,
     }, found
