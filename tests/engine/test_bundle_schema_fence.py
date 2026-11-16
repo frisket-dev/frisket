@@ -21,6 +21,15 @@ from frisket.engine.store.value_codec import decode_stored_value
 from tests.engine.historical_schema import PRE_DOMAIN_SCHEMA, restore_pre_domain_schema
 
 
+# This retired table still belongs in historical index-migration fixtures.
+_source_items_start = PRE_DOMAIN_SCHEMA.index(
+    "CREATE TABLE IF NOT EXISTS source_items ("
+)
+_LEGACY_SOURCE_ITEMS_SCHEMA = PRE_DOMAIN_SCHEMA[
+    _source_items_start : PRE_DOMAIN_SCHEMA.index("\n\n", _source_items_start)
+]
+
+
 # Independently pinned from v0.1.1a64 (6602458d), before consent_principal.
 _A64_DIGEST = "frisket.schema.v1:0345f3cf7f8e37534124df43e4e97f05"
 
@@ -210,6 +219,7 @@ def _without_rowid_cell_layout(schema: str) -> str:
 def _with_pre_hygiene_indexes(schema: str) -> str:
     """Restore indexes that existed in every schema fixture below."""
 
+    assert "CREATE TABLE IF NOT EXISTS source_items (" in schema
     assert "idx_execution_attempts_run" not in schema
     assert "idx_source_items_source_dedupe" not in schema
     assert "idx_source_runs_source ON" not in schema
@@ -235,6 +245,7 @@ def _with_pre_hygiene_indexes(schema: str) -> str:
 
 def _restore_pre_hygiene_indexes(db: sqlite3.Connection) -> None:
     db.executescript(
+        _LEGACY_SOURCE_ITEMS_SCHEMA + "\n"
         "CREATE INDEX IF NOT EXISTS idx_execution_attempts_run "
         "ON execution_attempts(run_id,seq DESC);"
         "CREATE INDEX IF NOT EXISTS idx_source_items_source_dedupe "

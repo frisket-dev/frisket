@@ -1757,25 +1757,6 @@ CREATE INDEX IF NOT EXISTS idx_source_runs_source_started
   ON source_runs(source_id, started_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_source_runs_receipt ON source_runs(receipt_id);
 
-CREATE TABLE IF NOT EXISTS source_items (
-  id INTEGER PRIMARY KEY,
-  source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-  source_item_id TEXT NOT NULL,
-  dedupe_key TEXT NOT NULL,
-  item_hash TEXT NOT NULL,
-  row_id INTEGER REFERENCES rows(id) ON DELETE SET NULL,
-  first_seen_run_id INTEGER NOT NULL REFERENCES source_runs(id) ON DELETE CASCADE,
-  last_seen_run_id INTEGER NOT NULL REFERENCES source_runs(id) ON DELETE CASCADE,
-  revision INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'active',
-  raw_ref_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(source_id, dedupe_key)
-);
-CREATE INDEX IF NOT EXISTS idx_source_items_run
-  ON source_items(last_seen_run_id);
-
 -- A View owns the selection; alerts only reference it.
 CREATE TABLE IF NOT EXISTS views (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
