@@ -167,6 +167,89 @@ def _stamp_old(db):
     db.commit()
 
 
+@pytest.mark.parametrize("changed", [False, True])
+def test_upgrade_poll_keeps_deleted_legacy_source_item(tmp_path, changed):
+    from contextlib import closing
+
+    from frisket.engine.executor.source_poll_action import (
+        _materialize_registered_source_poll_in_txn,
+    )
+    from frisket.engine.store import Project
+    from frisket.engine.store.sources import SourceStore
+    from frisket.server.sources.runtime import SourcePollItem, SourcePollResult
+    from tests.engine.historical_schema import restore_pre_domain_schema
+
+    path = tmp_path / "feed.frisket"
+    with closing(Project.create(path)) as project:
+        sheet = project.add_sheet("Feed")
+        SourceStore(project).add_source("Unrelated", kind="rss")
+        source = SourceStore(project).add_source("Feed", kind="rss", sheet_id=sheet)
+        columns = {
+            name: project.add_column(sheet, name, type=kind)
+            for name, kind in (
+                ("source_id", "integer"),
+                ("source_item_id", "text"),
+                ("title", "text"),
+            )
+        }
+        [row] = project.add_rows(
+            sheet,
+            [{"source_id": source, "source_item_id": "entry", "title": "Original"}],
+            columns,
+        )
+        project.apply_edits(
+            [{"row_id": row, "column_id": columns["title"], "value": "My correction"}]
+        )
+        restore_pre_domain_schema(project.db)
+        # Seed the released ledger, including the user-deleted row identity.
+        run = project.db.execute(
+            "INSERT INTO source_runs(source_id) VALUES (?)", (source,)
+        ).lastrowid
+        project.db.execute(
+            "INSERT INTO source_items(source_id,source_item_id,dedupe_key,item_hash,"
+            "row_id,first_seen_run_id,last_seen_run_id) VALUES (?, 'entry','entry','hash',?,?,?)",
+            (source, row, run, run),
+        )
+        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row,))
+        project.db.commit()
+
+    with closing(Project(path)) as project:
+        assert not project.db.execute(
+            "SELECT 1 FROM sqlite_schema WHERE name='source_items'"
+        ).fetchone()
+        observed = project.db.execute(
+            "SELECT record FROM keyed_observations WHERE relationship_id=? AND row_id=?",
+            (f"source:{source}", row),
+        ).fetchone()
+        assert json.loads(observed[0])[str(columns["title"])] == "Original"
+        source_before = dict(SourceStore(project).get_source(source))
+        with project.db:
+            result = _materialize_registered_source_poll_in_txn(
+                project,
+                project.db.cursor(),
+                source_before=source_before,
+                source_run_id=run,
+                poll_result=SourcePollResult(
+                    items=[
+                        SourcePollItem(
+                            dedupe_key="entry",
+                            row={"title": "Revised" if changed else "Original"},
+                        )
+                    ]
+                ),
+            )
+        assert result["new_rows"] == 0
+        assert project.visible_row_ids(sheet) == []
+        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1
+        assert (
+            project.db.execute("SELECT hidden FROM rows WHERE id=?", (row,)).fetchone()[
+                0
+            ]
+            == 1
+        )
+        assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
 def test_full_cutover_preserves_values_and_starts_new_history(old_db):
     from frisket.upgrades.project.domain_migration import migrate_domain
     from frisket.engine.store.schema import SCHEMA_DIGEST

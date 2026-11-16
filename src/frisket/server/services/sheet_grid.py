@@ -1288,7 +1288,7 @@ def _result_metadata(project: Project, column_id: int, row_ids: list[int]) -> di
             "result.warnings AS warnings_json "
             f"FROM {heads} head JOIN results result "
             "ON head.origin_kind='run_result' AND result.run_id=head.origin_run_id AND result.row_id=head.row_id "
-            "AND result.column_id=head.column_id "
+            "AND result.column_id=head.column_id AND result.published=1 "
             f"WHERE head.column_id=? AND head.row_id IN ({placeholders})",
             (column_id, *chunk),
         ).fetchall()

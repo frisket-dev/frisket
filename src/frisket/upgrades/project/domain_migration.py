@@ -304,6 +304,71 @@ def install_attempt_handler_lineage(db: sqlite3.Connection) -> None:
             db.execute(f"ALTER TABLE execution_attempts ADD COLUMN {name} {type_}")
 
 
+def _retain_source_observations(db: sqlite3.Connection) -> None:
+    """Transfer released poll identities, including deleted rows, before ledger removal."""
+    from frisket.engine.store.keyed_updates import (
+        observe,
+        require_relationship,
+        typed_key,
+    )
+    from frisket.engine.store.value_codec import decode_stored_value
+
+    _require_transaction(db)
+    sources = db.execute(
+        "SELECT DISTINCT source.id,source.sheet_id FROM sources source "
+        "JOIN source_items item ON item.source_id=source.id "
+        "JOIN rows row ON row.id=item.row_id AND row.sheet_id=source.sheet_id"
+    )
+    for source_id, sheet_id in sources:
+        columns = {}
+        for column_id, name in db.execute(
+            "SELECT id,name FROM columns WHERE sheet_id=? AND active=1 ORDER BY hidden,id",
+            (sheet_id,),
+        ):
+            columns.setdefault(name, column_id)
+        if not {"source_id", "source_item_id"} <= columns.keys():
+            continue
+        relationship = f"source:{source_id}"
+        require_relationship(
+            db,
+            relationship_id=relationship,
+            sheet_id=sheet_id,
+            key_definition=[
+                (columns["source_id"], "integer"),
+                (columns["source_item_id"], "text"),
+            ],
+        )
+        items = db.execute(
+            "SELECT item.row_id,item.source_item_id FROM source_items item "
+            "JOIN rows row ON row.id=item.row_id AND row.sheet_id=? WHERE item.source_id=?",
+            (sheet_id, source_id),
+        )
+        for row_id, item_id in items:
+            key = typed_key([("integer", source_id), ("text", item_id)])
+            if key is None:
+                continue
+            # Baselines describe observed source payloads, never manual corrections.
+            # Unreadable values remain in their authorities without inventing a baseline.
+            record = {
+                str(column_id): decode_stored_value(kind, value)
+                for column_id, name, kind, value in db.execute(
+                    "SELECT cell.column_id,column.name,cell.value_kind,cell.value "
+                    "FROM cells cell JOIN columns column ON column.id=cell.column_id "
+                    "WHERE cell.row_id=? AND column.sheet_id=? AND column.active=1",
+                    (row_id, sheet_id),
+                )
+                if name != "source_run_id"
+                and kind not in {"legacy_invalid", "prepared_content_ref"}
+            }
+            observe(
+                db,
+                relationship_id=relationship,
+                row_id=row_id,
+                key=key,
+                incoming=record,
+            )
+
+
 def migrate_domain(db: sqlite3.Connection) -> None:
     """Atomically upgrade the last pre-Change schema; never reset user data."""
     from frisket.upgrades.project.blob_retention_migration import (
@@ -419,7 +484,8 @@ def migrate_domain(db: sqlite3.Connection) -> None:
         _execute_ddl(db, KEYED_UPDATE_SCHEMA)
         _execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
         _execute_ddl(db, PURGE_SCHEMA_SQL)
-        # Reconciliation uses keyed baselines; this ledger had no readers.
+        _retain_source_observations(db)
+        # Reconciliation now owns the retained poll identities and baselines.
         db.execute("DROP TABLE source_items")
 
         install_current_baseline(db)
