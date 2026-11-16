@@ -112,6 +112,7 @@ from pathlib import Path
 from frisket.actions.system import typed_action_for_request
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter, ResponseCache, request_key
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.store import Project
 
@@ -204,7 +205,8 @@ try:
     cache = ResponseCache(project.path / "project.cache.db")
     router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache=cache, cache_mode="replay_strict", use_env_keys=False)
 
-    async def prime_transport(req, *, recipe_version="1", trace=None, on_request=None):
+    async def prime_transport(req, *, recipe_version="1", trace=None, on_request=None, _execution):
+        assert _execution is STANDALONE
         if on_request is not None:
             on_request(req)
         # Key the fixture after the real structured completer resolves schema
@@ -221,6 +223,7 @@ try:
         return response
 
     router.complete_transport = prime_transport
+    recording_router = router.for_execution(STANDALONE)
     try:
         for row_id, payload in zip(project.visible_row_ids(sheet_id), payloads, strict=True):
             row_values = {name: values[name].get(row_id) for name in input_columns}
@@ -231,7 +234,7 @@ try:
                 schema=call.schema,
                 max_tokens=call.max_tokens,
             )
-            asyncio.run(router.complete(req, recipe_version=plan.program.version))
+            asyncio.run(recording_router.complete(req, recipe_version=plan.program.version))
     finally:
         cache.close()
 finally:

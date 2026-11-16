@@ -68,6 +68,7 @@ from pathlib import Path
 from frisket.actions.system import typed_action_for_request
 from frisket.ai.llm import LLMResponse, ModelRouter, ResponseCache, StructuredCompleter, StructuredRequest
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.store import Project
 class FixtureAdapter:
@@ -87,6 +88,7 @@ try:
     router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={'gemini': 'fixture-only', 'anthropic': 'fixture-only'}, cache=cache, cache_mode='fresh')
     router._adapters['gemini'] = adapter
     router._adapters['anthropic'] = adapter
+    recording_router = router.for_execution(STANDALONE)
     async def record():
         for variant in variants:
             action['params']['context'] = variant['context']
@@ -97,7 +99,7 @@ try:
             for row_id, data in zip(row_ids, variant['rows'], strict=True):
                 call = plan.program.render({'case_text': values.get(row_id)}, spec)
                 adapter.reply = data
-                await StructuredCompleter(router).complete(StructuredRequest(
+                await StructuredCompleter(recording_router).complete(StructuredRequest(
                     model=spec['model'], messages=call.messages, schema=call.schema, max_tokens=call.max_tokens), recipe_version=plan.program.version)
     try:
         asyncio.run(record())
