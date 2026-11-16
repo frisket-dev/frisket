@@ -126,6 +126,14 @@ class GroupInputStage(Sequence):
             if self._cleanup.alive:
                 cursor.close()
 
+    def by_identity(self, identity):
+        row = self.db.execute(
+            "SELECT id,identity,name FROM groups WHERE identity=?", (identity,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(identity)
+        return self._group(row)
+
     def __getitem__(self, index):
         if isinstance(index, slice):
             return [self[number] for number in range(*index.indices(len(self)))]

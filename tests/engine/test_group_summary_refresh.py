@@ -601,7 +601,7 @@ def test_hidden_group_summary_only_publishes_with_its_restore_decision(tmp_path)
 def test_group_refresh_crash_recovery_excludes_only_its_pending_mask(
     tmp_path, monkeypatch
 ):
-    from frisket.engine.executor.group_summary_publication import GroupPublication
+    from frisket.engine.store.runs import RunResultStore
 
     project = Project.create(
         tmp_path / "recovered-refresh.frisket", name="recovered-refresh"
@@ -626,17 +626,17 @@ def test_group_refresh_crash_recovery_excludes_only_its_pending_mask(
             return response
 
         adapter.complete = changed
-        publish = GroupPublication.publish
+        publish = RunResultStore.publish_result_batch
         calls = 0
 
-        def interrupted(self, computation):
+        def interrupted(self, *args, **kwargs):
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise RuntimeError("process interrupted before second publication")
-            return publish(self, computation)
+            return publish(self, *args, **kwargs)
 
-        monkeypatch.setattr(GroupPublication, "publish", interrupted)
+        monkeypatch.setattr(RunResultStore, "publish_result_batch", interrupted)
         bound = typed_action_for_request(
             {
                 "action_id": "sheet.refresh",
@@ -815,25 +815,25 @@ def test_group_checkpoint_identity_does_not_use_the_display_label(tmp_path):
 def test_recovery_preserves_both_actual_read_versions_across_source_edit(
     tmp_path, monkeypatch
 ):
-    from frisket.engine.executor.group_summary_publication import GroupPublication
+    from frisket.engine.store.runs import RunResultStore
     from frisket.engine.store.staleness import sheet_freshness
 
     project = Project.create(tmp_path / "mixed-capture.frisket", name="mixed-capture")
     try:
         seeded = _seed(project, tmp_path)
         router, adapter = _summary_router()
-        publish = GroupPublication.publish
+        publish = RunResultStore.publish_result_batch
         first = True
 
-        def interrupted(self, computation):
+        def interrupted(self, *args, **kwargs):
             nonlocal first
-            result = publish(self, computation)
+            result = publish(self, *args, **kwargs)
             if first:
                 first = False
                 raise RuntimeError("crash after first committed group")
             return result
 
-        monkeypatch.setattr(GroupPublication, "publish", interrupted)
+        monkeypatch.setattr(RunResultStore, "publish_result_batch", interrupted)
         bound = _bound_request(_reduce_action(seeded["sheet_id"]))
         failed = run_typed_group_summary_action(project, "p", bound, router)
         assert failed.status == "failed"
@@ -859,7 +859,7 @@ def test_recovery_preserves_both_actual_read_versions_across_source_edit(
         sheet = resumed.outputs[0].sheet_id
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM consumed_source_bundles WHERE run_id=?",
+                "SELECT COUNT(*) FROM consumed_source_bundles WHERE run_id=? AND kind='aggregate'",
                 (resumed.run_id,),
             ).fetchone()[0]
             == 2
@@ -1026,3 +1026,51 @@ def test_group_refresh_holds_shared_target_lease_during_provider_work(tmp_path):
             ).fetchone()[0]
             is None
         )
+
+
+def test_group_runner_declaration_failure_recovers_same_sheet_before_dispatch(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.store.result_generations import ResultGenerationStore
+
+    project = Project.create(tmp_path / "declare-recovery.frisket")
+    try:
+        seeded = _seed(project, tmp_path)
+        router, adapter = _summary_router()
+        bound = _bound_request(_reduce_action(seeded["sheet_id"]))
+        declare = ResultGenerationStore.declare
+        interrupted = False
+
+        def fail_once(self, *args, **kwargs):
+            nonlocal interrupted
+            if not interrupted:
+                interrupted = True
+                raise RuntimeError("interrupted before runner output declaration")
+            return declare(self, *args, **kwargs)
+
+        monkeypatch.setattr(ResultGenerationStore, "declare", fail_once)
+        failed = run_typed_group_summary_action(project, "p", bound, router)
+        assert failed.status == "failed"
+        assert adapter.requests == []
+        rows = [
+            tuple(row)
+            for row in project.db.execute("SELECT id,sheet_id FROM rows ORDER BY id")
+        ]
+        run_id = project.db.execute("SELECT id FROM runs").fetchone()[0]
+        recovered = run_typed_group_summary_action(project, "p", bound, router)
+        assert recovered.status == "completed", recovered.errors
+        assert recovered.run_id == run_id
+        assert len(adapter.requests) == 2
+        assert [
+            tuple(row)
+            for row in project.db.execute("SELECT id,sheet_id FROM rows ORDER BY id")
+        ] == rows
+        assert project.undo() is not None
+        assert (
+            project.db.execute(
+                "SELECT hidden FROM sheets WHERE id=?", (recovered.outputs[0].sheet_id,)
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        project.close()

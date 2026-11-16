@@ -2,7 +2,7 @@
 
 import json
 
-from frisket.engine.executor.group_summary_publication import GroupPublication
+from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.staleness import sheet_freshness
 from frisket.execution.attempt import abandon_stale_dispatching_attempts
 from frisket.team.security.secrets import encrypt_secret, key_hint
@@ -28,7 +28,7 @@ def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
     )
     router = _project_key_router(provider)
     action = _action(project._sheet_id, key="group-capture-recovery")
-    write = GroupPublication.publish
+    write = RunResultStore.publish_result_batch
     crashed_once = False
 
     calls = 0
@@ -42,14 +42,23 @@ def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
             raise RuntimeError("injected result publication crash")
         return write(*args, **kwargs)
 
-    monkeypatch.setattr(GroupPublication, "publish", crash_before_publication)
+    monkeypatch.setattr(
+        RunResultStore, "publish_result_batch", crash_before_publication
+    )
     crashed = _run(project, action, router)
     assert crashed.status == "failed"
     assert len(provider.requests) == 2, crashed.errors
     checkpoint = project.db.execute(
         "SELECT payload FROM effect_checkpoints WHERE state='returned' LIMIT 1"
     ).fetchone()
-    saved = json.loads(checkpoint[0])["computation"]["consumed_capture"]
+    saved_ref = next(iter(json.loads(checkpoint[0]).values()))["__consumed_sources"]
+    fingerprint = saved_ref["shared_inputs"][0]
+    saved = json.loads(
+        project.db.execute(
+            "SELECT capture_json FROM consumed_source_bundles WHERE input_fingerprint=?",
+            (fingerprint,),
+        ).fetchone()[0]
+    )
     column = next(
         col for col in project.columns(project._sheet_id) if col["name"] == "story"
     )
@@ -69,7 +78,7 @@ def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
     assert resumed.status == "completed", resumed.errors
     assert len(provider.requests) == 2
     bundle = project.db.execute(
-        "SELECT output_sheet_id,capture_json FROM consumed_source_bundles WHERE run_id=?",
+        "SELECT output_sheet_id,capture_json FROM consumed_source_bundles WHERE run_id=? AND kind='aggregate'",
         (run_id,),
     ).fetchone()
     assert json.loads(bundle["capture_json"])["scopes"] == saved["scopes"]

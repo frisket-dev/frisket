@@ -283,6 +283,7 @@ def run_typed_group_summary_action(
     if isinstance(reservation, ActionResult):
         return reservation
     from .group_summary_publication import GroupPublication, GroupPublicationError
+    from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
 
     publication = GroupPublication(
         project,
@@ -329,7 +330,7 @@ def run_typed_group_summary_action(
             "stale_attempt_writer"
             if isinstance(exc, StaleAttemptWriter)
             else "project_write_failed"
-            if isinstance(exc, GroupPublicationError)
+            if isinstance(exc, (GroupPublicationError, ResultEvidenceWriteFailed))
             else "model_run_failed"
         )
         return _failed_result(

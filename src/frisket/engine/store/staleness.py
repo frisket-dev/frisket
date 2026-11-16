@@ -40,7 +40,8 @@ def compute_sync_states(
         if sheet_id in own:
             continue
         # A grouped recovery may consume several source versions under the same
-        # owning Change. Row-action shared corpora are not sheet refreshes.
+        # owning Change. Shared inputs count only when the deriving Change
+        # actually published a row that references them.
         bundles = project.db.execute(
             "SELECT b.id,b.owner_op_id,b.capture_json,o.kind,o.spec FROM consumed_source_bundles b "
             "JOIN ops o ON o.id=b.owner_op_id "
@@ -50,7 +51,14 @@ def compute_sync_states(
             "AND (b.row_id IS NULL OR "
             "json_extract(o.spec,'$.derived_refresh.relationship_id')="
             "json_extract(materializer.spec,'$.derived_refresh.relationship_id')) "
-            "AND instr(b.capture_key,':shared:')=0 "
+            "AND (instr(b.capture_key,':shared:')=0 OR ("
+            "(o.id=target.parent_op_id OR "
+            "json_extract(o.spec,'$.derived_refresh.relationship_id')="
+            "json_extract(materializer.spec,'$.derived_refresh.relationship_id')) "
+            "AND EXISTS(SELECT 1 FROM consumed_source_bundles row_input "
+            "JOIN json_each(row_input.capture_json,'$.shared_inputs') ref "
+            "WHERE row_input.owner_op_id=b.owner_op_id AND row_input.kind='row' "
+            "AND ref.value=b.input_fingerprint))) "
             "AND o.change_order IS NOT NULL "
             "ORDER BY o.change_order DESC,b.id",
             (sheet_id,),

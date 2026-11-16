@@ -87,7 +87,10 @@ from frisket.engine.runner.validation import (
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
+from frisket.engine.store.output_claims import (
+    ClaimLeaseRenewalFailed,
+    OutputColumnClaimStore,
+)
 from frisket.engine.store.result_generations import (
     GenerationSealedError,
     ResultGenerationStore,
@@ -755,6 +758,8 @@ class MapRunner:
         precomputed_output_fields: list[dict[str, Any]] | None = None,
         defer_attempt_close: bool = False,
         defer_generation_seal: bool = False,
+        dispatch_claimed: bool = False,
+        defer_output_publication: bool | None = None,
     ) -> RunProgress:
         if admitted_attempt is not None and admitted_attempt_id is not None:
             raise ValueError(
@@ -801,6 +806,18 @@ class MapRunner:
         output_column_ids = sorted(out_cols.values())
         op_id = prepared.op_id
         run_id = prepared.run_id
+        if dispatch_claimed:
+            if admitted_attempt is None:
+                raise ValueError(
+                    "a claimed dispatch requires its exact admitted attempt"
+                )
+            OutputColumnClaimStore.require_current_writer(
+                self.project.db,
+                run_id=run_id,
+                writer_attempt_id=admitted_attempt.attempt_id,
+                claim_token=claim_token,
+                output_column_ids=frozenset(output_column_ids),
+            )
         # The lazy writer creates one sidecar only if a row actually reaches a
         # model. Trace failures are diagnostic and never own action outcomes.
         try:
@@ -999,6 +1016,10 @@ class MapRunner:
             resumable cancelled) are deliberately NOT routed through here —
             they terminalize the run on purpose, with their own markers.
             """
+            if dispatch_claimed:
+                # A coupled publisher already owns deterministic work under
+                # this writer. It retains recovery and terminalization.
+                return
             if admission is not None:
                 self.run_store.revert_run_resume(run_id, admission)
                 return
@@ -1077,7 +1098,11 @@ class MapRunner:
                 self.run_store,
                 prepared,
                 claim_token=claim_token,
-                defer_publication=defer_generation_seal,
+                defer_publication=(
+                    defer_generation_seal
+                    if defer_output_publication is None
+                    else defer_output_publication
+                ),
             )
         except BaseException as exc:
             close_out_pre_dispatch_failure(
@@ -1091,7 +1116,7 @@ class MapRunner:
                     int(column_id) for column_id in prepared.out_cols.values()
                 ),
             )
-            if admission is None:
+            if admission is None and not dispatch_claimed:
                 from frisket.engine.runner.column_retirement import (
                     retire_unbound_created_columns,
                 )
@@ -1159,7 +1184,8 @@ class MapRunner:
             and not recipe.is_llm(spec)
             and not row_effect_spends_or_meters(recipe, spec, self.router)
         )
-        claimed = [False]
+        progress.writer_attempt_claimed = dispatch_claimed
+        claimed = [dispatch_claimed]
 
         def claim_the_attempt() -> None:
             """The compare-and-swap of §1.3, taken exactly once before the
@@ -1577,17 +1603,21 @@ class MapRunner:
             input_capture: dict[str, dict[str, Any]] | None = (
                 {} if callable(capture_result_evidence) else None
             )
-            values = row_values(
-                self.project,
-                recipe,
-                spec,
-                col_map,
-                row_id,
-                for_model=recipe.is_llm(spec),
-                column_types=source_column_types,
-                capture=input_capture,
-                admitted_work_scope=admitted_work_scope,
-                source_page=source_page,
+            values = (
+                prepared.read_inputs(row_id)
+                if prepared.read_inputs
+                else row_values(
+                    self.project,
+                    recipe,
+                    spec,
+                    col_map,
+                    row_id,
+                    for_model=recipe.is_llm(spec),
+                    column_types=source_column_types,
+                    capture=input_capture,
+                    admitted_work_scope=admitted_work_scope,
+                    source_page=source_page,
+                )
             )
             consumed_capture = getattr(values, "consumed_capture", None)
             checkpoint_id: str | None = None
@@ -1987,6 +2017,13 @@ class MapRunner:
                         claimless_direct_effect=self.claimless_direct_effect,
                     )
                     results = replay_response
+                    # A cancellation during provider retry may carry paid usage.
+                    # Save it first, then propagate task cancellation before
+                    # publication or another dispatch (including synchronous
+                    # test/local adapters that have not yielded yet).
+                    await asyncio.sleep(0)
+                    if asyncio.current_task().cancelling():
+                        raise asyncio.CancelledError
             async with lock:
                 returned_batch = [
                     {

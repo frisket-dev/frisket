@@ -456,6 +456,10 @@ class Recipe:
         do, entities-llm-dispatch-v1). No-op by default."""
         return value
 
+    def model_response_data(self, response: Any, spec: dict) -> Any:
+        """Extract the payload of an unstructured provider response."""
+        return response.data
+
     def normalize_model_output(
         self, data: dict[str, Any], spec: dict, *, row_values: dict[str, Any]
     ) -> Any:

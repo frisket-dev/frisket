@@ -1,10 +1,9 @@
-"""Grouped-summary model checkpoints, atomic publication, and receipts."""
+"""Grouped input admission and receipts for shared row execution."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Mapping
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -48,9 +47,6 @@ from frisket.engine.store.materialization import (
     load_materialized_row_sources_for_op,
     materialized_row_sources_ref_matches,
 )
-from frisket.ai.llm import LLMRequest, ModelRouter
-from frisket.ai.llm.types import wire_responses
-from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.ops.group_summary import (
     estimate_group_summary,
     group_summary_messages,
@@ -59,7 +55,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
-from frisket.operability.trace import TraceWriter, TracingRouter
 
 
 logger = logging.getLogger("frisket.executor")
@@ -424,297 +419,6 @@ def _estimate_reduce_group_summary_cost(
     return estimate_group_summary(params.model, resolved_messages)
 
 
-#: Effect-checkpoint family coordinates. The group
-#: key is derived from the normalized params — stable across the crash-retry
-#: of one logical action, which mints a NEW receipt/run — and each group's
-#: unit identity binds the exact provider request, so changed source data
-#: refuses rather than substituting a stale paid response.
-_REDUCE_EFFECT_FAMILY = "reduce_group_summary"
-_REDUCE_EFFECT_KIND = "reduce.group_summary"
-
-
-def _reduce_group_summary_effect_checkpoints_active(
-    params: GroupSummaryPlan,
-    router: ModelRouter,
-) -> bool:
-    """The family's paidness gate: checkpoint only work that can spend.
-
-    Mirrors ``row_effect_spends_or_meters``'s LLM branch and reads the same
-    one authority: strict replay proves nothing unless a cache is attached
-    (``model_call_cannot_go_live``), because a cacheless ``replay_strict``
-    router falls through to the live adapter and bills every group. A
-    local-provider model (ollama) spends nothing — and a free run must
-    produce zero durable checkpoint writes."""
-
-    from frisket.ai.llm.router import model_call_cannot_go_live
-    from frisket.ai.models.metadata import is_remote_provider
-
-    if model_call_cannot_go_live(router):
-        return False
-    provider = params.model.split("/", 1)[0]
-    return is_remote_provider(provider)
-
-
-def _reduce_group_summary_effect_group_key(params: GroupSummaryPlan) -> str:
-    payload = params.model_dump(mode="json", exclude_none=True)
-    payload.pop("confirmed", None)
-    payload.pop("consented_promise_set_hash", None)
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
-    )
-    return "params:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _reduce_group_summary_unit_plans(
-    params: GroupSummaryPlan,
-    resolved: dict[str, Any],
-):
-    """Yield one group's complete request without retaining other prompts."""
-    for group in resolved["groups"]:
-        messages = _reduce_group_summary_messages(params, group)
-        unit_key = (
-            "group:"
-            + hashlib.sha256(str(group["identity_key"]).encode("utf-8")).hexdigest()
-        )
-        identity_payload = {
-            "schema_version": "frisket.reduce_group_summary_effect_identity.v1",
-            "model": params.model,
-            "action_version": "group_summary.v1",
-            # The messages embed the group name, every source row id and every
-            # input value, so a visibility/content change is a different
-            # identity even when the group name is unchanged.
-            "messages": messages,
-        }
-        identity = hashlib.sha256(
-            json.dumps(
-                identity_payload,
-                sort_keys=True,
-                separators=(",", ":"),
-                ensure_ascii=False,
-                allow_nan=False,
-            ).encode("utf-8")
-        ).hexdigest()
-        yield {
-            "group": {key: value for key, value in group.items() if key != "rows"},
-            "messages": messages,
-            "unit_key": unit_key,
-            "identity": identity,
-            "consumed_capture": resolved["consumed_capture"],
-        }
-
-
-def _reduce_group_summary_prompt_hash(params: GroupSummaryPlan) -> str:
-    return _text_hash(
-        json.dumps(
-            {
-                "instruction": params.instruction,
-                "input_columns": params.input_columns,
-                "group_by": params.group_by,
-            },
-            sort_keys=True,
-        )
-    )
-
-
-def _reduce_effect_reconciliation_error(message: str) -> ActionError:
-    return ActionError(
-        code="external_effect_reconciliation_required",
-        message=message,
-        action_kind=_REDUCE_EFFECT_KIND,
-    )
-
-
-def _reduce_group_summary_failure_computation(
-    params: GroupSummaryPlan,
-    router: ModelRouter,
-    exc: Exception,
-) -> dict[str, Any]:
-    from frisket.ai.llm import (
-        classify_llm_error,
-        classify_resumable_provider_error,
-    )
-
-    provider = params.model.split("/", 1)[0]
-    remediated = classify_resumable_provider_error(
-        exc, provider=provider
-    ) or classify_llm_error(
-        exc,
-        provider=provider,
-        endpoint_origin=router.local_endpoint_url_for_model(params.model),
-        model=params.model,
-    )
-    accounting = wire_accounting_meta(
-        params.model, list(getattr(exc, "wire_calls", ()) or ())
-    )
-    return {
-        "summary": None,
-        "error": remediated.message[:500],
-        "error_code": remediated.code,
-        "error_details": remediated.details,
-        "tokens_in": None,
-        "tokens_out": None,
-        "cost": 0.0,
-        "model_calls": [],
-        **(accounting if accounting["model_calls"] else {}),
-    }
-
-
-def _reduce_group_summary_response_computation(model, response):
-    summary = response.content
-    if summary is None:
-        summary = json.dumps(response.data or {}, sort_keys=True)
-    return {
-        "summary": summary,
-        "error": None,
-        **wire_accounting_meta(model, [response]),
-    }
-
-
-async def _complete_reduce_group_summaries(
-    project: Project,
-    params: GroupSummaryPlan,
-    resolved: dict[str, Any],
-    *,
-    router: ModelRouter,
-    publication,
-) -> list[dict[str, Any]] | ActionError:
-    """Per-group provider calls, under effect-checkpoint authority when paid.
-
-    This loop used to buy N provider responses and
-    persist nothing until the result transaction after it — process death
-    re-bought every group on retry, and the facts carried NULL attempt_id.
-    A paid run now (1) establishes its durable accounting envelope (op +
-    run + claimed execution attempt) BEFORE the first call, (2) reserves one
-    checkpoint per group immediately before its egress, and (3) completes
-    each checkpoint — provider fact, project-key cap spend, replay payload —
-    in one transaction immediately after that group's response returns.
-    Free/local/cached-strict-replay runs take the unfenced loop: zero durable
-    checkpoint writes at $0 stakes."""
-
-    # The quote's payload is no longer needed; actual execution stages current
-    # inputs afresh under the already admitted cohort, without two corpus spools.
-    resolved["groups"].close()
-    current = _resolve_reduce_group_summary_inputs(
-        project,
-        params,
-        capture_inputs=True,
-        cohort=resolved["source_row_ids"],
-    )
-    if isinstance(current, ActionError):
-        return current
-    # Admission already happened. Current inputs belong to the original cohort;
-    # provider request funding checks retain their ordinary authority.
-    resolved.clear()
-    resolved.update(current)
-
-    if not resolved["groups"] or not _reduce_group_summary_effect_checkpoints_active(
-        params, router
-    ):
-        return await _complete_reduce_group_summaries_unfenced(
-            project, params, resolved, router=router, publication=publication
-        )
-    return await _complete_reduce_group_summaries_checkpointed(
-        project, params, resolved, router=router, publication=publication
-    )
-
-
-def _reduce_group_summary_trace_writer(
-    project: Project, params: GroupSummaryPlan, run_id: int
-) -> TraceWriter | None:
-    try:
-        return TraceWriter.open(
-            project.path,
-            run_id,
-            action_kind=params.action_kind,
-            model=params.model,
-        )
-    except Exception:  # noqa: BLE001 - tracing never owns the action outcome
-        logger.warning("could not initialize group-summary trace")
-        return None
-
-
-def _write_reduce_group_summary_traces(
-    project: Project,
-    params: GroupSummaryPlan,
-    run_id: int,
-    row_ids: list[int] | None,
-    computations: list[dict[str, Any]],
-) -> None:
-    try:
-        if row_ids is None:
-            pending = [
-                (None, record)
-                for computation in computations
-                if isinstance(record := computation.get("_trace_record"), dict)
-                and record.get("error") is not None
-            ]
-        else:
-            pending = [
-                (row_id, computation.get("_trace_record"))
-                for row_id, computation in zip(row_ids, computations, strict=True)
-                if computation.get("_trace_record") is not None
-            ]
-    except Exception:  # noqa: BLE001 - tracing never owns the action outcome
-        logger.warning("could not bind group-summary traces to output rows")
-        return
-    if not pending:
-        return
-    recorder = _reduce_group_summary_trace_writer(project, params, run_id)
-    if recorder is None:
-        return
-    try:
-        for row_id, record in pending:
-            bound_record = dict(record)
-            bound_record["row_id"] = row_id
-            bound_record["trace_id"] = recorder.trace_id
-            recorder.write_row(bound_record)
-    except Exception:  # noqa: BLE001 - tracing never owns the action outcome
-        logger.warning("could not write group-summary traces")
-
-
-async def _complete_reduce_group_summary_call(
-    router: ModelRouter,
-    recorder: TraceWriter | None,
-    request: LLMRequest,
-    trace_record: list[dict[str, Any] | None],
-    publication,
-) -> Any:
-    traced_router: Any = router
-    row_trace = None
-    if recorder is not None:
-        try:
-            row_trace = recorder.row_trace(None)
-            traced_router = TracingRouter(router, row_trace)
-        except Exception:  # noqa: BLE001 - preserve the provider call
-            logger.warning("could not initialize group-summary call trace")
-            row_trace = None
-            traced_router = router
-    response = None
-    try:
-        async with publication.provider_lease():
-            response = await traced_router.complete(
-                request, recipe_version="group_summary.v1"
-            )
-    except BaseException as exc:
-        if response is not None:
-            # Cleanup can be cancelled after the provider has returned. Its
-            # purchase still belongs to the returned-checkpoint recorder.
-            exc.wire_calls = wire_responses([*getattr(exc, "wire_calls", ()), response])
-        if recorder is not None and row_trace is not None:
-            trace_record[0] = traced_router.record(error=str(exc))
-        raise
-    if recorder is not None and row_trace is not None:
-        trace_record[0] = traced_router.record(
-            data=response.content if response.content is not None else response.data,
-            meta={
-                "tokens_in": response.tokens_in if response.usage_available else None,
-                "tokens_out": response.tokens_out if response.usage_available else None,
-                "cost": response.cost,
-            },
-        )
-    return response
-
-
 def _group_source_binding(resolved: Mapping[str, Any]) -> dict[str, list[int]]:
     from frisket.engine.store.source_dependencies import execution_source_binding
 
@@ -726,515 +430,163 @@ def _group_source_binding(resolved: Mapping[str, Any]) -> dict[str, list[int]]:
     )
 
 
-async def _complete_reduce_group_summaries_unfenced(
-    project: Project,
-    params: GroupSummaryPlan,
-    resolved: dict[str, Any],
-    *,
-    router: ModelRouter,
-    publication,
-) -> list[dict[str, Any]] | ActionError:
-    from frisket.execution.attempt import AttemptClaimRefused
-    from frisket.execution.attempt_authority import mint_direct_effect_attempt
+async def _complete_reduce_group_summaries(
+    project, params, resolved, *, router, publication
+):
+    """Materialize group identities, then execute ordinary model rows."""
+    from frisket.engine.runner.map_runner import MapRunner
+    from frisket.engine.runner.preparation import PreparedRun
+    from frisket.engine.runner.row_inputs import RowInputValues
+    from frisket.execution.attempt import claim
+    from frisket.execution.attempt_authority import AttemptAuthority
+    from frisket.execution.provider import (
+        open_execution_composition,
+        ExecutionCompositionContext,
+    )
+    from .group_summary_program import GroupSummaryProgram
 
-    # Free/local calls need no replay checkpoint, but they still disclose
-    # source data and later write run-scoped cells/facts.  Establish the same
-    # durable dispatch claim before the first call; only the checkpoint
-    # representation is omitted.
-    estimate = _estimate_reduce_group_summary_cost(params, resolved)
-    run_store = RunResultStore(project)
+    resolved["groups"].close()
+    current = _resolve_reduce_group_summary_inputs(
+        project, params, capture_inputs=True, cohort=resolved["source_row_ids"]
+    )
+    if isinstance(current, ActionError):
+        return current
+    resolved.clear()
+    resolved.update(current)
+    program = GroupSummaryProgram(params, publication)
+    spec = {
+        "action_kind": params.action_kind,
+        "model": params.model,
+        "instruction": params.instruction,
+        "input_columns": [],
+        "fields": program.output_fields({}),
+    }
+    store = RunResultStore(project)
     if publication.recovery_run is not None:
-        op_id, run_id = (
-            int(publication.recovery_run["op_id"]),
-            int(publication.recovery_run["id"]),
-        )
+        op_id = int(publication.recovery_run["op_id"])
+        run_id = int(publication.recovery_run["id"])
     else:
         op_id = project.append_op(
             params.action_kind,
-            {
-                "kind": params.action_kind,
-                "request": params.request,
-                "execution_sources": _group_source_binding(resolved),
-            },
-            label=f"reduce.group_summary {params.target_sheet_name}",
-        )
-        run_id = run_store.start_run(
-            op_id,
-            int(resolved["sheet_id"]),
-            params.action_kind,
-            model=params.model,
-            prompt_hash=_reduce_group_summary_prompt_hash(params),
-            params={},
-            total_rows=len(resolved["groups"]),
-            cost_estimate=estimate["cost"],
-        )
-    try:
-        commitment = mint_direct_effect_attempt(
-            project,
-            action_kind=params.action_kind,
-            run_id=run_id,
-            scope=tuple(int(row_id) for row_id in resolved["source_row_ids"]),
-            claim_token=publication.recovery_claim_token(),
-        )
-    except AttemptClaimRefused as exc:
-        return ActionError(
-            code="model_run_failed",
-            message=str(exc),
-            action_kind=params.action_kind,
-            details={"retryable": True},
-        )
-    envelope = {
-        "op_id": op_id,
-        "run_id": run_id,
-        "attempt_id": commitment.attempt_id,
-    }
-    resolved["execution_effect"] = envelope
-    publication.start(resolved, envelope)
-    from frisket.execution.dispatch_control import RunDispatch
-
-    router = router.for_execution(
-        RunDispatch(
-            project, run_id, commitment.attempt_id, claim_token=publication.claim_token
-        )
-    )
-    recorder = _reduce_group_summary_trace_writer(project, params, run_id)
-    computations: list[dict[str, Any]] = []
-    for group in resolved["groups"]:
-        if publication.stopped():
-            break
-        saved = publication.saved(group)
-        if saved is not None:
-            computations.append(saved)
-            continue
-        messages = _reduce_group_summary_messages(params, group)
-        request = LLMRequest(
-            model=params.model,
-            messages=messages,
-        )
-        trace_record: list[dict[str, Any] | None] = [None]
-        try:
-            from frisket.engine.store.source_dependencies import (
-                require_execution_sources,
-            )
-
-            require_execution_sources(project, op_id)
-            response = await _complete_reduce_group_summary_call(
-                router,
-                recorder,
-                request,
-                trace_record,
-                publication,
-            )
-        except Exception as exc:  # noqa: BLE001 - per-group failure is persisted
-            computations.append(
-                {
-                    "group": {
-                        key: value for key, value in group.items() if key != "rows"
-                    },
-                    **_reduce_group_summary_failure_computation(params, router, exc),
-                    "direct_effect": envelope,
-                    "consumed_capture": resolved["consumed_capture"],
-                    "_trace_record": trace_record[0],
-                }
-            )
-            if not publication.publish(computations[-1]):
-                break
-            continue
-        computations.append(
-            {
-                "group": {key: value for key, value in group.items() if key != "rows"},
-                **_reduce_group_summary_response_computation(params.model, response),
-                "direct_effect": envelope,
-                "consumed_capture": resolved["consumed_capture"],
-                "_trace_record": trace_record[0],
-            }
-        )
-        if not publication.publish(computations[-1]):
-            break
-    return computations
-
-
-async def _complete_reduce_group_summaries_checkpointed(
-    project: Project,
-    params: GroupSummaryPlan,
-    resolved: dict[str, Any],
-    *,
-    router: ModelRouter,
-    publication,
-) -> list[dict[str, Any]] | ActionError:
-    from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-    from frisket.execution.attempt import AttemptClaimRefused
-    from frisket.execution.attempt_authority import mint_direct_effect_attempt
-
-    store = EffectCheckpointStore(project.db)
-    run_store = RunResultStore(project)
-    group_key = _reduce_group_summary_effect_group_key(params)
-
-    def plans():
-        return _reduce_group_summary_unit_plans(params, resolved)
-
-    plan_units = {plan["unit_key"] for plan in plans()}
-    existing = {
-        checkpoint["unit_key"]: checkpoint
-        for checkpoint in store.list_group(
-            family=_REDUCE_EFFECT_FAMILY, group_key=group_key
-        )
-    }
-
-    # Recovery decision tree, BEFORE any provider call or envelope mint: an
-    # ambiguous or drifted unit refuses the whole action by name.
-    stray = sorted(set(existing) - plan_units)
-    if stray:
-        return _reduce_effect_reconciliation_error(
-            "a prior reduce.group_summary invocation recorded paid effects for "
-            "groups this request no longer produces; refusing to abandon those "
-            "effects or call the provider again until they are reconciled"
-        )
-    for plan in plans():
-        checkpoint = existing.get(plan["unit_key"])
-        if checkpoint is None:
-            continue
-        if (
-            checkpoint["action_kind"] != params.action_kind
-            or checkpoint["identity"] != plan["identity"]
-        ):
-            return _reduce_effect_reconciliation_error(
-                "a prior group-summary effect was reserved for a different "
-                "request or source value; refusing to substitute the current "
-                "group or call the provider again"
-            )
-        if checkpoint["state"] == "reserved":
-            return _reduce_effect_reconciliation_error(
-                "a prior process may have reached the provider for this group, "
-                "but no response was durably recorded; refusing another call "
-                "until the effect is reconciled"
-            )
-        if checkpoint["state"] != "returned":
-            return _reduce_effect_reconciliation_error(
-                "a group-summary effect checkpoint has an invalid state; "
-                "refusing another provider call until it is reconciled"
-            )
-        payload = checkpoint["payload"]
-        if (
-            not isinstance(payload, dict)
-            or not isinstance(payload.get("computation"), dict)
-            or not isinstance(payload.get("effect"), dict)
-        ):
-            return _reduce_effect_reconciliation_error(
-                "a returned group-summary effect checkpoint is incomplete or "
-                "corrupt; refusing another provider call until it is reconciled"
-            )
-
-    if plan_units:
-        # Preflight retains only keys/identities, never its last full prompt.
-        del plan
-
-    # The durable accounting envelope: reused from the crashed invocation's
-    # checkpoints when one exists (facts and spend already live on that run),
-    # minted fresh — BEFORE any egress — otherwise.
-    envelope: dict[str, Any] | None = (
-        {
-            "op_id": int(publication.recovery_run["op_id"]),
-            "run_id": int(publication.recovery_run["id"]),
-            "attempt_id": None,
-        }
-        if publication.recovery_run is not None
-        else None
-    )
-    for checkpoint in existing.values():
-        effect = (checkpoint["payload"] or {}).get("effect") or {}
-        run_id = effect.get("run_id")
-        op_id = effect.get("op_id")
-        if (
-            isinstance(run_id, int)
-            and isinstance(op_id, int)
-            and run_store.get_run(run_id) is not None
-        ):
-            envelope = {
-                "op_id": op_id,
-                "run_id": run_id,
-                "attempt_id": effect.get("attempt_id"),
-            }
-            break
-        return _reduce_effect_reconciliation_error(
-            "a returned group-summary effect checkpoint no longer names a "
-            "durable accounting run; refusing another provider call until it "
-            "is reconciled"
-        )
-    if envelope is None:
-        estimate = _estimate_reduce_group_summary_cost(params, resolved)
-        op_id = project.append_op(
-            params.action_kind,
             {**params.request, "execution_sources": _group_source_binding(resolved)},
-            label=f"reduce.group_summary {params.target_sheet_name}",
+            label=f"Grouped summary {params.target_sheet_name}",
         )
-        run_id = run_store.start_run(
+        run_id = store.start_run(
             op_id,
-            int(resolved["sheet_id"]),
+            resolved["sheet_id"],
             params.action_kind,
+            action_version=program.version,
             model=params.model,
-            prompt_hash=_reduce_group_summary_prompt_hash(params),
+            prompt_hash=_text_hash(params.instruction),
             params={},
             total_rows=len(resolved["groups"]),
-            cost_estimate=estimate["cost"],
+            cost_estimate=_estimate_reduce_group_summary_cost(params, resolved)["cost"],
         )
-        envelope = {"op_id": op_id, "run_id": run_id, "attempt_id": None}
-
-    if resolved["groups"]:
-        try:
-            commitment = mint_direct_effect_attempt(
-                project,
-                action_kind=params.action_kind,
-                run_id=int(envelope["run_id"]),
-                scope=tuple(int(row_id) for row_id in resolved["source_row_ids"]),
-                claim_token=publication.recovery_claim_token(),
-            )
-        except AttemptClaimRefused as exc:
-            return ActionError(
-                code="model_run_failed",
-                message=str(exc),
-                action_kind=params.action_kind,
-                details={"retryable": True},
-            )
-        envelope["attempt_id"] = commitment.attempt_id
-
-    resolved["execution_effect"] = envelope
-    publication.start(resolved, envelope)
-    # The attempt covers both provider dispatch and the later project-result
-    # transaction. It must remain dispatching until that transaction commits:
-    # otherwise the effect-site fence would correctly reject its own writer.
-    computations = await _reduce_group_summary_checkpointed_loop(
-        params,
-        plans,
-        existing,
-        envelope=envelope,
-        group_key=group_key,
-        publication=publication,
-        store=store,
-        run_store=run_store,
-        router=router,
-        recorder=_reduce_group_summary_trace_writer(
-            project, params, int(envelope["run_id"])
-        ),
+    composition = open_execution_composition(
+        project, router, ExecutionCompositionContext.direct()
     )
-    return computations
-
-
-async def _reduce_group_summary_checkpointed_loop(
-    params: GroupSummaryPlan,
-    plans: Callable[[], Iterator[dict[str, Any]]],
-    existing: dict[str, dict[str, Any]],
-    *,
-    envelope: dict[str, Any],
-    group_key: str,
-    store: Any,
-    run_store: RunResultStore,
-    router: ModelRouter,
-    recorder: TraceWriter | None,
-    publication,
-) -> list[dict[str, Any]] | ActionError:
-    from frisket.engine.store.effect_checkpoints import require_model_call_ids
-    from frisket.execution.dispatch_control import RunDispatch
-
-    router = router.for_execution(
-        RunDispatch(
-            run_store.project,
-            int(envelope["run_id"]),
-            str(envelope["attempt_id"]),
-            claim_token=publication.claim_token,
-        )
+    authority = AttemptAuthority(project, composition=composition)
+    commitment = authority.mint(
+        recipe=program,
+        spec=spec,
+        run_id=run_id,
+        scope=tuple(resolved["source_row_ids"]),
+    )
+    # The same writer owns deterministic membership and model results: one Undo.
+    claim(
+        project,
+        commitment,
+        claim_token=publication.recovery_claim_token(),
+        claimless_direct_effect=publication.recovery_claim_token() is None,
+    )
+    publication.start(
+        resolved,
+        {"op_id": op_id, "run_id": run_id, "attempt_id": commitment.attempt_id},
+    )
+    write = publication.write
+    spec["sheet_id"] = write.sheet_id
+    program.group_keys = {row_id: key for key, row_id in publication.positions.items()}
+    from frisket.engine.store.consumed_sources import (
+        capture_fingerprint,
+        row_capture,
+        store_capture,
     )
 
-    computations: list[dict[str, Any]] = []
-    for plan in plans():
-        if publication.stopped():
-            break
-        saved = publication.saved(plan["group"])
-        if saved is not None:
-            computations.append(saved)
-            continue
-        unit_effect = {
-            "family": _REDUCE_EFFECT_FAMILY,
-            "group_key": group_key,
-            "unit_key": plan["unit_key"],
-            "identity": plan["identity"],
-            **envelope,
-        }
-        prior = existing.get(plan["unit_key"])
-        if prior is not None:
-            replayed = dict(prior["payload"]["computation"])
-            replayed["group"] = plan["group"]
-            replayed["effect"] = {**unit_effect, "checkpoint_id": prior["id"]}
-            computations.append(replayed)
-            if not publication.publish(replayed):
-                break
-            continue
-
-        checkpoint_id = (
-            "reduce_effect_"
-            + hashlib.sha256(
-                f"{group_key}|{plan['unit_key']}".encode("utf-8")
-            ).hexdigest()
+    with project.transaction_scope():
+        store_capture(
+            project,
+            resolved["consumed_capture"],
+            owner_op_id=op_id,
+            output_sheet_id=write.sheet_id,
+            run_id=run_id,
+            shared=bool(write.row_ids),
         )
-        created = store.reserve(
-            checkpoint_id,
-            family=_REDUCE_EFFECT_FAMILY,
-            group_key=group_key,
-            unit_key=plan["unit_key"],
-            action_kind=params.action_kind,
-            identity=plan["identity"],
-            authorized_attempt_id=str(envelope["attempt_id"]),
-            payload={"effect": envelope, "consumed_capture": plan["consumed_capture"]},
-            run_id=int(envelope["run_id"]),
-            writer_attempt_id=str(envelope["attempt_id"]),
+    fingerprint = capture_fingerprint(resolved["consumed_capture"])
+
+    def read_inputs(row_id):
+        capture = row_capture(
+            sheet_id=write.sheet_id,
+            row_id=row_id,
+            source_cells={},
+            descriptors={},
+            revisions={},
+        )
+        capture["shared_inputs"] = [fingerprint]
+        group = resolved["groups"].by_identity(program.group_keys[row_id])
+        return RowInputValues(
+            {"messages": group_summary_messages(params.instruction, group)},
+            source_cells_empty=False,
+            consumed_capture=capture,
+        )
+
+    prepared = PreparedRun(
+        recipe=program,
+        sheet_id=write.sheet_id,
+        col_map={},
+        row_ids=write.row_ids,
+        out_cols={
+            params.summary_column_name: write.column_ids[params.summary_column_name]
+        },
+        output_fields=tuple(program.output_fields(spec)),
+        created_output_column_ids=frozenset()
+        if params.refresh_target
+        else frozenset([write.column_ids[params.summary_column_name]]),
+        op_id=op_id,
+        run_id=run_id,
+        row_count=len(write.row_ids),
+        run_scope_run_id=run_id,
+        read_inputs=read_inputs,
+    )
+    runner = MapRunner(
+        project,
+        router,
+        authority=authority,
+        execution_composition=composition,
+        defer_cancel_terminal_close=True,
+    )
+    async with publication.provider_lease():
+        progress = await runner.run(
+            spec,
+            prepared_run=prepared,
+            admitted_attempt=commitment,
+            dispatch_claimed=True,
             claim_token=publication.claim_token,
-            claimless_direct_effect=False,
+            defer_attempt_close=True,
+            defer_generation_seal=True,
+            defer_output_publication=False,
         )
-        if not created:
-            return _reduce_effect_reconciliation_error(
-                "a concurrent invocation reserved this group's effect first; "
-                "refusing to race it with another provider call"
-            )
-
-        request = LLMRequest(
-            model=params.model,
-            messages=plan["messages"],
-        )
-        trace_record: list[dict[str, Any] | None] = [None]
-        unresolved = False
-        task_cancellation = None
-        try:
-            from frisket.engine.store.source_dependencies import (
-                require_execution_sources,
-            )
-
-            require_execution_sources(run_store.project, int(envelope["op_id"]))
-            response = await _complete_reduce_group_summary_call(
-                router,
-                recorder,
-                request,
-                trace_record,
-                publication,
-            )
-        except (Exception, asyncio.CancelledError) as exc:
-            unresolved = bool(getattr(exc, "post_egress_ambiguous", False))
-            wires = list(getattr(exc, "wire_calls", ()) or ())
-            if isinstance(exc, asyncio.CancelledError):
-                if not wires:
-                    raise
-                task = asyncio.current_task()
-                if task is not None and task.cancelling():
-                    task_cancellation = exc
-                computation = {
-                    "summary": None,
-                    "error": (
-                        "Model work was interrupted before the next request."
-                        if task_cancellation is not None
-                        else "Run stopped before the next model request."
-                    ),
-                    "error_code": "model_call_interrupted"
-                    if task_cancellation is not None
-                    else "cancelled",
-                    **wire_accounting_meta(params.model, wires),
-                }
-            else:
-                computation = _reduce_group_summary_failure_computation(
-                    params, router, exc
-                )
-        else:
-            wires = wire_responses([response])
-            computation = _reduce_group_summary_response_computation(
-                params.model, response
-            )
-        # Every known purchase is accrued in this same returned checkpoint,
-        # including a paid failure. Replay contains no second charge/fact.
-        preserved = {
-            call["id"]
-            for wire in wires
-            if wire.actual_accounting is not None
-            for call in wire.actual_accounting.model_calls
-        }
-        calls = computation.get("model_calls", [])
-        base_id = (
-            f"reduce_group_summary_{int(envelope['run_id'])}_"
-            + hashlib.sha256(
-                f"{group_key}|{plan['unit_key']}|{plan['identity']}".encode("utf-8")
-            ).hexdigest()
-        )
-        for number, call in enumerate(calls):
-            if call["id"] not in preserved:
-                call["id"] = f"{base_id}_{number}"
-            call["run_id"] = int(envelope["run_id"])
-        accounting_batch = [{"row_id": None, "column_id": None, "model_calls": calls}]
-        require_model_call_ids(accounting_batch)
-        if unresolved:
-            # Earlier known usage is independent of the unresolved final request.
-            # Keep its reservation so recovery cannot buy that request again.
-            run_store.write_returned_call_accounting(
-                int(envelope["run_id"]),
-                accounting_batch,
-                writer_attempt_id=str(envelope["attempt_id"]),
-                authorized_attempt_id=str(envelope["attempt_id"]),
-                claim_token=publication.claim_token,
-            )
-            if task_cancellation is not None:
-                raise task_cancellation
-            return _reduce_effect_reconciliation_error(
-                "The provider may have accepted this group's final request; known returned usage was retained, but refusing another submission until the unresolved request is reconciled."
-            )
-        replay_computation = {
-            **computation,
-            "consumed_capture": plan["consumed_capture"],
-            "cost": 0.0,
-            "model_calls": [],
-        }
-
-        def accrue(
-            checkpoint: dict[str, Any],
-            *,
-            _run_id: int = int(envelope["run_id"]),
-            _batch: list[dict[str, Any]] = accounting_batch,
-        ) -> float:
-            return run_store.write_returned_call_accounting(
-                _run_id,
-                _batch,
-                writer_attempt_id=str(envelope["attempt_id"]),
-                claim_token=publication.claim_token,
-                claimless_direct_effect=False,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
-                commit=False,
-            )
-
-        store.complete(
-            checkpoint_id,
-            family=_REDUCE_EFFECT_FAMILY,
-            group_key=group_key,
-            unit_key=plan["unit_key"],
+    if progress.halted_code:
+        return ActionError(
+            code=progress.halted_code,
+            message=progress.halted_reason,
             action_kind=params.action_kind,
-            identity=plan["identity"],
-            payload={"effect": envelope, "computation": replay_computation},
-            accrue=accrue,
-            run_id=int(envelope["run_id"]),
-            writer_attempt_id=str(envelope["attempt_id"]),
-            claim_token=publication.claim_token,
-            claimless_direct_effect=False,
         )
-        if task_cancellation is not None:
-            # Owner-task cancellation is an interruption, not an operator Stop
-            # or a failed group to publish. Its known purchases are durable now.
-            raise task_cancellation
-        computation = {
-            "group": {
-                key: value for key, value in plan["group"].items() if key != "rows"
-            },
-            **replay_computation,
-        }
-        computation["effect"] = {**unit_effect, "checkpoint_id": checkpoint_id}
-        computation["_trace_record"] = trace_record[0]
-        computations.append(computation)
-        if not publication.publish(computation):
-            break
-    return computations
+    computations = [
+        publication.saved({key: value for key, value in group.items() if key != "rows"})
+        for group in resolved["groups"]
+    ]
+    publication.completed = sum(item is not None for item in computations)
+    return [item for item in computations if item is not None]
 
 
 def _write_reduce_group_summary_result(
@@ -1252,13 +604,6 @@ def _write_reduce_group_summary_result(
     publication,
 ) -> ActionResult:
     authority_effect = publication.envelope
-    trace_run_id = (
-        int(authority_effect["run_id"])
-        if authority_effect is not None and authority_effect.get("run_id") is not None
-        else None
-    )
-    traces_bound = False
-
     if not any(
         item.get("error") for item in computations
     ) and publication.completed == len(resolved["groups"]):
@@ -1406,14 +751,6 @@ def _write_reduce_group_summary_result(
                 )
             )
         project.db.commit()
-        _write_reduce_group_summary_traces(
-            project,
-            params,
-            run_id,
-            summary_row_ids,
-            computations,
-        )
-        traces_bound = True
         return ActionResult(
             action=ActionIdentity(kind=action.kind, action_id=action_id),
             status=action_status,
@@ -1444,15 +781,6 @@ def _write_reduce_group_summary_result(
                 action_kind=action.kind,
             ),
         )
-    finally:
-        if not traces_bound and trace_run_id is not None:
-            _write_reduce_group_summary_traces(
-                project,
-                params,
-                trace_run_id,
-                None,
-                computations,
-            )
 
 
 def _reduce_group_summary_action_status(
@@ -1700,6 +1028,9 @@ def _reduce_group_summary_receipt(
             and len(typed_codes) == 1
         ):
             first = typed_provider_errors[0]
+            details = dict(RESUMABLE_PROVIDER_ERROR_DETAILS[first["error_code"]])
+            if first["error_code"] != "provider_rate_limited":
+                details["provider"] = params.model.split("/", 1)[0]
             errors.append(
                 ActionError(
                     code=str(first["error_code"]),
@@ -1708,7 +1039,7 @@ def _reduce_group_summary_receipt(
                         or "provider capacity is temporarily unavailable"
                     ),
                     action_kind=action.kind,
-                    details=dict(first.get("error_details") or {}),
+                    details=details,
                 )
             )
         else:

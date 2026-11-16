@@ -18,7 +18,7 @@ from frisket.engine.store.derived_updates import (
     reconcile_rows_into_open_change,
     refresh_config,
 )
-from frisket.engine.store.keyed_updates import observation, observe, reconcile_fields
+from frisket.engine.store.keyed_updates import observation
 from frisket.engine.store.materialization import (
     AggregateColumnSpec,
     AggregateSheetPlan,
@@ -30,7 +30,6 @@ from frisket.engine.store.materialization import (
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.runner.result_generations import _compatibility_key
 
 
 _PROVIDER_LEASE_RENEW_SECONDS = 60.0
@@ -52,7 +51,6 @@ class GroupPublication:
         self.envelope = None
         self.completed = 0
         self.recovery_run = recovery_run
-        self.saved_capture = None
         self._lease_failure = None
 
     def recovery_claim_token(self):
@@ -151,6 +149,7 @@ class GroupPublication:
         op_spec["params"].pop("confirmed", None)
         op_spec["params"].pop("consented_promise_set_hash", None)
         op_spec["params_hash"] = self.params_hash
+        op_spec["deferred_publication"] = True
         op_spec["refresh_receipt_id"] = self.receipt_id
         op_spec["execution_sources"] = _group_source_binding(resolved)
         self.op_spec = op_spec
@@ -180,9 +179,10 @@ class GroupPublication:
                 )
             )
         self.stage.seal()
-        if self.recovery_run is not None and ResultGenerationStore(
-            project
-        ).bindings_for_run(run_id):
+        if (
+            self.recovery_run is not None
+            and RunResultStore(project).run_row_scope_count(run_id) is not None
+        ):
             self._resume(resolved, envelope)
             return
         db.execute("BEGIN IMMEDIATE")
@@ -351,26 +351,6 @@ class GroupPublication:
                 ],
             )
             store.record_run_row_scope(run_id, rows)
-            field = {"name": params.summary_column_name, "column_type": "text"}
-            ResultGenerationStore(project).declare(
-                run_id,
-                write.column_ids[params.summary_column_name],
-                output_role="summary",
-                compatibility_key=_compatibility_key(field=field),
-                write_mode="replace_scope" if params.refresh_target else "create",
-                claim_token=self.claim_token,
-                commit=False,
-            )
-            from frisket.engine.store.consumed_sources import store_capture
-
-            if isinstance(resolved.get("consumed_capture"), dict):
-                store_capture(
-                    project,
-                    resolved["consumed_capture"],
-                    owner_op_id=op_id,
-                    output_sheet_id=write.sheet_id,
-                    run_id=run_id,
-                )
             db.commit()
         except BaseException:
             db.rollback()
@@ -519,8 +499,8 @@ class GroupPublication:
         project, db, params = self.project, self.project.db, self.params
         op_id, run_id = int(envelope["op_id"]), int(envelope["run_id"])
         ChangeStore(project).require_publication(op_id)
-        binding = ResultGenerationStore(project).bindings_for_run(run_id)[0]
-        if binding.state == "sealed":
+        bindings = ResultGenerationStore(project).bindings_for_run(run_id)
+        if any(binding.state == "sealed" for binding in bindings):
             raise ValueError("A closed grouped generation cannot resume")
         run = RunResultStore(project).get_run(run_id)
         sheet_id = int(run["sheet_id"])
@@ -552,7 +532,6 @@ class GroupPublication:
             source_row_ids=[g["source_row_ids"] for g in resolved["groups"]],
             memberships=memberships,
         )
-        self.claim_token = binding.claim_token
         db.execute("BEGIN IMMEDIATE")
         try:
             self._acquire_writer()
@@ -560,19 +539,10 @@ class GroupPublication:
         except BaseException:
             db.rollback()
             raise
-        bundle = db.execute(
-            "SELECT capture_json FROM consumed_source_bundles WHERE run_id=? ORDER BY id LIMIT 1",
-            (run_id,),
-        ).fetchone()
-        self.saved_capture = json.loads(bundle[0]) if bundle is not None else None
-        self.completed = int(
-            db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=? AND column_id=?",
-                (run_id, binding.column_id),
-            ).fetchone()[0]
-        )
         if params.refresh_target:
-            self._recover_working_values(rows, binding.column_id, op_id)
+            self._recover_working_values(
+                rows, self.config["columns"][params.summary_column_name], op_id
+            )
 
     def _recover_working_values(self, rows, column_id, op_id):
         # The normal pending mask intentionally hides the previous working
@@ -601,11 +571,9 @@ class GroupPublication:
             )
 
     def saved(self, group):
-        from frisket.engine.store.value_codec import decode_stored_value
-
         row_id = self.positions[str(group["identity_key"])]
         result = self.project.db.execute(
-            "SELECT * FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+            "SELECT error,error_code FROM results WHERE run_id=? AND row_id=? AND column_id=?",
             (
                 self.envelope["run_id"],
                 row_id,
@@ -616,169 +584,9 @@ class GroupPublication:
             return None
         return {
             "group": group,
-            "summary": decode_stored_value(result["value_kind"], result["value"]),
             "error": result["error"],
             "error_code": result["error_code"],
-            "tokens_in": result["tokens_in"],
-            "tokens_out": result["tokens_out"],
-            "cost": 0.0,
-            "model_calls": [],
-            "consumed_capture": self.saved_capture,
-            "direct_effect": self.envelope,
         }
-
-    def publish(self, computation):
-        project, params, db = self.project, self.params, self.project.db
-        run_id = int(self.envelope["run_id"])
-        attempt = str(self.envelope["attempt_id"])
-        row_id = self.positions[str(computation["group"]["identity_key"])]
-        column_id = self.write.column_ids[params.summary_column_name]
-        store = RunResultStore(project)
-        db.execute("BEGIN IMMEDIATE")
-        try:
-            if self.stopped():
-                calls = computation.get("model_calls", [])
-                if calls:
-                    store.write_returned_call_accounting(
-                        run_id,
-                        [
-                            {
-                                "row_id": row_id,
-                                "column_id": column_id,
-                                "model_calls": calls,
-                            }
-                        ],
-                        writer_attempt_id=attempt,
-                        claim_token=self.claim_token,
-                        claimless_direct_effect=False,
-                        authorized_attempt_id=attempt,
-                        commit=False,
-                    )
-                    computation["model_calls"] = []
-                db.commit()
-                return False
-            self._require_writer()
-            error = computation.get("error")
-            value = computation.get("summary")
-            effect = (
-                "publish_error"
-                if error
-                else "publish_null"
-                if value is None
-                else "publish_value"
-            )
-            if params.refresh_target:
-                current, baseline, hidden = self.before[row_id]
-                field = str(column_id)
-                changes, restore = reconcile_fields(
-                    current,
-                    {field: value},
-                    baseline,
-                    params.refresh_target.policy,
-                    deleted=hidden,
-                )
-                if restore:
-                    from frisket.engine.store.derived_updates import (
-                        restore_derived_rows,
-                    )
-
-                    restore_derived_rows(
-                        db,
-                        op_id=self.write.op_id,
-                        sheet_id=self.write.sheet_id,
-                        row_ids=[row_id],
-                    )
-                if field not in changes:
-                    effect = "retain"
-            result = {
-                "row_id": row_id,
-                "column_id": column_id,
-                "value": value,
-                "tokens_in": computation.get("tokens_in"),
-                "tokens_out": computation.get("tokens_out"),
-                "confidence": None,
-                "justification": None,
-                "error": error,
-                "error_code": computation.get("error_code"),
-                "cost": float(computation.get("cost") or 0),
-                "publication_effect": effect,
-            }
-            if computation.get("model_calls"):
-                result["model_calls"] = [
-                    {**call, "run_id": run_id, "row_id": row_id, "column_id": column_id}
-                    for call in computation["model_calls"]
-                ]
-
-            def publish_result(checkpoint=None):
-                authorized = (
-                    attempt
-                    if checkpoint is None
-                    else checkpoint["authorized_attempt_id"]
-                )
-                store.write_results(
-                    run_id,
-                    [result],
-                    writer_attempt_id=attempt,
-                    authorized_attempt_id=authorized,
-                    claim_token=self.claim_token,
-                    commit=False,
-                )
-                capture = computation.get("consumed_capture")
-                if isinstance(capture, dict):
-                    from frisket.engine.store.consumed_sources import (
-                        capture_fingerprint,
-                        store_capture,
-                    )
-
-                    known = db.execute(
-                        "SELECT 1 FROM consumed_source_bundles WHERE run_id=? AND input_fingerprint=? LIMIT 1",
-                        (run_id, capture_fingerprint(capture)),
-                    ).fetchone()
-                    if known is None:
-                        store_capture(
-                            project,
-                            capture,
-                            owner_op_id=self.write.op_id,
-                            output_sheet_id=self.write.sheet_id,
-                            run_id=run_id,
-                            row_id=row_id,
-                        )
-                if not error:
-                    observe(
-                        db,
-                        relationship_id=self.config["relationship_id"],
-                        row_id=row_id,
-                        key=str(computation["group"]["identity_key"]),
-                        incoming={str(column_id): value},
-                    )
-
-            effect = computation.get("effect")
-            if effect:
-                from frisket.engine.store.effect_checkpoints import (
-                    EffectCheckpointStore,
-                )
-
-                EffectCheckpointStore(db).consume_and_retire(
-                    str(effect["checkpoint_id"]),
-                    family=str(effect["family"]),
-                    group_key=str(effect["group_key"]),
-                    unit_key=str(effect["unit_key"]),
-                    action_kind=params.action_kind,
-                    identity=str(effect["identity"]),
-                    run_id=run_id,
-                    writer_attempt_id=attempt,
-                    claim_token=self.claim_token,
-                    finalize=publish_result,
-                    commit=False,
-                )
-            else:
-                publish_result()
-            db.commit()
-            self.completed += 1
-            return True
-        except BaseException:
-            db.rollback()
-            raise
 
     def complete_membership(self):
         if self.params.refresh_target is None or self.stopped():

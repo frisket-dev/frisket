@@ -504,9 +504,8 @@ def test_cached_strict_replay_writes_no_checkpoint(tmp_path) -> None:
 
 
 def test_reduce_family_checkpoints_cacheless_strict_replay(tmp_path) -> None:
-    from frisket.engine.executor.group_summary_runtime import (
-        _reduce_group_summary_effect_checkpoints_active,
-    )
+    from frisket.engine.runner.network_policy import row_effect_spends_or_meters
+    from frisket.engine.executor.group_summary_program import GroupSummaryProgram
     from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
 
     params = GroupSummaryPlan(
@@ -525,5 +524,7 @@ def test_reduce_family_checkpoints_cacheless_strict_replay(tmp_path) -> None:
     )
     cacheless, _ = _strict_router(cache=None)
     cached, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
-    assert _reduce_group_summary_effect_checkpoints_active(params, cacheless) is True
-    assert _reduce_group_summary_effect_checkpoints_active(params, cached) is False
+    program = GroupSummaryProgram(params, None)
+    spec = {"model": REMOTE_MODEL, "action_kind": "reduce.group_summary"}
+    assert row_effect_spends_or_meters(program, spec, cacheless) is True
+    assert row_effect_spends_or_meters(program, spec, cached) is False

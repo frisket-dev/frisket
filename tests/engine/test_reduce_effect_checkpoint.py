@@ -24,9 +24,7 @@ from frisket.ai.llm.adapters import OpenAICompatAdapter
 from frisket.contracts.action import Receipt
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor import group_summary_runtime as reduces
-from frisket.engine.executor.group_summary_action import prepare_group_summary_action
 from frisket.engine.store import Project
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt import StaleAttemptWriter
@@ -410,38 +408,34 @@ def test_reduce_terminalizer_joins_materialization_transaction(
     )
 
 
-def test_reserved_reduce_checkpoint_refuses_resume(project) -> None:
-    """A ``reserved`` unit means a provider may have been reached with no
-    durable response: resume refuses by name and never calls out."""
+def test_reserved_reduce_checkpoint_refuses_resume(project, monkeypatch) -> None:
+    """An interrupted provider request uses the ordinary row reservation."""
+    from frisket.ai.llm import LLMError
 
-    provider = _CountingSummaryAdapter()
+    class Ambiguous(_CountingSummaryAdapter):
+        async def complete(self, req, client, **kwargs):
+            self.requests.append(req)
+            raise LLMError("response lost", post_egress_ambiguous=True, retryable=False)
+
+    provider = Ambiguous()
     router = _project_key_router(provider)
     action = _action(project._sheet_id, key="reduce_effects@sha256:reserved")
-
-    prepared = prepare_group_summary_action(project, typed_action_for_request(action))
-    params = prepared.operation
-    resolved = prepared.resolved
-    assert isinstance(resolved, dict)
-    plans = list(reduces._reduce_group_summary_unit_plans(params, resolved))
-    group_key = reduces._reduce_group_summary_effect_group_key(params)
-    store = EffectCheckpointStore(project.db)
-    assert store.reserve(
-        "cp-ambiguous-reduce-unit",
-        family="reduce_group_summary",
-        group_key=group_key,
-        unit_key=plans[0]["unit_key"],
-        action_kind="reduce.group_summary",
-        identity=plans[0]["identity"],
-    )
-
-    result = _run(project, action, router)
-    assert result.status == "failed"
-    assert result.errors[0].code == "external_effect_reconciliation_required"
-    assert provider.requests == []
-    # The ambiguous reservation is untouched: still an explicit
-    # possible-effect reconciliation record.
-    ambiguous = store.get("cp-ambiguous-reduce-unit")
-    assert ambiguous is not None and ambiguous["state"] == "reserved"
+    first = _run(project, action, router)
+    assert first.status == "failed"
+    assert first.errors[0].code == "external_effect_reconciliation_required"
+    reserved = [
+        dict(row) for row in project.db.execute("SELECT * FROM effect_checkpoints")
+    ]
+    assert len(reserved) == 1
+    assert reserved[0]["family"] == "row_effect"
+    assert reserved[0]["state"] == "reserved"
+    second = _run(project, action, router)
+    assert second.status == "failed"
+    assert second.errors[0].code == "external_effect_reconciliation_required"
+    assert len(provider.requests) == 1
+    assert [
+        dict(row) for row in project.db.execute("SELECT * FROM effect_checkpoints")
+    ] == reserved
 
 
 def test_free_local_reduce_effect_makes_no_checkpoints(project) -> None:
@@ -516,17 +510,17 @@ from pathlib import Path
 sys.path[:0]=[sys.argv[3],str(Path(sys.argv[3]).parent)]
 from test_reduce_effect_checkpoint import _CountingSummaryAdapter,_project_key_router,_run
 from frisket.engine.store import Project
-from frisket.engine.executor.group_summary_publication import GroupPublication
+from frisket.engine.store.runs import RunResultStore
 p=Project(Path(sys.argv[1]))
-original=GroupPublication.publish
+original=RunResultStore.publish_result_batch
 count=0
-def publish(self,value):
+def publish(self,*args,**kwargs):
  global count
  count+=1
  if count == 2:
   os.kill(os.getpid(),signal.SIGKILL)
- return original(self,value)
-GroupPublication.publish=publish
+ return original(self,*args,**kwargs)
+RunResultStore.publish_result_batch=publish
 _run(p,{'action_id':'sheet.refresh','scope':{'kind':'project'},'params':{'sheet_id':int(sys.argv[2])},'idempotency_key':'killed-refresh'},_project_key_router(_CountingSummaryAdapter()))
 raise RuntimeError('death hook was not reached')
 """)

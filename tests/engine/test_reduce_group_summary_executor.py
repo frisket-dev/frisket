@@ -1107,7 +1107,7 @@ def test_model_failure_writes_failed_receipt_and_replays_it(
         assert trace is not None
         assert len(trace["rows"]) == 2
         assert {row["error"] for row in trace["rows"]} == {
-            "summary provider unavailable"
+            "model_error: summary provider unavailable"
         }
         assert all(
             "summary provider unavailable" in row["calls"][0]["error"]

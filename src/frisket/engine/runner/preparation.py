@@ -7,7 +7,7 @@ handling for atomic-output-column recipes)."""
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,6 +46,8 @@ class PreparedRun:
     row_count: int
     resolution_bound: bool = False
     run_scope_run_id: int | None = None
+    # A derived row may consume a bounded group instead of cells on itself.
+    read_inputs: Callable[[int], dict[str, Any]] | None = None
 
 
 def _created_output_column_ids(project: Project, op_id: int) -> frozenset[int]:

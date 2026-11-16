@@ -796,6 +796,25 @@ class RunResultStore:
         if commit:
             self.db.commit()
 
+    def retain_unpublished_result(
+        self, run_id: int, row_id: int, column_id: int
+    ) -> None:
+        """Keep the working cell while retaining the returned result for reapply.
+
+        Called inside result publication, before that transaction projects heads.
+        Already-published values cannot be rewritten through this evidence seam.
+        """
+        if not self.db.in_transaction:
+            raise RuntimeError("result retention requires its publication transaction")
+        self._require_run_sheet_mutable(run_id)
+        updated = self.db.execute(
+            "UPDATE results SET publication_effect='retain' "
+            "WHERE run_id=? AND row_id=? AND column_id=? AND published=0",
+            (run_id, row_id, column_id),
+        )
+        if updated.rowcount != 1:
+            raise ValueError("only an unpublished result can retain its working cell")
+
     def withhold_result_value(
         self,
         run_id: int,

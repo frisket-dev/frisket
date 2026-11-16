@@ -49,18 +49,17 @@ sys.path[:0]=[sys.argv[3],str(Path(sys.argv[3]).parent)]
 from test_reduce_effect_checkpoint import _CountingSummaryAdapter,_project_key_router,_run
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.executor.group_summary_publication import GroupPublication
 p=Project(Path(sys.argv[1]))
-publish=GroupPublication.publish
+publish=RunResultStore.publish_result_batch
 count=0
-def stop(self,value):
+def stop(self,run_id,*args,**kwargs):
  global count
  count+=1
  if count == 2:
-  assert RunResultStore(p).request_cancel(self.envelope['run_id'])
+  assert RunResultStore(p).request_cancel(run_id)
   os.kill(os.getpid(),signal.SIGKILL)
- return publish(self,value)
-GroupPublication.publish=stop
+ return publish(self,run_id,*args,**kwargs)
+RunResultStore.publish_result_batch=stop
 _run(p,{'action_id':'sheet.refresh','scope':{'kind':'project'},'params':{'sheet_id':int(sys.argv[2])},'idempotency_key':'stopped-refresh'},_project_key_router(_CountingSummaryAdapter()))
 raise RuntimeError('death hook not reached')
 """)

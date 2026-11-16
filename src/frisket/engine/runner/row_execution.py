@@ -591,7 +591,7 @@ async def llm_row(
             ),
             recipe_version=recipe.version,
         )
-        row_data = resp.data
+        row_data = recipe.model_response_data(resp, spec)
         wire_responses = [resp]
     else:
         result = await StructuredCompleter(router).complete(
