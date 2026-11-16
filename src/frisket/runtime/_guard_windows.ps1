@@ -113,8 +113,8 @@ public static class FrisketWindowsGuard {
                             runtimeExclusive ? FileAccess.ReadWrite : FileAccess.Read,
                             runtimeExclusive ? FileShare.None : FileShare.Read);
                     } catch (IOException error) {
-                        int code = error.HResult & 0xffff;
-                        if (code != 32 && code != 33) throw;
+                        int sharingError = error.HResult & 0xffff;
+                        if (sharingError != 32 && sharingError != 33) throw;
                         Thread.Sleep(50);
                     }
                 }

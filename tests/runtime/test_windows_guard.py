@@ -102,6 +102,55 @@ def test_windows_private_runtime_controller_requires_guardian_cleanup_proof(
     assert not control.exists()
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows installer guardian")
+def test_windows_installer_guard_compiles_and_releases_exclusive_lease(tmp_path):
+    """Exercise the install path with diagnostics, without downloading a model."""
+    from filelock import FileLock, Timeout
+    from frisket.runtime._environment_use import LOCK_NAME
+    from frisket.runtime.supervisor import spawn_service, stop_service
+
+    ready = tmp_path / "installer-started"
+    process = spawn_service(
+        [
+            sys.executable,  # subprocess-boundary: actual installer Job and runtime lease.
+            "-I",
+            "-c",
+            "import pathlib,sys; pathlib.Path(sys.argv[1]).touch(); "
+            "sys.stdin.buffer.read(); sys.exit(7)",
+            str(ready),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        runtime_root=tmp_path,
+        runtime_ready=False,
+        runtime_exclusive=True,
+    )
+    try:
+        # Compilation errors must retain their actual PowerShell diagnostics.
+        deadline = time.monotonic() + 30
+        while not ready.exists():
+            if process.poll() is not None:
+                _, error = process.communicate(timeout=5)
+                pytest.fail(
+                    "installer guardian failed to start: "
+                    + error.decode(errors="replace")
+                )
+            if time.monotonic() >= deadline:
+                pytest.fail("installer guardian did not start within 30 seconds")
+            time.sleep(0.02)
+        with pytest.raises(Timeout):
+            FileLock(tmp_path / LOCK_NAME, timeout=0).acquire()
+        _, error = process.communicate(timeout=30)
+        assert process.returncode == 7, error.decode(errors="replace")
+        stop_service(process)
+        with FileLock(tmp_path / LOCK_NAME, timeout=0):
+            pass
+    finally:
+        if process.poll() is None:
+            stop_service(process)
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows runtime leases")
 def test_windows_private_service_holds_usage_until_verified_stop(tmp_path, monkeypatch):
     import venv
