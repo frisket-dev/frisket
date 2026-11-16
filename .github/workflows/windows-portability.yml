@@ -38,7 +38,7 @@ jobs:
         env:
           PYTHONPATH: desktop/resources/python
           PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
-        run: >-
-          uv run --no-project --with-requirements desktop/resources/requirements.txt
-          --with pytest==9.0.3 python -m pytest --confcutdir tests/runtime
-          -o addopts= -vv tests/runtime/test_windows_guard.py
+        shell: pwsh
+        run: |
+          uv run --no-project --with-requirements desktop/resources/requirements.txt --with pytest==9.0.3 python -c "import pathlib,frisket,frisket.engine.sandbox,platformdirs,importlib.metadata as m; print('packaged Core:',frisket.__file__); print('platformdirs:',platformdirs.__file__); print('pytest entrypoints:',[(e.name,e.value,str(e.dist._path)) for e in m.entry_points(group='pytest11')]); assert pathlib.Path(frisket.__file__).resolve().is_relative_to(pathlib.Path('desktop/resources/python').resolve())"
+          uv run --no-project --with-requirements desktop/resources/requirements.txt --with pytest==9.0.3 python -m pytest --confcutdir tests/runtime -o addopts= -vv tests/runtime/test_windows_guard.py
