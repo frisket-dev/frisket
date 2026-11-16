@@ -575,7 +575,7 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
         assert document["recap_available"] is True
         assert document["matched_keywords"] == ["injunction"]
         assert "media" not in document
-        assert _table_count(project, "source_items") == 6
+        assert _table_count(project, "keyed_observations") == 6
         assert _table_count(project, "blobs") == 0
         assert "agency" not in _columns(project, sheet_id)
 
@@ -630,12 +630,12 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
             f"courtlistener:recap_document:{DOCKET_ID}:7002",
         ]
         assert rows[-2]["matched_keywords"] == ["settlement"]
-        assert _table_count(project, "source_items") == 8
+        assert _table_count(project, "keyed_observations") == 8
         assert _table_count(project, "blobs") == 0
 
         stable_rows = dict(
             project.db.execute(
-                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
                 (source_id,),
             )
         )
@@ -663,7 +663,7 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
         assert third_run["revisions"] == 0
         after_rows = dict(
             project.db.execute(
-                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
                 (source_id,),
             )
         )

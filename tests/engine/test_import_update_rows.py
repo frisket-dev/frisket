@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -440,3 +441,86 @@ def test_direct_update_publication_failure_closes_its_reserved_receipt(
         project_id="p",
     )
     assert next_result.status == "completed"
+
+
+@pytest.mark.parametrize("policy", ["keep_changes", "incoming_wins"])
+def test_keyed_import_restores_only_changed_source_and_undo_hides_again(
+    tmp_path, policy
+):
+    from frisket.engine.store.keyed_updates import observation
+
+    with closing(Project.create(tmp_path / "restore.frisket")) as project:
+        sheet, columns, rows = _seed(project)
+        params = _params([{"id": "a", "name": "first"}])
+        params.relationship_id = "import:restore"
+        first = run_action_spec(
+            project, _request(sheet, params, "first"), project_id="p"
+        )
+        assert first.status == "completed"
+        deleted = run_action_spec(
+            project,
+            {
+                "action_id": "row.delete",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet, "row_ids": [rows[0]]},
+                "idempotency_key": "delete",
+            },
+            project_id="p",
+        )
+        assert deleted.status == "completed"
+        repeated = run_action_spec(
+            project, _request(sheet, params, "repeat"), project_id="p"
+        )
+        assert repeated.status == "completed" and repeated.op_ids == []
+        params.rows = [{"id": "a", "name": "changed"}]
+        params.update_policy = policy
+        result = run_action_spec(
+            project, _request(sheet, params, "changed"), project_id="p"
+        )
+        assert result.status == "completed", result.errors
+        assert (
+            observation(project.db, "import:restore", rows[0])[str(columns["name"])]
+            == "changed"
+        )
+        hidden = project.db.execute(
+            "SELECT hidden FROM rows WHERE id=?", (rows[0],)
+        ).fetchone()[0]
+        assert hidden == (policy == "keep_changes")
+        if policy == "incoming_wins":
+            assert project.get_values(sheet, columns["name"])[rows[0]] == "changed"
+            assert project.undo() == result.op_ids[0]
+            assert (
+                project.db.execute(
+                    "SELECT hidden FROM rows WHERE id=?", (rows[0],)
+                ).fetchone()[0]
+                == 1
+            )
+        else:
+            assert result.op_ids == []
+
+
+def test_keyed_import_rechecks_target_identity_after_indexing(tmp_path, monkeypatch):
+    import frisket.engine.jobs.import_table as table_job
+
+    with closing(Project.create(tmp_path / "rekey.frisket")) as project:
+        sheet, columns, rows = _seed(project)
+        original = table_job.publish_keyed_page
+
+        def rekey_then_publish(*args, **kwargs):
+            project.apply_edits(
+                [{"row_id": rows[0], "column_id": columns["id"], "value": "renamed"}]
+            )
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(table_job, "publish_keyed_page", rekey_then_publish)
+        result = run_action_spec(
+            project,
+            _request(sheet, _params([{"id": "a", "name": "must not land"}])),
+            project_id="p",
+        )
+        assert result.status == "completed", result.errors
+        assert project.get_values(sheet, columns["name"])[rows[0]] == "Alice"
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM keyed_observations").fetchone()[0]
+            == 0
+        )

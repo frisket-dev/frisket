@@ -474,7 +474,7 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
         assert receipt["provider_use"][0]["service"] == "fake-yt-dlp"
         assert receipt["provider_use"][0]["source_kind"] == YOUTUBE_CHANNEL_KIND
         assert receipt["provider_use"][0]["download"] is False
-        assert _table_count(project, "source_items") == 2
+        assert _table_count(project, "keyed_observations") == 2
         assert _table_count(project, "blobs") == 0
 
         second = run_action_spec(
@@ -506,7 +506,7 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
 
         stable_rows = dict(
             project.db.execute(
-                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
                 (source_id,),
             )
         )
@@ -534,7 +534,7 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
         assert third_run["revisions"] == 0
         after_rows = dict(
             project.db.execute(
-                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
                 (source_id,),
             )
         )
@@ -545,13 +545,7 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
             "Beta channel upload revised",
             "Gamma channel upload",
         ]
-        beta_item = project.db.execute(
-            "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key=?",
-            (source_id, "youtube:video:chanbeta22"),
-        ).fetchone()
-        assert beta_item is not None
-        assert beta_item["revision"] == 0
-        assert _table_count(project, "source_items") == 3
+        assert _table_count(project, "keyed_observations") == 3
         assert _table_count(project, "blobs") == 0
     finally:
         project.close()

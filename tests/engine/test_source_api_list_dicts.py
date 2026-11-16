@@ -276,7 +276,7 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
         assert receipt["provider_use"][0]["service"] == "https_get"
         assert receipt["provider_use"][0]["url_host"] == "data.example.gov"
         assert API_URL not in json.dumps(receipt["provider_use"])
-        assert _table_count(project, "source_items") == 2
+        assert _table_count(project, "keyed_observations") == 2
         assert _table_count(project, "blobs") == 0
 
         second = run_action_spec(
@@ -308,7 +308,7 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
 
         stable_rows = dict(
             project.db.execute(
-                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
                 (source_id,),
             )
         )
@@ -336,7 +336,7 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
         assert third_run["revisions"] == 0
         after_rows = dict(
             project.db.execute(
-                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
                 (source_id,),
             )
         )
@@ -349,7 +349,7 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
         ]
         assert rows[1]["agency"] == "Records Office"
         assert "agency" in _columns(project, sheet_id)
-        assert _table_count(project, "source_items") == 3
+        assert _table_count(project, "keyed_observations") == 3
     finally:
         project.close()
 
@@ -459,7 +459,7 @@ def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
         )
 
         assert result.status == "completed", result.errors
-        assert _table_count(project, "source_items") == 10_001
+        assert _table_count(project, "keyed_observations") == 10_001
         assert sum(append_sizes) == 10_001
         assert len(append_sizes) < 50
         assert max(append_sizes) <= 1_000
@@ -608,7 +608,7 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
         assert "max_bytes=10" in failed.errors[0].message
         source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
         assert source_run["status"] == "error"
-        assert _table_count(failed_project, "source_items") == 0
+        assert _table_count(failed_project, "keyed_observations") == 0
         assert _receipt(failed_project, failed.receipt_id)["status"] == "failed"
     finally:
         failed_project.close()

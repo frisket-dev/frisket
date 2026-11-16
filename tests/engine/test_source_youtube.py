@@ -408,7 +408,7 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
         assert {"source_poll_run", "source_poll_rows", "source_poll_cursor"} <= {
             ref["kind"] for ref in refs
         }
-        assert _table_count(project, "source_items") == 2
+        assert _table_count(project, "keyed_observations") == 2
         assert _table_count(project, "blobs") == 0
 
         second = run_action_spec(
@@ -437,11 +437,11 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
             "alpha00123A",
             "beta001234B",
         ]
-        assert _table_count(project, "source_items") == 2
+        assert _table_count(project, "keyed_observations") == 2
 
         stable_rows = dict(
             project.db.execute(
-                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
                 (source_id,),
             )
         )
@@ -469,7 +469,7 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
         assert third_run["revisions"] == 0
         after_rows = dict(
             project.db.execute(
-                "SELECT dedupe_key,row_id FROM source_items WHERE source_id=?",
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
                 (source_id,),
             )
         )
@@ -480,13 +480,7 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
             "Beta press conference revised",
             "Gamma upload",
         ]
-        beta_item = project.db.execute(
-            "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key=?",
-            (source_id, "youtube:video:beta001234B"),
-        ).fetchone()
-        assert beta_item is not None
-        assert beta_item["revision"] == 0
-        assert _table_count(project, "source_items") == 3
+        assert _table_count(project, "keyed_observations") == 3
         assert _table_count(project, "blobs") == 0
     finally:
         project.close()

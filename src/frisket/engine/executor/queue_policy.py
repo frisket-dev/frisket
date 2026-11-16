@@ -77,7 +77,7 @@ INTENTIONALLY_DIRECT_V1_ACTIONS = MappingProxyType(
         ),
         "source.poll": DirectV1ActionPolicy(
             reason=(
-                "Generic source polling owns source_items/source_runs receipt "
+                "Generic source polling owns source_runs receipt "
                 "semantics and is invoked either directly for manual polls or "
                 "through the generic JobQueue's source.poll worker, not the "
                 "project.run MapRunner queue."

@@ -37,19 +37,14 @@ from frisket.engine.executor.action_lifecycle import (
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import (
-    BaseCellWrite,
     create_base_cell_producer,
-    replace_base_cells,
 )
-from frisket.engine.store.keyed_updates import (
-    ValidatedKeyedInput,
-    typed_key,
-    reconcile_fields,
-    observation,
-    observe,
-    require_relationship,
-    retained_hidden_targets,
+from frisket.engine.store.keyed_updates import ValidatedKeyedInput, typed_key
+from frisket.engine.store.keyed_publication import (
+    index_keyed_targets,
+    publish_keyed_records,
 )
+from frisket.engine.store.op_log import append_op, set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sources import SourceStore
 from frisket.server.sources.rss import ensure_rss_poller, rss_poller_for_fetch_override
@@ -530,10 +525,7 @@ def _materialize_registered_source_poll_in_txn(
     source_run_id: int,
     poll_result: SourcePollResult,
 ) -> dict[str, Any]:
-    """Materialize the polled rows on the core's open cursor. Mirrors the pre-migration
-    materialization but inlines the sheet/column/row/op writes (the `project.add_*`/
-    `append_op` helpers each self-commit, so they can't run inside the core's open txn) and
-    threads `commit=False` to the source-store writes; the core commits the whole txn."""
+    """Publish source rows and observations in the receipt owner's transaction."""
     source_id = int(source_before["id"])
     source_store = SourceStore(project)
     sheet_id = _source_poll_sheet_id_in_txn(project, cur, source_before)
@@ -566,15 +558,10 @@ def _materialize_registered_source_poll_in_txn(
             "duplicates_collapsed": 0,
         }
     relation = f"source:{source_id}"
-    require_relationship(
-        project.db,
-        relationship_id=relation,
-        sheet_id=sheet_id,
-        key_definition=[
-            (column_ids["source_id"], "integer"),
-            (column_ids["source_item_id"], "text"),
-        ],
-    )
+    key_definition = [
+        (column_ids["source_id"], "integer"),
+        (column_ids["source_item_id"], "text"),
+    ]
     policy = _source_config_dict(source_before.get("config")).get(
         "update_policy", "keep_changes"
     )
@@ -582,11 +569,31 @@ def _materialize_registered_source_poll_in_txn(
         raise ValueError("unknown source update policy")
     op_id = None
     producer_id = None
-    row_ids = []
-    enclosure_row_ids = []
-    new_rows = changed = skipped = duplicates_collapsed = 0
-    created_ids = []
-    restored_ids = []
+
+    def writer():
+        nonlocal op_id, producer_id
+        if op_id is None:
+            op_id = append_op(
+                project,
+                "source.poll",
+                {"source_id": source_id, "source_run_id": source_run_id},
+                label=f"source poll {source_before['name']}",
+                commit=False,
+            )
+            producer_id = create_base_cell_producer(
+                project.db, stage_id=f"op:{op_id}", op_id=op_id
+            )
+        return op_id, producer_id
+
+    def create_rows(ordinals, producer):
+        return project.add_rows(
+            sheet_id,
+            [records[ordinal - 1] for ordinal in ordinals],
+            column_ids,
+            producer_id=producer,
+            commit=False,
+        )
+
     with ValidatedKeyedInput() as staged:
         staged.stage(
             (
@@ -596,175 +603,36 @@ def _materialize_registered_source_poll_in_txn(
             for item, record in zip(poll_result.items, records, strict=True)
         )
         staged.seal()
-        visible = project.db.execute(
-            "SELECT id FROM rows WHERE sheet_id=? AND hidden=0 ORDER BY id", (sheet_id,)
+        index_keyed_targets(project, sheet_id, key_definition, staged)
+        publication = publish_keyed_records(
+            project,
+            sheet_id=sheet_id,
+            relationship_id=relation,
+            key_definition=key_definition,
+            columns=column_ids,
+            writable_columns=set(column_ids.values()),
+            staged=staged,
+            records=((item.ordinal, item.record) for item in staged.records()),
+            policy=policy,
+            writer=writer,
+            create_rows=create_rows,
+            preserve_invalid=True,
         )
-        while batch := visible.fetchmany(500):
-            batch_ids = [int(row[0]) for row in batch]
-            source_values = project.get_values(
-                sheet_id, column_ids["source_id"], batch_ids
-            )
-            key_values = project.get_values(
-                sheet_id, column_ids["source_item_id"], batch_ids
-            )
-            staged.add_targets(
-                (
-                    typed_key(
-                        [
-                            ("integer", source_values.get(row)),
-                            ("text", key_values.get(row)),
-                        ]
-                    ),
-                    row,
-                )
-                for row in batch_ids
-            )
-        # Resolve identity before publishing, then append new targets in bounded
-        # batches. Per-item add_rows repeats projection/search invalidation for
-        # every cell and makes an otherwise ordinary feed grow quadratically.
-        existing_targets: dict[int, list[int]] = {}
-        new_ordinals: list[int] = []
-        for staged_item in staged.records():
-            if staged_item.conflicting or staged_item.key is None:
-                continue
-            targets = staged.targets(staged_item.key)
-            if not targets:
-                targets = retained_hidden_targets(project.db, relation, staged_item.key)
-            existing_targets[staged_item.ordinal] = targets
-            if not targets:
-                new_ordinals.append(staged_item.ordinal)
-        new_targets: dict[int, int] = {}
-        if new_ordinals:
-            op_id = _append_source_poll_op_in_txn(
-                project,
-                cur,
-                {"source_id": source_id, "source_run_id": source_run_id},
-                label=f"source poll {source_before['name']}",
-            )
-            producer_id = create_base_cell_producer(
-                project.db, stage_id=f"op:{op_id}", op_id=op_id
-            )
-            for offset in range(0, len(new_ordinals), 500):
-                ordinals = new_ordinals[offset : offset + 500]
-                appended = _add_source_poll_rows_in_txn(
-                    project,
-                    sheet_id,
-                    [records[ordinal - 1] for ordinal in ordinals],
-                    column_ids,
-                    producer_id=producer_id,
-                )
-                new_targets.update(zip(ordinals, appended, strict=True))
-        for staged_item in staged.records():
-            duplicates_collapsed += max(0, staged_item.copies - 1)
-            if staged_item.conflicting or staged_item.key is None:
-                skipped += staged_item.copies
-                continue
-            targets = existing_targets[staged_item.ordinal]
-            if len(targets) > 1:
-                skipped += staged_item.copies
-                continue
-            target = targets[0] if targets else None
-            published = False
-            incoming = {
-                str(column_ids[name]): value
-                for name, value in staged_item.record.items()
-            }
-            baseline = (
-                observation(project.db, relation, target)
-                if target is not None
-                else None
-            )
-            item = poll_result.items[staged_item.ordinal - 1]
-            restored = False
-            if target is not None:
-                current = {}
-                for name, column in column_ids.items():
-                    values, refs = project.get_values_with_refs(
-                        sheet_id, column, [target], preserve_invalid=True
-                    )
-                    if (
-                        refs.get(target, {}).get("kind") != "missing"
-                        and target in values
-                    ):
-                        current[str(column)] = values[target]
-                hidden = bool(
-                    cur.execute(
-                        "SELECT hidden FROM rows WHERE id=?", (target,)
-                    ).fetchone()[0]
-                )
-                changes, restored = reconcile_fields(
-                    current, incoming, baseline, policy, deleted=hidden
-                )
-                if restored:
-                    cur.execute("UPDATE rows SET hidden=0 WHERE id=?", (target,))
-                    restored_ids.append(target)
-                if changes or restored:
-                    if op_id is None:
-                        op_id = _append_source_poll_op_in_txn(
-                            project,
-                            cur,
-                            {"source_id": source_id, "source_run_id": source_run_id},
-                            label=f"source poll {source_before['name']}",
-                        )
-                        producer_id = create_base_cell_producer(
-                            project.db, stage_id=f"op:{op_id}", op_id=op_id
-                        )
-                    if changes:
-                        replace_base_cells(
-                            project.db,
-                            producer_id=producer_id,
-                            column_ids=[int(key) for key in changes],
-                            row_ids=[target],
-                            cells=[
-                                BaseCellWrite(target, int(key), value)
-                                for key, value in changes.items()
-                            ],
-                        )
-                    row_ids.append(target)
-                    published = True
-                    changed += 1
-                else:
-                    skipped += 1
-            else:
-                target = new_targets[staged_item.ordinal]
-                row_ids.append(target)
-                published = True
-                created_ids.append(target)
-                new_rows += 1
-            observe(
-                project.db,
-                relationship_id=relation,
-                row_id=target,
-                key=staged_item.key,
-                incoming=incoming,
-            )
-            source_store.upsert_source_item(
-                source_id=source_id,
-                source_item_id=item.stable_item_id(),
-                dedupe_key=item.dedupe_key,
-                item_hash=item.stable_hash(),
-                row_id=target,
-                source_run_id=source_run_id,
-                raw_ref=_source_item_raw_ref(item),
-                commit=False,
-            )
-            if published and (
-                item.row.get("enclosure_url") or item.row.get("enclosures")
-            ):
-                enclosure_row_ids.append(target)
-    if restored_ids:
-        from frisket.engine.store.changes import start_change
-        from frisket.engine.store.structural_changes import note_row_membership_change
-
-        start_change(project.db, op_id, writing=True)
-        note_row_membership_change(project.db, [sheet_id])
+    row_ids = list(publication.published.values())
+    enclosure_row_ids = [
+        row
+        for ordinal, row in publication.published.items()
+        if poll_result.items[ordinal - 1].row.get("enclosure_url")
+        or poll_result.items[ordinal - 1].row.get("enclosures")
+    ]
     if op_id is not None:
-        from frisket.engine.store.op_log import set_undo_info
-
         set_undo_info(
             project,
             op_id,
-            {"created_rows": created_ids, "restored_rows": restored_ids},
+            {
+                "created_rows": publication.created,
+                "restored_rows": publication.restored,
+            },
             commit=False,
         )
     return {
@@ -772,12 +640,12 @@ def _materialize_registered_source_poll_in_txn(
         "op_id": op_id,
         "row_ids": row_ids,
         "enclosure_row_ids": enclosure_row_ids,
-        "new_rows": new_rows,
-        "skipped_rows": skipped,
-        "changed_rows": changed,
+        "new_rows": len(publication.created),
+        "skipped_rows": publication.skipped,
+        "changed_rows": len(row_ids) - len(publication.created),
         "revisions": 0,
         "materialized_rows": len(row_ids),
-        "duplicates_collapsed": duplicates_collapsed,
+        "duplicates_collapsed": publication.duplicates_collapsed,
     }
 
 
@@ -938,34 +806,6 @@ def _source_poll_column_default_hidden(source_kind: str, name: str) -> bool:
     } and name not in (_MEDIA_VISIBLE_SOURCE_COLUMNS)
 
 
-def _append_source_poll_op_in_txn(
-    project: Project, cur: Any, spec: dict[str, Any], *, label: str
-) -> int:
-    from frisket.engine.store.op_log import append_op
-
-    return append_op(
-        project, "source.poll", spec, label=label, undo_info={}, commit=False
-    )
-
-
-def _add_source_poll_rows_in_txn(
-    project: Project,
-    sheet_id: int,
-    records: list[dict[str, Any]],
-    column_ids: dict[str, int],
-    *,
-    producer_id: int,
-) -> list[int]:
-    """Append the poll batch through the source-cell storage owner."""
-    return project.add_rows(
-        sheet_id,
-        records,
-        column_ids,
-        producer_id=producer_id,
-        commit=False,
-    )
-
-
 def _source_poll_row(
     source_id: int,
     source_run_id: int,
@@ -984,18 +824,6 @@ def _source_poll_row(
     if item.updated_at is not None:
         row.setdefault("updated_at", item.updated_at)
     return row
-
-
-def _source_item_raw_ref(item: SourcePollItem) -> dict[str, Any]:
-    return {
-        "source_item_id": item.stable_item_id(),
-        "dedupe_key": item.dedupe_key,
-        "item_hash": item.stable_hash(),
-        "url": item.url,
-        "raw": item.raw,
-        "media": item.media,
-        "artifacts": item.artifacts,
-    }
 
 
 def _source_poll_column_order(records: list[dict[str, Any]]) -> list[str]:

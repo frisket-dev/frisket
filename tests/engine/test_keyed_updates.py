@@ -283,3 +283,30 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         assert (
             project.get_values(sheet, title, [replacement])[replacement] == "new target"
         )
+
+        # One shared batch can change different columns without clearing the
+        # untouched coordinates in the cross-product of its rows and columns.
+        pair = poll(
+            [
+                SourcePollItem("item-b", {"title": "B", "note": "keep B"}),
+                SourcePollItem("item-c", {"title": "keep C", "note": "C"}),
+            ]
+        )
+        b, c = pair["row_ids"]
+        note = int(
+            project.db.execute(
+                "SELECT id FROM columns WHERE sheet_id=? AND name='note'", (sheet,)
+            ).fetchone()[0]
+        )
+        updated = poll(
+            [
+                SourcePollItem("item-b", {"title": "new B"}),
+                SourcePollItem("item-c", {"note": "new C"}),
+            ]
+        )
+        assert updated["row_ids"] == [b, c]
+        assert project.get_values(sheet, title, [b, c]) == {b: "new B", c: "keep C"}
+        assert project.get_values(sheet, note, [b, c]) == {b: "keep B", c: "new C"}
+        assert project.undo() == updated["op_id"]
+        assert project.get_values(sheet, title, [b, c]) == {b: "B", c: "keep C"}
+        assert project.get_values(sheet, note, [b, c]) == {b: "keep B", c: "C"}

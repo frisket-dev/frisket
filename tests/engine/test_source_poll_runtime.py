@@ -323,7 +323,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(tmp_path, fai
         assert "author failed after polling" not in json.dumps(receipt)
         assert "secret-author-detail-after-polling" not in json.dumps(receipt)
         assert "secret-author-detail-after-polling" not in run["error"]
-        assert _table_count(project, "source_items") == 0
+        assert _table_count(project, "keyed_observations") == 0
         assert _table_count(project, "ops") == 0
         artifacts = next(
             item["ref"]
@@ -409,7 +409,7 @@ def test_poll_publication_rolls_back_with_receipt_failure(tmp_path, monkeypatch)
         assert poller.calls == 1
         for table in (
             "source_runs",
-            "source_items",
+            "keyed_observations",
             "sheets",
             "columns",
             "rows",
@@ -568,7 +568,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert source_run["cost_micro"] == 12_000
             assert json.loads(source_run["cursor_after"]) == {"page": 1}
             assert json.loads(source_run["summary_json"])["materialized_rows"] == 2
-            assert _table_count(project, "source_items") == 2
+            assert _table_count(project, "keyed_observations") == 2
 
             receipt = _receipt(project, first.receipt_id)
             assert receipt["action_kind"] == "source.poll"
@@ -586,7 +586,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
 
             before_replay = {
                 table: _table_count(project, table)
-                for table in ("source_runs", "source_items", "rows", "receipts")
+                for table in ("source_runs", "keyed_observations", "rows", "receipts")
             }
             replay = run_action_spec(
                 project,
@@ -598,7 +598,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert poller.calls == 1
             assert {
                 table: _table_count(project, table)
-                for table in ("source_runs", "source_items", "rows", "receipts")
+                for table in ("source_runs", "keyed_observations", "rows", "receipts")
             } == before_replay
 
             poller.items = [
@@ -659,13 +659,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
                 "Gamma",
             ]
             assert len(_rows(project, sheet_id)) == 3
-            assert _table_count(project, "source_items") == 3
-            beta_item = project.db.execute(
-                "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key='b'",
-                (source_id,),
-            ).fetchone()
-            assert beta_item is not None
-            assert beta_item["revision"] == 0
+            assert _table_count(project, "keyed_observations") == 3
 
             poller.items = [
                 SourcePollItem(
@@ -693,12 +687,6 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
                 "Beta second revision",
                 "Gamma",
             ]
-            beta_item = project.db.execute(
-                "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key='b'",
-                (source_id,),
-            ).fetchone()
-            assert beta_item is not None
-            assert beta_item["revision"] == 0
 
             poller.fail = RuntimeError("provider down")
             failed = run_action_spec(
@@ -862,7 +850,7 @@ def test_source_poll_running_reservation_replays_without_provider_call(
             assert result.receipt_id == receipt.receipt_id
             assert poller.calls == 0
             assert _table_count(project, "source_runs") == 0
-            assert _table_count(project, "source_items") == 0
+            assert _table_count(project, "keyed_observations") == 0
         finally:
             project.close()
     finally:
@@ -932,7 +920,7 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
             assert poller.calls == 0
             assert _table_count(project, "receipts") == before_receipts
             assert _table_count(project, "source_runs") == 0
-            assert _table_count(project, "source_items") == 0
+            assert _table_count(project, "keyed_observations") == 0
             assert (
                 project.db.execute(
                     "SELECT id FROM receipts WHERE id=?",

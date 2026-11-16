@@ -1079,16 +1079,16 @@ def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
         published.append(kwargs["next_cursor"])
         return result
 
-    import frisket.engine.store.keyed_import as keyed_writer
+    import frisket.engine.store.keyed_publication as keyed_writer
 
-    original_observe = keyed_writer.observe
+    original_write = keyed_writer.replace_base_cells
 
-    def interrupted_observation(*args, **kwargs):
-        original_observe(*args, **kwargs)
+    def interrupted_write(*args, **kwargs):
+        original_write(*args, **kwargs)
         raise RuntimeError("crash after cell write and observation, before cursor")
 
     if fail_inside_page:
-        monkeypatch.setattr(keyed_writer, "observe", interrupted_observation)
+        monkeypatch.setattr(keyed_writer, "replace_base_cells", interrupted_write)
     else:
         monkeypatch.setattr(table_job, "publish_keyed_page", interrupted)
     with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
@@ -1145,7 +1145,7 @@ def test_keyed_table_worker_validates_whole_source_and_resumes_atomic_pages(
                     == "cancelled"
                 )
             return
-        monkeypatch.setattr(keyed_writer, "observe", original_observe)
+        monkeypatch.setattr(keyed_writer, "replace_base_cells", original_write)
         monkeypatch.setattr(table_job, "publish_keyed_page", original_publish)
         queue.enqueue(IMPORT_TABLE_STREAM_KIND, payload)
         assert Worker(queue, registry, worker_id="second").run_once()
