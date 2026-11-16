@@ -23,6 +23,7 @@ pytestmark = [
 def _ready(root):
     python = model_install._runtime_python(root)
     python.parent.mkdir(parents=True)
+    # subprocess-boundary: guarded children need an executable optional-runtime fixture.
     python.symlink_to(sys.executable)
     (root / ".ready").touch()
 
@@ -31,7 +32,7 @@ def _start(root):
     return subprocess.Popen(
         supervisor.guarded_argv(
             [
-                sys.executable,
+                sys.executable,  # subprocess-boundary: real children hold cross-process runtime leases.
                 "-c",
                 "import os,time; print(os.getpid(),flush=True); time.sleep(60)",
             ],
@@ -102,11 +103,12 @@ def test_guard_keeps_usage_lease_after_application_parent_death(tmp_path):
         f"sys.path.insert(0,{str(source)!r})\n"
         "from frisket.runtime.supervisor import guarded_argv\n"
         "target='import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print(os.getpid(),flush=True); time.sleep(60)'\n"
+        # subprocess-boundary: the guardian must retain its lease after its parent dies.
         "child=subprocess.Popen(guarded_argv([sys.executable,'-c',target],runtime_root=Path(sys.argv[1]),grace_seconds=1),stdout=subprocess.PIPE,text=True,start_new_session=True)\n"
         "print(child.stdout.readline().strip(),flush=True)\nos._exit(0)\n"
     )
     parent = subprocess.Popen(
-        [sys.executable, str(controller), str(tmp_path)],
+        [sys.executable, str(controller), str(tmp_path)],  # subprocess-boundary: kill the actual application parent.
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -182,9 +184,11 @@ def test_setup_children_retain_lease_after_owner_crash(tmp_path, operation):
         + (
             "model_install._probe_python(model_install.runtime_python(),target)\n"
             if operation == "verify"
+            # subprocess-boundary: a real setup child must outlive its owner while retaining the lease.
             else "model_install._run_uv([sys.executable,'-c',target],should_cancel=lambda:False,progress=lambda _:None,runtime_root=model_install.runtime_dir())\n"
         )
     )
+    # subprocess-boundary: terminate the setup owner to verify cross-process lease retention.
     parent = subprocess.Popen([sys.executable, str(controller)])
     try:
         deadline = time.monotonic() + 8

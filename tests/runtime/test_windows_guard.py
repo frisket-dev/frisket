@@ -19,7 +19,7 @@ def test_windows_guard_rejects_nonpositive_limits(limits):
     from frisket.runtime.supervisor import windows_guard_command
 
     with pytest.raises(ValueError, match="limit must be positive"):
-        windows_guard_command([sys.executable], **limits)
+        windows_guard_command(["unused-target"], **limits)
 
 
 def test_windows_failed_cleanup_preserves_control_for_deliberate_retry(

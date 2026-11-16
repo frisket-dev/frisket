@@ -21,6 +21,7 @@ def test_optional_runtime_identity_preserves_interpreter_symlink(tmp_path, monke
     python = model_install._runtime_python(root)
     python.parent.mkdir(parents=True)
     try:
+        # subprocess-boundary: interpreter symlink identity determines optional-runtime ownership.
         python.symlink_to(sys.executable)
     except OSError:
         pytest.skip("interpreter symlink requires Windows developer privileges")
