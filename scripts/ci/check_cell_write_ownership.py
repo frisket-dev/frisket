@@ -39,13 +39,13 @@ TABLE_OWNERS: Mapping[str, tuple[str, ...]] = {
         "src/frisket/execution/attempt.py",  # Mint, admit, claim, and explicit close.
         "src/frisket/engine/store/output_claims.py",  # Fenced dead-writer recovery.
         "src/frisket/engine/executor/project_run_terminalization.py",  # Pending closure.
-        "src/frisket/engine/store/domain_migration.py",  # Frozen stopped-work cutover.
+        "src/frisket/upgrades/project/domain_migration.py",  # Frozen stopped-work cutover.
     ),
     "cells": ("src/frisket/engine/store/cell_writes.py",),
     "edits": ("src/frisket/engine/store/cell_writes.py",),
     "current_cells": (
         "src/frisket/engine/store/current_cells.py",
-        "src/frisket/engine/store/historical_current_cells.py",  # Frozen pre-cutover migrations.
+        "src/frisket/upgrades/project/historical_current_cells.py",  # Frozen pre-cutover migrations.
         "src/frisket/engine/store/cell_projection.py",
     ),
     "base_cell_producers": ("src/frisket/engine/store/cell_writes.py",),
@@ -60,10 +60,10 @@ TABLE_OWNERS: Mapping[str, tuple[str, ...]] = {
 # Frozen one-time upgrades write preceding schemas, not current store commands.
 # Keep this list exact; it is not an exemption for arbitrary migration modules.
 for _table in ("cells", "base_cell_producers", "current_cells", "results"):
-    TABLE_OWNERS[_table] += ("src/frisket/engine/store/domain_migration.py",)
+    TABLE_OWNERS[_table] += ("src/frisket/upgrades/project/domain_migration.py",)
 for _table in ("cells", "base_cell_producers", "current_cells", "edits"):
     TABLE_OWNERS[_table] += (
-        "src/frisket/engine/store/domain_document_text_migration.py",
+        "src/frisket/upgrades/project/domain_document_text_migration.py",
     )
 
 # Additional owners scoped to DELETE only. Offline purge cannot insert/update
@@ -85,7 +85,7 @@ DELETE_OWNERS: Mapping[str, tuple[str, ...]] = {
 # narrower owners; e.g. Undo can request cancellation, never mark a run complete.
 _RUN_STORE = "src/frisket/engine/store/runs.py"
 _RUN_TERMINALIZER = "src/frisket/engine/executor/project_run_terminalization.py"
-_DOMAIN_MIGRATION = "src/frisket/engine/store/domain_migration.py"
+_DOMAIN_MIGRATION = "src/frisket/upgrades/project/domain_migration.py"
 RUN_FIELD_OWNERS: Mapping[str, tuple[str, ...]] = {
     "status": (_RUN_STORE, _RUN_TERMINALIZER, _DOMAIN_MIGRATION),
     "finished_at": (_RUN_STORE, _RUN_TERMINALIZER, _DOMAIN_MIGRATION),

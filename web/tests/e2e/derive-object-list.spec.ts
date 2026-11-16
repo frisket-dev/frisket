@@ -111,6 +111,7 @@ import sys
 from pathlib import Path
 from frisket.actions.system import typed_action_for_request
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter, ResponseCache, request_key
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.store import Project
 
@@ -201,7 +202,7 @@ try:
         },
     ]
     cache = ResponseCache(project.path / "project.cache.db")
-    router = ModelRouter(cache=cache, cache_mode="replay_strict", use_env_keys=False)
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache=cache, cache_mode="replay_strict", use_env_keys=False)
 
     async def prime_transport(req, *, recipe_version="1", trace=None, on_request=None):
         if on_request is not None:

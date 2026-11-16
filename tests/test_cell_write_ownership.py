@@ -38,6 +38,33 @@ def test_named_owner_is_allowed(tmp_path: Path):
     assert violations == []
 
 
+def test_isolated_project_migrations_have_only_their_named_write_authority(tmp_path):
+    # rule19: synthetic SQL verifies exact upgrade owners without running migrations.
+    directory = tmp_path / "src/frisket/upgrades/project"
+    directory.mkdir(parents=True)
+    fixtures = {
+        "domain_migration.py": (
+            'db.execute("UPDATE execution_attempts SET state=1")\n'
+            'db.execute("UPDATE runs SET status=1,finished_at=1,current_attempt_id=1")\n'
+            'db.execute("UPDATE results SET value=1")\n'
+        ),
+        "domain_document_text_migration.py": (
+            'db.execute("INSERT INTO cells VALUES (1)")\n'
+            'db.execute("INSERT INTO edits VALUES (1)")\n'
+            'db.execute("INSERT INTO base_cell_producers VALUES (1)")\n'
+            'db.execute("INSERT INTO current_cells VALUES (1)")\n'
+        ),
+        "historical_current_cells.py": 'db.execute("UPDATE current_cells SET value=1")\n',
+    }
+    for name, source in fixtures.items():
+        path = directory / name
+        path.write_text(source)
+        assert checker.check_paths([path], root=tmp_path) == []
+    arbitrary = directory / "arbitrary_migration.py"
+    arbitrary.write_text('db.execute("UPDATE current_cells SET value=1")\n')
+    assert len(checker.check_paths([arbitrary], root=tmp_path)) == 1
+
+
 def test_offline_purge_owns_deletion_but_cannot_publish_results(tmp_path: Path):
     # rule19: synthetic source tests the operation-specific owner boundary.
     path = tmp_path / "src/frisket/engine/store/purge.py"

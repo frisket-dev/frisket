@@ -67,6 +67,7 @@ import asyncio, json, sys
 from pathlib import Path
 from frisket.actions.system import typed_action_for_request
 from frisket.ai.llm import LLMResponse, ModelRouter, ResponseCache, StructuredCompleter, StructuredRequest
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.store import Project
 class FixtureAdapter:
@@ -83,7 +84,7 @@ try:
     values, row_ids = project.get_values(sheet_id, source_id), project.visible_row_ids(sheet_id)
     cache = ResponseCache(project.path / 'project.cache.db')
     adapter = FixtureAdapter()
-    router = ModelRouter(keys={'gemini': 'fixture-only', 'anthropic': 'fixture-only'}, cache=cache, cache_mode='fresh')
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={'gemini': 'fixture-only', 'anthropic': 'fixture-only'}, cache=cache, cache_mode='fresh')
     router._adapters['gemini'] = adapter
     router._adapters['anthropic'] = adapter
     async def record():

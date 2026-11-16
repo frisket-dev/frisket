@@ -67,6 +67,7 @@ import sys
 from pathlib import Path
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store import Project
 
@@ -88,7 +89,7 @@ class StubAdapter:
 
 workspace, pid, payload_json = sys.argv[1], sys.argv[2], sys.argv[3]
 payload = json.loads(payload_json)
-router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}, cache=None, cache_mode="off")
 router._adapters["anthropic"] = StubAdapter(payload["reply"])
 project = Project(Path(workspace) / f"{pid}.frisket")
 try:

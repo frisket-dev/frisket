@@ -680,6 +680,7 @@ import sys
 import time
 from pathlib import Path
 from frisket.ai.llm import ModelRouter
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.jobs.queue import open_queue
 from frisket.engine.jobs.runs import register_project_run_handler
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
@@ -694,7 +695,7 @@ registry = HandlerRegistry()
 register_project_run_handler(
     registry,
     workspace_root=Path(workspace),
-    router=ModelRouter(cache=None, cache_mode="off"),
+    router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"),
 )
 worker = Worker(queue, registry, worker_id=f"e2e-run-{run_id}", lease_seconds=600)
 if not worker.run_once():
