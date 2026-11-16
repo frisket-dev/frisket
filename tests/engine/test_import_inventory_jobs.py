@@ -525,7 +525,14 @@ def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
                 # Remove is a reversible Change: the new sheet disappears,
                 # while its rows are retained for an explicit Restore.
                 assert project.sheets() == []
-                assert project.row_count(session.sheet_id) == 512
+                assert project.row_count(session.sheet_id) == 0
+                assert (
+                    project.db.execute(
+                        "SELECT count(*) FROM rows WHERE sheet_id=?",
+                        (session.sheet_id,),
+                    ).fetchone()[0]
+                    == 512
+                )
                 with pytest.raises(SheetGridRouteError) as unavailable:
                     browser.document_page(
                         "files",
@@ -539,6 +546,7 @@ def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
                 with project.db:
                     project.db.execute("BEGIN IMMEDIATE")
                     step_operation(project, "restore", op_id=session.op_id)
+                assert project.row_count(session.sheet_id) == 512
                 assert (
                     len(
                         browser.document_page(
