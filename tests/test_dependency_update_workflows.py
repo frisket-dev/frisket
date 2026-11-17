@@ -92,7 +92,9 @@ def test_always_report_but_only_build_relevant_changes(tmp_path, name, path, exp
         tmp_path, script, FILES=path, EVENT_NAME="pull_request", BASE_SHA="base"
     )
     assert code == 0
-    assert output.strip() == f"relevant={expected}"
+    assert (
+        dict(line.split("=", 1) for line in output.splitlines())["relevant"] == expected
+    )
 
 
 @pytest.mark.parametrize(

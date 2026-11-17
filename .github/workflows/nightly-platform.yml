@@ -1,0 +1,175 @@
+name: nightly-platform
+
+# Proves the four platform workflows in full on the head of main once a night,
+# whatever changed: the unsigned macOS and Windows installed-app proofs and the
+# macOS and Windows portability smokes. Pull requests and the merge queue run
+# them only when a diff changes their own inputs, so this run is what proves
+# every other merge on those platforms, and releases require it (see the
+# platform proof admission step in desktop-release.yml and
+# release-public-artifacts.yml).
+#
+# A failed night opens, or comments on, one issue labelled `nightly-platform`
+# with the failing jobs and the merges since the last green night; the next
+# green night closes it. Dispatch it on main to prove the head now, or on a tag
+# to prove a release candidate (only runs on main touch the issue).
+on:
+  schedule:
+    # 07:23 UTC is the small hours in US time zones, off the top of the hour.
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-platform-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # A scheduled night is skipped when main has not moved since the last
+  # green run on main; a manual dispatch always runs. A failed lookup runs.
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      last_green: ${{ steps.decide.outputs.last_green }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          run=true
+          last_green=""
+          if runs="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/nightly-platform.yml/runs" \
+              -f branch=main -f status=success -F per_page=50)"; then
+            last_green="$(jq -r '[.workflow_runs[] | select(.event == "schedule" or .event == "workflow_dispatch")][0].head_sha // ""' <<< "$runs" || true)"
+          else
+            echo "::warning::could not list earlier nightly runs; proving this revision"
+          fi
+          if [ "$EVENT_NAME" = schedule ] && [ "$last_green" = "$GITHUB_SHA" ]; then
+            run=false
+            echo "### main is still at $GITHUB_SHA, proved by the last green nightly run; nothing to do" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo "run=$run"
+            echo "last_green=$last_green"
+          } >> "$GITHUB_OUTPUT"
+
+  desktop-macos:
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/desktop-macos.yml
+    with:
+      nightly: true
+
+  desktop-windows:
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    # GitHub checks a called workflow's job permissions before evaluating its
+    # conditions, and the signed Windows job (which never runs here: it
+    # requires a dispatch of desktop-windows.yml itself) requests id-token.
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/desktop-windows.yml
+    with:
+      nightly: true
+
+  macos-portability:
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/macos-portability.yml
+
+  windows-portability:
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/windows-portability.yml
+
+  # The release gates look for this job, by name, succeeding on their commit.
+  platform-proofs:
+    name: platform-proofs
+    needs: [decide, desktop-macos, desktop-windows, macos-portability, windows-portability]
+    if: ${{ always() && needs.decide.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '[.[] .result] | all(. == "success")' <<< "$RESULTS"
+
+  # Opens or comments on the one `nightly-platform` issue when a night on
+  # main fails, and closes it on the next green night. A cancelled run
+  # reports nothing.
+  report:
+    needs: [decide, platform-proofs]
+    if: ${{ always() && needs.decide.outputs.run == 'true' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - id: report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.platform-proofs.result }}
+          LAST_GREEN: ${{ needs.decide.outputs.last_green }}
+        run: |
+          set -euo pipefail
+          label=nightly-platform
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          open="$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')"
+          if [ "$RESULT" = success ]; then
+            if [ -n "$open" ]; then
+              gh issue comment "$open" --body "The nightly platform proofs passed on \`$GITHUB_SHA\`: $run_url"
+              gh issue close "$open" --reason completed
+            fi
+            exit 0
+          fi
+          if [ "$RESULT" != failure ]; then
+            echo "platform-proofs finished $RESULT; no verdict to report"
+            exit 0
+          fi
+          body="$RUNNER_TEMP/nightly-platform-issue.md"
+          {
+            echo "The nightly platform proofs failed on \`$GITHUB_SHA\` ($run_url)."
+            echo
+            echo "Failing jobs:"
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
+              --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled") | "- [\(.name)](\(.html_url))"'
+            echo
+            if [ -n "$LAST_GREEN" ] && [ "$LAST_GREEN" != "$GITHUB_SHA" ]; then
+              compare="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$LAST_GREEN...$GITHUB_SHA"
+              echo "Merges since the last green night (\`${LAST_GREEN:0:10}\`), oldest first; one of them broke it ($compare):"
+              gh api "repos/$GITHUB_REPOSITORY/compare/$LAST_GREEN...$GITHUB_SHA" \
+                --jq '(.commits[] | "- [\u0060\(.sha[0:10])\u0060](\(.html_url)) \(.commit.message | split("\n")[0])"), (if .total_commits > (.commits | length) then "- and \(.total_commits - (.commits | length)) more: see the comparison" else empty end)'
+            elif [ -n "$LAST_GREEN" ]; then
+              echo "This revision passed an earlier night, so nothing merged since; suspect the runner, a network dependency or flakiness, and rerun the failed jobs."
+            else
+              echo "No earlier green night on main is on record, so there is no range to bisect."
+            fi
+            echo
+            echo "Start from the failing job's log and evidence artifacts. To bisect, push a branch at a commit in the range and run \`gh workflow run nightly-platform.yml --ref <that branch>\`. Releases are refused until their commit has a green run; see CONTRIBUTING.md, Merge queue."
+          } > "$body"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body-file "$body"
+          else
+            gh label create "$label" --color B60205 \
+              --description "A nightly platform proof on main failed" 2>/dev/null || true
+            gh issue create --title "Nightly platform proof failed" --label "$label" --body-file "$body"
+          fi

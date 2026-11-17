@@ -20,10 +20,20 @@ In **Settings → Branches → main protection** (or the rule/ruleset protecting
 - `desktop-windows-ci`
 - `docker-ci`
 
-Require branches to be up to date before merging. The summary checks always
-report on PRs, including when their expensive jobs legitimately skip for an
+`main` is protected by a ruleset that requires the merge queue (squash, all
+entries green, up to five entries per group), so a PR does not need to be up
+to date with `main`: the queue tests it combined with `main` and the entries
+ahead of it before anything lands. The summary checks always report on PRs and
+queue entries, including when their expensive jobs legitimately skip for an
 unrelated change. Failures or cancellations cannot satisfy them. Choose the
 GitHub Actions source for each check if the settings offer a source selector.
+
+A `uv.lock` or `pyproject.toml` update is a packaging input of every platform
+job, and `desktop/package-lock.json` one of the installed-app proofs, so those
+run on the PR and in the queue. A `web/` or `sdk/` lock update runs the `ci`
+checks it affects; its platform proofs are deferred to the nightly platform run
+on `main` (`nightly-platform.yml`). CONTRIBUTING.md, "Merge queue", lists what
+runs where and what to do when the nightly opens its `nightly-platform` issue.
 
 Keep **Dependabot alerts** and **Dependabot security updates** enabled under
 Settings → Advanced Security. Grouping is defined in `.github/dependabot.yml`;
@@ -43,7 +53,8 @@ trigger normal main CI. It never checks out or executes Dependabot PR code.
 
 ## Ongoing handling
 
-New or updated eligible grouped Dependabot PRs get auto-merge enabled. Existing
+New or updated eligible grouped Dependabot PRs get auto-merge enabled, which
+enqueues them once their PR checks pass. Existing
 standalone PRs stay manual until Dependabot replaces them with groups. Each
 update clears any previously enabled auto-merge before rechecking eligibility. Failed checks
 leave the PR open. Fix or replace genuinely broken updates; close obsolete PRs

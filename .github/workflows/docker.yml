@@ -1,6 +1,10 @@
 name: docker
 # Image builds are expensive and the release workflow rebuilds them for every
-# tag, so per-push builds only earn their cost when the image inputs change.
+# tag, so pull request, merge queue and push builds only earn their cost when
+# the image inputs change: the build and its packaging, the Compose stack the
+# smoke boots, and the smoke scripts. Application source is deliberately not
+# an input here; the Python suite owns it and every release tag rebuilds the
+# image. Keep this list and the `changes` pattern below identical.
 # The weekly cron catches base-image/toolchain drift between releases.
 on:
   push:
@@ -8,14 +12,20 @@ on:
     paths:
       - Dockerfile
       - .dockerignore
+      - docker-compose.yml
+      - .env.example
       - uv.lock
       - pyproject.toml
+      - hatch_build.py
+      - scripts/build_vec1.py
+      - vendor/sqlite-vec1/**
+      - scripts/e2e/checklog.py
       - scripts/smoke/smoke_media_metadata_runtime.py
       - .github/workflows/docker.yml
   pull_request:
     branches: [main]
-  # The queue run gates what lands on main, so it always builds; a push of
-  # the exact commit the queue built then skips the rebuild.
+  # A queue run builds when the combined diff of its group touches the image
+  # inputs; a push of the exact commit the queue tested then skips the build.
   merge_group:
     types: [checks_requested]
   schedule:
@@ -53,22 +63,40 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           QUEUE_TESTED: ${{ needs.queue-tested.outputs.tested }}
         run: |
-          if [ "$QUEUE_TESTED" = true ]; then
+          set -euo pipefail
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          if [ "${QUEUE_TESTED:-}" = true ]; then
             echo 'relevant=false' >> "$GITHUB_OUTPUT"
+            echo "### docker: this commit passed docker-ci in the merge queue; no rebuild" >> "$summary"
             exit 0
           fi
-          if [ "$EVENT_NAME" != pull_request ]; then
-            echo 'relevant=true' >> "$GITHUB_OUTPUT"
-            exit 0
+          case "$EVENT_NAME" in
+            pull_request) base="$BASE_SHA" ;;
+            merge_group) base="${QUEUE_BASE_SHA:-}" ;;
+            # The push trigger's paths filter already selected this run; the
+            # weekly schedule and manual dispatches always build.
+            *)
+              echo 'relevant=true' >> "$GITHUB_OUTPUT"
+              exit 0 ;;
+          esac
+          # The image inputs; the push trigger's paths list mirrors this.
+          inputs='^(Dockerfile|\.dockerignore|docker-compose\.yml|\.env\.example|uv\.lock|pyproject\.toml|hatch_build\.py|scripts/build_vec1\.py|vendor/sqlite-vec1/.*|scripts/e2e/checklog\.py|scripts/smoke/smoke_media_metadata_runtime\.py|\.github/workflows/docker\.yml)$'
+          relevant=true
+          reason="the diff base is unavailable, so the image builds"
+          if [ -n "$base" ] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            files="$(git diff --name-only "$base" HEAD)"
+            if grep -E "$inputs" <<< "$files" >/dev/null; then
+              reason="this diff changes an image input"
+            else
+              relevant=false
+              reason="skipped: this diff changes no image input, so neither this run nor the merge queue builds the image"
+            fi
           fi
-          files="$(git diff --name-only "$BASE_SHA" HEAD)"
-          if grep -E '^(Dockerfile|\.dockerignore|uv\.lock|pyproject\.toml|scripts/smoke/smoke_media_metadata_runtime\.py|\.github/workflows/docker\.yml)$' <<< "$files" >/dev/null; then
-            echo 'relevant=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'relevant=false' >> "$GITHUB_OUTPUT"
-          fi
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "### docker ($EVENT_NAME): $reason" >> "$summary"
 
   build:
     needs: changes

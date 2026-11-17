@@ -3,7 +3,10 @@ name: ci
 permissions:
   contents: read
 on:
+  # `labeled` lets adding `ci:full` rerun the PR with the complete suite; any
+  # other label reruns the same fast tier.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   merge_group:
     types: [checks_requested]
   push:
@@ -28,25 +31,39 @@ jobs:
 
   # Coarse path classification for per-layer test selection. Diff-based and
   # dependency-free; it FAILS OPEN (runs everything) whenever the base commit
-  # cannot be resolved. Merge-queue runs, manual dispatches, and pushes to main
-  # intentionally run every layer; pull requests retain path-aware selection.
-  # A push to main whose exact commit already passed this workflow in the merge
-  # queue runs no layer: that queue run is its complete suite. Two independent
-  # outputs:
+  # cannot be resolved. Merge-queue runs, manual dispatches, pushes to main and
+  # pull requests labelled `ci:full` run every layer (the complete suite);
+  # other pull requests get the fast tier. A push to main whose exact commit
+  # already passed this workflow in the merge queue runs no layer: that queue
+  # run is its complete suite.
+  #
+  # The fast PR tier is feedback only, because the merge queue runs the
+  # complete suite on exactly what lands: every lint, ratchet and type check,
+  # the sidecar/postgres/web jobs as their layers select them, and the Python
+  # test directories that correspond to the changed source areas (`select`
+  # step). The execution-core shard runs only when its own area changed, and
+  # the browser journeys only when their specs, harness or Playwright pin
+  # changed. Two independent filter outputs:
   #   * job gates (backend/frontend/infra) skip a whole job a commit
   #     provably cannot affect -- e.g. a frontend-only commit skips the Python
   #     suite; a backend-only commit skips the web vitest+build.
-  #   * pytest_target selects the Python suite subset. engine is the execution
-  #     spine (server/team/features/ops/... import it), so any engine, shared-
-  #     module, root-file, config, or multi-layer change runs the WHOLE suite.
-  #     Only a commit confined to a single non-engine leaf layer earns
-  #     `tests/<layer> tests/*.py` -- that layer plus the root tests, which
-  #     host the boundary + cross-cutting suites. The ruff/rule-19/
-  #     deterministic-time lints and the import-boundary gate in the `test`
-  #     job stay unconditional regardless of this subset.
+  #   * pytest_target selects the Python suite subset: `tests` (the complete
+  #     suite) for every full-tier run, and on a fast-tier PR whenever a change
+  #     reaches the whole package -- dependencies, test configuration, shared
+  #     test helpers, package data, a top-level module, or anything the wheel
+  #     ships or builds from. Otherwise it names the test directory of each
+  #     changed source area (`src/frisket/<area>/` -> `tests/<area>`, a change
+  #     under `tests/<dir>/` -> that directory) plus the root tests, which host
+  #     the boundary, workflow, script and cross-cutting suites. The `select`
+  #     step falls back to the complete suite when a named directory holds no
+  #     tests. The ruff/rule-19/deterministic-time lints and the import-boundary
+  #     gate stay unconditional regardless of this subset.
   changes:
     needs: queue-tested
     runs-on: ubuntu-latest
+    env:
+      # Every run except an unlabelled pull request runs the complete suite.
+      FULL_SUITE: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       sidecar: ${{ steps.filter.outputs.sidecar }}
@@ -54,6 +71,10 @@ jobs:
       frontend: ${{ steps.filter.outputs.frontend }}
       infra: ${{ steps.filter.outputs.infra }}
       pytest_target: ${{ steps.filter.outputs.pytest_target }}
+      engine_tests: ${{ steps.select.outputs.engine_tests }}
+      surface_tests: ${{ steps.select.outputs.surface_tests }}
+      gap_tests: ${{ steps.select.outputs.gap_tests }}
+      e2e: ${{ steps.select.outputs.e2e }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -73,13 +94,13 @@ jobs:
             exit 0
           fi
           allchanged=0
-          if [ "$EVENT_NAME" = "pull_request" ]; then
+          if [ "$EVENT_NAME" = "pull_request" ] && [ "${FULL_SUITE:-false}" != "true" ]; then
             base="$PR_BASE_SHA"
-          elif [ "$EVENT_NAME" = "merge_group" ] \
+          elif [ "$EVENT_NAME" = "merge_group" ] || [ "${FULL_SUITE:-false}" = "true" ] \
             || { [ "$EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; }; then
             # Every releasable main commit gets the complete suite, here or in
-            # the queue run that tested this exact commit. PRs retain the
-            # cheaper path-aware selection for fast feedback.
+            # the queue run that tested this exact commit; so does a PR
+            # labelled `ci:full`. Other PRs get the fast tier.
             allchanged=1
             base=""
           else
@@ -122,28 +143,40 @@ jobs:
           infra="$(match '^(\.github/|scripts/|pyproject\.toml|uv\.lock)')"
           target="tests"
           if [ "$allchanged" = "0" ] && [ -n "$files" ]; then
-            leaves="ai authoring features operability ops preview server team"
-            touched=""
-            other=0
+            whole=0
+            mapped=0
+            dirs=""
             while IFS= read -r f; do
-              [ -z "$f" ] && continue
-              hit=""
-              # shellcheck disable=SC2086  # intentional word split over the space-separated leaf list
-              for L in $leaves; do
-                case "$f" in
-                  src/frisket/$L/*|tests/$L/*) hit="$L"; break;;
-                esac
-              done
-              if [ -n "$hit" ]; then
-                case " $touched " in *" $hit "*) : ;; *) touched="$touched $hit";; esac
-              else
-                other=1
+              dir=""
+              case "$f" in
+                # Whole-package inputs: dependencies, test configuration and
+                # everything the wheel ships or builds from.
+                pyproject.toml|uv.lock|conftest.py|hatch_build.py|scripts/build_vec1.py|vendor/*|sidecar/*|src/frisket/data/*|tests/conftest.py)
+                  whole=1 ;;
+                src/frisket/*/*)
+                  area="${f#src/frisket/}"
+                  dir="tests/${area%%/*}" ;;
+                # Top-level modules have no test directory of their own.
+                src/*) whole=1 ;;
+                tests/test_*.py) mapped=1 ;;
+                tests/*/*)
+                  area="${f#tests/}"
+                  dir="tests/${area%%/*}" ;;
+                # Shared helpers at the root of tests/.
+                tests/*) whole=1 ;;
+                # Scripts, workflows, release tooling and the TS toolchain pins
+                # are covered by the root tests.
+                scripts/*|.github/*|deploy/release/*|web/package*.json|web/tsconfig*.json|sdk/package*.json|sdk/tsconfig*.json)
+                  mapped=1 ;;
+              esac
+              if [ -n "$dir" ]; then
+                mapped=1
+                case " $dirs " in *" $dir "*) : ;; *) dirs="$dirs $dir" ;; esac
               fi
             done <<< "$files"
-            # shellcheck disable=SC2086  # intentional word split to count distinct touched layers
-            set -- $touched
-            if [ "$other" = "0" ] && [ "$#" = "1" ]; then
-              target="tests/$1 tests/*.py"
+            if [ "$whole" = "0" ] && [ "$mapped" = "1" ]; then
+              dirs="${dirs# }"
+              target="${dirs:+$dirs }tests/*.py"
             fi
           fi
           {
@@ -154,6 +187,98 @@ jobs:
             echo "infra=$infra"
             echo "pytest_target=$target"
           } >> "$GITHUB_OUTPUT"
+      # Splits pytest_target across the two Python shards and decides the
+      # browser journeys. On the fast PR tier the journeys run only when their
+      # own inputs change: the specs and Playwright configs, the e2e backend
+      # harness, the Playwright pin, or this workflow.
+      - id: select
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          QUEUE_TESTED: ${{ needs.queue-tested.outputs.tested }}
+          TARGET: ${{ steps.filter.outputs.pytest_target }}
+          BACKEND: ${{ steps.filter.outputs.backend }}
+          FRONTEND: ${{ steps.filter.outputs.frontend }}
+        run: |
+          set -euo pipefail
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          if [ "${QUEUE_TESTED:-}" = "true" ]; then
+            printf '%s\n' engine_tests=false surface_tests= gap_tests= e2e=false >> "$GITHUB_OUTPUT"
+            echo "### ci: this commit passed the complete suite in the merge queue; no test job reruns" >> "$summary"
+            exit 0
+          fi
+          if [ "${FULL_SUITE:-false}" = "true" ]; then
+            tier="complete suite"
+            e2e=true
+          else
+            tier="fast PR tier"
+            e2e=false
+            e2e_inputs='^(web/tests/e2e/|web/playwright/|scripts/e2e/|web/package(-lock)?\.json$|\.github/workflows/ci\.yml$)'
+            if [ -z "$PR_BASE_SHA" ] || ! git cat-file -e "${PR_BASE_SHA}^{commit}" 2>/dev/null; then
+              e2e=true
+            elif git diff --name-only "$PR_BASE_SHA" HEAD | grep -E "$e2e_inputs" >/dev/null; then
+              e2e=true
+            fi
+          fi
+          set -f
+          engine=false
+          surface=""
+          if [ "$TARGET" = "tests" ]; then
+            engine=true
+            surface="tests --ignore=tests/engine"
+            gap="tests"
+          else
+            gap="$TARGET"
+            for path in $TARGET; do
+              if [ "$path" = "tests/*.py" ]; then
+                surface="$surface $path"
+              elif [ -z "$(find "$path" -name 'test_*.py' -print -quit 2>/dev/null)" ]; then
+                # A changed directory without tests of its own (shared
+                # fixtures, data, a deleted suite) reaches the whole package.
+                engine=true
+                surface="tests --ignore=tests/engine"
+                gap="tests"
+                break
+              elif [ "$path" = "tests/engine" ]; then
+                engine=true
+              else
+                surface="$surface $path"
+              fi
+            done
+            surface="${surface# }"
+          fi
+          {
+            echo "engine_tests=$engine"
+            echo "surface_tests=$surface"
+            echo "gap_tests=$gap"
+            echo "e2e=$e2e"
+          } >> "$GITHUB_OUTPUT"
+          # A fast-tier skip is deferred to the merge queue, which runs every
+          # job below on what lands; "not affected" means this diff does not
+          # reach the job at all.
+          deferred="skipped on this PR: runs in the merge queue (add the \`ci:full\` label to run it here)"
+          unaffected="skipped: not affected by this diff (the merge queue still runs the complete suite)"
+          plan() {
+            if [ "$2" = "true" ]; then echo "| $1 | runs |"
+            elif [ "$3" = "deferred" ]; then echo "| $1 | $deferred |"
+            else echo "| $1 | $unaffected |"; fi
+          }
+          python_deferred=unaffected
+          [ "$BACKEND" = "true" ] && python_deferred=deferred
+          e2e_layer=unaffected
+          { [ "$BACKEND" = "true" ] || [ "$FRONTEND" = "true" ]; } && e2e_layer=deferred
+          {
+            echo "### ci: $tier"
+            echo
+            echo "| Job | This run |"
+            echo "| --- | --- |"
+            plan "Python tests (execution core)" "$([ "$BACKEND" = true ] && echo "$engine" || echo false)" "$python_deferred"
+            if [ "$BACKEND" = "true" ]; then
+              echo "| Python tests (product surfaces) | runs \`$surface\`; gap subset over \`$gap\` |"
+            else
+              plan "Python tests (product surfaces)" false unaffected
+            fi
+            plan "deploy-smoke, e2e-cassette-core" "$([ "$e2e_layer" = deferred ] && echo "$e2e" || echo false)" "$e2e_layer"
+          } >> "$summary"
   models-gpu-topology:
     needs: changes
     if: ${{ needs.changes.outputs.models_gpu == 'true' }}
@@ -255,9 +380,9 @@ jobs:
   test-engine:
     name: Python tests (execution core)
     needs: changes
-    # Engine changes already select the full suite. Leaf-only PRs keep their
-    # cheaper path-scoped test job below and do not start this shard.
-    if: ${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.pytest_target == 'tests' }}
+    # Runs with the complete suite, and on a fast-tier PR only when the
+    # selection names tests/engine; other PRs leave this shard to the queue.
+    if: ${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.engine_tests == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -286,7 +411,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      PYTEST_TARGET: ${{ needs.changes.outputs.pytest_target == 'tests' && 'tests --ignore=tests/engine' || needs.changes.outputs.pytest_target }}
+      PYTEST_TARGET: ${{ needs.changes.outputs.surface_tests }}
+      GAP_TARGET: ${{ needs.changes.outputs.gap_tests }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -309,17 +435,24 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg ripgrep
       - run: uv sync --dev --extra entities
       - run: uv run --no-sync python scripts/build_vec1.py
-      - run: FRISKET_CHECKLOG_DISABLE=1 uv run --no-sync pytest $PYTEST_TARGET -q -n auto --dist loadfile --durations=50 --durations-min=0.5 -o faulthandler_timeout=120
+      # The selection is a word list whose `tests/*.py` must glob.
+      - run: |
+          # shellcheck disable=SC2086  # intentional word split and glob of the selection
+          FRISKET_CHECKLOG_DISABLE=1 uv run --no-sync pytest $PYTEST_TARGET -q -n auto --dist loadfile --durations=50 --durations-min=0.5 -o faulthandler_timeout=120
       # The ordinary suite excludes gap tests. Run the keyless acceptance
       # subset separately, using the same file-level parallelism. Tests marked
       # gap_env need a prepared environment and remain outside this stock job.
       # This marker expression replaces pyproject.toml's default expression.
-      - run: uv run --no-sync pytest -q -n auto --dist loadfile -m "gap and not gap_env" tests/ --durations=20 --durations-min=0.5
+      # It covers the same directories as the run above, plus tests/engine.
+      - run: |
+          # shellcheck disable=SC2086  # intentional word split and glob of the selection
+          uv run --no-sync pytest -q -n auto --dist loadfile -m "gap and not gap_env" $GAP_TARGET --durations=20 --durations-min=0.5
   deploy-smoke:
     needs: changes
     # Full-stack browser journey: run for any backend or frontend change; a
-    # docs-only commit cannot alter the journey, so it skips.
-    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' }}
+    # docs-only commit cannot alter the journey, so it skips. A fast-tier PR
+    # runs it only when its own inputs change (`select` step).
+    if: ${{ (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true') && needs.changes.outputs.e2e == 'true' }}
     # One keyless browser journey through the real local stack: health,
     # project creation, CSV import, deterministic regex action, and persisted
     # result readback. Keep the provider-backed/full e2e suite local-only.
@@ -364,8 +497,9 @@ jobs:
   e2e-cassette-core:
     needs: changes
     # Same trigger shape as deploy-smoke: any backend or frontend change; a
-    # docs-only commit cannot alter these journeys, so it skips.
-    if: ${{ needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' }}
+    # docs-only commit cannot alter these journeys, so it skips. A fast-tier
+    # PR runs them only when their own inputs change (`select` step).
+    if: ${{ (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true') && needs.changes.outputs.e2e == 'true' }}
     # Keyless core e2e: specs create their own projects and, when needed,
     # prime the committed-response LLM cache (ResponseCache) before running, so
     # every "model" call replays from the cassette. Keyless BY CONSTRUCTION,
@@ -549,3 +683,13 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"
+      # Why each skipped job skipped is in the `changes` job summary.
+      - if: ${{ always() }}
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          {
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            jq -r 'to_entries[] | "| \(.key) | \(.value.result) |"' <<< "$RESULTS"
+          } >> "$GITHUB_STEP_SUMMARY"
