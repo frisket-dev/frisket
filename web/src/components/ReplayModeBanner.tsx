@@ -26,6 +26,7 @@ import {
 import { createProjectProviderKeysApi } from '../api/projectProviderKeys';
 import { useEditionModule } from '../editions/module';
 import { navigate, useRoute } from '../routes';
+import { useLoader } from '../hooks/useLoader';
 
 /** Configured provider labels for an ARBITRARY project id (the banner probes
  * projects other than the active one). Module scope keeps the network call
@@ -48,7 +49,6 @@ export function ReplayModeBanner() {
   const { descriptor } = useEditionModule();
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [collapsed, setCollapsed] = useState(false);
-  const [providerSnapshot, setProviderSnapshot] = useState<{ key: string; providers: string[] } | null>(null);
   const route = useRoute();
 
   useEffect(() => {
@@ -77,11 +77,7 @@ export function ReplayModeBanner() {
       : undefined;
   const providerSnapshotKey = projectId ?? '__global__';
 
-  useEffect(() => {
-    if (!visible) {
-      return undefined;
-    }
-    let alive = true;
+  const providerSnapshot = useLoader(async () => {
     const labels = new Set<string>();
     const addLocalProviders = async () => {
       const catalog = await listProviders();
@@ -97,16 +93,9 @@ export function ReplayModeBanner() {
       if (!projectId) return;
       for (const label of await fetchProjectProviderKeyLabels(projectId)) labels.add(label);
     };
-    Promise.allSettled([addLocalProviders(), addOrgProviders(), addProjectProviders()])
-      .then(() => {
-        if (alive) {
-          setProviderSnapshot({ key: providerSnapshotKey, providers: Array.from(labels).sort() });
-        }
-      });
-    return () => {
-      alive = false;
-    };
-  }, [projectId, providerSnapshotKey, visible]);
+    await Promise.allSettled([addLocalProviders(), addOrgProviders(), addProjectProviders()]);
+    return { key: providerSnapshotKey, providers: Array.from(labels).sort() };
+  }, [projectId, providerSnapshotKey, visible], { keepPreviousData: true, enabled: visible }).data;
 
   if (!visible) return null;
 

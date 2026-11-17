@@ -19,6 +19,7 @@ import { useNativePopover } from '../hooks/useNativePopover';
 import { topLayerPortalRoot } from '../topLayerPortal';
 import { createSearchPreparation, listSearchPreparations } from '../api/searchPreparation';
 import { SearchPreparationReceipt } from '../components/SearchPreparationReceipt';
+import { errorMessage } from '../hooks/errorMessage';
 
 const EMPTY_LAUNCHER_COMMANDS: PaletteLauncherCommand[] = [];
 
@@ -294,7 +295,7 @@ export function WorkbenchCommandPalette({
       .catch((error) => {
         if (isCurrent()) setPreparationState({
           scope: preparationScope, signal: controller.signal, target: null, busy: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: errorMessage(error),
         });
       })
       .finally(() => {

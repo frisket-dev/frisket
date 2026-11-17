@@ -11,6 +11,7 @@ import {
   type CreateEmbeddingIndexForm,
 } from './createForm';
 import { EMBEDDING_TEXT_MODALITY } from './constants';
+import { errorMessage } from '../../hooks/errorMessage';
 
 const TERMINAL_JOB_STATUSES = new Set(['done', 'failed', 'cancelled']);
 
@@ -184,7 +185,7 @@ export function useEmbeddingsPanelController({
       if (!isCurrentScope(generation)) return;
       dispatch({
         type: 'set_error',
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }, [apiPort, isCurrentScope, sheetId]);
@@ -210,7 +211,7 @@ export function useEmbeddingsPanelController({
         if (!isCurrentScope(generation)) return;
         dispatch({
           type: 'set_error',
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       }
     }
@@ -279,7 +280,7 @@ export function useEmbeddingsPanelController({
         if (!isCurrentScope(generation)) return;
         dispatch({
           type: 'set_error',
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       } finally {
         if (isCurrentScope(generation)) {
@@ -319,7 +320,7 @@ export function useEmbeddingsPanelController({
         if (!isCurrentScope(generation)) return;
         dispatch({
           type: 'set_error',
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       } finally {
         if (isCurrentScope(generation)) {

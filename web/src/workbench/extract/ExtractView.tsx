@@ -25,6 +25,7 @@ import { ExtractToolHelp } from './ExtractToolHelp';
 import { assignUnclaimedFields, changeRegion, previewOutcome, regionInsideSpan, removeAnnotation, spanFromRegion, templateDefaults, templateIssue, textInRegion, type AnnotationTarget, type ExtractionTemplate, type ExtractTool, type PageRegion } from './types';
 import { EMPTY_EXTRACTION_DRAFT, useExtractionLayouts } from './useExtractionLayouts';
 import styles from './ExtractView.module.css';
+import { errorMessage } from '../../hooks/errorMessage';
 
 export interface ExtractRunRequest { source: string; template: ExtractionTemplate; repeat_group_id: string | null; sheet_name: string; layout_id: number; extraction_scope: ExtractionScope }
 export interface ExtractViewProps {
@@ -55,7 +56,6 @@ interface PreviewInspection {
   recordIndex: number | null;
   fieldId: string | null;
 }
-const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
 const EXTRACTION_SOURCE_TYPES = ['file', 'image'];
 const NO_TEXT_SOURCES: readonly string[] = [];
 function useExtractionPageImages(geometry: ExtractionDocument | null, kind: ReturnType<typeof documentMediaKind>, projectId: string) {
@@ -177,7 +177,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     void documentExtractionApi.counts(projectId, { sheet_id: Number(sheet.id), source: sourceColumn.name,
       layout_id: layout.id, row_id: currentRowId ? Number(currentRowId) : null, ...filterScope }, controller.signal)
       .then((value) => { if (!controller.signal.aborted) setCountResult({ key: countsKey, value }); })
-      .catch((cause) => { if (!controller.signal.aborted) setError(errorText(cause)); });
+      .catch((cause) => { if (!controller.signal.aborted) setError(errorMessage(cause)); });
     return () => controller.abort();
     // countsKey serializes the request inputs; layout edits do not change its scope.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -201,7 +201,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       } }).catch((cause) => { if (!controller.signal.aborted) {
         setReference(null);
         setReferenceVerification({ key: referenceKey!, status: 'stale',
-          error: `The saved reference document is unavailable: ${errorText(cause)}` });
+          error: `The saved reference document is unavailable: ${errorMessage(cause)}` });
       } });
     return () => controller.abort();
   }, [projectId, sheet.id, sourceId, referenceRowId, referenceKey, referenceBlobId, referencePage, referenceFingerprint, jumpToPage]);
@@ -215,7 +215,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
         setReaderJump((current) => current.rowId === currentRowId ? current
           : { rowId: currentRowId, page: value.reference_page ?? 1, revision: current.revision + 1 });
       } })
-      .catch((cause) => { if (!controller.signal.aborted) setGeometry({ key: geometryKey, value: null, error: errorText(cause) }); });
+      .catch((cause) => { if (!controller.signal.aborted) setGeometry({ key: geometryKey, value: null, error: errorMessage(cause) }); });
     return () => controller.abort();
   }, [projectId, sheet.id, sourceColumn, currentRowId, geometryKey]);
 
@@ -308,7 +308,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
     try {
       const value = await documentExtractionApi.preview(projectId, request(), controller.signal);
       if (!controller.signal.aborted) setPreview(value);
-    } catch (cause) { if (!controller.signal.aborted) setError(errorText(cause)); }
+    } catch (cause) { if (!controller.signal.aborted) setError(errorMessage(cause)); }
     finally { if (!controller.signal.aborted) setBusy(null); }
   };
   const choosePreview = (document: ExtractionPreviewDocument, recordIndex: number | null, fieldId: string | null) => {
@@ -349,7 +349,7 @@ function ExtractEditor({ onExtract, persistence, browse, ...props }: ExtractView
       if (editVersion !== edits.current) { setError('The layout changed. Start extraction again with your updated fields.'); return; }
       await onExtract?.({ source: snapshot.source, template: snapshot.template, repeat_group_id: snapshot.repeat_group_id,
         layout_id: saved.id, extraction_scope: snapshot.scope, sheet_name: sheetName });
-    } catch (cause) { if (mounted.current) setError(errorText(cause)); }
+    } catch (cause) { if (mounted.current) setError(errorMessage(cause)); }
     finally { if (mounted.current) setBusy(null); }
   };
   const areaHelp = template.expand_values

@@ -22,7 +22,8 @@ import { canEditProject, canOwnProject, projectRole } from '../api/projectRole';
 import { PanelSelect } from '../components/PanelSelect';
 import { ConfirmTypeInput, PanelNotice } from '../components/PanelPrimitives';
 import { navigate } from '../routes';
-import { useLoader, errMsg } from './settingsSupport';
+import { useLoader } from '../hooks/useLoader';
+import { errorMessage } from '../hooks/errorMessage';
 import { InlineStatus, SettingsTable } from './SettingsPrimitives';
 
 const MEMBER_ROLES: ProjectRole[] = ['viewer', 'reviewer', 'editor', 'owner'];
@@ -32,7 +33,7 @@ function accessErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
     return fallback;
   }
-  return errMsg(error);
+  return errorMessage(error);
 }
 
 function isFreshAuthError(error: unknown): boolean {
@@ -91,7 +92,7 @@ const projectGeneralInitial: ProjectGeneralFormState = {
 
 export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | null }) {
   const { projectApi: api } = useWorkspaceStores();
-  const details = useLoader<ProjectInfo>(() => api.getProject(), project?.id ?? '');
+  const details = useLoader<ProjectInfo>(() => api.getProject(), [project?.id ?? ''], { keepPreviousData: true });
   const [form, dispatch] = useReducer(projectGeneralReducer, projectGeneralInitial);
   const nameValue = form.name ?? details.data?.name ?? project?.name ?? '';
   const descriptionValue = form.description ?? details.data?.description ?? project?.description ?? '';
@@ -111,7 +112,7 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
       details.setData(saved);
       dispatch({ type: 'save_success', notice: 'Project saved' });
     } catch (caught) {
-      dispatch({ type: 'save_error', error: errMsg(caught) });
+      dispatch({ type: 'save_error', error: errorMessage(caught) });
     }
   };
 
@@ -168,7 +169,7 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
               type: 'delete_error',
               error: caught instanceof ApiError && caught.status === 409
                 ? 'This project still has runs in flight. Wait for them to finish or cancel them, then delete.'
-                : errMsg(caught),
+                : errorMessage(caught),
             }));
         }
       }}>
@@ -290,7 +291,7 @@ export function ProjectAccessSettings({ project, identityMode }: { project?: Pro
       try {
         await load();
       } catch (caught) {
-        if (alive) dispatch({ type: 'load_error', error: errMsg(caught) });
+        if (alive) dispatch({ type: 'load_error', error: errorMessage(caught) });
       }
     });
     return () => {

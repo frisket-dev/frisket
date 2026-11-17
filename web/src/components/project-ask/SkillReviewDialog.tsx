@@ -5,6 +5,7 @@ import type { SkillProposalSaveRequest, SkillProposalSaveResult } from '../../ap
 import { SkillProposalSaveError } from '../../api/skillProposals';
 import type { AskSkillProposal, AskSkillSaveAttempt, AskSkillSaved } from './skillProposal';
 import { WindowCloseButton } from '../WindowCloseButton';
+import { errorMessage } from '../../hooks/errorMessage';
 
 export function SkillReviewDialog({ proposal, saved, pendingAttempt, canManage, scope, researchActive, onClose, onSave }: {
   proposal: AskSkillProposal;
@@ -104,7 +105,7 @@ export function SkillReviewDialog({ proposal, saved, pendingAttempt, canManage, 
         }
         if (cause.code === 'forbidden') setPermissionLost(true);
       } else {
-        setError(cause instanceof Error ? cause.message : 'Could not save this skill.');
+        setError(errorMessage(cause, 'Could not save this skill.'));
       }
     } finally {
       setBusy(false);

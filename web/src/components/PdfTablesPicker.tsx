@@ -1,9 +1,10 @@
 import './PdfTablesPicker.css';
 import { Button } from './Button';
 import { TextInput } from './FormControls';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { JsonMiniTable } from './rowInspection/JsonValue';
+import { useLoader } from '../hooks/useLoader';
 
 // The 8 metadata keys media.extract_pdf_tables prepends to every flattened
 // table row (extract_pdf_tables.py _MEDIA_PDF_TABLE_METADATA_COLUMN_TYPES /
@@ -97,25 +98,15 @@ export function PdfTablesPicker({
   onClose,
 }: PdfTablesPickerProps) {
   const { projectApi: api } = useWorkspaceStores();
-  const [rows, setRows] = useState<Array<{ cells: Record<string, unknown> }> | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const sheetRows = useLoader(
+    async () => (await api.getSheetData(sheetId, 0, 500, null)).rows as Array<{ cells: Record<string, unknown> }>,
+    [sheetId],
+    { keepPreviousData: true },
+  );
+  const rows = sheetRows.data;
+  const loadError = sheetRows.error;
   const [showMetadata, setShowMetadata] = useState(false);
   const [targetName, setTargetName] = useState(defaultTargetName);
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .getSheetData(sheetId, 0, 500, null)
-      .then((page) => {
-        if (!cancelled) setRows(page.rows as Array<{ cells: Record<string, unknown> }>);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [sheetId]);
 
   const groups = useMemo(
     () => (rows ? groupRowsByTable(rows, column.id) : []),

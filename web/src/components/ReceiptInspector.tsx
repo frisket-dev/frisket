@@ -1,21 +1,17 @@
 import './PanelPrimitives.css';
 import './ReceiptInspector.css';
 import { Button } from './Button';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { FileText, Loader2 } from 'lucide-react';
 import { type V1Receipt } from '../api/open';
 import { projectBlobUrl } from '../api/raw/projectResources';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { useLoader } from '../hooks/useLoader';
 
 interface ReceiptInspectorProps {
   receiptId: string;
   onCreateEntityTable?(receiptId: string): void;
 }
-
-type LoadState =
-  | { status: 'loading'; receiptId: string; receipt?: undefined; error?: undefined }
-  | { status: 'loaded'; receiptId: string; receipt: V1Receipt; error?: undefined }
-  | { status: 'error'; receiptId: string; receipt?: undefined; error: string };
 
 function refKind(ref: Record<string, unknown>): string {
   const kind = ref.kind;
@@ -46,29 +42,8 @@ function exportDownload(projectId: string, ref: Record<string, unknown>) {
 
 export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInspectorProps) {
   const { projectApi: api, job } = useWorkspaceStores();
-  const [state, setState] = useState<LoadState>(() => ({
-    status: 'loading',
-    receiptId,
-  }));
-
-  useEffect(() => {
-    let alive = true;
-    api
-      .getReceipt(receiptId)
-      .then((receipt) => {
-        if (alive) setState({ status: 'loaded', receiptId, receipt });
-      })
-      .catch((error: Error) => {
-        if (alive) setState({ status: 'error', receiptId, error: error.message });
-      });
-    return () => {
-      alive = false;
-    };
-  }, [receiptId]);
-
-  const viewState: LoadState =
-    state.receiptId === receiptId ? state : { status: 'loading', receiptId };
-  const receipt = viewState.status === 'loaded' ? viewState.receipt : null;
+  const loader = useLoader<V1Receipt>(() => api.getReceipt(receiptId), [receiptId]);
+  const receipt = loader.data;
   const counts = useMemo(() => {
     if (!receipt) return [];
     return [
@@ -95,15 +70,15 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
       {/* Allowlisted, not migrated to PanelLoading —
           icon (Loader2) + flex-row layout is a different genus from the
           plain muted-text block the primitive covers. */}
-      {viewState.status === 'loading' && (
+      {loader.loading && (
         <div className="receipt-loading" data-testid="receipt-loading">
           <Loader2 size={13} aria-hidden />
           Loading receipt
         </div>
       )}
 
-      {viewState.status === 'error' && (
-        <div className="panel-error" data-testid="receipt-error">{viewState.error}</div>
+      {loader.error !== null && (
+        <div className="panel-error" data-testid="receipt-error">{loader.error}</div>
       )}
 
       {receipt && (

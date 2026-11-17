@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { guideSamplesApi, type GuideSampleMetadata } from '../api/guideSamples';
+import { guideSamplesApi } from '../api/guideSamples';
 import { navigate } from '../routes';
 import { Button } from './Button';
 import { PanelLoading } from './PanelPrimitives';
+import { errorMessage } from '../hooks/errorMessage';
+import { useLoader } from '../hooks/useLoader';
 
 /** A docs link identifies a first-party sample; it never performs a mutation on arrival. */
 export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
@@ -13,8 +15,12 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
 }
 
 function GuideSampleLaunchView({ sampleId, revision }: { sampleId: string; revision: number }) {
-  const [sample, setSample] = useState<GuideSampleMetadata | null>(null);
-  const [error, setError] = useState<string | null>(() => Number.isSafeInteger(revision) ? null : 'Invalid sample revision.');
+  const validRevision = Number.isSafeInteger(revision);
+  const loader = useLoader((signal) => guideSamplesApi.get(sampleId, revision, signal), [sampleId, revision],
+    { enabled: validRevision });
+  const sample = loader.data;
+  const [launchError, setError] = useState<string | null>(null);
+  const error = validRevision ? loader.error ?? launchError : 'Invalid sample revision.';
   const [busy, setBusy] = useState(false);
   const [canStartAgain, setCanStartAgain] = useState(false);
   const opening = useRef(false);
@@ -27,15 +33,6 @@ function GuideSampleLaunchView({ sampleId, revision }: { sampleId: string; revis
     window.history.replaceState(null, '', window.location.pathname);
     navigate({ kind: 'picker' });
   };
-
-  useEffect(() => {
-    const controller = new AbortController();
-    if (!Number.isSafeInteger(revision)) return () => controller.abort();
-    void guideSamplesApi.get(sampleId, revision, controller.signal).then(setSample, (problem: unknown) => {
-      if (!controller.signal.aborted) setError(problem instanceof Error ? problem.message : String(problem));
-    });
-    return () => controller.abort();
-  }, [sampleId, revision]);
 
   const open = async (startAgain = false) => {
     if (opening.current || !sample) return;
@@ -66,7 +63,7 @@ function GuideSampleLaunchView({ sampleId, revision }: { sampleId: string; revis
       window.dispatchEvent(new PopStateEvent('popstate'));
     } catch (problem) {
       if (!stillHere()) return;
-      setError(problem instanceof Error ? problem.message : String(problem));
+      setError(errorMessage(problem));
       setCanStartAgain(typeof problem === 'object' && problem !== null
         && 'status' in problem && problem.status === 409);
       opening.current = false;

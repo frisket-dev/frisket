@@ -3,6 +3,7 @@ import type { EvaluationApi, EvaluationLink, EvaluationRequest, EvaluationRespon
 import type { ActionCompareSessionSnapshot } from '../actionCompareSession';
 import { comparisonRequest } from './comparisonEvaluation';
 import { isExpectedLinkAvailable } from '../../workspace/expectedLinkAvailability';
+import { useAction } from '../../hooks/useAction';
 
 function matchingShelf(items: SavedSummary[], columns: ActionCompareSessionSnapshot['context']['output_columns']) {
   const signature = (outputs: typeof columns | SavedSummary['output_columns']) => outputs
@@ -15,8 +16,7 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
   const [links, setLinks] = useState<EvaluationLink[]>([]);
   const [items, setItems] = useState<SavedSummary[]>([]);
   const [scoreState, setScoreState] = useState<{ key: string; requestKey: string; response: EvaluationResponse | null }>({ key: '', requestKey: '', response: null });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy: saving, error, setError, run } = useAction();
   const [generation, setGeneration] = useState(0);
   const sequence = useRef(0);
   const actionId = state.context.draft.action_id;
@@ -49,7 +49,7 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
       if (alive) { setLinks(linkResult.links); setItems(matchingShelf(shelfResult.items, outputColumns)); }
     }, (problem) => { if (alive) setError(String(problem.message ?? problem)); });
     return () => { alive = false; };
-  }, [api, sheetId, actionId, generation, dataRevision, outputColumns]);
+  }, [api, sheetId, actionId, generation, dataRevision, outputColumns, setError]);
 
   useEffect(() => {
     const current = ++sequence.current;
@@ -58,14 +58,11 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
       if (current === sequence.current) { setScoreState({ key: scoreKey, requestKey, response: result }); setError(null); }
     }, (problem) => { if (current === sequence.current) { setScoreState({ key: scoreKey, requestKey, response: null }); setError(String(problem.message ?? problem)); } });
     return () => { sequence.current += 1; };
-  }, [api, request, requestKey, scoreKey]);
+  }, [api, request, requestKey, scoreKey, setError]);
 
-  const mutate = useCallback(async <Value,>(operation: () => Promise<Value>): Promise<Value | undefined> => {
-    setSaving(true); setError(null);
-    try { const result = await operation(); refresh(); return result; }
-    catch (problem) { setError(problem instanceof Error ? problem.message : String(problem)); return undefined; }
-    finally { setSaving(false); }
-  }, [refresh]);
+  const mutate = useCallback(<Value,>(operation: () => Promise<Value>): Promise<Value | undefined> => run(async () => {
+    const result = await operation(); refresh(); return result;
+  }), [run, refresh]);
 
   return { api, link, links, request, response, items, loading, saving, error, refresh, refreshShelf, mutate,
     setResponse, setError, setLink };

@@ -5,6 +5,7 @@ import {
   type ExtractionLayoutContext,
   type ExtractionLayoutStoreHandle,
 } from '../../state/extractionLayoutStore';
+import { errorMessage } from '../../hooks/errorMessage';
 
 export const EMPTY_EXTRACTION_DRAFT = {
   reference_blob_id: '', reference_page: null, reference_fingerprint: '', fields: [], sections: [], ignore_bands: [],
@@ -13,7 +14,7 @@ export const EMPTY_EXTRACTION_DRAFT = {
 
 type Layout = SavedExtractionTemplate;
 type LayoutChanges = Partial<Pick<Layout, 'draft' | 'repeat_group_id' | 'reference_row_id'>>;
-const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
+const message = (cause: unknown) => errorMessage(cause);
 
 /** Serialize saves so a slow response cannot overwrite a newer draft. */
 export function useExtractionLayouts(store: ExtractionLayoutStoreHandle, sheetId: string, source: string, refreshKey?: unknown) {

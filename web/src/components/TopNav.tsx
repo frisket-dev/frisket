@@ -4,6 +4,7 @@ import { Button } from './Button';
 import { Modal } from './Modal';
 import './ExportDialogs.css';
 import { FormField, TextInput } from './FormControls';
+import { errorMessage } from '../hooks/errorMessage';
 // Shared nav chrome: frisket wordmark (→ picker), the project-name dropdown
 // for quick project switching, and the small account link. Route parsing /
 // navigation helpers live in src/routes.ts.
@@ -54,6 +55,7 @@ import { navigate } from '../routes';
 import { useShellIdentity } from '../shellIdentity';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition, type AnchoredPosition } from '../hooks/useAnchoredPosition';
+import { useLoader } from '../hooks/useLoader';
 import { ExportColumnTablesModal } from './ExportColumnTablesModal';
 import { sendProductTelemetry } from '../telemetry/productTelemetry';
 
@@ -930,14 +932,6 @@ function ExportGoogleSheetsModal({
   const { projectApi } = useWorkspaceStores();
   interface ExportGoogleSheetsState {
     connections: OAuthConnectionInfo[] | null;
-    // Edition/composition gate (server/action_catalog_hints.py ui_hints.
-    // unavailable_reason on the export.google_sheets catalog entry): the
-    // local single-user tier has no OAuth flow to connect a Google account
-    // at all, so /api/org/oauth/connections and /google/start 404 there.
-    // Undefined = not checked yet; null = available; string = the one-line
-    // reason to show INSTEAD of the (guaranteed-broken) "Connect Google"
-    // affordance below.
-    unavailableReason: string | null | undefined;
     connectionId: string;
     sourceKind: GoogleSheetsSourceKind;
     destinationKind: GoogleSheetsDestinationKind;
@@ -959,7 +953,6 @@ function ExportGoogleSheetsModal({
     }),
     {
       connections: null,
-      unavailableReason: undefined,
       connectionId: '',
       sourceKind: currentSheet ? 'current_sheet' : 'all_sheets',
       destinationKind: 'new_spreadsheet',
@@ -974,7 +967,6 @@ function ExportGoogleSheetsModal({
   );
   const {
     connections,
-    unavailableReason,
     connectionId,
     sourceKind,
     destinationKind,
@@ -987,27 +979,22 @@ function ExportGoogleSheetsModal({
     confirmationText,
   } = modalState;
 
-  // Edition/composition gate: read-only, best-effort. On any failure to load
-  // the catalog itself, unavailableReason simply stays undefined/null and
-  // the modal degrades to its pre-existing behavior (the connections fetch
-  // below is the authoritative path either way).
-  useEffect(() => {
-    let alive = true;
-    projectApi
-      .listActionCatalog(projectId)
-      .then((catalog) => {
-        if (!alive) return;
-        const entry = catalog.actions.find((action) => action.kind === 'export.google_sheets');
-        const reason = entry?.ui_hints?.unavailable_reason;
-        setModalState({ unavailableReason: typeof reason === 'string' && reason ? reason : null });
-      })
-      .catch(() => {
-        if (alive) setModalState({ unavailableReason: null });
-      });
-    return () => {
-      alive = false;
-    };
-  }, [projectId]);
+  // Edition/composition gate (server/action_catalog_hints.py ui_hints.
+  // unavailable_reason on the export.google_sheets catalog entry): the
+  // local single-user tier has no OAuth flow to connect a Google account
+  // at all, so /api/org/oauth/connections and /google/start 404 there.
+  // null = available or not checked; string = the one-line reason to show
+  // INSTEAD of the (guaranteed-broken) "Connect Google" affordance below.
+  // Read-only, best-effort: on any failure to load the catalog the modal
+  // degrades to its pre-existing behavior (the connections fetch below is
+  // the authoritative path either way).
+  const catalogGate = useLoader(async () => {
+    const catalog = await projectApi.listActionCatalog(projectId);
+    const entry = catalog.actions.find((action) => action.kind === 'export.google_sheets');
+    const reason = entry?.ui_hints?.unavailable_reason;
+    return typeof reason === 'string' && reason ? reason : null;
+  }, [projectId], { keepPreviousData: true });
+  const unavailableReason = catalogGate.error === null ? catalogGate.data : null;
 
   useEffect(() => {
     let alive = true;
@@ -1024,7 +1011,7 @@ function ExportGoogleSheetsModal({
         if (!alive) return;
         setModalState({
           connections: [],
-          error: e instanceof Error ? e.message : 'Could not load Google connections',
+          error: errorMessage(e, 'Could not load Google connections'),
         });
       });
     return () => {
@@ -1073,7 +1060,7 @@ function ExportGoogleSheetsModal({
         });
       } else {
         setModalState({
-          error: e instanceof Error ? e.message : 'Google Sheets export failed',
+          error: errorMessage(e, 'Google Sheets export failed'),
           confirmation: null,
           confirmationText: '',
         });

@@ -1,27 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import type { SheetMeta } from '../../api/open';
+import { useLoader } from '../../hooks/useLoader';
 
 export function useJoinSheets(primary: SheetMeta) {
   const { projectApi } = useWorkspaceStores();
   const [revision, refresh] = useState(0);
-  const [loaded, setLoaded] = useState<{ sheets: SheetMeta[]; error: string | null;
-    revision: number; primaryRevision: string } | null>(null);
   const primaryRevision = JSON.stringify([primary.id, primary.name,
     primary.columns.map(({ id, name, type }) => [id, name, type])]);
-  useEffect(() => {
-    let current = true;
-    projectApi.listSheets().then((sheets) => {
-      if (current) setLoaded({ sheets, error: null, revision, primaryRevision });
-    }).catch((error: unknown) => {
-      if (current) setLoaded((before) => ({ sheets: before?.sheets ?? [],
-        error: error instanceof Error ? error.message : 'Could not load sheets.',
-        revision, primaryRevision }));
-    });
-    return () => { current = false; };
-  }, [projectApi, revision, primaryRevision]);
-  const loading = !loaded || loaded.revision !== revision || loaded.primaryRevision !== primaryRevision;
-  return { sheets: loaded?.sheets ?? [], error: loading ? null : loaded?.error ?? null,
+  const loader = useLoader(() => projectApi.listSheets(), [revision, primaryRevision],
+    { keepPreviousData: true, errorFallback: 'Could not load sheets.' });
+  const loading = loader.loading;
+  return { sheets: loader.data ?? [], error: loading ? null : loader.error,
     loading,
     refresh: () => refresh((value) => value + 1) };
 }

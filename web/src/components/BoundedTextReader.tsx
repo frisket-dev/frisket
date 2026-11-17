@@ -2,6 +2,7 @@ import './BoundedTextReader.css';
 import { Button } from './Button';
 import { useEffect, useRef, useState } from 'react';
 import type { BlobTextWindow } from '../api/raw/blobText';
+import { errorMessage } from '../hooks/errorMessage';
 
 export interface TextWindow {
   retrieval_revision: number;
@@ -55,7 +56,7 @@ export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReader
         if (!controller.signal.aborted) setResult({ key: requestKey,
           error: typeof error === 'object' && error !== null && 'status' in error && error.status === 409
             ? 'This value changed. Reload to read its current version.'
-            : error instanceof Error ? error.message : 'Could not load text.' });
+            : errorMessage(error, 'Could not load text.') });
       });
     return () => controller.abort();
   }, [loadWindow, request.start, request.revision, requestKey]);
@@ -93,7 +94,7 @@ export function BoundedTextReader(props: BoundedTextReaderProps | BlobTextReader
       await navigator.clipboard.writeText(exact);
       if (!controller.signal.aborted) setCopyStatus(props.coordinate === 'bytes' ? 'Full file copied.' : 'Full value copied.');
     } catch (error) {
-      if (!controller.signal.aborted) setCopyStatus(error instanceof Error ? error.message : 'Could not copy full value.');
+      if (!controller.signal.aborted) setCopyStatus(errorMessage(error, 'Could not copy full value.'));
     }
   }
   return (

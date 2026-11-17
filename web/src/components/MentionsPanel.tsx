@@ -16,7 +16,8 @@ import {
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { PanelError, PanelLoading } from './PanelPrimitives';
 import { PanelSelect } from './PanelSelect';
-import { panelErrorMessage, testIdKey } from './panelPrimitivesModel';
+import { testIdKey } from './panelPrimitivesModel';
+import { errorMessage } from '../hooks/errorMessage';
 import { entityTypeLabel } from './action-panel/nerLabelModel';
 import {
   MENTIONS_BLURB,
@@ -267,7 +268,7 @@ export function MentionsPanel({
       })
       .catch((failure: unknown) => {
         if (alive)
-          dispatch({ type: 'failed', message: panelErrorMessage(failure, 'Mentions failed to load') });
+          dispatch({ type: 'failed', message: errorMessage(failure, 'Mentions failed to load') });
       });
     return () => {
       alive = false;
@@ -296,7 +297,7 @@ export function MentionsPanel({
           dispatch({
             type: 'typePageFailed',
             entityType,
-            message: panelErrorMessage(failure, 'Mentions failed to load'),
+            message: errorMessage(failure, 'Mentions failed to load'),
             seq,
           });
         });

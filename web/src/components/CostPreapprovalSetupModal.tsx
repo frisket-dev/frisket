@@ -5,30 +5,22 @@ import { useState } from 'react';
 import { Modal } from './Modal';
 
 import { updateProfile } from '../api/open';
+import { useAction } from '../hooks/useAction';
 
 /** First signed-in use records a person's standing amount. The server keeps
  * the null marker until this form succeeds, so a reload cannot skip it. */
 export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => void }) {
   const [amount, setAmount] = useState('2');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy: saving, error, run } = useAction();
   const [complete, setComplete] = useState(false);
 
   if (complete) return null;
 
-  const save = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      await updateProfile({ cost_preapproval_usd: amount });
-      setComplete(true);
-      onComplete?.();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const save = () => run(async () => {
+    await updateProfile({ cost_preapproval_usd: amount });
+    setComplete(true);
+    onComplete?.();
+  });
 
   return (
     <Modal title="Choose your cost pre-approval amount" testId="cost-preapproval-setup">

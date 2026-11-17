@@ -22,6 +22,7 @@ import {
   type SheetMeta,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { useLoader } from '../hooks/useLoader';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import type { PluginDetailSubject } from '../workbench/pluginDetailContext';
 import { EntityDetailPanel, type EntityDetailConnection } from './EntityDetailPanel';
@@ -107,6 +108,8 @@ interface GraphViewConfig {
   nodeSizeColumnId: string;
   edgeLabelColumnId: string;
 }
+
+const NO_SHEETS: SheetMeta[] = [];
 
 const EMPTY_CONFIG: GraphViewConfig = {
   direction: '',
@@ -292,24 +295,10 @@ export function GenericGraphView({
     (_prev: LoadState, next: LoadState) => next,
     { status: 'idle' } as LoadState,
   );
-  const [allSheets, setAllSheets] = useState<SheetMeta[]>([]);
+  // Column options degrade gracefully to empty when the sheet list fails.
+  const allSheets = useLoader(() => projectApi.listSheets(), []).data ?? NO_SHEETS;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { viewBox, resetCamera, onWheel, onPointerDown, onPointerMove, endPan } = useGraphCamera();
-
-  useEffect(() => {
-    let cancelled = false;
-    projectApi
-      .listSheets()
-      .then((sheets) => {
-        if (!cancelled) setAllSheets(sheets);
-      })
-      .catch(() => {
-        /* column options degrade gracefully to empty */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;

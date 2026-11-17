@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import './JoinExpectedAnswersDialog.css';
 import { Button } from '../Button';
 import { FormField } from '../FormControls';
 import { Modal } from '../Modal';
 import { PanelSelect } from '../PanelSelect';
 import { StageStepper } from '../StageStepper';
+import { errorMessage } from '../../hooks/errorMessage';
+import { useAction } from '../../hooks/useAction';
+import { useLoader } from '../../hooks/useLoader';
 
 export type ExpectedRule = 'exact' | 'ignore_case' | 'number' | 'date' | 'set' | 'hand';
 interface JoinColumn { id: number; name: string }
@@ -46,9 +49,7 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
   const [draftRevision, setDraftRevision] = useState(0);
   const setKeys = (next: ExpectedLinkDraft['keys']) => { setKeysState(next); setDraftRevision(value => value + 1); };
   const setFields = (next: ExpectedLinkDraft['fields']) => { setFieldsState(next); setDraftRevision(value => value + 1); };
-  const [previewResult, setPreviewResult] = useState<{ key: string; value: JoinPreview | null; error: string } | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
+  const { busy: saving, error, run } = useAction({ errorFallback: 'Could not join expected answers.' });
   const [showUnmatched, setShowUnmatched] = useState(false);
   const sheet = sheets.find((item) => item.id === sheetId);
   const action = actions.find((item) => item.id === actionId);
@@ -68,12 +69,14 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
     && new Set(keys.map((key) => key.expected_column_id)).size === keys.length
     && new Set(keys.map((key) => key.target_column_id)).size === keys.length;
   // A pending or failed preview cannot authorize advancing, and late results cannot replace newer ones.
-  useEffect(() => {
-    if (!draftKey || !validKeys) return;
-    let active = true;
-    onPreview(JSON.parse(draftKey) as ExpectedLinkDraft).then((result) => { if (active) setPreviewResult({ key: previewKey, value: result, error: '' }); }, (reason: unknown) => { if (active) setPreviewResult({ key: previewKey, value: null, error: reason instanceof Error ? reason.message : 'Could not preview matching rows.' }); });
-    return () => { active = false; };
-  }, [draftKey, previewKey, validKeys, onPreview]);
+  const previewResult = useLoader(async (): Promise<{ key: string; value: JoinPreview | null; error: string }> => {
+    const key = previewKey;
+    try {
+      return { key, value: await onPreview(JSON.parse(draftKey) as ExpectedLinkDraft), error: '' };
+    } catch (reason) {
+      return { key, value: null, error: errorMessage(reason, 'Could not preview matching rows.') };
+    }
+  }, [draftKey, previewKey, validKeys, onPreview], { keepPreviousData: true, enabled: Boolean(draftKey) && validKeys }).data;
   const preview = previewResult?.key === previewKey && validKeys ? previewResult.value : null;
   const previewError = previewResult?.key === previewKey && validKeys ? previewResult.error : '';
   const canAdvance = !!preview && !preview.ambiguous_expected && !preview.ambiguous_target;
@@ -90,10 +93,9 @@ export function JoinExpectedAnswersDialog({ sheets, actions, initialActionId, in
   }
   async function save() {
     if (!draft || !canAdvance || !validFields || saving) return;
-    setSaving(true); setError('');
     const updates = fields.flatMap(field => changedRules[field.expected_column_id] === field.rule
       ? [{ expected_column_id: field.expected_column_id, rule: field.rule }] : []);
-    try { await onSave(draft, updates); onClose(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not join expected answers.'); } finally { setSaving(false); }
+    await run(async () => { await onSave(draft, updates); onClose(); });
   }
   const options = (columns: JoinColumn[]) => [{ value: '', label: 'Choose a column' }, ...columns.map((column) => ({ value: String(column.id), label: column.name }))];
   return <Modal title={initialLink ? 'Edit expected answers join' : 'Join expected answers'} onClose={onClose} busy={saving} testId="join-expected-dialog" closeLabel="Close" size="wide">

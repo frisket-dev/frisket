@@ -32,6 +32,8 @@ import {
 import { Drawer } from './Drawer';
 import { PanelLoading } from './PanelPrimitives';
 import { PanelSelect } from './PanelSelect';
+import { errorMessage } from '../hooks/errorMessage';
+import { useLoader } from '../hooks/useLoader';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
 
@@ -180,7 +182,7 @@ function fetchColumnRuns(
 }
 
 function columnUpdateErrorMessage(error: unknown, typeDraft: ColumnType): string {
-  const raw = error instanceof Error ? error.message : String(error);
+  const raw = errorMessage(error);
   const lower = raw.toLowerCase();
   if (
     lower.includes('column_value_validation_failed') ||
@@ -561,18 +563,10 @@ function ColumnSettingsSection({
   onColumnUpdated(column: ColumnDef): void;
 }) {
   const { projectApi } = useWorkspaceStores();
-  const [columnTypes, setColumnTypes] = useState<ColumnTypeInfo[]>(CORE_COLUMN_TYPES);
+  const loadedColumnTypes = useLoader(() => projectApi.listColumnTypes(), []).data;
+  const columnTypes = loadedColumnTypes?.length ? loadedColumnTypes : CORE_COLUMN_TYPES;
   const [settingsDraft, setSettingsDraft] = useState<ColumnSettingsDraft | null>(null);
   const [updateState, setUpdateState] = useState<ColumnUpdateState>(() => columnUpdateState(column.id));
-
-  useEffect(() => {
-    let alive = true;
-    projectApi
-      .listColumnTypes()
-      .then((types) => { if (alive && types.length) setColumnTypes(types); })
-      .catch(() => undefined);
-    return () => { alive = false; };
-  }, []);
 
   const currentDraft = settingsDraft?.columnId === column.id
     ? settingsDraft
@@ -849,7 +843,7 @@ function AiColumnDetails({
       setBackfill({
         busy: false,
         message: null,
-        error: e instanceof Error ? e.message : String(e),
+        error: errorMessage(e),
       });
     }
   };
@@ -861,7 +855,7 @@ function AiColumnDetails({
     } catch (error: unknown) {
       setRevision({
         runId: null,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
     }
   };

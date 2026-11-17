@@ -16,6 +16,7 @@ import { PanelFrame, PanelBody, PanelFooter } from '../PanelLayout';
 import { SourceConfigFields } from '../sources/SourceConfigFields';
 import { buildSourceInput, emptySourceDefinition, INTERVALS, SOURCE_KINDS,
   selectedKind, sourceDefinitionError, sourceKindLabel, type KnownSourceKind as FeedSourceKind } from '../sources/sourceConfig';
+import { errorMessage } from '../../hooks/errorMessage';
 
 function telemetrySourceKind(kind: FeedSourceKind): SourceKind {
   if (kind === 'tiktok_profile') return 'other';
@@ -172,7 +173,7 @@ export function FeedSourceForm({
           result: 'failed', failureCategory: failureCategory(e),
         },
       }, projectId);
-      const message = `Feed source failed: ${e instanceof Error ? e.message : String(e)}`;
+      const message = `Feed source failed: ${errorMessage(e)}`;
       updateForm({ busy: false, error: message });
       onError(message);
     } finally {
@@ -191,7 +192,7 @@ export function FeedSourceForm({
       if (result.sheetId != null) onImported(result.sheetId);
       onCreated?.();
     } catch (e) {
-      const message = `Populate failed: ${e instanceof Error ? e.message : String(e)}`;
+      const message = `Populate failed: ${errorMessage(e)}`;
       setPopulate({ ...populate, busy: false, error: message });
     }
   };

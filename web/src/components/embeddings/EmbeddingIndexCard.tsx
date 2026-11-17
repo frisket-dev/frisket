@@ -14,6 +14,7 @@ import { REFRESH_NEEDED_CODES } from './constants';
 import { StatusChip } from '../PanelPrimitives';
 import { IndexPolicyDetail } from './IndexPolicyDetail';
 import { LensList } from './LensList';
+import { errorMessage } from '../../hooks/errorMessage';
 
 interface EmbeddingIndexCardProps {
   apiPort: EmbeddingApiPort;
@@ -246,7 +247,7 @@ function IndexAnalysis({
         return 'Embeddings are out of date — refresh the index before running analysis.';
       }
     }
-    return error instanceof Error ? error.message : String(error);
+    return errorMessage(error);
   }, []);
 
   const runPca = useCallback(async () => {
@@ -429,7 +430,7 @@ function ExportControl({
       } else {
         dispatch({
           type: 'error',
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       }
     }

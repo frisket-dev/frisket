@@ -1,12 +1,14 @@
 import '../../IconButton.css';
 import { Button } from '../../Button';
 import { FileText, LoaderCircle, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { pdfImportsApi, type PdfImportSnapshot, type PdfImportsApi } from '../../../api/pdfImports';
 import { count } from './model';
 import { formatBytes } from '../../../format';
 import './PdfBatchImportFlow.css';
+import { errorMessage } from '../../../hooks/errorMessage';
+import { useLoader } from '../../../hooks/useLoader';
 
 interface PdfBatchDraftsProps {
   projectId: string;
@@ -19,42 +21,34 @@ function activeDraft(snapshot: PdfImportSnapshot): boolean {
 }
 
 export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: PdfBatchDraftsProps) {
-  const [drafts, setDrafts] = useState<PdfImportSnapshot[]>([]);
-  const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const loader = useLoader(
+    (signal) => api.list(projectId, { signal }).then((items) => items.filter(activeDraft)),
+    [api, projectId],
+  );
+  const drafts = loader.data ?? [];
   const [discardId, setDiscardId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void api.list(projectId, { signal: controller.signal }).then((items) => {
-      if (!controller.signal.aborted) setDrafts(items.filter(activeDraft));
-    }).catch((problem: unknown) => {
-      if (!controller.signal.aborted) setError(problem instanceof Error ? problem.message : String(problem));
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoadedProjectId(projectId);
-    });
-    return () => controller.abort();
-  }, [api, projectId]);
+  const [discardError, setDiscardError] = useState<string | null>(null);
+  const error = discardError ?? loader.error;
 
   const discard = async (draft: PdfImportSnapshot) => {
     if (busyId) return;
     setBusyId(draft.draft_id);
-    setError(null);
+    setDiscardError(null);
     try {
       const next = await api.discard(projectId, draft.draft_id);
-      setDrafts((current) => next.state === 'cancelled'
-        ? current.filter((item) => item.draft_id !== draft.draft_id)
-        : current.map((item) => item.draft_id === draft.draft_id ? next : item));
+      loader.setData(next.state === 'cancelled'
+        ? drafts.filter((item) => item.draft_id !== draft.draft_id)
+        : drafts.map((item) => item.draft_id === draft.draft_id ? next : item));
       setDiscardId(null);
     } catch (problem) {
-      setError(problem instanceof Error ? problem.message : String(problem));
+      setDiscardError(errorMessage(problem));
     } finally {
       setBusyId(null);
     }
   };
 
-  if (loadedProjectId !== projectId) return <div className="pdf-batch-drafts-loading" role="status"><LoaderCircle className="spin" size={14} /> Checking unfinished file imports…</div>;
+  if (loader.loading) return <div className="pdf-batch-drafts-loading" role="status"><LoaderCircle className="spin" size={14} /> Checking unfinished file imports…</div>;
   if (drafts.length === 0 && !error) return null;
 
   return <section className="pdf-batch-drafts" aria-label="Unfinished file imports">

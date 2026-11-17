@@ -6,6 +6,7 @@ import { ApiError, type EmbeddingIndexSummary, type SavedView, type ViewResolved
 import type { EmbeddingApiPort } from '../../api/ports';
 import { useOpenLens } from './openLensContext';
 import { REFRESH_NEEDED_CODES } from './constants';
+import { errorMessage } from '../../hooks/errorMessage';
 
 interface LensListProps {
   apiPort: EmbeddingApiPort;
@@ -83,7 +84,7 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
     } catch (error) {
       dispatch({
         type: 'load_error',
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     }
   }, [apiPort, sheetId, index.indexId]);
@@ -117,7 +118,7 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
         } else {
           dispatch({
             type: 'resolve_error',
-            message: error instanceof Error ? error.message : String(error),
+            message: errorMessage(error),
           });
         }
       } finally {

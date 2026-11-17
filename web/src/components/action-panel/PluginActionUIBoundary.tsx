@@ -1,10 +1,11 @@
 import './PluginActionUIBoundary.css';
 import * as React from 'react';
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { GeneratedActionCatalogEntry } from '../../api/types';
 import { loadTrustedLocalPluginExport } from '../../workbench/trustedLocalModule';
 import { TrustedLocalContributionErrorBoundary } from '../../workbench/TrustedLocalPluginComponent';
 import type { GeneratedActionCustomization } from './generatedActionCustomizations';
+import { useLoader } from '../../hooks/useLoader';
 
 function validatedUI(value: unknown, entry: GeneratedActionCatalogEntry): GeneratedActionCustomization {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid action UI');
@@ -32,20 +33,15 @@ export function PluginActionUIBoundary({ entry, projectId, children }: {
   const binding = entry.ui_hints.action_ui!;
   const moduleUrl = `/api/projects/${encodeURIComponent(projectId)}/workbench/plugins/${encodeURIComponent(binding.plugin_id)}`
     + `/frontend-components/${encodeURIComponent(entry.kind)}/module.js?package=${encodeURIComponent(binding.package_sha256)}`;
-  const [state, setState] = useState<{ ui?: GeneratedActionCustomization; error?: true }>({});
-  useEffect(() => {
-    let active = true;
-    loadTrustedLocalPluginExport(moduleUrl, binding.export_name, { exact: true })
-      .then((factory) => {
-        if (!active) return;
-        // Factories are hook-free; only their returned React components render.
-        const ui = validatedUI((factory as (host: { React: typeof React }) => unknown)({ React }), entry);
-        if (active) setState({ ui });
-      }).catch(() => { if (active) setState({ error: true }); });
-    return () => { active = false; };
-  }, [moduleUrl, binding.export_name, entry]);
-  if (state.error) return <p role="alert">The installed action UI could not load. Rebuild or reinstall the plugin.</p>;
-  if (!state.ui) return <p role="status">Loading action editor…</p>;
+  const loader = useLoader(async (signal) => {
+    const factory = await loadTrustedLocalPluginExport(moduleUrl, binding.export_name, { exact: true });
+    // A superseded module must never run its factory.
+    if (signal.aborted) throw signal.reason;
+    // Factories are hook-free; only their returned React components render.
+    return validatedUI((factory as (host: { React: typeof React }) => unknown)({ React }), entry);
+  }, [moduleUrl, binding.export_name, entry], { keepPreviousData: true });
+  if (loader.error !== null) return <p role="alert">The installed action UI could not load. Rebuild or reinstall the plugin.</p>;
+  if (!loader.data) return <p role="status">Loading action editor…</p>;
   return <TrustedLocalContributionErrorBoundary contributionId={entry.kind}
-    pluginId={binding.plugin_id} moduleUrl={moduleUrl}>{children(state.ui)}</TrustedLocalContributionErrorBoundary>;
+    pluginId={binding.plugin_id} moduleUrl={moduleUrl}>{children(loader.data)}</TrustedLocalContributionErrorBoundary>;
 }

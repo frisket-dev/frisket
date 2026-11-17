@@ -17,6 +17,7 @@ import type {
   RecipeFencePosture,
 } from '../../api/open';
 import { getRuntimeConfig } from '../../api/open';
+import { useLoader } from '../../hooks/useLoader';
 import { PYTHON_SNIPPET_TRUST_COPY, asRecipeFencePosture } from '../../actions/model';
 import { PanelSelect } from '../PanelSelect';
 import { ToggleRow } from '../PanelPrimitives';
@@ -335,21 +336,8 @@ const PYTHON_CODE_EDITOR_CONTRACT = (
 // posture is `unknown`, whose copy warns. There is no posture whose copy is
 // silent, and no path where a missing answer reassures.
 function useRecipeFencePosture(): RecipeFencePosture {
-  const [posture, setPosture] = useState<RecipeFencePosture>('unknown');
-  useEffect(() => {
-    let live = true;
-    getRuntimeConfig()
-      .then((config) => {
-        if (live) setPosture(asRecipeFencePosture(config.recipe_fence_posture));
-      })
-      .catch(() => {
-        /* stays `unknown`, which warns */
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
-  return posture;
+  const config = useLoader(() => getRuntimeConfig(), []).data;
+  return config ? asRecipeFencePosture(config.recipe_fence_posture) : 'unknown';
 }
 
 /** The python `code` param: editor plus the trust line for this server's fence

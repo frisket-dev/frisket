@@ -42,6 +42,7 @@ import {
 import { BrandLink } from './BrandLink';
 import { useEditionModule } from '../editions/module';
 import { DiagnosticsSettings } from '../settings/DiagnosticsSettings';
+import { errorMessage } from '../hooks/errorMessage';
 
 const ADMIN_LINKS = [
   { path: '/admin', label: 'Overview' },
@@ -434,7 +435,7 @@ export function AdminPage() {
     return getAdminAuditLog(filters)
       .then((loaded) => dispatch({ type: 'auditLoaded', auditLog: loaded }))
       .catch((e: unknown) => {
-        dispatch({ type: 'auditFailed', message: e instanceof Error ? e.message : String(e) });
+        dispatch({ type: 'auditFailed', message: errorMessage(e) });
       });
   }, []);
 
@@ -442,7 +443,7 @@ export function AdminPage() {
     return getAdminJobs()
       .then((loaded) => dispatch({ type: 'jobsLoaded', jobs: loaded }))
       .catch((e: unknown) => {
-        dispatch({ type: 'jobsFailed', message: e instanceof Error ? e.message : String(e) });
+        dispatch({ type: 'jobsFailed', message: errorMessage(e) });
       });
   }, []);
 
@@ -452,7 +453,7 @@ export function AdminPage() {
       .catch((e: unknown) => {
         dispatch({
           type: 'adminHealthFailed',
-          message: e instanceof Error ? e.message : String(e),
+          message: errorMessage(e),
         });
       });
   }, []);
@@ -461,7 +462,7 @@ export function AdminPage() {
     return getAdminErrors()
       .then((loaded) => dispatch({ type: 'errorsLoaded', errorsFeed: loaded }))
       .catch((e: unknown) => {
-        dispatch({ type: 'errorsFailed', message: e instanceof Error ? e.message : String(e) });
+        dispatch({ type: 'errorsFailed', message: errorMessage(e) });
       });
   }, []);
 
@@ -469,7 +470,7 @@ export function AdminPage() {
     return getAdminUsers()
       .then((loaded) => dispatch({ type: 'usersLoaded', users: loaded }))
       .catch((e: unknown) => {
-        dispatch({ type: 'usersFailed', message: e instanceof Error ? e.message : String(e) });
+        dispatch({ type: 'usersFailed', message: errorMessage(e) });
       });
   }, []);
 
@@ -517,7 +518,7 @@ export function AdminPage() {
             )
             .catch(() => dispatch({ type: 'healthLoaded', adminConfigured: null }));
         } else {
-          dispatch({ type: 'overviewFailed', message: e instanceof Error ? e.message : String(e) });
+          dispatch({ type: 'overviewFailed', message: errorMessage(e) });
         }
       });
   }, [loadAdminHealth, loadAudit, loadErrors, loadJobs, loadUsers, section]);
@@ -651,7 +652,7 @@ function AdminUsersPanel({
       });
       onRefresh();
     } catch (e) {
-      formDispatch({ type: 'actionFailed', message: e instanceof Error ? e.message : String(e) });
+      formDispatch({ type: 'actionFailed', message: errorMessage(e) });
     }
   }
 
@@ -1312,7 +1313,7 @@ function AdminJobsPanel({
         onRefresh();
       } catch (e) {
         setActionError(
-          `Could not ${action} job ${jobId}: ${e instanceof Error ? e.message : String(e)}`,
+          `Could not ${action} job ${jobId}: ${errorMessage(e)}`,
         );
       } finally {
         setPending(null);

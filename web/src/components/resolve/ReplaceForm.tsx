@@ -4,6 +4,7 @@ import { Button } from '../Button';
 import { FormField, TextInput } from '../FormControls';
 import { IconButton } from '../IconButton';
 import '../EditorRows.css';
+import { errorMessage } from '../../hooks/errorMessage';
 // The bespoke drawer body for "Replace by rules". An ordered first-match-wins
 // rules list (contains / exact / regex → whole-cell set-to, null allowed), a
 // no-match policy, and per-rule match counts.
@@ -84,7 +85,7 @@ const PREVIEW_DEBOUNCE_MS = 350;
 
 const fmt = (n: number): string => n.toLocaleString();
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
-const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const msg = (e: unknown): string => errorMessage(e);
 
 /** Preview eligibility: blank patterns are authoring noise and blank (non-
  *  null) targets are rejected by the ReplaceRule contract, so both are held

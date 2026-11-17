@@ -3,7 +3,7 @@ import { Button } from '../components/Button';
 import { CheckCircle2, Info, RefreshCw, XCircle } from 'lucide-react';
 import { readSettingsProjectContext } from './settingsProjectContext';
 import { fetchDiagnostics, type DiagnosticsReport } from '../api/diagnostics';
-import { useLoader } from './settingsSupport';
+import { useLoader } from '../hooks/useLoader';
 import { InlineStatus } from './SettingsPrimitives';
 
 // Diagnostics section: the self-probe GET /api/diagnose canonical home,
@@ -124,8 +124,8 @@ function loadDiagnostics(): Promise<DiagnosticsReport> {
  *  and the CLI compute identical facts from one shared module. Exported for
  *  component tests, mirroring WorkspaceAiProvidersSettings' own precedent. */
 export function DiagnosticsSettings() {
-  const report = useLoader<DiagnosticsReport>(() => loadDiagnostics());
-  // useLoader's 'fail' action keeps the previous
+  const report = useLoader<DiagnosticsReport>(() => loadDiagnostics(), []);
+  // A failed reload keeps the previous
   // `data` around (so a transient refresh failure doesn't blank out an
   // otherwise-fine report) — but rendering that stale report under an
   // unqualified "Healthy" status, with only a separate error banner above it,

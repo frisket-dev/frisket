@@ -16,18 +16,20 @@ import { canOwnProject } from '../api/projectRole';
 import { PanelSelect } from '../components/PanelSelect';
 import { PanelNotice } from '../components/PanelPrimitives';
 import { PluginManager } from '../workbench/PluginManager';
-import { useLoader, errMsg } from './settingsSupport';
+import { useLoader } from '../hooks/useLoader';
+import { errorMessage } from '../hooks/errorMessage';
 import { InlineStatus, SettingsTable } from './SettingsPrimitives';
 import { useSecretEntryDraft } from './useSecretEntryDraft';
 
 export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | null }) {
   const { projectApi: api } = useWorkspaceStores();
-  const secrets = useLoader<ProjectSecrets>(() => api.getProjectSecrets());
-  const runtimeConfig = useLoader<RuntimeConfig>(() => getRuntimeConfig());
+  const secrets = useLoader<ProjectSecrets>(() => api.getProjectSecrets(), []);
+  const runtimeConfig = useLoader<RuntimeConfig>(() => getRuntimeConfig(), []);
   const pluginsHidden = runtimeConfig.data?.plugins_available !== true;
   const runtime = useLoader<WorkbenchPluginRuntimeIndex | null>(
     () => (pluginsHidden ? Promise.resolve(null) : api.getWorkbenchPluginRuntimeIndex()),
-    String(pluginsHidden),
+    [pluginsHidden],
+    { keepPreviousData: true },
   );
   // Deep-link prefill: the credential gate's
   // "Add in Settings →" arrives with ?secret=<NAME> so the user never
@@ -125,7 +127,7 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
             disabled={!canMutate}
             onClick={() => void api.deleteProjectSecret(row.name)
               .then(secrets.reload)
-              .catch((caught) => setMutationError(errMsg(caught)))}
+              .catch((caught) => setMutationError(errorMessage(caught)))}
           >
             <Trash2 size={14} />
           </button>,
@@ -152,8 +154,8 @@ export function ProjectSecretsSettings({ project }: { project?: ProjectInfo | nu
 
 export function ProjectMcpServersSettings() {
   const { projectApi: api } = useWorkspaceStores();
-  const servers = useLoader(() => api.listMcpServers());
-  const secrets = useLoader<ProjectSecrets>(() => api.getProjectSecrets());
+  const servers = useLoader(() => api.listMcpServers(), []);
+  const secrets = useLoader<ProjectSecrets>(() => api.getProjectSecrets(), []);
   const reload = () => servers.reload();
   return <McpServersSection
     servers={(servers.data ?? []).map((server) => ({ ...server, last_discovered_tool_count: server.last_discovered_tool_count ?? undefined, last_test: server.lastTest ? { status: server.lastTest.status === 'succeeded' ? 'passed' : 'failed', tested_at: server.lastTest.tested_at, detail: server.lastTest.diagnostic ?? undefined } : null }))}
@@ -188,7 +190,7 @@ function PluginOptionsList({ runtimeIndex }: { runtimeIndex: WorkbenchPluginRunt
         } catch (caught) {
           return {
             payload: null,
-            error: `${plugin.pluginId}: ${errMsg(caught)}`,
+            error: `${plugin.pluginId}: ${errorMessage(caught)}`,
           };
         }
       }),
@@ -238,7 +240,7 @@ function PluginOptionsList({ runtimeIndex }: { runtimeIndex: WorkbenchPluginRunt
               if (!payload.canMutate || setting.readOnly) return;
               void api.patchWorkbenchPluginSettings(payload.pluginId, { [setting.id]: draft })
                 .then((updated) => setSettingsByPlugin((state) => ({ ...state, [payload.pluginId]: updated })))
-                .catch((caught) => setError(errMsg(caught)));
+                .catch((caught) => setError(errorMessage(caught)));
             }}
           >
             <span className="settings-option-label">{setting.title}</span>
@@ -324,11 +326,12 @@ export function ProjectPluginsSettings({
   const { projectApi: api } = useWorkspaceStores();
   // Unknown and failed config loads remain closed. Bundled-only compositions
   // still load plugin contributions elsewhere, but do not expose lifecycle UI.
-  const runtimeConfig = useLoader<RuntimeConfig>(() => getRuntimeConfig());
+  const runtimeConfig = useLoader<RuntimeConfig>(() => getRuntimeConfig(), []);
   const hidden = runtimeConfig.data?.plugin_management_available !== true;
   const runtime = useLoader<WorkbenchPluginRuntimeIndex | null>(
     () => (hidden ? Promise.resolve(null) : api.getWorkbenchPluginRuntimeIndex()),
-    String(hidden),
+    [hidden],
+    { keepPreviousData: true },
   );
   const canMutate = canOwnProject(project);
   if (hidden) {

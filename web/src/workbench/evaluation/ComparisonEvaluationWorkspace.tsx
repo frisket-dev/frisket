@@ -21,6 +21,7 @@ import { ComparisonAnswerValue } from './ComparisonAnswerValue';
 import { UnavailableExpectedLinks } from '../../workspace/UnavailableExpectedLinks';
 import { isExpectedLinkAvailable } from '../../workspace/expectedLinkAvailability';
 import './evaluation.css';
+import { errorMessage } from '../../hooks/errorMessage';
 
 interface ComparisonEvaluationWorkspaceProps {
   variantMenuHost?: HTMLElement | null;
@@ -165,7 +166,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       ...(expected ? [(async () => ['expected', await api.getCell({ comparison: evaluationRequest, variant_key: 'expected', row_id: queueRow, logical_key: field })] as const)()] : []),
     ]).then((entries) => {
       if (alive) setFullCells({ key: focusedKey, response, cells: Object.fromEntries(entries), expected: entries.find(([key]) => key === 'expected')?.[1] });
-    }, (problem) => { if (alive) setEvaluationError(problem instanceof Error ? problem.message : String(problem)); });
+    }, (problem) => { if (alive) setEvaluationError(errorMessage(problem)); });
     return () => { alive = false; };
   }, [api, response, queueRow, field, focusedKey, evaluationRequest, queueActive, setEvaluationError]);
 

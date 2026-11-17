@@ -28,6 +28,7 @@ import { useColumnEvidence } from './columnEvidenceResource';
 import { useEvidenceLinkViewer } from './evidenceLinkViewerResource';
 import { resolveTitleColumn, rowTitle as resolveRowTitle } from './rowTitle';
 import { LIST_ITEM_HEIGHT, useWindowedRowList } from './useWindowedRowList';
+import { errorMessage } from '../hooks/errorMessage';
 
 // Lazy, matching App.tsx's LazyEvidenceViewer -- AnswersView itself is
 // imported eagerly (like DocumentView), so a static EvidenceViewer import
@@ -166,7 +167,7 @@ export function AnswersView({
           rows: [],
           total: sheet.rowCount,
           loading: false,
-          error: err instanceof Error ? err.message : 'Could not load rows.',
+          error: errorMessage(err, 'Could not load rows.'),
         });
       });
     return () => {
@@ -190,7 +191,7 @@ export function AnswersView({
       setList((prev) => ({
         ...prev,
         loading: false,
-        error: err instanceof Error ? err.message : 'Could not load rows.',
+        error: errorMessage(err, 'Could not load rows.'),
       }));
     }
   }, [list.loading, list.rows.length, list.total, listColumnIds, queryRows]);

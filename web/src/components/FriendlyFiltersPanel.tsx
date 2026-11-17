@@ -21,7 +21,8 @@ import { facetBehaviorFor } from '../grid/typeRegistry';
 import { filterConditionFromDraft, gridFilterLabel } from '../workspace/gridColumnState';
 import { filterOperatorOptions } from '../workspace/workspaceState';
 import { entityTypeName } from './action-panel/nerLabelModel';
-import { panelErrorMessage, testIdKey } from './panelPrimitivesModel';
+import { testIdKey } from './panelPrimitivesModel';
+import { errorMessage } from '../hooks/errorMessage';
 import { PanelSelect } from './PanelSelect';
 
 const ENUM_LIMIT = 20;
@@ -540,7 +541,7 @@ function FacetCard({
           key: requestKey,
           scopeKey,
           preview: null,
-          error: panelErrorMessage(reason, `Could not load ${column.name}`),
+          error: errorMessage(reason, `Could not load ${column.name}`),
         });
       });
     return () => {

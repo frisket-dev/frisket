@@ -5,6 +5,7 @@ import { useCallback, useReducer } from 'react';
 import type { EmbeddingIndexSummary } from '../../api/open';
 import type { EmbeddingApiPort } from '../../api/ports';
 import { PanelSelect } from '../PanelSelect';
+import { errorMessage } from '../../hooks/errorMessage';
 
 interface IndexPolicyDetailProps {
   apiPort: EmbeddingApiPort;
@@ -116,7 +117,7 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
     } catch (error) {
       dispatch({
         type: 'save_error',
-        message: error instanceof Error ? error.message : String(error),
+        message: errorMessage(error),
       });
     } finally {
       dispatch({ type: 'save_done' });

@@ -33,7 +33,9 @@ import { formatUsdOrNone } from '../format';
 import { projectProviderKeySource } from './projectProviderKeySource';
 import { ProjectCloudRoutingSettings, type ProjectCloudRoutingView } from '../cloud/ProjectCloudRoutingSettings';
 import { cloudConnectionApi, projectCloudRoutingApi } from '../api/cloudConnection';
-import { useLoader, errMsg } from './settingsSupport';
+import { useAction } from '../hooks/useAction';
+import { useLoader } from '../hooks/useLoader';
+import { errorMessage } from '../hooks/errorMessage';
 import { useExistingProviderValidation } from './useExistingProviderValidation';
 import { InlineStatus, SettingsTable } from './SettingsPrimitives';
 
@@ -76,7 +78,7 @@ export function ProjectAiProvidersSettings({
   cloudConnectionAvailable?: boolean;
 }) {
   const { projectApi: api } = useWorkspaceStores();
-  const keys = useLoader<ProjectProviderKeys>(() => api.getProjectProviderKeys());
+  const keys = useLoader<ProjectProviderKeys>(() => api.getProjectProviderKeys(), []);
   const [adding, setAdding] = useState(false);
   const [cloudRouting, setCloudRouting] = useState<ProjectCloudRoutingView | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -147,7 +149,7 @@ export function ProjectAiProvidersSettings({
                 disabled={!canMutate}
                 onClick={() => void api.deleteProjectProviderKey(row.id)
                   .then(keys.reload)
-                  .catch((caught) => setMutationError(errMsg(caught)))}
+                  .catch((caught) => setMutationError(errorMessage(caught)))}
               >
                 <Trash2 size={14} />
               </button>
@@ -168,7 +170,7 @@ export function ProjectAiProvidersSettings({
 // workspace catalog (/api/providers → <ws>/.frisket/provider_keys.json),
 // plus the canonical local endpoint list. Exported for component tests.
 export function WorkspaceAiProvidersSettings() {
-  const catalog = useLoader<LocalProviderCatalog>(() => listProviders());
+  const catalog = useLoader<LocalProviderCatalog>(() => listProviders(), []);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -249,7 +251,7 @@ export function WorkspaceAiProvidersSettings() {
                   title={`Delete ${row.label} provider key`}
                   onClick={() => void deleteProviderKey(row.id)
                     .then(catalog.reload)
-                    .catch((caught) => setMutationError(errMsg(caught)))}
+                    .catch((caught) => setMutationError(errorMessage(caught)))}
                 >
                   <Trash2 size={14} />
                 </button>
@@ -302,8 +304,8 @@ function LocalEndpointsSettings({
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const action = useAction();
+  const { busy, error } = action;
   const [notice, setNotice] = useState<string | null>(null);
   const configuredOrigins = new Set(endpoints.map((endpoint) => endpoint.origin));
   const suggestions = LOCAL_ENDPOINT_SUGGESTIONS.filter(
@@ -313,52 +315,34 @@ function LocalEndpointsSettings({
   const add = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || !name.trim() || !url.trim()) return;
-    setBusy(true);
-    setError(null);
     setNotice(null);
-    try {
+    await action.run(async () => {
       await createLocalEndpoint({ display_name: name.trim(), origin: url.trim() });
       await onReload();
       setName('');
       setUrl('');
       setAdding(false);
-    } catch (caught) {
-      setError(errMsg(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const addSuggestion = async (label: string, origin: string) => {
     if (busy) return;
-    setBusy(true);
-    setError(null);
     setNotice(null);
-    try {
+    await action.run(async () => {
       await createLocalEndpoint({ display_name: label, origin });
       await onReload();
       setNotice(`${label} added.`);
-    } catch (caught) {
-      setError(errMsg(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const discover = async () => {
     if (busy) return;
-    setBusy(true);
-    setError(null);
     setNotice(null);
-    try {
+    await action.run(async () => {
       const result = await discoverLocalEndpoints();
       await onReload();
       setNotice(localEndpointDiscoverySummary(result.candidates));
-    } catch (caught) {
-      setError(errMsg(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -465,8 +449,8 @@ function LocalEndpointRow({
 }) {
   const [name, setName] = useState(endpoint.label);
   const url = endpoint.origin;
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const action = useAction();
+  const { busy, error, setError } = action;
   const [inferenceToken, setInferenceToken] = useState('');
   const [provisioningToken, setProvisioningToken] = useState('');
   const [lastIdentity, setLastIdentity] = useState(endpoint.label);
@@ -481,16 +465,10 @@ function LocalEndpointRow({
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || !dirty || !name.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await action.run(async () => {
       await updateLocalEndpoint(endpointId, { display_name: name.trim() });
       await onReload();
-    } catch (caught) {
-      setError(errMsg(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const remove = async () => {
@@ -498,23 +476,16 @@ function LocalEndpointRow({
     if (!window.confirm(
       `Delete ${endpoint.label}? Existing sheets keep their model IDs, but future runs using this endpoint will fail until you choose another endpoint.`,
     )) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await action.run(async () => {
       await deleteLocalEndpoint(endpointId);
       await onReload();
-    } catch (caught) {
-      setError(errMsg(caught));
-      setBusy(false);
-    }
+    });
   };
 
   const saveCredentials = async (event: FormEvent) => {
     event.preventDefault();
     if (busy || (!inferenceToken && !provisioningToken)) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await action.run(async () => {
       const credentialPatch: LocalEndpointPatch = inferenceToken
         ? {
             inference_token: inferenceToken,
@@ -525,11 +496,7 @@ function LocalEndpointRow({
       setInferenceToken('');
       setProvisioningToken('');
       await onReload();
-    } catch (caught) {
-      setError(errMsg(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -606,12 +573,12 @@ function LocalEndpointRow({
               Save credentials
             </Button>
             {endpoint.token_configured && (
-              <Button type="button" disabled={busy} onClick={() => void updateLocalEndpoint(endpointId, { inference_token: null }).then(onReload).catch((caught) => setError(errMsg(caught)))}>
+              <Button type="button" disabled={busy} onClick={() => void updateLocalEndpoint(endpointId, { inference_token: null }).then(onReload).catch((caught) => setError(errorMessage(caught)))}>
                 Clear inference token
               </Button>
             )}
             {endpoint.provisioning_token_configured && (
-              <Button type="button" disabled={busy} onClick={() => void updateLocalEndpoint(endpointId, { provisioning_token: null }).then(onReload).catch((caught) => setError(errMsg(caught)))}>
+              <Button type="button" disabled={busy} onClick={() => void updateLocalEndpoint(endpointId, { provisioning_token: null }).then(onReload).catch((caught) => setError(errorMessage(caught)))}>
                 Clear download token
               </Button>
             )}
@@ -621,7 +588,7 @@ function LocalEndpointRow({
               type="checkbox"
               checked={endpoint.edge_auth}
               disabled={busy}
-              onChange={() => void updateLocalEndpoint(endpointId, { edge_auth: !endpoint.edge_auth }).then(onReload).catch((caught) => setError(errMsg(caught)))}
+              onChange={() => void updateLocalEndpoint(endpointId, { edge_auth: !endpoint.edge_auth }).then(onReload).catch((caught) => setError(errorMessage(caught)))}
             />
             <span>Require the endpoint front door to enforce bearer authentication</span>
           </label>
@@ -630,7 +597,7 @@ function LocalEndpointRow({
               type="checkbox"
               checked={endpoint.pull_enabled}
               disabled={busy}
-              onChange={() => void updateLocalEndpoint(endpointId, { pull_enabled: !endpoint.pull_enabled }).then(onReload).catch((caught) => setError(errMsg(caught)))}
+              onChange={() => void updateLocalEndpoint(endpointId, { pull_enabled: !endpoint.pull_enabled }).then(onReload).catch((caught) => setError(errorMessage(caught)))}
             />
             <span>Allow model downloads from this server</span>
           </label>

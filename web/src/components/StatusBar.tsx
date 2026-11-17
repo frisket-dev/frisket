@@ -3,9 +3,9 @@ import './StatusBar.css';
 import { RuntimeSetupNotice } from './RuntimeSetupNotice';
 import { FeedProgressNotice } from './FeedProgressNotice';
 import { Button } from './Button';
-import { useEffect, useReducer, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Activity, AlertTriangle, ChevronUp, Inbox, Redo2, Square, Undo2, X } from 'lucide-react';
-import { type HistoryState, type RunProgress, type RunRowsPage } from '../api/open';
+import { type HistoryState, type RunProgress } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { formatUsd } from '../actions/model';
 import { isActiveRunStatus, runCompletedWithErrors, runStatusLabel } from '../runStatusModel';
@@ -18,6 +18,7 @@ import {
 } from './useImportProgress';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
+import { useLoader } from '../hooks/useLoader';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
 import { useEditionModule } from '../editions/module';
 import {
@@ -791,30 +792,9 @@ function RunWatcherBody({
   );
 }
 
-type RunRowsAction =
-  | { type: 'loaded'; page: RunRowsPage }
-  | { type: 'failed' };
-
-function runRowsReducer(_state: RunRowsPage | null, action: RunRowsAction): RunRowsPage | null {
-  return action.type === 'loaded' ? action.page : null;
-}
-
 function RunWatcherErrors({ runId }: { runId: string }) {
   const { projectApi: api } = useWorkspaceStores();
-  const [rowsPage, dispatch] = useReducer(runRowsReducer, null);
-
-  useEffect(() => {
-    let alive = true;
-    api
-      .getRunRows(runId, 0, 20, 'error')
-      .then((page) => {
-        if (alive) dispatch({ type: 'loaded', page });
-      })
-      .catch(() => {
-        if (alive) dispatch({ type: 'failed' });
-      });
-    return () => { alive = false; };
-  }, [runId]);
+  const rowsPage = useLoader(() => api.getRunRows(runId, 0, 20, 'error'), [runId]).data;
 
   const failedRows = (rowsPage?.rows ?? []).filter((row) => row.status === 'error');
   const shown = failedRows.slice(0, 5);

@@ -1,8 +1,10 @@
 import './TrustedLocalPluginComponent.css';
 import * as React from 'react';
 import { Component } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { loadTrustedLocalPluginExport } from './trustedLocalModule';
+import { errorMessage } from '../hooks/errorMessage';
+import { useLoader } from '../hooks/useLoader';
 
 type TrustedLocalPluginExport = (props: {
   React: typeof React;
@@ -19,12 +21,6 @@ interface TrustedLocalPluginComponentProps {
   ctx?: unknown;
 }
 
-type TrustedLocalPluginLoadState = {
-  moduleUrl: string;
-  component: TrustedLocalPluginExport | null;
-  error: string | null;
-} | null;
-
 export class TrustedLocalContributionErrorBoundary extends Component<
   {
     contributionId: string;
@@ -38,7 +34,7 @@ export class TrustedLocalContributionErrorBoundary extends Component<
 
   static getDerivedStateFromError(error: unknown) {
     return {
-      error: error instanceof Error ? error.message : 'Trusted-local contribution failed',
+      error: errorMessage(error, 'Trusted-local contribution failed'),
     };
   }
 
@@ -74,37 +70,13 @@ export function TrustedLocalPluginComponent({
   pluginId,
   ctx,
 }: TrustedLocalPluginComponentProps) {
-  const [loadState, setLoadState] = useState<TrustedLocalPluginLoadState>(null);
   const testId = useMemo(() => testIdForContribution(contributionId), [contributionId]);
 
-  useEffect(() => {
-    let active = true;
-
-    loadTrustedLocalPluginExport(moduleUrl, componentKey)
-      .then((candidate) => {
-        if (!active) return;
-        setLoadState({
-          moduleUrl,
-          component: candidate as TrustedLocalPluginExport,
-          error: null,
-        });
-      })
-      .catch((err: unknown) => {
-        if (!active) return;
-        setLoadState({
-          moduleUrl,
-          component: null,
-          error: err instanceof Error ? err.message : 'Unable to load trusted-local component',
-        });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [moduleUrl, componentKey]);
-
-  const Component = loadState?.moduleUrl === moduleUrl ? loadState.component : null;
-  const error = loadState?.moduleUrl === moduleUrl ? loadState.error : null;
+  const { data: Component, error } = useLoader(
+    async () => (await loadTrustedLocalPluginExport(moduleUrl, componentKey)) as TrustedLocalPluginExport,
+    [moduleUrl, componentKey],
+    { errorFallback: 'Unable to load trusted-local component' },
+  );
 
   if (error) {
     return (

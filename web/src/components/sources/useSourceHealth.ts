@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SourceHealth } from '../../api/open';
 import type { SourceApiPort } from '../../api/ports';
+import { errorMessage } from '../../hooks/errorMessage';
 
 interface HealthEntry {
   health: SourceHealth | null;
@@ -11,7 +12,7 @@ interface HealthEntry {
 }
 
 const emptyEntry: HealthEntry = { health: null, loading: false, readError: null, pollError: null, busy: false };
-const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+const message = (error: unknown) => errorMessage(error);
 
 /** Each source owns its request status; only its latest health read can publish. */
 export function useSourceHealth(sourceApi: SourceApiPort) {

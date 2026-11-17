@@ -43,6 +43,7 @@ import {
 } from './settingsProjectContext';
 import { useEditionModule, type PersonalProfileSlotProps } from '../editions/module';
 import type { ActiveSettingsSection } from './openSettingsRegistry';
+import { useLoader } from '../hooks/useLoader';
 
 /** The ONE settings section frame: kicker + h1 + summary inside
  *  .settings-section-frame. The disabled / invalid / route-error sections in
@@ -367,8 +368,9 @@ export function SettingsWorkspace({
 }: SettingsWorkspaceProps) {
   const [query, setQuery] = useState('');
   const [lastProject] = useState<ProjectInfo | null>(() => readSettingsProjectContext());
-  const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
-  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const projectList = useLoader(() => listProjects(), []);
+  const projectsError = projectList.error;
+  const projects = projectList.data ?? (projectsError === null ? null : []);
   const { settingsSections: editionSections, PersonalProfileSlot } = useEditionModule();
   const definition: ActiveSettingsSection | null = editionSections.find(
     (candidate) => candidate.scope === route.scope && candidate.section === route.section,
@@ -377,23 +379,6 @@ export function SettingsWorkspace({
     if (!project) return;
     writeSettingsProjectContext(project);
   }, [project]);
-  useEffect(() => {
-    let alive = true;
-    listProjects()
-      .then((loaded) => {
-        if (!alive) return;
-        setProjects(loaded);
-        setProjectsError(null);
-      })
-      .catch((error: Error) => {
-        if (!alive) return;
-        setProjects([]);
-        setProjectsError(error.message);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
   const navProject = project ?? lastProject;
   const navProjectId = navProject?.id ?? route.projectId;
   const routeProjectId = project?.id ?? route.projectId;

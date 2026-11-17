@@ -52,6 +52,8 @@ import { BulkImportPlanPanel } from './BulkImportPlanPanel';
 import { MediaDownloadPrompt, NerExtractPrompt } from './ImportFollowupPrompts';
 import { ACCEPTS, FTM_ACCEPT, prepareFileSelection, logicalPathForImport, selectionExpandsArchives, bulkPlanValidationError, importSessionIsComplete, importSessionNeedsPreparationPlan, useImportUpload, type PreparedFileSelection, type FileImportCompletion, type SingleFileFormat } from './fileIntake';
 import type { ImportHandlers } from './model';
+import { errorMessage } from '../../hooks/errorMessage';
+import { useLoader } from '../../hooks/useLoader';
 
 interface ImportWorkspaceState {
   mode: ImportMode;
@@ -230,7 +232,12 @@ function OpenImportWorkspaceSession({
   const [bulkFailuresOmitted, setBulkFailuresOmitted] = useState(0);
   const [selectionPreparing, setSelectionPreparing] = useState(false);
   const selectionPreparationGeneration = useRef(0);
-  const [destinationSheets, setDestinationSheets] = useState<SheetMeta[]>([]);
+  const destinationSheetsLoader = useLoader(
+    (): Promise<SheetMeta[]> => projectApi.listSheets().catch(() => []),
+    [projectApi],
+    { keepPreviousData: true },
+  );
+  const destinationSheets = useMemo(() => destinationSheetsLoader.data ?? [], [destinationSheetsLoader.data]);
   const busy = uploadBusy;
 
   const prepareSelection = useCallback((files: File[], use: (prepared: PreparedFileSelection) => void) => {
@@ -287,16 +294,6 @@ function OpenImportWorkspaceSession({
     invalidateBulkRequests();
     onModeChangeRef.current?.(null);
   }, [invalidateBulkRequests]);
-
-  useEffect(() => {
-    let active = true;
-    void projectApi.listSheets().then((sheets) => {
-      if (active) setDestinationSheets(sheets);
-    }).catch(() => {
-      if (active) setDestinationSheets([]);
-    });
-    return () => { active = false; };
-  }, [projectApi]);
 
   const closeWorkspace = useCallback(() => {
     resetBulkPlan();
@@ -545,7 +542,7 @@ function OpenImportWorkspaceSession({
       if (controller.signal.aborted || bulkGenerationRef.current !== generation) return;
       setBulkPlan(null);
       setBulkDecisions({});
-      setBulkError(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
+      setBulkError(`Import failed: ${errorMessage(error)}`);
     }).finally(() => {
       if (bulkExecuteControllerRef.current === controller && bulkGenerationRef.current === generation) {
         bulkExecuteControllerRef.current = null;
@@ -610,7 +607,7 @@ function OpenImportWorkspaceSession({
       acceptPreparedImport(prepared);
     }).catch((error: unknown) => {
       if (controller.signal.aborted || bulkGenerationRef.current !== generation) return;
-      setBulkError(`Import planning failed: ${error instanceof Error ? error.message : String(error)}`);
+      setBulkError(`Import planning failed: ${errorMessage(error)}`);
     }).finally(() => {
       if (bulkPlanControllerRef.current === controller && bulkGenerationRef.current === generation) {
         bulkPlanControllerRef.current = null;
@@ -663,7 +660,7 @@ function OpenImportWorkspaceSession({
       await pdfImportsApi.discard(projectId, prepared.draft.draft_id);
       closeWorkspace();
     } catch (problem) {
-      const message = problem instanceof Error ? problem.message : String(problem);
+      const message = errorMessage(problem);
       setBulkError(message);
       onError(message);
       setBulkPrepareDiscarding(false);

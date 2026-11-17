@@ -10,6 +10,7 @@ import { PanelSelect } from '../components/PanelSelect';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { useResizable } from '../components/useResizable';
 import styles from './DocumentAlongsidePane.module.css';
+import { useLoader } from '../hooks/useLoader';
 
 interface DocumentAlongsidePaneProps {
   projectId: string;
@@ -30,8 +31,6 @@ export function DocumentAlongsidePane({
   projectId, sheetId, columns, rowId, hydrateRow, selectedColumnId, onChangeColumn, onClose,
 }: DocumentAlongsidePaneProps) {
   const selectedColumn = columns.find((column) => column.id === selectedColumnId) ?? null;
-  const hydrateRowRef = useRef(hydrateRow);
-  useEffect(() => { hydrateRowRef.current = hydrateRow; }, [hydrateRow]);
   const [choosing, setChoosing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [copyStatus, setCopyStatus] = useState<{
@@ -42,24 +41,14 @@ export function DocumentAlongsidePane({
   const changeRef = useRef<HTMLButtonElement>(null);
   const chooserVisible = choosing || !selectedColumn;
   const hydrationKey = `${projectId}:${sheetId}:${rowId ?? ''}:${selectedColumn?.id ?? ''}`;
-  const [hydrated, setHydrated] = useState<{ key: string; row: Row | null; loading: boolean; error: string | null }>({
-    key: '', row: null, loading: false, error: null,
-  });
-  useEffect(() => {
-    if (!rowId || !selectedColumn) {
-      return;
-    }
-    let cancelled = false;
-    const columnIds = [selectedColumn.id, ...fieldValueDependencyColumnIds(columns, selectedColumn)];
-    void hydrateRowRef.current(rowId, columnIds).then((row) => {
-      if (!cancelled) setHydrated({ key: hydrationKey, row, loading: false, error: null });
-    }).catch((error: unknown) => {
-      if (!cancelled) setHydrated({ key: hydrationKey, row: null, loading: false,
-        error: error instanceof Error ? error.message : 'Could not load value.' });
-    });
-    return () => { cancelled = true; };
-  }, [columns, hydrationKey, rowId, selectedColumn]);
-  const row = hydrated.key === hydrationKey ? hydrated.row : null;
+  const hydrationColumnIds = selectedColumn
+    ? [selectedColumn.id, ...fieldValueDependencyColumnIds(columns, selectedColumn)] : [];
+  const hydrated = useLoader<Row | null>(
+    () => (rowId && selectedColumn ? hydrateRow(rowId, hydrationColumnIds) : Promise.resolve(null)),
+    [hydrationKey, hydrationColumnIds.join(',')],
+    { enabled: Boolean(rowId && selectedColumn), errorFallback: 'Could not load value.' },
+  );
+  const row = hydrated.data;
   useEffect(() => {
     if (chooserVisible) pickerRef.current?.focus();
     else changeRef.current?.focus();
@@ -96,7 +85,7 @@ export function DocumentAlongsidePane({
     <p className={styles.empty}>Choose a column to show alongside the document.</p>
   ) : !rowId ? (
     <p className={styles.empty}>Choose a document to view its value.</p>
-  ) : hydrated.key !== hydrationKey || hydrated.loading ? (
+  ) : hydrated.loading ? (
     <p className={styles.empty}>Loading value…</p>
   ) : hydrated.error ? (
     <p className={styles.empty} role="alert">{hydrated.error}</p>

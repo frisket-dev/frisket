@@ -1,10 +1,10 @@
 import { FORM_LABELS } from '../../actions/formLabels';
 import '../PanelPrimitives.css';
 import '../ActionPanel.css';
-import { useEffect, useState } from 'react';
 
 import type { OutputJsonSchema } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
+import { useLoader } from '../../hooks/useLoader';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { PanelSelect } from '../PanelSelect';
@@ -125,22 +125,19 @@ export function FindParamsBody({ params, setParams, errors, Field,
   </>;
 }
 
+const NO_SERVERS: McpToolsSelectorServer[] = [];
+
 export function McpExtractParamsBody({ params, setParams, errors, Field,
   structureLocked, lockReason }:
   GeneratedActionParamsBodyProps<'map.mcp_extract'>) {
   const { projectApi } = useWorkspaceStores();
-  const [servers, setServers] = useState<McpToolsSelectorServer[]>([]);
-  const [problem, setProblem] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    projectApi.listMcpServers().then((value) => {
-      if (active) setServers(value.map((server) => ({
-        id: server.id, name: server.name, enabled: server.enabled,
-        lastDiscoveredToolCount: server.last_discovered_tool_count ?? undefined,
-      })));
-    }).catch(() => { if (active) setProblem('MCP servers could not be loaded.'); });
-    return () => { active = false; };
-  }, [projectApi]);
+  const loader = useLoader(() => projectApi.listMcpServers().then((value) => value.map(
+    (server): McpToolsSelectorServer => ({
+      id: server.id, name: server.name, enabled: server.enabled,
+      lastDiscoveredToolCount: server.last_discovered_tool_count ?? undefined,
+    }))), [projectApi], { keepPreviousData: true });
+  const servers = loader.data ?? NO_SERVERS;
+  const problem = loader.error === null ? null : 'MCP servers could not be loaded.';
   return <>
     <Field name="source" />
     <ExtractFieldsEditor fields={params.fields ?? []}

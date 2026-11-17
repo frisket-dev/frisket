@@ -15,7 +15,8 @@ import { PanelSelect, type PanelSelectOption } from '../components/PanelSelect';
 import { ConfirmTypeInput, PanelNotice } from '../components/PanelPrimitives';
 import { ProjectRetrievalSettings } from './ProjectRetrievalSettings';
 import { sendProductTelemetry } from '../telemetry/productTelemetry';
-import { useLoader, errMsg } from './settingsSupport';
+import { useLoader } from '../hooks/useLoader';
+import { errorMessage } from '../hooks/errorMessage';
 import { InlineStatus } from './SettingsPrimitives';
 import { formatBytes } from '../format';
 
@@ -49,9 +50,9 @@ function supportedEvidenceOptions(policy: ProjectRetentionPolicy | null): string
 
 export function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | null }) {
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
-  const retention = useLoader<ProjectRetentionPolicy>(() => api.getProjectRetention());
-  const settings = useLoader<ProjectSettings>(() => api.getProjectSettings());
-  const network = useLoader<ProjectNetworkPolicy>(() => api.getProjectNetworkPolicy());
+  const retention = useLoader<ProjectRetentionPolicy>(() => api.getProjectRetention(), []);
+  const settings = useLoader<ProjectSettings>(() => api.getProjectSettings(), []);
+  const network = useLoader<ProjectNetworkPolicy>(() => api.getProjectNetworkPolicy(), []);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [compactConfirm, setCompactConfirm] = useState('');
@@ -75,7 +76,7 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
       setNotice('Retention policy saved');
     } catch (caught) {
       setNotice(null);
-      setMutationError(errMsg(caught));
+      setMutationError(errorMessage(caught));
     }
   };
   const patchSettings = async (input: ProjectSettingsPatch) => {
@@ -86,7 +87,7 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
       setNotice('Project settings saved');
     } catch (caught) {
       setNotice(null);
-      setMutationError(errMsg(caught));
+      setMutationError(errorMessage(caught));
     }
   };
   const patchNetwork = async (mode: string) => {
@@ -97,7 +98,7 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
       setNotice('Network setting saved');
     } catch (caught) {
       setNotice(null);
-      setMutationError(errMsg(caught));
+      setMutationError(errorMessage(caught));
     }
   };
   const compact = async (event: FormEvent) => {
@@ -117,7 +118,7 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
       }
     } catch (caught) {
       setNotice(null);
-      setMutationError(errMsg(caught));
+      setMutationError(errorMessage(caught));
     } finally {
       setCompacting(false);
     }
