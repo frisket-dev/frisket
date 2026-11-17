@@ -135,17 +135,6 @@ def resolve_scope_rows(
     ]
 
 
-def resolve_index_scope_rows(project: Project, index: Any) -> list[int]:
-    """Ordered visible row ids in an index's STORED source scope — the same scope a
-    full refresh embeds. Empty when the index has no sheet."""
-    sheet_id = index["sheet_id"]
-    if sheet_id is None:
-        return []
-    return resolve_scope_rows(
-        project, int(sheet_id), _safe_obj(index["source_query_json"])
-    )
-
-
 def index_scope_plan(project: Project, index: Any) -> SheetRowScopePlan | None:
     """Compile an index's stored source scope, or None for an unbound index."""
 

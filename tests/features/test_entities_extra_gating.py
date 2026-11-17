@@ -153,7 +153,7 @@ def test_diagnose_info_probes_are_individually_protected(
 def test_ftm_migration_harness_gates_gracefully_when_entities_extra_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import frisket.features.followthemoney.migration_harness as harness
+    import ftm_migration_harness as harness
 
     monkeypatch.setattr(
         harness,

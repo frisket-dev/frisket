@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
@@ -36,12 +35,3 @@ def test_media_blob_store_owns_metadata_and_typed_cells(tmp_path: Path) -> None:
         "mime": "image/jpeg",
         "filename": "frame.jpg",
     }
-
-    file_cell = store.file_cell(digest, mime="application/octet-stream")
-    assert file_cell == {
-        "blob": digest,
-        "mime": "application/octet-stream",
-    }
-    assert store.validate_blob_cell(cell) == cell
-    with pytest.raises(ValueError, match="requires a blob digest"):
-        store.validate_blob_cell({"mime": "image/jpeg"})

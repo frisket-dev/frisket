@@ -762,12 +762,9 @@ def test_plugin_author_cli_init_validate_creates_runnable_package(
     ]
 
 
-def test_bottom_dock_tab_placement_round_trips_resolution_and_validate() -> None:
+def test_bottom_dock_tab_placement_validates() -> None:
     """Cohort 1 (plugin-bottomdock-tab-parity-v1): a plugin panel placed in
-    bottomDock:tab passes author-time validation and resolves through the
-    backend reference resolver with its dock placement active."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
-
+    bottomDock:tab passes author-time validation."""
     fixture_root = (
         Path(__file__).resolve().parents[1]
         / "fixtures"
@@ -787,47 +784,11 @@ def test_bottom_dock_tab_placement_round_trips_resolution_and_validate() -> None
     assert validation["valid"] is True
     assert validation["plugin_id"] == "demo.dock_tab"
 
-    descriptors = json.loads(
-        (fixture_root / "workbench-descriptors.json").read_text(encoding="utf-8")
-    )["descriptors"]
-    resolved = resolve_contributions(
-        descriptors,
-        installed_plugins={"demo.dock_tab"},
-        trusted_plugins={"demo.dock_tab"},
-        host_capabilities={"sheet.active"},
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions=set(),
-    )
-    contribution = resolved["demo.dock_tab.panel.dock"]
-    assert contribution.status == "enabled"
-    dock_placements = [
-        placement
-        for placement in contribution.legal_placements
-        if placement.get("host") == "bottomDock" and placement.get("mode") == "tab"
-    ]
-    assert dock_placements, contribution.legal_placements
-    assert dock_placements[0].get("placementId") == "demo-dock-tab"
-    assert contribution.active_placement is not None
-    assert contribution.active_placement.get("host") == "bottomDock"
 
-    hidden = resolve_contributions(
-        descriptors,
-        installed_plugins={"demo.dock_tab"},
-        trusted_plugins={"demo.dock_tab"},
-        host_capabilities={"sheet.active"},
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions={"demo.dock_tab.panel.dock"},
-    )
-    assert hidden["demo.dock_tab.panel.dock"].status == "hidden"
-
-
-def test_plugin_command_contribution_round_trips_validation_and_resolution() -> None:
+def test_plugin_command_contribution_validates_and_undeclared_fails_closed() -> None:
     """Cohort 2 (plugin-commandpalette-parity-v1): a declared workbench command
-    passes author-time validation, loads as a package, and resolves through the
-    backend reference resolver with its commandPalette:command placement; an
+    passes author-time validation and loads as a package; an
     undeclared command descriptor fails the package validation closed."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
-
     fixture_root = (
         Path(__file__).resolve().parents[1]
         / "fixtures"
@@ -850,20 +811,6 @@ def test_plugin_command_contribution_round_trips_validation_and_resolution() -> 
     descriptors = json.loads(
         (fixture_root / "workbench-descriptors.json").read_text(encoding="utf-8")
     )["descriptors"]
-    resolved = resolve_contributions(
-        descriptors,
-        installed_plugins={"demo.command"},
-        trusted_plugins={"demo.command"},
-        host_capabilities=set(),
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions=set(),
-    )
-    contribution = resolved["demo.command.command.hello"]
-    assert contribution.status == "enabled"
-    assert contribution.active_placement is not None
-    assert contribution.active_placement.get("host") == "commandPalette"
-    assert contribution.active_placement.get("mode") == "command"
-
     from frisket.contracts.plugin import PluginManifest
     from frisket.plugins.load_evidence import (
         WorkbenchDescriptorPackageLoadError,
@@ -894,12 +841,9 @@ def test_plugin_command_contribution_round_trips_validation_and_resolution() -> 
         _validate_workbench_descriptor_package_for_manifest(loaded, package)
 
 
-def test_left_sidebar_panel_placement_round_trips_resolution_and_validate() -> None:
+def test_left_sidebar_panel_placement_validates() -> None:
     """Cohort 3 (plugin-leftsidebar-panel-parity-v1): a plugin panel placed in
-    leftSidebar:panel passes author-time validation and resolves through the
-    backend reference resolver with its sidebar placement active."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
-
+    leftSidebar:panel passes author-time validation ."""
     fixture_root = (
         Path(__file__).resolve().parents[1]
         / "fixtures"
@@ -919,40 +863,10 @@ def test_left_sidebar_panel_placement_round_trips_resolution_and_validate() -> N
     assert validation["valid"] is True
     assert validation["plugin_id"] == "demo.sidebar_panel"
 
-    descriptors = json.loads(
-        (fixture_root / "workbench-descriptors.json").read_text(encoding="utf-8")
-    )["descriptors"]
-    resolved = resolve_contributions(
-        descriptors,
-        installed_plugins={"demo.sidebar_panel"},
-        trusted_plugins={"demo.sidebar_panel"},
-        host_capabilities={"sheet.active"},
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions=set(),
-    )
-    contribution = resolved["demo.sidebar_panel.panel.scope"]
-    assert contribution.status == "enabled"
-    assert contribution.active_placement is not None
-    assert contribution.active_placement.get("host") == "leftSidebar"
-    assert contribution.active_placement.get("mode") == "panel"
 
-    hidden = resolve_contributions(
-        descriptors,
-        installed_plugins={"demo.sidebar_panel"},
-        trusted_plugins={"demo.sidebar_panel"},
-        host_capabilities={"sheet.active"},
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions={"demo.sidebar_panel.panel.scope"},
-    )
-    assert hidden["demo.sidebar_panel.panel.scope"].status == "hidden"
-
-
-def test_detail_host_placements_round_trip_resolution_and_validate() -> None:
+def test_detail_host_placements_validate() -> None:
     """Cohort 4 (plugin-rowdetail/columndetail/entitysource-detail-parity-v1):
-    plugin panels placed in the detail hosts pass author-time validation and
-    resolve with their declared detail placements active."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
-
+    plugin panels placed in the detail hosts pass author-time validation."""
     fixture_root = (
         Path(__file__).resolve().parents[1]
         / "fixtures"
@@ -972,38 +886,10 @@ def test_detail_host_placements_round_trip_resolution_and_validate() -> None:
     assert validation["valid"] is True
     assert validation["plugin_id"] == "demo.detail_panels"
 
-    descriptors = json.loads(
-        (fixture_root / "workbench-descriptors.json").read_text(encoding="utf-8")
-    )["descriptors"]
-    resolved = resolve_contributions(
-        descriptors,
-        installed_plugins={"demo.detail_panels"},
-        trusted_plugins={"demo.detail_panels"},
-        host_capabilities={"sheet.active"},
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions=set(),
-    )
-    expected_placements = {
-        "demo.detail_panels.panel.row": ("rowDetail", "tab"),
-        "demo.detail_panels.panel.column": ("columnInspector", "section"),
-        "demo.detail_panels.panel.column_tab": ("columnDetail", "tab"),
-        "demo.detail_panels.panel.entity": ("entityDetail", "tab"),
-        "demo.detail_panels.panel.source": ("sourceDetail", "tab"),
-    }
-    for contribution_id, (host, mode) in expected_placements.items():
-        contribution = resolved[contribution_id]
-        assert contribution.status == "enabled", contribution_id
-        assert contribution.active_placement is not None, contribution_id
-        assert contribution.active_placement.get("host") == host, contribution_id
-        assert contribution.active_placement.get("mode") == mode, contribution_id
 
-
-def test_modal_or_peek_placement_round_trips_resolution_and_validate() -> None:
+def test_modal_or_peek_placement_validates() -> None:
     """Cohort 5 (plugin-modalorpeek-peek-parity-v1): a plugin peek panel and its
-    opener command pass author-time validation and resolve with their declared
-    placements active."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
-
+    opener command pass author-time validation."""
     fixture_root = (
         Path(__file__).resolve().parents[1]
         / "fixtures"
@@ -1023,34 +909,10 @@ def test_modal_or_peek_placement_round_trips_resolution_and_validate() -> None:
     assert validation["valid"] is True
     assert validation["plugin_id"] == "demo.peek_panel"
 
-    descriptors = json.loads(
-        (fixture_root / "workbench-descriptors.json").read_text(encoding="utf-8")
-    )["descriptors"]
-    resolved = resolve_contributions(
-        descriptors,
-        installed_plugins={"demo.peek_panel"},
-        trusted_plugins={"demo.peek_panel"},
-        host_capabilities={"sheet.active"},
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions=set(),
-    )
-    peek = resolved["demo.peek_panel.panel.peek"]
-    assert peek.status == "enabled"
-    assert peek.active_placement is not None
-    assert peek.active_placement.get("host") == "modalOrPeek"
-    assert peek.active_placement.get("mode") == "peek"
-    command = resolved["demo.peek_panel.command.open_peek"]
-    assert command.status == "enabled"
-    assert command.active_placement is not None
-    assert command.active_placement.get("host") == "commandPalette"
 
-
-def test_activity_rail_launcher_placement_round_trips_resolution_and_validate() -> None:
+def test_activity_rail_launcher_placement_validates() -> None:
     """Cohort 6 (plugin-activityrail-launcher-parity-v1): a plugin panel with a
-    bottomDock primary and an activityRail launcher secondary validates and
-    resolves BOTH placements (multi-placement from Cohort 0)."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
-
+    bottomDock primary and an activityRail launcher secondary validates."""
     fixture_root = (
         Path(__file__).resolve().parents[1]
         / "fixtures"
@@ -1069,26 +931,6 @@ def test_activity_rail_launcher_placement_round_trips_resolution_and_validate() 
     validation = json.loads(validate.stdout)
     assert validation["valid"] is True
     assert validation["plugin_id"] == "demo.rail_launcher"
-
-    descriptors = json.loads(
-        (fixture_root / "workbench-descriptors.json").read_text(encoding="utf-8")
-    )["descriptors"]
-    resolved = resolve_contributions(
-        descriptors,
-        installed_plugins={"demo.rail_launcher"},
-        trusted_plugins={"demo.rail_launcher"},
-        host_capabilities={"sheet.active"},
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions=set(),
-    )
-    contribution = resolved["demo.rail_launcher.panel.dock"]
-    assert contribution.status == "enabled"
-    placements = {
-        (placement.get("host"), placement.get("mode"))
-        for placement in contribution.legal_placements
-    }
-    assert ("bottomDock", "tab") in placements
-    assert ("activityRail", "command") in placements
 
 
 def test_plugin_sdk_init_build_validate_roundtrip(tmp_path: Path) -> None:
@@ -1146,23 +988,6 @@ def test_plugin_sdk_init_build_validate_roundtrip(tmp_path: Path) -> None:
     assert manifest["contributes"]["workbench_commands"] == [
         f"{plugin_id}.command.hello"
     ]
-    descriptors = json.loads(
-        (plugin_root / "workbench-descriptors.json").read_text(encoding="utf-8")
-    )["descriptors"]
-
-    from frisket.authoring.workbench.contracts import resolve_contributions
-
-    resolved = resolve_contributions(
-        descriptors,
-        installed_plugins={plugin_id},
-        trusted_plugins={plugin_id},
-        host_capabilities={"sheet.active", "sheet.rows.read", "selection.rows"},
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions=set(),
-    )
-    assert resolved[f"{plugin_id}.view.main"].status == "enabled"
-    assert resolved[f"{plugin_id}.panel.inspector"].status == "enabled"
-    assert resolved[f"{plugin_id}.command.hello"].status == "enabled"
 
     # The DEFAULT init shape is the backend-only Action workspace: plugin.py
     # alone, generating a manifest with no workbench descriptors at all

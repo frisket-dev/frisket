@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 
 import httpx
 
@@ -139,18 +138,3 @@ class CloudLLMAdapter:
                 receipt=accounting["cloud_receipt"],
             ),
         )
-
-
-def validate_cloud_model_id(model: Any) -> str:
-    """Return one clean provider-qualified model identity."""
-
-    if (
-        not isinstance(model, str)
-        or model != model.strip()
-        or any(character.isspace() for character in model)
-    ):
-        raise ValueError("Cloud model must be a clean qualified model id")
-    provider, separator, name = model.partition("/")
-    if not separator or not provider or not name:
-        raise ValueError("Cloud model must be a clean qualified model id")
-    return model

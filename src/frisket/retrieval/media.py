@@ -796,23 +796,6 @@ def _deduplicate(
     return tuple(kept)
 
 
-def _fixed_spans(
-    start: float, end: float, duration: float, stride: float
-) -> list[tuple[float, float]]:
-    if end - start <= duration:
-        return [(start, end)]
-    spans: list[tuple[float, float]] = []
-    cursor = start
-    tolerance = 1e-9
-    while cursor + duration <= end + tolerance:
-        spans.append((cursor, min(cursor + duration, end)))
-        cursor += stride
-    tail_start = end - duration
-    if not spans or not math.isclose(spans[-1][0], tail_start, abs_tol=tolerance):
-        spans.append((tail_start, end))
-    return spans
-
-
 def _fixed_span_batch(
     start: float,
     end: float,

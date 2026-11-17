@@ -768,47 +768,22 @@ class UnsupportedMechanismError(ValueError):
     """An explicit ``StructuredRequest.method`` pins a mechanism that's
     KNOWABLY unsupported for this model. This is raised BEFORE any wire call,
     with the same pre-flight posture as the ``schema is None`` check below.
-    Two sources of
-    knowability, both consulted by :meth:`StructuredCompleter.complete`:
-
-    1. Hard dialect facts (always checked, every completer instance,
-       ``capabilities.dialect_mechanisms`` -- e.g. Anthropic's Messages API
-       has no ``json_object`` mode, and Claude 5.5 Sonnet/Opus reject forced
-       tools). Schema-specific native-output restrictions also apply.
-    2. A recorded probe (``llm/structured_probe.py::ProbeStore``, opt-in via
-       the ``probe_store`` constructor arg) that already ran this exact
-       (model, mechanism) pair and recorded ``supported=False``.
-
+    The knowable facts,
+    consulted by :meth:`StructuredCompleter.complete`, are the hard dialect
+    facts (``capabilities.dialect_mechanisms`` -- e.g. Anthropic's Messages API
+    has no ``json_object`` mode, and Claude 5.5 Sonnet/Opus reject forced
+    tools) and the schema-specific native-output restrictions.
     "auto" never raises this (there's no override to validate); an unknown
     model's UNTESTED explicit mechanism does not raise it either -- silence
-    (no dialect conflict, no contrary probe) is not the same as "knowably
-    unsupported" (record-don't-experiment: this contract never fabricates a
-    rejection for something it hasn't observed)."""
+    (no dialect conflict) is not the same as "knowably unsupported" (this
+    contract never fabricates a rejection for something it hasn't observed)."""
 
 
 class StructuredCompleter:
-    """The single chokepoint for schema-bearing model calls.
+    """The single chokepoint for schema-bearing model calls."""
 
-    ``probe_store`` defaults to ``None`` for zero behavior change. Supplying a
-    ``llm/structured_probe.py::ProbeStore``
-    (even an empty one) opts this completer instance into the full recorded-
-    capability layer for BOTH knobs -- ``structured_capabilities.RECORDED_PROMOTIONS``
-    (the static, committed evidence, e.g. ``openrouter/openai/*`` ->
-    ``NATIVE_STRICT``) plus whatever this store has itself recorded for the
-    exact model in play, merged into "auto" resolution and consulted by the
-    explicit-override validation above. Without a store, "auto" uses the
-    parity-only static table and only the hard dialect check
-    applies to an override -- the store is what turns on the OPT-IN half of
-    "regardless of the capability table"."""
-
-    def __init__(
-        self,
-        router: ModelRouterTransport,
-        *,
-        probe_store: Any | None = None,
-    ):
+    def __init__(self, router: ModelRouterTransport):
         self.router = router
-        self.probe_store = probe_store
 
     async def complete(
         self,
@@ -862,29 +837,8 @@ class StructuredCompleter:
                     f"pinned mechanism {explicit!r} "
                     f"(supports: {sorted(capabilities.dialect_mechanisms(req.model))})"
                 )
-            if self.probe_store is not None:
-                probed = self.probe_store.get(req.model, explicit)
-                if probed is not None and not probed.supported:
-                    raise UnsupportedMechanismError(
-                        f"a recorded probe found {req.model!r} does not "
-                        f"support {explicit!r}"
-                        + (f" ({probed.note})" if probed.note else "")
-                    )
 
-        if self.probe_store is not None:
-            # Opt-in recorded-capability layer: the static committed
-            # promotions plus whatever this exact model has been probed for
-            # -- merged into the SAME specificity contest
-            # capabilities.resolve() already runs (module docstring).
-            probed_rows = tuple(
-                r.as_capability_row() for r in self.probe_store.all_for_model(req.model)
-            )
-            cap_row = capabilities.resolve(
-                req.model,
-                promotions=capabilities.RECORDED_PROMOTIONS + probed_rows,
-            )
-        else:
-            cap_row = capabilities.resolve(req.model)
+        cap_row = capabilities.resolve(req.model)
         method_used = explicit or cap_row.structured_mode
         output_type = StructuredDict(wrapped_schema)
         # StructuredDict inlines references: count the actual output schema,

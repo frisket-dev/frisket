@@ -383,23 +383,6 @@ def _iter_email_messages(
 _BatchItem = TypeVar("_BatchItem")
 
 
-def iter_email_batches(
-    messages: Iterable[_BatchItem], *, batch_size: int
-) -> Iterator[list[_BatchItem]]:
-    """Yield bounded, ordered batches without eagerly consuming the input."""
-
-    if batch_size <= 0:
-        raise ValueError("batch_size must be greater than zero")
-    batch: list[_BatchItem] = []
-    for message in messages:
-        batch.append(message)
-        if len(batch) == batch_size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
-
-
 def parse_email_sources(
     sources: Iterable[EmailSource], *, attachment_dir: Path | None = None
 ) -> EmailParseResult:

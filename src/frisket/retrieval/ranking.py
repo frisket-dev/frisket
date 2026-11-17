@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Hashable, Iterable, Sequence
+from collections.abc import Hashable, Sequence
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -64,21 +64,6 @@ def cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:
     return sum(a * b for a, b in zip(left_unit, right_unit, strict=True))
 
 
-def excluded_by_similarity(
-    candidate: Sequence[float],
-    exclusions: Sequence[tuple[Sequence[float], float]],
-) -> bool:
-    """Apply each hard exclusion in its compatible cosine space."""
-
-    for vector, threshold in exclusions:
-        cutoff = float(threshold)
-        if not math.isfinite(cutoff) or not -1.0 <= cutoff <= 1.0:
-            raise RankingError("exclusion threshold must be within [-1, 1]")
-        if cosine_similarity(candidate, vector) >= cutoff:
-            return True
-    return False
-
-
 Key = TypeVar("Key", bound=Hashable)
 
 
@@ -116,29 +101,6 @@ def reciprocal_rank_fusion(
 
 
 Item = TypeVar("Item")
-
-
-def best_per_group(
-    ranked: Iterable[Item],
-    *,
-    group_key: Callable[[Item], Hashable],
-    limit: int,
-) -> list[Item]:
-    """Keep the first (best) item for each group from an already ranked stream."""
-
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise RankingError("limit must be a positive integer")
-    seen: set[Hashable] = set()
-    result: list[Item] = []
-    for item in ranked:
-        key = group_key(item)
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(item)
-        if len(result) == limit:
-            break
-    return result
 
 
 def _stable_key(value: object) -> tuple[str, str]:

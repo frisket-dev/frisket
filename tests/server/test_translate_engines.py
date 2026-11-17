@@ -116,7 +116,6 @@ def test_hosted_translation_requires_consent_even_below_character_threshold(
     # the limit and dispatches, which would make `forbidden` unreachable.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     monkeypatch.setenv("DEEPL_API_KEY", "test:fx")
-    monkeypatch.setenv("FRISKET_TRANSLATE_CHAR_CONFIRM_THRESHOLD", "10")
     project = Project.create(tmp_path / "gate.frisket")
     try:
         sheet = project.add_sheet("text")

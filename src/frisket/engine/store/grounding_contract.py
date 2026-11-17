@@ -120,23 +120,6 @@ class SpanSpec:
     snippet: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_record_kwargs(self) -> dict[str, Any]:
-        """The kwargs to splat into ``record_source_span`` (minus artifact_id)."""
-
-        return {
-            "span_kind": self.span_kind,
-            "page_start": self.page_start,
-            "page_end": self.page_end,
-            "start_ms": self.start_ms,
-            "end_ms": self.end_ms,
-            "char_start": self.char_start,
-            "char_end": self.char_end,
-            "bbox": self.bbox,
-            "quote": self.quote,
-            "snippet": self.snippet,
-            "metadata": dict(self.metadata),
-        }
-
 
 @dataclass(frozen=True)
 class Match:

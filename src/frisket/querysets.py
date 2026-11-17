@@ -776,10 +776,6 @@ def _sheet_order_terms(
     return [*terms, SheetOrderTerm("r.position"), SheetOrderTerm("r.id")]
 
 
-def sheet_order_terms(columns: Sequence[Any], sort: str | None) -> list[SheetOrderTerm]:
-    return _sheet_order_terms(_parse_sheet_sort(sort, {c["name"]: c for c in columns}))
-
-
 def execute_sheet_row_page(
     project: Project,
     plan: SheetRowScopePlan,
@@ -947,18 +943,6 @@ def _decode_grouped_json_value(value_type: str | None, value: Any) -> Any:
     if value_type == "bigint":
         return int(value)
     return value
-
-
-def validate_sheet_filter_sort(
-    project: Project,
-    sheet_id: int,
-    *,
-    filter_: str | None = None,
-    sort: str | None = None,
-) -> None:
-    columns_by_name = {c["name"]: c for c in project.columns(sheet_id)}
-    _parse_sheet_filter(filter_, columns_by_name, project)
-    _parse_sheet_sort(sort, columns_by_name)
 
 
 def sheet_live_value_sql(

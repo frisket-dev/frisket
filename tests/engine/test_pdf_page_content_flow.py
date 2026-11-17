@@ -24,7 +24,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.ops import ocr_engines
 from frisket.querysets import resolve_sheet_filter_rows
 from frisket.search import drain_index, search_project
-from frisket.server.exports.sheet_csv import render_sheet_csv
+from helpers import export_sheet_csv_text
 from helpers import stub_rapidocr_run_scope
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
@@ -251,7 +251,7 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
             hit["row_id"] == rows[1] and hit["column_id"] == columns["text"]
             for hit in hits
         )
-        _, csv_text = render_sheet_csv(project, sheet_id)
+        csv_text = export_sheet_csv_text(project, sheet_id)
         assert "ALPHAONE boundary-left" in csv_text
         assert "boundary-right OMEGATWO" in csv_text
 

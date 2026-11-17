@@ -20,7 +20,7 @@ def test_installed_ftm_import_export_and_replay(tmp_path, monkeypatch):
     from frisket.features.followthemoney.import_planner import (
         plan_followthemoney_import,
     )
-    from frisket.features.followthemoney.migration_harness import (
+    from ftm_migration_harness import (
         _canonical_export_inputs,
     )
 

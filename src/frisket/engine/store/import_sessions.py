@@ -468,30 +468,6 @@ def require_import_sheet_write(
     raise ImportInProgress(session)
 
 
-def require_cancelled_import_removal(
-    db: Any,
-    sheet_id: int,
-    *,
-    producer_id: int,
-    writer_authority: str,
-    expected_cursor: int,
-) -> ImportSession:
-    """Authorize only the explicit Remove choice for a cancelled session."""
-
-    session = active_import_session(db, sheet_id)
-    if (
-        session is None
-        or session.state != "cancelled"
-        or session.producer_id != int(producer_id)
-        or session.writer_authority != writer_authority
-        or session.cursor != int(expected_cursor)
-    ):
-        if session is not None:
-            raise ImportInProgress(session)
-        raise ImportSessionConflict("cancelled import removal authority is stale")
-    return session
-
-
 __all__ = [
     "ImportSession",
     "ImportSessionConflict",
@@ -499,7 +475,6 @@ __all__ = [
     "ImportSessionState",
     "ImportSessionStore",
     "active_import_session",
-    "require_cancelled_import_removal",
     "require_import_sheet_write",
     "set_import_session_rows_hidden",
     "set_import_session_replaced_rows_hidden",

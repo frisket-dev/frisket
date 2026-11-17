@@ -68,13 +68,6 @@ def test_full_segment_preserves_text_speaker_words_and_rebases() -> None:
         (900, 1400),
         (1400, 1500),
     ]
-    cell_value = projected.as_transcript_segment()
-    assert (cell_value["start"], cell_value["end"]) == (0.5, 1.5)
-    assert cell_value["words"][0] == {
-        "word": "Hello",
-        "start": 0.5,
-        "end": 0.9,
-    }
     span_fields = projected.as_source_span_fields()
     assert span_fields["start_ms"] == 500
     assert span_fields["selector"]["source_segment_index"] == 7

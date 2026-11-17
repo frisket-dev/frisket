@@ -36,12 +36,6 @@ TranslateEngineError = HostedEngineError
 # the char-count confirmation gate, and per-row spend recording.
 HOSTED_TRANSLATE_ENGINES: tuple[str, ...] = ("deepl", "google_translate")
 
-# Char-count confirmation threshold: no dollar estimate — gate large hosted
-# runs on total source characters. TUNABLE: ~100k source chars ≈ a full novel
-# chapter; below it a hosted run proceeds without a confirmation, at/above it
-# the run confirms once. Overridable via env.
-_DEFAULT_CHAR_CONFIRM_THRESHOLD = 100_000
-
 
 def hosted_translate_response_accounting(
     *,
@@ -89,20 +83,6 @@ def hosted_translate_response_accounting(
         "cost_source": cost_source,
         "model_calls": [fact],
     }
-
-
-def translate_char_confirm_threshold() -> int:
-    import os
-
-    raw = os.environ.get("FRISKET_TRANSLATE_CHAR_CONFIRM_THRESHOLD")
-    if raw:
-        try:
-            value = int(raw)
-            if value > 0:
-                return value
-        except ValueError:
-            pass
-    return _DEFAULT_CHAR_CONFIRM_THRESHOLD
 
 
 def hosted_translate_cost(engine: str, char_count: int) -> float | None:

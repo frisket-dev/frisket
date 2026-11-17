@@ -22,7 +22,6 @@ from frisket.server.notifications.delivery import (
 from frisket.server.notifications.digests import (
     compose_notification_digest,
     due_digest_window_for_route,
-    manual_digest_window,
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
 from frisket.server.notifications.service import (
@@ -276,11 +275,6 @@ def test_digest_window_policy_is_utc_only_hourly_daily_and_manual(
     assert due_digest_window_for_route(manual_row) is None
     with pytest.raises(ValueError, match="manual notification digest requires"):
         compose_notification_digest(project, manual["id"])
-    explicit = manual_digest_window(
-        start_at=datetime(2026, 6, 29, 0, 0, tzinfo=UTC),
-        end_at=datetime(2026, 6, 30, 0, 0, tzinfo=UTC),
-    )
-    assert explicit.window_key == ("manual:2026-06-29T00:00:00Z:2026-06-30T00:00:00Z")
 
     with pytest.raises(ValueError, match="timezone must be UTC"):
         normalize_route_input(

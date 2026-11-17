@@ -135,53 +135,6 @@ class EdgeTableWrite:
 
 
 @dataclass(frozen=True)
-class JoinTableColumnSpec:
-    name: str
-    type: str
-    ai_generated: bool = False
-    hidden: bool = False
-    format: str | None = None
-
-
-@dataclass(frozen=True)
-class MaterializedJoinRecord:
-    """One output row of a tabular join. Either side may be null (right/outer
-    right-only rows have no left row; left/outer left-only rows have no right
-    row), but not both."""
-
-    left_row_id: int | None
-    right_row_id: int | None
-    values: Mapping[str, Any]
-
-
-@dataclass(frozen=True)
-class JoinTablePlan:
-    action_kind: str
-    label: str
-    target_sheet_name: str
-    parent_sheet_id: int
-    op_spec: Mapping[str, Any]
-    columns: Sequence[JoinTableColumnSpec]
-    records: Sequence[MaterializedJoinRecord]
-
-
-@dataclass(frozen=True)
-class JoinTableWrite:
-    op_id: int
-    sheet_id: int
-    column_ids: dict[str, int]
-    row_ids: list[int]
-    left_row_ids: list[int | None]
-    right_row_ids: list[int | None]
-    parent_row_ids: list[int]
-    undo_info: dict[str, list[int]]
-    materialized_join_table_ref: dict[str, Any]
-    materialized_join_rows_ref: dict[str, Any]
-    materialized_row_sources_ref: dict[str, Any]
-    membership_rows: list[dict[str, Any]]
-
-
-@dataclass(frozen=True)
 class AggregateColumnSpec:
     name: str
     type: str
@@ -231,9 +184,7 @@ class AggregateSheetWrite:
 
 def _append_new_materialization_op(
     cur: sqlite3.Cursor,
-    plan: (
-        SingleParentChildSheetPlan | AggregateSheetPlan | EdgeTablePlan | JoinTablePlan
-    ),
+    plan: (SingleParentChildSheetPlan | AggregateSheetPlan | EdgeTablePlan),
 ) -> int:
     cur.execute(
         "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
@@ -254,9 +205,7 @@ def _append_new_materialization_op(
 
 def _insert_sheet_schema(
     cur: sqlite3.Cursor,
-    plan: (
-        SingleParentChildSheetPlan | AggregateSheetPlan | EdgeTablePlan | JoinTablePlan
-    ),
+    plan: (SingleParentChildSheetPlan | AggregateSheetPlan | EdgeTablePlan),
     op_id: int,
 ) -> tuple[int, dict[str, int]]:
     cur.execute(
@@ -689,113 +638,6 @@ def write_edge_table(
     )
 
 
-def write_join_table(
-    cur: sqlite3.Cursor,
-    plan: JoinTablePlan,
-) -> JoinTableWrite:
-    """Write a materialized tabular-join sheet with a NULLABLE side.
-
-    A parallel of ``write_edge_table`` for ``derive.join``: each output row may
-    carry a left row, a right row, or both. ``rows.parent_row_id`` is set to the
-    left row when present, else the right row (a fast pointer; canonical
-    two-sided membership always lives in ``materialized_row_sources`` with roles
-    ``join_left`` / ``join_right``, so a join child sheet reaches BOTH parents
-    and goes stale when either changes). The caller owns the write transaction,
-    duplicate checks, receipts, and commits/rollbacks.
-    """
-
-    _validate_join_table_plan(plan)
-    op_id = _append_new_materialization_op(cur, plan)
-    producer_id = create_base_cell_producer(
-        cur.connection, stage_id=f"op:{op_id}", op_id=op_id
-    )
-    sheet_id, column_ids = _insert_sheet_schema(cur, plan, op_id=op_id)
-
-    row_ids: list[int] = []
-    left_row_ids: list[int | None] = []
-    right_row_ids: list[int | None] = []
-    parent_row_ids: list[int] = []
-    membership_rows: list[dict[str, Any]] = []
-    cell_writes: list[BaseCellWrite] = []
-    for idx, record in enumerate(plan.records, start=1):
-        left_row_id = (
-            int(record.left_row_id) if record.left_row_id is not None else None
-        )
-        right_row_id = (
-            int(record.right_row_id) if record.right_row_id is not None else None
-        )
-        parent_row_id = left_row_id if left_row_id is not None else right_row_id
-        assert parent_row_id is not None  # _validate rejects both-null records
-        cur.execute(
-            "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, ?)",
-            (sheet_id, idx, parent_row_id),
-        )
-        row_id = int(cur.lastrowid)
-        row_ids.append(row_id)
-        left_row_ids.append(left_row_id)
-        right_row_ids.append(right_row_id)
-        parent_row_ids.append(parent_row_id)
-        cell_writes.extend(
-            _materialized_cell_writes(row_id, column_ids, values=record.values)
-        )
-        if left_row_id is not None:
-            membership_rows.append(
-                _insert_materialized_row_source(
-                    cur,
-                    materialized_row_id=row_id,
-                    source_row_id=left_row_id,
-                    op_id=op_id,
-                    role="join_left",
-                )
-            )
-        if right_row_id is not None:
-            membership_rows.append(
-                _insert_materialized_row_source(
-                    cur,
-                    materialized_row_id=row_id,
-                    source_row_id=right_row_id,
-                    op_id=op_id,
-                    role="join_right",
-                )
-            )
-
-    initialize_base_cells(cur.connection, producer_id=producer_id, cells=cell_writes)
-    undo_info = _write_undo_info(cur, op_id, sheet_id, column_ids, row_ids=row_ids)
-    materialized_join_rows_ref = {
-        "kind": "materialized_join_rows",
-        "sheet_id": sheet_id,
-        "row_ids": row_ids,
-        "parent_row_ids": parent_row_ids,
-        "left_row_ids": left_row_ids,
-        "right_row_ids": right_row_ids,
-        "op_id": op_id,
-    }
-    _close_atomic_materialization(cur, op_id)
-    return JoinTableWrite(
-        op_id=op_id,
-        sheet_id=sheet_id,
-        column_ids=column_ids,
-        row_ids=row_ids,
-        left_row_ids=left_row_ids,
-        right_row_ids=right_row_ids,
-        parent_row_ids=parent_row_ids,
-        undo_info=undo_info,
-        materialized_join_table_ref={
-            "kind": "materialized_join_table",
-            "sheet_id": sheet_id,
-            "name": plan.target_sheet_name,
-            "op_id": op_id,
-            "column_ids": column_ids,
-        },
-        materialized_join_rows_ref=materialized_join_rows_ref,
-        materialized_row_sources_ref=materialized_row_sources_ref(
-            op_id=op_id,
-            rows=membership_rows,
-        ),
-        membership_rows=membership_rows,
-    )
-
-
 def materialized_row_sources_ref(
     *,
     op_id: int,
@@ -1115,30 +957,6 @@ def _validate_edge_table_plan(plan: EdgeTablePlan) -> None:
         if extra:
             raise ValueError(
                 "edge materialized row has values for unknown columns: "
-                + ", ".join(sorted(extra))
-            )
-
-
-def _validate_join_table_plan(plan: JoinTablePlan) -> None:
-    if not plan.columns:
-        raise ValueError("join table plan must include columns")
-    column_names = [column.name for column in plan.columns]
-    if len(set(column_names)) != len(column_names):
-        raise ValueError("join table plan has duplicate columns")
-    known_columns = set(column_names)
-    for record in plan.records:
-        if record.left_row_id is None and record.right_row_id is None:
-            raise ValueError("join records require a left or right source row")
-        if record.left_row_id is not None and not _is_positive_int(record.left_row_id):
-            raise ValueError("join left_row_id must be a positive integer")
-        if record.right_row_id is not None and not _is_positive_int(
-            record.right_row_id
-        ):
-            raise ValueError("join right_row_id must be a positive integer")
-        extra = set(record.values) - known_columns
-        if extra:
-            raise ValueError(
-                "join materialized row has values for unknown columns: "
                 + ", ".join(sorted(extra))
             )
 

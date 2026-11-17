@@ -421,30 +421,6 @@ class MediaBlobStore(BlobMetadataDocumentStore):
             cell["filename"] = filename
         return cell
 
-    @staticmethod
-    def file_cell(
-        digest: str,
-        *,
-        mime: str | None = None,
-        filename: str | None = None,
-    ) -> dict[str, Any]:
-        return MediaBlobStore.media_cell(digest, mime=mime, filename=filename)
-
-    @staticmethod
-    def validate_blob_cell(cell: Any) -> dict[str, Any]:
-        if not isinstance(cell, dict):
-            raise ValueError("blob cell must be an object")
-        digest = cell.get("blob")
-        if not isinstance(digest, str) or not digest:
-            raise ValueError("blob cell requires a blob digest")
-        mime = cell.get("mime")
-        if mime is not None and not isinstance(mime, str):
-            raise ValueError("blob cell mime must be a string")
-        filename = cell.get("filename")
-        if filename is not None and not isinstance(filename, str):
-            raise ValueError("blob cell filename must be a string")
-        return dict(cell)
-
 
 # The canonical importable name for building media cells; the staticmethod
 # stays so store consumers holding a MediaBlobStore can use it directly.

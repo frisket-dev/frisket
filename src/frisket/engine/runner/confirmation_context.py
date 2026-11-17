@@ -59,7 +59,7 @@ import math
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
-from pydantic import ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import ConfigDict, Field
 
 from frisket.contracts.action import ContractModel
 from frisket.execution.pricing_policy import (
@@ -529,34 +529,6 @@ class ScopeConfirmationContext(ContractModel):
     family_kind: str = Field(min_length=1)
     scope: ConfirmationScope
     bindings: dict[str, Any] = Field(default_factory=dict)
-
-
-ConfirmationContext = Annotated[
-    MoneyConfirmationContext | ScopeConfirmationContext,
-    Field(discriminator="gate"),
-]
-
-_CONTEXT_ADAPTER: TypeAdapter[MoneyConfirmationContext | ScopeConfirmationContext] = (
-    TypeAdapter(ConfirmationContext)
-)
-
-
-def decode_confirmation_context(
-    payload: object,
-) -> MoneyConfirmationContext | ScopeConfirmationContext | None:
-    """Read a confirmation envelope back off a durable row, or ``None``.
-
-    Fails closed by returning ``None`` rather than raising: the caller is
-    recovering a PAID effect, and a payload that is not a well-formed
-    envelope must make it refuse and reconcile, never guess at what was
-    approved. ``extra="forbid"`` all the way down means a payload carrying a
-    field this version does not model is rejected too.
-    """
-
-    try:
-        return _CONTEXT_ADAPTER.validate_python(payload)
-    except ValidationError:
-        return None
 
 
 # ---------------------------------------------------------------------------

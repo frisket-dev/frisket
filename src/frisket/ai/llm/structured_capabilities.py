@@ -15,12 +15,10 @@ models retain forced tools. In particular
 ``openrouter/*`` and ``ollama/*`` stay ``JSON_LOOSE`` even though a
 ``openrouter/<vendor>/*`` glob *could* resolve more specifically (the
 resolution algorithm below supports it) — promoting any vendor glob to
-``NATIVE_STRICT`` requires an explicit recorded probe, never a static
-assumption.
+``NATIVE_STRICT`` requires recorded evidence, never a static assumption.
 
 **Cache-key / cassette parity.**
-Auto resolution keeps ``LLMRequest.mechanism=None``; this change does not
-expand the dormant opt-in probe subsystem's wire behavior.
+Auto resolution keeps ``LLMRequest.mechanism=None``.
 ``cache.py:request_key`` hashes ``req.mechanism``
 verbatim, so stamping a resolved string onto every auto-resolved request
 would flip every existing cassette's key from ``None`` to e.g.
@@ -90,7 +88,7 @@ class CapabilityRow:
 # Each row's `source` field cites the documented capability or legacy
 # adapter behavior it reproduces. No
 # vendor-glob strict promotion for openrouter here; that stays a deliberate,
-# separate opt-in (see RECORDED_PROMOTIONS below).
+# separate opt-in.
 # ---------------------------------------------------------------------------
 # Claude API compatibility, verified against the official structured-output
 # and tool-definition docs (2026-10-22). Match aliases and dated snapshots
@@ -204,7 +202,7 @@ SEED: tuple[CapabilityRow, ...] = tuple(
 
 # Conservative fallback: an unknown model gets the WEAKEST row -- JSON_LOOSE,
 # never assume a capability we haven't seen. This is a static default, not
-# the probe-and-cache mechanism (see RECORDED_PROMOTIONS).
+# a probe-and-cache mechanism.
 FALLBACK = CapabilityRow(
     provider="*",
     model_pattern="*",
@@ -231,8 +229,6 @@ def _specificity(glob: str) -> tuple[int, int]:
 def resolve(
     model: str,
     table: tuple[CapabilityRow, ...] = SEED,
-    *,
-    promotions: tuple[CapabilityRow, ...] = (),
 ) -> CapabilityRow:
     """The model id (e.g. ``"openai/gpt-5-mini"``) -> its capability row.
 
@@ -241,25 +237,8 @@ def resolve(
     specificity algorithm against synthetic overlapping globs (e.g.
     ``"openrouter/openai/*"`` vs ``"openrouter/*"``) without touching the
     real parity seed.
-
-    ``promotions`` defaults to ``()`` for zero behavior change in every
-    existing caller. It is where
-    :data:`RECORDED_PROMOTIONS` and any per-model rows a
-    ``llm/structured_probe.py`` :class:`~llm.structured_probe.ProbeStore` has
-    recorded get merged into the candidate pool -- opt-in, per-call, never a
-    change to this function's default output. A promoted/probed row is just
-    another candidate in the SAME specificity contest ``table`` rows already
-    run in (a literal ``"openrouter/openai/gpt-5"`` probe row or the
-    ``"openrouter/openai/*"`` recorded-promotion glob both out-specify the
-    bare ``"openrouter/*"`` SEED row automatically, no algorithm change
-    needed) because the capability table's resolution order already reserves
-    the slot.
     """
-    candidates = [
-        row
-        for row in (*table, *promotions)
-        if fnmatch.fnmatchcase(model, row.model_pattern)
-    ]
+    candidates = [row for row in table if fnmatch.fnmatchcase(model, row.model_pattern)]
     if not candidates:
         return FALLBACK
     return max(candidates, key=lambda row: _specificity(row.model_pattern))
@@ -347,7 +326,7 @@ def schema_mechanism(model: str, schema: dict, mechanism: str) -> str:
 # ---------------------------------------------------------------------------
 # Which mechanisms each wire DIALECT can structurally speak at all -- a hard
 # fact about llm/adapters.py's two adapter classes, NOT a per-model
-# capability guess (that's SEED/FALLBACK/promotions above). Used by
+# capability guess (that's SEED/FALLBACK above). Used by
 # llm/structured.py's explicit-override validation to validate the model
 # actually supports the pinned mechanism where knowable, honest error where
 # not: an override is checked against this map regardless of what "auto"
@@ -403,40 +382,3 @@ def dialect_mechanisms(model: str) -> frozenset[str]:
     if provider in _KNOWN_OPENAI_COMPAT_PROVIDERS:
         return _OPENAI_COMPAT_DIALECT_MECHANISMS
     return frozenset(MECHANISMS)
-
-
-# ---------------------------------------------------------------------------
-# RECORDED PROMOTIONS. Not part of SEED (parity-only, forever -- tests pin
-# `resolve(model)` with no `promotions=` to still return JSON_LOOSE for
-# "openrouter/openai/gpt-5" and must keep doing so). Applied only when a
-# caller explicitly opts in by passing `promotions=RECORDED_PROMOTIONS` (or,
-# in practice, by constructing `StructuredCompleter` with a `ProbeStore`) --
-# for "auto" resolution the promotion only takes effect behind that same
-# opt-in, never unconditionally from the glob.
-#
-# openrouter/openai/* -> NATIVE_STRICT: OpenRouter's `openai/*`-family models
-# proxy OpenAI's own `/chat/completions` wire dialect 1:1 (the reason
-# OpenAICompatAdapter handles openrouter with zero special-casing already --
-# same class, same `response_format` shapes). The evidence this promotion
-# needs is a recorded `probe_mechanism()` run (real completer code, real
-# jsonschema validation) against a fixture reproducing OpenRouter's
-# documented `openai/*` strict-json_schema response body, recorded
-# `supported=True`. Not a live production API call (this sandbox has no
-# OpenRouter key); the fixture is the recorded evidence.
-RECORDED_PROMOTIONS: tuple[CapabilityRow, ...] = (
-    CapabilityRow(
-        provider="openrouter",
-        model_pattern="openrouter/openai/*",
-        structured_mode=NATIVE_STRICT,
-        additional_properties_false=True,
-        nullable_optional_convention=True,
-        source=(
-            "probe:tests/test_structured_probe.py::"
-            "test_recorded_promotion_evidence (mocked-wire "
-            "probe_mechanism() run confirming NATIVE_STRICT accepted for an "
-            "openrouter/openai/* model; OpenRouter's openai/* proxy speaks "
-            "the identical OpenAI json_schema-strict wire dialect "
-            "OpenAICompatAdapter already implements uniformly)"
-        ),
-    ),
-)

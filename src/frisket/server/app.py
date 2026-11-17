@@ -368,16 +368,6 @@ def _managed_models_catalog_capabilities(
     }
 
 
-def _media_column_kind(mime: str | None) -> str:
-    if mime and mime.startswith("audio/"):
-        return "audio"
-    if mime and mime.startswith("video/"):
-        return "video"
-    if mime and mime.startswith("image/"):
-        return "image"
-    return "file"
-
-
 def create_app(
     workspace_root: str | Path,
     router: ModelRouter | None = None,

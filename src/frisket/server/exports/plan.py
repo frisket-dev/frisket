@@ -77,13 +77,6 @@ class ExportColumn:
 
 
 @dataclass(frozen=True)
-class ExportSource:
-    kind: Literal["current_sheet", "current_view", "all_sheets"]
-    sheet_id: int | None = None
-    query: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True)
 class ExportColumns:
     mode: Literal["all_visible", "selected"] = "all_visible"
     column_ids: tuple[int, ...] | None = None

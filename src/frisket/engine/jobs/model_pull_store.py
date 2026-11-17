@@ -163,11 +163,6 @@ class ModelPullRow:
     def is_active(self) -> bool:
         return self.status in ACTIVE_STATUSES
 
-    @property
-    def effective_artifact_kind(self) -> str:
-        """A NULL ``artifact_kind`` denotes a local-server model pull."""
-        return self.artifact_kind or "ollama"
-
 
 def _truncate(text: str | None, limit: int = MAX_ERROR_MESSAGE_LENGTH) -> str | None:
     if text is None:
@@ -362,32 +357,6 @@ def _get_raw(engine: sa.engine.Engine, pull_id: int) -> ModelPullRow | None:
 
 def get(engine: sa.engine.Engine, pull_id: int) -> ModelPullRow | None:
     return _read_repair(engine, _get_raw(engine, pull_id))
-
-
-def find_active_for_workspace(
-    engine: sa.engine.Engine, workspace_root: str
-) -> ModelPullRow | None:
-    """Any pending/running pull for this workspace, regardless of model ref
-    -- the route's one-active-pull-per-workspace busy check."""
-    c = model_pulls_table.c
-    with engine.connect() as cx:
-        row = cx.execute(
-            sa.select(model_pulls_table)
-            .where(
-                c.workspace_root == workspace_root,
-                c.status.in_(ACTIVE_STATUSES),
-            )
-            .order_by(c.id.desc())
-            .limit(1)
-        ).first()
-    if row is None:
-        return None
-    repaired = _read_repair(engine, _row(row))
-    return (
-        repaired
-        if repaired is not None and repaired.status in ACTIVE_STATUSES
-        else None
-    )
 
 
 def list_recent(
@@ -773,26 +742,6 @@ def mark_failed(
             )
         )
     return res.rowcount > 0
-
-
-def find_done_for_ref(
-    engine: sa.engine.Engine, *, workspace_root: str, model_ref: str
-) -> ModelPullRow | None:
-    """The most recent ``done`` pull for a ref in a workspace -- the uninstall
-    target."""
-    c = model_pulls_table.c
-    with engine.connect() as cx:
-        row = cx.execute(
-            sa.select(model_pulls_table)
-            .where(
-                c.workspace_root == workspace_root,
-                c.model_ref == model_ref,
-                c.status == STATUS_DONE,
-            )
-            .order_by(c.id.desc())
-            .limit(1)
-        ).first()
-    return _row(row) if row is not None else None
 
 
 class UninstallInFlightError(RuntimeError):

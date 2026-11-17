@@ -60,13 +60,10 @@ def test_ftm_import_export_byte_golden_is_captured_and_reproduced() -> None:
         "followthemoney",
         reason="requires the entities extra: pip install 'frisket-data[entities]'",
     )
-    assert (
-        importlib.util.find_spec("frisket.features.followthemoney.migration_harness")
-        is not None
-    ), (
-        "frisket.features.followthemoney.migration_harness (the byte-equivalence round-trip helper) is unimplemented"
+    assert importlib.util.find_spec("ftm_migration_harness") is not None, (
+        "ftm_migration_harness (the byte-equivalence round-trip helper) is unimplemented"
     )
-    import frisket.features.followthemoney.migration_harness as harness
+    import ftm_migration_harness as harness
 
     assert hasattr(harness, "roundtrip_export_bytes"), (
         "harness.roundtrip_export_bytes(source_path) must import via WritePlan then export"

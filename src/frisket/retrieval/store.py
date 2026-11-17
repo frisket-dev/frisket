@@ -912,20 +912,6 @@ class RetrievalStore:
             )
         return cursor.rowcount
 
-    def upsert_bindings(
-        self, source_revision: SourceRevision, bindings: Sequence[StoredBinding]
-    ) -> None:
-        """Publish contextual bindings independently of representation batches."""
-
-        source_id, _source_kind, version_kind, version_value, _content_hash = (
-            _revision_fields(source_revision)
-        )
-        encoded_version, version_type = _encode_version(version_value)
-        _validate_bindings(bindings)
-        source_identity = (source_id, version_kind, encoded_version, version_type)
-        with self._write_transaction():
-            self._upsert_binding_records(bindings, self._source_key(source_identity))
-
     def replace_named_dataset_members(
         self, dataset_id: str, members: Iterable[NamedDatasetMember]
     ) -> None:
@@ -1023,58 +1009,6 @@ class RetrievalStore:
             _validate_cached_representation(representation)
         with self._write_transaction():
             self._upsert_representations(representations)
-
-    def read_named_dataset_vectors(
-        self,
-        dataset_id: str,
-        *,
-        space_id: str,
-        limit: int,
-        after: tuple[str, str] | None = None,
-    ) -> tuple[NamedDatasetVector, ...]:
-        """Read one bounded ordered page for export or analytical computation."""
-
-        _require_nonempty(dataset_id, "dataset_id")
-        _require_nonempty(space_id, "space_id")
-        if after is not None:
-            _require_nonempty(after[0], "after part_id")
-            _require_nonempty(after[1], "after representation_id")
-        if (
-            isinstance(limit, bool)
-            or not isinstance(limit, int)
-            or not 1 <= limit <= 1000
-        ):
-            raise ValueError("named dataset vector limit must be in [1, 1000]")
-        rows = self.db.execute(
-            "SELECT part.part_id,attachment.channel,representation.* "
-            "FROM named_dataset_membership AS member "
-            "JOIN part_representations AS attachment "
-            "ON attachment.part_key=member.part_key "
-            "AND attachment.representation_key=member.representation_key "
-            "JOIN parts AS part ON part.part_key=member.part_key "
-            "JOIN representations AS representation "
-            "ON representation.representation_key=member.representation_key "
-            "WHERE member.dataset_id=? AND representation.space_id=? "
-            "AND (part.part_id>? OR "
-            "(part.part_id=? AND representation.representation_id>?)) "
-            "ORDER BY part.part_id,representation.representation_id LIMIT ?",
-            (
-                dataset_id,
-                space_id,
-                "" if after is None else after[0],
-                "" if after is None else after[0],
-                "" if after is None else after[1],
-                limit,
-            ),
-        ).fetchall()
-        return tuple(
-            NamedDatasetVector(
-                part_id=str(row["part_id"]),
-                channel=str(row["channel"]),
-                representation=_cached_representation(row),
-            )
-            for row in rows
-        )
 
     @contextmanager
     def publication_batch(self) -> Iterator[None]:

@@ -2,16 +2,13 @@ from __future__ import annotations
 
 from tests.watch_helpers import post_watch
 
-from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
-from frisket.engine.jobs.queue import Job
 from frisket.search_index import drain_index
 from frisket.server.notifications.producers import (
-    job_transition_notification_candidate,
     run_transition_notification_candidate,
 )
 
@@ -22,30 +19,6 @@ CSV = (
     "Bridge repair,closed,The bridge repair vote was tabled.\n"
     "Budget audit,open,Auditors found budget variances.\n"
 )
-
-
-def _job(project_id: str) -> Job:
-    now = datetime(2026, 6, 19, 12, 0, tzinfo=UTC)
-    return Job(
-        id=42,
-        kind="source.poll",
-        payload={"project_id": project_id, "source_id": 7},
-        status="failed",
-        attempts=2,
-        max_attempts=3,
-        locked_by=None,
-        locked_at=None,
-        lease_expires_at=None,
-        available_at=now,
-        created_at=now,
-        started_at=now,
-        finished_at=now,
-        result=None,
-        error="feed unavailable",
-        project_id=project_id,
-        source_id=7,
-        workspace_root="/tmp/frisket/ws",
-    )
 
 
 def _seed_watch(client: TestClient) -> tuple[str, dict, dict, list[dict]]:
@@ -153,7 +126,7 @@ def test_watch_run_events_project_to_generic_notifications_without_mutating_fact
     assert client.get(f"/api/projects/{pid}/notifications").json()["total"] == 1
 
 
-def test_run_and_job_candidates_emit_generic_notification_items(tmp_path: Path) -> None:
+def test_run_candidates_emit_generic_notification_items(tmp_path: Path) -> None:
     client = _client(tmp_path)
     pid = client.post("/api/projects", json={"name": "Run notifications"}).json()["id"]
     run_candidate = run_transition_notification_candidate(
@@ -169,13 +142,6 @@ def test_run_and_job_candidates_emit_generic_notification_items(tmp_path: Path) 
     )
     assert run_emit.status_code == 200, run_emit.text
 
-    job_candidate = job_transition_notification_candidate(_job(pid))
-    assert job_candidate is not None
-    job_emit = client.post(
-        f"/api/projects/{pid}/notifications/emit", json=job_candidate
-    )
-    assert job_emit.status_code == 200, job_emit.text
-
     page = client.get(f"/api/projects/{pid}/notifications").json()
     by_kind = {item["source_kind"]: item for item in page["notifications"]}
     assert by_kind["run"]["source_ref"] == {
@@ -188,12 +154,6 @@ def test_run_and_job_candidates_emit_generic_notification_items(tmp_path: Path) 
         "project_id": pid,
         "run_id": 12,
     }
-    assert by_kind["job"]["source_ref"]["job_id"] == 42
-    assert by_kind["job"]["deep_link"] == {
-        "kind": "job",
-        "project_id": pid,
-        "job_id": 42,
-    }
 
     summary = client.get(f"/api/projects/{pid}/notifications/summary").json()
-    assert summary["by_source_kind"] == {"job": 1, "run": 1}
+    assert summary["by_source_kind"] == {"run": 1}

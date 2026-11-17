@@ -512,6 +512,5 @@ def test_entity_eq_reaches_the_shared_query_and_watch_consumers(tmp_path):
     # it is covered by test_csv_export_returns_the_same_rows_as_the_filtered_grid.
     # map_points / embeddings scope / watchlists / bulk edits reach the
     # operator through these same three entry points and need no branch of
-    # their own — grep resolve_sheet_filter_rows / sheet_row_scope_query /
-    # validate_sheet_filter_sort.
+    # their own — grep resolve_sheet_filter_rows / sheet_row_scope_query.
     assert len(rows) == 3

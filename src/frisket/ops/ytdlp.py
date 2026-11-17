@@ -429,27 +429,6 @@ def add_downloaded_media_blob(
     )
 
 
-def add_sidecar_media_blob(
-    project: Any,
-    sidecar: SidecarFile,
-    *,
-    source_url: str,
-) -> StoredMedia:
-    """Store one yt-dlp sidecar (thumbnail/subtitles/info JSON) as a project blob.
-
-    Reuses the same blob-store + metadata-probe + media-cell path as
-    ``add_downloaded_media_blob`` so sidecar cells render with the same
-    machinery as the main media cell.
-    """
-    return _add_media_blob(
-        project,
-        data=sidecar.data,
-        mime=sidecar.mime,
-        filename=sidecar.filename,
-        source_url=source_url,
-    )
-
-
 def _add_media_blob(
     project: Any,
     *,

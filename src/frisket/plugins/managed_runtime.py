@@ -60,10 +60,8 @@ class RuntimeChannel(Protocol):
 
 @dataclass(frozen=True)
 class ManagedRuntimeSpec:
-    """A declared single-file executable managed runtime. Decoupled from the
-    manifest contract so this module owns the SERVICE seam; the
-    ``managed_runtime`` manifest field lives in frisket.contracts.plugin and is
-    gated by frisket.plugins.runtime_gating."""
+    """A declared single-file executable managed runtime. This module owns the
+    SERVICE seam."""
 
     name: str
     version: str

@@ -624,23 +624,6 @@ class OutputColumnClaimStore:
             self.db.rollback()
             raise
 
-    def bind_job_to_receipt(
-        self,
-        *,
-        receipt_id: str,
-        job_id: int,
-        commit: bool = True,
-    ) -> int:
-        """Point every active claim for a receipt at the async job that owns it."""
-        bound = self.db.execute(
-            "UPDATE output_column_claims SET job_id=? "
-            "WHERE receipt_id=? AND status='active'",
-            (job_id, receipt_id),
-        )
-        if commit:
-            self.db.commit()
-        return bound.rowcount
-
     def active_column_ids(
         self,
         *,
@@ -730,23 +713,6 @@ class OutputColumnClaimStore:
         if commit:
             self.db.commit()
         return discarded.rowcount
-
-    def release_for_claim_and_receipt(
-        self,
-        *,
-        claim_token: str,
-        receipt_id: str,
-        status: str,
-        commit: bool = True,
-    ) -> int:
-        released = self.db.execute(
-            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
-            "WHERE claim_token=? AND receipt_id=? AND status='active'",
-            (status, claim_token, receipt_id),
-        )
-        if commit:
-            self.db.commit()
-        return released.rowcount
 
     def active_for_columns(
         self, column_ids: list[int] | set[int]

@@ -64,33 +64,6 @@ def due_digest_window_for_route(
     return _window(cadence=cadence, start_at=start, end_at=end)
 
 
-def manual_digest_window(
-    *,
-    start_at: datetime,
-    end_at: datetime,
-) -> NotificationDigestWindow:
-    start = _coerce_utc(start_at)
-    end = _coerce_utc(end_at)
-    if end <= start:
-        raise ValueError("notification digest window end must be after start")
-    return _window(cadence="manual", start_at=start, end_at=end)
-
-
-def compose_due_notification_digests(
-    project: Project,
-    *,
-    now: datetime | None = None,
-) -> list[dict[str, Any]]:
-    runs: list[dict[str, Any]] = []
-    for route in project.notification_routes(enabled_only=True):
-        if str(route["delivery_mode"]) != "digest":
-            continue
-        if str(route["digest_cadence"] or "daily") == "manual":
-            continue
-        runs.append(compose_notification_digest(project, int(route["id"]), now=now))
-    return runs
-
-
 def compose_notification_digest(
     project: Project,
     route_id: int,

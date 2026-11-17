@@ -123,7 +123,6 @@ AUDIO_CHANNEL = "audio"
 UNSUPPORTED_MEDIA_CHANNEL = "media"
 PDF_PAGE_RECIPE_ID = "pdf-page-png-v1:dpi=144:max-edge=1600"
 UNSUPPORTED_MEDIA_RECIPE_ID = "unsupported-media-v1"
-ENCODER_UNAVAILABLE_ERROR = "encoder_unavailable"
 POLICY_DISABLED_ERROR = "policy_disabled"
 UNSUPPORTED_MEDIA_ERROR = "unsupported_media"
 DISABLED_TEXT_RECIPE_ID = "policy-disabled-text-v1"
@@ -280,24 +279,6 @@ def queue_text_preparation(
         (_binding(resolved),),
         recipe_id=recipe.recipe_id,
         channel=TEXT_CHANNEL,
-        space_id=space.identity,
-        replace_channel_recipes=True,
-    )
-
-
-def _queue_evidence_preparation(
-    store: RetrievalStore,
-    resolved: ResolvedCellTranscriptSource | ResolvedCellOcrTextSource,
-    *,
-    recipe: TranscriptChunkRecipe | TextChunkRecipe,
-    channel: str,
-    space: EmbeddingGemma2Space,
-) -> None:
-    store.register_preparation(
-        resolved.surface.source,
-        (_binding(resolved),),
-        recipe_id=recipe.recipe_id,
-        channel=channel,
         space_id=space.identity,
         replace_channel_recipes=True,
     )
