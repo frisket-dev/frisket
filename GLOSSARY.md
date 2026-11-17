@@ -28,9 +28,10 @@ _Avoid_: field (for a column; a field is only one named value an action extracts
 _Avoid_: record.
 
 **Source column** — a column that came from imported data. A run never replaces one.
+_Avoid_: base.
 
 **Generated column** — a column whose values a run produced. A run may replace one.
-_Avoid_: output column, AI column, derived, base.
+_Avoid_: output column, AI column, derived.
 
 **Document** — one unit of source material that becomes a row.
 
