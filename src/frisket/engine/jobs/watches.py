@@ -13,7 +13,6 @@ evaluator itself never calls a provider (row anchors only).
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,17 +28,15 @@ from .project_opener import (
     project_bundle_paths,
     ProjectOpener,
     claimed_opener_key,
-    require_opener_storage_org_id,
 )
+from .project_scan import bundle_opener, scan_projects
 from .schedule import _parse_time, _schedule_interval
-from frisket.project_identity import ProjectStorageKey
 from .ports import JobHandlerContext
 from .worker import HandlerRegistration, HandlerRegistry
 
 if TYPE_CHECKING:
     from frisket.retrieval.preparation import PreparationEncoder
 
-LOG = logging.getLogger(__name__)
 
 WATCH_EVALUATE_KIND = "watch.evaluate"
 
@@ -117,102 +114,85 @@ def enqueue_due_watch_evaluations(
     """
     root = Path(workspace_root)
     now = (now or datetime.now(UTC)).astimezone(UTC)
-    org_id = (
-        require_opener_storage_org_id(storage_org_id)
-        if project_opener is not None
-        else None
-    )
     enqueued = []
-    for bundle in project_bundle_paths(root, require_slug=project_opener is not None):
-        project_id = bundle.stem
-        project = None
-        try:
-            project = (
-                Project(bundle)
-                if project_opener is None
-                else project_opener(
-                    ProjectStorageKey(storage_org_id=org_id, project_slug=project_id),
-                    bundle,
-                )
-            )
-            for watch in project.watches():
-                if not watch["enabled"]:
-                    continue
-                interval = _schedule_interval(watch["schedule"])
-                if interval is None:
-                    continue
-                watch_id = int(watch["id"])
-                prefix = f"watch:{watch_id}:eval:"
-                if (
-                    queue.find_job_by_refs(
-                        WATCH_EVALUATE_KIND,
-                        project_id=project_id,
-                        storage_org_id=storage_org_id,
-                        dedupe_key_prefix=prefix,
-                    )
-                    is not None
-                ):
-                    continue
-                prior_job = queue.find_job_by_refs(
+
+    def visit(project_id: str, project: Project) -> None:
+        for watch in project.watches():
+            if not watch["enabled"]:
+                continue
+            interval = _schedule_interval(watch["schedule"])
+            if interval is None:
+                continue
+            watch_id = int(watch["id"])
+            prefix = f"watch:{watch_id}:eval:"
+            if (
+                queue.find_job_by_refs(
                     WATCH_EVALUATE_KIND,
-                    statuses=TERMINAL,
                     project_id=project_id,
                     storage_org_id=storage_org_id,
                     dedupe_key_prefix=prefix,
                 )
-                prior_run = project.watch_latest_run(watch_id)
-                attempts = [
-                    value
-                    for value in (
-                        _parse_time(prior_run["finished_at"] or prior_run["started_at"])
-                        if prior_run is not None
-                        else None,
-                        (
-                            prior_job.finished_at
-                            or prior_job.started_at
-                            or prior_job.created_at
-                        )
-                        if prior_job is not None
-                        else None,
-                    )
-                    if value is not None
-                ]
-                if attempts and max(attempts) + interval > now:
-                    continue
-                trigger = {
-                    "trigger_kind": "schedule",
-                    "schedule": watch["schedule"],
-                    "schedule_tick": int(now.timestamp() // interval.total_seconds()),
-                }
-                key = _watch_eval_dedupe_key(watch_id, trigger)
-                job_id = queue.enqueue(
-                    WATCH_EVALUATE_KIND,
-                    {
-                        "project_id": project_id,
-                        "watch_id": watch_id,
-                        "workspace_root": str(root),
-                        "trigger_ref": trigger,
-                        "dedupe_key": key,
-                        **(
-                            {"storage_org_id": storage_org_id}
-                            if storage_org_id is not None
-                            else {}
-                        ),
-                    },
-                    max_attempts=3,
-                )
-                enqueued.append(
-                    {"project_id": project_id, "watch_id": watch_id, "job_id": job_id}
-                )
-        except Exception:
-            LOG.warning(
-                "watch_project_schedule_failed",
-                extra={"project_id": project_id},
-                exc_info=True,
+                is not None
+            ):
+                continue
+            prior_job = queue.find_job_by_refs(
+                WATCH_EVALUATE_KIND,
+                statuses=TERMINAL,
+                project_id=project_id,
+                storage_org_id=storage_org_id,
+                dedupe_key_prefix=prefix,
             )
-        finally:
-            if project is not None:
-                project.close()
+            prior_run = project.watch_latest_run(watch_id)
+            attempts = [
+                value
+                for value in (
+                    _parse_time(prior_run["finished_at"] or prior_run["started_at"])
+                    if prior_run is not None
+                    else None,
+                    (
+                        prior_job.finished_at
+                        or prior_job.started_at
+                        or prior_job.created_at
+                    )
+                    if prior_job is not None
+                    else None,
+                )
+                if value is not None
+            ]
+            if attempts and max(attempts) + interval > now:
+                continue
+            trigger = {
+                "trigger_kind": "schedule",
+                "schedule": watch["schedule"],
+                "schedule_tick": int(now.timestamp() // interval.total_seconds()),
+            }
+            key = _watch_eval_dedupe_key(watch_id, trigger)
+            job_id = queue.enqueue(
+                WATCH_EVALUATE_KIND,
+                {
+                    "project_id": project_id,
+                    "watch_id": watch_id,
+                    "workspace_root": str(root),
+                    "trigger_ref": trigger,
+                    "dedupe_key": key,
+                    **(
+                        {"storage_org_id": storage_org_id}
+                        if storage_org_id is not None
+                        else {}
+                    ),
+                },
+                max_attempts=3,
+            )
+            enqueued.append(
+                {"project_id": project_id, "watch_id": watch_id, "job_id": job_id}
+            )
+
+    scan_projects(
+        project_bundle_paths(root, require_slug=project_opener is not None),
+        bundle_opener(Project, project_opener, storage_org_id),
+        visit,
+        failure_event="watch_project_schedule_failed",
+    )
     return enqueued
 
 

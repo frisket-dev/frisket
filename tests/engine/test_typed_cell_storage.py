@@ -7,6 +7,7 @@ import pytest
 from helpers import stored_output_descriptor
 
 from frisket.engine.store import Project
+from frisket.upgrades.project._step import run_rebuild_step
 from frisket.upgrades.project.chain import _TYPED_VALUES_FROM_DIGEST
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
@@ -21,7 +22,7 @@ from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DI
 from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST_META_KEY
 from frisket.upgrades.project.typed_storage_migration import (
     TYPED_VALUES_TO_DIGEST,
-    migrate_typed_values,
+    replace_payload_authorities,
 )
 from frisket.engine.store.value_codec import (
     decode_stored_value,
@@ -250,10 +251,12 @@ def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:
     )
     db.commit()
 
-    migrate_typed_values(
+    run_rebuild_step(
         db,
+        _TYPED_VALUES_FROM_DIGEST,
+        TYPED_VALUES_TO_DIGEST,
+        replace_payload_authorities,
         bundle_path=tmp_path / "project.db",
-        from_digest=_TYPED_VALUES_FROM_DIGEST,
     )
 
     for table in ("cells", "results", "edits"):

@@ -7,6 +7,7 @@ import sqlite3
 import pytest
 
 from frisket.upgrades.project import chain as bundle_open
+from frisket.upgrades.project._step import run_step
 from frisket.engine.store.bundle_io import export_database
 from frisket.engine.store.project import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
@@ -14,6 +15,17 @@ from tests.engine.test_bundle_schema_fence import (
     _restore_legacy_authorities,
     _restore_pre_hygiene_indexes,
 )
+
+
+def _migrate_index_hygiene(db: sqlite3.Connection) -> None:
+    run_step(
+        db,
+        *next(
+            step
+            for step in bundle_open._STEPS_BEFORE_COLUMN_REBUILD
+            if step[0] == bundle_open._INDEX_HYGIENE_FROM_DIGEST
+        ),
+    )
 
 
 _PRIOR_DIGEST = "frisket.schema.v1:f2d652e33a1633c4367813af3c2d3746"
@@ -148,7 +160,7 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
     )
     db.commit()
     # Index cleanup itself preserves the historical ledger and its constraint.
-    bundle_open._migrate_index_hygiene(db)
+    _migrate_index_hygiene(db)
     assert not (_index_names(db) & _REDUNDANT_INDEXES)
     _assert_legacy_source_item(db)
     db.close()
@@ -215,7 +227,7 @@ def test_index_hygiene_upgrade_rolls_back_all_changes_on_failure(tmp_path) -> No
     db.commit()
 
     with pytest.raises(sqlite3.IntegrityError, match="forced migration failure"):
-        bundle_open._migrate_index_hygiene(db)
+        _migrate_index_hygiene(db)
 
     assert _REDUNDANT_INDEXES <= _index_names(db)
     assert db.execute(

@@ -4,7 +4,7 @@ import io
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from frisket.cli import plugin_cmd as plugin_cli
+from frisket.cli.plugin import plugin as plugin_cli
 from frisket.authoring.plugin_build import (
     _is_bare_specifier,
     _is_runtime_only_scheme_specifier,

@@ -9,6 +9,7 @@ import pytest
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import extraction_layouts as live_extraction_layouts
+from frisket.upgrades.project._step import run_rebuild_step, run_step
 from frisket.upgrades.project import extraction_layouts_migration
 from frisket.upgrades.project import prepared_content_migration
 from frisket.engine.store import schema as live_schema
@@ -21,7 +22,7 @@ from frisket.engine.store.extraction_layouts import (
 from frisket.upgrades.project.prepared_content_migration import (
     PREPARED_CONTENT_FROM_DIGEST,
     PREPARED_CONTENT_TO_DIGEST,
-    migrate_prepared_content,
+    PREPARED_CONTENT_STEP,
 )
 from frisket.upgrades.project.retrieval_lifecycle_migration import (
     RETRIEVAL_LIFECYCLE_FROM_DIGEST,
@@ -270,7 +271,7 @@ def test_prepared_rebuild_preserves_already_present_result_warnings(tmp_path):
     )
 
     with sqlite3.connect(path / "project.db") as db:
-        migrate_prepared_content(db, bundle_path=path / "project.db")
+        run_rebuild_step(db, *PREPARED_CONTENT_STEP, bundle_path=path / "project.db")
         assert db.execute("SELECT warnings FROM results").fetchone()[0] == (
             '["Page 2 failed"]'
         )
@@ -299,7 +300,9 @@ def test_exact_prior_schema_rolls_back_and_retries_after_interrupted_stamp(
 
     with sqlite3.connect(path / "project.db") as db:
         with pytest.raises(sqlite3.IntegrityError, match="migration interrupted"):
-            migrate_prepared_content(db, bundle_path=path / "project.db")
+            run_rebuild_step(
+                db, *PREPARED_CONTENT_STEP, bundle_path=path / "project.db"
+            )
         _assert_exact_predecessor(db)
         assert db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 3
         assert db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 1
@@ -348,7 +351,7 @@ def test_historical_migrations_ignore_later_live_schema_definitions(
             importlib.reload(prepared_content_migration)
 
             with sqlite3.connect(path / "project.db") as db:
-                extraction_layouts_migration.migrate_extraction_layouts(db)
+                run_step(db, *extraction_layouts_migration.EXTRACTION_LAYOUTS_STEP)
                 assert (
                     db.execute(
                         "SELECT value FROM meta WHERE key=?",
@@ -356,8 +359,10 @@ def test_historical_migrations_ignore_later_live_schema_definitions(
                     ).fetchone()[0]
                     == EXTRACTION_LAYOUTS_TO_DIGEST
                 )
-                prepared_content_migration.migrate_prepared_content(
-                    db, bundle_path=path / "project.db"
+                run_rebuild_step(
+                    db,
+                    *prepared_content_migration.PREPARED_CONTENT_STEP,
+                    bundle_path=path / "project.db",
                 )
                 assert (
                     db.execute(

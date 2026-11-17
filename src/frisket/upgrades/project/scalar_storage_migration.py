@@ -8,7 +8,8 @@ from frisket.upgrades.project.historical_current_cells import (
 from frisket.upgrades.project.review_confidence_migration import (
     REVIEW_CONFIDENCE_TO_DIGEST,
 )
-from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.schema import BundleSchemaMismatch
+from frisket.upgrades.project._step import SchemaStep
 from frisket.upgrades.project.historical_schema import SCALAR_CURRENT_CELL_VALUES_SQL
 
 
@@ -65,37 +66,18 @@ def _apply_scalar_current_values(db: sqlite3.Connection) -> None:
             "scalar current-value migration changed the number of visible cells "
             f"({after}, expected {before})"
         )
-    db.execute(
-        "UPDATE meta SET value=? WHERE key=?",
-        (SCALAR_CURRENT_VALUES_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-    )
 
 
-def migrate_scalar_current_values(db: sqlite3.Connection) -> None:
-    """Backfill the scalar projection from the exact preceding schema once."""
-
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != SCALAR_CURRENT_VALUES_FROM_DIGEST:
-        return
-
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == SCALAR_CURRENT_VALUES_FROM_DIGEST:
-            _apply_scalar_current_values(db)
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
+SCALAR_CURRENT_VALUES_STEP: SchemaStep = (
+    SCALAR_CURRENT_VALUES_FROM_DIGEST,
+    SCALAR_CURRENT_VALUES_TO_DIGEST,
+    _apply_scalar_current_values,
+)
 
 
 __all__ = [
     "SCALAR_CURRENT_VALUES_FROM_DIGEST",
     "SCALAR_CURRENT_VALUES_TO_DIGEST",
     "SCALAR_CURRENT_CELL_VALUES_SQL",
-    "migrate_scalar_current_values",
+    "SCALAR_CURRENT_VALUES_STEP",
 ]

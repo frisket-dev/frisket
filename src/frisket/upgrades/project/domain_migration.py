@@ -11,7 +11,13 @@ import json
 import re
 import sqlite3
 from uuid import uuid4
-from frisket.engine.store.schema import BundleSchemaMismatch
+from frisket.engine.store.schema import (
+    BundleSchemaMismatch,
+    CURRENT_CELL_VALUES_SQL,
+    SCHEMA,
+    SCHEMA_DIGEST,
+)
+from frisket.upgrades.project._step import execute_ddl, schema_digest, schema_step
 
 
 DOMAIN_FROM_DIGEST = "frisket.schema.v1:7e339a8995763aa40346e7d36187837d"
@@ -139,18 +145,6 @@ def archive_history(db: sqlite3.Connection) -> None:
 
 # Pinned endpoint: later schema changes must extend this cutover explicitly.
 DOMAIN_TO_DIGEST = "frisket.schema.v1:3a719329aa776f5c77d3702182dd34fa"
-
-
-def _execute_ddl(db: sqlite3.Connection, sql: str) -> None:
-    """Unlike executescript, preserve the caller's atomic transaction."""
-    statement = ""
-    for line in sql.splitlines(keepends=True):
-        statement += line
-        if sqlite3.complete_statement(statement):
-            db.execute(statement)
-            statement = ""
-    if statement.strip():
-        raise RuntimeError("Incomplete domain migration DDL")
 
 
 def _version_source_cells(db: sqlite3.Connection) -> None:
@@ -371,6 +365,31 @@ def _retain_source_observations(db: sqlite3.Connection) -> None:
 
 def migrate_domain(db: sqlite3.Connection) -> None:
     """Atomically upgrade the last pre-Change schema; never reset user data."""
+    from frisket.engine.store.current_cells import register_current_cell_functions
+
+    if schema_digest(db) != DOMAIN_FROM_DIGEST:
+        return
+    if SCHEMA_DIGEST != DOMAIN_TO_DIGEST:
+        raise BundleSchemaMismatch(
+            "Domain migration endpoint needs updating for this build"
+        )
+    if db.in_transaction:
+        raise RuntimeError("domain migration owns its transaction")
+    foreign_keys = int(db.execute("PRAGMA foreign_keys").fetchone()[0])
+    legacy_alter = int(db.execute("PRAGMA legacy_alter_table").fetchone()[0])
+    db.execute("PRAGMA foreign_keys=OFF")
+    db.execute("PRAGMA legacy_alter_table=ON")
+    register_current_cell_functions(db)
+    try:
+        with schema_step(db, DOMAIN_FROM_DIGEST, DOMAIN_TO_DIGEST) as pending:
+            if pending:
+                _cut_over(db)
+    finally:
+        db.execute(f"PRAGMA legacy_alter_table={legacy_alter}")
+        db.execute(f"PRAGMA foreign_keys={foreign_keys}")
+
+
+def _cut_over(db: sqlite3.Connection) -> None:
     from frisket.upgrades.project.blob_retention_migration import (
         migrate_blob_derivation_ownership,
     )
@@ -380,7 +399,6 @@ def migrate_domain(db: sqlite3.Connection) -> None:
     from frisket.engine.store.copied_results import COPIED_RESULTS_SCHEMA_SQL
     from frisket.upgrades.project.domain_alert_migration import migrate_alert_baselines
     from frisket.engine.store.document_text import DOCUMENT_TEXT_SELECTION_VIEW_SQL
-    from frisket.engine.store.current_cells import register_current_cell_functions
     from frisket.upgrades.project.domain_document_text_migration import (
         adopt_legacy_document_text,
     )
@@ -395,147 +413,106 @@ def migrate_domain(db: sqlite3.Connection) -> None:
     )
     from frisket.upgrades.project.domain_view_migration import migrate_unified_views
     from frisket.engine.store.review_judgments import JUDGMENT_SCHEMA_SQL
-    from frisket.engine.store.schema import (
-        CURRENT_CELL_VALUES_SQL,
-        SCHEMA,
-        SCHEMA_DIGEST,
-        SCHEMA_DIGEST_META_KEY,
+
+    migrate_identity_high_water(db)
+    migrate_blob_derivation_ownership(db)
+    adopt_legacy_document_text(db)
+    _version_source_cells(db)
+    capture_current_baseline(db)
+    # Baseline capture is complete. Replace dependent read views rather
+    # than retaining IF NOT EXISTS definitions from the previous schema.
+    for view in (
+        "current_document_text_selections",
+        "current_cell_values",
+        "unmodified_cell_values",
+        "current_result_heads",
+        "generated_result_candidates",
+        "unmodified_cell_heads",
+        "effective_current_cells",
+        "dirty_cell_heads",
+        "canonical_cell_heads",
+        "cell_contributions",
+    ):
+        db.execute(f"DROP VIEW IF EXISTS {view}")
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_visible_sheet_name ON sheets(name) WHERE hidden=0"
     )
+    retire_unfinished_work(db)
+    install_attempt_handler_lineage(db)
+    db.execute("ALTER TABLE ops ADD COLUMN change_order INTEGER")
+    db.execute(
+        "ALTER TABLE ops ADD COLUMN publication_closed INTEGER NOT NULL DEFAULT 1 CHECK(publication_closed IN (0,1))"
+    )
+    db.execute(
+        "ALTER TABLE ops ADD COLUMN redo_eligible INTEGER NOT NULL DEFAULT 1 CHECK(redo_eligible IN (0,1))"
+    )
+    # CHECK constraints cannot be changed by ADD COLUMN. Rebuild also adds
+    # published while retaining the old saved values, indexes and triggers.
+    _rebuild_table(db, "results")
+    # The released schema had no combined execution groups. Keep those
+    # histories as singletons; never infer identity from purgeable params.
+    db.execute(
+        "ALTER TABLE runs ADD COLUMN execution_root_run_id INTEGER REFERENCES runs(id) ON DELETE RESTRICT"
+    )
+    from frisket.engine.store.execution_groups import EXECUTION_GROUP_SCHEMA_SQL
 
-    def digest() -> str | None:
-        row = db.execute(
-            "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
-        ).fetchone()
-        return None if row is None else str(row[0])
+    execute_ddl(db, EXECUTION_GROUP_SCHEMA_SQL)
+    _retain_output_descriptors(db)
+    # Replacement generations now publish progressively while active.
+    _rebuild_table(db, "run_output_generations")
+    _rebuild_table(db, "current_cells")
+    execute_ddl(db, COPIED_RESULTS_SCHEMA_SQL)
+    execute_ddl(db, CHANGE_SCHEMA_SQL)
+    execute_ddl(db, DESCRIPTOR_SCHEMA_SQL)
+    execute_ddl(db, STRUCTURAL_SCHEMA_SQL)
+    migrate_materialized_lineage(db)
+    migrate_alert_baselines(db)
+    migrate_unified_views(db)
+    execute_ddl(db, JUDGMENT_SCHEMA_SQL)
+    execute_ddl(db, KEYED_UPDATE_SCHEMA)
+    execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
+    execute_ddl(db, PURGE_SCHEMA_SQL)
+    _retain_source_observations(db)
+    # Reconciliation now owns the retained poll identities and baselines.
+    db.execute("DROP TABLE source_items")
 
-    if digest() != DOMAIN_FROM_DIGEST:
-        return
-    if SCHEMA_DIGEST != DOMAIN_TO_DIGEST:
+    install_current_baseline(db)
+    # Saved-but-unpublished checkpoints must not become visible.
+    db.execute(
+        "UPDATE results SET published=1 WHERE EXISTS ("
+        "SELECT 1 FROM cell_baseline baseline WHERE baseline.origin_kind='run_result' "
+        "AND baseline.origin_run_id=results.run_id AND baseline.row_id=results.row_id "
+        "AND baseline.column_id=results.column_id)"
+    )
+    archive_history(db)
+    db.execute("INSERT INTO meta(key,value) VALUES ('change_sequence','0')")
+    execute_ddl(db, CURRENT_CELL_VALUES_SQL)
+    execute_ddl(db, DOCUMENT_TEXT_SELECTION_VIEW_SQL)
+    for name in (
+        "trg_cell_result_heads_require_publishable_result",
+        "trg_cell_result_heads_update_publishable_result",
+        "trg_run_output_generations_immutable_declaration",
+        "trg_results_published_no_delete",
+    ):
+        db.execute(f"DROP TRIGGER IF EXISTS {name}")
+        trigger = re.search(
+            r"CREATE TRIGGER IF NOT EXISTS " + name + r"\b.*?END;", SCHEMA, re.S
+        )
+        if trigger is None:
+            raise RuntimeError(f"Missing new publication trigger {name}")
+        execute_ddl(db, trigger.group())
+    db.execute(
+        "UPDATE current_cells SET outcome='failed' WHERE origin_kind='run_result' "
+        "AND EXISTS (SELECT 1 FROM results r WHERE r.run_id=current_cells.origin_run_id "
+        "AND r.row_id=current_cells.row_id AND r.column_id=current_cells.column_id "
+        "AND r.publication_effect NOT IN ('publish_value','publish_null'))"
+    )
+    db.execute(
+        "INSERT INTO cell_authority_revisions(column_id,revision) "
+        "SELECT column_id,MAX(retrieval_revision) FROM current_cells GROUP BY column_id"
+    )
+    violation = db.execute("PRAGMA foreign_key_check").fetchone()
+    if violation is not None:
         raise BundleSchemaMismatch(
-            "Domain migration endpoint needs updating for this build"
+            f"Domain upgrade found a broken reference: {tuple(violation)}"
         )
-    if db.in_transaction:
-        raise RuntimeError("domain migration owns its transaction")
-    foreign_keys = int(db.execute("PRAGMA foreign_keys").fetchone()[0])
-    legacy_alter = int(db.execute("PRAGMA legacy_alter_table").fetchone()[0])
-    db.execute("PRAGMA foreign_keys=OFF")
-    db.execute("PRAGMA legacy_alter_table=ON")
-    register_current_cell_functions(db)
-    try:
-        db.execute("BEGIN IMMEDIATE")
-        if digest() != DOMAIN_FROM_DIGEST:
-            db.rollback()
-            return
-        migrate_identity_high_water(db)
-        migrate_blob_derivation_ownership(db)
-        adopt_legacy_document_text(db)
-        _version_source_cells(db)
-        capture_current_baseline(db)
-        # Baseline capture is complete. Replace dependent read views rather
-        # than retaining IF NOT EXISTS definitions from the previous schema.
-        for view in (
-            "current_document_text_selections",
-            "current_cell_values",
-            "unmodified_cell_values",
-            "current_result_heads",
-            "generated_result_candidates",
-            "unmodified_cell_heads",
-            "effective_current_cells",
-            "dirty_cell_heads",
-            "canonical_cell_heads",
-            "cell_contributions",
-        ):
-            db.execute(f"DROP VIEW IF EXISTS {view}")
-        db.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_visible_sheet_name ON sheets(name) WHERE hidden=0"
-        )
-        retire_unfinished_work(db)
-        install_attempt_handler_lineage(db)
-        db.execute("ALTER TABLE ops ADD COLUMN change_order INTEGER")
-        db.execute(
-            "ALTER TABLE ops ADD COLUMN publication_closed INTEGER NOT NULL DEFAULT 1 CHECK(publication_closed IN (0,1))"
-        )
-        db.execute(
-            "ALTER TABLE ops ADD COLUMN redo_eligible INTEGER NOT NULL DEFAULT 1 CHECK(redo_eligible IN (0,1))"
-        )
-        # CHECK constraints cannot be changed by ADD COLUMN. Rebuild also adds
-        # published while retaining the old saved values, indexes and triggers.
-        _rebuild_table(db, "results")
-        # The released schema had no combined execution groups. Keep those
-        # histories as singletons; never infer identity from purgeable params.
-        db.execute(
-            "ALTER TABLE runs ADD COLUMN execution_root_run_id INTEGER REFERENCES runs(id) ON DELETE RESTRICT"
-        )
-        from frisket.engine.store.execution_groups import EXECUTION_GROUP_SCHEMA_SQL
-
-        _execute_ddl(db, EXECUTION_GROUP_SCHEMA_SQL)
-        _retain_output_descriptors(db)
-        # Replacement generations now publish progressively while active.
-        _rebuild_table(db, "run_output_generations")
-        _rebuild_table(db, "current_cells")
-        _execute_ddl(db, COPIED_RESULTS_SCHEMA_SQL)
-        _execute_ddl(db, CHANGE_SCHEMA_SQL)
-        _execute_ddl(db, DESCRIPTOR_SCHEMA_SQL)
-        _execute_ddl(db, STRUCTURAL_SCHEMA_SQL)
-        migrate_materialized_lineage(db)
-        migrate_alert_baselines(db)
-        migrate_unified_views(db)
-        _execute_ddl(db, JUDGMENT_SCHEMA_SQL)
-        _execute_ddl(db, KEYED_UPDATE_SCHEMA)
-        _execute_ddl(db, CONSUMED_SOURCE_SCHEMA_SQL)
-        _execute_ddl(db, PURGE_SCHEMA_SQL)
-        _retain_source_observations(db)
-        # Reconciliation now owns the retained poll identities and baselines.
-        db.execute("DROP TABLE source_items")
-
-        install_current_baseline(db)
-        # Saved-but-unpublished checkpoints must not become visible.
-        db.execute(
-            "UPDATE results SET published=1 WHERE EXISTS ("
-            "SELECT 1 FROM cell_baseline baseline WHERE baseline.origin_kind='run_result' "
-            "AND baseline.origin_run_id=results.run_id AND baseline.row_id=results.row_id "
-            "AND baseline.column_id=results.column_id)"
-        )
-        archive_history(db)
-        db.execute("INSERT INTO meta(key,value) VALUES ('change_sequence','0')")
-        _execute_ddl(db, CURRENT_CELL_VALUES_SQL)
-        _execute_ddl(db, DOCUMENT_TEXT_SELECTION_VIEW_SQL)
-        for name in (
-            "trg_cell_result_heads_require_publishable_result",
-            "trg_cell_result_heads_update_publishable_result",
-            "trg_run_output_generations_immutable_declaration",
-            "trg_results_published_no_delete",
-        ):
-            db.execute(f"DROP TRIGGER IF EXISTS {name}")
-            trigger = re.search(
-                r"CREATE TRIGGER IF NOT EXISTS " + name + r"\b.*?END;", SCHEMA, re.S
-            )
-            if trigger is None:
-                raise RuntimeError(f"Missing new publication trigger {name}")
-            _execute_ddl(db, trigger.group())
-        db.execute(
-            "UPDATE current_cells SET outcome='failed' WHERE origin_kind='run_result' "
-            "AND EXISTS (SELECT 1 FROM results r WHERE r.run_id=current_cells.origin_run_id "
-            "AND r.row_id=current_cells.row_id AND r.column_id=current_cells.column_id "
-            "AND r.publication_effect NOT IN ('publish_value','publish_null'))"
-        )
-        db.execute(
-            "INSERT INTO cell_authority_revisions(column_id,revision) "
-            "SELECT column_id,MAX(retrieval_revision) FROM current_cells GROUP BY column_id"
-        )
-        violation = db.execute("PRAGMA foreign_key_check").fetchone()
-        if violation is not None:
-            raise BundleSchemaMismatch(
-                f"Domain upgrade found a broken reference: {tuple(violation)}"
-            )
-        db.execute(
-            "UPDATE meta SET value=? WHERE key=?",
-            (DOMAIN_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-        )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-    finally:
-        db.execute(f"PRAGMA legacy_alter_table={legacy_alter}")
-        db.execute(f"PRAGMA foreign_keys={foreign_keys}")

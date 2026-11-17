@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 import sqlite3
-from pathlib import Path
 from frisket.upgrades.project.retrieval_lifecycle_migration import (
     RETRIEVAL_LIFECYCLE_TO_DIGEST,
 )
-from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project._step import SchemaStep
 
 
 EXECUTION_METADATA_FROM_DIGEST = RETRIEVAL_LIFECYCLE_TO_DIGEST
@@ -93,61 +92,36 @@ END;
 """
 
 
-def migrate_execution_metadata(
-    db: sqlite3.Connection, *, bundle_path: str | Path
-) -> None:
+def _apply_execution_metadata(db: sqlite3.Connection) -> None:
     """Add nullable progress and empty warnings, preserving inputs and write fences."""
+    run_columns = {str(info[1]) for info in db.execute("PRAGMA table_info(runs)")}
+    if "work_progress" not in run_columns:
+        db.execute(
+            "ALTER TABLE runs ADD COLUMN work_progress TEXT CHECK ("
+            "work_progress IS NULL OR (json_valid(work_progress) "
+            "AND json_type(work_progress)='object'))"
+        )
+    columns = {str(info[1]) for info in db.execute("PRAGMA table_info(results)")}
+    if "warnings" not in columns:
+        db.execute(
+            "ALTER TABLE results ADD COLUMN warnings TEXT NOT NULL DEFAULT '[]' "
+            "CHECK (json_valid(warnings) AND json_type(warnings)='array')"
+        )
+    db.execute("DROP TRIGGER IF EXISTS trg_results_semantic_update_open_generation")
+    db.execute(_SEMANTIC_UPDATE_TRIGGER_SQL)
+    db.execute("DROP TRIGGER IF EXISTS trg_results_published_semantics_immutable")
+    db.execute(_PUBLISHED_IMMUTABILITY_TRIGGER_SQL)
 
-    del bundle_path
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != EXECUTION_METADATA_FROM_DIGEST:
-        return
 
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == EXECUTION_METADATA_FROM_DIGEST:
-            run_columns = {
-                str(info[1]) for info in db.execute("PRAGMA table_info(runs)")
-            }
-            if "work_progress" not in run_columns:
-                db.execute(
-                    "ALTER TABLE runs ADD COLUMN work_progress TEXT CHECK ("
-                    "work_progress IS NULL OR (json_valid(work_progress) "
-                    "AND json_type(work_progress)='object'))"
-                )
-            columns = {
-                str(info[1]) for info in db.execute("PRAGMA table_info(results)")
-            }
-            if "warnings" not in columns:
-                db.execute(
-                    "ALTER TABLE results ADD COLUMN warnings TEXT NOT NULL DEFAULT '[]' "
-                    "CHECK (json_valid(warnings) AND json_type(warnings)='array')"
-                )
-            db.execute(
-                "DROP TRIGGER IF EXISTS trg_results_semantic_update_open_generation"
-            )
-            db.execute(_SEMANTIC_UPDATE_TRIGGER_SQL)
-            db.execute(
-                "DROP TRIGGER IF EXISTS trg_results_published_semantics_immutable"
-            )
-            db.execute(_PUBLISHED_IMMUTABILITY_TRIGGER_SQL)
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (EXECUTION_METADATA_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
+EXECUTION_METADATA_STEP: SchemaStep = (
+    EXECUTION_METADATA_FROM_DIGEST,
+    EXECUTION_METADATA_TO_DIGEST,
+    _apply_execution_metadata,
+)
 
 
 __all__ = [
     "EXECUTION_METADATA_FROM_DIGEST",
     "EXECUTION_METADATA_TO_DIGEST",
-    "migrate_execution_metadata",
+    "EXECUTION_METADATA_STEP",
 ]

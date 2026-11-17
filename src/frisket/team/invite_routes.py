@@ -19,6 +19,7 @@ from frisket.contracts.http.project_collaboration import (
     ProjectInviteRevoke,
 )
 from frisket.server.route_errors import http_error_responses
+from frisket.team.http_helpers import invite_http_error, iso_z, set_session_cookie
 from frisket.team.invite_service import (
     InviteConflict,
     InviteForbidden,
@@ -31,13 +32,6 @@ RequireUser = Callable[[Request], dict[str, Any]]
 SendMail = Callable[[str, str], Awaitable[bool]]
 
 
-def _iso(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = value.isoformat() if hasattr(value, "isoformat") else str(value)
-    return text.replace("+00:00", "Z")
-
-
 def _response(invite: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": invite["id"],
@@ -45,26 +39,10 @@ def _response(invite: dict[str, Any]) -> dict[str, Any]:
         "email": invite["email"],
         "role": invite["role"],
         **{
-            key: _iso(invite.get(key))
+            key: iso_z(invite.get(key))
             for key in ("created_at", "expires_at", "accepted_at", "revoked_at")
         },
     }
-
-
-def _error(exc: Exception) -> HTTPException:
-    if isinstance(exc, InviteNotFound):
-        return HTTPException(404, str(exc))
-    if isinstance(exc, InviteForbidden):
-        return HTTPException(403, str(exc))
-    if isinstance(exc, InviteConflict):
-        return HTTPException(exc.status_code, str(exc))
-    return HTTPException(400, str(exc))
-
-
-def _set_cookie(response: Response, *, name: str, value: str, secure: bool) -> None:
-    response.set_cookie(
-        name, value, httponly=True, secure=secure, samesite="lax", max_age=30 * 86400
-    )
 
 
 def register_invite_routes(
@@ -92,7 +70,7 @@ def register_invite_routes(
                 actor_user_id=int(actor["id"]), slug=pid
             )
         except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _error(exc) from exc
+            raise invite_http_error(exc) from exc
         return {"invites": [_response(row) for row in rows]}
 
     @app.post(
@@ -113,7 +91,7 @@ def register_invite_routes(
                 role=body.role,
             )
         except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _error(exc) from exc
+            raise invite_http_error(exc) from exc
         await send_mail(
             invite_row["email"], f"{base_url}/auth/project-invites/{token}/accept"
         )
@@ -134,14 +112,14 @@ def register_invite_routes(
                 actor_user_id=int(actor["id"]), slug=pid, invite_id=invite_id
             )
         except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _error(exc) from exc
+            raise invite_http_error(exc) from exc
         return {"ok": True, "revoked": revoked}
 
     def accept(token: str, *, redirect: bool, password: str | None = None) -> Response:
         try:
             accepted = invites.accept_project_invite(token, password=password)
         except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _error(exc) from exc
+            raise invite_http_error(exc) from exc
         if accepted is None:
             raise HTTPException(404, "project invite not found")
         if redirect:
@@ -150,7 +128,7 @@ def register_invite_routes(
             response = JSONResponse(
                 BrowserAuthCompletePasswordResponse(ok=True).model_dump()
             )
-        _set_cookie(
+        set_session_cookie(
             response,
             name=session_cookie,
             value=str(accepted["session"]),

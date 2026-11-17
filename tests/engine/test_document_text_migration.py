@@ -8,10 +8,11 @@ import pytest
 from tests.engine.historical_schema import restore_pre_domain_schema
 
 from frisket.engine.store import Project
+from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.document_text_migration import (
     DOCUMENT_TEXT_FROM_DIGEST,
     DOCUMENT_TEXT_TO_DIGEST,
-    migrate_document_text,
+    DOCUMENT_TEXT_STEP,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.upgrades.project.chain import _IMPORT_SESSION_ROWS_FROM_DIGEST
@@ -117,7 +118,7 @@ def test_migration_rolls_back_schema_and_stamp_together(tmp_path: Path) -> None:
         )
         project.db.commit()
         with pytest.raises(sqlite3.IntegrityError, match="migration interrupted"):
-            migrate_document_text(project.db, bundle_path=project.db_path)
+            run_step(project.db, *DOCUMENT_TEXT_STEP)
         assert project.get_meta(SCHEMA_DIGEST_META_KEY) == DOCUMENT_TEXT_FROM_DIGEST
         assert "document_text_authority" not in {
             str(row[1])

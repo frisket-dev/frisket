@@ -7,9 +7,10 @@ import pytest
 from tests.engine.historical_schema import restore_pre_domain_schema
 
 from frisket.engine.store import Project
+from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.evaluation_migration import (
     EVALUATION_FROM_DIGEST,
-    migrate_evaluation,
+    EVALUATION_STEP,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 
@@ -47,7 +48,7 @@ def test_upgrade_preserves_cells_and_is_idempotent(tmp_path):
             ).fetchone()[0]
             == SCHEMA_DIGEST
         )
-        migrate_evaluation(project.db)
+        run_step(project.db, *EVALUATION_STEP)
         assert all(
             project.db.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
@@ -65,7 +66,7 @@ def test_failed_stamp_rolls_back_tables_and_preserves_old_stamp(tmp_path):
         )
         project.db.commit()
         with pytest.raises(Exception, match="stamp refused"):
-            migrate_evaluation(project.db)
+            run_step(project.db, *EVALUATION_STEP)
         assert (
             project.db.execute(
                 "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)

@@ -43,8 +43,8 @@ from .schedule import _parse_time, _schedule_interval
 from .project_opener import (
     project_bundle_paths,
     ProjectOpener,
-    require_opener_storage_org_id,
 )
+from .project_scan import bundle_opener, scan_projects
 from .worker import HandlerRegistry
 
 
@@ -367,68 +367,58 @@ def enqueue_due_scheduled_refreshes(
     root = Path(workspace_root)
     now = (now or datetime.now(UTC)).astimezone(UTC)
     enqueued: list[dict[str, int | str]] = []
-    for bundle in project_bundle_paths(root, require_slug=project_opener is not None):
-        project_id = bundle.stem
-        if project_opener is None:
-            project = Project(bundle)
-        else:
-            # A scan that injects an opener must key every open by the root's
-            # DECLARED storage org (never the directory name), and refuse the
-            # whole scan if that identity is missing — see
-            # frisket.jobs.project_opener.
-            project = project_opener(
-                ProjectStorageKey(
-                    storage_org_id=require_opener_storage_org_id(storage_org_id),
-                    project_slug=project_id,
+
+    def visit(project_id: str, project: Project) -> None:
+        for idx in find_scheduled_indexes(project):
+            due, interval = _schedule_due(idx, now=now)
+            if not due or interval is None:
+                continue
+            index_id = idx["id"]
+            dedupe_key = scheduled_refresh_dedupe_key(index_id, interval, now=now)
+            if _scheduled_attempt_already_seen(
+                queue,
+                project_id,
+                dedupe_key,
+                storage_org_id=storage_org_id,
+            ):
+                continue
+            trigger_ref = {
+                "trigger_kind": "schedule",
+                "schedule": maintenance_schedule(
+                    json.loads(idx["maintenance_policy_json"] or "{}")
                 ),
-                bundle,
+                "schedule_tick": dedupe_key.rsplit(":", 1)[-1],
+            }
+            job_id = _enqueue_refresh_action_run(
+                queue,
+                project=project,
+                project_id=project_id,
+                workspace_root=root,
+                storage_org_id=storage_org_id,
+                index_id=index_id,
+                sheet_id=int(idx["sheet_id"]),
+                trigger_ref=trigger_ref,
+                dedupe_key=dedupe_key,
+                mode="incremental",
+                max_attempts=max_attempts,
             )
-        try:
-            for idx in find_scheduled_indexes(project):
-                due, interval = _schedule_due(idx, now=now)
-                if not due or interval is None:
-                    continue
-                index_id = idx["id"]
-                dedupe_key = scheduled_refresh_dedupe_key(index_id, interval, now=now)
-                if _scheduled_attempt_already_seen(
-                    queue,
-                    project_id,
-                    dedupe_key,
-                    storage_org_id=storage_org_id,
-                ):
-                    continue
-                trigger_ref = {
-                    "trigger_kind": "schedule",
-                    "schedule": maintenance_schedule(
-                        json.loads(idx["maintenance_policy_json"] or "{}")
-                    ),
-                    "schedule_tick": dedupe_key.rsplit(":", 1)[-1],
+            if job_id is None:
+                continue
+            enqueued.append(
+                {
+                    "job_id": job_id,
+                    "project_id": project_id,
+                    "index_id": index_id,
+                    "dedupe_key": dedupe_key,
                 }
-                job_id = _enqueue_refresh_action_run(
-                    queue,
-                    project=project,
-                    project_id=project_id,
-                    workspace_root=root,
-                    storage_org_id=storage_org_id,
-                    index_id=index_id,
-                    sheet_id=int(idx["sheet_id"]),
-                    trigger_ref=trigger_ref,
-                    dedupe_key=dedupe_key,
-                    mode="incremental",
-                    max_attempts=max_attempts,
-                )
-                if job_id is None:
-                    continue
-                enqueued.append(
-                    {
-                        "job_id": job_id,
-                        "project_id": project_id,
-                        "index_id": index_id,
-                        "dedupe_key": dedupe_key,
-                    }
-                )
-        finally:
-            project.close()
+            )
+
+    scan_projects(
+        project_bundle_paths(root, require_slug=project_opener is not None),
+        bundle_opener(Project, project_opener, storage_org_id),
+        visit,
+        failure_event="embedding_project_schedule_failed",
+    )
     return enqueued
 
 

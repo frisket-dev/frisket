@@ -25,6 +25,8 @@ from .project_opener import (
     require_opener_storage_org_id,
 )
 
+from .project_scan import bundle_opener, scan_projects
+
 NOTIFICATION_DIGEST_KIND = "notification.digest"
 
 
@@ -42,65 +44,59 @@ def enqueue_due_notification_digests(
     project_opener: ProjectOpener | None = None,
 ) -> int:
     workspace = Path(workspace_root)
-    project_paths = project_bundle_paths(
-        workspace, project_id=project_id, require_slug=project_opener is not None
-    )
     enqueued = 0
-    for project_path in project_paths:
-        project = (
-            Project(project_path)
-            if project_opener is None
-            else project_opener(
-                ProjectStorageKey(
-                    storage_org_id=require_opener_storage_org_id(storage_org_id),
-                    project_slug=project_path.stem,
-                ),
-                project_path,
+
+    def visit(slug: str, project: Project) -> None:
+        nonlocal enqueued
+        for route in project.notification_routes(enabled_only=True):
+            if str(route["delivery_mode"]) != "digest":
+                continue
+            window = due_digest_window_for_route(route, now=now)
+            if window is None:
+                continue
+            if project.notification_digest_run_by_route_window(
+                route_id=int(route["id"]),
+                window_key=window.window_key,
+            ):
+                continue
+            dedupe_key = notification_digest_dedupe_key(
+                int(route["id"]),
+                window.window_key,
             )
-        )
-        try:
-            for route in project.notification_routes(enabled_only=True):
-                if str(route["delivery_mode"]) != "digest":
-                    continue
-                window = due_digest_window_for_route(route, now=now)
-                if window is None:
-                    continue
-                if project.notification_digest_run_by_route_window(
-                    route_id=int(route["id"]),
-                    window_key=window.window_key,
-                ):
-                    continue
-                dedupe_key = notification_digest_dedupe_key(
-                    int(route["id"]),
-                    window.window_key,
-                )
-                existing = queue.find_job_by_refs(
-                    NOTIFICATION_DIGEST_KIND,
-                    statuses=("queued", "running"),
-                    project_id=project_path.stem,
-                    storage_org_id=storage_org_id,
-                    dedupe_key=dedupe_key,
-                )
-                if existing is not None:
-                    continue
-                queue.enqueue(
-                    NOTIFICATION_DIGEST_KIND,
-                    {
-                        "workspace_root": str(workspace),
-                        "project_id": project_path.stem,
-                        **(
-                            {"storage_org_id": storage_org_id}
-                            if storage_org_id is not None
-                            else {}
-                        ),
-                        "route_id": int(route["id"]),
-                        "dedupe_key": dedupe_key,
-                        **_window_payload(window),
-                    },
-                )
-                enqueued += 1
-        finally:
-            project.close()
+            existing = queue.find_job_by_refs(
+                NOTIFICATION_DIGEST_KIND,
+                statuses=("queued", "running"),
+                project_id=slug,
+                storage_org_id=storage_org_id,
+                dedupe_key=dedupe_key,
+            )
+            if existing is not None:
+                continue
+            queue.enqueue(
+                NOTIFICATION_DIGEST_KIND,
+                {
+                    "workspace_root": str(workspace),
+                    "project_id": slug,
+                    **(
+                        {"storage_org_id": storage_org_id}
+                        if storage_org_id is not None
+                        else {}
+                    ),
+                    "route_id": int(route["id"]),
+                    "dedupe_key": dedupe_key,
+                    **_window_payload(window),
+                },
+            )
+            enqueued += 1
+
+    scan_projects(
+        project_bundle_paths(
+            workspace, project_id=project_id, require_slug=project_opener is not None
+        ),
+        bundle_opener(Project, project_opener, storage_org_id),
+        visit,
+        failure_event="notification_digest_project_schedule_failed",
+    )
     return enqueued
 
 

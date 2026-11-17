@@ -1,11 +1,10 @@
 """Add project-local extraction drafts without changing source or result data."""
 
 from __future__ import annotations
-import sqlite3
 from frisket.upgrades.project.scalar_storage_migration import (
     SCALAR_CURRENT_VALUES_TO_DIGEST,
 )
-from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project._step import SchemaStep, ddl_statements
 
 
 EXTRACTION_LAYOUTS_FROM_DIGEST = SCALAR_CURRENT_VALUES_TO_DIGEST
@@ -45,31 +44,8 @@ CREATE INDEX idx_extraction_layout_documents_layout
 """
 
 
-def migrate_extraction_layouts(db: sqlite3.Connection) -> None:
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != EXTRACTION_LAYOUTS_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == EXTRACTION_LAYOUTS_FROM_DIGEST:
-            statement = ""
-            for line in _EXTRACTION_LAYOUTS_MIGRATION_SQL.splitlines(keepends=True):
-                statement += line
-                if sqlite3.complete_statement(statement):
-                    db.execute(statement)
-                    statement = ""
-            if statement.strip():
-                raise RuntimeError("incomplete extraction layouts migration DDL")
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (EXTRACTION_LAYOUTS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
+EXTRACTION_LAYOUTS_STEP: SchemaStep = (
+    EXTRACTION_LAYOUTS_FROM_DIGEST,
+    EXTRACTION_LAYOUTS_TO_DIGEST,
+    ddl_statements(_EXTRACTION_LAYOUTS_MIGRATION_SQL),
+)

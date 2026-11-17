@@ -7,7 +7,7 @@ from types import TracebackType
 import sqlalchemy as sa
 
 from frisket.team.identity_store import IdentityStore
-from frisket.team.schema import audit_log
+from frisket.team.schema import record_audit
 
 
 class AuditStore:
@@ -17,10 +17,8 @@ class AuditStore:
     def append(
         self, *, user_id: int | None, org_id: int | None, action: str, detail: str = ""
     ) -> None:
-        self.cx.execute(
-            audit_log.insert().values(
-                user_id=user_id, org_id=org_id, action=action, detail=detail
-            )
+        record_audit(
+            self.cx, user_id=user_id, org_id=org_id, action=action, detail=detail
         )
 
 

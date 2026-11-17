@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from frisket.authoring import plugin_build as plugin_build_module
-from frisket.cli import plugin_cmd as plugin_cli
+from frisket.cli.plugin import plugin as plugin_cli
 from frisket.authoring.plugin_build import (
     _extract_module_exports,
     _resolve_esbuild,

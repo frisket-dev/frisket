@@ -4,7 +4,7 @@ import io
 
 import sqlalchemy as sa
 
-from frisket import cli
+from frisket.cli import owner
 from frisket.team.identity_service import IdentityAuthService
 from frisket.team.local_auth import claim_first_owner
 from frisket.team.schema import sessions
@@ -54,11 +54,11 @@ def test_owner_reset_reads_stdin_revokes_sessions_and_changes_password(
 
     monkeypatch.setenv("FRISKET_TEAM_DATABASE_URL", database_url)
     monkeypatch.setattr(
-        cli.sys,
+        owner.sys,
         "stdin",
         io.StringIO("the replacement password\nthe replacement password\n"),
     )
-    assert cli.owner_admin(["reset-password"]) == 0
+    assert owner.owner_admin(["reset-password"]) == 0
     assert "owner@example.test" in capsys.readouterr().out
     with engine.connect() as cx:
         assert (
@@ -79,11 +79,11 @@ def test_owner_reset_rejects_mismatch_without_password_in_output(
     engine.dispose()
     monkeypatch.setenv("FRISKET_TEAM_DATABASE_URL", database_url)
     monkeypatch.setattr(
-        cli.sys,
+        owner.sys,
         "stdin",
         io.StringIO("first secret password\nsecond secret password\n"),
     )
-    assert cli.owner_admin(["reset-password"]) == 1
+    assert owner.owner_admin(["reset-password"]) == 1
     output = capsys.readouterr().err
     assert "confirmation does not match" in output
     assert "first secret" not in output
@@ -101,8 +101,8 @@ def test_owner_reset_finds_standalone_database_from_data_dir(tmp_path, monkeypat
     monkeypatch.delenv("FRISKET_TEAM_DATABASE_URL", raising=False)
     monkeypatch.setenv("FRISKET_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(
-        cli.sys,
+        owner.sys,
         "stdin",
         io.StringIO("the standalone replacement\nthe standalone replacement\n"),
     )
-    assert cli.owner_admin(["reset-password"]) == 0
+    assert owner.owner_admin(["reset-password"]) == 0

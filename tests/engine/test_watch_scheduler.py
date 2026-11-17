@@ -240,7 +240,7 @@ def test_exit_records_deletion_and_restoration_is_a_new_entry(scene):
 
 
 def test_hosted_scheduler_uses_explicit_project_opener(scene):
-    from frisket.cli import _enqueue_due_watches
+    import frisket.cli as cli
 
     p, _, _, _, watch, queue, _ = scene
     opened = []
@@ -250,7 +250,8 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
         return Project(path)
 
     assert (
-        _enqueue_due_watches(queue, [(p.path.parent, 84)], project_opener=opener) == 1
+        cli._sweep(cli._WATCHES, queue, [(p.path.parent, 84)], project_opener=opener)
+        == 1
     )
     assert opened == [(84, "alerts", p.path)]
     assert (
@@ -264,31 +265,27 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
     )
 
 
-def test_shared_periodic_loop_runs_checks_and_digests(scene, monkeypatch):
+def test_shared_periodic_loop_runs_checks_and_digests():
     import frisket.cli as cli
     import threading
 
-    p, _, _, _, _, queue, _ = scene
-    calls = []
+    [scheduler] = [
+        s
+        for s in cli._SCHEDULERS
+        if s.interval_option == "schedule_notification_digests_interval"
+    ]
+    assert scheduler.sweeps == (cli._WATCHES, cli._NOTIFICATION_DIGESTS)
+    ticks = []
     stop = threading.Event()
-    opener = object()
 
-    def checks(_queue, roots, *, project_opener):
-        calls.append(("checks", roots, project_opener))
-
-    def digests(_queue, roots, *, project_opener):
-        calls.append(("digests", roots, project_opener))
+    def tick():
+        ticks.append(threading.current_thread().name)
         stop.set()
 
-    monkeypatch.setattr(cli, "_enqueue_due_watches", checks)
-    monkeypatch.setattr(cli, "_enqueue_due_notification_digests", digests)
-    roots = [(p.path.parent, 84)]
-    thread = cli._start_notification_digest_scheduler(
-        queue, roots, 0.01, stop, project_opener=opener
-    )
+    thread = cli._start_scheduler(scheduler.thread_name, tick, 0.01, stop)
     thread.join(timeout=5)
     assert not thread.is_alive()
-    assert calls == [("checks", roots, opener), ("digests", roots, opener)]
+    assert ticks == ["notification-digest-scheduler"]
 
 
 def test_failed_job_without_observation_waits_until_next_cadence(scene):

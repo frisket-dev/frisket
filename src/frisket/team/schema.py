@@ -326,6 +326,23 @@ audit_log = sa.Table(
     ),
 )
 
+
+def record_audit(
+    cx: sa.Connection,
+    *,
+    user_id: int | None,
+    org_id: int | None,
+    action: str,
+    detail: str | None = None,
+) -> None:
+    """Append one audit row on ``cx``; it commits or rolls back with the caller."""
+    cx.execute(
+        audit_log.insert().values(
+            user_id=user_id, org_id=org_id, action=action, detail=detail
+        )
+    )
+
+
 # Browser/client error reports and diagnostic issue bundles. These are
 # control-plane records, not project content: they must be readable by
 # operators even when a project bundle or worker is unhealthy.
