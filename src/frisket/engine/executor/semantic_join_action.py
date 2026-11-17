@@ -833,7 +833,6 @@ def typed_semantic_join_queue_spec(bound, *, initial_plan=None, semantic_state=N
     spec = _QueuedActionSpec(
         kind=bound.action.action_id,
         params_model=type(bound.params),
-        completed_spec=None,
         runner_spec_fn=lambda _params: dict(runner_spec),
         resolve_fn=resolve,
         precheck_fn=lambda *args, **kwargs: None,

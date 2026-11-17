@@ -37,7 +37,6 @@ from frisket.execution.attempt import (
 from frisket.engine.executor.action_inventory import (
     _ActionExecutionEnvelope,
     _QueuedActionSpec,
-    _QueuedPayloadCodec,
     _ReservedMaprunnerActionSpec,
     _apply_action_envelope_to_runner_spec,
 )
@@ -45,7 +44,6 @@ from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import (
     _failed_result,
     _new_id,
-    _params_hash,
     _params_hash_without_confirmed,
     _row_value,
 )
@@ -286,116 +284,6 @@ def _queued_action_lifecycle_adapter(
     spec: _QueuedActionSpec,
 ) -> _QueuedActionLifecycleAdapter:
     return _QueuedActionLifecycleAdapter(spec=spec)
-
-
-def _queued_action_spec_from_reserved(
-    spec: _ReservedMaprunnerActionSpec,
-    *,
-    payload_codecs: tuple[_QueuedPayloadCodec, ...],
-    reservation_kind: str | None = None,
-    queue_job_kind: str | None = None,
-    pre_run_guard: Callable[[Any, Mapping[str, Any], BaseModel], ActionError | None]
-    | None = None,
-    params_hash_fn: Callable[[ActionSpec], str] | None = None,
-    finalize_kwargs: Mapping[str, Any] | None = None,
-) -> _QueuedActionSpec:
-    return _QueuedActionSpec(
-        kind=spec.kind,
-        params_model=spec.params_model,
-        completed_spec=spec,
-        runner_spec_fn=spec.runner_spec_fn,
-        resolve_fn=spec.resolve_fn,
-        precheck_fn=spec.precheck_fn,
-        reservation_kind=reservation_kind
-        or spec.reservation_kind.replace(
-            "_idempotency_reservation",
-            "_queue_reservation",
-        ),
-        queue_job_kind=queue_job_kind
-        or spec.reservation_kind.replace(
-            "_idempotency_reservation",
-            "_queue_job",
-        ),
-        payload_codecs=payload_codecs,
-        finalize_action=_queued_action_finalizer_from_reserved(
-            spec,
-            finalize_kwargs=finalize_kwargs,
-        ),
-        pre_run_guard=pre_run_guard,
-        params_hash_fn=params_hash_fn or spec.params_hash_fn or _params_hash,
-        confirmed_fn=spec.confirmed_fn,
-        needs_confirmation_error_fn=spec.needs_confirmation_error_fn,
-        cost_gate_error_fn=spec.cost_gate_error_fn,
-        map_error_code=spec.map_error_code,
-    )
-
-
-def _queued_action_finalizer_from_reserved(
-    spec: _ReservedMaprunnerActionSpec,
-    *,
-    finalize_kwargs: Mapping[str, Any] | None = None,
-) -> Callable[..., ActionResult]:
-    extra_kwargs = dict(finalize_kwargs or {})
-
-    def finalize(
-        project: Any,
-        action: ActionSpec,
-        params: BaseModel,
-        **kwargs: Any,
-    ) -> ActionResult:
-        receipt_id = kwargs.get("receipt_id")
-        run_id = kwargs.get("run_id")
-        writer_attempt_id = kwargs.get("writer_attempt_id")
-        claim_token = kwargs.get("claim_token")
-        try:
-            result = spec.write_fn(
-                project,
-                action,
-                params,
-                **kwargs,
-                **extra_kwargs,
-            )
-        except StaleAttemptWriter:
-            raise
-        except Exception:
-            # Deferred finalizers own the paid-effect/checkpoint/receipt close
-            # transaction. If that transaction rolls back, keep the immutable
-            # writer tuple live for reconciliation instead of closing it in a
-            # second cleanup transaction.
-            if isinstance(writer_attempt_id, str) and writer_attempt_id:
-                raise
-            if isinstance(receipt_id, str):
-                OutputColumnClaimStore(project).release(
-                    claim_token=_output_claim_token(receipt_id), status="failed"
-                )
-            raise
-        if (
-            isinstance(run_id, int)
-            and isinstance(writer_attempt_id, str)
-            and writer_attempt_id
-        ):
-            attempt_row = project.db.execute(
-                "SELECT state FROM execution_attempts WHERE id=?",
-                (writer_attempt_id,),
-            ).fetchone()
-            if attempt_row is not None and attempt_row["state"] == "dispatching":
-                OutputColumnClaimStore(project).finish_current_writer(
-                    run_id=run_id,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    attempt_state="effected",
-                    claim_status=(
-                        "failed" if result.status == "failed" else "released"
-                    ),
-                )
-        if isinstance(receipt_id, str):
-            OutputColumnClaimStore(project).release(
-                claim_token=_output_claim_token(receipt_id),
-                status="released" if result.status != "failed" else "failed",
-            )
-        return result
-
-    return finalize
 
 
 def _terminalize_claimless_direct_failure(
@@ -889,23 +777,14 @@ def _queued_action_result_from_existing(
                 action=action,
                 params=params,
             )
-        if spec.completed_spec is None:
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="project_write_failed",
-                    message="queued action spec has no completed replay handler",
-                    action_kind=action.kind,
-                ),
-            )
-        return _reserved_maprunner_result_from_existing(spec.completed_spec)(
-            project,
-            existing,
-            params_hash=params_hash,
+        return _failed_result(
             project_id=project_id,
-            action=action,
-            params=spec.params_model.model_validate(action.params),
+            action_kind=action.kind,
+            error=ActionError(
+                code="project_write_failed",
+                message="queued action spec has no completed replay handler",
+                action_kind=action.kind,
+            ),
         )
 
     return result_from_existing
@@ -1688,13 +1567,12 @@ def _delete_reserved_action_receipt(
     receipt_id: str,
     *,
     action_kind: str,
-    log_missed_delete: bool = True,
 ) -> None:
     try:
         project.db.execute("BEGIN IMMEDIATE")
         receipts = ReceiptStore(project)
         deleted = receipts.delete_if_status(receipt_id, "running", commit=False)
-        if log_missed_delete and not deleted:
+        if not deleted:
             row = receipts.find_by_id(receipt_id)
             logger.debug(
                 "reservation_delete_missed",
@@ -2056,7 +1934,6 @@ def _reserved_maprunner_delete_fn(
             project,
             receipt_id,
             action_kind=spec.kind,
-            log_missed_delete=spec.log_missed_delete,
         )
 
     return delete

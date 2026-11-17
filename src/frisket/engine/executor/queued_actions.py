@@ -240,14 +240,6 @@ def _queued_v1_action_entry(
     finalize_action = item.finalize_action or spec.finalize_action
     if finalize_action is None:
         raise ValueError(f"queued action {spec.kind} must define a finalizer")
-    cost_gate_error_fn = spec.cost_gate_error_fn
-    map_error_code = spec.map_error_code
-    if spec.completed_spec is not None:
-        cost_gate_error_fn = (
-            cost_gate_error_fn or spec.completed_spec.cost_gate_error_fn
-        )
-        if map_error_code == "map_run_failed":
-            map_error_code = spec.completed_spec.map_error_code
     return QueuedV1ActionEntry(
         kind=spec.kind,
         params_model=spec.params_model,
@@ -260,8 +252,8 @@ def _queued_v1_action_entry(
         finalize_action=finalize_action,
         payload_codecs=spec.payload_codecs,
         pre_run_guard=spec.pre_run_guard,
-        cost_gate_error_fn=cost_gate_error_fn,
-        map_error_code=map_error_code,
+        cost_gate_error_fn=spec.cost_gate_error_fn,
+        map_error_code=spec.map_error_code,
         output_claim_error_field=spec.output_claim_error_field,
     )
 
@@ -552,15 +544,6 @@ def queued_v1_identity_error(
         ),
         action_kind=(raw_kind if isinstance(raw_kind, str) and raw_kind else None),
     )
-
-
-def queued_v1_program(
-    payload: Mapping[str, Any], *, project: Project | None = None
-) -> Recipe | None:
-    """Rebuild an explicit typed program from its canonical queued request."""
-
-    envelope = queued_v1_payload_envelope(payload, project=project)
-    return None if envelope is None else envelope.program
 
 
 def queued_v1_run_authorizes_action_lifecycle(

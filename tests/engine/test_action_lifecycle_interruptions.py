@@ -8,15 +8,10 @@ import pytest
 from pydantic import BaseModel
 
 from frisket.contracts.action import Receipt
-from frisket.engine.executor import ExecutorDeps, run_action_spec
+from frisket.engine.executor import run_action_spec
 from frisket.engine.executor import action_lifecycle as lifecycle
 from frisket.engine.executor.action_families import exports
-from frisket.engine.executor.action_inventory import ExecutorContext, _ActionCoreSpec
 from frisket.engine.store import Project
-from frisket.engine.store.materialization import (
-    MaterializedColumnSpec,
-    SingleParentMaterializedRow,
-)
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.execution_routes import (
     INSTANCE_PRINCIPAL_META_KEY,
@@ -26,7 +21,7 @@ from test_cluster_receipt_reader import seeded as seeded
 
 
 FAILURES = [KeyboardInterrupt, SystemExit, asyncio.CancelledError, RuntimeError]
-BOUNDARIES = ["reserve", "delete", "child_sheet", "perform", "atomic_map"]
+BOUNDARIES = ["perform", "atomic_map"]
 
 
 class Params(BaseModel):
@@ -57,29 +52,6 @@ def _action():
 
 def _invoke_begin_boundary(project, boundary, monkeypatch):
     action = _action()
-    spec = _ActionCoreSpec(
-        kind=action.kind,
-        params_model=Params,
-        reservation_kind="test_reservation",
-        child_sheet_resolve_fn=lambda *_: {},
-        child_sheet_target_name_fn=lambda _: "Child",
-        child_sheet_duplicate_error_fn=lambda *_: None,
-    )
-    if boundary == "reserve":
-        return lifecycle._child_sheet_model_reserve_fn(spec)(
-            project, action, params_hash="hash", project_id="p"
-        )
-    if boundary == "delete":
-        return lifecycle._child_sheet_model_delete_fn(spec)(project, "unused-receipt")
-    if boundary == "child_sheet":
-        return lifecycle._run_child_sheet_deterministic_body(
-            project,
-            action,
-            Params(),
-            spec=spec,
-            ctx=ExecutorContext(project_id="p", deps=ExecutorDeps()),
-            params_hash="hash",
-        )
     if boundary == "perform":
         return lifecycle._run_in_txn_idempotent_perform(
             project,
@@ -299,13 +271,7 @@ def test_failed_begin_preserves_callers_pending_transaction(
             _invoke_begin_boundary(project, boundary, monkeypatch)
     else:
         result = _invoke_begin_boundary(project, boundary, monkeypatch)
-        if boundary == "delete":
-            assert result is None
-        elif boundary == "perform":
-            assert result.status == "completed"
-        else:
-            assert result.status == "failed"
-            assert result.errors[0].code == "project_write_failed"
+        assert result.status == "completed"
     assert project.db.in_transaction
     assert _snapshot(project) == before
     project.db.commit()
@@ -466,110 +432,38 @@ def test_cleanup_failure_preserves_interruption_and_ordinary_error_policy(
 
 
 @pytest.mark.parametrize("failure", FAILURES)
-@pytest.mark.parametrize("boundary", ["reserve", "delete", "child_sheet", "perform"])
-def test_owned_transaction_after_write_failure_settles(
-    project, monkeypatch, boundary, failure
-):
+def test_owned_transaction_after_write_failure_settles(project, failure):
     action = _action()
-    spec = _ActionCoreSpec(
-        kind=action.kind, params_model=Params, reservation_kind="test_reservation"
-    )
     error = failure("interrupted after write")
     cleanup = []
+    resolved = object()
 
-    def interrupt(*args, **kwargs):
+    def perform(cur, **kwargs):
+        cur.execute("UPDATE sheets SET name='changed'")
         assert project.db.in_transaction
         raise error
 
-    if boundary == "reserve":
-        original = ReceiptStore.insert_running
+    def clean(value):
+        assert value is resolved
+        assert not project.db.in_transaction
+        cleanup.append(value)
 
-        def insert_then_interrupt(self, *args, **kwargs):
-            original(self, *args, **kwargs)
-            interrupt()
-
-        monkeypatch.setattr(ReceiptStore, "insert_running", insert_then_interrupt)
-
-        def invoke():
-            return lifecycle._child_sheet_model_reserve_fn(spec)(
-                project, action, params_hash="hash", project_id="p"
-            )
-    elif boundary == "delete":
-        reservation = lifecycle._child_sheet_model_reserve_fn(spec)(
-            project, action, params_hash="hash", project_id="p"
+    def invoke():
+        return lifecycle._run_in_txn_idempotent_perform(
+            project,
+            action,
+            project_id="p",
+            params_hash="hash",
+            perform_fn=perform,
+            cleanup_resolved_fn=clean,
+            resolved=resolved,
         )
-        original = ReceiptStore.delete_running
-
-        def delete_then_interrupt(self, *args, **kwargs):
-            assert original(self, *args, **kwargs)
-            interrupt()
-
-        monkeypatch.setattr(ReceiptStore, "delete_running", delete_then_interrupt)
-
-        def invoke():
-            return lifecycle._child_sheet_model_delete_fn(spec)(
-                project, reservation["receipt_id"]
-            )
-    elif boundary == "child_sheet":
-        source = project.db.execute("SELECT id, sheet_id FROM rows").fetchone()
-        spec = _ActionCoreSpec(
-            kind=action.kind,
-            params_model=Params,
-            child_sheet_resolve_fn=lambda *_: {
-                "parent_sheet_id": source["sheet_id"],
-                "columns": [MaterializedColumnSpec(name="value", type="text")],
-                "rows": [
-                    SingleParentMaterializedRow(
-                        parent_row_id=source["id"], values={"value": "child"}
-                    )
-                ],
-            },
-            child_sheet_target_name_fn=lambda _: "Child",
-            child_sheet_duplicate_error_fn=lambda *_: None,
-            child_sheet_op_spec_fn=lambda *_: {},
-            child_sheet_row_evidence_fn=interrupt,
-        )
-
-        def invoke():
-            return lifecycle._run_child_sheet_deterministic_body(
-                project,
-                action,
-                Params(),
-                spec=spec,
-                ctx=ExecutorContext(project_id="p", deps=ExecutorDeps()),
-                params_hash="hash",
-            )
-    else:
-        resolved = object()
-
-        def perform(cur, **kwargs):
-            cur.execute("UPDATE sheets SET name='changed'")
-            interrupt()
-
-        def clean(value):
-            assert value is resolved
-            assert not project.db.in_transaction
-            cleanup.append(value)
-
-        def invoke():
-            return lifecycle._run_in_txn_idempotent_perform(
-                project,
-                action,
-                project_id="p",
-                params_hash="hash",
-                perform_fn=perform,
-                cleanup_resolved_fn=clean,
-                resolved=resolved,
-            )
 
     before = _snapshot(project)
     if issubclass(failure, Exception):
         result = invoke()
-        if boundary == "delete":
-            assert result is None
-        else:
-            assert result.status == "failed"
-            assert result.errors[0].code == "project_write_failed"
+        assert result.status == "failed"
+        assert result.errors[0].code == "project_write_failed"
     else:
         with pytest.raises(failure) as caught:
             invoke()
@@ -578,7 +472,7 @@ def test_owned_transaction_after_write_failure_settles(
     assert _snapshot(project) == before
     project.db.commit()
     assert _snapshot(project) == before
-    assert len(cleanup) == (1 if boundary == "perform" else 0)
+    assert len(cleanup) == 1
 
 
 @pytest.mark.parametrize("failure", FAILURES)

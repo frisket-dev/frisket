@@ -3900,7 +3900,6 @@ def typed_queued_map_spec(
     spec = _QueuedActionSpec(
         kind=bound.action.action_id,
         params_model=bound.action.definition.run.params_model,
-        completed_spec=None,
         runner_spec_fn=lambda _params: unresolved.spec_dict(),
         resolve_fn=resolve,
         precheck_fn=lambda _project, _params, _runner_spec, **_kwargs: None,

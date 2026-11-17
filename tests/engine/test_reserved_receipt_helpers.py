@@ -404,14 +404,6 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
                         raise RuntimeError("map runner exploded")
                     return SimpleNamespace(run_id=42)
 
-            write_overrides = None
-            if fault == "finalization":
-
-                def explode_write(project: Project, *_args: Any, **_kwargs: Any) -> Any:
-                    saw_finalization(project)
-                    raise RuntimeError("receipt finalization exploded")
-
-                write_overrides = {action["action_id"]: explode_write}
             deps = ExecutorDeps(
                 consent_coverage=(
                     ConsentCoverage(instance_principal(env.project), Decimal("0"))
@@ -423,7 +415,6 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
                     router,
                     authority=open_attempt_authority(project),
                 ),
-                reserved_maprunner_write_overrides=write_overrides,
             )
             env.run_kwargs["deps"] = deps
 
@@ -439,7 +430,6 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
             [True]
             if fault
             in {
-                "finalization",
                 "failed_result_child_sheet_finalization",
                 "failed_result_maprunner_finalization",
             }
