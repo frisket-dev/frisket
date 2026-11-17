@@ -325,6 +325,7 @@ def test_scalar_only_existing_output_refuses_managed_adoption_without_blanking(
         "UPDATE columns SET current_run_id=? WHERE id=?",
         (legacy_run_id, output_id),
     )
+    project.db.commit()
     store.finish_run(legacy_run_id, "completed")
     before = project.get_values_with_refs(sheet_id, output_id, row_ids=row_ids)
 
@@ -1337,6 +1338,7 @@ def test_managed_producer_refuses_intervening_legacy_scalar_run(
         "UPDATE columns SET current_run_id=? WHERE id=?",
         (legacy_run_id, output_id),
     )
+    project.db.commit()
     run_store.finish_run(legacy_run_id, "completed")
 
     refused = run_typed_map_request(
