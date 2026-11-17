@@ -31,8 +31,8 @@ readiness separately from model availability.
 ## What is open to contribution
 
 Contributions are welcome across the project store, runner, actions,
-workbench, single-org identity and membership, admin and audit controls,
-OIDC/SSO, org BYOK, telemetry controls, and the UI those APIs serve. Import
+workbench, single-organization identity and membership, admin and audit controls,
+OIDC/SSO, organization BYOK, telemetry controls, and the UI those APIs serve. Import
 boundaries are enforced by `scripts/ci/check_import_boundaries.py` and its
 configuration in `scripts/ci/import_boundaries.json`.
 
@@ -142,7 +142,7 @@ grounding-only values do not enter the model prompt.
 
 PDF file cells may include a 1-based `page` selector while retaining the original
 PDF blob. Actions must process that page, include it in input identity checks,
-and report evidence using the original document's page numbers. Reuse
+and report citations using the original document's page numbers. Reuse
 `engine.pdf_page_source.materialize_pdf_page` when a reader needs a
 standalone PDF. Blob metadata and original-document viewing still describe the
 whole PDF. Prepared native/OCR text resolves through the ordinary value readers;
@@ -230,9 +230,9 @@ text/OCR actions have their own Undo steps. Splitting documents or creating
 page rows publishes through one protected import operation;
 its automatic text preparation belongs to that operation, so one Undo removes
 the split and its prepared text. Explicit preview OCR on existing originals and
-later user-run OCR remain separate actions. Paid OCR is quoted against admitted
-source pages and confirmed before dispatch; each queued page must still satisfy
-ordinary action admission and the approved allocation. A display label must
+later user-run OCR remain separate actions. Paid OCR is estimated against admitted
+source pages and consented to before dispatch; each queued page must still satisfy
+ordinary action admission and the consented allocation. A display label must
 never alter the action identity or its queued execution parameters.
 
 CSV, XLSX and paste build their existing typed Params and use
@@ -299,7 +299,7 @@ validated partial results; action/agent consumers require a complete matching
 source snapshot and otherwise return `search_index_not_ready`.
 
 Without a worker, library callers can explicitly run
-`frisket.search.drain_index(project)` before searching. Background watch evaluation
+`frisket.search.drain_index(project)` before searching. Background alert evaluation
 also completes its required index before evaluating, so indexing does not drop
 an automatic notification. Do not add ad-hoc invalidation calls to individual
 actions: use the current-cell writers and existing metadata mutations.
