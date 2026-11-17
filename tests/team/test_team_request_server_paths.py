@@ -309,3 +309,26 @@ def test_local_edition_reads_and_writes_operator_paths(tmp_path: Path) -> None:
         exported = _run(client, _write_requests(target)[0])
         assert exported["status"] == "completed", exported
     assert target.read_text().strip()
+
+
+@pytest.mark.parametrize(
+    "source_kind", [("localPath", "value"), ("local_file", "path")]
+)
+def test_team_project_owner_cannot_install_a_plugin_from_a_server_path(
+    tmp_path: Path, server_files, source_kind
+) -> None:
+    kind, field = source_kind
+    package = server_files["outside"] / "plugin"
+    package.mkdir()
+    (package / "plugin.json").write_text("{}")
+    app = _team_app(tmp_path / "workspace", roles=EDITOR_ROLES | {"owner"})
+    with TestClient(app) as client:
+        app.state.workspace.create("Proof", project_id=PROJECT)
+        response = client.post(
+            f"/api/projects/{PROJECT}/workbench/plugins/demo.plugin/install-local",
+            json={"source": {"kind": kind, field: str(package / "plugin.json")}},
+        )
+    assert response.status_code == 403, response.text
+    payload = response.json()
+    assert payload["installFailure"]["code"] == "plugin_install_server_path_unavailable"
+    assert payload["receiptId"] is None
