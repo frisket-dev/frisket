@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -107,6 +108,9 @@ def test_models_sidecar_selected_extras_match_the_checked_in_lock(
             str(requirements),
         ],
         cwd=root / "sidecar",
+        # uv reads bare exclude-newer-package dates in the local time zone;
+        # the checked-in lock records them as UTC midnight.
+        env={**os.environ, "TZ": "UTC"},
         check=False,
         capture_output=True,
         text=True,

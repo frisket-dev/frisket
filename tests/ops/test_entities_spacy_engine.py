@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from frisket.execution.dispatch_control import STANDALONE
-import importlib.util
 
 import pytest
 
@@ -66,12 +65,12 @@ def test_spacy_availability_never_imports_spacy_module():
         assert "spacy" not in sys.modules
 
 
-def test_spacy_unavailable_reports_install_hint_for_missing_library():
+def test_spacy_unavailable_reports_install_hint_for_missing_library(monkeypatch):
+    monkeypatch.setattr("frisket.runtime.spacy_install.runtime_present", lambda: False)
     available, error = spacy_available(model="en_core_web_sm")
-    if importlib.util.find_spec("spacy") is None:
-        assert available is False
-        assert "standard" in error
-        assert "engine picker" in error
+    assert available is False
+    assert "standard" in error
+    assert "engine picker" in error
 
 
 def test_spacy_availability_reports_managed_model_hash_mismatch(monkeypatch):

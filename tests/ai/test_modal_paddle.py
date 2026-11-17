@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -122,6 +123,9 @@ def test_paddle_worker_dependency_closure_excludes_torch(tmp_path: Path) -> None
             str(requirements),
         ],
         cwd=root / "sidecar",
+        # uv reads bare exclude-newer-package dates in the local time zone;
+        # the checked-in lock records them as UTC midnight.
+        env={**os.environ, "TZ": "UTC"},
         check=False,
         capture_output=True,
         text=True,

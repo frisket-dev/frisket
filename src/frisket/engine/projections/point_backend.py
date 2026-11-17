@@ -783,9 +783,8 @@ class GeoProjectionBackend:
         if row_ids is not None:
             if not row_ids:
                 return [], status
-            placeholders = ",".join("?" * len(row_ids))
-            where.append(f"s.row_id IN ({placeholders})")
-            params.extend(int(r) for r in row_ids)
+            where.append("s.row_id IN (SELECT value FROM json_each(?))")
+            params.append(json.dumps([int(r) for r in row_ids]))
         sql += "WHERE " + " AND ".join(where) + " ORDER BY s.shape_id"
 
         rows = self.db.execute(sql, params).fetchall()
@@ -830,9 +829,8 @@ class GeoProjectionBackend:
         if row_ids is not None:
             if not row_ids:
                 return [], status
-            placeholders = ",".join("?" * len(row_ids))
-            where.append(f"p.row_id IN ({placeholders})")
-            params.extend(int(r) for r in row_ids)
+            where.append("p.row_id IN (SELECT value FROM json_each(?))")
+            params.append(json.dumps([int(r) for r in row_ids]))
         sql += "WHERE " + " AND ".join(where) + " ORDER BY p.point_id"
 
         rows = self.db.execute(sql, params).fetchall()

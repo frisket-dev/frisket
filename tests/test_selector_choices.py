@@ -952,6 +952,12 @@ def test_busy_setup_embeds_actual_operation_without_removing_download_authority(
         "frisket.server.services.selector_choices.parakeet_setup_ready",
         lambda: False,
     )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present", lambda: True
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_artifacts_present", lambda: False
+    )
     client, workspace, project_id = _app(
         tmp_path / "busy",
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
@@ -1581,6 +1587,12 @@ def test_viewer_setup_read_projects_terminal_operation_without_store_writes(
     )
     monkeypatch.setattr(
         "frisket.server.services.selector_choices.parakeet_setup_ready", lambda: False
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present", lambda: True
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_artifacts_present", lambda: False
     )
     client, workspace, project_id = _app(tmp_path / failure)
     # Project creation leaves derived search maintenance queued. Open the project

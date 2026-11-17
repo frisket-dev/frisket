@@ -152,10 +152,14 @@ def _run_target(command, parent_pid, grace, stopped):
                 if pid == child.pid:
                     child.returncode = os.waitstatus_to_exitcode(status)
 
+    # Darwin's killpg fails with EPERM, not ESRCH, while every remaining
+    # member is a zombie (an unreaped leader, or an orphan launchd has not yet
+    # reaped). That group still exists and only reaping removes it; a live
+    # member this user may not signal also reports EPERM and cannot be killed.
     def send(signum):
         try:
             os.killpg(child.pid, signum)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
 
     def group_exists():
@@ -164,6 +168,8 @@ def _run_target(command, parent_pid, grace, stopped):
             return True
         except ProcessLookupError:
             return False
+        except PermissionError:
+            return True
 
     try:
         while child.poll() is None and not stopped() and os.getppid() == parent_pid:

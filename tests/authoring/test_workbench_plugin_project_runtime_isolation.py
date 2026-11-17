@@ -82,6 +82,25 @@ def _child_create_project(
         done.set()
 
 
+def _await_spawned_start_up(child: Any, started: Any) -> None:
+    """A spawn child signals only after a fresh interpreter has imported this
+    module's server graph, which takes tens of seconds on a loaded host. That
+    start-up is not under test: the bound is a failure bound only, and a child
+    that dies first fails at once."""
+
+    def booted() -> bool:
+        if started.is_set():
+            return True
+        if not child.is_alive():
+            raise AssertionError(
+                f"spawned child exited during start-up (exit {child.exitcode})"
+            )
+        return False
+
+    with controlled_time(timeout=120) as boot:
+        boot.wait_until(booted, message="spawned child never finished start-up")
+
+
 def _child_hold_plugin_lifecycle_lock(workspace_root: str, acquired: Any) -> None:
     from frisket.authoring.workbench.plugin_package_catalog import (
         plugin_package_lifecycle_lock,
@@ -918,7 +937,7 @@ def test_workspace_uninstall_serializes_child_process_creation_and_crash_recover
             args=(str(workspace.root), ready, start, attempting, done, result),
         )
         child.start()
-        assert ready.wait(15)
+        _await_spawned_start_up(child, ready)
 
         entered = threading.Event()
         release = threading.Event()
@@ -1015,7 +1034,7 @@ def test_workspace_uninstall_serializes_child_process_creation_and_crash_recover
             args=(str(workspace.root), acquired),
         )
         holder.start()
-        assert acquired.wait(10)
+        _await_spawned_start_up(holder, acquired)
         from filelock import FileLock, Timeout
 
         timed_probe = FileLock(

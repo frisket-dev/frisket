@@ -867,7 +867,7 @@ def _sbpl_string(value: str) -> str:
 
 
 def _darwin_netwall_argv(
-    argv: list[str], scratch: Path, policy: SandboxPolicy, env: dict[str, str]
+    argv: list[str], policy: SandboxPolicy, env: dict[str, str]
 ) -> list[str]:
     """Wrap a command in macOS seatbelt when network is not allowed.
 
@@ -875,13 +875,15 @@ def _darwin_netwall_argv(
     and denies only network operations. This keeps existing sandboxed media
     tools usable while turning `allow_network=False` into a real OS-level wall
     for the child and its subprocesses on local Darwin development hosts.
+
+    The profile travels inline (``-p``), never as a file: a caller's scratch
+    directory can be the op's output directory, and runs may share one.
     """
     if policy.allow_network or sys.platform != "darwin":
         return argv
     sandbox_exec = shutil.which("sandbox-exec")
     if not sandbox_exec:
         return argv
-    profile = scratch / ".frisket-netwall.sb"
     lines = [
         "(version 1)",
         "(allow default)",
@@ -901,8 +903,7 @@ def _darwin_netwall_argv(
         # A tcp:// (Windows loopback) endpoint has no macOS Seatbelt path
         # rule; that transport only exists off-Darwin, and its
         # authentication is the per-broker token, not this OS network wall.
-    profile.write_text("\n".join(lines) + "\n")
-    return [sandbox_exec, "-f", str(profile), *argv]
+    return [sandbox_exec, "-p", "\n".join(lines) + "\n", *argv]
 
 
 def _has_process_netwall(policy: SandboxPolicy) -> bool:
@@ -1391,9 +1392,7 @@ async def _spawn_owned_process(
     from frisket.runtime.launch import optional_runtime_root
 
     runtime_root = optional_runtime_root(argv)
-    limited = _limited_exec_argv(
-        _darwin_netwall_argv(argv, scratch, policy, env), policy
-    )
+    limited = _limited_exec_argv(_darwin_netwall_argv(argv, policy, env), policy)
     guard_control = None
     if os.name == "nt" and runtime_root is not None:
         child_argv, guard_control = windows_guard_command(

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -14,6 +16,32 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "release-public-artifacts.yml"
 FINAL_DIGEST = "sha256:" + "f" * 64
+HOMEBREW_FINDUTILS = (
+    "/opt/homebrew/opt/findutils/libexec/gnubin",
+    "/usr/local/opt/findutils/libexec/gnubin",
+)
+
+
+@functools.cache
+def _gnu_find_path() -> str:
+    """Return a PATH whose ``find`` supports GNU ``-printf`` (ubuntu runners do)."""
+    ambient = os.environ["PATH"]
+    for prefix in ("", *HOMEBREW_FINDUTILS):
+        if prefix and not Path(prefix).is_dir():
+            continue
+        path = f"{prefix}:{ambient}" if prefix else ambient
+        find = shutil.which("find", path=path)
+        if find is None:
+            continue
+        probe = subprocess.run(
+            [find, str(ROOT), "-maxdepth", "0", "-printf", "%f"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if probe.returncode == 0 and probe.stdout == ROOT.name:
+            return path
+    pytest.skip("image assembly uses GNU `find -printf`; no GNU findutils found")
 
 
 def _workflow() -> dict:
@@ -154,7 +182,7 @@ def _run_assembly(
     step = _steps("container")["Assemble and validate immutable image manifest"]
     env = {
         **os.environ,
-        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "PATH": f"{fake_bin}:{_gnu_find_path()}",
         "GH_TOKEN": "test-token",
         "COMMIT_SHA": "c" * 40,
         "VERSION": "1.2.3",

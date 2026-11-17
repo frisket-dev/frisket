@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -21,6 +23,31 @@ TAG = f"v{VERSION}"
 SOURCE_SHA = "a" * 40
 IMAGE_REPOSITORY = "ghcr.io/frisket-dev/frisket"
 IMAGE_DIGEST = "sha256:" + "b" * 64
+HOMEBREW_COREUTILS = (
+    "/opt/homebrew/opt/coreutils/libexec/gnubin",
+    "/usr/local/opt/coreutils/libexec/gnubin",
+)
+
+
+@functools.cache
+def _gnu_stat_path() -> str:
+    """Return a PATH whose ``stat`` accepts GNU ``-c`` (ubuntu runners do)."""
+    ambient = os.environ["PATH"]
+    expected = str(Path(__file__).stat().st_size)
+    for prefix in ("", *HOMEBREW_COREUTILS):
+        if prefix and not Path(prefix).is_dir():
+            continue
+        path = f"{prefix}:{ambient}" if prefix else ambient
+        stat = shutil.which("stat", path=path)
+        probe = subprocess.run(
+            [stat or "stat", "-c", "%s", __file__],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if stat and probe.stdout.strip() == expected:
+            return path
+    pytest.skip("publish steps use GNU `stat -c`; no GNU coreutils stat found")
 
 
 def _publish_steps() -> dict[str, dict]:
@@ -147,7 +174,7 @@ def _run_step(
     summary = runner_temp / "github-summary"
     env = {
         **os.environ,
-        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        "PATH": f"{fake_bin}:{_gnu_stat_path()}",
         "GH_RELEASE_STATE": str(state_path),
         "GH_ASSET_DIR": str(release_assets.parent / "remote-assets"),
         "TEST_REPOSITORY": REPOSITORY,
