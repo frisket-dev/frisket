@@ -207,72 +207,14 @@ class TestMapRunnerCanonicalWriter:
 
 
 # ---------------------------------------------------------------------------
-# the SDK declaration carries one canonical identity
+# typed actions carry one canonical identity
 # ---------------------------------------------------------------------------
 
 
 class TestSdkDeclContract:
-    def test_op_declaration_exposes_no_runner_identity_shadow(self) -> None:
-        from frisket.sdk.declaration import Op
-
-        fields = set(Op.__dataclass_fields__)
-        assert "runner_kind" not in fields
-        assert "recipe_name" not in fields
-
-    def _minimal_op_kwargs(self) -> dict[str, Any]:
-        from frisket.contracts.action import (
-            CostPolicy,
-            IdempotencyPolicy,
-            RetryPolicy,
-        )
-
-        return {
-            "kind": "map.example",
-            "title": "Example",
-            "description": "Example op",
-            "params_model": object,
-            "output_model": object,
-            "errors": (),
-            "side_effects": (),
-            "cost": CostPolicy(kind="none"),
-            "idempotency": IdempotencyPolicy(
-                supported=True,
-                scope="project",
-                key_field="idempotency_key",
-                behavior="n/a",
-            ),
-            "retry": RetryPolicy(supported=True, strategy="idempotency_replay"),
-            "examples": (),
-            "primary_fields": (),
-        }
-
-    def test_op_factory_rejects_the_retired_recipe_name_kwarg(self) -> None:
-        from frisket.sdk.declaration import op
-
-        with pytest.raises(TypeError):
-            op(recipe_name="extract", **self._minimal_op_kwargs())
-
-    def test_op_factory_carries_only_the_canonical_kind(self) -> None:
-        from frisket.sdk.declaration import op
-
-        decl = op(**self._minimal_op_kwargs())
-        assert decl.kind == "map.example"
-
-    def test_first_party_declarations_use_only_typed_canonical_kinds(self) -> None:
-        import importlib
-        import pkgutil
-
-        import frisket.sdk.ops as ops_pkg
+    def test_first_party_model_actions_use_typed_canonical_kinds(self) -> None:
         from frisket.actions.registry import ACTION_REGISTRY
-        from frisket.sdk.declaration import Op
 
-        decls: list[Op] = []
-        for mod_info in pkgutil.iter_modules(ops_pkg.__path__):
-            module = importlib.import_module(f"frisket.sdk.ops.{mod_info.name}")
-            decls.extend(
-                value for value in vars(module).values() if isinstance(value, Op)
-            )
-        assert decls == [], "first-party actions must not retain SDK controllers"
         for kind in (
             "map.ask",
             "map.summarize",

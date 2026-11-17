@@ -116,14 +116,11 @@ inherit page positions from the text they replace.
 
 Plugin actions are ordinary actions: an installed `action(...)` declares its
 source columns in its own typed Params, exactly as a built-in one does, and
-runs on the same native hosts. Internal `frisket.sdk` operations still use
-descriptors from `frisket.sdk.inputs` on their `Op`; choose the smallest
-shape that matches the source (`Column`, `Columns`, `Template`, `Fields`,
-`OneOf`, `FixedColumn`, or `Computed`).
+runs on the same native hosts.
 
 Do not hand-write `ui_hints.source_requirements`, add a parallel recipe method,
 or repeat source-selection policy in runtime code. The action catalog and
-runtime column resolution are projections of the descriptor. Operation code
+runtime column resolution are projections of the typed Params. Operation code
 still owns non-source domain rules, such as whether two output names collide.
 A plugin's `plugin.json` never restates an action's inputs, writes, or
 execution policy: the action definition is the sole authority, and the

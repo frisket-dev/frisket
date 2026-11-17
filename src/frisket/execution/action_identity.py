@@ -23,10 +23,12 @@ The construction (closed-world by projection)
 Identity is projected onto the keys the action's own DECLARATION says its
 runner spec can carry:
 
-1. The declaration (``frisket.sdk.declaration.Op``, looked up by the spec's
-   ``action_kind``) yields the allowlist — the structural keys the generic
-   ``runner_spec_fn`` always emits plus its declared ``passthrough`` params
-   plus this module's enumeration of the op's ``runner_spec_extra`` keys.
+1. The declaration (looked up by the spec's ``action_kind``; typed actions
+   take the Params projection in :func:`action_identity_hash` instead, and
+   no other declaration source is registered) yields the allowlist — the
+   structural keys the generic ``runner_spec_fn`` always emits plus its
+   declared ``passthrough`` params plus this module's enumeration of the
+   op's ``runner_spec_extra`` keys.
    Anything else in the dict — halt markers, progress metadata, the direct
    boundary's flow flags, any FUTURE writer — is structurally incapable of
    shifting identity. That is the whole point.
@@ -45,9 +47,8 @@ runner spec can carry:
    identity vocabulary.
 4. Absent stays ABSENT: defaults are deliberately NOT materialized. The
    ``supplied`` include policy exists precisely so a materialized default
-   never masquerades as an authored option (see ``Op.passthrough``'s own
-   comment and ``support_inability``, which treats supplied-vs-absent as
-   semantic). The canonical kind of (3) is the one deliberate exception: it
+   never masquerades as an authored option (see ``support_inability``,
+   which treats supplied-vs-absent as semantic). The canonical kind of (3) is the one deliberate exception: it
    is DERIVED, not defaulted, and is always present.
    Copy-invariance comes from the allowlist TOGETHER WITH
    :data:`IDENTITY_EXCLUDED_KEYS`, not from the allowlist alone: the three
@@ -82,8 +83,8 @@ from frisket.execution.promises import (
     decimal_string,
 )
 
-# The keys ``sdk/maprunner.py::build_runner_spec_fn`` emits for EVERY op
-# regardless of declaration: the canonical public kind, the sheet, and the input column list
+# The keys a generic runner spec carries for EVERY op regardless of
+# declaration: the canonical public kind, the sheet, and the input column list
 # (emitted under this literal key by the source descriptor).
 STRUCTURAL_RUNNER_SPEC_KEYS: tuple[str, ...] = (
     "action_kind",
@@ -91,8 +92,8 @@ STRUCTURAL_RUNNER_SPEC_KEYS: tuple[str, ...] = (
     "input_columns",
 )
 
-# ``Op.runner_spec_extra`` / ``runner_spec_resolve_extra`` are opaque
-# callables, so the declaration cannot state their emitted keys. This table
+# A declaration's ``runner_spec_extra`` / ``runner_spec_resolve_extra`` are
+# opaque callables, so the declaration cannot state their emitted keys. This table
 # is where an op declaring such a hook states them by hand — the seat one
 # would occupy: an op that grows a hook without an entry here fails loud
 # (:class:`UnknownActionIdentityKind`, see :func:`_allowlist_for_declaration`)

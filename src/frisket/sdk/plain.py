@@ -8,8 +8,7 @@ and returns the ActionResult; this builder wires those hand-written callables on
 `_ActionCoreSpec` (body_kind="plain") and runs the shared core. The core owns idempotency
 replay (via the reused deterministic `result_from_existing_fn`, with optional staleness
 validation) and the BEGIN IMMEDIATE/recheck/commit envelope; the op stays ignorant of the
-receipt schema and the txn boundary. Mirrors
-`build_deterministic_owned_write_child_sheet_run_fn` for the no-child-sheet case.
+receipt schema and the txn boundary.
 """
 
 from __future__ import annotations

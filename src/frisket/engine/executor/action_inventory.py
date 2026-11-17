@@ -557,9 +557,7 @@ def _group_label_from_output_intent(action: _ActionExecutionEnvelope) -> str | N
 
 def _overwrite_existing_from_output_intent(action: _ActionExecutionEnvelope) -> bool:
     """True when the caller declared an ``overwrite_existing`` output intent:
-    reuse a colliding AI output column instead of
-    rejecting. Only AI-generated columns are reused (build_precheck_fn); source
-    columns stay protected."""
+    the runner then reuses a colliding output column instead of rejecting."""
     for intent in getattr(action, "output_intent", ()):
         if isinstance(intent, dict) and intent.get("kind") == "overwrite_existing":
             return True

@@ -1,8 +1,4 @@
-"""Generic map-op replay + value-hash helpers (de-duplicated).
-
-These functions were COPY-PASTED verbatim into all 8 map-op family modules
-(~180 lines x8). The SDK owns them once; `build_replay_fn` parameterizes by the
-op's output-ref kind discriminator and action kind.
+"""Generic map-op replay + value-hash helpers.
 
 `output_columns_replay_error` is the ONE replay checker:
 its `scope` keyword derives from the op's `accepted_run_statuses` contract, not
