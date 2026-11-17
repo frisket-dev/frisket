@@ -27,7 +27,7 @@ from frisket.server.route_errors import http_error_responses
 from frisket.team.auth_challenges import AuthChallengeStore
 from frisket.team.security.secrets import key_hint
 from frisket.team.config import TeamConfig
-from frisket.team.schema import audit_log, oauth_connections
+from frisket.team.schema import oauth_connections, record_audit
 from frisket.team.secret_box import TeamSecretBox
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -116,10 +116,8 @@ class TeamOAuthConnectionService:
                     .where(oauth_connections.c.id == existing)
                     .values(**values)
                 )
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=user_id, org_id=org_id, action="oauth_connection_google"
-                )
+            record_audit(
+                cx, user_id=user_id, org_id=org_id, action="oauth_connection_google"
             )
             row = cx.execute(
                 sa.select(oauth_connections).where(
@@ -200,12 +198,11 @@ class TeamOAuthConnectionService:
             )
             revoked = result.rowcount > 0
             if revoked:
-                cx.execute(
-                    audit_log.insert().values(
-                        user_id=user_id,
-                        org_id=org_id,
-                        action=f"oauth_connection_revoked:{provider}",
-                    )
+                record_audit(
+                    cx,
+                    user_id=user_id,
+                    org_id=org_id,
+                    action=f"oauth_connection_revoked:{provider}",
                 )
         return revoked
 

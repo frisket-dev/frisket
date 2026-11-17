@@ -64,11 +64,11 @@ from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.diagnostics import sanitize_text
 from frisket.team.observability_routes import sanitize_client_tree
 from frisket.team.schema import (
-    audit_log,
     client_errors,
     memberships,
     org_env_vars,
     org_keys,
+    record_audit,
 )
 from frisket.team.secret_box import TeamSecretBox
 
@@ -101,18 +101,6 @@ def register_operational_routes(
     workspace: Any,
     admin_membership: AdminMembershipService,
 ) -> None:
-    def audit(
-        cx: sa.Connection, *, actor: dict[str, Any], action: str, target: str
-    ) -> None:
-        cx.execute(
-            audit_log.insert().values(
-                user_id=actor["id"],
-                org_id=org_id,
-                action=action,
-                detail=target,
-            )
-        )
-
     def require_owner(request: Request) -> dict[str, Any]:
         user = require_user(request)
         if membership_role(int(user["id"]), org_id) != "owner":
@@ -165,7 +153,13 @@ def register_operational_routes(
                 conflict_columns=("org_id", "provider"),
                 update_values=values,
             )
-            audit(cx, actor=actor, action="org_key_set", target=provider)
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="org_key_set",
+                detail=provider,
+            )
         return {"provider": provider, "hint": key_hint(value)}
 
     @app.get(
@@ -200,7 +194,13 @@ def register_operational_routes(
                 )
             )
             if result.rowcount:
-                audit(cx, actor=actor, action="org_key_deleted", target=provider)
+                record_audit(
+                    cx,
+                    user_id=actor["id"],
+                    org_id=org_id,
+                    action="org_key_deleted",
+                    detail=provider,
+                )
         return {"deleted": bool(result.rowcount)}
 
     @app.post(
@@ -232,8 +232,12 @@ def register_operational_routes(
         if validate_provider_key is None:
             raise HTTPException(501, "provider validation is not configured")
         with engine.begin() as cx:
-            audit(
-                cx, actor=actor, action="org_key_validation_requested", target=provider
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="org_key_validation_requested",
+                detail=provider,
             )
         try:
             ok = bool(await validate_provider_key(provider, key))
@@ -287,7 +291,13 @@ def register_operational_routes(
                 conflict_columns=("org_id", "name"),
                 update_values=values,
             )
-            audit(cx, actor=actor, action="org_env_set", target=name)
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="org_env_set",
+                detail=name,
+            )
         return {"name": name, "hint": key_hint(value)}
 
     @app.get(
@@ -331,7 +341,13 @@ def register_operational_routes(
                 )
             )
             if result.rowcount:
-                audit(cx, actor=actor, action="org_env_deleted", target=canonical)
+                record_audit(
+                    cx,
+                    user_id=actor["id"],
+                    org_id=org_id,
+                    action="org_env_deleted",
+                    detail=canonical,
+                )
         return {"deleted": bool(result.rowcount)}
 
     # ---------- team local-model catalog + provisioning ----------
@@ -380,7 +396,13 @@ def register_operational_routes(
         ) as cx:
             require_owner_in_transaction(cx, actor)
             target = f"{canonical}@{endpoint_origin}" if endpoint_origin else canonical
-            audit(cx, actor=actor, action=audit_action, target=target)
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action=audit_action,
+                detail=target,
+            )
 
         try:
             row, created = schedule_model_pull(
@@ -678,11 +700,12 @@ def register_operational_routes(
         with locked_transaction(
             engine, lock_scope=("org-local-model-pull", org_id)
         ) as cx:
-            audit(
+            record_audit(
                 cx,
-                actor=actor,
+                user_id=actor["id"],
+                org_id=org_id,
                 action="model_pull_cancelled",
-                target=f"{pull_id}:{row.model_ref}",
+                detail=f"{pull_id}:{row.model_ref}",
             )
         row = model_pull_store.get(queue_engine, pull_id)
         return model_pull_store.to_dto(row, allow_remove=False)

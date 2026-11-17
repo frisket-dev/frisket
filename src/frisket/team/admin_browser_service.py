@@ -10,11 +10,11 @@ import sqlalchemy as sa
 from frisket.team.db import locked_transaction
 from frisket.team.schema import (
     api_tokens,
-    audit_log,
     memberships,
     orgs,
     pending_invites,
     project_roles,
+    record_audit,
     sessions,
     users,
 )
@@ -57,18 +57,6 @@ class AdminMembershipService:
     def require_org(self, requested_org_id: int) -> None:
         if requested_org_id != self.org_id:
             raise AdminMembershipNotFound("organization not found")
-
-    def _audit(
-        self, cx: sa.Connection, *, actor: dict[str, Any], action: str, target: str
-    ) -> None:
-        cx.execute(
-            audit_log.insert().values(
-                user_id=actor["id"],
-                org_id=self.org_id,
-                action=action,
-                detail=target,
-            )
-        )
 
     def _require_owner_in_transaction(
         self, cx: sa.Connection, actor: dict[str, Any]
@@ -200,11 +188,12 @@ class AdminMembershipService:
                 )
                 .values(role=role)
             )
-            self._audit(
+            record_audit(
                 cx,
-                actor=actor,
+                user_id=actor["id"],
+                org_id=self.org_id,
                 action="org_member_role_set",
-                target=f"{user_id}:{role}",
+                detail=f"{user_id}:{role}",
             )
         return {
             "user_id": user_id,
@@ -240,11 +229,12 @@ class AdminMembershipService:
                 )
                 if revoked.rowcount:
                     invite_revoked = True
-                    self._audit(
+                    record_audit(
                         cx,
-                        actor=actor,
+                        user_id=actor["id"],
+                        org_id=self.org_id,
                         action="org_invite_revoked",
-                        target=email,
+                        detail=email,
                     )
             else:
                 try:
@@ -305,11 +295,12 @@ class AdminMembershipService:
                 )
             )
             cx.execute(sessions.delete().where(sessions.c.user_id == user_id))
-            self._audit(
+            record_audit(
                 cx,
-                actor=actor,
+                user_id=actor["id"],
+                org_id=self.org_id,
                 action="org_member_removed",
-                target=str(user_id),
+                detail=str(user_id),
             )
         return {
             "user_id": int(user_id),

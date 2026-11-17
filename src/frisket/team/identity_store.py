@@ -29,13 +29,13 @@ import sqlalchemy as sa
 
 from frisket.team.auth_challenges import AuthChallengeStore
 from frisket.team.schema import (
-    audit_log,
     memberships,
     oidc_identities,
     orgs,
     pending_invites,
     project_roles,
     projects,
+    record_audit,
     sessions,
     users,
 )
@@ -181,13 +181,12 @@ class IdentityStore:
                 .where(users.c.id == user_id)
                 .values(default_org_id=org_id)
             )
-            self.cx.execute(
-                audit_log.insert().values(
-                    user_id=user_id,
-                    org_id=org_id,
-                    action="joined_via_invite",
-                    detail=clean_email,
-                )
+            record_audit(
+                self.cx,
+                user_id=user_id,
+                org_id=org_id,
+                action="joined_via_invite",
+                detail=clean_email,
             )
             row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
             return self.user_payload(row, new=new, org_id=org_id)
@@ -215,13 +214,12 @@ class IdentityStore:
                     .where(users.c.id == user_id)
                     .values(default_org_id=org_id)
                 )
-                self.cx.execute(
-                    audit_log.insert().values(
-                        user_id=user_id,
-                        org_id=org_id,
-                        action="signup",
-                        detail=clean_email,
-                    )
+                record_audit(
+                    self.cx,
+                    user_id=user_id,
+                    org_id=org_id,
+                    action="signup",
+                    detail=clean_email,
                 )
             row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
             return self.user_payload(row, new=True, org_id=org_id)

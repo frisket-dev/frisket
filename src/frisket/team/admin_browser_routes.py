@@ -54,6 +54,7 @@ from frisket.team.schema import (
     orgs,
     pending_invites,
     projects,
+    record_audit,
     users,
 )
 
@@ -465,13 +466,12 @@ def register_admin_browser_routes(
             return JSONResponse(body.model_dump(mode="json"), status_code=404)
         if run_queue.cancel(job_id):
             with engine.begin() as cx:
-                cx.execute(
-                    audit_log.insert().values(
-                        user_id=actor["id"],
-                        org_id=org_id,
-                        action="admin_job_cancel_requested",
-                        detail=str(job_id),
-                    )
+                record_audit(
+                    cx,
+                    user_id=actor["id"],
+                    org_id=org_id,
+                    action="admin_job_cancel_requested",
+                    detail=str(job_id),
                 )
             return AdminBrowserCancelV1(
                 ok=True,

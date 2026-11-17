@@ -99,6 +99,7 @@ from frisket.team.schema import (
     project_invites,
     project_roles,
     projects,
+    record_audit,
     users,
 )
 from frisket.team.uow import TeamUnitOfWork
@@ -651,13 +652,12 @@ def _complete_project_intent(
             )
         ).scalar_one_or_none()
         if audited is None:
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=intent.creator_user_id,
-                    org_id=intent.org_id,
-                    action="project_created",
-                    detail=audit_detail,
-                )
+            record_audit(
+                cx,
+                user_id=intent.creator_user_id,
+                org_id=intent.org_id,
+                action="project_created",
+                detail=audit_detail,
             )
         cx.execute(
             project_creation_intents.delete().where(
@@ -1518,13 +1518,12 @@ def create_team_app(
             updated = core.state.workspace.get(pid).set_project_sensitivity(
                 body.sensitive
             )
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=actor["id"],
-                    org_id=org_id,
-                    action="project_sensitivity_updated",
-                    detail=f"{pid}:{str(body.sensitive).lower()}",
-                )
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="project_sensitivity_updated",
+                detail=f"{pid}:{str(body.sensitive).lower()}",
             )
         return updated
 
@@ -1557,13 +1556,12 @@ def create_team_app(
             _sync_project_network_policy(
                 cx, core.state.workspace, org_id=org_id, slug=pid
             )
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=actor["id"],
-                    org_id=org_id,
-                    action="project_network_updated",
-                    detail=f"{pid}:{body.mode}",
-                )
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="project_network_updated",
+                detail=f"{pid}:{body.mode}",
             )
         project = core.state.workspace.get(pid)
         return ProjectNetworkResponse.model_validate(
@@ -1610,13 +1608,12 @@ def create_team_app(
                     projects.c.org_id == org_id, projects.c.slug == pid
                 )
             )
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=actor["id"],
-                    org_id=org_id,
-                    action="project_deleted",
-                    detail=pid,
-                )
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="project_deleted",
+                detail=pid,
             )
         return result
 
@@ -1657,13 +1654,12 @@ def create_team_app(
                 _sync_project_network_policy(
                     cx, core.state.workspace, org_id=org_id, slug=slug
                 )
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=actor["id"],
-                    org_id=org_id,
-                    action="org_network_default_updated",
-                    detail=str(body.network_default),
-                )
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="org_network_default_updated",
+                detail=str(body.network_default),
             )
         return {
             "network_default": body.network_default,
@@ -1788,13 +1784,12 @@ def create_team_app(
                 conflict_columns=("org_id", "slug", "user_id"),
                 update_values={"role": body.role},
             )
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=actor["id"],
-                    org_id=org_id,
-                    action="project_member_set",
-                    detail=f"{pid}:{body.email.lower().strip()}:{body.role}",
-                )
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="project_member_set",
+                detail=f"{pid}:{body.email.lower().strip()}:{body.role}",
             )
         return {"ok": True, "email": body.email, "role": body.role}
 
@@ -1870,13 +1865,12 @@ def create_team_app(
                 )
             )
             if result.rowcount:
-                cx.execute(
-                    audit_log.insert().values(
-                        user_id=actor["id"],
-                        org_id=org_id,
-                        action="project_member_removed",
-                        detail=f"{pid}:{email.lower().strip()}",
-                    )
+                record_audit(
+                    cx,
+                    user_id=actor["id"],
+                    org_id=org_id,
+                    action="project_member_removed",
+                    detail=f"{pid}:{email.lower().strip()}",
                 )
         return {"ok": True, "removed": bool(result.rowcount)}
 
@@ -1903,13 +1897,12 @@ def create_team_app(
                     prefix=token_prefix,
                 )
             ).inserted_primary_key[0]
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=user["id"],
-                    org_id=org_id,
-                    action="pat_created",
-                    detail=str(token_id),
-                )
+            record_audit(
+                cx,
+                user_id=user["id"],
+                org_id=org_id,
+                action="pat_created",
+                detail=str(token_id),
             )
         return ApiTokenCreateResponse.model_validate(
             {
@@ -1987,13 +1980,12 @@ def create_team_app(
                 .values(revoked_at=datetime.now(UTC))
             )
             if result.rowcount:
-                cx.execute(
-                    audit_log.insert().values(
-                        user_id=user["id"],
-                        org_id=org_id,
-                        action="pat_revoked",
-                        detail=str(token_id),
-                    )
+                record_audit(
+                    cx,
+                    user_id=user["id"],
+                    org_id=org_id,
+                    action="pat_revoked",
+                    detail=str(token_id),
                 )
         revoked = bool(result.rowcount)
         return ApiTokenRevokeResponse.model_validate(

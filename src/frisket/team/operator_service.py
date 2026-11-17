@@ -31,8 +31,8 @@ import sqlalchemy as sa
 from frisket.team.db import locked_transaction
 from frisket.team.schema import (
     OPERATOR_TOKEN_PREFIX,
-    audit_log,
     operator_tokens,
+    record_audit,
     users,
 )
 
@@ -93,13 +93,12 @@ def _mint_in_transaction(
             )
         ).inserted_primary_key[0]
     )
-    cx.execute(
-        audit_log.insert().values(
-            user_id=actor_id,
-            org_id=org_id,
-            action="operator_token_minted",
-            detail=f"{token_id}:{(label or '').strip()}",
-        )
+    record_audit(
+        cx,
+        user_id=actor_id,
+        org_id=org_id,
+        action="operator_token_minted",
+        detail=f"{token_id}:{(label or '').strip()}",
     )
     return raw, token_id
 
@@ -192,13 +191,12 @@ class OperatorTokenService:
                 .values(revoked_at=datetime.now(UTC))
             )
             actor_id = _ensure_operator_actor(cx)
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=actor_id,
-                    org_id=self._org_id,
-                    action="operator_token_rotated",
-                    detail=f"{token_id}->{new_id}",
-                )
+            record_audit(
+                cx,
+                user_id=actor_id,
+                org_id=self._org_id,
+                action="operator_token_rotated",
+                detail=f"{token_id}->{new_id}",
             )
         return raw, row.label
 

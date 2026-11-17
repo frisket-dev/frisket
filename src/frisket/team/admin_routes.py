@@ -36,11 +36,11 @@ from frisket.team.local_auth import SetupError, create_password_reset
 from frisket.team.operator_service import OperatorTokenError, OperatorTokenService
 from frisket.team.readiness import runtime_identity
 from frisket.team.schema import (
-    audit_log,
     memberships,
     org_keys,
     orgs,
     pending_invites,
+    record_audit,
     users,
 )
 from frisket.team.security.secrets import key_hint
@@ -101,18 +101,6 @@ def register_admin_api_routes(
         if actor.get("auth") != "operator":
             raise HTTPException(403, "operator token required")
         return actor
-
-    def audit(
-        cx: sa.Connection, *, actor: dict[str, Any], action: str, target: str
-    ) -> None:
-        cx.execute(
-            audit_log.insert().values(
-                user_id=actor["id"],
-                org_id=org_id,
-                action=action,
-                detail=target,
-            )
-        )
 
     def require_owner_in_transaction(cx: sa.Connection, actor: dict[str, Any]) -> None:
         if actor.get("auth") == "operator":
@@ -214,11 +202,12 @@ def register_admin_api_routes(
                     )
                     .values(role=clean_role)
                 )
-                audit(
+                record_audit(
                     cx,
-                    actor=actor,
+                    user_id=actor["id"],
+                    org_id=org_id,
                     action="org_member_role_set",
-                    target=f"{member.id}:{clean_role}",
+                    detail=f"{member.id}:{clean_role}",
                 )
                 return {"email": clean_email, "role": clean_role, "status": "active"}
             invited = cx.execute(
@@ -231,11 +220,12 @@ def register_admin_api_routes(
             )
             if not invited.rowcount:
                 raise HTTPException(404, "no member or pending invite for that email")
-            audit(
+            record_audit(
                 cx,
-                actor=actor,
+                user_id=actor["id"],
+                org_id=org_id,
                 action="org_invite_set",
-                target=f"{clean_email}:{clean_role}",
+                detail=f"{clean_email}:{clean_role}",
             )
             return {"email": clean_email, "role": clean_role, "status": "invited"}
 
@@ -302,7 +292,13 @@ def register_admin_api_routes(
                 conflict_columns=("org_id", "provider"),
                 update_values=values,
             )
-            audit(cx, actor=actor, action="org_key_set", target=clean_provider)
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="org_key_set",
+                detail=clean_provider,
+            )
         return {"provider": clean_provider, "hint": key_hint(value)}
 
     def _media_proxy_payload() -> dict[str, Any]:
@@ -330,7 +326,13 @@ def register_admin_api_routes(
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         with locked_transaction(engine, lock_scope=("media-proxy", org_id)) as cx:
-            audit(cx, actor=actor, action="media_proxy_set", target=validated.url)
+            record_audit(
+                cx,
+                user_id=actor["id"],
+                org_id=org_id,
+                action="media_proxy_set",
+                detail=validated.url,
+            )
         return {**_media_proxy_payload(), "warnings": list(validated.warnings)}
 
     @app.delete("/api/admin/media-proxy")
@@ -342,7 +344,13 @@ def register_admin_api_routes(
         media_proxy_config.write_media_proxy(data_dir, None)
         if had_admin_value:
             with locked_transaction(engine, lock_scope=("media-proxy", org_id)) as cx:
-                audit(cx, actor=actor, action="media_proxy_cleared", target="")
+                record_audit(
+                    cx,
+                    user_id=actor["id"],
+                    org_id=org_id,
+                    action="media_proxy_cleared",
+                    detail="",
+                )
         return {**_media_proxy_payload(), "cleared": had_admin_value}
 
     @app.post("/api/admin/media-proxy/check")
@@ -370,7 +378,13 @@ def register_admin_api_routes(
                 )
             )
             if result.rowcount:
-                audit(cx, actor=actor, action="org_key_deleted", target=clean_provider)
+                record_audit(
+                    cx,
+                    user_id=actor["id"],
+                    org_id=org_id,
+                    action="org_key_deleted",
+                    detail=clean_provider,
+                )
         return {"deleted": bool(result.rowcount)}
 
 
