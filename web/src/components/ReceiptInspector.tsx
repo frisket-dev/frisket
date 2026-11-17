@@ -46,7 +46,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
     return [
       countLabel(receipt.inputs.length, 'input'),
       countLabel(receipt.outputs.length, 'output'),
-      countLabel(receipt.evidence.length, 'evidence ref'),
+      countLabel(receipt.evidence.length, 'supporting record'),
       countLabel(receipt.providerUse.length, 'provider summary'),
       countLabel(receipt.errors.length, 'error'),
     ];
@@ -146,7 +146,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
           )}
 
           <section>
-            <h4 className="receipt-section-title">Evidence</h4>
+            <h4 className="receipt-section-title">Supporting records</h4>
             <ul className="receipt-ref-list" data-testid="receipt-evidence">
               {receipt.evidence.length === 0 ? (
                 <li className="muted">none</li>
