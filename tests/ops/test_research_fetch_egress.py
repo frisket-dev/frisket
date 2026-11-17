@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 
 import httpx
 import pytest
@@ -130,6 +131,25 @@ async def test_normal_page_is_fetched_and_stripped(rebinding_dns):
 
     # script/style dropped, tags stripped, whitespace collapsed
     assert text == "badger census 2026"
+
+
+@pytest.mark.asyncio
+async def test_hostile_markup_is_stripped_in_linear_time(rebinding_dns):
+    hostile = (
+        b"<p>kept</p><script>dropped()</script >"
+        + b"<script" * 30_000
+        + b"<style" * 30_000
+        + b"<" * 200_000
+    )
+    transport = _ResolvingTransport({PUBLIC_IP: hostile})
+
+    started = time.perf_counter()
+    text = await _fetch("https://wiki.example/page", transport)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 2.0
+    assert text.startswith("kept ")
+    assert "dropped" not in text
 
 
 @pytest.mark.asyncio

@@ -49,6 +49,41 @@ class ResearchSearchObservation:
     response: SearchResponse
 
 
+# The fetched page is attacker-chosen and up to FETCH_MAX_BYTES, so every pass
+# below is linear: a block's closer is searched once per opener that is kept,
+# a kind whose closer is absent is never searched again, and a tag never spans
+# another "<".
+_SCRIPT_OR_STYLE_OPEN_RE = re.compile(r"<(script|style)", re.I)
+_SCRIPT_OR_STYLE_CLOSE_RES = {
+    "script": re.compile(r"</script\s*>", re.I),
+    "style": re.compile(r"</style\s*>", re.I),
+}
+_TAG_RE = re.compile(r"<[^<>]+>")
+
+
+def _readable_text(html: str) -> str:
+    """Crude readability for the model: drop script/style blocks and tags."""
+    kept: list[str] = []
+    keep_from = search_from = 0
+    unclosed: set[str] = set()
+    while (opener := _SCRIPT_OR_STYLE_OPEN_RE.search(html, search_from)) is not None:
+        kind = opener.group(1).lower()
+        closer = (
+            None
+            if kind in unclosed
+            else _SCRIPT_OR_STYLE_CLOSE_RES[kind].search(html, opener.end())
+        )
+        if closer is None:
+            unclosed.add(kind)
+            search_from = opener.end()
+            continue
+        kept.extend((html[keep_from : opener.start()], " "))
+        keep_from = search_from = closer.end()
+    kept.append(html[keep_from:])
+    text = _TAG_RE.sub(" ", "".join(kept))
+    return re.sub(r"\s+", " ", text).strip()
+
+
 @dataclass(frozen=True)
 class ResearchFetchObservation:
     text: str
@@ -403,10 +438,5 @@ async def fetch_page_result(url: str, http: Any) -> ResearchFetchObservation:
         # encoded body, timeout) reaches the model as an observation it can
         # act on by choosing another source.
         return ResearchFetchObservation(f"fetch failed: {e}", "fetch_failed", str(e))
-    text = resp.content.decode("utf-8", errors="replace")
-    # crude readability: strip tags, collapse whitespace
-    text = re.sub(
-        r"<script.*?</script>|<style.*?</style>", " ", text, flags=re.S | re.I
-    )
-    text = re.sub(r"<[^>]+>", " ", text)
-    return ResearchFetchObservation(re.sub(r"\s+", " ", text).strip())
+    text = _readable_text(resp.content.decode("utf-8", errors="replace"))
+    return ResearchFetchObservation(text)
