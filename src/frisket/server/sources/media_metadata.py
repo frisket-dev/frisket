@@ -6,11 +6,6 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-_SENSITIVE_RE = re.compile(
-    r"(?i)(api[_-]?key|authorization|cookie|token|password|secret)"
-    r"(\s*[:=]\s*(?:bearer\s+)?)?[^\s,;]+"
-)
-
 
 def entry_published_at(entry: dict[str, Any]) -> str | None:
     for key in ("timestamp", "release_timestamp", "modified_timestamp"):
@@ -67,12 +62,3 @@ def string_value(value: Any) -> str | None:
         stripped = value.strip()
         return stripped or None
     return None
-
-
-def redact_provider_message(exc: BaseException) -> str:
-    message = str(exc) or exc.__class__.__name__
-    return _SENSITIVE_RE.sub(r"\1=<redacted>", message)
-
-
-def redact_warning(warning: Any) -> str:
-    return _SENSITIVE_RE.sub(r"\1=<redacted>", str(warning))

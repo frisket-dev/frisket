@@ -17,9 +17,8 @@ from frisket.server.sources.media_metadata import (
     entry_published_at as _entry_published_at,
     thumbnail_url as _thumbnail_url,
     string_value as _string_value,
-    redact_provider_message as _redact_provider_message,
-    redact_warning as _redact_warning,
 )
+from frisket.redaction import redact_text
 from frisket.server.sources.progress import listing_progress_options
 from frisket.server.sources.runtime import (
     SourcePollContext,
@@ -28,6 +27,7 @@ from frisket.server.sources.runtime import (
     config_positive_int,
     free_listing_result,
     hash_json,
+    provider_error_text,
     register_source_poller,
     text_hash,
 )
@@ -155,7 +155,7 @@ class YouTubeCollectionPoller:
             )
         except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
             raise YouTubeProviderError(
-                f"YouTube {spec.noun} provider failed: {_redact_provider_message(exc)}"
+                f"YouTube {spec.noun} provider failed: {provider_error_text(exc)}"
             ) from exc
 
         entries = list(listing.entries or [])
@@ -172,7 +172,7 @@ class YouTubeCollectionPoller:
             if spec.poll_identity_from_listing
             else dict(config.identity)
         )
-        warnings = [_redact_warning(warning) for warning in listing.warnings]
+        warnings = [redact_text(warning) for warning in listing.warnings]
         items, item_warnings = _shape_entries(spec, config, listing, identity, entries)
         warnings.extend(item_warnings)
         seen_video_ids = [str(item.row["video_id"]) for item in items]
@@ -307,7 +307,7 @@ def _ytdlp_listing(
             entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
     except Exception as exc:  # noqa: BLE001 - provider message is redacted upstream
         raise YouTubeProviderError(
-            f"yt-dlp {noun} listing failed: {_redact_provider_message(exc)}"
+            f"yt-dlp {noun} listing failed: {provider_error_text(exc)}"
         ) from exc
     facts = {
         "service": "yt-dlp",

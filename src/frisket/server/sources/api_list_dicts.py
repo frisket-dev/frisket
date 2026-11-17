@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -19,6 +18,7 @@ from frisket.server.sources.runtime import (
     free_listing_result,
     hash_json,
     iso_timestamp,
+    provider_error_text,
     register_source_poller,
     text_hash,
 )
@@ -30,10 +30,6 @@ DEFAULT_MAX_BYTES = 5_000_000
 DEFAULT_MAX_ITEMS: int | None = None
 _ROOT_POINTERS = {"", "/"}
 _MISSING = object()
-_SENSITIVE_RE = re.compile(
-    r"(?i)(api[_-]?key|authorization|cookie|token|password|secret)"
-    r"(\s*[:=]\s*(?:bearer\s+)?)?[^\s,;&]+"
-)
 _DISALLOWED_CONFIG_KEYS = frozenset(
     {
         "auth",
@@ -130,7 +126,7 @@ class ApiListDictsPoller:
             response = self._http_get(config.url, max_bytes=config.max_bytes)
         except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
             raise ApiListDictsProviderError(
-                f"api_list_dicts HTTP GET failed: {_redact_provider_message(exc)}"
+                f"api_list_dicts HTTP GET failed: {provider_error_text(exc)}"
             ) from exc
         response_bytes = len(response.body)
         if response_bytes > config.max_bytes:
@@ -508,11 +504,6 @@ def _resolve_pointer(value: Any, pointer: str | None) -> Any:
 
 def _url_host(url: str) -> str | None:
     return urlparse(url).hostname
-
-
-def _redact_provider_message(exc: BaseException) -> str:
-    message = str(exc) or exc.__class__.__name__
-    return _SENSITIVE_RE.sub(r"\1=<redacted>", message)
 
 
 def _redact_url(url: str) -> str:

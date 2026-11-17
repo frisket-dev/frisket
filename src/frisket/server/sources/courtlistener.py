@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from frisket.redaction import redact_text
 from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
@@ -23,6 +24,7 @@ from frisket.server.sources.runtime import (
     free_listing_result,
     hash_json,
     iso_timestamp,
+    provider_error_text,
     register_source_poller,
     text_hash,
 )
@@ -34,16 +36,6 @@ COURTLISTENER_PAGE_SIZE = 500
 MAX_CURSOR_ITEM_HASH_BYTES = 200_000
 COURTLISTENER_BASE_URL = "https://www.courtlistener.com"
 _DOCKET_ID_RE = re.compile(r"^[1-9][0-9]*$")
-_SENSITIVE_RE = re.compile(
-    r"(?i)(api[_-]?key|authorization|cookie|token|password|secret)"
-    r"(\s*[:=]\s*(?:bearer\s+)?)?[^\s,;&]+"
-)
-_STRUCTURED_SECRET_RE = re.compile(
-    r"(?i)((?:[\"']?(?:api[_-]?key|authorization|cookie|token|password|secret)"
-    r"[\"']?\s*[:=]\s*[\"']?(?:bearer\s+)?)"
-    r"[^\"'\s,;&}]+)"
-)
-_URL_CREDENTIAL_RE = re.compile(r"(?i)(https?://)([^/\s:@]+):([^@\s/]+)@")
 _ALLOWED_CONFIG_KEYS = frozenset(
     {
         "schema_version",
@@ -146,7 +138,7 @@ class CourtListenerDocketPoller:
             )
         except Exception as exc:  # noqa: BLE001 - source.poll stores failures
             raise CourtListenerProviderError(
-                f"CourtListener docket provider failed: {_redact_provider_message(exc)}"
+                f"CourtListener docket provider failed: {provider_error_text(exc)}"
             ) from exc
 
         docket = listing.docket
@@ -167,7 +159,7 @@ class CourtListenerDocketPoller:
             else []
         )
 
-        warnings = [_redact_warning(warning) for warning in listing.warnings]
+        warnings = [redact_text(warning) for warning in listing.warnings]
         if truncated:
             warnings.append(
                 "courtlistener_docket entry cap reached; limited to "
@@ -779,7 +771,7 @@ def _get_courtlistener_json(
     except Exception as exc:  # noqa: BLE001 - caller redacts
         raise CourtListenerProviderError(
             f"CourtListener API request failed for {endpoint}: "
-            f"{_redact_provider_message(exc)}"
+            f"{provider_error_text(exc)}"
         ) from exc
     return payload
 
@@ -909,31 +901,6 @@ def _normalized_item_hash(
 
 def _json_size(value: Any) -> int:
     return len(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
-
-
-def _redact_provider_message(exc: BaseException) -> str:
-    message = str(exc) or exc.__class__.__name__
-    message = _SENSITIVE_RE.sub(r"\1=<redacted>", message)
-    message = _STRUCTURED_SECRET_RE.sub(
-        lambda m: _redact_secret_match(m.group(1)), message
-    )
-    return _URL_CREDENTIAL_RE.sub(r"\1<redacted>@", message)
-
-
-def _redact_warning(warning: Any) -> str:
-    message = _SENSITIVE_RE.sub(r"\1=<redacted>", str(warning))
-    message = _STRUCTURED_SECRET_RE.sub(
-        lambda m: _redact_secret_match(m.group(1)), message
-    )
-    return _URL_CREDENTIAL_RE.sub(r"\1<redacted>@", message)
-
-
-def _redact_secret_match(value: str) -> str:
-    for separator in (":", "="):
-        if separator in value:
-            key = value.split(separator, 1)[0]
-            return f"{key}{separator}<redacted>"
-    return "<redacted>"
 
 
 register_courtlistener_docket_poller()

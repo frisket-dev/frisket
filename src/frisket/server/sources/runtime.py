@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from collections.abc import Callable
 
+from frisket.redaction import redact_text
+
 
 @dataclass(frozen=True)
 class SourcePollContext:
@@ -126,6 +128,11 @@ def free_listing_result(
         cost={"cost_micro": 0},
         summary={**summary, "warnings": len(warnings)},
     )
+
+
+def provider_error_text(exc: BaseException) -> str:
+    """Redacted provider failure text for source-run records and warnings."""
+    return redact_text(str(exc) or exc.__class__.__name__)
 
 
 def config_positive_int(
