@@ -22,7 +22,10 @@ class ColumnTarget(ActionParams):
     @field_validator("type")
     @classmethod
     def _registered_type(cls, value: str) -> str:
-        from frisket.contracts.action import _is_v1_column_type, canonical_column_type
+        from frisket.contracts.actions.schemas._base import (
+            _is_v1_column_type,
+            canonical_column_type,
+        )
 
         if not _is_v1_column_type(value):
             raise ValueError("invalid_column_type")

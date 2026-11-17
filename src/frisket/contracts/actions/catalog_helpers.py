@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from frisket.contracts.action import ActionErrorSpec, _idempotency_stale_running_error
+from frisket.contracts.action import ActionErrorSpec
+from frisket.contracts.actions.schemas._base import _idempotency_stale_running_error
 
 
 TEMPORAL_PERSISTENCE_ERROR_CODES = frozenset(
