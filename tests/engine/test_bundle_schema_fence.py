@@ -8,6 +8,7 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store import project as project_module
 from frisket.engine.store.schema import (
     SCHEMA,
     SCHEMA_DIGEST,
@@ -842,6 +843,22 @@ def test_a_fresh_bundle_is_stamped_and_reopens(tmp_path):
     project.close()
     reopened = Project(tmp_path / "fresh.frisket")
     reopened.close()
+
+
+def test_a_failed_create_leaves_no_partial_schema_or_stamp(tmp_path, monkeypatch):
+    """Create builds the schema and stamps it in one transaction: a statement
+    that fails mid-replay must not leave the tables before it committed."""
+    monkeypatch.setattr(
+        project_module, "SCHEMA", SCHEMA + "\nCREATE TABLE broken_tail (;\n"
+    )
+    path = tmp_path / "partial.frisket"
+    with pytest.raises(sqlite3.OperationalError):
+        Project.create(path, name="Partial")
+    db = sqlite3.connect(path / "project.db")
+    try:
+        assert db.execute("SELECT count(*) FROM sqlite_master").fetchone() == (0,)
+    finally:
+        db.close()
 
 
 def test_the_digest_moves_when_the_ddl_moves(tmp_path):
