@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+from functools import partial
 import asyncio
 import hashlib
 from contextlib import ExitStack
@@ -94,6 +95,7 @@ from frisket.engine.executor.action_receipts import (
 from frisket.engine.executor.action_reservations import (
     _receipt_for_idempotency,
     _reserve_running_action_receipt,
+    _reserved_receipt_result_from_existing,
     _running_receipt_stale_result,
 )
 from frisket.engine.executor.action_support import (
@@ -165,19 +167,15 @@ def _replay(
     existing = _receipt_for_idempotency(project, action.idempotency_key)
     if existing is None:
         return None
-    if existing["params_hash"] != params_hash:
-        return _error(
-            action,
-            project_id,
-            "idempotency_conflict",
-            "idempotency_key was already used with different normalized params",
-            field="idempotency_key",
-        )
-    receipt = Receipt.model_validate(json.loads(existing["body"]))
-    stale = _embedding_lifecycle_replay_error(project, receipt)
-    if stale is not None:
-        return ActionCtx(project_id, action.kind).failed(stale)
-    return _result_from_receipt(receipt)
+    return _reserved_receipt_result_from_existing(
+        project,
+        existing,
+        params_hash=params_hash,
+        project_id=project_id,
+        action=action,
+        replay_error_fn=partial(_embedding_lifecycle_replay_error, project),
+        guard_running=False,
+    )
 
 
 def _embedding_lifecycle_replay_error(

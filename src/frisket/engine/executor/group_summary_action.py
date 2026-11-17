@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.executor.action_reservations import (
     _receipt_for_idempotency,
     _reserve_running_action_receipt,
+    _reserved_receipt_result_from_existing,
 )
 from frisket.engine.executor.action_support import (
     _estimate_confirmation_reason,
@@ -177,12 +179,15 @@ def run_typed_group_summary_action(
     existing = _recover_stale_receipt_attempt(project, existing, identity)
     recovery_run = runtime._recoverable_group_run(project, existing, identity)
     if existing is not None and recovery_run is None:
-        return runtime._reduce_group_summary_result_from_existing_receipt(
+        return _reserved_receipt_result_from_existing(
             project,
             existing,
             params_hash=identity,
             project_id=project_id,
             action=action,
+            replay_error_fn=partial(
+                runtime._reduce_group_summary_replay_error, project
+            ),
         )
     try:
         if prepared is None:
@@ -275,7 +280,9 @@ def run_typed_group_summary_action(
             params_hash=identity,
             project_id=project_id,
             reservation_kind="reduce_group_summary_idempotency_reservation",
-            result_from_existing_fn=runtime._reduce_group_summary_result_from_existing_receipt,
+            replay_error_fn=partial(
+                runtime._reduce_group_summary_replay_error, project
+            ),
         )
     if isinstance(reservation, ActionResult):
         return reservation

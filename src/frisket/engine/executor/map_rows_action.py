@@ -3893,7 +3893,6 @@ def typed_queued_map_spec(
             project_id=str(kwargs["project_id"]),
             receipt=receipt,
             reservation_lost_message=f"{action.kind} reservation was lost",
-            update_failed_message=f"{action.kind} receipt update failed",
             replay_error_fn=_typed_replay_error(project, bound),
             require_running_status=False,
             before_commit=release_output_claim,

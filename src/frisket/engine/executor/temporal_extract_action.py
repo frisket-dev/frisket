@@ -329,7 +329,6 @@ def run_typed_temporal_extract_action(
             params_hash=params_hash,
             project_id=project_id,
             reservation_kind="temporal_extract_range",
-            result_from_existing_fn=_reserved_receipt_result_from_existing,
         )
         if isinstance(reservation, ActionResult):
             return reservation

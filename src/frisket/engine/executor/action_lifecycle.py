@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import sqlite3
+from functools import partial
 from uuid import uuid4
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
@@ -68,12 +68,16 @@ from frisket.engine.executor.action_inventory import (
     _ReservedMaprunnerActionSpec,
     _apply_action_envelope_to_runner_spec,
 )
-from frisket.engine.executor.action_receipts import _result_from_receipt
+from frisket.engine.executor.action_receipts import (
+    _result_from_receipt,
+    receipt_status_from_failures,
+)
 from frisket.engine.executor.action_reservations import (
     _acquire_output_claims_for_runner,
     _delete_reserved_action_receipt,
     _finalize_reserved_action_receipt,
     _mark_running_action_run_prepared,
+    _reserved_receipt_result_from_existing,
     _output_claim_token,
     _receipt_for_idempotency,
     _reserved_maprunner_delete_fn,
@@ -218,19 +222,17 @@ def _child_sheet_deterministic_result_from_existing(
         action: ActionSpec,
         params: Any | None = None,
     ) -> ActionResult:
-        ctx = ActionCtx(project_id, action.kind)
-        if existing["params_hash"] != params_hash:
-            return ctx.fail(
-                "idempotency_conflict",
-                "idempotency_key was already used with different normalized params",
-                field="idempotency_key",
-            )
-        receipt = Receipt.model_validate(json.loads(existing["body"]))
-        if replay_validate_fn is not None:
-            replay_error = replay_validate_fn(project, receipt)
-            if replay_error is not None:
-                return ctx.failed(replay_error)
-        return _result_from_receipt(receipt)
+        return _reserved_receipt_result_from_existing(
+            project,
+            existing,
+            params_hash=params_hash,
+            project_id=project_id,
+            action=action,
+            replay_error_fn=None
+            if replay_validate_fn is None
+            else partial(replay_validate_fn, project),
+            guard_running=False,
+        )
 
     return result_from_existing
 
@@ -333,14 +335,13 @@ def _run_in_txn_idempotent_perform(
                 cleanup_resolved_fn(resolved)
             if replay is not None:
                 return replay
-            if existing["params_hash"] != params_hash:
-                return ctx.fail(
-                    "idempotency_conflict",
-                    "idempotency_key was already used with different normalized params",
-                    field="idempotency_key",
-                )
-            return _result_from_receipt(
-                Receipt.model_validate(json.loads(existing["body"]))
+            return _reserved_receipt_result_from_existing(
+                project,
+                existing,
+                params_hash=params_hash,
+                project_id=project_id,
+                action=action,
+                guard_running=False,
             )
         action_id = _new_id("act")
         receipt_id = _new_id("receipt")
@@ -1218,11 +1219,9 @@ def _run_reserved_maprunner_action(
         if deferred_terminal_close:
             terminal_status = "cancelled" if progress.cancelled else "completed"
             receipt_status = terminal_status
-            if terminal_status == "completed" and progress.failed > 0:
-                receipt_status = (
-                    "failed"
-                    if progress.total > 0 and progress.failed >= progress.total
-                    else "partial"
+            if terminal_status == "completed":
+                receipt_status = receipt_status_from_failures(
+                    progress.failed, progress.total
                 )
             write_kwargs.update(
                 {
@@ -1246,7 +1245,6 @@ def _run_reserved_maprunner_action(
                 project_id=project_id,
                 receipt=receipt,
                 reservation_lost_message=f"{action.kind} reservation was lost",
-                update_failed_message=f"{action.kind} receipt update failed",
                 replay_error_fn=prepared_execution.replay_error_fn,
             )
             result = finalization or _result_from_receipt(receipt)

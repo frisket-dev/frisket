@@ -30,8 +30,7 @@ from frisket.contracts.action import ActionError, ActionResult, Receipt
 from frisket.engine.executor.action_inventory import ExecutorDeps, _TypedProjectEnvelope
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
-    _DirectActionFinalizeMetadata,
-    _finalize_direct_reserved_action_receipt,
+    _finalize_reserved_action_receipt,
     _reserve_running_action_receipt,
 )
 from frisket.engine.executor.action_support import ActionCtx
@@ -154,16 +153,13 @@ class CallableInvocation:
 
     def _persist(self, receipt, *, before_commit=None, commit=True):
         try:
-            failure = _finalize_direct_reserved_action_receipt(
+            failure = _finalize_reserved_action_receipt(
                 self.project,
                 self.action,
                 params_hash=receipt.params_hash,
                 project_id=receipt.project_id,
                 receipt=receipt,
-                finalize=_DirectActionFinalizeMetadata(
-                    action_kind=self.action.kind,
-                    result_from_existing_fn=_existing_result,
-                ),
+                result_from_existing_fn=_existing_result,
                 before_commit=before_commit,
                 commit=commit,
             )

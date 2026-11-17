@@ -1401,7 +1401,6 @@ def _run_reserved_table(
             project_id=project_id,
             params_hash=params_hash,
             reservation_kind="typed_table",
-            result_from_existing_fn=_reserved_receipt_result_from_existing,
         )
         if isinstance(reservation, ActionResult):
             return reservation
