@@ -13,6 +13,7 @@ import {
   type WatchPatchInput,
   type WatchRun,
   type WatchRunEvent,
+  type WatchRunResult,
   type WatchRunsPage,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -313,15 +314,14 @@ function useWatchesPanelController(canEdit: boolean) {
     watchRunLinkHandle.ackCreateWatch(action);
   }, [invalidateWatchList, pendingCreateAction, watchRunLinkHandle]);
 
-  const runWatch = useCallback((watchId: number) => {
+  const runWatchAction = useCallback((watchId: number, intent: 'run' | 'refresh_run', status: string, request: () => Promise<WatchRunResult>) => {
     if (!canEdit) return;
-    const claim = watchRunLinkHandle.claimWatchAction(watchId, 'run');
+    const claim = watchRunLinkHandle.claimWatchAction(watchId, intent);
     if (!claim) return;
     invalidateWatchList();
-    setPanelState({ error: null, errorCode: null, status: 'Running Watch…' });
+    setPanelState({ error: null, errorCode: null, status });
     let outcome!: WatchActionOutcome;
-    void projectApi
-      .runWatch(watchId)
+    void request()
       .then((result) => {
         outcome = {
           status: `Finished running ${result.watch.name}.`,
@@ -343,7 +343,11 @@ function useWatchesPanelController(canEdit: boolean) {
         watchRunLinkHandle.settleWatchAction(claim, outcome);
         window.dispatchEvent(new Event('frisket:watches-changed'));
       });
-  }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, projectApi, watchRunLinkHandle]);
+  }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, watchRunLinkHandle]);
+
+  const runWatch = useCallback((watchId: number) => {
+    runWatchAction(watchId, 'run', 'Running Watch…', () => projectApi.runWatch(watchId));
+  }, [projectApi, runWatchAction]);
 
   const updateWatch = useCallback((
     watchId: number,
@@ -426,35 +430,10 @@ function useWatchesPanelController(canEdit: boolean) {
 
   // Refresh a blocked embedding watch's index, then re-run the watch.
   const refreshWatchIndex = useCallback((watchId: number, indexId: string) => {
-    if (!canEdit) return;
-    const claim = watchRunLinkHandle.claimWatchAction(watchId, 'refresh_run');
-    if (!claim) return;
-    invalidateWatchList();
-    setPanelState({ error: null, errorCode: null, status: 'Refreshing index…' });
-    let outcome!: WatchActionOutcome;
-    void projectApi
+    runWatchAction(watchId, 'refresh_run', 'Refreshing index…', () => projectApi
       .refreshEmbeddingIndex(indexId, 'incremental')
-      .then(() => projectApi.runWatch(watchId))
-      .then((result) => {
-        outcome = {
-          status: `Finished running ${result.watch.name}.`,
-          error: null,
-          errorCode: null,
-          watch: result.watch,
-          focusWatchId: watchId,
-        };
-        dispatchNotificationsChanged(projectId);
-        if (expanded[watchId]) {
-          void loadRuns(watchId).catch((e: Error) => setPanelState({ error: e.message }));
-        }
-      })
-      .catch((e: Error) => { outcome = failedWatchActionOutcome(e); })
-      .finally(() => {
-        invalidateWatchList();
-        watchRunLinkHandle.settleWatchAction(claim, outcome);
-        window.dispatchEvent(new Event('frisket:watches-changed'));
-      });
-  }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, projectApi, watchRunLinkHandle]);
+      .then(() => projectApi.runWatch(watchId)));
+  }, [projectApi, runWatchAction]);
 
   const toggleRuns = useCallback((watchId: number) => {
     const nextOpen = !expanded[watchId];

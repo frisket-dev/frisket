@@ -1,10 +1,11 @@
 import '../components/PanelPrimitives.css';
-import { Button } from '../components/Button';
 import { FormField, TextInput } from '../components/FormControls';
 import { useState, type FormEvent } from 'react';
 import type { ProviderValidateResult } from '../api/types';
 import { PanelSelect } from '../components/PanelSelect';
-import { safeSetupDetail, useSetupEditing, useSetupRequests } from './setupLifetime';
+import { safeSetupDetail } from './setupLifetime';
+import { useValidateThenSave } from './useValidateThenSave';
+import { ValidateThenSaveButtons } from './ValidateThenSaveButtons';
 
 export interface ProviderKeyFormProps<Result = void> {
   provider?: string;
@@ -29,69 +30,38 @@ export function ProviderKeyForm<Result = void>({ provider: fixedProvider, provid
   const [provider, setProvider] = useState(fixedProvider ?? providers[0]?.id ?? 'anthropic');
   const [key, setKey] = useState('');
   const [cap, setCap] = useState('');
-  const [receipt, setReceipt] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'test' | 'save' | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const policyFields = providers.find((item) => item.id === provider)?.policy_fields;
   const supportsSpendCap = spendCap && (policyFields === undefined || policyFields.includes('spend_cap_usd'));
-  const { begin, invalidate } = useSetupRequests();
-  const editing = useSetupEditing(onEditingChange);
-  const clearValidation = () => {
-    invalidate(); setReceipt(null); setMessage(null); setError(null); setBusy(null);
-  };
+  const flow = useValidateThenSave<string>(onEditingChange);
+  const { receipt, busy, message, error, editing } = flow;
   const test = async () => {
     if (!canMutate || !key.trim() || busy === 'save') return;
-    const request = begin();
     const candidate = key.trim();
-    setBusy('test'); setReceipt(null); setMessage(null); setError(null);
-    try {
-      const result = await validate(provider, candidate, request.signal);
-      if (!request.isCurrent()) return;
-      if (result.ok && result.validation_token) {
-        setReceipt(result.validation_token); setMessage('Valid — key accepted');
-      } else {
-        setError(safeSetupDetail(result.detail, [candidate]));
-      }
-    } catch {
-      if (request.isCurrent()) setError('Could not test the key. Try again.');
-    } finally {
-      if (request.isCurrent()) setBusy(null);
-    }
+    await flow.runTest('test', async (signal) => {
+      const result = await validate(provider, candidate, signal);
+      return result.ok && result.validation_token
+        ? { receipt: result.validation_token, message: 'Valid — key accepted' }
+        : { error: safeSetupDetail(result.detail, [candidate]) };
+    }, 'Could not test the key. Try again.');
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!canMutate || !receipt || !key.trim() || busy) return;
     const numericCap = supportsSpendCap && cap.trim() ? Number(cap) : null;
     if (numericCap !== null && (!Number.isFinite(numericCap) || numericCap < 0)) {
-      setError('Spend cap must be a nonnegative amount in US dollars.'); return;
+      flow.setError('Spend cap must be a nonnegative amount in US dollars.'); return;
     }
-    const request = begin(); setBusy('save'); setError(null);
-    try {
-      const result = await save(provider, key.trim(), receipt, numericCap, request.signal);
-      if (!request.isCurrent()) return;
-      setKey(''); setReceipt(null); setMessage('Provider key saved'); editing(false); onSaved(result);
-    } catch {
-      if (request.isCurrent()) { setReceipt(null); setError('Could not confirm the save. Recheck before trying again.'); }
-    } finally {
-      if (request.isCurrent()) setBusy(null);
-    }
+    await flow.runSave((signal) => save(provider, key.trim(), receipt, numericCap, signal),
+      'Provider key saved', (result) => { setKey(''); onSaved(result); });
   };
-  const compactSubmit = (event: FormEvent) => {
-    if (receipt) { void submit(event); return; }
-    event.preventDefault(); void test();
-  };
-  const actionLabel = busy === 'test' ? 'Testing…' : busy === 'save' ? 'Saving…' : receipt ? 'Save' : 'Test';
   const prefixMismatch = Boolean(keyPrefix && key.trim() && !key.trim().startsWith(keyPrefix));
-  return <form className={`form-inline settings-provider-key-form${compact ? ' settings-provider-key-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? compactSubmit : submit} onFocus={() => editing(true)}>
-    {!fixedProvider && <FormField label="Provider" ><PanelSelect aria-label="Provider" value={provider} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setProvider(event.currentTarget.value); setKey(''); editing(false); }}>
+  return <form className={`form-inline settings-provider-key-form${compact ? ' settings-provider-key-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? flow.compactSubmit(submit, test) : submit} onFocus={() => editing(true)}>
+    {!fixedProvider && <FormField label="Provider" ><PanelSelect aria-label="Provider" value={provider} disabled={!canMutate || busy === 'save'} onChange={(event) => { flow.clear(); setProvider(event.currentTarget.value); setKey(''); editing(false); }}>
       {providers.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
     </PanelSelect></FormField>}
-    <label className="form-field"><span className={compact ? 'sr-only' : undefined}>{keyLabel}</span><TextInput aria-label={keyLabel} placeholder={keyPlaceholder ?? (compact ? keyLabel : undefined)} type="password" autoComplete="new-password" value={key} disabled={!canMutate || busy === 'save'} onChange={(event) => { clearValidation(); setKey(event.currentTarget.value); editing(true); }} /></label>
+    <label className="form-field"><span className={compact ? 'sr-only' : undefined}>{keyLabel}</span><TextInput aria-label={keyLabel} placeholder={keyPlaceholder ?? (compact ? keyLabel : undefined)} type="password" autoComplete="new-password" value={key} disabled={!canMutate || busy === 'save'} onChange={(event) => { flow.clear(); setKey(event.currentTarget.value); editing(true); }} /></label>
     {supportsSpendCap && <FormField label="Spend cap (USD)" ><TextInput aria-label="Spend cap in US dollars" inputMode="decimal" placeholder="e.g. 5.00 — blank for no cap" value={cap} disabled={!canMutate || busy === 'save'} onChange={(event) => setCap(event.currentTarget.value)} /></FormField>}
-    {compact ? <Button className="btn-primary" type="submit" disabled={!canMutate || Boolean(busy) || !key.trim()}>{actionLabel}</Button>
-      : <><Button type="button" disabled={!canMutate || Boolean(busy) || !key.trim()} onClick={() => void test()}>{busy === 'test' ? 'Testing…' : 'Test'}</Button>
-        <Button className="btn-primary" type="submit" disabled={!canMutate || Boolean(busy) || !receipt || !key.trim()}>{busy === 'save' ? 'Saving…' : 'Save'}</Button></>}
+    <ValidateThenSaveButtons compact={compact} busy={busy} hasReceipt={Boolean(receipt)} ready={canMutate && Boolean(key.trim())} onTest={() => void test()} />
     {(message || error) && <p className="panel-notice" data-tone={error ? 'error' : 'success'} data-testid="provider-validation-message" role={error ? 'alert' : 'status'}>{error ?? message}</p>}
     {prefixMismatch && !error && <p className="panel-notice" data-tone="warning">
       This key normally starts with {keyPrefix}. Check that you copied the right key.
