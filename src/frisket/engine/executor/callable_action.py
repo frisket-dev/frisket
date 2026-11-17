@@ -34,7 +34,7 @@ from frisket.engine.executor.action_reservations import (
     _finalize_direct_reserved_action_receipt,
     _reserve_running_action_receipt,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.invocation_context import HostInvocationContext
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.query_action import QueryPreviewCapability
@@ -133,7 +133,7 @@ def _existing_result(project, existing, *, params_hash, project_id, action, **_i
             error = _export_artifact_replay_error(receipt)
         if error is None:
             return _result_from_receipt(receipt)
-    return _failed_result(project_id=project_id, action_kind=action.kind, error=error)
+    return ActionCtx(project_id, action.kind).failed(error)
 
 
 def _artifact_target(ref: dict[str, Any]) -> str | None:
@@ -383,9 +383,7 @@ def run_callable_invocation(
     try:
         result = invocation.finish(status=status, value=value, error=error)
     except CallablePrimitiveError as exc:
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=exc.error
-        )
+        return ActionCtx(project_id, action.kind).failed(exc.error)
     if invocation.receipt.exports:
         _emit_export_notification(project, result)
     return result

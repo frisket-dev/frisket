@@ -7,7 +7,7 @@ from frisket.actions.core import OutputField
 from frisket.actions.types import SheetRows
 from frisket.contracts.action import ActionError, Receipt, ReceiptIO
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlanError,
     _require_expected_output_columns,
@@ -290,10 +290,8 @@ def reapply_results(project, project_id, bound):
                 receipts.insert_completed(receipt, commit=False)
         return _result_from_receipt(receipt)
     except (ValueError, KeyError, TypeError) as error:
-        return _failed_result(
-            project_id=project_id,
-            action_kind="run.reapply",
-            error=ActionError(
+        return ActionCtx(project_id, "run.reapply").failed(
+            ActionError(
                 code=error.code
                 if isinstance(error, TypedMapRowsPlanError)
                 else "invalid_row_ref"
@@ -304,5 +302,5 @@ def reapply_results(project, project_id, bound):
                 details=dict(error.details)
                 if isinstance(error, TypedMapRowsPlanError)
                 else {},
-            ),
+            )
         )

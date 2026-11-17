@@ -97,7 +97,7 @@ from frisket.engine.executor.action_reservations import (
     _running_receipt_stale_result,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
     _new_id,
 )
 from frisket.engine.executor.project_run_terminalization import (
@@ -150,10 +150,8 @@ _MEDIA_MODALITIES = frozenset({"image", "audio", "video", "file"})
 
 
 def _error(action: ActionSpec, project_id: str, code, message, **kw):
-    return _failed_result(
-        project_id=project_id,
-        action_kind=action.kind,
-        error=ActionError(code=code, message=message, action_kind=action.kind, **kw),
+    return ActionCtx(project_id, action.kind).failed(
+        ActionError(code=code, message=message, action_kind=action.kind, **kw)
     )
 
 
@@ -178,11 +176,7 @@ def _replay(
     receipt = Receipt.model_validate(json.loads(existing["body"]))
     stale = _embedding_lifecycle_replay_error(project, receipt)
     if stale is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=stale,
-        )
+        return ActionCtx(project_id, action.kind).failed(stale)
     return _result_from_receipt(receipt)
 
 
@@ -3387,15 +3381,10 @@ class _EmbeddingLifecycleCapability:
             params = model.model_validate(admitted)
         except (TypeError, ValueError) as exc:
             raise _EmbeddingOperationRefused(
-                _failed_result(
-                    project_id=self.project_id,
-                    action_kind=self.bound.action.action_id,
-                    error=ActionError(
-                        code="invalid_params",
-                        message="Invalid embedding operation arguments.",
-                        action_kind=self.bound.action.action_id,
-                        field="params",
-                    ),
+                ActionCtx(self.project_id, self.bound.action.action_id).fail(
+                    "invalid_params",
+                    "Invalid embedding operation arguments.",
+                    field="params",
                 )
             ) from exc
         action = _TypedProjectEnvelope(

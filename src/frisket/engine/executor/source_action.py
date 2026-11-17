@@ -38,7 +38,7 @@ from frisket.engine.executor.action_lifecycle import (
     _child_sheet_deterministic_result_from_existing,
     _run_action_core_spec,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sources import SourceStore
@@ -338,32 +338,23 @@ def _perform(
     params_hash: str,
     resolved: Any,
 ) -> ActionResult:
+    ctx = ActionCtx(project_id, action.kind)
     del cur, resolved
     capability = _CAPABILITY_IMPL[terminal.single_capability()](project)
     try:
         returned = terminal.handler(params, capability)
     except LookupError:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="invalid_input_ref",
-                message=f"{action.kind} source_id does not exist",
-                action_kind=action.kind,
-                field="params",
-            ),
+        return ctx.fail(
+            "invalid_input_ref",
+            f"{action.kind} source_id does not exist",
+            field="params",
         )
     except _UnsupportedSourceKind as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="unsupported_source_kind",
-                message="RSS sources must be polled with source.poll",
-                action_kind=action.kind,
-                field="params",
-                details={"source_kind": str(exc)},
-            ),
+        return ctx.fail(
+            "unsupported_source_kind",
+            "RSS sources must be polled with source.poll",
+            field="params",
+            details={"source_kind": str(exc)},
         )
     if capability.result is None or returned != capability.result:
         raise TypeError("source handler must return its capability result")

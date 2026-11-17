@@ -9,6 +9,7 @@ from frisket.actions.file_types import UrlColumn
 from frisket.actions.page_capture_types import CaptureOptions, PreparedPageCapture
 from frisket.actions.types import SheetRows
 from frisket.contracts.action import ActionError
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.page_capture import (
     CapturePlan,
     _resolve_web_capture_page_inputs,
@@ -139,7 +140,6 @@ def run_typed_page_capture_action(
 ):
     from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
     from frisket.engine.executor.action_reservations import _receipt_for_idempotency
-    from frisket.engine.executor.action_support import _failed_result
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
     action = _TypedProjectEnvelope(
@@ -168,14 +168,12 @@ def run_typed_page_capture_action(
             )
         plan = prepare_page_capture_action(project, bound)
     except (TypeError, ValueError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=exc.error
+        return ActionCtx(project_id, action.kind).failed(
+            exc.error
             if isinstance(exc, CaptureRefused)
             else ActionError(
                 code="invalid_params", message=str(exc), action_kind=action.kind
-            ),
+            )
         )
     return execute_prepared_capture(
         project,

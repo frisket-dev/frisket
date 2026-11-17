@@ -25,7 +25,7 @@ from frisket.engine.executor.action_jobs import (
     bind_typed_action_job,
     reserve_typed_action_job,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.find_plan import FindOperation
 from frisket.engine.executor.map_find_planning import (
     PreparedFindScan,
@@ -388,12 +388,6 @@ def run_typed_find_action_job(project, envelope, *, execution, deps=None):
 
 def run_typed_find_action(project, project_id, bound, router=None):
     del project, router
-    return _failed_result(
-        project_id=project_id,
-        action_kind=bound.action.action_id,
-        error=ActionError(
-            code="action_job_required",
-            message="Find must execute through its queued action job",
-            action_kind=bound.action.action_id,
-        ),
+    return ActionCtx(project_id, bound.action.action_id).fail(
+        "action_job_required", "Find must execute through its queued action job"
     )

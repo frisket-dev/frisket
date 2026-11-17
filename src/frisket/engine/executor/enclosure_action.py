@@ -40,7 +40,7 @@ from frisket.engine.executor.action_reservations import (
     _running_receipt_stale_result,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.redaction import redact_text
@@ -159,11 +159,7 @@ def run_typed_enclosure_action(
 
     resolved = _resolve_media_enclosure_inputs(project, action, scope)
     if isinstance(resolved, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=resolved,
-        )
+        return ActionCtx(project_id, action.kind).failed(resolved)
 
     reservation = _reserve_running_action_receipt(
         project,
@@ -343,16 +339,12 @@ def _media_enclosure_result_from_existing_receipt(
     project_id: str,
     action: _TypedProjectEnvelope,
 ) -> ActionResult:
+    ctx = ActionCtx(project_id, action.kind)
     if existing["params_hash"] != params_hash:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_conflict",
-                message="idempotency_key was already used with different normalized params",
-                action_kind=action.kind,
-                field="idempotency_key",
-            ),
+        return ctx.fail(
+            "idempotency_conflict",
+            "idempotency_key was already used with different normalized params",
+            field="idempotency_key",
         )
     stale = _running_receipt_stale_result(
         project,
@@ -365,27 +357,16 @@ def _media_enclosure_result_from_existing_receipt(
         return stale
     receipt = Receipt.model_validate(json.loads(existing["body"]))
     if receipt.status == "running":
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_in_progress",
-                message=(
-                    "idempotency_key is already reserved by a running "
-                    "media.enclosure_materialize action"
-                ),
-                action_kind=action.kind,
-                field="idempotency_key",
-                details={"receipt_id": receipt.receipt_id},
-            ),
+        return ctx.fail(
+            "idempotency_in_progress",
+            "idempotency_key is already reserved by a running "
+            "media.enclosure_materialize action",
+            field="idempotency_key",
+            details={"receipt_id": receipt.receipt_id},
         )
     replay_error = _media_enclosure_replay_error(project, receipt)
     if replay_error is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=replay_error,
-        )
+        return ctx.failed(replay_error)
     return _result_from_receipt(receipt)
 
 

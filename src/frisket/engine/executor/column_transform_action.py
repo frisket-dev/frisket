@@ -33,7 +33,7 @@ from frisket.engine.executor.action_receipts import (
     _result_from_receipt,
 )
 from frisket.engine.executor.action_reservations import _receipt_for_idempotency
-from frisket.engine.executor.action_support import _failed_result, _new_id
+from frisket.engine.executor.action_support import ActionCtx, _new_id
 from frisket.engine.executor.map_rows_action import (
     normalized_typed_request_identity,
     typed_request_hash,
@@ -79,11 +79,7 @@ def _error(
 
 
 def _failed(project_id: str, error: ActionError) -> ActionResult:
-    return _failed_result(
-        project_id=project_id,
-        action_kind=str(error.action_kind),
-        error=error,
-    )
+    return ActionCtx(project_id, str(error.action_kind)).failed(error)
 
 
 def _terminal(bound: BoundTypedActionRequest) -> ColumnTransform[Any, Any]:

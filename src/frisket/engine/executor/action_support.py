@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -57,6 +58,25 @@ def _failed_result(
         project_id=project_id,
         errors=[error],
     )
+
+
+@dataclass(frozen=True)
+class ActionCtx:
+    """The project and action kind a host reports its failures under."""
+
+    project_id: str
+    kind: str
+
+    def error(self, code: str, message: str, **fields: Any) -> ActionError:
+        return ActionError(code=code, message=message, action_kind=self.kind, **fields)
+
+    def fail(self, code: str, message: str, **fields: Any) -> ActionResult:
+        return self.failed(self.error(code, message, **fields))
+
+    def failed(self, error: ActionError) -> ActionResult:
+        return _failed_result(
+            project_id=self.project_id, action_kind=self.kind, error=error
+        )
 
 
 def _params_hash(action: ActionSpec) -> str:

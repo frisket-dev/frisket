@@ -37,7 +37,7 @@ from frisket.engine.executor.action_reservations import (
     _receipt_for_idempotency,
     _reserved_receipt_result_from_existing,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
     _TypedExecutionEnvelope,
     _typed_external_cost_error,
@@ -356,17 +356,9 @@ def run_typed_backfill_action(
                 output_fields=tuple(program.output_fields(spec)),
             )
     except BackfillRefused as exc:
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=exc.error
-        )
+        return ActionCtx(project_id, action.kind).failed(exc.error)
     except (TypeError, ValueError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="invalid_params", message=str(exc), action_kind=action.kind
-            ),
-        )
+        return ActionCtx(project_id, action.kind).fail("invalid_params", str(exc))
 
     def receipt(
         current: Project, run_id: int, action_id: str, receipt_id: str

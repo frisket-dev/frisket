@@ -17,7 +17,7 @@ from frisket.engine.executor.action_reservations import (
     _terminalize_claimless_direct_failure,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
 )
 from frisket.engine.executor.temporal_materialization import (
     CoreTemporalMediaMaterializer,
@@ -85,11 +85,7 @@ def _terminalize_extract_failure(
     if stored is not None and any(
         item.ref.get("kind") == "queued_action_job" for item in stored.parsed().inputs
     ):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action_kind,
-            error=error,
-        )
+        return ActionCtx(project_id, action_kind).failed(error)
     return _terminalize_claimless_direct_failure(
         project,
         project_id=project_id,

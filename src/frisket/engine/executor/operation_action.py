@@ -34,7 +34,7 @@ from frisket.engine.executor.action_lifecycle import (
     _child_sheet_deterministic_result_from_existing,
     _run_action_core_spec,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store.op_log import (
     ClaimedOperation,
@@ -353,11 +353,7 @@ def _perform(
     try:
         returned = terminal.handler(params, capability)
     except _Refusal as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=exc.error,
-        )
+        return ActionCtx(project_id, action.kind).failed(exc.error)
     if capability.result is None or returned != capability.result:
         raise TypeError("operation handler must return its capability result")
     invocation.pending_review_count_unchanged = (

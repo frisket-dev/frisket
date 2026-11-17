@@ -64,7 +64,7 @@ from frisket.engine.executor.action_lifecycle import (
     _child_sheet_deterministic_result_from_existing,
     _run_action_core_spec,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.action_receipts import _receipt_ops_are_applied
 from frisket.engine.executor.action_families.imports import _compact_import_rowset_ref
 from frisket.engine.executor.import_sources import open_local_file_reader
@@ -1802,9 +1802,7 @@ def _perform(
     try:
         returned = terminal.handler(params, capability)
     except _Refusal as exc:
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=exc.error
-        )
+        return ActionCtx(project_id, action.kind).failed(exc.error)
     if capability.result is None or returned != capability.result:
         raise TypeError("project mutation handler must return its capability result")
     result, receipt = _family_result_and_receipt(

@@ -44,7 +44,7 @@ from frisket.engine.executor.action_reservations import (
     _reserved_receipt_result_from_existing,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
 )
 from frisket.engine.runner.confirmation_context import (
     ActionScope,
@@ -1325,11 +1325,7 @@ def _run_export_google_sheets(
         confirmation=confirmation,
     )
     if isinstance(admission, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=admission,
-        )
+        return ActionCtx(project_id, action.kind).failed(admission)
     client = admission.client
     connection_for_client = admission.connection
     connection_metadata = _google_sheets_connection_metadata(
@@ -1339,11 +1335,7 @@ def _run_export_google_sheets(
 
     tabs_or_error = _google_sheets_tabs_for_source(project, action, params)
     if isinstance(tabs_or_error, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=tabs_or_error,
-        )
+        return ActionCtx(project_id, action.kind).failed(tabs_or_error)
     tabs = tabs_or_error
     # Receipt helpers consume host-observed operation inputs. The independent
     # canonical request hash above still owns idempotency.

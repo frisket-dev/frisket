@@ -94,7 +94,10 @@ from frisket.engine.executor.action_reservations import (
     _queued_receipt_job_id,
 )
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.executor.action_support import _failed_result, _model_call_units
+from frisket.engine.executor.action_support import (
+    ActionCtx,
+    _model_call_units,
+)
 from frisket.engine.executor.action_support import (
     _external_cost_requires_confirmation_error,
     _model_cost_requires_confirmation_error,
@@ -3974,10 +3977,8 @@ def run_typed_map_rows_action(
     try:
         plan = build_typed_map_rows_plan(project, bound)
     except (TypeError, ValueError, ValidationError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.action_id,
-            error=_typed_plan_error(action.action_id, exc),
+        return ActionCtx(project_id, action.action_id).failed(
+            _typed_plan_error(action.action_id, exc)
         )
 
     return _run_reserved_maprunner_action(

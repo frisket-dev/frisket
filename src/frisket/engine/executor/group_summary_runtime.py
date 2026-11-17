@@ -34,7 +34,7 @@ from frisket.engine.executor.action_reservations import (
     _running_receipt_stale_result,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
     _model_call_provider_use,
 )
 from frisket.engine.executor.project_run_terminalization import (
@@ -68,16 +68,12 @@ def _reduce_group_summary_result_from_existing_receipt(
     project_id: str,
     action: _TypedProjectEnvelope,
 ) -> ActionResult:
+    ctx = ActionCtx(project_id, action.kind)
     if existing["params_hash"] != params_hash:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_conflict",
-                message="idempotency_key was already used with different normalized params",
-                action_kind=action.kind,
-                field="idempotency_key",
-            ),
+        return ctx.fail(
+            "idempotency_conflict",
+            "idempotency_key was already used with different normalized params",
+            field="idempotency_key",
         )
     stale = _running_receipt_stale_result(
         project,
@@ -89,25 +85,16 @@ def _reduce_group_summary_result_from_existing_receipt(
     if stale is not None:
         return stale
     if existing["status"] == "running":
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_in_progress",
-                message="idempotency_key is already reserved by a running reduce.group_summary action",
-                action_kind=action.kind,
-                field="idempotency_key",
-                details={"receipt_id": existing["id"]},
-            ),
+        return ctx.fail(
+            "idempotency_in_progress",
+            "idempotency_key is already reserved by a running reduce.group_summary action",
+            field="idempotency_key",
+            details={"receipt_id": existing["id"]},
         )
     receipt = Receipt.model_validate(json.loads(existing["body"]))
     replay_error = _reduce_group_summary_replay_error(project, receipt)
     if replay_error is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=replay_error,
-        )
+        return ctx.failed(replay_error)
     return _result_from_receipt(receipt)
 
 
@@ -596,6 +583,7 @@ def _write_reduce_group_summary_result(
     computations: list[dict[str, Any]],
     publication,
 ) -> ActionResult:
+    ctx = ActionCtx(project_id, action.kind)
     authority_effect = publication.envelope
     if not any(
         item.get("error") for item in computations
@@ -607,14 +595,9 @@ def _write_reduce_group_summary_result(
         existing = _receipt_for_idempotency(project, action.idempotency_key)
         if existing is None:
             project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="project_write_failed",
-                    message="reduce.group_summary idempotency reservation was lost",
-                    action_kind=action.kind,
-                ),
+            return ctx.fail(
+                "project_write_failed",
+                "reduce.group_summary idempotency reservation was lost",
             )
         if existing["id"] != receipt_id:
             project.db.rollback()
@@ -627,15 +610,10 @@ def _write_reduce_group_summary_result(
             )
         if existing["params_hash"] != params_hash:
             project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="idempotency_conflict",
-                    message="idempotency_key was already used with different normalized params",
-                    action_kind=action.kind,
-                    field="idempotency_key",
-                ),
+            return ctx.fail(
+                "idempotency_conflict",
+                "idempotency_key was already used with different normalized params",
+                field="idempotency_key",
             )
         run_store = RunResultStore(project)
         if authority_effect is not None and run_store.cancellation_requested(
@@ -765,15 +743,7 @@ def _write_reduce_group_summary_result(
             exc_info=True,
             extra={"event": "action_failed", "action_kind": action.kind},
         )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="project write failed",
-                action_kind=action.kind,
-            ),
-        )
+        return ctx.fail("project_write_failed", "project write failed")
 
 
 def _reduce_group_summary_action_status(

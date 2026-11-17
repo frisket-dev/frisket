@@ -22,7 +22,7 @@ from frisket.engine.executor.action_reservations import (
 )
 from frisket.engine.executor.action_support import (
     _estimate_confirmation_reason,
-    _failed_result,
+    ActionCtx,
 )
 from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
 from frisket.engine.executor import group_summary_runtime as runtime
@@ -188,14 +188,12 @@ def run_typed_group_summary_action(
         if prepared is None:
             prepared = prepare_group_summary_action(project, bound)
     except (TypeError, ValueError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=exc.error
+        return ActionCtx(project_id, action.kind).failed(
+            exc.error
             if isinstance(exc, GroupSummaryRefused)
             else ActionError(
                 code="invalid_params", message=str(exc), action_kind=action.kind
-            ),
+            )
         )
     estimate = rate_estimate(prepared.estimate, policy=default_pricing_policy())
     price = quoted_usd(estimate)
@@ -244,30 +242,19 @@ def run_typed_group_summary_action(
             project.effective_network_policy() == "off"
             and provider_from_model_id(prepared.operation.model) != "ollama"
         ):
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="network_disabled",
-                    message="Project network access is disabled",
-                    action_kind=action.kind,
-                ),
+            return ActionCtx(project_id, action.kind).fail(
+                "network_disabled", "Project network access is disabled"
             )
         try:
             assert_provider_spend_cap(
                 project, provider_from_model_id(prepared.operation.model)
             )
         except ProviderKeyRefusal as exc:
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code=exc.error_code,
-                    message=exc.action_message(),
-                    action_kind=action.kind,
-                    field=exc.field,
-                    details=dict(exc.details),
-                ),
+            return ActionCtx(project_id, action.kind).fail(
+                exc.error_code,
+                exc.action_message(),
+                field=exc.field,
+                details=dict(exc.details),
             )
     if recovery_run is not None:
         reservation = {
@@ -316,9 +303,7 @@ def run_typed_group_summary_action(
         if isinstance(computations, ActionError):
             if publication.envelope is None and recovery_run is None:
                 ReceiptStore(project).delete_running(reservation["receipt_id"])
-            return _failed_result(
-                project_id=project_id, action_kind=action.kind, error=computations
-            )
+            return ActionCtx(project_id, action.kind).failed(computations)
         result = runtime._write_reduce_group_summary_result(
             project,
             action,
@@ -344,11 +329,7 @@ def run_typed_group_summary_action(
             if isinstance(exc, (GroupPublicationError, ResultEvidenceWriteFailed))
             else "model_run_failed"
         )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(code=code, message=str(exc), action_kind=action.kind),
-        )
+        return ActionCtx(project_id, action.kind).fail(code, str(exc))
     finally:
         publication.close()
         prepared.resolved["groups"].close()

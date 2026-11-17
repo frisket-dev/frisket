@@ -16,7 +16,7 @@ from types import MappingProxyType
 from frisket.actions.types import Row, Rows, RowError, RowResult
 from frisket.contracts.action import ActionError, ActionIdentity, ActionResult
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlanError,
     _TypedMapBatchProgram,
@@ -469,11 +469,7 @@ def run_inferred_batch(
                 else str(exc),
                 action_kind=bound.action.action_id,
             )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=bound.action.action_id,
-            error=error,
-        )
+        return ActionCtx(project_id, bound.action.action_id).failed(error)
 
     def factory(current, current_router):
         runner = map_runner_factory(current, current_router)

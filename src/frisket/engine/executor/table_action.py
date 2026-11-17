@@ -74,7 +74,7 @@ from frisket.engine.executor.action_receipts import (
     _positive_ref_int,
 )
 from frisket.engine.executor.action_families._errors import receipt_stale_replay_error
-from frisket.engine.executor.action_support import _failed_result, _new_id
+from frisket.engine.executor.action_support import ActionCtx, _new_id
 from frisket.engine.executor.action_jobs import ActionJobTerminalizationError
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.executor.action_reservations import _receipt_for_idempotency
@@ -1110,9 +1110,7 @@ def run_table_source(
             if result.status == "completed":
                 error = _table_replay_error(project, existing.parsed())
                 if error is not None:
-                    return _failed_result(
-                        project_id=project_id, action_kind=envelope.kind, error=error
-                    )
+                    return ActionCtx(project_id, envelope.kind).failed(error)
             return result
         return replay(
             project,
@@ -1371,9 +1369,7 @@ def run_table_source(
                     stager.close()
             finally:
                 publication_resources.close()
-    result = _failed_result(
-        project_id=project_id, action_kind=envelope.kind, error=error
-    )
+    result = ActionCtx(project_id, envelope.kind).failed(error)
     if error.code == "action_cancelled":
         return result.model_copy(update={"status": "cancelled"})
     return result
@@ -1464,9 +1460,7 @@ def _run_reserved_table(
             action_kind=action.kind,
         )
     if not owns_receipt:
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=error
-        )
+        return ActionCtx(project_id, action.kind).failed(error)
     return _terminalize_claimless_direct_failure(
         project,
         project_id=project_id,
@@ -1543,6 +1537,7 @@ def _perform_table_in_txn(
     params_hash: str,
     resolved: dict[str, Any],
 ) -> ActionResult:
+    ctx = ActionCtx(project_id, action.kind)
     projections = resolved.get("projection_readers", ())
     for reader in projections:
         reader.revalidate()
@@ -1557,19 +1552,11 @@ def _perform_table_in_txn(
             elif fact.get("kind") == "joined_tables_source":
                 validate_joined_tables_source(project, fact)
     except TableError as error:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code=error.code, message=str(error), action_kind=action.kind
-            ),
-        )
+        return ctx.fail(error.code, str(error))
     table = resolved["materialization"]
     duplicate = _duplicate_sheet_error(project, action.kind, table.sheet_name)
     if duplicate is not None:
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=duplicate
-        )
+        return ctx.failed(duplicate)
     sources = resolved["sources"]
     parent_sheet_id = resolved["parent_sheet_id"]
     if parent_sheet_id is None:
@@ -1586,9 +1573,7 @@ def _perform_table_in_txn(
         )
     rows = _preflight_table_rows(project, table, action_kind=action.kind)
     if isinstance(rows, ActionError):
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=rows
-        )
+        return ctx.failed(rows)
     list_reader = resolved.get("list_reader")
     resolved_output_names = resolved.get("resolved_output_names", {})
     roles = resolved.get("source_roles", {})

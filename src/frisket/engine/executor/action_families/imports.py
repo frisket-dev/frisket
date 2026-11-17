@@ -21,7 +21,7 @@ from frisket.contracts.action import (
     canonical_column_type,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import (
@@ -123,9 +123,7 @@ def _perform_import_rows_in_txn(
         else "params.rows",
     )
     if isinstance(validated_rows, ActionError):
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=validated_rows
-        )
+        return ActionCtx(project_id, action.kind).failed(validated_rows)
 
     source = (
         materialization.source.model_dump(mode="json")

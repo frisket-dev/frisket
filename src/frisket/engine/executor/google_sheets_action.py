@@ -18,7 +18,7 @@ from frisket.engine.executor.action_jobs import (
     probe_queued_action_job_receipt,
     reserve_queued_action_job_receipt,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store.receipts import ReceiptStore
 
@@ -45,14 +45,8 @@ def _prepare(bound: BoundTypedActionRequest) -> GoogleSheetsExportRequest:
 
 
 def _producer_error(bound: BoundTypedActionRequest, project_id: str) -> ActionResult:
-    return _failed_result(
-        project_id=project_id,
-        action_kind=bound.action.action_id,
-        error=ActionError(
-            code="invalid_params",
-            message="The Google Sheets export producer returned invalid intent.",
-            action_kind=bound.action.action_id,
-        ),
+    return ActionCtx(project_id, bound.action.action_id).fail(
+        "invalid_params", "The Google Sheets export producer returned invalid intent."
     )
 
 
@@ -131,9 +125,7 @@ def prepare_google_sheets_action_job(
         confirmation=bound.request.confirmation,
     )
     if isinstance(admission, ActionError):
-        return _failed_result(
-            project_id=project_id, action_kind=identity.kind, error=admission
-        )
+        return ActionCtx(project_id, identity.kind).failed(admission)
     pinned = {
         "kind": _INTENT_KIND,
         "params_hash": request_hash,
@@ -169,6 +161,7 @@ def run_google_sheets_action_job(
     execution,
     deps: ExecutorDeps | None = None,
 ) -> ActionResult:
+    ctx = ActionCtx(envelope.project_id, envelope.action_kind)
     from frisket.engine.executor.action_families.exports import (
         _run_export_google_sheets,
         _emit_export_notification,
@@ -206,14 +199,9 @@ def run_google_sheets_action_job(
             raise ValueError("export intent does not match its reserved receipt")
         intent = GoogleSheetsExportRequest.model_validate(pins[0]["intent"])
     except (KeyError, TypeError, ValueError):
-        return _failed_result(
-            project_id=envelope.project_id,
-            action_kind=envelope.action_kind,
-            error=ActionError(
-                code="invalid_action_request",
-                message="Google Sheets job intent does not match its reservation.",
-                action_kind=envelope.action_kind,
-            ),
+        return ctx.fail(
+            "invalid_action_request",
+            "Google Sheets job intent does not match its reservation.",
         )
     execution.check()
     result = _run_export_google_sheets(
@@ -231,10 +219,8 @@ def run_google_sheets_action_job(
         skip_replay=True,
     )
     if result.status == "needs_confirmation" and result.errors:
-        result = _failed_result(
-            project_id=envelope.project_id,
-            action_kind=envelope.action_kind,
-            error=result.errors[0].model_copy(update={"needs_confirmation": False}),
+        result = ctx.failed(
+            result.errors[0].model_copy(update={"needs_confirmation": False})
         )
     _emit_export_notification(project, result)
     return result
