@@ -13,18 +13,23 @@ on:
         description: "Electron version embedded in the verified installer"
         value: ${{ jobs.signed-installed-proof.outputs.desktop_version }}
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# Each merge group has its own queue ref; a queue run is never cancelled.
 concurrency:
   group: desktop-windows-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
+  # The queue run gates what lands on main, so it always runs the installed
+  # proof; pull requests keep path-aware selection.
   changes:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
@@ -35,8 +40,13 @@ jobs:
           fetch-depth: 0
       - id: paths
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          if [ "$EVENT_NAME" = merge_group ]; then
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           files="$(git diff --name-only "$BASE_SHA" HEAD)"
           if grep -E '^(desktop/|src/frisket/|web/|sdk/|sidecar/|pyproject\.toml$|uv\.lock$|\.github/workflows/desktop-windows\.yml$)' <<< "$files" >/dev/null; then
             echo 'relevant=true' >> "$GITHUB_OUTPUT"
@@ -46,7 +56,7 @@ jobs:
 
   installed-app:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.relevant == 'true'
     runs-on: windows-2022
     timeout-minutes: 75
     steps:
@@ -428,7 +438,7 @@ jobs:
 
   desktop-windows-ci:
     name: desktop-windows-ci
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
     needs: [changes, installed-app]
     runs-on: ubuntu-latest
     steps:

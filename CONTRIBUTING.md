@@ -387,6 +387,24 @@ outside the repository and shared by all worktrees: `--store`, else
 `$FRISKET_SMELL_STORE`, else `~/.cache/frisket/smells/`; it holds one JSON file
 per entry, so pointing it at a private notes repository merges cleanly.
 
+### Merge queue
+
+When `main` requires the merge queue, a PR no longer has to be up to date
+with `main` to land. `gh pr merge <pr> --squash --auto` (or "Merge when
+ready" in the UI) enqueues it once its PR checks pass. The queue tests each
+entry on a temporary `gh-readonly-queue/main/...` commit that combines it with
+`main` and every entry ahead of it, runs the complete suite there (the
+`merge_group` event; PR runs keep path-aware selection), and squash-merges up
+to five entries together once all of their runs pass. A failing entry is
+removed and the entries behind it are retested without it.
+
+Every workflow that produces a required check also runs on `merge_group` and
+reports the same check name there. The `ci`, `docker` and portability push
+runs on `main` then ask `queue-tested.yml` whether that exact commit already
+passed in the queue; if so their test jobs skip and the run still succeeds,
+otherwise
+(a direct push, or the queue disabled) it runs the complete suite as before.
+
 ### Reviewing model and pricing updates
 
 Pricing refresh and model discovery are separate workflows. Both run on a
