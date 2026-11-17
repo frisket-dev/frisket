@@ -105,6 +105,12 @@ export default defineConfig([
           selector: "NewExpression[callee.type='MemberExpression'][callee.computed=true][callee.property.type='Literal'][callee.property.value=/^(XMLHttpRequest|EventSource|WebSocket)$/]",
           message: 'Keep browser transport constructors behind an approved API adapter.',
         },
+        // Provenance URL fields carry strings recorded from scraped or imported
+        // material; React renders a `javascript:` href as-is.
+        {
+          selector: "JSXAttribute[name.name=/^(href|src)$/] :matches(JSXExpressionContainer > MemberExpression, JSXExpressionContainer > ChainExpression > MemberExpression)[property.name=/^(source_url|canonical_url|deep_link_url|webpage_url)$/]",
+          message: 'Untrusted provenance URL: pass it through safeHttpUrl (core/safeUrl.ts) and render text when it returns null.',
+        },
       ],
     },
   },
