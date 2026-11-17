@@ -34,6 +34,7 @@ from frisket.ai.models import artifact_manifest
 from frisket.ai.models.artifact_manifest import (
     PARAKEET_MODEL_HF_REPO as PARAKEET_MODEL_REPO,
     PARAKEET_VAD_HF_REPO as PARAKEET_VAD_REPO,
+    PinnedArtifact,
 )
 
 from .parakeet_model import (
@@ -245,6 +246,22 @@ def _cached_snapshot(
             files=files,
         )
     except ParakeetArtifactUnavailable:
+        return None
+
+
+def cached_pinned_snapshot(artifact: PinnedArtifact) -> Path | None:
+    """Return the verified cached ``hf_snapshot`` of a pinned artifact, if present."""
+    snapshot = artifact.hf_snapshot
+    assert snapshot is not None
+    cache_dir = huggingface_hub_cache()
+    try:
+        return _cached_snapshot(
+            cache_dir=cache_dir,
+            repo_id=snapshot.repo_id,
+            revision=snapshot.revision,
+            files=snapshot.files,
+        )
+    except OSError:
         return None
 
 

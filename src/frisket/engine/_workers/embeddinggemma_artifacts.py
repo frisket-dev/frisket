@@ -6,11 +6,7 @@ from pathlib import Path
 
 from frisket.ai.models.artifact_manifest import PinnedArtifact, lookup
 from frisket.engine._workers.embeddinggemma_model import MODEL_REF
-from frisket.engine._workers.parakeet_artifacts import (
-    ParakeetArtifactUnavailable,
-    _validate_snapshot,
-    huggingface_hub_cache,
-)
+from frisket.engine._workers.parakeet_artifacts import cached_pinned_snapshot
 from frisket.runtime.embeddinggemma_install import is_installed
 
 
@@ -22,25 +18,7 @@ def embeddinggemma_artifact() -> PinnedArtifact:
 
 
 def cached_embeddinggemma_path() -> Path | None:
-    snapshot = embeddinggemma_artifact().hf_snapshot
-    assert snapshot is not None
-    cache = huggingface_hub_cache()
-    path = (
-        cache
-        / f"models--{snapshot.repo_id.replace('/', '--')}"
-        / "snapshots"
-        / snapshot.revision
-    )
-    try:
-        return _validate_snapshot(
-            path,
-            cache_dir=cache,
-            repo_id=snapshot.repo_id,
-            revision=snapshot.revision,
-            files=snapshot.files,
-        )
-    except (OSError, ParakeetArtifactUnavailable):
-        return None
+    return cached_pinned_snapshot(embeddinggemma_artifact())
 
 
 def embeddinggemma_ready() -> bool:
