@@ -1,4 +1,4 @@
-import { CompareToolbar, CompareEngineChip, CompareResultColumn } from './CompareLayout';
+import { CompareToolbar, CompareResultColumn } from './CompareLayout';
 import { CompareRunControl } from './CompareRunControl';
 import './TopicSegmentationCompareTab.css';
 import { Button } from '../components/Button';
@@ -10,9 +10,6 @@ import {
   useState,
   type DragEvent,
 } from 'react';
-import {
-  Plus,
-} from 'lucide-react';
 
 import type { ProjectApi } from '../api/ports';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -24,7 +21,7 @@ import type {
 import { engineUnavailableReason } from '../actions/engineCatalog';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { SegmentedToggle } from '../components/PanelPrimitives';
-import { CompareBillableEnginesNote, ConfigureVariantPopover } from './MediaCompareShell';
+import { CompareBillableEnginesNote, CompareVariantChips } from './MediaCompareShell';
 import {
   CompareColumnsState,
   CompareDocList,
@@ -38,7 +35,6 @@ import {
   PEEK_MAX_WIDTH,
   PEEK_MIN_WIDTH,
   useMediaCompareSession,
-  variantPip,
   type CompareColumn,
   type EngineRunState,
   type MediaCompareConfig,
@@ -180,11 +176,7 @@ export function TopicSegmentationCompareTab({
     }
   }, [addEngineColumn, catalog]);
 
-  const {
-    configureVariantId: configureColumnId, configureAnchorRef, configurePopoverRef,
-    engineSelectorRef, popoverShift, openConfigure, showConfigure, addVariant,
-    onRemoveVariant: removeVariant, onChooseEngine, onDuplicate,
-  } = useCompareVariantConfigure(session);
+  const variantEditor = useCompareVariantConfigure(session);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const moreInputRef = useRef<HTMLInputElement>(null);
   const sourceUnitsRef = useRef<HTMLDivElement>(null);
@@ -237,6 +229,13 @@ export function TopicSegmentationCompareTab({
   }, [session]);
   const noAvailableEngines = runnableColumns.length === 0 && catalog.length > 0 && catalog.every((engine) => engine.available === false);
 
+  function variantSummary(column: CompareColumn): string {
+    const detail = detailOf(column);
+    const duplicateEngine =
+      columns.filter((candidate) => candidate.engineId === column.engineId).length > 1;
+    return detail !== 'balanced' || duplicateEngine ? detail : '';
+  }
+
   return (
     <section className="ocr-compare-tab topic-compare-tab" data-testid="topic-compare-tab">
       {session.selectorOwners}
@@ -284,61 +283,24 @@ export function TopicSegmentationCompareTab({
           actionLabel="the Find topic sections action"
         />}
       >
-        {columns.map((column) => {
-          const run = activeDoc?.runs[column.id];
-          const pip = variantPip(column, run);
-          const detail = detailOf(column);
-          const duplicateEngine =
-            columns.filter((candidate) => candidate.engineId === column.engineId).length > 1;
-          const summary = detail !== 'balanced' || duplicateEngine ? detail : '';
-          const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
-          return (
-            <div
-              className="ocr-compare-variant"
-              key={column.id}
-              ref={configureColumnId === column.id ? configureAnchorRef : undefined}
-            >
-              <CompareEngineChip testIdPrefix="topic-compare" engine={chipEngine}
-                engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
-                pip={pip} summary={summary}
-                onBodyClick={() => openConfigure(column.id)}
-                onConfigure={() => showConfigure(column.id)}
-                onRemove={() => removeVariant(column.id)} />
-              {configureColumnId === column.id ? (
-                <ConfigureVariantPopover
-                  selectorProjection={session.selectorProjection(column)}
-                  testidPrefix="topic-compare"
-                  actionId="map.find_topic_sections"
-                  popoverRef={configurePopoverRef}
-                  style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
-                  column={column}
-                  catalog={catalog}
-                  engineSelectorRef={engineSelectorRef}
-                  errorMessage={run?.status === 'error' ? run.message : null}
-                  onChooseEngine={(engineId) => onChooseEngine(column.id, engineId)}
-                  onDuplicate={() => onDuplicate(column.id)}
-                  renderOptionFields={() => (
-                    <TopicVariantOptions
-                      detail={detail}
-                      onChange={(nextDetail) => updateColumnOptions(column.id, {
-                        detail: nextDetail,
-                      })}
-                    />
-                  )}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          className="ocr-compare-add-engine engine-tier-chip"
-          data-testid="topic-compare-add-variant"
-          disabled={catalog.length === 0 || noAvailableEngines}
-          onClick={addVariant}
-        >
-          <Plus size={12} /> Variant
-        </button>
+        <CompareVariantChips
+          session={session}
+          editor={variantEditor}
+          testidPrefix="topic-compare"
+          actionId="map.find_topic_sections"
+          summary={variantSummary}
+          gearOnlyOpens
+          addLabel="Variant"
+          addDisabled={catalog.length === 0 || noAvailableEngines}
+          renderOptionFields={(col) => (
+            <TopicVariantOptions
+              detail={detailOf(col)}
+              onChange={(nextDetail) => updateColumnOptions(col.id, {
+                detail: nextDetail,
+              })}
+            />
+          )}
+        />
       </CompareToolbar>
 
       {noAvailableEngines ? (

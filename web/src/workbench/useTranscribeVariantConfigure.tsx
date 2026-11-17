@@ -36,6 +36,5 @@ export function useTranscribeVariantConfigure(
     [],
   );
 
-  return { ...editor, onConfigureChooseEngine: editor.onChooseEngine,
-    onConfigureDuplicate: editor.onDuplicate, renderSourcePeek };
+  return { ...editor, renderSourcePeek };
 }
