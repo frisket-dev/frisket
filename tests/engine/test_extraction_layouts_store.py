@@ -18,7 +18,9 @@ from frisket.contracts.http.document_extraction import (
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import extraction_layouts as layouts
+from frisket.upgrades.project import chain
 from frisket.upgrades.project import extraction_layouts_migration as migration
+from frisket.upgrades.project._step import ddl_statements
 from frisket.upgrades.project.extraction_layouts_migration import (
     EXTRACTION_LAYOUTS_FROM_DIGEST,
 )
@@ -399,16 +401,26 @@ def test_layout_migration_refuses_preexisting_tables_without_stamping(tmp_path):
 def test_layout_migration_rejects_unfinished_statement_atomically(
     tmp_path, monkeypatch
 ):
+    unfinished = (
+        migration._EXTRACTION_LAYOUTS_MIGRATION_SQL + "\nCREATE TABLE unfinished ("
+    )
+    with pytest.raises(RuntimeError, match="Incomplete migration DDL"):
+        ddl_statements(unfinished)
+
     path = tmp_path / "project"
     _prior_layout_bundle(path)
+    from_digest, to_digest, statements = migration.EXTRACTION_LAYOUTS_STEP
     monkeypatch.setattr(
-        migration,
-        "_EXTRACTION_LAYOUTS_MIGRATION_SQL",
-        migration._EXTRACTION_LAYOUTS_MIGRATION_SQL + "\nCREATE TABLE unfinished (",
+        chain,
+        "_STEPS_BEFORE_PREPARED_CONTENT",
+        tuple(
+            (from_digest, to_digest, (*statements, "CREATE TABLE unfinished ("))
+            if step is migration.EXTRACTION_LAYOUTS_STEP
+            else step
+            for step in chain._STEPS_BEFORE_PREPARED_CONTENT
+        ),
     )
-    with pytest.raises(
-        RuntimeError, match="incomplete extraction layouts migration DDL"
-    ):
+    with pytest.raises(sqlite3.OperationalError, match="incomplete input"):
         Project(path)
     with sqlite3.connect(path / "project.db") as db:
         assert (

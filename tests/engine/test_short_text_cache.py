@@ -9,10 +9,11 @@ import pytest
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.short_text_cache_migration import (
     SHORT_TEXT_CACHE_FROM_DIGEST,
     SHORT_TEXT_CACHE_TO_DIGEST,
-    migrate_short_text_cache,
+    SHORT_TEXT_CACHE_STEP,
 )
 from frisket.querysets import (
     resolve_sheet_filter_rows,
@@ -98,7 +99,7 @@ def test_upgrade_preserves_prepared_refs_and_reopens(tmp_path):
             else sqlite3.SQLITE_OK
         )
     )
-    migrate_short_text_cache(p.db)
+    run_step(p.db, *SHORT_TEXT_CACHE_STEP)
     p.db.set_authorizer(None)
     assert (
         dict(
@@ -182,7 +183,7 @@ def test_upgrade_rolls_back_cache_and_stamp_on_index_failure(tmp_path):
             )
         )
         with pytest.raises(sqlite3.DatabaseError):
-            migrate_short_text_cache(p.db)
+            run_step(p.db, *SHORT_TEXT_CACHE_STEP)
         p.db.set_authorizer(None)
         assert p.get_meta(SCHEMA_DIGEST_META_KEY) == SHORT_TEXT_CACHE_FROM_DIGEST
         assert (
@@ -191,7 +192,7 @@ def test_upgrade_rolls_back_cache_and_stamp_on_index_failure(tmp_path):
             ).fetchone()[0]
             is None
         )
-        migrate_short_text_cache(p.db)
+        run_step(p.db, *SHORT_TEXT_CACHE_STEP)
         assert (
             p.db.execute(
                 "SELECT value FROM current_cell_values WHERE column_id=?", (c,)

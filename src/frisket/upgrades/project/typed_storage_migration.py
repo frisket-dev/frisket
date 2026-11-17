@@ -3,9 +3,7 @@
 from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
-from pathlib import Path
-from frisket.engine.store.disk_capacity import require_disk_headroom
-from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST_META_KEY
+from frisket.engine.store.schema import BundleSchemaMismatch
 from frisket.upgrades.project.typed_storage_migration_schema import (
     TYPED_STORAGE_STATEMENTS,
 )
@@ -83,123 +81,73 @@ def _copy_typed_authority(
     return copied
 
 
-def migrate_typed_values(
-    db: sqlite3.Connection, *, bundle_path: str | Path, from_digest: str
-) -> None:
+def replace_payload_authorities(db: sqlite3.Connection) -> None:
     """Replace JSON payload copies with native typed authority values once."""
+    current_count = int(db.execute("SELECT COUNT(*) FROM current_cells").fetchone()[0])
+    # Release the duplicated payload projection before allocating typed
+    # authority pages. It is rebuildable from the three authorities.
+    db.execute("DROP TABLE current_cells")
 
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != from_digest:
-        return
+    authority_objects = db.execute(
+        "SELECT type,sql FROM sqlite_master "
+        "WHERE tbl_name IN ('cells','results','edits') "
+        "AND type IN ('index','trigger') AND sql IS NOT NULL "
+        "ORDER BY CASE type WHEN 'index' THEN 0 ELSE 1 END,name"
+    ).fetchall()
+    for table in ("cells", "results", "edits"):
+        replacement = f"{table}_typed_new"
+        db.execute(_typed_table_ddl(table, replacement))
+        _copy_typed_authority(db, table=table, replacement=replacement)
 
-    page_count = int(db.execute("PRAGMA page_count").fetchone()[0])
-    page_size = int(db.execute("PRAGMA page_size").fetchone()[0])
-    # One old+new authority copy plus rollback journal/WAL is the conservative
-    # peak. The projection is dropped first inside the transaction so SQLite
-    # can reuse its pages, but the preflight does not rely on that saving.
-    require_disk_headroom(
-        Path(bundle_path).parent,
-        2 * page_count * page_size,
+    for table in ("cells", "results", "edits"):
+        db.execute(f"DROP TABLE {table}")
+        db.execute(f"ALTER TABLE {table}_typed_new RENAME TO {table}")
+    for _object_type, statement in authority_objects:
+        db.execute(str(statement))
+    # These two historical triggers enumerate semantic payload fields;
+    # reinstall their typed definitions so value_kind cannot change
+    # independently of a published value.
+    for trigger in (
+        "trg_results_semantic_update_open_generation",
+        "trg_results_published_semantics_immutable",
+    ):
+        db.execute(f"DROP TRIGGER {trigger}")
+        db.execute(TYPED_STORAGE_STATEMENTS[f"CREATE TRIGGER IF NOT EXISTS {trigger}"])
+
+    db.execute(_typed_table_ddl("current_cells", "current_cells"))
+    db.execute("CREATE INDEX idx_current_cells_row ON current_cells(row_id,column_id)")
+    db.execute(
+        "CREATE UNIQUE INDEX idx_current_cells_column_row "
+        "ON current_cells(column_id,row_id)"
+    )
+    from frisket.upgrades.project.historical_current_cells import (
+        rebuild_current_cells,
     )
 
-    foreign_keys = int(db.execute("PRAGMA foreign_keys").fetchone()[0])
-    legacy_alter = int(db.execute("PRAGMA legacy_alter_table").fetchone()[0])
-    db.execute("PRAGMA foreign_keys=OFF")
-    db.execute("PRAGMA legacy_alter_table=ON")
-    try:
-        db.execute("BEGIN IMMEDIATE")
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == from_digest:
-            current_count = int(
-                db.execute("SELECT COUNT(*) FROM current_cells").fetchone()[0]
-            )
-            # Release the duplicated payload projection before allocating typed
-            # authority pages. It is rebuildable from the three authorities.
-            db.execute("DROP TABLE current_cells")
+    rebuilt = rebuild_current_cells(db)
+    if rebuilt != current_count:
+        raise BundleSchemaMismatch(
+            "typed storage migration rebuilt a different number of current "
+            f"cells ({rebuilt}, expected {current_count})"
+        )
+    db.execute(
+        TYPED_STORAGE_STATEMENTS["CREATE VIEW IF NOT EXISTS current_cell_values"]
+    )
+    from frisket.engine.store.citation_text import install_citation_text_schema
 
-            authority_objects = db.execute(
-                "SELECT type,sql FROM sqlite_master "
-                "WHERE tbl_name IN ('cells','results','edits') "
-                "AND type IN ('index','trigger') AND sql IS NOT NULL "
-                "ORDER BY CASE type WHEN 'index' THEN 0 ELSE 1 END,name"
-            ).fetchall()
-            for table in ("cells", "results", "edits"):
-                replacement = f"{table}_typed_new"
-                db.execute(_typed_table_ddl(table, replacement))
-                _copy_typed_authority(db, table=table, replacement=replacement)
-
-            for table in ("cells", "results", "edits"):
-                db.execute(f"DROP TABLE {table}")
-                db.execute(f"ALTER TABLE {table}_typed_new RENAME TO {table}")
-            for _object_type, statement in authority_objects:
-                db.execute(str(statement))
-            # These two historical triggers enumerate semantic payload fields;
-            # reinstall their typed definitions so value_kind cannot change
-            # independently of a published value.
-            for trigger in (
-                "trg_results_semantic_update_open_generation",
-                "trg_results_published_semantics_immutable",
-            ):
-                db.execute(f"DROP TRIGGER {trigger}")
-                db.execute(
-                    TYPED_STORAGE_STATEMENTS[f"CREATE TRIGGER IF NOT EXISTS {trigger}"]
-                )
-
-            db.execute(_typed_table_ddl("current_cells", "current_cells"))
-            db.execute(
-                "CREATE INDEX idx_current_cells_row ON current_cells(row_id,column_id)"
-            )
-            db.execute(
-                "CREATE UNIQUE INDEX idx_current_cells_column_row "
-                "ON current_cells(column_id,row_id)"
-            )
-            from frisket.upgrades.project.historical_current_cells import (
-                rebuild_current_cells,
-            )
-
-            rebuilt = rebuild_current_cells(db)
-            if rebuilt != current_count:
-                raise BundleSchemaMismatch(
-                    "typed storage migration rebuilt a different number of current "
-                    f"cells ({rebuilt}, expected {current_count})"
-                )
-            db.execute(
-                TYPED_STORAGE_STATEMENTS[
-                    "CREATE VIEW IF NOT EXISTS current_cell_values"
-                ]
-            )
-            from frisket.engine.store.citation_text import install_citation_text_schema
-
-            install_citation_text_schema(db)
-            migrate_legacy_citation_texts(db)
-            visible = int(
-                db.execute("SELECT COUNT(*) FROM current_cell_values").fetchone()[0]
-            )
-            if visible != current_count:
-                raise BundleSchemaMismatch(
-                    "typed storage migration left unresolved current-cell heads "
-                    f"({visible}, expected {current_count})"
-                )
-            violations = db.execute("PRAGMA foreign_key_check").fetchall()
-            if violations:
-                raise BundleSchemaMismatch(
-                    "typed storage migration found invalid foreign-key relationships"
-                )
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (TYPED_VALUES_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-    finally:
-        db.execute(f"PRAGMA legacy_alter_table={legacy_alter}")
-        db.execute(f"PRAGMA foreign_keys={foreign_keys}")
+    install_citation_text_schema(db)
+    migrate_legacy_citation_texts(db)
+    visible = int(db.execute("SELECT COUNT(*) FROM current_cell_values").fetchone()[0])
+    if visible != current_count:
+        raise BundleSchemaMismatch(
+            "typed storage migration left unresolved current-cell heads "
+            f"({visible}, expected {current_count})"
+        )
+    violations = db.execute("PRAGMA foreign_key_check").fetchall()
+    if violations:
+        raise BundleSchemaMismatch(
+            "typed storage migration found invalid foreign-key relationships"
+        )
 
 
 def migrate_legacy_json_value(encoded: str | None) -> tuple[str, SQLiteValue]:

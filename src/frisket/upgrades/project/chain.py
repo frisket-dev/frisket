@@ -12,40 +12,42 @@ from frisket.engine.store.schema import (
     BundleSchemaMismatch,
     REVIEW_OUTPUT_ROLES_META_KEY,
     REVIEW_OUTPUT_ROLES_VERSION,
-    SCHEMA_DIGEST_META_KEY,
+)
+from frisket.upgrades.project._step import (
+    SchemaStep,
+    execute_ddl,
+    run_rebuild_step,
+    run_step,
 )
 from frisket.upgrades.project.typed_storage_migration import (
-    migrate_typed_values as _migrate_typed_values,
+    TYPED_VALUES_TO_DIGEST,
+    replace_payload_authorities,
 )
-from frisket.upgrades.project.review_stats_migration import (
-    migrate_review_stats as _migrate_review_stats,
-)
+from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_STEP
 from frisket.upgrades.project.review_confidence_migration import (
-    migrate_review_confidence as _migrate_review_confidence,
+    REVIEW_CONFIDENCE_STEP,
 )
 from frisket.upgrades.project.scalar_storage_migration import (
-    migrate_scalar_current_values as _migrate_scalar_current_values,
+    SCALAR_CURRENT_VALUES_STEP,
 )
 from frisket.upgrades.project.extraction_layouts_migration import (
-    migrate_extraction_layouts,
+    EXTRACTION_LAYOUTS_STEP,
 )
 from frisket.upgrades.project.prepared_content_migration import (
-    migrate_prepared_content as _migrate_prepared_content,
+    PREPARED_CONTENT_STEP,
 )
 from frisket.upgrades.project.retrieval_lifecycle_migration import (
-    migrate_retrieval_lifecycle as _migrate_retrieval_lifecycle,
+    RETRIEVAL_LIFECYCLE_STEP,
 )
 from frisket.upgrades.project.execution_metadata_migration import (
-    migrate_execution_metadata as _migrate_execution_metadata,
+    EXECUTION_METADATA_STEP,
 )
-from frisket.upgrades.project.document_text_migration import (
-    migrate_document_text as _migrate_document_text,
-)
+from frisket.upgrades.project.document_text_migration import DOCUMENT_TEXT_STEP
 from frisket.engine.store.pdf_split_schema import PDF_SPLIT_SCHEMA_SQL
-from frisket.upgrades.project.short_text_cache_migration import migrate_short_text_cache
-from frisket.upgrades.project.evaluation_migration import migrate_evaluation
+from frisket.upgrades.project.short_text_cache_migration import SHORT_TEXT_CACHE_STEP
+from frisket.upgrades.project.evaluation_migration import EVALUATION_STEP
 from frisket.upgrades.project.action_submissions_migration import (
-    migrate_action_submissions,
+    ACTION_SUBMISSIONS_STEP,
 )
 from frisket.upgrades.project.domain_migration import migrate_domain
 
@@ -128,655 +130,373 @@ _PDF_SPLIT_TO_DIGEST = "frisket.schema.v1:bd1859c234b8d13f81e7c64a694579a2"
 
 
 def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None:
-    _migrate_receipt_attempts(db)
-    _migrate_cost_preapproval(db)
-    _migrate_review_metadata(db)
-    _migrate_current_cells(db)
-    _migrate_cell_validity(db)
-    _migrate_project_qa(db)
-    _migrate_run_review_status(db)
-    _migrate_project_qa_research(db)
-    _migrate_import_sessions(db)
-    _migrate_search_work(db)
-    _migrate_index_hygiene(db)
-    _migrate_rowid_cell_layout(db)
-    _migrate_active_columns(db)
-    _migrate_typed_values(
+    for step in _STEPS_BEFORE_COLUMN_REBUILD:
+        run_step(db, *step)
+    run_rebuild_step(db, *_ACTIVE_COLUMNS_STEP)
+    run_rebuild_step(
         db,
+        _TYPED_VALUES_FROM_DIGEST,
+        TYPED_VALUES_TO_DIGEST,
+        replace_payload_authorities,
         bundle_path=bundle_path,
-        from_digest=_TYPED_VALUES_FROM_DIGEST,
     )
-    _migrate_review_stats(db)
-    _migrate_review_confidence(db)
-    _migrate_scalar_current_values(db)
-    migrate_extraction_layouts(db)
-    _migrate_prepared_content(db, bundle_path=bundle_path)
-    _migrate_retrieval_lifecycle(db, bundle_path=bundle_path)
-    _migrate_execution_metadata(db, bundle_path=bundle_path)
-    _migrate_document_text(db, bundle_path=bundle_path)
-    _migrate_import_session_rows(db)
-    _migrate_ocr_review_roles(db)
-    _migrate_pdf_split(db)
-    migrate_short_text_cache(db)
-    migrate_evaluation(db)
-    migrate_action_submissions(db)
+    for step in _STEPS_BEFORE_PREPARED_CONTENT:
+        run_step(db, *step)
+    run_rebuild_step(db, *PREPARED_CONTENT_STEP, bundle_path=bundle_path)
+    for step in _STEPS_BEFORE_DOMAIN:
+        run_step(db, *step)
     migrate_domain(db)
 
 
-def _migrate_pdf_split(db: sqlite3.Connection) -> None:
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _PDF_SPLIT_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _PDF_SPLIT_FROM_DIGEST:
-            db.execute(PDF_SPLIT_SCHEMA_SQL)
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_PDF_SPLIT_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+def _apply_ocr_review_roles(db: sqlite3.Connection) -> None:
+    changed_runs: set[int] = set()
+    rows = db.execute(
+        "SELECT runs.id,runs.params,field.column_id,field.column_name,"
+        "field.is_primary FROM runs JOIN run_review_fields field "
+        "ON field.run_id=runs.id WHERE runs.action_kind='media.ocr'"
+    ).fetchall()
+    roles_by_run: dict[int, dict[str, str]] = {}
+    for field in rows:
+        run_id = int(field[0])
+        roles = roles_by_run.get(run_id)
+        if roles is None:
+            roles = authored_output_roles(field[1])
+            roles_by_run[run_id] = roles
+        output_role = roles.get(str(field[3]))
+        if not has_explicit_review_role("media.ocr", output_role):
+            continue
+        expected = int(
+            not is_support_column(
+                str(field[3]),
+                action_kind="media.ocr",
+                output_role=output_role,
             )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
+        )
+        if int(field[4]) == expected:
+            continue
+        db.execute(
+            "UPDATE run_review_fields SET is_primary=? WHERE run_id=? AND column_id=?",
+            (expected, run_id, int(field[2])),
+        )
+        changed_runs.add(run_id)
+    db.executemany(
+        "UPDATE runs SET review_stats_ready=0 WHERE id=?",
+        ((run_id,) for run_id in changed_runs),
+    )
+    db.execute(
+        "INSERT INTO meta(key,value) VALUES (?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (REVIEW_OUTPUT_ROLES_META_KEY, REVIEW_OUTPUT_ROLES_VERSION),
+    )
 
 
-def _migrate_import_session_rows(db: sqlite3.Connection) -> None:
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _IMPORT_SESSION_ROWS_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _IMPORT_SESSION_ROWS_FROM_DIGEST:
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS import_session_rows ("
-                "session_id TEXT NOT NULL REFERENCES import_sessions(id) "
-                "ON DELETE CASCADE,"
-                "ordinal INTEGER NOT NULL CHECK (ordinal > 0),"
-                "row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,"
-                "PRIMARY KEY(session_id, ordinal),"
-                "UNIQUE(session_id, row_id))"
-            )
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_IMPORT_SESSION_ROWS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_ocr_review_roles(db: sqlite3.Connection) -> None:
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _OCR_REVIEW_ROLES_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _OCR_REVIEW_ROLES_FROM_DIGEST:
-            changed_runs: set[int] = set()
-            rows = db.execute(
-                "SELECT runs.id,runs.params,field.column_id,field.column_name,"
-                "field.is_primary FROM runs JOIN run_review_fields field "
-                "ON field.run_id=runs.id WHERE runs.action_kind='media.ocr'"
-            ).fetchall()
-            roles_by_run: dict[int, dict[str, str]] = {}
-            for field in rows:
-                run_id = int(field[0])
-                roles = roles_by_run.get(run_id)
-                if roles is None:
-                    roles = authored_output_roles(field[1])
-                    roles_by_run[run_id] = roles
-                output_role = roles.get(str(field[3]))
-                if not has_explicit_review_role("media.ocr", output_role):
-                    continue
-                expected = int(
-                    not is_support_column(
-                        str(field[3]),
-                        action_kind="media.ocr",
-                        output_role=output_role,
-                    )
-                )
-                if int(field[4]) == expected:
-                    continue
-                db.execute(
-                    "UPDATE run_review_fields SET is_primary=? "
-                    "WHERE run_id=? AND column_id=?",
-                    (expected, run_id, int(field[2])),
-                )
-                changed_runs.add(run_id)
-            db.executemany(
-                "UPDATE runs SET review_stats_ready=0 WHERE id=?",
-                ((run_id,) for run_id in changed_runs),
-            )
-            db.execute(
-                "INSERT INTO meta(key,value) VALUES (?,?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (REVIEW_OUTPUT_ROLES_META_KEY, REVIEW_OUTPUT_ROLES_VERSION),
-            )
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_OCR_REVIEW_ROLES_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_receipt_attempts(db: sqlite3.Connection) -> None:
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return  # The schema fence supplies the ordinary unknown-bundle refusal.
-    if row is None or row[0] != _RECEIPT_ATTEMPTS_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        # Another process may have completed this upgrade while we waited.
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _RECEIPT_ATTEMPTS_FROM_DIGEST:
-            db.execute(
-                "ALTER TABLE execution_attempts ADD COLUMN receipt_id TEXT "
-                "REFERENCES receipts(id) ON DELETE SET NULL "
-                "CHECK (run_id IS NULL OR receipt_id IS NULL)"
-            )
-            db.execute(
-                "CREATE UNIQUE INDEX uq_receipt_execution_attempts_seq "
-                "ON execution_attempts(receipt_id, seq)"
-            )
-            db.execute(
-                "CREATE UNIQUE INDEX uq_receipt_execution_attempts_one_dispatching "
-                "ON execution_attempts(receipt_id) WHERE state='dispatching'"
-            )
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_RECEIPT_ATTEMPTS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_cost_preapproval(db: sqlite3.Connection) -> None:
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return  # The schema fence supplies the ordinary unknown-bundle refusal.
-    if row is None or row[0] != _PREAPPROVAL_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        # Another process may have completed this upgrade while we waited.
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _PREAPPROVAL_FROM_DIGEST:
-            db.execute("ALTER TABLE runs ADD COLUMN consent_principal TEXT")
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_PREAPPROVAL_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_review_metadata(db: sqlite3.Connection) -> None:
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _REVIEW_METADATA_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _REVIEW_METADATA_FROM_DIGEST:
-            db.execute(
-                "ALTER TABLE results ADD COLUMN review_decision TEXT "
-                "CHECK (review_decision IN "
-                "('accept', 'reject', 'reject_clear', 'edit'))"
-            )
-            db.execute("ALTER TABLE results ADD COLUMN review_note TEXT")
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_REVIEW_METADATA_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_current_cells(db: sqlite3.Connection) -> None:
+def _apply_current_cells(db: sqlite3.Connection) -> None:
     """Add provenance linkage and atomically backfill the visible projection."""
+    db.execute(
+        "CREATE TABLE base_cell_producers ("
+        "id INTEGER PRIMARY KEY,"
+        "stage_id TEXT NOT NULL UNIQUE CHECK (length(trim(stage_id)) > 0),"
+        "op_id INTEGER REFERENCES ops(id) ON DELETE RESTRICT,"
+        "created_at TEXT NOT NULL DEFAULT (datetime('now'))"
+        ")"
+    )
+    db.execute(
+        "ALTER TABLE cells ADD COLUMN producer_id INTEGER "
+        "REFERENCES base_cell_producers(id) ON DELETE RESTRICT"
+    )
+    db.execute("CREATE INDEX idx_cells_column ON cells(column_id,row_id)")
+    db.execute(
+        "CREATE TABLE current_cells ("
+        "column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,"
+        "row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,"
+        "value TEXT,"
+        "origin_kind TEXT NOT NULL CHECK (origin_kind IN "
+        "('source_cell', 'run_result', 'manual_edit')),"
+        "origin_op_id INTEGER REFERENCES ops(id) ON DELETE CASCADE,"
+        "origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,"
+        "base_producer_id INTEGER REFERENCES base_cell_producers(id) "
+        "ON DELETE RESTRICT,"
+        "PRIMARY KEY (column_id, row_id),"
+        "CHECK ("
+        "(origin_kind='source_cell' AND origin_op_id IS NULL "
+        "AND origin_run_id IS NULL) OR "
+        "(origin_kind='run_result' AND origin_op_id IS NOT NULL "
+        "AND origin_run_id IS NOT NULL AND base_producer_id IS NULL) OR "
+        "(origin_kind='manual_edit' AND origin_op_id IS NOT NULL "
+        "AND origin_run_id IS NULL AND base_producer_id IS NULL)"
+        ")"
+        ") WITHOUT ROWID"
+    )
+    db.execute("CREATE INDEX idx_current_cells_row ON current_cells(row_id)")
 
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _CURRENT_CELLS_FROM_DIGEST:
-        return
+    # Lazy leaf import avoids loading the facade during bundle open.
+    from frisket.upgrades.project.historical_current_cells import (
+        rebuild_current_cells,
+    )
 
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        # Another process may have completed the upgrade while we waited.
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _CURRENT_CELLS_FROM_DIGEST:
-            db.execute(
-                "CREATE TABLE base_cell_producers ("
-                "id INTEGER PRIMARY KEY,"
-                "stage_id TEXT NOT NULL UNIQUE CHECK (length(trim(stage_id)) > 0),"
-                "op_id INTEGER REFERENCES ops(id) ON DELETE RESTRICT,"
-                "created_at TEXT NOT NULL DEFAULT (datetime('now'))"
-                ")"
-            )
-            db.execute(
-                "ALTER TABLE cells ADD COLUMN producer_id INTEGER "
-                "REFERENCES base_cell_producers(id) ON DELETE RESTRICT"
-            )
-            db.execute("CREATE INDEX idx_cells_column ON cells(column_id,row_id)")
-            db.execute(
-                "CREATE TABLE current_cells ("
-                "column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,"
-                "row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,"
-                "value TEXT,"
-                "origin_kind TEXT NOT NULL CHECK (origin_kind IN "
-                "('source_cell', 'run_result', 'manual_edit')),"
-                "origin_op_id INTEGER REFERENCES ops(id) ON DELETE CASCADE,"
-                "origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,"
-                "base_producer_id INTEGER REFERENCES base_cell_producers(id) "
-                "ON DELETE RESTRICT,"
-                "PRIMARY KEY (column_id, row_id),"
-                "CHECK ("
-                "(origin_kind='source_cell' AND origin_op_id IS NULL "
-                "AND origin_run_id IS NULL) OR "
-                "(origin_kind='run_result' AND origin_op_id IS NOT NULL "
-                "AND origin_run_id IS NOT NULL AND base_producer_id IS NULL) OR "
-                "(origin_kind='manual_edit' AND origin_op_id IS NOT NULL "
-                "AND origin_run_id IS NULL AND base_producer_id IS NULL)"
-                ")"
-                ") WITHOUT ROWID"
-            )
-            db.execute("CREATE INDEX idx_current_cells_row ON current_cells(row_id)")
-
-            # Lazy leaf import avoids loading the facade during bundle open.
-            from frisket.upgrades.project.historical_current_cells import (
-                rebuild_current_cells,
-            )
-
-            rebuild_current_cells(db, invalidate_search=False)
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_CURRENT_CELLS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
+    rebuild_current_cells(db, invalidate_search=False)
 
 
-def _migrate_cell_validity(db: sqlite3.Connection) -> None:
+def _apply_cell_validity(db: sqlite3.Connection) -> None:
     """Add and backfill derived validity without rewriting source values."""
+    db.execute(
+        "ALTER TABLE current_cells ADD COLUMN validity TEXT NOT NULL "
+        "DEFAULT 'valid' CHECK (validity IN ('valid','missing','invalid'))"
+    )
+    from frisket.upgrades.project.historical_current_cells import (
+        rebuild_current_cells,
+    )
 
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _CELL_VALIDITY_FROM_DIGEST:
-        return
-
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _CELL_VALIDITY_FROM_DIGEST:
-            db.execute(
-                "ALTER TABLE current_cells ADD COLUMN validity TEXT NOT NULL "
-                "DEFAULT 'valid' CHECK (validity IN ('valid','missing','invalid'))"
-            )
-            from frisket.upgrades.project.historical_current_cells import (
-                rebuild_current_cells,
-            )
-
-            rebuild_current_cells(db, invalidate_search=False)
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_CELL_VALIDITY_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
+    rebuild_current_cells(db, invalidate_search=False)
 
 
-def _migrate_project_qa(db: sqlite3.Connection) -> None:
-    """Add durable Ask records without altering existing project content."""
-
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _PROJECT_QA_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _PROJECT_QA_FROM_DIGEST:
-            db.execute(
-                "CREATE TABLE project_qa_threads ("
-                "id TEXT PRIMARY KEY,title TEXT NOT NULL,scope_json TEXT NOT NULL,"
-                "model TEXT,web INTEGER NOT NULL DEFAULT 0 CHECK (web IN (0,1)),"
-                "suggest_actions INTEGER NOT NULL DEFAULT 1 CHECK (suggest_actions IN (0,1)),"
-                "revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),"
-                "created_by TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)"
-            )
-            db.execute(
-                "CREATE INDEX idx_project_qa_threads_updated "
-                "ON project_qa_threads(updated_at DESC, id DESC)"
-            )
-            db.execute(
-                "CREATE TABLE project_qa_turns ("
-                "id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES project_qa_threads(id) ON DELETE CASCADE,"
-                "request_id TEXT NOT NULL,question TEXT NOT NULL,scope_json TEXT NOT NULL,model TEXT,"
-                "web INTEGER NOT NULL CHECK (web IN (0,1)),"
-                "suggest_actions INTEGER NOT NULL CHECK (suggest_actions IN (0,1)),"
-                "status TEXT NOT NULL CHECK (status IN ('running','stopping','completed','stopped','failed','interrupted')),"
-                "submitted_by TEXT,started_at TEXT NOT NULL,finished_at TEXT,usage_json TEXT,"
-                "cost_actual REAL,error_summary TEXT,UNIQUE(thread_id, request_id))"
-            )
-            db.execute(
-                "CREATE INDEX idx_project_qa_turns_thread_started "
-                "ON project_qa_turns(thread_id, started_at DESC, id DESC)"
-            )
-            db.execute(
-                "CREATE UNIQUE INDEX uq_project_qa_turns_one_active ON project_qa_turns(thread_id) "
-                "WHERE status IN ('running','stopping')"
-            )
-            db.execute(
-                "CREATE TABLE project_qa_events ("
-                "thread_id TEXT NOT NULL REFERENCES project_qa_threads(id) ON DELETE CASCADE,"
-                "turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
-                "seq INTEGER NOT NULL CHECK (seq > 0),kind TEXT NOT NULL,payload_json TEXT NOT NULL,"
-                "created_at TEXT NOT NULL,PRIMARY KEY (thread_id, seq)) WITHOUT ROWID"
-            )
-            db.execute(
-                "CREATE INDEX idx_project_qa_events_turn ON project_qa_events(turn_id, seq)"
-            )
-            db.execute(
-                "CREATE TABLE project_qa_citations ("
-                "id TEXT PRIMARY KEY,turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
-                "label TEXT NOT NULL,source_kind TEXT NOT NULL,locator_json TEXT NOT NULL,excerpt TEXT,"
-                "metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)"
-            )
-            db.execute(
-                "CREATE INDEX idx_project_qa_citations_turn ON project_qa_citations(turn_id, id)"
-            )
-            db.execute(
-                "CREATE TABLE project_qa_usage_calls ("
-                "turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
-                "call_id TEXT NOT NULL,PRIMARY KEY (turn_id, call_id)) WITHOUT ROWID"
-            )
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_PROJECT_QA_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_run_review_status(db: sqlite3.Connection) -> None:
-    """Add a nullable workflow marker while preserving existing run data."""
-
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _RUN_REVIEW_STATUS_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _RUN_REVIEW_STATUS_FROM_DIGEST:
-            db.execute("ALTER TABLE runs ADD COLUMN review_completed_at TEXT")
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_RUN_REVIEW_STATUS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_project_qa_research(db: sqlite3.Connection) -> None:
-    """Add research settings, continuation state, and exact-cost operations."""
-
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _PROJECT_QA_RESEARCH_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _PROJECT_QA_RESEARCH_FROM_DIGEST:
-            db.execute("ALTER TABLE project_qa_threads ADD COLUMN research_json TEXT")
-            db.execute("ALTER TABLE project_qa_turns ADD COLUMN research_json TEXT")
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS project_qa_research_runs ("
-                "id TEXT PRIMARY KEY,"
-                "turn_id TEXT NOT NULL UNIQUE REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
-                "actor TEXT,"
-                "state TEXT NOT NULL CHECK (state IN ('running','paused','interrupted','completed')),"
-                "budget_micros INTEGER NOT NULL CHECK (budget_micros >= 0),"
-                "currency TEXT NOT NULL,"
-                "write_mode TEXT NOT NULL CHECK (write_mode IN ('ask_each','ask_overwrite','full_access')),"
-                "max_turns INTEGER CHECK (max_turns IS NULL OR max_turns > 0),"
-                "turn_count INTEGER NOT NULL DEFAULT 0 CHECK (turn_count >= 0),"
-                "skills_json TEXT NOT NULL DEFAULT '[]',"
-                "saved_messages_json TEXT NOT NULL DEFAULT '[]',"
-                "pending_approval_json TEXT,"
-                "output_grants_json TEXT NOT NULL DEFAULT '[]',"
-                "revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),"
-                "created_at TEXT NOT NULL,updated_at TEXT NOT NULL)"
-            )
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS project_qa_research_operations ("
-                "research_id TEXT NOT NULL REFERENCES project_qa_research_runs(id) ON DELETE CASCADE,"
-                "operation_id TEXT NOT NULL,payload_identity TEXT NOT NULL,"
-                "operation_kind TEXT NOT NULL CHECK (operation_kind IN ('model','action','search')),"
-                "estimate_micros INTEGER NOT NULL CHECK (estimate_micros >= 0),"
-                "actual_micros INTEGER CHECK (actual_micros IS NULL OR actual_micros >= 0),"
-                "metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL,settled_at TEXT,"
-                "PRIMARY KEY (research_id, operation_id)) WITHOUT ROWID"
-            )
-            db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled "
-                "ON project_qa_research_operations(research_id) "
-                "WHERE actual_micros IS NULL"
-            )
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_PROJECT_QA_RESEARCH_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_import_sessions(db: sqlite3.Connection) -> None:
-    """Add the resumable import checkpoint owner without rewriting user data."""
-
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _IMPORT_SESSIONS_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _IMPORT_SESSIONS_FROM_DIGEST:
-            db.execute(
-                "CREATE TABLE import_sessions ("
-                "id TEXT PRIMARY KEY,"
-                "sheet_id INTEGER REFERENCES sheets(id) ON DELETE SET NULL,"
-                "producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE SET NULL,"
-                "op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT,"
-                "receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,"
-                "writer_authority TEXT NOT NULL,"
-                "cursor INTEGER NOT NULL DEFAULT 0 CHECK (cursor >= 0),"
-                "committed_rows INTEGER NOT NULL DEFAULT 0 CHECK (committed_rows >= 0),"
-                "committed_bytes INTEGER NOT NULL DEFAULT 0 CHECK (committed_bytes >= 0),"
-                "state TEXT NOT NULL CHECK (state IN ('active','paused','cancelled','kept','completed','removed')),"
-                "created_at TEXT NOT NULL DEFAULT (datetime('now')),"
-                "updated_at TEXT NOT NULL DEFAULT (datetime('now')))"
-            )
-            db.execute(
-                "CREATE UNIQUE INDEX uq_import_sessions_active_sheet "
-                "ON import_sessions(sheet_id) "
-                "WHERE state IN ('active','paused','cancelled')"
-            )
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_IMPORT_SESSIONS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_search_work(db: sqlite3.Connection) -> None:
+def _apply_search_work(db: sqlite3.Connection) -> None:
     """Add the sidecar worklist and seed existing projects for full repair."""
+    # Reuse worklist DDL, preserving this historical endpoint's index.
+    from frisket.engine.store.schema import SCHEMA
 
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _SEARCH_WORK_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _SEARCH_WORK_FROM_DIGEST:
-            # Reuse worklist DDL, preserving this historical endpoint's index.
-            from frisket.engine.store.schema import SCHEMA
+    marker = "CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row"
+    tail = SCHEMA[SCHEMA.index(marker) :]
+    tail = tail[: tail.index("-- SEARCH_INDEX_WORK_END")]
+    tail = tail.replace(marker, marker.replace("UNIQUE ", ""), 1)
+    # The stable native-value view was added later with the typed
+    # authority migration. Historical search upgrades still run over
+    # JSON authorities, so install only their original worklist DDL.
+    typed_marker = "CREATE VIEW IF NOT EXISTS current_cell_values"
+    search_table = "CREATE TABLE IF NOT EXISTS search_dirty_scopes"
+    if typed_marker in tail:
+        tail = tail[: tail.index(typed_marker)] + tail[tail.index(search_table) :]
+    execute_ddl(db, tail)
 
-            marker = "CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row"
-            tail = SCHEMA[SCHEMA.index(marker) :]
-            tail = tail[: tail.index("-- SEARCH_INDEX_WORK_END")]
-            tail = tail.replace(marker, marker.replace("UNIQUE ", ""), 1)
-            # The stable native-value view was added later with the typed
-            # authority migration. Historical search upgrades still run over
-            # JSON authorities, so install only their original worklist DDL.
-            typed_marker = "CREATE VIEW IF NOT EXISTS current_cell_values"
-            search_table = "CREATE TABLE IF NOT EXISTS search_dirty_scopes"
-            if typed_marker in tail:
-                tail = (
-                    tail[: tail.index(typed_marker)] + tail[tail.index(search_table) :]
+
+def _rebuild_active_columns(db: sqlite3.Connection) -> None:
+    """Release undone names without changing column identity or stored history."""
+    objects = db.execute(
+        "SELECT sql FROM sqlite_master WHERE tbl_name='columns' "
+        "AND type IN ('index','trigger') AND sql IS NOT NULL"
+    ).fetchall()
+    db.execute("""
+                CREATE TABLE columns_active_new (
+                  id INTEGER PRIMARY KEY,
+                  sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+                  name TEXT NOT NULL,
+                  type TEXT NOT NULL DEFAULT 'text',
+                  position INTEGER NOT NULL DEFAULT 0,
+                  current_run_id INTEGER,
+                  ai_generated INTEGER NOT NULL DEFAULT 0,
+                  hidden INTEGER NOT NULL DEFAULT 0,
+                  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),
+                  default_hidden INTEGER NOT NULL DEFAULT 0,
+                  format TEXT,
+                  semantic_type TEXT,
+                  created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 )
-            statement = ""
-            for line in tail.splitlines():
-                statement += line + "\n"
-                if sqlite3.complete_statement(statement):
-                    db.execute(statement)
-                    statement = ""
-            if statement.strip():
-                raise RuntimeError("incomplete search work migration DDL")
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_SEARCH_WORK_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+            """)
+    # Older writers revived hidden IDs, so only their latest creation
+    # operation determines lifecycle. Hidden columns without undone
+    # creation history remain live (e.g. internal sidecars).
+    db.execute("""
+                INSERT INTO columns_active_new
+                  (id,sheet_id,name,type,position,current_run_id,ai_generated,
+                   hidden,default_hidden,format,semantic_type,created_at,active)
+                SELECT id,sheet_id,name,type,position,current_run_id,ai_generated,
+                       hidden,default_hidden,format,semantic_type,created_at,
+                       CASE WHEN hidden=1 AND (
+                         SELECT o.status FROM ops o,
+                           json_each(o.undo_info,'$.created_columns') created
+                         WHERE CAST(created.value AS INTEGER)=columns.id
+                         ORDER BY o.id DESC LIMIT 1
+                       ) IN ('undone','discarded') THEN 0 ELSE 1 END
+                FROM columns
+            """)
+    db.execute("DROP TABLE columns")
+    db.execute("ALTER TABLE columns_active_new RENAME TO columns")
+    for (statement,) in objects:
+        db.execute(statement)
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name "
+        "ON columns(sheet_id,name) WHERE active=1"
+    )
+    # Validate only the rebuilt table and references to it, not every
+    # unrelated relationship in a potentially long-lived project.
+    for table in (
+        "columns",
+        "cells",
+        "output_column_claims",
+        "run_output_generations",
+        "current_cells",
+        "watch_run_hits",
+    ):
+        if any(
+            table == "columns" or violation[2] == "columns"
+            for violation in db.execute(f"PRAGMA foreign_key_check({table})")
+        ):
+            raise BundleSchemaMismatch(
+                "Column migration found an invalid column relationship "
+                f"in {table}. The migration was rolled back; keep the project "
+                "intact and repair the relationship before reopening."
             )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
 
 
-def _migrate_index_hygiene(db: sqlite3.Connection) -> None:
-    """Drop redundant b-trees without changing their constraints or rows."""
+_ACTIVE_COLUMNS_STEP: SchemaStep = (
+    _ACTIVE_COLUMNS_FROM_DIGEST,
+    _ACTIVE_COLUMNS_TO_DIGEST,
+    _rebuild_active_columns,
+)
 
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _INDEX_HYGIENE_FROM_DIGEST:
-        return
-
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _INDEX_HYGIENE_FROM_DIGEST:
-            db.execute("DROP INDEX IF EXISTS idx_execution_attempts_run")
-            db.execute("DROP INDEX IF EXISTS idx_source_items_source_dedupe")
-            db.execute("DROP INDEX IF EXISTS idx_source_runs_source")
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_INDEX_HYGIENE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-
-
-def _migrate_rowid_cell_layout(db: sqlite3.Connection) -> None:
-    """Repack cell values into rowid tables without changing logical rows.
-
-    The tables have no inbound foreign keys or triggers. Their existing
-    outbound constraints and every value/provenance column are copied before
-    the old tables are replaced, together with the named search scan index.
-    """
-
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _ROWID_CELL_LAYOUT_FROM_DIGEST:
-        return
-
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _ROWID_CELL_LAYOUT_FROM_DIGEST:
-            # Connection.executescript() commits any pending transaction before
-            # it starts. Execute each complete statement so the table swap and
-            # digest stamp remain one rollback unit.
-            for statement in (
-                """
+# Fixed-endpoint steps in chain order. Their DDL is frozen at each endpoint:
+# a later schema edit adds a new step instead of editing one of these.
+_STEPS_BEFORE_COLUMN_REBUILD: tuple[SchemaStep, ...] = (
+    (
+        _RECEIPT_ATTEMPTS_FROM_DIGEST,
+        _RECEIPT_ATTEMPTS_TO_DIGEST,
+        (
+            "ALTER TABLE execution_attempts ADD COLUMN receipt_id TEXT "
+            "REFERENCES receipts(id) ON DELETE SET NULL "
+            "CHECK (run_id IS NULL OR receipt_id IS NULL)",
+            "CREATE UNIQUE INDEX uq_receipt_execution_attempts_seq "
+            "ON execution_attempts(receipt_id, seq)",
+            "CREATE UNIQUE INDEX uq_receipt_execution_attempts_one_dispatching "
+            "ON execution_attempts(receipt_id) WHERE state='dispatching'",
+        ),
+    ),
+    (
+        _PREAPPROVAL_FROM_DIGEST,
+        _PREAPPROVAL_TO_DIGEST,
+        ("ALTER TABLE runs ADD COLUMN consent_principal TEXT",),
+    ),
+    (
+        _REVIEW_METADATA_FROM_DIGEST,
+        _REVIEW_METADATA_TO_DIGEST,
+        (
+            "ALTER TABLE results ADD COLUMN review_decision TEXT "
+            "CHECK (review_decision IN "
+            "('accept', 'reject', 'reject_clear', 'edit'))",
+            "ALTER TABLE results ADD COLUMN review_note TEXT",
+        ),
+    ),
+    (_CURRENT_CELLS_FROM_DIGEST, _CURRENT_CELLS_TO_DIGEST, _apply_current_cells),
+    (_CELL_VALIDITY_FROM_DIGEST, _CELL_VALIDITY_TO_DIGEST, _apply_cell_validity),
+    (
+        _PROJECT_QA_FROM_DIGEST,
+        _PROJECT_QA_TO_DIGEST,
+        (
+            "CREATE TABLE project_qa_threads ("
+            "id TEXT PRIMARY KEY,title TEXT NOT NULL,scope_json TEXT NOT NULL,"
+            "model TEXT,web INTEGER NOT NULL DEFAULT 0 CHECK (web IN (0,1)),"
+            "suggest_actions INTEGER NOT NULL DEFAULT 1 CHECK (suggest_actions IN (0,1)),"
+            "revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),"
+            "created_by TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)",
+            "CREATE INDEX idx_project_qa_threads_updated "
+            "ON project_qa_threads(updated_at DESC, id DESC)",
+            "CREATE TABLE project_qa_turns ("
+            "id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES project_qa_threads(id) ON DELETE CASCADE,"
+            "request_id TEXT NOT NULL,question TEXT NOT NULL,scope_json TEXT NOT NULL,model TEXT,"
+            "web INTEGER NOT NULL CHECK (web IN (0,1)),"
+            "suggest_actions INTEGER NOT NULL CHECK (suggest_actions IN (0,1)),"
+            "status TEXT NOT NULL CHECK (status IN ('running','stopping','completed','stopped','failed','interrupted')),"
+            "submitted_by TEXT,started_at TEXT NOT NULL,finished_at TEXT,usage_json TEXT,"
+            "cost_actual REAL,error_summary TEXT,UNIQUE(thread_id, request_id))",
+            "CREATE INDEX idx_project_qa_turns_thread_started "
+            "ON project_qa_turns(thread_id, started_at DESC, id DESC)",
+            "CREATE UNIQUE INDEX uq_project_qa_turns_one_active ON project_qa_turns(thread_id) "
+            "WHERE status IN ('running','stopping')",
+            "CREATE TABLE project_qa_events ("
+            "thread_id TEXT NOT NULL REFERENCES project_qa_threads(id) ON DELETE CASCADE,"
+            "turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+            "seq INTEGER NOT NULL CHECK (seq > 0),kind TEXT NOT NULL,payload_json TEXT NOT NULL,"
+            "created_at TEXT NOT NULL,PRIMARY KEY (thread_id, seq)) WITHOUT ROWID",
+            "CREATE INDEX idx_project_qa_events_turn ON project_qa_events(turn_id, seq)",
+            "CREATE TABLE project_qa_citations ("
+            "id TEXT PRIMARY KEY,turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+            "label TEXT NOT NULL,source_kind TEXT NOT NULL,locator_json TEXT NOT NULL,excerpt TEXT,"
+            "metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL)",
+            "CREATE INDEX idx_project_qa_citations_turn ON project_qa_citations(turn_id, id)",
+            "CREATE TABLE project_qa_usage_calls ("
+            "turn_id TEXT NOT NULL REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+            "call_id TEXT NOT NULL,PRIMARY KEY (turn_id, call_id)) WITHOUT ROWID",
+        ),
+    ),
+    (
+        _RUN_REVIEW_STATUS_FROM_DIGEST,
+        _RUN_REVIEW_STATUS_TO_DIGEST,
+        ("ALTER TABLE runs ADD COLUMN review_completed_at TEXT",),
+    ),
+    (
+        _PROJECT_QA_RESEARCH_FROM_DIGEST,
+        _PROJECT_QA_RESEARCH_TO_DIGEST,
+        (
+            "ALTER TABLE project_qa_threads ADD COLUMN research_json TEXT",
+            "ALTER TABLE project_qa_turns ADD COLUMN research_json TEXT",
+            "CREATE TABLE IF NOT EXISTS project_qa_research_runs ("
+            "id TEXT PRIMARY KEY,"
+            "turn_id TEXT NOT NULL UNIQUE REFERENCES project_qa_turns(id) ON DELETE CASCADE,"
+            "actor TEXT,"
+            "state TEXT NOT NULL CHECK (state IN ('running','paused','interrupted','completed')),"
+            "budget_micros INTEGER NOT NULL CHECK (budget_micros >= 0),"
+            "currency TEXT NOT NULL,"
+            "write_mode TEXT NOT NULL CHECK (write_mode IN ('ask_each','ask_overwrite','full_access')),"
+            "max_turns INTEGER CHECK (max_turns IS NULL OR max_turns > 0),"
+            "turn_count INTEGER NOT NULL DEFAULT 0 CHECK (turn_count >= 0),"
+            "skills_json TEXT NOT NULL DEFAULT '[]',"
+            "saved_messages_json TEXT NOT NULL DEFAULT '[]',"
+            "pending_approval_json TEXT,"
+            "output_grants_json TEXT NOT NULL DEFAULT '[]',"
+            "revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),"
+            "created_at TEXT NOT NULL,updated_at TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS project_qa_research_operations ("
+            "research_id TEXT NOT NULL REFERENCES project_qa_research_runs(id) ON DELETE CASCADE,"
+            "operation_id TEXT NOT NULL,payload_identity TEXT NOT NULL,"
+            "operation_kind TEXT NOT NULL CHECK (operation_kind IN ('model','action','search')),"
+            "estimate_micros INTEGER NOT NULL CHECK (estimate_micros >= 0),"
+            "actual_micros INTEGER CHECK (actual_micros IS NULL OR actual_micros >= 0),"
+            "metadata_json TEXT NOT NULL DEFAULT '{}',created_at TEXT NOT NULL,settled_at TEXT,"
+            "PRIMARY KEY (research_id, operation_id)) WITHOUT ROWID",
+            "CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled "
+            "ON project_qa_research_operations(research_id) "
+            "WHERE actual_micros IS NULL",
+        ),
+    ),
+    (
+        _IMPORT_SESSIONS_FROM_DIGEST,
+        _IMPORT_SESSIONS_TO_DIGEST,
+        (
+            "CREATE TABLE import_sessions ("
+            "id TEXT PRIMARY KEY,"
+            "sheet_id INTEGER REFERENCES sheets(id) ON DELETE SET NULL,"
+            "producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE SET NULL,"
+            "op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT,"
+            "receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,"
+            "writer_authority TEXT NOT NULL,"
+            "cursor INTEGER NOT NULL DEFAULT 0 CHECK (cursor >= 0),"
+            "committed_rows INTEGER NOT NULL DEFAULT 0 CHECK (committed_rows >= 0),"
+            "committed_bytes INTEGER NOT NULL DEFAULT 0 CHECK (committed_bytes >= 0),"
+            "state TEXT NOT NULL CHECK (state IN ('active','paused','cancelled','kept','completed','removed')),"
+            "created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "updated_at TEXT NOT NULL DEFAULT (datetime('now')))",
+            "CREATE UNIQUE INDEX uq_import_sessions_active_sheet "
+            "ON import_sessions(sheet_id) "
+            "WHERE state IN ('active','paused','cancelled')",
+        ),
+    ),
+    (_SEARCH_WORK_FROM_DIGEST, _SEARCH_WORK_TO_DIGEST, _apply_search_work),
+    (
+        _INDEX_HYGIENE_FROM_DIGEST,
+        _INDEX_HYGIENE_TO_DIGEST,
+        (
+            "DROP INDEX IF EXISTS idx_execution_attempts_run",
+            "DROP INDEX IF EXISTS idx_source_items_source_dedupe",
+            "DROP INDEX IF EXISTS idx_source_runs_source",
+        ),
+    ),
+    # The cell tables have no inbound foreign keys or triggers. Their existing
+    # outbound constraints and every value/provenance column are copied before
+    # the old tables are replaced, together with the named search scan index.
+    (
+        _ROWID_CELL_LAYOUT_FROM_DIGEST,
+        _ROWID_CELL_LAYOUT_TO_DIGEST,
+        (
+            """
                 CREATE TABLE cells_rowid_new (
                   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
                   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
@@ -785,7 +505,7 @@ def _migrate_rowid_cell_layout(db: sqlite3.Connection) -> None:
                   UNIQUE (row_id, column_id)
                 )
                 """,
-                """
+            """
                 CREATE TABLE current_cells_rowid_new (
                   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE CASCADE,
                   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
@@ -818,128 +538,57 @@ def _migrate_rowid_cell_layout(db: sqlite3.Connection) -> None:
                   )
                 )
                 """,
-                "INSERT INTO cells_rowid_new(row_id,column_id,value,producer_id) "
-                "SELECT row_id,column_id,value,producer_id FROM cells",
-                "INSERT INTO current_cells_rowid_new("
-                "column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
-                "base_producer_id,validity"
-                ") SELECT "
-                "column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
-                "base_producer_id,validity FROM current_cells",
-                "DROP TABLE cells",
-                "DROP TABLE current_cells",
-                "ALTER TABLE cells_rowid_new RENAME TO cells",
-                "ALTER TABLE current_cells_rowid_new RENAME TO current_cells",
-                "CREATE INDEX idx_cells_column ON cells(column_id,row_id)",
-                "CREATE UNIQUE INDEX idx_current_cells_column_row "
-                "ON current_cells(column_id,row_id)",
-                "CREATE INDEX idx_current_cells_row ON current_cells(row_id,column_id)",
-            ):
-                db.execute(statement)
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_ROWID_CELL_LAYOUT_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
+            "INSERT INTO cells_rowid_new(row_id,column_id,value,producer_id) "
+            "SELECT row_id,column_id,value,producer_id FROM cells",
+            "INSERT INTO current_cells_rowid_new("
+            "column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+            "base_producer_id,validity"
+            ") SELECT "
+            "column_id,row_id,value,origin_kind,origin_op_id,origin_run_id,"
+            "base_producer_id,validity FROM current_cells",
+            "DROP TABLE cells",
+            "DROP TABLE current_cells",
+            "ALTER TABLE cells_rowid_new RENAME TO cells",
+            "ALTER TABLE current_cells_rowid_new RENAME TO current_cells",
+            "CREATE INDEX idx_cells_column ON cells(column_id,row_id)",
+            "CREATE UNIQUE INDEX idx_current_cells_column_row "
+            "ON current_cells(column_id,row_id)",
+            "CREATE INDEX idx_current_cells_row ON current_cells(row_id,column_id)",
+        ),
+    ),
+)
 
+_STEPS_BEFORE_PREPARED_CONTENT: tuple[SchemaStep, ...] = (
+    REVIEW_STATS_STEP,
+    REVIEW_CONFIDENCE_STEP,
+    SCALAR_CURRENT_VALUES_STEP,
+    EXTRACTION_LAYOUTS_STEP,
+)
 
-def _migrate_active_columns(db: sqlite3.Connection) -> None:
-    """Release undone names without changing column identity or stored history."""
-    query = "SELECT value FROM meta WHERE key=?"
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    except sqlite3.DatabaseError:
-        return
-    if row is None or row[0] != _ACTIVE_COLUMNS_FROM_DIGEST:
-        return
-
-    # SQLite requires FK enforcement disabled outside the transaction when
-    # replacing a referenced table. Never rename the old table: that rewrites
-    # child references. Legacy ALTER permits the brief gap in trigger references.
-    foreign_keys = db.execute("PRAGMA foreign_keys").fetchone()[0]
-    legacy_alter = db.execute("PRAGMA legacy_alter_table").fetchone()[0]
-    db.execute("PRAGMA foreign_keys=OFF")
-    db.execute("PRAGMA legacy_alter_table=ON")
-    try:
-        db.execute("BEGIN IMMEDIATE")
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == _ACTIVE_COLUMNS_FROM_DIGEST:
-            objects = db.execute(
-                "SELECT sql FROM sqlite_master WHERE tbl_name='columns' "
-                "AND type IN ('index','trigger') AND sql IS NOT NULL"
-            ).fetchall()
-            db.execute("""
-                CREATE TABLE columns_active_new (
-                  id INTEGER PRIMARY KEY,
-                  sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
-                  name TEXT NOT NULL,
-                  type TEXT NOT NULL DEFAULT 'text',
-                  position INTEGER NOT NULL DEFAULT 0,
-                  current_run_id INTEGER,
-                  ai_generated INTEGER NOT NULL DEFAULT 0,
-                  hidden INTEGER NOT NULL DEFAULT 0,
-                  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1) AND (active=1 OR hidden=1)),
-                  default_hidden INTEGER NOT NULL DEFAULT 0,
-                  format TEXT,
-                  semantic_type TEXT,
-                  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-                )
-            """)
-            # Older writers revived hidden IDs, so only their latest creation
-            # operation determines lifecycle. Hidden columns without undone
-            # creation history remain live (e.g. internal sidecars).
-            db.execute("""
-                INSERT INTO columns_active_new
-                  (id,sheet_id,name,type,position,current_run_id,ai_generated,
-                   hidden,default_hidden,format,semantic_type,created_at,active)
-                SELECT id,sheet_id,name,type,position,current_run_id,ai_generated,
-                       hidden,default_hidden,format,semantic_type,created_at,
-                       CASE WHEN hidden=1 AND (
-                         SELECT o.status FROM ops o,
-                           json_each(o.undo_info,'$.created_columns') created
-                         WHERE CAST(created.value AS INTEGER)=columns.id
-                         ORDER BY o.id DESC LIMIT 1
-                       ) IN ('undone','discarded') THEN 0 ELSE 1 END
-                FROM columns
-            """)
-            db.execute("DROP TABLE columns")
-            db.execute("ALTER TABLE columns_active_new RENAME TO columns")
-            for (statement,) in objects:
-                db.execute(statement)
-            db.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_columns_active_name "
-                "ON columns(sheet_id,name) WHERE active=1"
-            )
-            # Validate only the rebuilt table and references to it, not every
-            # unrelated relationship in a potentially long-lived project.
-            for table in (
-                "columns",
-                "cells",
-                "output_column_claims",
-                "run_output_generations",
-                "current_cells",
-                "watch_run_hits",
-            ):
-                if any(
-                    table == "columns" or violation[2] == "columns"
-                    for violation in db.execute(f"PRAGMA foreign_key_check({table})")
-                ):
-                    raise BundleSchemaMismatch(
-                        "Column migration found an invalid column relationship "
-                        f"in {table}. The migration was rolled back; keep the project "
-                        "intact and repair the relationship before reopening."
-                    )
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (_ACTIVE_COLUMNS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
-    finally:
-        db.execute(f"PRAGMA legacy_alter_table={int(legacy_alter)}")
-        db.execute(f"PRAGMA foreign_keys={int(foreign_keys)}")
+_STEPS_BEFORE_DOMAIN: tuple[SchemaStep, ...] = (
+    RETRIEVAL_LIFECYCLE_STEP,
+    EXECUTION_METADATA_STEP,
+    DOCUMENT_TEXT_STEP,
+    (
+        _IMPORT_SESSION_ROWS_FROM_DIGEST,
+        _IMPORT_SESSION_ROWS_TO_DIGEST,
+        (
+            "CREATE TABLE IF NOT EXISTS import_session_rows ("
+            "session_id TEXT NOT NULL REFERENCES import_sessions(id) "
+            "ON DELETE CASCADE,"
+            "ordinal INTEGER NOT NULL CHECK (ordinal > 0),"
+            "row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,"
+            "PRIMARY KEY(session_id, ordinal),"
+            "UNIQUE(session_id, row_id))",
+        ),
+    ),
+    (
+        _OCR_REVIEW_ROLES_FROM_DIGEST,
+        _OCR_REVIEW_ROLES_TO_DIGEST,
+        _apply_ocr_review_roles,
+    ),
+    (_PDF_SPLIT_FROM_DIGEST, _PDF_SPLIT_TO_DIGEST, (PDF_SPLIT_SCHEMA_SQL,)),
+    SHORT_TEXT_CACHE_STEP,
+    EVALUATION_STEP,
+    ACTION_SUBMISSIONS_STEP,
+)

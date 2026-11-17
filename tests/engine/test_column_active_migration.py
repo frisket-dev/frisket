@@ -7,9 +7,10 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
+from frisket.upgrades.project._step import run_rebuild_step
 from frisket.upgrades.project.chain import (
+    _ACTIVE_COLUMNS_STEP,
     _ACTIVE_COLUMNS_TO_DIGEST,
-    _migrate_active_columns,
 )
 from frisket.engine.store.schema import (
     BundleSchemaMismatch,
@@ -165,7 +166,7 @@ def test_upgrade_rolls_back_table_swap_and_restores_connection_settings(tmp_path
         )
         db.commit()
         with pytest.raises(sqlite3.IntegrityError, match="migration interrupted"):
-            _migrate_active_columns(db)
+            run_rebuild_step(db, *_ACTIVE_COLUMNS_STEP)
         assert db.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert db.execute("PRAGMA legacy_alter_table").fetchone()[0] == 0
         assert "active" not in {
@@ -181,7 +182,7 @@ def test_upgrade_rolls_back_table_swap_and_restores_connection_settings(tmp_path
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
         db.execute("DROP TRIGGER interrupt_column_stamp")
         db.commit()
-        _migrate_active_columns(db)
+        run_rebuild_step(db, *_ACTIVE_COLUMNS_STEP)
         assert db.execute("SELECT active FROM columns WHERE id=1").fetchone()[0] == 0
 
 
@@ -195,7 +196,7 @@ def test_upgrade_does_not_audit_unrelated_foreign_keys(tmp_path, same_child_tabl
             db.execute("UPDATE rows SET parent_row_id=999 WHERE id=1")
         db.commit()
         assert db.execute("PRAGMA foreign_key_check").fetchone() is not None
-        _migrate_active_columns(db)
+        run_rebuild_step(db, *_ACTIVE_COLUMNS_STEP)
         assert (
             db.execute(
                 "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
@@ -213,7 +214,7 @@ def test_upgrade_reports_column_relationship_problem_without_losing_data(tmp_pat
         db.commit()
         db.execute("PRAGMA foreign_keys=ON")
         with pytest.raises(BundleSchemaMismatch, match="rolled back.*keep the project"):
-            _migrate_active_columns(db)
+            run_rebuild_step(db, *_ACTIVE_COLUMNS_STEP)
         assert (
             db.execute(
                 "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
