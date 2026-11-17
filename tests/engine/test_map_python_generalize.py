@@ -6,8 +6,7 @@ Asserts the NEW contract that the redesign establishes:
   (b) a receipt_evidence route now produces a HIDDEN column + a LIGHTWEIGHT receipt
       ref (column_id + path + retention), NOT per-row value blobs in the receipt body;
   (c) reservation-based idempotency — a duplicate while the first run is still RESERVED
-      yields idempotency_in_progress; and build_reserved_spec(PYTHON_OP) carries no
-      resolve_override / write_override (the generic skeleton owns them).
+      yields idempotency_in_progress.
 """
 
 from __future__ import annotations

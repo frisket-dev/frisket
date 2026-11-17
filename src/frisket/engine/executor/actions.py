@@ -465,7 +465,6 @@ def _executor_deps_with_defaults(
         ),
         search_service_factory=base.search_service_factory,
         map_runner_factory=map_runner_factory,
-        reserved_maprunner_write_overrides=base.reserved_maprunner_write_overrides,
         connected_account_resolver=base.connected_account_resolver,
         google_sheets_client=base.google_sheets_client,
         embedding_gateway=base.embedding_gateway,

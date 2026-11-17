@@ -10,7 +10,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import json
 
 import pytest
-from pydantic import BaseModel
 
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import ActionRequest
@@ -641,76 +640,6 @@ def test_registered_metered_actions_publish_and_wire_the_request_confirmation(
         assert spec.cost_gate_error_fn is not None
         checked += 1
     assert checked >= 3
-
-
-@pytest.mark.parametrize(
-    "shape",
-    [
-        "requires_confirmation",
-        "threads_confirmed",
-        "needs_confirmation_error",
-        "unknown",
-    ],
-)
-def test_plugin_confirmation_shapes_thread_explicit_consent(shape):
-    """Plugin SDK support is checked with real declarations, not a retired roster."""
-    from frisket.contracts.action import (
-        ActionError,
-        CostPolicy,
-        IdempotencyPolicy,
-        RetryPolicy,
-    )
-    from frisket.sdk.declaration import Op
-    from frisket.sdk.maprunner import build_reserved_spec
-
-    class Params(BaseModel):
-        confirmed: bool = False
-        consented_promise_set_hash: str | None = None
-
-    options = (
-        {"cost": CostPolicy(kind="unknown", requires_confirmation=True)}
-        if shape == "unknown"
-        else {
-            "cost": CostPolicy(kind="model_metered", requires_confirmation=True),
-            shape: (
-                lambda action, params: ActionError(
-                    code="external_cost_requires_confirmation",
-                    message="Confirm plugin work.",
-                    action_kind=action.kind,
-                    needs_confirmation=True,
-                )
-            )
-            if shape == "needs_confirmation_error"
-            else True,
-        }
-    )
-    declaration = Op(
-        kind="plugin.confirmation_probe",
-        title="Confirmation probe",
-        description="Exercise plugin consent wiring.",
-        params_model=Params,
-        output_model=BaseModel,
-        errors=(),
-        side_effects=(),
-        idempotency=IdempotencyPolicy(
-            supported=True,
-            scope="project",
-            key_field="idempotency_key",
-            behavior="replay",
-        ),
-        retry=RetryPolicy(supported=True, strategy="idempotency_replay"),
-        examples=(),
-        primary_fields=(),
-        **options,
-    )
-    spec = build_reserved_spec(declaration)
-    assert spec.confirmed_fn is not None
-    assert spec.confirmed_fn(Params()) is False
-    assert spec.confirmed_fn(Params(confirmed=False)) is False
-    assert spec.confirmed_fn(Params(confirmed=True)) is True
-    assert spec.params_hash_fn is not None
-    if shape != "threads_confirmed":
-        assert spec.cost_gate_error_fn is not None
 
 
 def test_unpriceable_actions_route_their_gate_to_an_explicit_consent():

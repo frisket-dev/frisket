@@ -4,9 +4,9 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from frisket.contracts.action import ActionError
 from frisket.engine.store.runs import FAILURE_OUTCOMES, outcome_sql_list
 from frisket.engine.store.result_generations import decode_result_warnings
-from frisket.sdk.declaration import Op
 from frisket.sdk.replay import output_column_result_value_hash
 
 
@@ -92,14 +92,11 @@ class CapturedFacts:
     missing_outputs: list[str]
     input_column_ids: dict[str, int]
     input_column_types: dict[str, str]
-    # rich input-column metadata (ordered), present when decl.rich_input_columns.
+    # rich input-column metadata (ordered), present when the caller asks for it.
     input_columns_rich: list[dict[str, Any]]
     runner_spec: dict[str, Any]
-    # Neutral provider facts for any op that performed a provider effect.
-    # Historically these were loaded only for declarations marked
-    # ``model_backed``; external_map actions can now emit the same durable
-    # fact shape, so receipt projection must not hide them by declaration
-    # archetype.
+    # Neutral provider facts for any op that performed a provider effect,
+    # model-backed or external; receipt projection must not hide either.
     model_calls: list[Any]
     model_call_ids: list[int]
     warnings: list[str] = field(default_factory=list)
@@ -304,32 +301,6 @@ def _input_source_run_id(
     return origin_run_ids[0]
 
 
-def capture_facts(
-    project: Any,
-    decl: Op,
-    *,
-    runner_spec: dict[str, Any],
-    run_id: int,
-    params_hash: str,
-    input_column_ids: dict[str, int],
-    input_column_types: dict[str, str],
-    allow_open_generation: bool = False,
-) -> CapturedFacts:
-    from frisket.engine.runner.validation import recipe_for_spec
-
-    return capture_maprunner_facts(
-        project,
-        runner_spec=runner_spec,
-        output_fields=recipe_for_spec(runner_spec).output_fields(runner_spec),
-        run_id=run_id,
-        params_hash=params_hash,
-        input_column_ids=input_column_ids,
-        input_column_types=input_column_types,
-        rich_input_columns=decl.rich_input_columns,
-        allow_open_generation=allow_open_generation,
-    )
-
-
 def capture_maprunner_facts(
     project: Any,
     *,
@@ -343,7 +314,7 @@ def capture_maprunner_facts(
     rich_input_columns: bool = False,
     allow_open_generation: bool = False,
 ) -> CapturedFacts:
-    """Capture a prepared program from explicit descriptors, without an ``Op``."""
+    """Capture a prepared program's terminal facts from explicit output descriptors."""
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     op_id = int(run["op_id"])
@@ -478,3 +449,37 @@ def capture_maprunner_facts(
         model_call_ids=model_call_ids,
         warnings=warnings,
     )
+
+
+def row_failure_errors(
+    action_kind: str,
+    facts: CapturedFacts,
+    status: str,
+    *,
+    code: str = "map_rows_failed",
+) -> list[ActionError]:
+    if status != "failed":
+        return []
+    return [
+        ActionError(
+            code=code,
+            message=f"{action_kind} failed for every target row",
+            action_kind=action_kind,
+            details={
+                "total_rows": facts.total_rows,
+                "completed_rows": facts.completed_rows,
+                "failed_rows": facts.failed_rows,
+            },
+        )
+    ]
+
+
+def model_run_status(facts: CapturedFacts) -> str:
+    total, failed = facts.total_rows, facts.failed_rows
+    if total > 0 and failed >= total:
+        return "failed"
+    if failed > 0 or facts.run_status == "partial":
+        return "partial"
+    if facts.run_status == "failed":
+        return "failed"
+    return "completed"

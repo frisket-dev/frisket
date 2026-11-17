@@ -14,11 +14,9 @@ from pydantic import BaseModel
 
 from frisket.contracts.action import (
     ActionError,
-    ActionIdentity,
     ActionResult,
     ActionSpec,
     Receipt,
-    ReceiptIO,
 )
 from frisket.engine.executor.action_specs import ResolvedAction
 from frisket.ops import persisted_recipe_invocation_halt
@@ -34,18 +32,10 @@ from frisket.engine.runner import (
     OutputColumnExists,
     RunProgress,
 )
-from frisket.engine.runner.confirmation_context import (
-    action_confirmation,
-    mint_confirmation_hash,
-    quoted_usd,
-    rate_estimate,
-)
-from frisket.engine.runner.confirmation_echo import refuse_unless_exact_echo
 from frisket.actions.types import RowError
 from frisket.engine.executor.action_support import _row_input_action_error
 from frisket.engine.runner.validation import ExecutionResolutionRefused
 from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
-from frisket.execution.pricing_policy import default_pricing_policy
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store.output_claims import (
     ClaimLeaseRenewalFailed,
@@ -92,14 +82,11 @@ from frisket.engine.executor.action_reservations import (
     _reserved_maprunner_result_from_existing,
     _reserve_running_action_receipt,
     _runner_output_fields,
-    _running_receipt_stale_result,
 )
 from frisket.engine.executor.action_support import (
     _failed_result,
-    _model_cost_requires_confirmation_error,
     _new_id,
     _params_hash,
-    action_confirmation_scope,
 )
 
 
@@ -162,7 +149,7 @@ def _run_action_core_spec(
 
     The shared envelope runs the idempotency replay (`spec.result_from_existing_fn`)
     and the `needs_confirmation` gate, then dispatches on `spec.body_kind` to the
-    reserved-maprunner / deterministic child-sheet / model child-sheet body.
+    plain or reserved-maprunner body.
     """
     params_hash_fn = spec.params_hash_fn
     params_hash = (
@@ -181,33 +168,6 @@ def _run_action_core_spec(
             )
             if existing_result is not None:
                 return existing_result
-    if spec.body_kind == "child_sheet_deterministic":
-        return _run_child_sheet_deterministic_body(
-            project,
-            action,
-            params,
-            spec=spec,
-            ctx=ctx,
-            params_hash=params_hash,
-        )
-    if spec.body_kind == "child_sheet_deterministic_owned_write":
-        return _run_child_sheet_deterministic_owned_write_body(
-            project,
-            action,
-            params,
-            spec=spec,
-            ctx=ctx,
-            params_hash=params_hash,
-        )
-    if spec.body_kind == "child_sheet_model":
-        return _run_child_sheet_model_body(
-            project,
-            action,
-            params,
-            spec=spec,
-            ctx=ctx,
-            params_hash=params_hash,
-        )
     if spec.body_kind == "plain":
         return _run_plain_action_body(
             project,
@@ -245,11 +205,8 @@ def _run_action_core_spec(
 def _child_sheet_deterministic_result_from_existing(
     replay_validate_fn: Callable[[Any, Receipt], ActionError | None] | None = None,
 ) -> Callable[..., ActionResult]:
-    """The deterministic child-sheet replay: params-hash conflict, optional staleness
-    validation of the completed receipt, else replay it. The validation hook is set only
-    by the op-owned-write preset (derive.join), whose materialization has an
-    op-owned replay; the plain deterministic preset leaves it unset.
-    Mirrors the inline `_replay_or_conflict` from the builder."""
+    """The deterministic replay: params-hash conflict, optional staleness
+    validation of the completed receipt, else replay it."""
 
     def result_from_existing(
         project: Any,
@@ -287,313 +244,6 @@ def _child_sheet_deterministic_result_from_existing(
     return result_from_existing
 
 
-def _child_sheet_model_result_from_existing(
-    spec: _ActionCoreSpec,
-) -> Callable[..., ActionResult]:
-    """The model child-sheet replay: params-hash conflict, stale-running clearance,
-    in-progress error, optional materialized-ref replay validation, else replay.
-    Mirrors the inline `_replay` from the reserved-model builder."""
-
-    def result_from_existing(
-        project: Any,
-        existing: Any,
-        *,
-        params_hash: str,
-        project_id: str,
-        action: ActionSpec,
-        params: Any | None = None,
-    ) -> ActionResult:
-        if existing["params_hash"] != params_hash:
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="idempotency_conflict",
-                    message="idempotency_key was already used with different normalized params",
-                    action_kind=action.kind,
-                    field="idempotency_key",
-                ),
-            )
-        stale = _running_receipt_stale_result(
-            project,
-            existing,
-            params_hash=params_hash,
-            project_id=project_id,
-            action=action,
-        )
-        if stale is not None:
-            return stale
-        if existing["status"] == "running":
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="idempotency_in_progress",
-                    message=(
-                        f"idempotency_key is already reserved by a running {action.kind} action"
-                    ),
-                    action_kind=action.kind,
-                    field="idempotency_key",
-                    details={"receipt_id": existing["id"]},
-                ),
-            )
-        receipt = Receipt.model_validate(json.loads(existing["body"]))
-        if spec.child_sheet_replay_validate_fn is not None:
-            replay_error = spec.child_sheet_replay_validate_fn(project, receipt)
-            if replay_error is not None:
-                return _failed_result(
-                    project_id=project_id,
-                    action_kind=action.kind,
-                    error=replay_error,
-                )
-        return _result_from_receipt(receipt)
-
-    return result_from_existing
-
-
-def _child_sheet_model_reserve_fn(
-    spec: _ActionCoreSpec,
-) -> Callable[..., dict[str, str] | ActionResult]:
-    """Reserve the model child-sheet running receipt: BEGIN IMMEDIATE, re-check
-    idempotency inside the txn (replaying on a winner), else insert the running
-    receipt. Mirrors the inline `_reserve` from the reserved-model builder."""
-    result_from_existing_fn = _child_sheet_model_result_from_existing(spec)
-
-    def reserve(
-        project: Any,
-        action: ActionSpec,
-        *,
-        params_hash: str,
-        project_id: str,
-    ) -> dict[str, str] | ActionResult:
-        action_id = _new_id("act")
-        receipt_id = _new_id("receipt")
-        receipt = Receipt(
-            receipt_id=receipt_id,
-            project_id=project_id,
-            action_id=action_id,
-            action_kind=action.kind,
-            idempotency_key=action.idempotency_key,
-            params_hash=params_hash,
-            status="running",
-            inputs=[
-                ReceiptIO(
-                    name="idempotency",
-                    ref={
-                        "kind": spec.reservation_kind,
-                        "params_hash": params_hash,
-                    },
-                )
-            ],
-        )
-        owns_transaction = not project.db.in_transaction
-        try:
-            project.db.execute("BEGIN IMMEDIATE")
-            existing = _receipt_for_idempotency(project, action.idempotency_key)
-            if existing is not None:
-                project.db.rollback()
-                return result_from_existing_fn(
-                    project,
-                    existing,
-                    params_hash=params_hash,
-                    project_id=project_id,
-                    action=action,
-                )
-            ReceiptStore(project).insert_running(receipt, commit=False)
-            project.db.commit()
-        except BaseException as exc:
-            try:
-                if owns_transaction:
-                    project.db.rollback()
-            finally:
-                if not isinstance(exc, Exception):
-                    raise exc
-            logger.debug(
-                "action_failed",
-                exc_info=True,
-                extra={"event": "action_failed", "action_kind": action.kind},
-            )
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="project_write_failed",
-                    message="project write failed",
-                    action_kind=action.kind,
-                ),
-            )
-        return {"action_id": action_id, "receipt_id": receipt_id}
-
-    return reserve
-
-
-def _child_sheet_model_delete_fn(spec: _ActionCoreSpec) -> Callable[[Any, str], None]:
-    """Literal move of the reserved-model builder's `_delete_reservation`: delete the
-    running reservation and debug-log a missed delete via `status_by_id`. NOT the
-    reserved-maprunner `_delete_reserved_action_receipt` (logging/behaviour differs)."""
-
-    def delete(project: Any, receipt_id: str) -> None:
-        owns_transaction = not project.db.in_transaction
-        try:
-            project.db.execute("BEGIN IMMEDIATE")
-            deleted = ReceiptStore(project).delete_running(receipt_id, commit=False)
-            if not deleted:
-                status = ReceiptStore(project).status_by_id(receipt_id)
-                logger.debug(
-                    "reservation_delete_missed",
-                    extra={
-                        "event": "reservation_delete_missed",
-                        "action_kind": spec.kind,
-                        "receipt_id": receipt_id,
-                        "status": status,
-                    },
-                )
-            project.db.commit()
-        except BaseException as exc:
-            try:
-                if owns_transaction:
-                    project.db.rollback()
-            finally:
-                if not isinstance(exc, Exception):
-                    raise exc
-            logger.debug(
-                "action_failed",
-                exc_info=True,
-                extra={"event": "action_failed", "action_kind": spec.kind},
-            )
-
-    return delete
-
-
-def _run_child_sheet_deterministic_body(
-    project: Any,
-    action: ActionSpec,
-    params: BaseModel,
-    *,
-    spec: _ActionCoreSpec,
-    ctx: ExecutorContext,
-    params_hash: str,
-) -> ActionResult:
-    """The deterministic child-sheet body (derive.table_from_list): resolve outside the
-    txn, duplicate precheck, then BEGIN IMMEDIATE -> idempotency + duplicate re-check ->
-    write_single_parent_child_sheet -> present -> receipt -> commit. A mechanical move of
-    the inline flow from `build_child_sheet_run_fn`."""
-    from frisket.engine.store.materialization import (
-        SingleParentChildSheetPlan,
-        write_single_parent_child_sheet,
-    )
-
-    project_id = ctx.project_id
-
-    def _replay_or_conflict(existing: Any) -> ActionResult:
-        return spec.result_from_existing_fn(
-            project,
-            existing,
-            params_hash=params_hash,
-            project_id=project_id,
-            action=action,
-            params=params,
-        )
-
-    resolved = spec.child_sheet_resolve_fn(project, params)
-    if isinstance(resolved, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=resolved,
-        )
-    target_name = spec.child_sheet_target_name_fn(params)
-    duplicate = spec.child_sheet_duplicate_error_fn(project, target_name)
-    if duplicate is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=duplicate,
-        )
-
-    cur = project.db.cursor()
-    owns_transaction = not project.db.in_transaction
-    try:
-        cur.execute("BEGIN IMMEDIATE")
-        existing = _receipt_for_idempotency(project, action.idempotency_key)
-        if existing is not None:
-            project.db.rollback()
-            return _replay_or_conflict(existing)
-        duplicate = spec.child_sheet_duplicate_error_fn(project, target_name)
-        if duplicate is not None:
-            project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=duplicate,
-            )
-        action_id = _new_id("act")
-        receipt_id = _new_id("receipt")
-        write = write_single_parent_child_sheet(
-            cur,
-            SingleParentChildSheetPlan(
-                action_kind=spec.kind,
-                label=f"{spec.kind} {target_name}",
-                target_sheet_name=target_name,
-                parent_sheet_id=int(resolved["parent_sheet_id"]),
-                op_spec=spec.child_sheet_op_spec_fn(
-                    action, params, params_hash, resolved
-                ),
-                columns=resolved["columns"],
-                rows=resolved["rows"],
-            ),
-        )
-        if spec.child_sheet_row_evidence_fn is not None:
-            spec.child_sheet_row_evidence_fn(project, resolved, write)
-        prov = spec.child_sheet_present_fn(resolved, write)
-        receipt = Receipt(
-            receipt_id=receipt_id,
-            project_id=project_id,
-            action_id=action_id,
-            action_kind=action.kind,
-            op_ids=[write.op_id],
-            idempotency_key=action.idempotency_key,
-            params_hash=params_hash,
-            status=prov.status,
-            inputs=prov.inputs,
-            outputs=spec.child_sheet_receipt_outputs_fn(
-                target_name, int(resolved["parent_sheet_id"]), write
-            ),
-            evidence=prov.evidence,
-        )
-        ReceiptStore(project).insert_completed(receipt, commit=False)
-        project.db.commit()
-        return ActionResult(
-            action=ActionIdentity(kind=action.kind, action_id=action_id),
-            status="completed",
-            project_id=project_id,
-            op_ids=[write.op_id],
-            outputs=spec.child_sheet_action_outputs_fn(target_name, write),
-            receipt_id=receipt_id,
-        )
-    except BaseException as exc:
-        try:
-            if owns_transaction:
-                project.db.rollback()
-        finally:
-            if not isinstance(exc, Exception):
-                raise exc
-        logger.debug(
-            "action_failed",
-            exc_info=True,
-            extra={"event": "action_failed", "action_kind": action.kind},
-        )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="project write failed",
-                action_kind=action.kind,
-            ),
-        )
-
-
 def _run_in_txn_idempotent_perform(
     project: Any,
     action: _ActionExecutionEnvelope,
@@ -601,7 +251,6 @@ def _run_in_txn_idempotent_perform(
     project_id: str,
     params_hash: str,
     perform_fn: Callable[..., ActionResult],
-    pre_perform_fn: Callable[[Any], ActionResult | None] | None = None,
     result_from_existing_fn: Callable[..., ActionResult] | None = None,
     exception_error_fn: Callable[[_ActionExecutionEnvelope], ActionError] | None = None,
     cleanup_resolved_fn: Callable[[Any], None] | None = None,
@@ -609,11 +258,9 @@ def _run_in_txn_idempotent_perform(
     persist_failure: bool = False,
     resolved: Any = None,
 ) -> ActionResult:
-    """The shared in-txn skeleton for the deterministic op-owned bodies (plain +
-    owned-write child-sheet): BEGIN IMMEDIATE -> re-check idempotency in-txn (params-hash
-    conflict -> idempotency_conflict, else replay the completed receipt) ->
-    optional `pre_perform_fn` guard (the owned-write body's in-txn duplicate re-check) ->
-    the op-owned `perform_fn` (which does any project writes, inserts the receipt, and
+    """The shared in-txn skeleton for the deterministic op-owned bodies: BEGIN IMMEDIATE
+    -> re-check idempotency in-txn (params-hash conflict -> idempotency_conflict, else
+    replay the completed receipt) -> the op-owned `perform_fn` (which does any project writes, inserts the receipt, and
     returns the result) -> commit on a completed result, else rollback. On any exception,
     rollback and surface the error: `exception_error_fn(action)` when set, else the fixed
     project_write_failed ActionError. Non-Exception interruptions roll back and clean up
@@ -623,7 +270,7 @@ def _run_in_txn_idempotent_perform(
     the in-txn race check, including artifact validation. Otherwise replay is
     plain, preserving the deterministic-aggregate policy. The helper owns
     the txn boundary and allocates the action/receipt ids;
-    `perform_fn`/`pre_perform_fn` must not commit or rollback themselves.
+    `perform_fn` must not commit or rollback itself.
 
     `cleanup_resolved_fn` (with `resolved`) is the optional cleanup-on-rollback seam for
     ops that stage out-of-txn side effects in `perform_fn` (filesystem artifacts moved into
@@ -644,8 +291,7 @@ def _run_in_txn_idempotent_perform(
     failure trace become a durable record) instead of rolling back. `post_commit_fn` still fires
     only on the `completed` path, and `cleanup_resolved_fn` still fires only on the rollback
     paths; the failed-but-committed path runs neither (no op pairs persist_failure with those
-    out-of-txn-side-effect seams). With persist_failure False the predicate is unchanged, so
-    every existing plain/owned-write op stays byte-equal."""
+    out-of-txn-side-effect seams)."""
     cur = project.db.cursor()
     owns_transaction = not project.db.in_transaction
     if not owns_transaction and post_commit_fn is not None:
@@ -712,11 +358,6 @@ def _run_in_txn_idempotent_perform(
             return _result_from_receipt(
                 Receipt.model_validate(json.loads(existing["body"]))
             )
-        if pre_perform_fn is not None:
-            early = pre_perform_fn(cur)
-            if early is not None:
-                rollback_write()
-                return early
         action_id = _new_id("act")
         receipt_id = _new_id("receipt")
         perform_started = True
@@ -773,73 +414,6 @@ def _run_in_txn_idempotent_perform(
                 },
             )
     return result
-
-
-def _run_child_sheet_deterministic_owned_write_body(
-    project: Any,
-    action: ActionSpec,
-    params: BaseModel,
-    *,
-    spec: _ActionCoreSpec,
-    ctx: ExecutorContext,
-    params_hash: str,
-) -> ActionResult:
-    """The deterministic op-owned-write child-sheet body (derive.join): a read-only
-    resolve outside the txn, duplicate precheck, then the shared in-txn idempotent perform
-    (BEGIN IMMEDIATE -> idempotency re-check -> in-txn duplicate re-check -> the op-owned
-    in-txn write -> commit). The op owns the write (it materializes a multi-parent
-    aggregate sheet, updates the op spec with the materialized refs, and inserts the
-    receipt); the core allocates the action/receipt ids and owns the txn boundary."""
-    project_id = ctx.project_id
-
-    resolved = spec.child_sheet_resolve_fn(project, params)
-    if isinstance(resolved, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=resolved,
-        )
-    target_name = spec.child_sheet_target_name_fn(params)
-    duplicate = spec.child_sheet_duplicate_error_fn(project, target_name)
-    if duplicate is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=duplicate,
-        )
-
-    def _pre_perform(cur: Any) -> ActionResult | None:
-        duplicate = spec.child_sheet_duplicate_error_fn(project, target_name)
-        if duplicate is None:
-            return None
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=duplicate,
-        )
-
-    def _perform(cur: Any, *, action_id: str, receipt_id: str) -> ActionResult:
-        return spec.child_sheet_deterministic_write_in_txn_fn(
-            project,
-            cur,
-            action,
-            params,
-            project_id=project_id,
-            action_id=action_id,
-            receipt_id=receipt_id,
-            params_hash=params_hash,
-            target_name=target_name,
-            resolved=resolved,
-        )
-
-    return _run_in_txn_idempotent_perform(
-        project,
-        action,
-        project_id=project_id,
-        params_hash=params_hash,
-        perform_fn=_perform,
-        pre_perform_fn=_pre_perform,
-    )
 
 
 def _run_plain_action_body(
@@ -916,173 +490,6 @@ def _run_plain_action_body(
     )
 
 
-def _run_child_sheet_model_body(
-    project: Any,
-    action: ActionSpec,
-    params: BaseModel,
-    *,
-    spec: _ActionCoreSpec,
-    ctx: ExecutorContext,
-    params_hash: str,
-) -> ActionResult:
-    """The model/reservation/cost-gated child-sheet body (reduce.group_summary,
-    join.semantic): resolve -> duplicate precheck -> cost-gate -> reserve -> async
-    compute -> op-owned write -> reservation cleanup. A mechanical move of the inline
-    flow from `build_reserved_model_child_sheet_run_fn`; the cost-gate stays here as a
-    `status="failed"` `model_cost_requires_confirmation` (no needs_confirmation route)."""
-    from frisket.engine.jobs.runs import project_scoped_router
-
-    project_id = ctx.project_id
-
-    # Model-spending path: same credential authority as every other one
-    # (see `project_scoped_router`), never a bare env-only router.
-    router_obj = project_scoped_router(project, ctx.deps.router)
-    resolved = spec.child_sheet_model_resolve_fn(project, params, router_obj)
-    if isinstance(resolved, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=resolved,
-        )
-    target_name = spec.child_sheet_target_name_fn(params)
-    duplicate = spec.child_sheet_duplicate_error_fn(project, target_name)
-    if duplicate is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=duplicate,
-        )
-
-    estimate = rate_estimate(
-        spec.child_sheet_estimate_cost_fn(params, resolved),
-        policy=default_pricing_policy(),
-    )
-    # The BILLED figure gates, not the provider's: a child-sheet build whose
-    # provider cost sits under the threshold but which this deployment bills
-    # above it must still ask. Identical under the identity policy.
-    quoted = quoted_usd(estimate)
-    from frisket.execution.consent_coverage import effective_consent_coverage
-
-    coverage = effective_consent_coverage(project, ctx.deps.consent_coverage)
-    requires_confirmation = quoted is None or quoted > float(coverage.threshold_usd)
-    context_hash = mint_confirmation_hash(
-        action_confirmation(
-            family_kind=action.kind,
-            scope=action_confirmation_scope(action),
-            estimate=estimate,
-        )
-    )
-
-    def _cost_gate_refusal() -> ActionResult:
-        gate = CostGate(
-            quoted, estimate_details=estimate, gate_usd=float(coverage.threshold_usd)
-        )
-        gate.promise_set_hash = context_hash
-        # (B) the pre-flight cost gate pauses for confirmation; it is not a failure.
-        # Matches the reserved pre-flight needs_confirmation gate (research.web_search/answer).
-        return ActionResult(
-            action=ActionIdentity(kind=action.kind, action_id=_new_id("act")),
-            status="needs_confirmation",
-            project_id=project_id,
-            errors=[_model_cost_requires_confirmation_error(action, gate)],
-        )
-
-    if requires_confirmation:
-        refusal = refuse_unless_exact_echo(
-            confirmed=params.confirmed,
-            echoed_hash=getattr(params, "consented_promise_set_hash", None),
-            expected_hash=context_hash,
-            refuse=_cost_gate_refusal,
-        )
-        if refusal is not None:
-            return refusal
-
-    reservation = spec.reserve_fn(
-        project,
-        action,
-        params_hash=params_hash,
-        project_id=project_id,
-    )
-    if isinstance(reservation, ActionResult):
-        return reservation
-
-    try:
-        computations = asyncio.run(
-            spec.child_sheet_compute_fn(
-                project,
-                params,
-                resolved,
-                router_obj,
-            )
-        )
-    except StaleAttemptWriter as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code=exc.code,
-                message=str(exc),
-                action_kind=action.kind,
-            ),
-        )
-    except Exception as exc:
-        spec.delete_reservation_fn(project, reservation["receipt_id"])
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="model_run_failed",
-                message=str(exc),
-                action_kind=action.kind,
-            ),
-        )
-    if isinstance(computations, ActionError):
-        spec.delete_reservation_fn(project, reservation["receipt_id"])
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=computations,
-        )
-
-    try:
-        result = spec.child_sheet_write_result_fn(
-            project,
-            action,
-            params,
-            params_hash=params_hash,
-            project_id=project_id,
-            action_id=reservation["action_id"],
-            receipt_id=reservation["receipt_id"],
-            resolved=resolved,
-            estimate=estimate,
-            computations=computations,
-        )
-    except StaleAttemptWriter as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code=exc.code,
-                message=str(exc),
-                action_kind=action.kind,
-            ),
-        )
-    except Exception as exc:
-        spec.delete_reservation_fn(project, reservation["receipt_id"])
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message=str(exc),
-                action_kind=action.kind,
-            ),
-        )
-    if result.status == "failed" and result.receipt_id is None:
-        spec.delete_reservation_fn(project, reservation["receipt_id"])
-    return result
-
-
 def _run_reserved_maprunner_action_spec(
     project: Any,
     action: ActionSpec,
@@ -1093,12 +500,6 @@ def _run_reserved_maprunner_action_spec(
     map_runner_factory: _MapRunnerFactory,
 ) -> ActionResult:
     """The reserved-maprunner preset: fill the core seams, then run the core."""
-    write_fn = spec.write_fn
-    if ctx.deps.reserved_maprunner_write_overrides is not None:
-        write_fn = ctx.deps.reserved_maprunner_write_overrides.get(
-            action.kind, write_fn
-        )
-
     cost_gate_error_fn = None
     if spec.cost_gate_error_fn is not None:
         cost_gate_error_spec_fn = spec.cost_gate_error_fn
@@ -1110,7 +511,6 @@ def _run_reserved_maprunner_action_spec(
         kind=spec.kind,
         params_model=spec.params_model,
         params_hash_fn=spec.params_hash_fn,
-        needs_confirmation_error_fn=spec.needs_confirmation_error_fn,
         confirmed_fn=spec.confirmed_fn,
         result_from_existing_fn=_reserved_maprunner_result_from_existing(spec),
         reserve_fn=_reserved_maprunner_reserve_fn(spec),
@@ -1118,13 +518,11 @@ def _run_reserved_maprunner_action_spec(
         runner_spec_fn=spec.runner_spec_fn,
         resolve_fn=spec.resolve_fn,
         precheck_fn=spec.precheck_fn,
-        reservation_kind=spec.reservation_kind,
-        write_fn=write_fn,
+        write_fn=spec.write_fn,
         resume_run_id_fn=spec.resume_run_id_fn,
         program_fn=spec.program_fn,
         cost_gate_error_fn=cost_gate_error_fn,
         map_error_code=spec.map_error_code,
-        log_missed_delete=spec.log_missed_delete,
     )
     return _run_action_core_spec(
         project,

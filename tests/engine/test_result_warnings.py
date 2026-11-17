@@ -22,8 +22,7 @@ from frisket.engine.store.runs import (
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.sdk.capture import _capture_result_warnings, capture_maprunner_facts
-from frisket.sdk.maprunner import build_receipt_from_provenance
-from frisket.sdk.provenance import Provenance
+from frisket.sdk.provenance import Provenance, build_receipt_from_provenance
 from helpers import run_writer_authority_fixture
 from tests.engine.test_bundle_schema_fence import _remove_execution_metadata
 

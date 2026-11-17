@@ -281,29 +281,6 @@ def preview_resolution_in_scope(extras: Any) -> Resolution | None:
 # Static preference table.
 # ---------------------------------------------------------------------------
 
-# Target FAMILY keys: stable identifiers independent of instance labels.
-# Remote API ids carry provider suffixes; every other id IS its own family.
-_FAMILY_REMOTE_API = "remote-api"
-
-# (A RAW_SYMBOL_TARGET_PINS table pinned raw authored symbols to a target
-# family ahead of the canonical walk. It held one entry — ``whisper`` to local
-# — but was behaviorally inert because ``whisper`` canonicalizes to
-# ``faster_whisper``, which is declared only on the local target. The fixed
-# gateway model has the distinct identity ``whisper-turbo``.
-# It was deleted along with its pre-check, whose "no candidate has family
-# local" condition ``build_static_targets`` cannot produce.)
-
-
-def target_family(target_id: str) -> str:
-    """The stable family key for a target id.
-
-    Remote API instances carry per-provider suffixes; every other target id
-    is already its own stable family key.
-    """
-    if target_id.startswith(_REMOTE_API_PREFIX):
-        return _FAMILY_REMOTE_API
-    return target_id
-
 
 def support_inability(
     support: TargetEngineSupport,

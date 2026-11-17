@@ -1109,9 +1109,6 @@ def test_raw_url_cell_never_reaches_transcriber(
 
 def test_media_transcribe_params_probes() -> None:
     from frisket.actions.types import ActionRequest
-    from frisket.sdk.media import (
-        media_action_status,
-    )
 
     with pytest.raises(ValueError):
         ActionRequest.model_validate(
@@ -1121,7 +1118,3 @@ def test_media_transcribe_params_probes() -> None:
                 "params": {"source": "media"},
             }
         )
-    assert (
-        media_action_status({"status": "failed", "total_rows": 0, "failed_rows": 1})
-        == "failed"
-    )

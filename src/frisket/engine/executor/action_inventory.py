@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from numbers import Integral
 from typing import Any, BinaryIO, Callable, ContextManager, Literal, Mapping, Protocol
 
 from pydantic import BaseModel
@@ -11,11 +10,9 @@ from pydantic import BaseModel
 from frisket.actions.types import EmailInput
 from frisket.contracts.action import (
     ActionError,
-    ActionOutput,
     ActionResult,
     ActionSpec,
     Receipt,
-    ReceiptIO,
 )
 from frisket.engine.runner import (
     CostGate,
@@ -27,7 +24,6 @@ from frisket.execution.provider import (
 
 
 _MapRunnerFactory = Callable[[Any, Any | None], Any]
-_ReservedMaprunnerWriteOverrides = Mapping[str, Callable[..., ActionResult]]
 _ConnectedAccountResolver = Callable[[str, str], Mapping[str, Any] | None]
 
 
@@ -150,7 +146,6 @@ class ExecutorDeps:
     # credentials merely because a provider is selected in settings.
     search_service_factory: Callable[[], Any] | None = None
     map_runner_factory: _MapRunnerFactory | None = None
-    reserved_maprunner_write_overrides: _ReservedMaprunnerWriteOverrides | None = None
     connected_account_resolver: _ConnectedAccountResolver | None = None
     google_sheets_client: Any | None = None
     # Embedding gateway for embedding.index_refresh. Duck-typed (.embed(texts,
@@ -204,10 +199,8 @@ class _ReservedMaprunnerActionSpec:
     ) = None
     params_hash_fn: Callable[[ActionSpec], str] | None = None
     confirmed_fn: Callable[[Any], bool] | None = None
-    needs_confirmation_error_fn: Callable[[ActionSpec, Any], ActionError] | None = None
     cost_gate_error_fn: Callable[[ActionSpec, CostGate], ActionError] | None = None
     map_error_code: str = "map_run_failed"
-    log_missed_delete: bool = True
 
 
 @dataclass(frozen=True)
@@ -216,27 +209,20 @@ class _ActionCoreSpec:
 
     The core (`_run_action_core_spec`) runs idempotency -> confirmation gate -> the
     execution body once, parameterized by these seams; each lifecycle shape
-    (reserved-maprunner today; child-sheet/queued/plain in later steps) becomes a thin
-    preset that fills only the seams it uses. Reserve/delete/result_from_existing arrive
-    pre-built so the core never reconstructs an owner spec.
+    (reserved-maprunner or plain) is a thin preset that fills only the seams it uses.
+    Reserve/delete/result_from_existing arrive pre-built so the core never
+    reconstructs an owner spec.
     """
 
     kind: str
     params_model: type[BaseModel]
 
     # which execution body the core runs after the shared idempotency + confirmation
-    # gate. Default keeps step-1 reserved-maprunner specs unchanged.
-    body_kind: Literal[
-        "reserved_maprunner",
-        "child_sheet_deterministic",
-        "child_sheet_deterministic_owned_write",
-        "child_sheet_model",
-        "plain",
-    ] = "reserved_maprunner"
+    # gate.
+    body_kind: Literal["reserved_maprunner", "plain"] = "reserved_maprunner"
 
     # lifecycle policy
     params_hash_fn: Callable[[ActionSpec], str] | None = None
-    needs_confirmation_error_fn: Callable[[ActionSpec, Any], ActionError] | None = None
     confirmed_fn: Callable[[Any], bool] | None = None
     result_from_existing_fn: Callable[..., ActionResult | None] | None = None
     reserve_fn: Callable[..., dict[str, str] | ActionResult] | None = None
@@ -248,7 +234,6 @@ class _ActionCoreSpec:
         Callable[[Any, Any, dict[str, Any]], dict[str, Any] | ActionError] | None
     ) = None
     precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None] | None = None
-    reservation_kind: str | None = None
     write_fn: Callable[..., ActionResult] | None = None
     # optional resume seam (see _ReservedMaprunnerActionSpec.resume_run_id_fn): threaded into
     # MapRunner.run(resume_run_id=...). Default None keeps the create path byte-equal.
@@ -256,43 +241,7 @@ class _ActionCoreSpec:
     program_fn: Callable[[Any, dict[str, Any]], Any | ActionError | None] | None = None
     cost_gate_error_fn: Callable[[CostGate], ActionError] | None = None
     map_error_code: str = "map_run_failed"
-    log_missed_delete: bool = True
 
-    # child-sheet execution seams (set only by child-sheet presets). Shared by both
-    # the deterministic (derive.table_from_list) and model (reduce/join) bodies.
-    child_sheet_target_name_fn: Callable[[Any], Any] | None = None
-    child_sheet_duplicate_error_fn: Callable[[Any, Any], ActionError | None] | None = (
-        None
-    )
-    child_sheet_replay_validate_fn: (
-        Callable[[Any, Receipt], ActionError | None] | None
-    ) = None
-    # deterministic child-sheet body seams
-    child_sheet_resolve_fn: (
-        Callable[[Any, Any], dict[str, Any] | ActionError] | None
-    ) = None
-    child_sheet_present_fn: Callable[[dict[str, Any], Any], Any] | None = None
-    child_sheet_op_spec_fn: Callable[..., dict[str, Any]] | None = None
-    child_sheet_action_outputs_fn: Callable[[Any, Any], list[ActionOutput]] | None = (
-        None
-    )
-    child_sheet_receipt_outputs_fn: (
-        Callable[[Any, int, Any], list[ReceiptIO]] | None
-    ) = None
-    # OPTIONAL op-unique post-write hook:
-    # callable(project, resolved, write) -> None, run inside the SAME write
-    # transaction right after write_single_parent_child_sheet, before the
-    # receipt is built. The child-sheet analog of the reserved-maprunner
-    # `write_override` seam -- used only by derive.table_from_list to
-    # repoint/copy each derived row's source item's evidence link. None
-    # (default) for every other child-sheet op.
-    child_sheet_row_evidence_fn: Callable[[Any, dict[str, Any], Any], None] | None = (
-        None
-    )
-    # deterministic op-owned-write child-sheet body seam: the op owns the in-txn write
-    # (aggregate materialization + ops-spec update + receipt) and returns the result; the
-    # core owns the BEGIN IMMEDIATE/recheck/commit envelope and the action/receipt ids.
-    child_sheet_deterministic_write_in_txn_fn: Callable[..., ActionResult] | None = None
     # plain body seams (set only by the plain preset). The plain body has no target-name
     # or duplicate concepts: an optional best-effort pre-txn resolve, then the op-owned
     # in-txn perform that does the in-txn reads/validation + any project writes + the
@@ -318,16 +267,15 @@ class _ActionCoreSpec:
     # optional seam for the plain body's in-txn exception error. When set, the shared
     # in-txn helper builds the rollback error via this callable instead of the fixed
     # project_write_failed ActionError; lets a plain op preserve its own pre-migration
-    # exception code/message. Owned-write leaves it unset (fixed project_write_failed).
+    # exception code/message.
     plain_exception_error_fn: Callable[[ActionSpec], ActionError] | None = None
     # optional cleanup-on-rollback seam for plain ops whose perform stages out-of-txn side
     # effects (filesystem artifacts: a pre-txn tmp write, an in-txn os.replace into place).
     # The shared in-txn helper calls it with the resolved value on EVERY path where the
     # perform's writes do NOT commit: the in-txn idempotency-race short-circuit (perform
     # skipped), the exception/rollback path, and the non-completed-result rollback path. It
-    # is NOT called on the committed-success path. Owned-write leaves it unset (no out-of-txn
-    # side effects to undo). The perform records what it has moved on the (mutable) resolved
-    # value so the cleanup undoes exactly the staged side effects.
+    # is NOT called on the committed-success path. The perform records what it has moved on
+    # the (mutable) resolved value so the cleanup undoes exactly the staged side effects.
     plain_cleanup_resolved_fn: Callable[[Any], None] | None = None
     # optional post-commit success-finalize seam for plain ops whose in-txn perform stages an
     # out-of-txn side effect that needs a final cleanup AFTER the receipt commits (the local
@@ -335,15 +283,8 @@ class _ActionCoreSpec:
     # committed receipt should drop the .bak). The shared in-txn helper calls it with the
     # resolved value ONLY on the committed-success path, after the commit succeeds. It is never
     # called on any non-commit path (those run `plain_cleanup_resolved_fn` instead). Ops with no
-    # post-commit finalize (plain receipt-only ops, owned-write) leave it unset.
+    # post-commit finalize (plain receipt-only ops) leave it unset.
     plain_post_commit_fn: Callable[[Any], None] | None = None
-    # model child-sheet body seams
-    child_sheet_model_resolve_fn: (
-        Callable[[Any, Any, Any], dict[str, Any] | ActionError] | None
-    ) = None
-    child_sheet_estimate_cost_fn: Callable[[Any, dict[str, Any]], dict] | None = None
-    child_sheet_compute_fn: Callable[..., Any] | None = None
-    child_sheet_write_result_fn: Callable[..., ActionResult] | None = None
 
 
 @dataclass(frozen=True)
@@ -367,52 +308,12 @@ def _decode_queued_payload_input_column_ids(value: Any) -> dict[str, int]:
     return {str(name): int(column_id) for name, column_id in dict(value or {}).items()}
 
 
-def _decode_queued_payload_dict(value: Any) -> dict[str, Any]:
-    return dict(value or {})
-
-
-def _decode_queued_payload_int_list(value: Any) -> list[int]:
-    items = value if isinstance(value, (list, tuple)) else []
-    decoded: list[int] = []
-    for item in items:
-        if isinstance(item, bool):
-            continue
-        if isinstance(item, Integral):
-            item_int = int(item)
-            if item_int > 0:
-                decoded.append(item_int)
-            continue
-        if isinstance(item, str):
-            stripped = item.strip()
-            if stripped and stripped.isdigit():
-                item_int = int(stripped)
-                if item_int > 0:
-                    decoded.append(item_int)
-    return decoded
-
-
-def _decode_queued_payload_dict_list(value: Any) -> list[dict[str, Any]]:
-    return [dict(item) for item in list(value or []) if isinstance(item, dict)]
-
-
 def _queued_payload_codecs(*keys: str) -> tuple[_QueuedPayloadCodec, ...]:
     codecs: list[_QueuedPayloadCodec] = []
     for key in keys:
         decode_fn: Callable[[Any], Any] | None = None
         if key == "input_column_ids":
             decode_fn = _decode_queued_payload_input_column_ids
-        elif key in {"input_column", "judged_output", "evaluation_context"}:
-            decode_fn = _decode_queued_payload_dict
-        elif key == "row_ids":
-            decode_fn = _decode_queued_payload_int_list
-        elif key in {
-            "input_columns",
-            "blob_refs",
-            "input_refs",
-            "source_url_refs",
-            "invalid_source_url_refs",
-        }:
-            decode_fn = _decode_queued_payload_dict_list
         codecs.append(_QueuedPayloadCodec(key=key, decode_fn=decode_fn))
     return tuple(codecs)
 
@@ -421,7 +322,6 @@ def _queued_payload_codecs(*keys: str) -> tuple[_QueuedPayloadCodec, ...]:
 class _QueuedActionSpec:
     kind: str
     params_model: type[BaseModel]
-    completed_spec: _ReservedMaprunnerActionSpec | None
     runner_spec_fn: Callable[[Any], dict[str, Any]]
     resolve_fn: Callable[[Any, Any, dict[str, Any]], dict[str, Any] | ActionError]
     precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None]
@@ -434,19 +334,16 @@ class _QueuedActionSpec:
     ) = None
     params_hash_fn: Callable[[ActionSpec], str] | None = None
     confirmed_fn: Callable[[Any], bool] | None = None
-    needs_confirmation_error_fn: Callable[[ActionSpec, Any], ActionError] | None = None
     cost_gate_error_fn: Callable[[ActionSpec, CostGate], ActionError] | None = None
     map_error_code: str = "map_run_failed"
     output_claim_error_field: str = "params.output_name"
     completed_result_from_existing_fn: Callable[..., ActionResult] | None = None
-    # The child_sheet_model archetype's
-    # resolve seam is ALWAYS model-backed (it resolves the embedding backend),
-    # unlike reserved-maprunner resolve_fns, which never need a router at
-    # reserve time (MapRunner re-resolves its own router-dependent bits
-    # per-row, inside the worker). When True, `resolve_fn` is called with an
-    # extra positional `router` argument: `resolve_fn(project, params,
-    # runner_spec, router)`. False (the default) keeps every existing
-    # reserved-maprunner-derived queued spec's 3-arg call byte-identical.
+    # A model-backed resolve seam (one that resolves an embedding backend at
+    # reserve time) sets this; reserved-maprunner resolve_fns never need a
+    # router there (MapRunner re-resolves its own router-dependent bits per-row,
+    # inside the worker). When True, `resolve_fn` is called with an extra
+    # positional `router` argument: `resolve_fn(project, params, runner_spec,
+    # router)`.
     resolve_needs_router: bool = False
 
 
@@ -454,93 +351,6 @@ class _QueuedActionSpec:
 class _QueuedActionInventoryEntry:
     spec: _QueuedActionSpec
     finalize_action: Callable[..., ActionResult] | None = None
-
-
-def _plain_action_runner(
-    run: Callable[..., ActionResult],
-) -> Callable[..., ActionResult]:
-    def adapter(
-        project: Any,
-        action: ActionSpec,
-        params: BaseModel,
-        *,
-        ctx: ExecutorContext,
-    ) -> ActionResult:
-        return run(
-            project,
-            action,
-            params,
-            project_id=ctx.project_id,
-        )
-
-    return adapter
-
-
-def _router_action_runner(
-    run: Callable[..., ActionResult],
-) -> Callable[..., ActionResult]:
-    def adapter(
-        project: Any,
-        action: ActionSpec,
-        params: BaseModel,
-        *,
-        ctx: ExecutorContext,
-    ) -> ActionResult:
-        return run(
-            project,
-            action,
-            params,
-            project_id=ctx.project_id,
-            router=ctx.deps.router,
-        )
-
-    return adapter
-
-
-def _maprunner_action_runner(
-    run: Callable[..., ActionResult],
-) -> Callable[..., ActionResult]:
-    def adapter(
-        project: Any,
-        action: ActionSpec,
-        params: BaseModel,
-        *,
-        ctx: ExecutorContext,
-    ) -> ActionResult:
-        map_runner_factory = ctx.deps.map_runner_factory
-        if map_runner_factory is None:
-            raise RuntimeError("ExecutorContext.deps.map_runner_factory is required")
-        return run(
-            project,
-            action,
-            params,
-            project_id=ctx.project_id,
-            router=ctx.deps.router,
-            map_runner_factory=map_runner_factory,
-        )
-
-    return adapter
-
-
-def _rss_fetch_action_runner(
-    run: Callable[..., ActionResult],
-) -> Callable[..., ActionResult]:
-    def adapter(
-        project: Any,
-        action: ActionSpec,
-        params: BaseModel,
-        *,
-        ctx: ExecutorContext,
-    ) -> ActionResult:
-        return run(
-            project,
-            action,
-            params,
-            project_id=ctx.project_id,
-            rss_fetcher=ctx.deps.rss_fetcher,
-        )
-
-    return adapter
 
 
 def _group_label_from_output_intent(action: _ActionExecutionEnvelope) -> str | None:
@@ -557,9 +367,7 @@ def _group_label_from_output_intent(action: _ActionExecutionEnvelope) -> str | N
 
 def _overwrite_existing_from_output_intent(action: _ActionExecutionEnvelope) -> bool:
     """True when the caller declared an ``overwrite_existing`` output intent:
-    reuse a colliding AI output column instead of
-    rejecting. Only AI-generated columns are reused (build_precheck_fn); source
-    columns stay protected."""
+    the runner then reuses a colliding output column instead of rejecting."""
     for intent in getattr(action, "output_intent", ()):
         if isinstance(intent, dict) and intent.get("kind") == "overwrite_existing":
             return True

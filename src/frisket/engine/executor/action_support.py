@@ -7,7 +7,6 @@ import json
 import uuid
 from typing import Any
 
-from pydantic import BaseModel
 
 from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.contracts.action import (
@@ -22,10 +21,6 @@ from frisket.ai.models.metadata import (
 )
 from frisket.engine.runner import (
     CostGate,
-)
-from frisket.engine.runner.confirmation_context import (
-    ActionScope,
-    ParamsScope,
 )
 
 
@@ -86,30 +81,6 @@ def _params_hash_without_confirmed(action: ActionSpec) -> str:
         payload, sort_keys=True, separators=(",", ":"), allow_nan=False
     )
     return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def action_confirmation_scope(action: ActionSpec) -> ActionScope:
-    """The confirmation identity of a family that holds the whole ``ActionSpec``.
-
-    These families do not have a routed promise set, but their confirmation
-    has the same invariant: changing target, scope, or quote after the modal
-    was shown must produce a fresh 402 rather than spending under the old
-    approval. The payload and the hash belong to
-    ``engine/runner/confirmation_context.py``; this is only the identity half.
-    """
-
-    return ActionScope(action_hash=_params_hash_without_confirmed(action))
-
-
-def params_confirmation_scope(params: BaseModel) -> ParamsScope:
-    """The confirmation identity of a deterministic family with no ActionSpec
-    seam: every authored param, minus the retry-flow fields so the confirmed
-    retry recomputes the token it was shown."""
-
-    authored_params = params.model_dump(mode="json", exclude_none=True)
-    authored_params.pop("confirmed", None)
-    authored_params.pop("consented_promise_set_hash", None)
-    return ParamsScope(params=authored_params)
 
 
 def _estimate_confirmation_reason(estimate: float | None) -> str:
@@ -173,10 +144,6 @@ def _external_cost_requires_confirmation_error(
             **_claims_gate_details(exc),
         },
     )
-
-
-def _model_family(model: str) -> str:
-    return provider_from_model_id(model).strip().lower()
 
 
 def _model_call_units(call: Any) -> dict[str, Any]:

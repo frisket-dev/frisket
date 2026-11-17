@@ -15,22 +15,6 @@ Scope:
       placement. These programs reconstruct their typed queue adapters from
       the canonical request, including the Python evaluator program.
 
-DIVERGENCE: ``join.semantic`` cannot move with the three media-acquisition
-kinds because ``semantic.py``'s ``_JOIN_SEMANTIC_RUN_FN`` is
-built by `build_reserved_model_child_sheet_run_fn` (an `_ActionCoreSpec` with
-`body_kind="child_sheet_model"` -- the reduce.group_summary/child-sheet-write
-archetype), NOT `build_reserved_spec`'s `_ReservedMaprunnerActionSpec`
-archetype the mechanical `_queued_action_spec_from_reserved` flip requires.
-join.semantic stayed declared inline pending its own queue machinery, the
-same class of exclusion as media.capture_url before its stage-1 redesign.
-That follow-up (join-semantic-queued-conversion-v1) has since landed: a
-hand-built `_QueuedActionSpec` for the child_sheet_model body kind (see the
-design note in executor/action_families/semantic.py beside
-`_queued_resolve_join_semantic`), so join.semantic now JOINS
-_QUEUED_PROJECT_RUN_KINDS too --
-`test_join_semantic_joined_queued_project_run_via_new_child_sheet_model_queue_machinery`
-below retargets what was this file's exclusion pin.
-
 Full request/worker round trips (the driving-example depth
 media-acquisition-queued-placement-v1 set) are proven here for map.python
 (the simplest of the three: no external credentials/network). Declared-

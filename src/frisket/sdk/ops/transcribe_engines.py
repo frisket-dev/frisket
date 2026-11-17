@@ -32,7 +32,6 @@ from frisket.execution.resolver import (
     Refusal,
     preferred_static_choice,
     preview_resolution_in_scope,
-    target_family,
 )
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
 from frisket.execution.targets import validated_target_snapshot
@@ -55,7 +54,6 @@ from frisket.sdk.ops.transcription.parakeet import ParakeetAdapter, execution_sc
 from frisket.sdk.ops.transcription.sidecar import TranscriptionV1Adapter
 
 DEFAULT_ENGINE = "parakeet-tdt"
-LOCAL_ENGINES = engine_ids(TRANSCRIBE_ENGINE_TABLE, tier="local")
 ENGINE_CHOICES = list(engine_ids(TRANSCRIBE_ENGINE_TABLE))
 ENGINE_ALIASES = execution_alias_map(TRANSCRIBE_ENGINE_TABLE)
 _PREFERENCE_TARGETS = build_static_targets()
@@ -72,11 +70,6 @@ TranscriptionAdapter = (
 def _preferred_static_support(spec: dict):
     raw = str(spec.get("engine") or DEFAULT_ENGINE)
     return preferred_static_choice(raw, authored_options(spec), _PREFERENCE_TARGETS)
-
-
-def preferred_transcription_target_family(spec: dict) -> str | None:
-    choice = _preferred_static_support(spec)
-    return target_family(choice[0].id) if isinstance(choice, tuple) else None
 
 
 def canonical_transcription_engine(engine: str) -> str:
@@ -106,12 +99,6 @@ def transcription_transport(
         return transcribe_engine_capabilities(engine).transport
     except ValueError:
         return None
-
-
-def validate_transcription_engine_options(
-    engine: str, spec: dict[str, Any]
-) -> dict[str, Any]:
-    return project_transcription_engine_options(engine, spec)
 
 
 def transcription_max_row_concurrency(spec: dict[str, Any]) -> int | None:
