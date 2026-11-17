@@ -128,7 +128,7 @@ test('source health drawer shows redacted status, deltas, costs, warnings, and r
 
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (payload.kind === 'source.poll') {
+    if (payload.action_id === 'source.poll') {
       pollPosts.push(payload);
       await route.fulfill({
         status: 200,
@@ -143,7 +143,7 @@ test('source health drawer shows redacted status, deltas, costs, warnings, and r
               sheet_id: null,
               ref: {
                 source_run_id: 999,
-                source_id: (payload.params as Record<string, unknown>).source_id,
+                source_id: (payload.params as Record<string, unknown>).source,
                 sheet_id: null,
                 new_rows: 0,
                 skipped_rows: 0,
@@ -202,10 +202,12 @@ test('source health drawer shows redacted status, deltas, costs, warnings, and r
 
   await page.getByTestId(`source-health-retry-${seeded.failingId}`).click();
   await expect.poll(() => pollPosts.length).toBe(1);
-  expect(pollPosts[0]).toMatchObject({
-    kind: 'source.poll',
-    capabilities: ['project:write', 'external:source_poll'],
-    params: { source_id: seeded.failingId },
+  expect(pollPosts[0]).toEqual({
+    action_id: 'source.poll',
+    scope: { kind: 'project' },
+    params: { source: seeded.failingId },
+    output_names: {},
+    idempotency_key: expect.any(String),
   });
 
   await page.getByTestId(`source-health-open-mainView-${seeded.failingId}`).click();
