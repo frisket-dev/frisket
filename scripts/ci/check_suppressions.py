@@ -11,7 +11,9 @@ and refuses to raise any count or add any file.
 Test skips are classified. A skip whose condition probes the environment
 (``importorskip``, ``shutil.which``, ``find_spec``, platform, environment
 variables, an optional import that failed, or a helper whose name or body does
-one of those) is "environment" and is allowed freely: tests self-skip when an
+one of those) is "environment", as is an unguarded skip inside a same-file
+non-test helper whose own body does one of those (the skip is the helper's
+fall-through when its probe finds nothing) and is allowed freely: tests self-skip when an
 optional extra is absent. An unconditional skip/xfail, one with a constant
 condition, or one whose condition probes nothing recognisable is debt and
 counts against the budget.
@@ -25,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import copy
 import functools
 import json
 import re
@@ -262,10 +265,37 @@ def _guard_kind(
             return _condition_kind(cur.test, resolver)
         if isinstance(cur, ast.ExceptHandler):
             return "environment" if _handler_is_env(cur) else "debt"
-        if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        if isinstance(cur, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return _helper_kind(cur, resolver)
+        if isinstance(cur, ast.Lambda):
             break
         child, cur = cur, parents.get(cur)
     return "debt"
+
+
+class _DropSkips(ast.NodeTransformer):
+    """Removes docstrings and skip/xfail statements, leaving the probing code."""
+
+    def visit_Expr(self, node: ast.Expr) -> ast.AST | None:
+        value = node.value
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            return None
+        if isinstance(value, ast.Call) and _dotted(value.func).endswith(
+            ("skip", "xfail")
+        ):
+            return None
+        return node
+
+
+def _helper_kind(
+    func: ast.FunctionDef | ast.AsyncFunctionDef, resolver: _Resolver
+) -> str:
+    """An unguarded skip in a same-file helper is environment when the helper
+    itself probes the environment; a test function's own bare skip is debt."""
+    if func.name.startswith("test"):
+        return "debt"
+    body = _DropSkips().visit(copy.deepcopy(func))
+    return "environment" if PROBE.search(resolver.text(body)) else "debt"
 
 
 def js_skip_debt(code_lines: list[tuple[int, str]]) -> int:

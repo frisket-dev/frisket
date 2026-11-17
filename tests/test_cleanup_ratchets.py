@@ -190,6 +190,27 @@ def test_python_skips_split_environment_probes_from_debt():
     assert skips == {"environment": 4, "debt": 5}
 
 
+def test_python_skips_follow_a_helper_that_probes_the_environment():
+    tree = ast.parse(
+        "import shutil, pytest\n"
+        "def _gnu_tool():\n"
+        "    '#: Needs the available GNU tool.'\n"
+        "    for prefix in ('', '/opt/gnubin'):\n"
+        "        if shutil.which('stat', path=prefix):\n"
+        "            return prefix\n"
+        "    pytest.skip('no tool')\n"
+        "def _plain_helper(value):\n"
+        "    '#: Docstring says installed and available.'\n"
+        "    if value:\n"
+        "        return value\n"
+        "    pytest.skip('no tool is installed')\n"
+        "def test_bare():\n"
+        "    shutil.which('x')\n"
+        "    pytest.skip('later')\n"
+    )
+    assert supp.python_skips(tree) == {"environment": 1, "debt": 2}
+
+
 def test_js_skip_debt_allows_environment_gated_skips():
     lines = list(
         enumerate(
