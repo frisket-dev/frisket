@@ -373,7 +373,6 @@ def load_lightonocr(engine: str) -> LightOnOCRAdapter:
     processor = AutoProcessor.from_pretrained(
         profile.model_id,
         revision=profile.revision,
-        backend="pil",
     )
     return LightOnOCRAdapter(
         engine=engine,

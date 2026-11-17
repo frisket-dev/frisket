@@ -173,7 +173,7 @@ def test_load_uses_pinned_native_qwen_profiles(
     )
     assert calls["processor_load"] == (
         model_id,
-        {"revision": revision, "backend": "pil"},
+        {"revision": revision},
     )
     assert "trust_remote_code" not in calls["model_load"][1]
     assert calls["model_device"] == "cpu"
