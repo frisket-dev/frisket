@@ -136,22 +136,6 @@ class ActionJobEnvelope:
         )
 
 
-@dataclass(frozen=True)
-class ActionJobResultSummary:
-    """Bounded, JSON-only result summary surfaced on the job projection."""
-
-    status: str
-    counts: Mapping[str, int] = field(default_factory=dict)
-    error_code: str | None = None
-
-    def to_json(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "counts": dict(self.counts),
-            "error_code": self.error_code,
-        }
-
-
 def action_job_result_payload(result: ActionResult) -> dict[str, Any]:
     """Bounded result summary stored on the queue job row.
 

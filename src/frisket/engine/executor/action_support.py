@@ -7,7 +7,6 @@ import json
 import uuid
 from typing import Any
 
-from pydantic import BaseModel
 
 from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.contracts.action import (
@@ -25,7 +24,6 @@ from frisket.engine.runner import (
 )
 from frisket.engine.runner.confirmation_context import (
     ActionScope,
-    ParamsScope,
 )
 
 
@@ -101,17 +99,6 @@ def action_confirmation_scope(action: ActionSpec) -> ActionScope:
     return ActionScope(action_hash=_params_hash_without_confirmed(action))
 
 
-def params_confirmation_scope(params: BaseModel) -> ParamsScope:
-    """The confirmation identity of a deterministic family with no ActionSpec
-    seam: every authored param, minus the retry-flow fields so the confirmed
-    retry recomputes the token it was shown."""
-
-    authored_params = params.model_dump(mode="json", exclude_none=True)
-    authored_params.pop("confirmed", None)
-    authored_params.pop("consented_promise_set_hash", None)
-    return ParamsScope(params=authored_params)
-
-
 def _estimate_confirmation_reason(estimate: float | None) -> str:
     """Generic confirmation reason for a model-cost gate.
 
@@ -173,10 +160,6 @@ def _external_cost_requires_confirmation_error(
             **_claims_gate_details(exc),
         },
     )
-
-
-def _model_family(model: str) -> str:
-    return provider_from_model_id(model).strip().lower()
 
 
 def _model_call_units(call: Any) -> dict[str, Any]:
