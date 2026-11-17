@@ -5,9 +5,11 @@ import io
 import sqlalchemy as sa
 
 from frisket import cli
-from frisket.team.local_auth import authenticate_local_password, claim_first_owner
+from frisket.team.identity_service import IdentityAuthService
+from frisket.team.local_auth import claim_first_owner
 from frisket.team.schema import sessions
 from frisket.team.team_bootstrap import initialize_team_schema_and_org
+from frisket.team.uow import TeamUnitOfWork
 
 
 def _claimed_database(tmp_path):
@@ -27,11 +29,19 @@ def _claimed_database(tmp_path):
     return database_url, engine
 
 
+def _sign_in_password(engine, *, email: str, password: str) -> None:
+    with engine.connect() as cx:
+        org_id = cx.exec_driver_sql("SELECT id FROM orgs").scalar_one()
+    IdentityAuthService(lambda: TeamUnitOfWork(engine, org_id=org_id)).sign_in_password(
+        email=email, password=password
+    )
+
+
 def test_owner_reset_reads_stdin_revokes_sessions_and_changes_password(
     tmp_path, monkeypatch, capsys
 ):
     database_url, engine = _claimed_database(tmp_path)
-    authenticate_local_password(
+    _sign_in_password(
         engine,
         email="owner@example.test",
         password="the original long password",
@@ -55,7 +65,7 @@ def test_owner_reset_reads_stdin_revokes_sessions_and_changes_password(
             cx.execute(sa.select(sa.func.count()).select_from(sessions)).scalar_one()
             == 0
         )
-    authenticate_local_password(
+    _sign_in_password(
         engine,
         email="owner@example.test",
         password="the replacement password",

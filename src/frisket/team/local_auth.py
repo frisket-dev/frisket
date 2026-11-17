@@ -186,54 +186,6 @@ def claim_first_owner(
     }
 
 
-def authenticate_local_password(
-    engine: sa.Engine, *, email: str, password: str
-) -> dict[str, Any]:
-    clean_email = email.lower().strip()
-    lookup_email = clean_email if len(clean_email) <= 320 else "invalid-local-login"
-    bounded_password = password if len(password) <= 1024 else ""
-    with engine.begin() as cx:
-        row = cx.execute(sa.select(users).where(users.c.email == lookup_email)).first()
-        verified = verify_password(
-            None if row is None else row.password_hash,
-            bounded_password,
-        )
-        if row is None or not verified or len(password) > 1024:
-            raise InvalidCredentials("invalid email or password")
-        org_id = cx.execute(
-            sa.select(memberships.c.org_id)
-            .where(memberships.c.user_id == row.id)
-            .order_by(memberships.c.org_id)
-            .limit(1)
-        ).scalar_one_or_none()
-        if org_id is None:
-            raise InvalidCredentials("invalid email or password")
-        now = datetime.now(UTC)
-        session = secrets.token_urlsafe(32)
-        cx.execute(
-            sessions.insert().values(
-                token=session,
-                user_id=row.id,
-                created_at=now,
-                expires_at=now + timedelta(days=30),
-            )
-        )
-        cx.execute(
-            audit_log.insert().values(
-                user_id=row.id,
-                org_id=org_id,
-                action="local_password_login",
-            )
-        )
-    return {
-        "id": int(row.id),
-        "email": str(row.email),
-        "name": row.name,
-        "org_id": int(org_id),
-        "session": session,
-    }
-
-
 PASSWORD_RESET_TTL_MINUTES = 60
 
 
