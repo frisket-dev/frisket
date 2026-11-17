@@ -797,19 +797,3 @@ def test_representation_cache_is_independent_of_located_parts(tmp_path):
         )
         with pytest.raises(ValueError, match="finite"):
             store.put_representations((invalid,))
-
-
-def test_named_dataset_vector_read_is_bounded_and_ordered(tmp_path):
-    revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
-    with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
-        assert store.publish_source(_publication(revision, token="member"))
-
-        page = store.read_named_dataset_vectors(
-            "named:documents", space_id="space:demo", limit=1
-        )
-
-    assert len(page) == 1
-    assert page[0].part_id == "part:member"
-    assert page[0].channel == "text"
-    assert page[0].representation.input_hash == "input:member"

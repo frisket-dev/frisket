@@ -247,16 +247,6 @@ def _strip_currency(text: str) -> str:
     return text[start:end]
 
 
-def _parse_decimal(
-    raw: str, *, decimal_separator: str, thousands_separator: str | None
-) -> Decimal:
-    return _parse_decimal_details(
-        raw,
-        decimal_separator=decimal_separator,
-        thousands_separator=thousands_separator,
-    ).value
-
-
 def _parse_decimal_details(
     raw: str, *, decimal_separator: str, thousands_separator: str | None
 ) -> _ParsedNumber:

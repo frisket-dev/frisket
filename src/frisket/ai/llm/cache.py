@@ -132,29 +132,5 @@ class ResponseCache:
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM llm_cache").fetchone()[0]
 
-    def prune_lru(self, max_entries: int) -> int:
-        """Cache LRU: keep at most ``max_entries`` most-recent rows, evict the
-        oldest. The response cache is rebuildable (a sidecar), so dropping cold
-        entries only forces a re-call on next access — it never loses
-        irreplaceable data. Returns the number of entries evicted.
-
-        Without this, the sidecar grows append-forever as prompts and models
-        churn.
-        """
-        if max_entries < 0:
-            raise ValueError("max_entries must be >= 0")
-        total = self.count()
-        if total <= max_entries:
-            return 0
-        cur = self.db.execute(
-            "DELETE FROM llm_cache WHERE key IN ("
-            "  SELECT key FROM llm_cache ORDER BY created_at DESC, rowid DESC "
-            "  LIMIT -1 OFFSET ?)",
-            (max_entries,),
-        )
-        evicted = cur.rowcount
-        self.db.commit()
-        return evicted
-
     def close(self) -> None:
         self.db.close()

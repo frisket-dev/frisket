@@ -75,7 +75,7 @@ def test_native_import_and_export_return_real_dataset_and_golden_package(
     from frisket.features.followthemoney.import_planner import (
         plan_followthemoney_import,
     )
-    from frisket.features.followthemoney.migration_harness import (
+    from ftm_migration_harness import (
         FTM_HARNESS_PROJECT_ID,
         _canonical_export_inputs,
     )

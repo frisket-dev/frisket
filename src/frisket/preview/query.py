@@ -334,13 +334,6 @@ def query_preview_payload(preview: QueryPreview) -> dict[str, Any]:
     return preview.model_dump(mode="json")
 
 
-def query_preview_ref(preview: QueryPreview) -> dict[str, Any]:
-    return {
-        "kind": "query_preview",
-        **query_preview_payload(preview),
-    }
-
-
 def query_preview_rowset_ref(preview: QueryPreview) -> dict[str, Any]:
     return {
         "kind": "query_preview_rowset",

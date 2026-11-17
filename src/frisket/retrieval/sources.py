@@ -51,12 +51,6 @@ def producer_recipe_id(recipe: Any) -> str:
     return identity_digest("producer_recipe", recipe)
 
 
-def source_revision_id(source_revision: Any) -> str:
-    """Identity of an immutable source revision supplied by its authority owner."""
-
-    return identity_digest("source_revision", source_revision)
-
-
 def part_id(source_revision: Any, recipe: Any, locator: Any, *, kind: str) -> str:
     """Identify a located part within one exact source/recipe revision."""
 

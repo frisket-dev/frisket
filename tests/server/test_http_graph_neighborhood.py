@@ -72,7 +72,7 @@ def _seed_followthemoney(
     from frisket.features.followthemoney.import_planner import (
         plan_followthemoney_import,
     )
-    from frisket.features.followthemoney.migration_harness import import_via_write_plan
+    from ftm_migration_harness import import_via_write_plan
 
     plan = plan_followthemoney_import(
         source_path.read_bytes(), dataset_name=dataset_name

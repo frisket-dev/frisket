@@ -772,35 +772,6 @@ class TestCompactionGC:
         assert _discard(project, "cp-returned") == 1
         assert store.get("cp-returned") is not None
 
-    def test_cache_lru_prune(self, tmp_path):
-        from frisket.ai.llm.cache import ResponseCache
-        from frisket.ai.llm.types import LLMResponse
-
-        cache = ResponseCache(tmp_path / "c.db")
-        for i in range(5):
-            cache.put(
-                f"k{i}",
-                LLMResponse(
-                    content=f"t{i}",
-                    data=None,
-                    tokens_in=1,
-                    tokens_out=1,
-                    cost=0.0,
-                    model="m",
-                ),
-            )
-        # No inter-insert delay needed: prune_lru orders by
-        # `created_at DESC, rowid DESC`, and SQLite rowids already increase
-        # monotonically with insertion order, so the rowid tiebreak alone
-        # orders correctly even when created_at (second resolution) ties.
-        assert cache.count() == 5
-        assert cache.prune_lru(2) == 3
-        assert cache.count() == 2
-        assert cache.get("k4") is not None  # newest kept
-        assert cache.get("k0") is None  # oldest evicted
-        assert cache.prune_lru(10) == 0  # no-op under cap
-        cache.close()
-
 
 class TestCompactionRedoSafety:
     """Regression: GC must NOT delete a blob referenced only by an undone-but-

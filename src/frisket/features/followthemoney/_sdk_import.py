@@ -12,7 +12,7 @@ string, not one copy per file.
 
 The initial guard covered only the handful of EXTERNAL call sites that reach
 into this package
-(graph/neighborhood.py, features/followthemoney/migration_harness.py, the bundled frisket.ftm
+(graph/neighborhood.py, the bundled frisket.ftm
 plugin) -- a direct import of e.g. ``frisket.followthemoney.adapter`` or a
 missing public re-export still raised a bare ``ModuleNotFoundError``. This
 closes that gap at the actual import sites themselves.

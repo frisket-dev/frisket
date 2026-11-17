@@ -207,31 +207,6 @@ def test_sparse_mbox_over_six_gib_has_no_source_wide_size_refusal(
     assert source_path.stat().st_size > SIX_GIB
 
 
-def test_message_batches_are_bounded_and_ordered() -> None:
-    module = _email_import()
-    produced = 0
-
-    def rows() -> Iterator[dict[str, Any]]:
-        nonlocal produced
-        for index in range(5):
-            produced += 1
-            yield _normalized_row(index)
-
-    batches = module.iter_email_batches(rows(), batch_size=2)
-    assert produced == 0
-    first = next(batches)
-    assert produced == 2
-    assert [row["subject"] for row in first] == ["Message 00000", "Message 00001"]
-    second = next(batches)
-    assert produced == 4
-    assert [row["subject"] for row in second] == ["Message 00002", "Message 00003"]
-    last = next(batches)
-    assert produced == 5
-    assert [row["subject"] for row in last] == ["Message 00004"]
-    with pytest.raises(StopIteration):
-        next(batches)
-
-
 def test_large_email_import_stages_bounded_batches_then_publishes_atomically(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -449,12 +449,3 @@ def index_freshness(
         scope_resolved=True,
         target_count=ready + stale_targets + missing,
     )
-
-
-def stale_ready_source_key_samples(
-    project: Project, index: Any, source_columns: list[str] | None = None
-) -> tuple[str, ...]:
-    """Return bounded stale-key diagnostics for a named index."""
-
-    del source_columns
-    return index_freshness(project, index).stale_source_key_samples
