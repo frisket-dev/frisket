@@ -14,7 +14,6 @@ export const EMPTY_EXTRACTION_DRAFT = {
 
 type Layout = SavedExtractionTemplate;
 type LayoutChanges = Partial<Pick<Layout, 'draft' | 'repeat_group_id' | 'reference_row_id'>>;
-const message = (cause: unknown) => errorMessage(cause);
 
 /** Serialize saves so a slow response cannot overwrite a newer draft. */
 export function useExtractionLayouts(store: ExtractionLayoutStoreHandle, sheetId: string, source: string, refreshKey?: unknown) {
@@ -56,7 +55,7 @@ export function useExtractionLayouts(store: ExtractionLayoutStoreHandle, sheetId
       }
       return saved;
     }).catch((cause: unknown) => {
-      if (active() && current.current?.id === snapshot.id && extractionLayoutDraftKey(current.current) === key) setSaveError(message(cause));
+      if (active() && current.current?.id === snapshot.id && extractionLayoutDraftKey(current.current) === key) setSaveError(errorMessage(cause));
       throw cause;
     }).finally(() => {
       inFlight.current.delete(work);
@@ -91,7 +90,7 @@ export function useExtractionLayouts(store: ExtractionLayoutStoreHandle, sheetId
       setAcknowledged(context.acknowledged());
       setLayouts(items); activate(selected);
       if (response.selected_layout_id !== selected.id) await documentExtractionApi.select(projectId, { sheet_id: Number(sheetId), source, layout_id: selected.id });
-    }).catch((cause: unknown) => { if (!controller.signal.aborted) setError(`Could not load layouts: ${message(cause)}`); })
+    }).catch((cause: unknown) => { if (!controller.signal.aborted) setError(`Could not load layouts: ${errorMessage(cause)}`); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => {
       controller.abort();
@@ -125,7 +124,7 @@ export function useExtractionLayouts(store: ExtractionLayoutStoreHandle, sheetId
         current.current = next;
         setLayout(next);
       }
-    }).catch((cause: unknown) => { if (!controller.signal.aborted) setError(`Could not refresh layout documents: ${message(cause)}`); });
+    }).catch((cause: unknown) => { if (!controller.signal.aborted) setError(`Could not refresh layout documents: ${errorMessage(cause)}`); });
     return () => controller.abort();
   }, [context, projectId, sheetId, source, refreshKey]);
 
@@ -162,7 +161,7 @@ export function useExtractionLayouts(store: ExtractionLayoutStoreHandle, sheetId
       }
       setLayouts((items) => id === null ? [...items, next] : items);
       activate(next);
-    } catch (cause) { if (active()) setError(`Could not ${id === null ? 'create' : 'select'} layout: ${message(cause)}`); }
+    } catch (cause) { if (active()) setError(`Could not ${id === null ? 'create' : 'select'} layout: ${errorMessage(cause)}`); }
     finally { if (active()) setSwitching(false); }
   };
 

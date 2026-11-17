@@ -17,7 +17,7 @@ import {
   type ImportProgressController,
 } from './useImportProgress';
 import { useNativePopover } from '../hooks/useNativePopover';
-import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
+import { anchoredPopoverStyle, useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useLoader } from '../hooks/useLoader';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
 import { useEditionModule } from '../editions/module';
@@ -75,6 +75,23 @@ function compactStatusCopy(run: RunProgress): string {
 
 function actionTitle(name: string): string {
   return `Action: ${name}`;
+}
+
+/** "<action> · <status> · <n> failed · <n> skipped · <cost>", shared by the
+ *  active and terminal status-bar labels. */
+function runLabelText(run: RunProgress): ReactNode {
+  return (
+    <>
+      {actionTitle(run.actionName)} · {compactStatusCopy(run)}
+      {run.failedRows > 0 && (
+        <span className="run-failed"> · {run.failedRows.toLocaleString()} failed</span>
+      )}
+      {(run.skippedRows ?? 0) > 0 && (
+        <span> · {run.skippedRows?.toLocaleString()} skipped</span>
+      )}{' '}
+      · {formatUsd(run.costSoFar)}
+    </>
+  );
 }
 
 function ActionProgressNotice({
@@ -313,14 +330,7 @@ export function StatusBar({
                     )
                   )}
                   <span className="run-label">
-                    {actionTitle(run.actionName)} · {compactStatusCopy(run)}
-                    {run.failedRows > 0 && (
-                      <span className="run-failed"> · {run.failedRows.toLocaleString()} failed</span>
-                    )}
-                    {(run.skippedRows ?? 0) > 0 && (
-                      <span> · {run.skippedRows?.toLocaleString()} skipped</span>
-                    )}{' '}
-                    · {formatUsd(run.costSoFar)}
+                    {runLabelText(run)}
                   </span>
                   {activeOcrFiles(run).length === 0 && <span className="run-track">
                     <span
@@ -339,14 +349,7 @@ export function StatusBar({
                       : 'muted'
                   }`}
                 >
-                  {actionTitle(run.actionName)} · {compactStatusCopy(run)}
-                  {run.failedRows > 0 && (
-                    <span className="run-failed"> · {run.failedRows.toLocaleString()} failed</span>
-                  )}
-                  {(run.skippedRows ?? 0) > 0 && (
-                    <span> · {run.skippedRows?.toLocaleString()} skipped</span>
-                  )}{' '}
-                  · {formatUsd(run.costSoFar)}
+                  {runLabelText(run)}
                 </span>
               )}
               <ChevronUp size={12} className="run-chevron" aria-hidden />
@@ -502,7 +505,51 @@ function ProjectionChip({ status }: { status: WorkbenchProjectionStatus }) {
   );
 }
 
-/** Click-through detail popover for the projection chip; mirrors RunWatcher. */
+/**
+ * Status-bar detail popover anchored above its trigger. A confirmed
+ * no-Escape site by product decision (escape:false): dismiss is outside-click
+ * only, and `popover=manual` grants no UA light-dismiss so that contract stays
+ * explicit. The trigger toggles it, so its own click is not treated as outside.
+ * Space below a status-bar trigger is always near-zero, so the shared flip
+ * predicate resolves upward.
+ */
+function StatusWatcherPopover({
+  triggerRef,
+  triggerTestId,
+  width,
+  className,
+  testId,
+  onClose,
+  children,
+}: {
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  triggerTestId: string;
+  width: number;
+  className: string;
+  testId: string;
+  onClose(): void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useNativePopover(ref, onClose, {
+    escape: false,
+    ignoreSelector: `[data-testid="${triggerTestId}"]`,
+  });
+  const menuPos = useAnchoredPosition(triggerRef, {
+    enabled: true,
+    align: 'left',
+    width,
+    gap: 4,
+    minHeight: 100,
+  });
+  return (
+    <div ref={ref} className={className} data-testid={testId} style={anchoredPopoverStyle(menuPos)}>
+      {children}
+    </div>
+  );
+}
+
+/** Click-through detail popover for the projection chip. */
 function ProjectionWatcher({
   status,
   triggerRef,
@@ -512,29 +559,14 @@ function ProjectionWatcher({
   triggerRef: RefObject<HTMLButtonElement | null>;
   onClose(): void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useNativePopover(ref, onClose, {
-    escape: false,
-    ignoreSelector: '[data-testid="projection-chip"]',
-  });
-  const menuPos = useAnchoredPosition(triggerRef, {
-    enabled: true,
-    align: 'left',
-    width: 300,
-    gap: 4,
-    minHeight: 100,
-  });
-
   return (
-    <div
-      ref={ref}
+    <StatusWatcherPopover
+      triggerRef={triggerRef}
+      triggerTestId="projection-chip"
+      width={300}
       className="run-watcher projection-watcher"
-      data-testid="projection-watcher"
-      style={
-        menuPos
-          ? { position: 'fixed', inset: 'auto', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, margin: 0 }
-          : { position: 'fixed', visibility: 'hidden' }
-      }
+      testId="projection-watcher"
+      onClose={onClose}
     >
       <div className="run-watcher-title">
         <div className="run-watcher-heading">
@@ -571,7 +603,7 @@ function ProjectionWatcher({
         <span className="prov-key">generation</span>
         <span className="projection-watcher-mono">{status.generation}</span>
       </div>
-    </div>
+    </StatusWatcherPopover>
   );
 }
 
@@ -643,39 +675,14 @@ function RunWatcher({
   onShowFailedRows?: StatusBarProps['onShowFailedRows'];
   onRetryFailedRows?: StatusBarProps['onRetryFailedRows'];
 }) {
-  // Top-layer popover: a confirmed
-  // no-Escape site by product decision (escape:false) — dismiss is outside-
-  // click-only. `popover=manual` grants no UA light-dismiss so that contract
-  // stays explicit rather than the UA silently adding Escape-dismiss. The
-  // trigger toggles it, so its own click is ignored (not treated as outside).
-  const ref = useRef<HTMLDivElement>(null);
-  useNativePopover(ref, onClose, {
-    escape: false,
-    ignoreSelector: '[data-testid="run-watcher-toggle"]',
-  });
-  // Fixed-position anchor now that the popover is a top-layer element — it no
-  // longer inherits placement from `.status-left`'s CSS positioned ancestor
-  // (styles.css `.run-watcher`, bottom:32px;left:0 above the trigger). Space
-  // below a status-bar trigger is always near-zero, so the shared flip
-  // predicate naturally resolves upward, matching the original fixed offset.
-  const menuPos = useAnchoredPosition(triggerRef, {
-    enabled: true,
-    align: 'left',
-    width: 380,
-    gap: 4,
-    minHeight: 100,
-  });
-
   return (
-    <div
-      ref={ref}
+    <StatusWatcherPopover
+      triggerRef={triggerRef}
+      triggerTestId="run-watcher-toggle"
+      width={380}
       className="run-watcher run-watcher-popover"
-      data-testid="run-watcher"
-      style={
-        menuPos
-          ? { position: 'fixed', inset: 'auto', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, margin: 0 }
-          : { position: 'fixed', visibility: 'hidden' }
-      }
+      testId="run-watcher"
+      onClose={onClose}
     >
       <RunWatcherBody
         run={run}
@@ -683,7 +690,7 @@ function RunWatcher({
         onShowFailedRows={onShowFailedRows}
         onRetryFailedRows={onRetryFailedRows}
       />
-    </div>
+    </StatusWatcherPopover>
   );
 }
 

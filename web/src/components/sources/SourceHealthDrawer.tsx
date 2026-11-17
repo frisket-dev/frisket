@@ -13,6 +13,7 @@ import { SourceHealthSummary, SourceHealthRuns } from './SourceHealthContent';
 import { formatCost, statusLabel } from './sourceFormatting';
 import type { BusySource } from './sourceState';
 import type { SourcePanelActions } from './useSourcesPanelState';
+import { contributionSlug } from '../../workbench/visibility';
 
 const PlainSourceDetailFrame = ({ children }: { children: ReactNode }) => <>{children}</>;
 const PLAIN_SOURCE_DETAIL_FRAMES: SourceDetailFrames = {
@@ -117,7 +118,7 @@ export function SourceHealthDrawer({
           const tabKey = firstParty?.shortName ?? tab.contributionId;
           const testId = firstParty
             ? `source-detail-tab-${firstParty.shortName}`
-            : `source-detail-tab-${tab.contributionId.replace(/[^a-zA-Z0-9]+/g, '-')}`;
+            : `source-detail-tab-${contributionSlug(tab.contributionId)}`;
           const button = (
             <TabButton
               key={tab.placementId}

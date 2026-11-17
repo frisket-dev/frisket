@@ -8,7 +8,7 @@ import './ActSurface.css';
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { PanelTopOpen } from 'lucide-react';
 import { useNativePopover } from '../hooks/useNativePopover';
-import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
+import { anchoredPopoverStyle, useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import overflowStyles from './ActTabsOverflow.module.css';
 import {
   actItemsInDisplayOrder,
@@ -16,6 +16,7 @@ import {
   type ResolvedActItem,
   type ResolvedActTab,
 } from './actSurface';
+import { contributionSlug } from './visibility';
 
 // Keyboard-shortcut badges are compact-density presentation only (the ribbon
 // does not render them). They remain cosmetic, not global key handlers.
@@ -27,8 +28,6 @@ const ACTION_MENU_SHORTCUTS: Readonly<Record<string, string>> = {
 // lookup seam for any future command badge.
 const COMMAND_MENU_SHORTCUTS: Partial<Record<ActMenuCommand, string>> = {};
 
-const contributionSlug = (contributionId: string) =>
-  contributionId.replace(/[^a-zA-Z0-9]+/g, '-');
 
 const itemId = (item: ResolvedActItem) =>
   item.kind === 'action'
@@ -102,11 +101,7 @@ function ActMenuDropdown({
       id={`act-menubar-dropdown-${tab.id}`}
       className="menu-pop act-menubar-pop"
       data-testid={`menubar-dropdown-${tab.id}`}
-      style={
-        menuPos
-          ? { position: 'fixed', inset: 'auto', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, margin: 0 }
-          : { position: 'fixed', visibility: 'hidden' }
-      }
+      style={anchoredPopoverStyle(menuPos)}
     >
       {tab.groups.flatMap((group) => actItemsInDisplayOrder(group.items)).map(renderItem)}
       {(tab.id === 'analyze' || tab.id === 'media') && compareSlot?.(tab.id, onClose)}

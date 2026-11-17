@@ -18,7 +18,7 @@ import { sendProductTelemetry } from '../telemetry/productTelemetry';
 import { useLoader } from '../hooks/useLoader';
 import { errorMessage } from '../hooks/errorMessage';
 import { InlineStatus } from './SettingsPrimitives';
-import { formatBytes } from '../format';
+import { formatBytes, pluralizeNoun } from '../format';
 
 const FALLBACK_EVIDENCE_RETENTION_VALUES = ['compactable', 'pinned', 'materialized'] as const;
 
@@ -33,10 +33,6 @@ const EVIDENCE_RETENTION_DESCRIPTIONS: Record<string, string> = {
   pinned: 'Keep supporting run evidence when this project is manually compacted.',
   materialized: 'Keep output-linked evidence as part of the stored result.',
 };
-
-function plural(value: unknown, singular: string): string {
-  return value === 1 ? singular : `${singular}s`;
-}
 
 function supportedEvidenceOptions(policy: ProjectRetentionPolicy | null): string[] {
   const raw = Array.isArray(policy?.supported_default_evidence)
@@ -114,7 +110,7 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
       } else {
         const reclaimed = formatBytes(summary.db_bytes_reclaimed ?? summary.bytes_freed);
         const blobsRemoved = typeof summary.blobs_removed === 'number' ? summary.blobs_removed : 0;
-        setNotice(`Compaction reclaimed ${reclaimed} and removed ${blobsRemoved} ${plural(blobsRemoved, 'blob')}.`);
+        setNotice(`Compaction reclaimed ${reclaimed} and removed ${blobsRemoved} ${pluralizeNoun('blob', blobsRemoved)}.`);
       }
     } catch (caught) {
       setNotice(null);

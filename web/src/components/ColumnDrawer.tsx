@@ -34,6 +34,7 @@ import { PanelLoading } from './PanelPrimitives';
 import { PanelSelect } from './PanelSelect';
 import { errorMessage } from '../hooks/errorMessage';
 import { useLoader } from '../hooks/useLoader';
+import { contributionSlug } from '../workbench/visibility';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
 
@@ -269,7 +270,7 @@ export function ColumnDrawer({
               <div
                 key={`${contribution.contributionId}:${contribution.placementId}`}
                 className="column-detail-contribution"
-                data-testid={`column-detail-contribution-${contribution.contributionId.replace(/[^a-zA-Z0-9]+/g, '-')}`}
+                data-testid={`column-detail-contribution-${contributionSlug(contribution.contributionId)}`}
                 data-contribution-id={contribution.contributionId}
                 data-status={contribution.status}
                 data-runtime-source={contribution.runtimeSource}

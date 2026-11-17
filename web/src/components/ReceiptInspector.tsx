@@ -7,6 +7,7 @@ import { type V1Receipt } from '../api/open';
 import { projectBlobUrl } from '../api/raw/projectResources';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useLoader } from '../hooks/useLoader';
+import { countLabel } from '../format';
 
 interface ReceiptInspectorProps {
   receiptId: string;
@@ -24,10 +25,6 @@ function refDetail(ref: Record<string, unknown>): string {
 
 function refListKey(prefix: string, ref: Record<string, unknown>, label = ''): string {
   return `${prefix}:${label}:${refDetail(ref)}`;
-}
-
-function countLabel(count: number, singular: string, plural = `${singular}s`): string {
-  return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
 }
 
 function exportDownload(projectId: string, ref: Record<string, unknown>) {
@@ -50,7 +47,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
       countLabel(receipt.inputs.length, 'input'),
       countLabel(receipt.outputs.length, 'output'),
       countLabel(receipt.evidence.length, 'evidence ref'),
-      countLabel(receipt.providerUse.length, 'provider summary', 'provider summaries'),
+      countLabel(receipt.providerUse.length, 'provider summary'),
       countLabel(receipt.errors.length, 'error'),
     ];
   }, [receipt]);

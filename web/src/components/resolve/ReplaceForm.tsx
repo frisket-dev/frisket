@@ -85,7 +85,6 @@ const PREVIEW_DEBOUNCE_MS = 350;
 
 const fmt = (n: number): string => n.toLocaleString();
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
-const msg = (e: unknown): string => errorMessage(e);
 
 /** Preview eligibility: blank patterns are authoring noise and blank (non-
  *  null) targets are rejected by the ReplaceRule contract, so both are held
@@ -278,7 +277,7 @@ function ReplaceFormForSheet({
               return;
             }
           }
-          setPreviewError(msg(e));
+          setPreviewError(errorMessage(e));
         });
     }, PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);

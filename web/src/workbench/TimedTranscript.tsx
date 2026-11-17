@@ -64,10 +64,11 @@ export function TimedTranscript({
     if (active) setActiveIndex(active.index);
   };
 
-  const player = document.kind === 'video' ? (
-    <video
-      ref={(node) => { mediaRef.current = node; }}
-      className={document.videoClassName}
+  const Player = document.kind === 'video' ? 'video' : 'audio';
+  const player = (
+    <Player
+      ref={(node: HTMLMediaElement | null) => { mediaRef.current = node; }}
+      className={document.kind === 'video' ? document.videoClassName : undefined}
       src={document.media.url}
       aria-label={document.title}
       controls
@@ -80,23 +81,7 @@ export function TimedTranscript({
       onTimeUpdate={onTimeUpdate}
     >
       <track kind="captions" />
-    </video>
-  ) : (
-    <audio
-      ref={(node) => { mediaRef.current = node; }}
-      src={document.media.url}
-      aria-label={document.title}
-      controls
-      onLoadedMetadata={(event) => {
-        if (typeof initialTime === 'number' && Number.isFinite(initialTime) && initialTime >= 0) {
-          event.currentTarget.currentTime = initialTime;
-          onTimeChange?.(initialTime);
-        }
-      }}
-      onTimeUpdate={onTimeUpdate}
-    >
-      <track kind="captions" />
-    </audio>
+    </Player>
   );
 
   return (

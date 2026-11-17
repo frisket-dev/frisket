@@ -53,7 +53,7 @@ import type { ExportTarget } from '../exportTargets';
 import { navigate } from '../routes';
 import { useShellIdentity } from '../shellIdentity';
 import { useNativePopover } from '../hooks/useNativePopover';
-import { useAnchoredPosition, type AnchoredPosition } from '../hooks/useAnchoredPosition';
+import { anchoredPopoverStyle, useAnchoredPosition, type AnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useAction } from '../hooks/useAction';
 import { useLoader } from '../hooks/useLoader';
 import { ExportColumnTablesModal } from './ExportColumnTablesModal';
@@ -381,13 +381,7 @@ function ProjectMenuPopover({
       ref={popoverRef}
       className="menu-pop project-menu-pop"
       data-testid="project-menu"
-      // Reset the UA popover centering so the JS-anchored top-layer placement
-      // below applies instead.
-      style={
-        menuPos
-          ? { position: 'fixed', inset: 'auto', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, margin: 0 }
-          : { position: 'fixed', visibility: 'hidden' }
-      }
+      style={anchoredPopoverStyle(menuPos)}
     >
       <div className="project-menu-header" data-testid="project-menu-header">
         <span className="project-menu-tile">

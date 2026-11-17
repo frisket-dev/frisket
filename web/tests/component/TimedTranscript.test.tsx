@@ -72,6 +72,20 @@ describe('TimedTranscript', () => {
     expect(segments[1]).toHaveAttribute('data-active', 'true');
   });
 
+  it('renders one player element per media kind with the same attributes', () => {
+    const { container, unmount } = render(<TimedTranscript document={document} />);
+    expect(container.querySelector('audio')?.outerHTML).toBe(
+      '<audio src="/recording.mp3" aria-label="Council meeting" controls=""><track kind="captions"></audio>',
+    );
+    unmount();
+    const video = render(
+      <TimedTranscript document={{ ...document, kind: 'video', videoClassName: 'document-video-contain' }} />,
+    );
+    expect(video.container.querySelector('video')?.outerHTML).toBe(
+      '<video class="document-video-contain" src="/recording.mp3" aria-label="Council meeting" controls=""><track kind="captions"></video>',
+    );
+  });
+
   it('does not fabricate timestamp rows when the segment companion is unusable', () => {
     render(
       <TimedTranscript

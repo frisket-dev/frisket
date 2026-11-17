@@ -21,6 +21,7 @@ import { ClampedField, FieldValue } from './rowInspection/FieldValue';
 import { CellEvidenceBlock } from './rowInspection/CellEvidence';
 import { RowSourceDocuments } from './rowInspection/RowSourceDocuments';
 import { ExplainBlock, ProvenanceBlock } from './rowInspection/CellRunDetails';
+import { contributionSlug } from '../workbench/visibility';
 
 const EMPTY_CONTRIBUTIONS: WorkbenchResolvedLayoutContribution[] = [];
 
@@ -180,7 +181,7 @@ export function RowDrawerBody({
               <div
                 key={`${contribution.contributionId}:${contribution.placementId}`}
                 className="row-detail-contribution"
-                data-testid={`row-detail-contribution-${contribution.contributionId.replace(/[^a-zA-Z0-9]+/g, '-')}`}
+                data-testid={`row-detail-contribution-${contributionSlug(contribution.contributionId)}`}
                 data-contribution-id={contribution.contributionId}
                 data-status={contribution.status}
                 data-runtime-source={contribution.runtimeSource}
