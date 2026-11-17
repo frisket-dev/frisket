@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 import json
+from .transactions import require_transaction
 
 
 _SOURCE_TOOLS = (
@@ -37,8 +38,7 @@ _RESEARCH = f"SELECT id FROM project_qa_research_runs WHERE turn_id IN ({_TURNS}
 
 def remember_qa_purge_targets(db: sqlite3.Connection, purge_id: int) -> None:
     """Call during begin_purge, before any source handle or scope is removed."""
-    if not db.in_transaction:
-        raise RuntimeError("Q&A purge discovery requires a caller transaction")
+    require_transaction(db, "Q&A purge discovery")
     db.execute(
         f"""WITH affected_sheets AS ({_AFFECTED_SHEETS})
         INSERT OR IGNORE INTO project_purge_targets(kind,object_id,purge_id)
@@ -81,8 +81,7 @@ def remember_qa_purge_targets(db: sqlite3.Connection, purge_id: int) -> None:
 
 def purge_qa_content(db: sqlite3.Connection, purge_id: int, *, limit: int = 500) -> int:
     """Scrub at most limit records; caller commits and repeats until zero."""
-    if not db.in_transaction:
-        raise RuntimeError("Q&A purge cleanup requires a caller transaction")
+    require_transaction(db, "Q&A purge cleanup")
     if not 1 <= limit <= 10_000:
         raise ValueError("Q&A purge batch size must be between 1 and 10000")
     params = {"purge": purge_id, "limit": limit, "tools": json.dumps(_SOURCE_TOOLS)}

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
 
 from .keyed_updates import canonical, observe, reconcile_fields, require_relationship
+from .transactions import require_transaction
 
 
 @dataclass(frozen=True)
@@ -29,8 +30,7 @@ def join_identity(sources: Sequence[tuple[int, str]]) -> str:
 
 
 def establish_identity(db, *, sheet_id, op_id, column_ids, rows, row_ids, identity):
-    if not db.in_transaction:
-        raise RuntimeError("derived identity requires a caller transaction")
+    require_transaction(db, "derived identity")
     if identity.keys is not None and len(identity.keys) != len(row_ids):
         raise ValueError("derived identities must match output rows")
     definition = list(identity.key_definition)
@@ -109,8 +109,7 @@ def reconcile_rows_into_open_change(
     from .materialization import _insert_materialized_row_source
     from .structural_changes import record_structural_changes
 
-    if not db.in_transaction:
-        raise RuntimeError("derived refresh requires a caller transaction")
+    require_transaction(db, "derived refresh")
     if policy not in ("keep_changes", "incoming_wins"):
         raise ValueError("unknown keyed update policy")
     relationship_id = config["relationship_id"]

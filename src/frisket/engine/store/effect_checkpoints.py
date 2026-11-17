@@ -40,12 +40,13 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, ClassVar
 
 from .value_codec import repair_unicode_value
+from .transactions import write_transaction
 
 # The retained payload written when an OPERATOR (frisket reconcile) decides a
 # reserved unit's unknown provider effect really happened.  It is an
@@ -282,7 +283,7 @@ class EffectCheckpointStore:
         reconstruction payload at reserve time)."""
 
         encoded = None if payload is None else canonical_json(payload)
-        with self._txn():
+        with write_transaction(self.db):
             self._fence_writer(
                 run_id=run_id,
                 writer_attempt_id=writer_attempt_id,
@@ -358,7 +359,7 @@ class EffectCheckpointStore:
                 "an in-place checkpoint recovery cannot change logical coordinates"
             )
 
-        with self._txn():
+        with write_transaction(self.db):
             source = self._verified_unit(
                 checkpoint_id,
                 family=family,
@@ -496,7 +497,7 @@ class EffectCheckpointStore:
         ``accounting_persisted`` is set so a later idempotent
         :meth:`account_returned` replays free."""
 
-        with self._txn():
+        with write_transaction(self.db):
             checkpoint = self._verified_unit(
                 checkpoint_id,
                 family=family,
@@ -554,7 +555,7 @@ class EffectCheckpointStore:
             raise InvalidCheckpointState(
                 "account_returned(commit=False) requires its caller transaction"
             )
-        with self._txn() if commit else nullcontext():
+        with write_transaction(self.db) if commit else nullcontext():
             checkpoint = self._verified_unit(
                 checkpoint_id,
                 family=family,
@@ -637,7 +638,7 @@ class EffectCheckpointStore:
                 claimless_direct_effect=claimless_direct_effect,
             )
             return
-        with self._txn():
+        with write_transaction(self.db):
             self._consume_and_retire_in_txn(
                 checkpoint_id,
                 family=family,
@@ -779,7 +780,7 @@ class EffectCheckpointStore:
         Never touches ``returned``/``consumed`` rows — a durable response or
         audit record is historical truth and cannot be discarded."""
 
-        with self._txn():
+        with write_transaction(self.db):
             checkpoint = self.get(checkpoint_id)
             if (
                 checkpoint is None
@@ -849,7 +850,7 @@ class EffectCheckpointStore:
         Returns the deleted row so the caller can report what was decided.
         """
 
-        with self._txn():
+        with write_transaction(self.db):
             row = self.db.execute(f"{_SELECT} WHERE id=?", (checkpoint_id,)).fetchone()
             if row is None:
                 raise CheckpointLost(
@@ -894,7 +895,7 @@ class EffectCheckpointStore:
         is already decided or retained.
         """
 
-        with self._txn():
+        with write_transaction(self.db):
             row = self.db.execute(f"{_SELECT} WHERE id=?", (checkpoint_id,)).fetchone()
             if row is None:
                 raise CheckpointLost(
@@ -1115,18 +1116,6 @@ class EffectCheckpointStore:
         decoded = _decoded(row)
         assert decoded is not None
         return decoded
-
-    @contextmanager
-    def _txn(self):
-        """BEGIN IMMEDIATE; commit on success, rollback on ANY exit."""
-
-        self.db.execute("BEGIN IMMEDIATE")
-        try:
-            yield
-            self.db.commit()
-        except BaseException:
-            self.db.rollback()
-            raise
 
 
 _SELECT = (

@@ -32,6 +32,7 @@ from frisket.engine.store.import_sessions import (
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sheet_names import available_sheet_name
+from frisket.engine.store.transactions import write_transaction
 
 
 @dataclass(frozen=True)
@@ -139,8 +140,7 @@ class StreamingSheetWriter:
 
         staging_name = f".__streaming_import_{uuid.uuid4().hex}"
         db = project.db
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             cursor = db.execute(
                 "INSERT INTO sheets (name, position, hidden) VALUES "
                 "(?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), 1)",
@@ -169,10 +169,6 @@ class StreamingSheetWriter:
             producer_id = create_base_cell_producer(
                 db, stage_id=f"receipt:{receipt_id}:{staging_name}"
             )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
 
         return cls(
             project,
@@ -224,8 +220,7 @@ class StreamingSheetWriter:
             raise ValueError("reserved action identity must be complete")
 
         db = project.db
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             receipt_store = ReceiptStore(project)
             stored_receipt = receipt_store.find_by_id(receipt_id)
             reserved_receipt: Receipt | None = None
@@ -343,10 +338,6 @@ class StreamingSheetWriter:
                     writer_authority,
                 ),
             )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         return cls(
             project,
             sheet_id=sheet_id,
@@ -404,8 +395,7 @@ class StreamingSheetWriter:
             raise ValueError("append column names must be non-empty and unique")
 
         db = project.db
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             sheet = db.execute(
                 "SELECT name FROM sheets WHERE id=? AND hidden=0", (int(sheet_id),)
             ).fetchone()
@@ -558,10 +548,6 @@ class StreamingSheetWriter:
                     writer_authority,
                 ),
             )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         return cls(
             project,
             sheet_id=int(sheet_id),
@@ -653,8 +639,7 @@ class StreamingSheetWriter:
         if not batch:
             return []
         db = self.project.db
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             row_ids = self.project.add_rows(
                 self.sheet_id,
                 batch,
@@ -662,10 +647,6 @@ class StreamingSheetWriter:
                 producer_id=self._producer_id,
                 commit=False,
             )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         self._row_count += len(batch)
         if self._first_row_id is None and row_ids:
             self._first_row_id = row_ids[0]
@@ -687,8 +668,7 @@ class StreamingSheetWriter:
         if not batch or next_cursor <= expected_cursor or committed_bytes < 0:
             raise ValueError("import page must advance a non-empty bounded batch")
         db = self.project.db
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             session = ImportSessionStore(self.project).require_writer(
                 self._session_id,
                 self._writer_authority,
@@ -740,10 +720,6 @@ class StreamingSheetWriter:
             )
             if updated.rowcount != 1:
                 raise ImportSessionConflict("import session changed during page write")
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         self._row_count += len(row_ids)
         if self._first_row_id is None and row_ids:
             self._first_row_id = row_ids[0]
@@ -779,8 +755,7 @@ class StreamingSheetWriter:
 
         self._require_session()
         db = self.project.db
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             allowed = ("cancelled",) if keep_cancelled else ("active", "paused")
             session = ImportSessionStore(self.project).require_writer(
                 self._session_id,
@@ -818,10 +793,6 @@ class StreamingSheetWriter:
                 keep=keep_cancelled or failure is not None,
                 enumeration_complete=enumeration_complete,
             )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         self._closed = True
         publication = StreamingSheetPublication(
             sheet_id=self.sheet_id,
@@ -838,8 +809,7 @@ class StreamingSheetWriter:
         """Revert only this import's contribution using ordinary Change history."""
         self._require_session()
         db = self.project.db
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             session = ImportSessionStore(self.project).require_writer(
                 self._session_id,
                 self._writer_authority,
@@ -854,10 +824,6 @@ class StreamingSheetWriter:
                 is not None
             ):
                 op_log.step_operation(self.project, "revert", op_id=self._op_id)
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         self._closed = True
 
     def prepare_removal(self, session: ImportSession) -> None:
@@ -1039,159 +1005,164 @@ class StreamingSheetWriter:
         source = dict(source_ref) if source_ref is not None else self._source_ref
         db = self.project.db
         try:
-            db.execute("BEGIN IMMEDIATE")
-            duplicate = self._duplicate_receipt()
-            if duplicate is not None:
-                raise DuplicateStreamingPublication(
-                    existing_receipt_id=duplicate.id,
-                    idempotency_key=duplicate.idempotency_key,
-                    params_hash=duplicate.params_hash,
-                )
-            sheet_name = self._available_sheet_name()
-            action_spec = (
-                dict(request_spec)
-                if request_spec is not None
-                else {
-                    "schema_version": "frisket.action.v2",
-                    "kind": self._action_kind,
-                    "params": {
-                        "sheet_name": sheet_name,
-                        "row_count": self._row_count,
-                        "source": source,
-                    },
-                }
-            )
-            op_id = op_log.append_op(
-                self.project,
-                self._action_kind,
-                spec=action_spec,
-                label=f"import {sheet_name}",
-                barrier=False,
-                commit=False,
-            )
-            op_log.set_undo_info(
-                self.project,
-                op_id,
-                {"created_sheets": [self.sheet_id]},
-                commit=False,
-            )
-            bind_base_cell_producer(db, self._producer_id, op_id=op_id)
-            receipt = Receipt(
-                receipt_id=self._receipt_id,
-                project_id=self._project_id,
-                action_id=self._action_id,
-                action_kind=self._action_kind,
-                op_ids=[op_id],
-                idempotency_key=self._idempotency_key,
-                params_hash=self._params_hash,
-                status="completed",
-                inputs=[
-                    ReceiptIO(
-                        name="source",
-                        ref=source
-                        or {"kind": "inline_rows", "params_hash": self._params_hash},
-                    ),
-                    *[
-                        ReceiptIO(name=f"read.{index}", ref=read)
-                        for index, read in enumerate(observed_reads)
-                    ],
-                ],
-                outputs=[
-                    ReceiptIO(
-                        name=sheet_name,
-                        ref={
-                            "kind": "materialized_sheet",
-                            "sheet_id": self.sheet_id,
-                            "op_id": op_id,
+            with write_transaction(db):
+                duplicate = self._duplicate_receipt()
+                if duplicate is not None:
+                    raise DuplicateStreamingPublication(
+                        existing_receipt_id=duplicate.id,
+                        idempotency_key=duplicate.idempotency_key,
+                        params_hash=duplicate.params_hash,
+                    )
+                sheet_name = self._available_sheet_name()
+                action_spec = (
+                    dict(request_spec)
+                    if request_spec is not None
+                    else {
+                        "schema_version": "frisket.action.v2",
+                        "kind": self._action_kind,
+                        "params": {
+                            "sheet_name": sheet_name,
                             "row_count": self._row_count,
-                            "columns": dict(self._column_ids),
-                            "reads": observed_reads,
+                            "source": source,
                         },
-                    ),
-                    *[
+                    }
+                )
+                op_id = op_log.append_op(
+                    self.project,
+                    self._action_kind,
+                    spec=action_spec,
+                    label=f"import {sheet_name}",
+                    barrier=False,
+                    commit=False,
+                )
+                op_log.set_undo_info(
+                    self.project,
+                    op_id,
+                    {"created_sheets": [self.sheet_id]},
+                    commit=False,
+                )
+                bind_base_cell_producer(db, self._producer_id, op_id=op_id)
+                receipt = Receipt(
+                    receipt_id=self._receipt_id,
+                    project_id=self._project_id,
+                    action_id=self._action_id,
+                    action_kind=self._action_kind,
+                    op_ids=[op_id],
+                    idempotency_key=self._idempotency_key,
+                    params_hash=self._params_hash,
+                    status="completed",
+                    inputs=[
                         ReceiptIO(
-                            name=f"column.{name}",
+                            name="source",
+                            ref=source
+                            or {
+                                "kind": "inline_rows",
+                                "params_hash": self._params_hash,
+                            },
+                        ),
+                        *[
+                            ReceiptIO(name=f"read.{index}", ref=read)
+                            for index, read in enumerate(observed_reads)
+                        ],
+                    ],
+                    outputs=[
+                        ReceiptIO(
+                            name=sheet_name,
                             ref={
-                                "kind": "source_column",
+                                "kind": "materialized_sheet",
                                 "sheet_id": self.sheet_id,
-                                "column_id": column_id,
+                                "op_id": op_id,
+                                "row_count": self._row_count,
+                                "columns": dict(self._column_ids),
+                                "reads": observed_reads,
+                            },
+                        ),
+                        *[
+                            ReceiptIO(
+                                name=f"column.{name}",
+                                ref={
+                                    "kind": "source_column",
+                                    "sheet_id": self.sheet_id,
+                                    "column_id": column_id,
+                                    "op_id": op_id,
+                                },
+                            )
+                            for name, column_id in self._column_ids.items()
+                        ],
+                        ReceiptIO(
+                            name="rows",
+                            ref={
+                                "kind": "source_rows",
+                                "sheet_id": self.sheet_id,
+                                "row_count": self._row_count,
                                 "op_id": op_id,
                             },
-                        )
-                        for name, column_id in self._column_ids.items()
+                        ),
                     ],
-                    ReceiptIO(
-                        name="rows",
-                        ref={
-                            "kind": "source_rows",
-                            "sheet_id": self.sheet_id,
-                            "row_count": self._row_count,
-                            "op_id": op_id,
-                        },
-                    ),
-                ],
-                evidence=[
-                    ReceiptEvidence(
-                        ref={
-                            "kind": "source_rows",
-                            "sheet_id": self.sheet_id,
-                            "row_count": self._row_count,
-                            "op_id": op_id,
-                        }
-                    ),
-                    *(
-                        [
-                            ReceiptEvidence(
-                                ref={
-                                    **source,
-                                    "kind": "import_source",
-                                    "source_kind": source.get("importer")
-                                    or source.get("kind"),
-                                }
-                            )
-                        ]
-                        if source
-                        else []
-                    ),
-                    *(
-                        [
-                            ReceiptEvidence(
-                                ref={
-                                    "kind": "source_cell",
-                                    "sheet_id": self.sheet_id,
-                                    "row_id": self._first_row_id,
-                                    "column_id": next(iter(self._column_ids.values())),
-                                    "op_id": op_id,
-                                }
-                            )
-                        ]
-                        if self._first_row_id is not None
-                        else []
-                    ),
-                ],
-                warnings=self._warnings,
-            )
-            if blob_plan is not None:
-                published = publish_import_blobs(
-                    self.project,
-                    blob_plan,
-                    sheet_id=self.sheet_id,
-                    column_ids=self._column_ids,
-                    op_id=op_id,
-                    receipt_id=self._receipt_id,
+                    evidence=[
+                        ReceiptEvidence(
+                            ref={
+                                "kind": "source_rows",
+                                "sheet_id": self.sheet_id,
+                                "row_count": self._row_count,
+                                "op_id": op_id,
+                            }
+                        ),
+                        *(
+                            [
+                                ReceiptEvidence(
+                                    ref={
+                                        **source,
+                                        "kind": "import_source",
+                                        "source_kind": source.get("importer")
+                                        or source.get("kind"),
+                                    }
+                                )
+                            ]
+                            if source
+                            else []
+                        ),
+                        *(
+                            [
+                                ReceiptEvidence(
+                                    ref={
+                                        "kind": "source_cell",
+                                        "sheet_id": self.sheet_id,
+                                        "row_id": self._first_row_id,
+                                        "column_id": next(
+                                            iter(self._column_ids.values())
+                                        ),
+                                        "op_id": op_id,
+                                    }
+                                )
+                            ]
+                            if self._first_row_id is not None
+                            else []
+                        ),
+                    ],
+                    warnings=self._warnings,
                 )
-                receipt.evidence.extend(ReceiptEvidence(ref=ref) for ref in published)
-            ChangeStore(self.project).close(op_id)
-            ReceiptStore(self.project).insert_completed(receipt, commit=False)
-            updated = db.execute(
-                "UPDATE sheets SET name=?, hidden=0 WHERE id=? AND hidden=1",
-                (sheet_name, self.sheet_id),
-            )
-            if updated.rowcount != 1:
-                raise RuntimeError("streaming import staging sheet is missing")
-            db.commit()
+                if blob_plan is not None:
+                    published = publish_import_blobs(
+                        self.project,
+                        blob_plan,
+                        sheet_id=self.sheet_id,
+                        column_ids=self._column_ids,
+                        op_id=op_id,
+                        receipt_id=self._receipt_id,
+                    )
+                    receipt.evidence.extend(
+                        ReceiptEvidence(ref=ref) for ref in published
+                    )
+                ChangeStore(self.project).close(op_id)
+                ReceiptStore(self.project).insert_completed(receipt, commit=False)
+                updated = db.execute(
+                    "UPDATE sheets SET name=?, hidden=0 WHERE id=? AND hidden=1",
+                    (sheet_name, self.sheet_id),
+                )
+                if updated.rowcount != 1:
+                    raise RuntimeError("streaming import staging sheet is missing")
         except BaseException:
-            db.rollback()
             self._delete_staging()
             self._closed = True
             raise
@@ -1219,17 +1190,12 @@ class StreamingSheetWriter:
 
     def _delete_staging(self) -> None:
         db = self.project.db
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             db.execute(
                 "DELETE FROM sheets WHERE id=? AND hidden=1",
                 (self.sheet_id,),
             )
             discard_pending_base_cell_producer(db, self._producer_id)
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
 
     def _available_sheet_name(self) -> str:
         used = {

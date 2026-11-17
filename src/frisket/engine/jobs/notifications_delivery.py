@@ -43,6 +43,7 @@ from .project_opener import (
     claimed_opener_key,
     require_opener_storage_org_id,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 LOG = logging.getLogger(__name__)
@@ -753,8 +754,7 @@ def _apply_terminal_result(
             result, status="failed", error="unsupported notification provider result"
         )
     request_id = int(request["id"])
-    with project.db:
-        project.db.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db):
         changed = project.terminalize_notification_delivery_request(
             request_id,
             status=result.status,
@@ -789,8 +789,7 @@ def _record_retry_result(
     result: DeliveryProviderResult,
     error: str,
 ) -> bool:
-    with project.db:
-        project.db.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db):
         changed = project.record_notification_delivery_request_error(
             int(request["id"]),
             last_error=error,

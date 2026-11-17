@@ -12,6 +12,7 @@ from collections.abc import Collection, Iterator
 
 from frisket.authoring import column_types
 from frisket.engine.store.search_index_work import enqueue_dirty_scope, latest_revision
+from frisket.engine.store.transactions import require_transaction
 from frisket.engine.store.value_codec import decode_stored_value
 
 _SQLITE_BIND_LIMIT = 900
@@ -32,7 +33,7 @@ def stamp_retrieval_revision(
 ) -> None:
     """Stamp source changes on exact live cells, or all cells during migration."""
 
-    _require_transaction(db)
+    require_transaction(db, "current-cell projection write")
 
     columns = (
         [int(row[0]) for row in db.execute("SELECT id FROM columns")]
@@ -144,13 +145,6 @@ def _search_row_ranges(rows: list[int]) -> list[tuple[int, int]] | None:
     return ranges
 
 
-def _require_transaction(db: sqlite3.Connection) -> None:
-    if not db.in_transaction:
-        raise RuntimeError(
-            "current-cell projection writes require a caller transaction"
-        )
-
-
 def _temp_key_table(name: str) -> str:
     if re.fullmatch(r"temp_result_keys_[0-9a-f]+", name) is None:
         raise ValueError("invalid temporary result-key table name")
@@ -202,7 +196,7 @@ def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str)
     bounds projection work for the entire output family.
     """
 
-    _require_transaction(db)
+    require_transaction(db, "current-cell projection write")
     table = _temp_key_table(key_table)
     from .cell_projection import SMALL_WRITE_LIMIT, refresh_ordered_cells
 
@@ -247,7 +241,7 @@ def refresh_current_cells(
     The return value is the number of projected rows now present in the region.
     """
 
-    _require_transaction(db)
+    require_transaction(db, "current-cell projection write")
     columns = _ordered_ids(column_ids)
     if not columns:
         return 0
@@ -276,7 +270,7 @@ def refresh_current_cell_pairs(
     columns stay separate instead of acquiring every other column's rows.
     """
 
-    _require_transaction(db)
+    require_transaction(db, "current-cell projection write")
     rows_by_column: dict[int, set[int]] = {}
     for row_id, column_id in pairs:
         rows_by_column.setdefault(int(column_id), set()).add(int(row_id))
@@ -310,7 +304,7 @@ def initialize_current_cell_pairs(
     (an absent base cell can still have an edit or generated contribution).
     Historical replacement and Undo continue to use bounded dirty scopes.
     """
-    _require_transaction(db)
+    require_transaction(db, "current-cell projection write")
     from .cell_projection import project_region
 
     rows_by_column: dict[int, set[int]] = {}
@@ -346,7 +340,7 @@ def rebuild_current_cells(
     invalidation; their later search-schema migration seeds a full repair.
     """
 
-    _require_transaction(db)
+    require_transaction(db, "current-cell projection write")
 
     return refresh_current_cells(
         db, column_ids=[int(row[0]) for row in db.execute("SELECT id FROM columns")]

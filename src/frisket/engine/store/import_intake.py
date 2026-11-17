@@ -15,6 +15,7 @@ from typing import Any, Literal, Mapping
 from filelock import BaseFileLock, FileLock
 
 from frisket.engine.store.import_inventory import ImportInventory
+from frisket.engine.store.transactions import write_transaction
 
 
 _REF = re.compile(r"import-[0-9a-f]{32}\Z")
@@ -196,8 +197,7 @@ def append_inventory_batch(
         "batch_id TEXT PRIMARY KEY,payload_hash TEXT NOT NULL,"
         "through_ordinal INTEGER NOT NULL)"
     )
-    db.execute("BEGIN IMMEDIATE")
-    try:
+    with write_transaction(db):
         existing = db.execute(
             "SELECT payload_hash,through_ordinal FROM inventory_batches WHERE batch_id=?",
             (batch_id,),
@@ -205,7 +205,6 @@ def append_inventory_batch(
         if existing is not None:
             if existing["payload_hash"] != payload_hash:
                 raise ValueError("batch_id was already used for different files")
-            db.commit()
             return int(existing["through_ordinal"]), False
         if inventory.sealed:
             raise RuntimeError("import inventory is sealed")
@@ -233,11 +232,7 @@ def append_inventory_batch(
             "(batch_id,payload_hash,through_ordinal) VALUES (?,?,?)",
             (batch_id, payload_hash, through),
         )
-        db.commit()
         return through, True
-    except BaseException:
-        db.rollback()
-        raise
 
 
 def inventory_batch_through(

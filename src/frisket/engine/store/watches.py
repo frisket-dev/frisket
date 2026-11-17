@@ -25,6 +25,7 @@ from frisket.contracts.query_spec import (
     canonical_json,
     detection_conditions,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 UNCHANGED_SCHEDULE = object()
@@ -179,14 +180,12 @@ def delete_watch(project: Any, watch_id: int) -> bool:
     before deleting the Watch.  Delivery outside this database is not touched.
     """
     watch_id = int(watch_id)
-    try:
+    with write_transaction(project.db):
         cur = project.db.cursor()
-        cur.execute("BEGIN IMMEDIATE")
         if (
             cur.execute("SELECT 1 FROM watches WHERE id=?", (watch_id,)).fetchone()
             is None
         ):
-            project.db.rollback()
             return False
         cur.execute(
             "DELETE FROM notification_items "
@@ -201,11 +200,7 @@ def delete_watch(project: Any, watch_id: int) -> bool:
             (watch_id,),
         )
         cur.execute("DELETE FROM watches WHERE id=?", (watch_id,))
-        project.db.commit()
         return True
-    except Exception:
-        project.db.rollback()
-        raise
 
 
 def watch_latest_run(project: Any, watch_id: int) -> sqlite3.Row | None:
@@ -375,251 +370,249 @@ def record_watch_run(
         db = project.db
         db.execute("ATTACH DATABASE ? AS watch_observation", (str(staged),))
         try:
-            db.execute("BEGIN IMMEDIATE")
-            current = project.get_watch(watch_id)
-            if current is None:
-                raise WatchCheckConflict("watch was deleted during evaluation")
-            if _watch_definition(current) != _watch_definition(expected):
-                raise WatchCheckConflict(
-                    "watch definition changed during evaluation; retry"
-                )
-            if current["last_run_id"] != expected["last_run_id"]:
-                raise WatchCheckConflict(
-                    "another watch check completed during evaluation; retry"
-                )
-            if (
-                status == "ok"
-                and db.execute(
-                    "SELECT 1 FROM watch_observation.members now LEFT JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id WHERE rows.id IS NULL LIMIT 1"
-                ).fetchone()
-            ):
-                raise WatchCheckConflict(
-                    "source rows were permanently removed during evaluation; retry"
-                )
-            previous = db.execute(
-                "SELECT * FROM watch_runs WHERE id=? AND watch_id=? AND status='ok'",
-                (current["baseline_run_id"], watch_id),
-            ).fetchone()
-            baseline = (
-                previous is not None
-                and previous["resolved_query_hash"] == resolved_query_hash
-            )
-            previous_policy = (
-                detection_conditions(
-                    _decode_watch_detection_policy(previous["detection_policy"])
-                )
-                if baseline
-                else {}
-            )
-            previous_count = int(previous["matched_rows"]) if baseline else 0
-            matched = db.execute(
-                "SELECT COUNT(*) FROM watch_observation.members"
-            ).fetchone()[0]
-            run_id = db.execute(
-                "INSERT INTO watch_runs (watch_id,status,op_cursor_before,op_cursor_after,"
-                "matched_rows,new_rows,error,resolved_query_hash,resolved_query,detection_policy,error_code,finished_at) "
-                "VALUES (?,?,?,?,?,0,?,?,?,?,?,datetime('now'))",
-                (
-                    watch_id,
-                    status,
-                    op_cursor_before,
-                    op_cursor_after if advance_cursor else op_cursor_before,
-                    matched,
-                    error,
-                    resolved_query_hash,
-                    canonical_json(resolved_query or {}),
-                    canonical_json(policy),
-                    error_code,
-                ),
-            ).lastrowid
-            rank = 0
-
-            def record(event):
-                nonlocal rank
-                rank += 1
-                db.execute(
-                    "INSERT INTO watch_run_events (run_id,watch_id,event_kind,subject_kind,subject_ref,"
-                    "before_json,after_json,delta_json,severity,rank,snippet) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        run_id,
-                        watch_id,
-                        event["event_kind"],
-                        event["subject_kind"],
-                        event_json(event["subject_ref"]),
-                        event_json(event["before_json"]),
-                        event_json(event["after_json"]),
-                        event_json(event["delta_json"]),
-                        event["severity"],
-                        rank,
-                        event["snippet"],
-                    ),
-                )
-
-            new_count = 0
-            if status == "ok" and baseline:
-                new_count = db.execute(
-                    "SELECT COUNT(*) FROM watch_observation.members now WHERE NOT EXISTS "
-                    "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
-                    "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)",
-                    (watch_id,),
-                ).fetchone()[0]
-                if policy["entered"]:
-                    for hit in db.execute(
-                        "SELECT now.* FROM watch_observation.members now WHERE NOT EXISTS "
-                        "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
-                        "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id) ORDER BY now.rank",
-                        (watch_id,),
-                    ):
-                        record(
-                            row_entered_event(
-                                run_id=run_id,
-                                watch_id=watch_id,
-                                sheet_id=hit["sheet_id"],
-                                row_id=hit["row_id"],
-                                rank=0,
-                                snippet=hit["snippet"],
-                            )
-                        )
-                if policy["exited"]:
-                    for hit in db.execute(
-                        "SELECT old.*,COALESCE(unavailable.reason,'membership_changed') AS exit_reason "
-                        "FROM watch_seen_rows old LEFT JOIN watch_observation.unavailable_rows unavailable "
-                        "ON unavailable.sheet_id=old.sheet_id AND unavailable.row_id=old.row_id "
-                        "WHERE old.watch_id=? AND NOT EXISTS "
-                        "(SELECT 1 FROM watch_observation.members now WHERE old.sheet_id=now.sheet_id "
-                        "AND old.row_id=now.row_id) ORDER BY old.sheet_id,old.row_id",
-                        (watch_id,),
-                    ):
-                        record(
-                            row_exited_event(
-                                run_id=run_id,
-                                watch_id=watch_id,
-                                sheet_id=hit["sheet_id"],
-                                row_id=hit["row_id"],
-                                rank=0,
-                                reason=hit["exit_reason"],
-                            )
-                        )
+            with write_transaction(db):
+                current = project.get_watch(watch_id)
+                if current is None:
+                    raise WatchCheckConflict("watch was deleted during evaluation")
+                if _watch_definition(current) != _watch_definition(expected):
+                    raise WatchCheckConflict(
+                        "watch definition changed during evaluation; retry"
+                    )
+                if current["last_run_id"] != expected["last_run_id"]:
+                    raise WatchCheckConflict(
+                        "another watch check completed during evaluation; retry"
+                    )
                 if (
-                    policy["count_changed"]
-                    and previous_policy.get("count_changed")
-                    and previous_count != matched
+                    status == "ok"
+                    and db.execute(
+                        "SELECT 1 FROM watch_observation.members now LEFT JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id WHERE rows.id IS NULL LIMIT 1"
+                    ).fetchone()
                 ):
-                    record(
-                        count_changed_event(
-                            run_id=run_id,
-                            watch_id=watch_id,
-                            previous_run_id=previous["id"],
-                            previous_count=previous_count,
-                            current_count=matched,
-                        )
+                    raise WatchCheckConflict(
+                        "source rows were permanently removed during evaluation; retry"
                     )
-                threshold = policy.get("threshold")
-                if threshold and threshold == previous_policy.get("threshold"):
-                    crossing = _threshold_crossing(
-                        previous_count=previous_count,
-                        current_count=matched,
-                        threshold=threshold["threshold"],
-                        direction=threshold["direction"],
+                previous = db.execute(
+                    "SELECT * FROM watch_runs WHERE id=? AND watch_id=? AND status='ok'",
+                    (current["baseline_run_id"], watch_id),
+                ).fetchone()
+                baseline = (
+                    previous is not None
+                    and previous["resolved_query_hash"] == resolved_query_hash
+                )
+                previous_policy = (
+                    detection_conditions(
+                        _decode_watch_detection_policy(previous["detection_policy"])
                     )
-                    if crossing:
+                    if baseline
+                    else {}
+                )
+                previous_count = int(previous["matched_rows"]) if baseline else 0
+                matched = db.execute(
+                    "SELECT COUNT(*) FROM watch_observation.members"
+                ).fetchone()[0]
+                run_id = db.execute(
+                    "INSERT INTO watch_runs (watch_id,status,op_cursor_before,op_cursor_after,"
+                    "matched_rows,new_rows,error,resolved_query_hash,resolved_query,detection_policy,error_code,finished_at) "
+                    "VALUES (?,?,?,?,?,0,?,?,?,?,?,datetime('now'))",
+                    (
+                        watch_id,
+                        status,
+                        op_cursor_before,
+                        op_cursor_after if advance_cursor else op_cursor_before,
+                        matched,
+                        error,
+                        resolved_query_hash,
+                        canonical_json(resolved_query or {}),
+                        canonical_json(policy),
+                        error_code,
+                    ),
+                ).lastrowid
+                rank = 0
+
+                def record(event):
+                    nonlocal rank
+                    rank += 1
+                    db.execute(
+                        "INSERT INTO watch_run_events (run_id,watch_id,event_kind,subject_kind,subject_ref,"
+                        "before_json,after_json,delta_json,severity,rank,snippet) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            run_id,
+                            watch_id,
+                            event["event_kind"],
+                            event["subject_kind"],
+                            event_json(event["subject_ref"]),
+                            event_json(event["before_json"]),
+                            event_json(event["after_json"]),
+                            event_json(event["delta_json"]),
+                            event["severity"],
+                            rank,
+                            event["snippet"],
+                        ),
+                    )
+
+                new_count = 0
+                if status == "ok" and baseline:
+                    new_count = db.execute(
+                        "SELECT COUNT(*) FROM watch_observation.members now WHERE NOT EXISTS "
+                        "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
+                        "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)",
+                        (watch_id,),
+                    ).fetchone()[0]
+                    if policy["entered"]:
+                        for hit in db.execute(
+                            "SELECT now.* FROM watch_observation.members now WHERE NOT EXISTS "
+                            "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
+                            "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id) ORDER BY now.rank",
+                            (watch_id,),
+                        ):
+                            record(
+                                row_entered_event(
+                                    run_id=run_id,
+                                    watch_id=watch_id,
+                                    sheet_id=hit["sheet_id"],
+                                    row_id=hit["row_id"],
+                                    rank=0,
+                                    snippet=hit["snippet"],
+                                )
+                            )
+                    if policy["exited"]:
+                        for hit in db.execute(
+                            "SELECT old.*,COALESCE(unavailable.reason,'membership_changed') AS exit_reason "
+                            "FROM watch_seen_rows old LEFT JOIN watch_observation.unavailable_rows unavailable "
+                            "ON unavailable.sheet_id=old.sheet_id AND unavailable.row_id=old.row_id "
+                            "WHERE old.watch_id=? AND NOT EXISTS "
+                            "(SELECT 1 FROM watch_observation.members now WHERE old.sheet_id=now.sheet_id "
+                            "AND old.row_id=now.row_id) ORDER BY old.sheet_id,old.row_id",
+                            (watch_id,),
+                        ):
+                            record(
+                                row_exited_event(
+                                    run_id=run_id,
+                                    watch_id=watch_id,
+                                    sheet_id=hit["sheet_id"],
+                                    row_id=hit["row_id"],
+                                    rank=0,
+                                    reason=hit["exit_reason"],
+                                )
+                            )
+                    if (
+                        policy["count_changed"]
+                        and previous_policy.get("count_changed")
+                        and previous_count != matched
+                    ):
                         record(
-                            threshold_crossed_event(
+                            count_changed_event(
                                 run_id=run_id,
                                 watch_id=watch_id,
                                 previous_run_id=previous["id"],
                                 previous_count=previous_count,
                                 current_count=matched,
-                                threshold=threshold["threshold"],
-                                direction=threshold["direction"],
-                                crossing=crossing,
                             )
                         )
-                changed = db.execute(
-                    "SELECT now.sheet_id,now.row_id,now.column_id,col.name,old.value_json before_value,now.value_json after_value "
-                    "FROM watch_observation.fields now JOIN watch_row_field_state old "
-                    "ON old.watch_id=? AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id AND old.column_id=now.column_id "
-                    "JOIN watch_seen_rows member ON member.watch_id=old.watch_id AND member.sheet_id=old.sheet_id AND member.row_id=old.row_id "
-                    "JOIN columns col ON col.id=now.column_id WHERE old.value_json!=now.value_json "
-                    "ORDER BY now.sheet_id,now.row_id,now.column_id",
-                    (watch_id,),
-                )
-                for (sheet, row), changes in groupby(
-                    changed, key=lambda cell: (cell["sheet_id"], cell["row_id"])
-                ):
-                    record(
-                        row_changed_event(
-                            run_id=run_id,
-                            watch_id=watch_id,
-                            sheet_id=sheet,
-                            row_id=row,
-                            rank=0,
-                            changed_fields=[
-                                {
-                                    "sheet_id": sheet,
-                                    "column_id": cell["column_id"],
-                                    "name": cell["name"],
-                                    "before": _display_observed(cell["before_value"]),
-                                    "after": _display_observed(cell["after_value"]),
-                                }
-                                for cell in changes
-                            ],
+                    threshold = policy.get("threshold")
+                    if threshold and threshold == previous_policy.get("threshold"):
+                        crossing = _threshold_crossing(
+                            previous_count=previous_count,
+                            current_count=matched,
+                            threshold=threshold["threshold"],
+                            direction=threshold["direction"],
                         )
+                        if crossing:
+                            record(
+                                threshold_crossed_event(
+                                    run_id=run_id,
+                                    watch_id=watch_id,
+                                    previous_run_id=previous["id"],
+                                    previous_count=previous_count,
+                                    current_count=matched,
+                                    threshold=threshold["threshold"],
+                                    direction=threshold["direction"],
+                                    crossing=crossing,
+                                )
+                            )
+                    changed = db.execute(
+                        "SELECT now.sheet_id,now.row_id,now.column_id,col.name,old.value_json before_value,now.value_json after_value "
+                        "FROM watch_observation.fields now JOIN watch_row_field_state old "
+                        "ON old.watch_id=? AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id AND old.column_id=now.column_id "
+                        "JOIN watch_seen_rows member ON member.watch_id=old.watch_id AND member.sheet_id=old.sheet_id AND member.row_id=old.row_id "
+                        "JOIN columns col ON col.id=now.column_id WHERE old.value_json!=now.value_json "
+                        "ORDER BY now.sheet_id,now.row_id,now.column_id",
+                        (watch_id,),
                     )
-            if status == "ok":
-                # Save a bounded preview before replacing baseline membership.
+                    for (sheet, row), changes in groupby(
+                        changed, key=lambda cell: (cell["sheet_id"], cell["row_id"])
+                    ):
+                        record(
+                            row_changed_event(
+                                run_id=run_id,
+                                watch_id=watch_id,
+                                sheet_id=sheet,
+                                row_id=row,
+                                rank=0,
+                                changed_fields=[
+                                    {
+                                        "sheet_id": sheet,
+                                        "column_id": cell["column_id"],
+                                        "name": cell["name"],
+                                        "before": _display_observed(
+                                            cell["before_value"]
+                                        ),
+                                        "after": _display_observed(cell["after_value"]),
+                                    }
+                                    for cell in changes
+                                ],
+                            )
+                        )
+                if status == "ok":
+                    # Save a bounded preview before replacing baseline membership.
+                    db.execute(
+                        "INSERT INTO watch_run_hits (run_id,sheet_id,row_id,column_id,rank,snippet,is_new) "
+                        "SELECT ?,now.sheet_id,now.row_id,now.column_id,now.rank,now.snippet,"
+                        "(? AND NOT EXISTS (SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
+                        "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)) "
+                        "FROM watch_observation.members now JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id ORDER BY now.rank LIMIT 500",
+                        (run_id, int(baseline), watch_id),
+                    )
+                    # Diff-apply: unchanged million-row checks must not rewrite their baseline.
+                    db.execute(
+                        "DELETE FROM watch_seen_rows WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.members now WHERE now.sheet_id=watch_seen_rows.sheet_id AND now.row_id=watch_seen_rows.row_id)",
+                        (watch_id,),
+                    )
+                    db.execute(
+                        "INSERT INTO watch_seen_rows (watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) "
+                        "SELECT ?,sheet_id,row_id,?,? FROM watch_observation.members WHERE 1 "
+                        "ON CONFLICT(watch_id,sheet_id,row_id) DO NOTHING",
+                        (watch_id, run_id, run_id),
+                    )
+                    db.execute(
+                        "DELETE FROM watch_row_field_state WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.fields now WHERE now.sheet_id=watch_row_field_state.sheet_id AND now.row_id=watch_row_field_state.row_id AND now.column_id=watch_row_field_state.column_id)",
+                        (watch_id,),
+                    )
+                    db.execute(
+                        "INSERT INTO watch_row_field_state (watch_id,sheet_id,row_id,column_id,value_json,value_hash,last_observed_run_id) "
+                        "SELECT ?,sheet_id,row_id,column_id,value_json,value_hash,? FROM watch_observation.fields WHERE 1 "
+                        "ON CONFLICT(watch_id,sheet_id,row_id,column_id) DO UPDATE SET "
+                        "value_json=excluded.value_json,value_hash=excluded.value_hash,last_observed_run_id=excluded.last_observed_run_id "
+                        "WHERE watch_row_field_state.value_json!=excluded.value_json",
+                        (watch_id, run_id),
+                    )
+                    db.execute(
+                        "UPDATE watches SET baseline_run_id=? WHERE id=?",
+                        (run_id, watch_id),
+                    )
                 db.execute(
-                    "INSERT INTO watch_run_hits (run_id,sheet_id,row_id,column_id,rank,snippet,is_new) "
-                    "SELECT ?,now.sheet_id,now.row_id,now.column_id,now.rank,now.snippet,"
-                    "(? AND NOT EXISTS (SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
-                    "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)) "
-                    "FROM watch_observation.members now JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id ORDER BY now.rank LIMIT 500",
-                    (run_id, int(baseline), watch_id),
-                )
-                # Diff-apply: unchanged million-row checks must not rewrite their baseline.
-                db.execute(
-                    "DELETE FROM watch_seen_rows WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.members now WHERE now.sheet_id=watch_seen_rows.sheet_id AND now.row_id=watch_seen_rows.row_id)",
-                    (watch_id,),
+                    "UPDATE watch_runs SET new_rows=?,notification_pending=? WHERE id=?",
+                    (new_count, int(rank > 0), run_id),
                 )
                 db.execute(
-                    "INSERT INTO watch_seen_rows (watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) "
-                    "SELECT ?,sheet_id,row_id,?,? FROM watch_observation.members WHERE 1 "
-                    "ON CONFLICT(watch_id,sheet_id,row_id) DO NOTHING",
-                    (watch_id, run_id, run_id),
+                    "UPDATE watches SET last_evaluated_op=?,last_run_id=?,last_status=?,updated_at=datetime('now') WHERE id=?",
+                    (
+                        op_cursor_after if advance_cursor else op_cursor_before,
+                        run_id,
+                        status,
+                        watch_id,
+                    ),
                 )
-                db.execute(
-                    "DELETE FROM watch_row_field_state WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.fields now WHERE now.sheet_id=watch_row_field_state.sheet_id AND now.row_id=watch_row_field_state.row_id AND now.column_id=watch_row_field_state.column_id)",
-                    (watch_id,),
-                )
-                db.execute(
-                    "INSERT INTO watch_row_field_state (watch_id,sheet_id,row_id,column_id,value_json,value_hash,last_observed_run_id) "
-                    "SELECT ?,sheet_id,row_id,column_id,value_json,value_hash,? FROM watch_observation.fields WHERE 1 "
-                    "ON CONFLICT(watch_id,sheet_id,row_id,column_id) DO UPDATE SET "
-                    "value_json=excluded.value_json,value_hash=excluded.value_hash,last_observed_run_id=excluded.last_observed_run_id "
-                    "WHERE watch_row_field_state.value_json!=excluded.value_json",
-                    (watch_id, run_id),
-                )
-                db.execute(
-                    "UPDATE watches SET baseline_run_id=? WHERE id=?",
-                    (run_id, watch_id),
-                )
-            db.execute(
-                "UPDATE watch_runs SET new_rows=?,notification_pending=? WHERE id=?",
-                (new_count, int(rank > 0), run_id),
-            )
-            db.execute(
-                "UPDATE watches SET last_evaluated_op=?,last_run_id=?,last_status=?,updated_at=datetime('now') WHERE id=?",
-                (
-                    op_cursor_after if advance_cursor else op_cursor_before,
-                    run_id,
-                    status,
-                    watch_id,
-                ),
-            )
-            db.commit()
-            return int(run_id)
-        except BaseException:
-            db.rollback()
-            raise
+                return int(run_id)
         finally:
             db.execute("DETACH DATABASE watch_observation")

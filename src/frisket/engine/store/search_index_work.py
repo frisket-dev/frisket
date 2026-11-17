@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from .transactions import require_transaction
+
 
 @dataclass(frozen=True)
 class SearchDirtyScope:
@@ -14,11 +16,6 @@ class SearchDirtyScope:
     row_id_start: int | None
     row_id_end: int | None
     scan_cursor: str
-
-
-def _require_transaction(db: sqlite3.Connection) -> None:
-    if not db.in_transaction:
-        raise RuntimeError("search worklist writes require a caller transaction")
 
 
 def enqueue_dirty_scope(
@@ -31,7 +28,7 @@ def enqueue_dirty_scope(
 ) -> int:
     """Append one invalidated scope inside the authoritative write transaction."""
 
-    _require_transaction(db)
+    require_transaction(db, "search worklist write")
     if column_id is not None and sheet_id is None:
         raise ValueError("column scope requires sheet_id")
     if (row_id_start is None) != (row_id_end is None):
@@ -80,7 +77,7 @@ def reserve_revision(db: sqlite3.Connection) -> int:
     keeps subsequent value writes strictly newer without a fake dirty scope.
     SQLite retains this sequence across acknowledged/deleted work rows.
     """
-    _require_transaction(db)
+    require_transaction(db, "search worklist write")
     row = db.execute(
         "UPDATE sqlite_sequence SET seq=seq+1 WHERE name='search_dirty_scopes' RETURNING seq"
     ).fetchone()
@@ -114,7 +111,7 @@ def read_dirty_scopes(db: sqlite3.Connection, *, limit: int) -> list[SearchDirty
 def advance_dirty_scope(
     db: sqlite3.Connection, *, scope_id: int, expected_cursor: str, scan_cursor: str
 ) -> bool:
-    _require_transaction(db)
+    require_transaction(db, "search worklist write")
     if not scan_cursor:
         raise ValueError("scan cursor must not be empty")
     changed = db.execute(
@@ -127,7 +124,7 @@ def advance_dirty_scope(
 def ack_dirty_scope(
     db: sqlite3.Connection, *, scope_id: int, expected_cursor: str
 ) -> bool:
-    _require_transaction(db)
+    require_transaction(db, "search worklist write")
     changed = db.execute(
         "DELETE FROM search_dirty_scopes WHERE id=? AND scan_cursor=?",
         (scope_id, expected_cursor),
