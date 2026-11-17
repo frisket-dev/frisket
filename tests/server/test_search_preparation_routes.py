@@ -23,6 +23,7 @@ from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.services.action_runs import ActionRunResponse
 from frisket.server.workspace import Workspace
 from frisket.engine.jobs.search_preparation_store import SearchPreparationStore
+from tests.server.test_search_preparation_import_bridges import _pdf_bytes
 
 
 @dataclass(frozen=True)
@@ -1112,7 +1113,6 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
 ):
     from helpers import stub_rapidocr_run_scope
     from frisket.ops import ocr_engines
-    from tests.server.test_search_preparation_import_bridges import _pdf_bytes
 
     async def deterministic_ocr(_self, _engine, page_paths, _ctx, **_kwargs):
         return [

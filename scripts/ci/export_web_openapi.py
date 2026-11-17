@@ -407,24 +407,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ): "tenant.entity_mentions_preview.post",
         ("tenant", "import_csv", "POST"): "tenant.import_csv.post",
         ("tenant", "append_csv", "POST"): "tenant.append_csv.post",
-        ("tenant", "update_csv", "POST"): "tenant.update_csv.post",
-        (
-            "tenant",
-            "import_csv_update_preview",
-            "POST",
-        ): "tenant.import_csv_update_preview.post",
-        (
-            "tenant",
-            "import_update_preview",
-            "POST",
-        ): "tenant.import_update_preview.post",
         ("tenant", "append_xlsx", "POST"): "tenant.append_xlsx.post",
-        (
-            "tenant",
-            "import_xlsx_update_preview",
-            "POST",
-        ): "tenant.import_xlsx_update_preview.post",
-        ("tenant", "update_xlsx", "POST"): "tenant.update_xlsx.post",
         (
             "tenant",
             "import_bulk_execute",
@@ -1290,11 +1273,7 @@ def _native_form_data_request(
     return record.identity in {
         ("tenant", "import_csv", "POST"),
         ("tenant", "append_csv", "POST"),
-        ("tenant", "update_csv", "POST"),
-        ("tenant", "import_csv_update_preview", "POST"),
         ("tenant", "append_xlsx", "POST"),
-        ("tenant", "import_xlsx_update_preview", "POST"),
-        ("tenant", "update_xlsx", "POST"),
         ("tenant", "import_bulk_plan", "POST"),
         ("tenant", "prepare_import_files", "POST"),
         ("tenant", "import_xlsx", "POST"),
