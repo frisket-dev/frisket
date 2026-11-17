@@ -162,7 +162,7 @@ export function CompareColumnsState({
   );
 }
 
-export interface CompareFooterDifference {
+interface CompareFooterDifference {
   label: ReactNode;
   previousLabel: string;
   nextLabel: string;

@@ -2,7 +2,7 @@
 // simple: preserve the human edit, surface the fresh generated value, allow
 // accept. The rich prev/current/potential fast-scan compare is DEFERRED.
 //
-// The surface rides the existing columnAnnotations idiom: a
+// The surface rides the existing replayPending surface: a
 // header-band chip keyed by columnIds carrying a "{n} updated values · Review"
 // message plus Accept-all, with the built-in scroll-into-view choreography.
 // This exercises the pure, framework-free surface logic that the SheetGrid
@@ -13,7 +13,6 @@
 //   - buildReplayPendingAnnotation(...)  -> a ColumnAnnotation (info tone,
 //                                           durable onDismiss = keep column)
 //   - firstPendingRowId(ordered)         -> Review scrolls to first pending
-//   - nextPendingRowId(ordered, current) -> wrapping navigation
 //   - advanceAfterAction(ordered, acted) -> auto-advance to the next pending
 //                                           after Accept/Keep
 //
@@ -23,7 +22,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import * as annotations from '../grid/columnAnnotations';
+import * as annotations from '../grid/replayPending';
 
 type ReplaySurface = {
   replayPendingChipLabel: (count: number) => string;
@@ -42,13 +41,12 @@ type ReplaySurface = {
     progress?: unknown;
   };
   firstPendingRowId: (ordered: number[]) => number | null;
-  nextPendingRowId: (ordered: number[], current: number) => number | null;
   advanceAfterAction: (ordered: number[], acted: number) => number | null;
 };
 
 const surface = annotations as unknown as ReplaySurface;
 
-describe('replay-accept surface (columnAnnotations idiom)', () => {
+describe('replay-accept surface (replayPending surface)', () => {
   it('labels the chip with a plural-aware updated-values count', () => {
     expect(typeof surface.replayPendingChipLabel).toBe('function');
     expect(surface.replayPendingChipLabel(12)).toBe('12 updated values');
@@ -91,14 +89,6 @@ describe('replay-accept surface (columnAnnotations idiom)', () => {
     expect(typeof surface.firstPendingRowId).toBe('function');
     expect(surface.firstPendingRowId([31, 12, 88])).toBe(31);
     expect(surface.firstPendingRowId([])).toBeNull();
-  });
-
-  it('navigates pending cells with wrapping (dispositions #1)', () => {
-    expect(typeof surface.nextPendingRowId).toBe('function');
-    expect(surface.nextPendingRowId([31, 12, 88], 31)).toBe(12);
-    expect(surface.nextPendingRowId([31, 12, 88], 88)).toBe(31); // wraps
-    // an unknown current falls back to the first pending cell
-    expect(surface.nextPendingRowId([31, 12, 88], 999)).toBe(31);
   });
 
   it('auto-advances to the next remaining pending cell after Accept/Keep (dispositions #1)', () => {

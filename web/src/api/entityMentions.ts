@@ -9,12 +9,12 @@ import type {
   EntityMentionsPreview,
 } from './types';
 
-export interface EntityMentionsOptions {
+interface EntityMentionsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface EntityMentionsPreviewInput {
+interface EntityMentionsPreviewInput {
   sheetId: string;
   columnId: string;
   search?: string;
@@ -23,7 +23,7 @@ export interface EntityMentionsPreviewInput {
   offset?: number;
 }
 
-export interface EntityMentionDocumentsInput {
+interface EntityMentionDocumentsInput {
   sheetId: string;
   columnId: string;
   type: string;
@@ -33,7 +33,7 @@ export interface EntityMentionDocumentsInput {
   offset?: number;
 }
 
-export interface EntityMentionOccurrencesInput {
+interface EntityMentionOccurrencesInput {
   sheetId: string;
   rowId: string;
   columnId: string;
@@ -56,7 +56,7 @@ type EntityMentionSelectorWire =
   | EntityMentionDocumentsWire['selector']
   | EntityMentionOccurrencesWire['selector'];
 
-export interface EntityMentionsApi {
+interface EntityMentionsApi {
   preview(
     projectId: string,
     input: EntityMentionsPreviewInput,

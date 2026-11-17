@@ -28,7 +28,7 @@ function scrollIndexIntoView(node: HTMLDivElement, index: number): void {
   }
 }
 
-export interface UseWindowedRowListArgs<T extends { id: string }> {
+interface UseWindowedRowListArgs<T extends { id: string }> {
   /** The full (already search-filtered) row list to window over. */
   rows: readonly T[];
   /** The currently active row id — ArrowUp/ArrowDown nav starts from its
@@ -41,7 +41,7 @@ export interface UseWindowedRowListArgs<T extends { id: string }> {
   onBoundary?(direction: 'previous' | 'next'): void;
 }
 
-export interface WindowedRowList<T> {
+interface WindowedRowList<T> {
   listBodyRef: RefObject<HTMLDivElement>;
   onListScroll(): void;
   onListKeyDown(event: KeyboardEvent<HTMLDivElement>): void;

@@ -157,15 +157,6 @@
   gap: 4px;
 }
 
-.saved-views-overflow-heading {
-  padding: 4px 7px 2px;
-  color: var(--text-light);
-  font-size: 11px;
-  font-weight: 650;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
 .saved-views-overflow-search { width: 100%; }
 
 .saved-views-overflow-list {

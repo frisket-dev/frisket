@@ -33,7 +33,7 @@ import { projectRouteState, type ChromeHandle } from '../core/route/projectRoute
 import { propsMatchPathname } from '../core/route/locationMatchesRouteState';
 import type { RouteStoreHandle } from '../state/routeStore';
 
-export interface RouteProjectionProps {
+interface RouteProjectionProps {
   projectId: string;
   routeSheetId: string | null;
   routeActionKind: string | null;

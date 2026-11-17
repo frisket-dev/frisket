@@ -3,7 +3,7 @@ import type { EvidenceLinkViewerApiPort } from '../api/ports';
 import type { EvidenceViewerPayload } from '../api/types';
 import { createEvidenceResourceCache } from './evidenceResourceCache';
 
-export interface EvidenceLinkViewerSnapshot {
+interface EvidenceLinkViewerSnapshot {
   status: 'pending' | 'ready' | 'error';
   payload: EvidenceViewerPayload | null;
 }

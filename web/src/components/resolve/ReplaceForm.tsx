@@ -25,7 +25,7 @@ import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
 import './replace-form.css';
 
-export type ReplaceFormProps = GeneratedActionParamsBodyProps<'resolve.replace'>;
+type ReplaceFormProps = GeneratedActionParamsBodyProps<'resolve.replace'>;
 
 type MatchKind = 'contains' | 'exact' | 'regex';
 

@@ -1,6 +1,6 @@
 // The `map.ner` label model: spaCy's CANONICAL entity types, their tiers, and
 // the parse/serialize rules for the comma-joined `labels` param. A pure .ts
-// module (the outputFieldModel.ts/runLifecycleState.ts precedent in this
+// module (the outputFieldModel.ts precedent in this
 // directory) so the chip view (NerFieldControls.tsx), the orchestrator's
 // validation gate (ActionForm.tsx), and the tests share ONE table — and so
 // react-refresh/only-export-components stays satisfied in the .tsx view.
@@ -16,7 +16,7 @@
 import { parseCommaLabels } from './formControlHelpers';
 import { ENTITY_TYPE_ALIASES } from '../../generated/actionTypes';
 
-export interface SpacyTypeOption {
+interface SpacyTypeOption {
   /** The CANONICAL value written into `labels` — never the raw OntoNotes tag. */
   value: string;
   /** The PLURAL name, for the form's checkbox chips and the Mentions panel's
@@ -29,9 +29,9 @@ export interface SpacyTypeOption {
   singular: string;
 }
 
-export type SpacyTypeTierId = 'recommended' | 'standard' | 'noise';
+type SpacyTypeTierId = 'recommended' | 'standard' | 'noise';
 
-export interface SpacyTypeTier {
+interface SpacyTypeTier {
   id: SpacyTypeTierId;
   /** Visible caption. The noise tier is distinguished, never hidden: an
    *  Advanced disclosure would reintroduce "you can't see what you asked
@@ -91,7 +91,7 @@ export const SPACY_TYPE_TIERS: SpacyTypeTier[] = [
 ];
 
 /** All 17 canonical types in render order (recommended → standard → noise). */
-export const SPACY_CANONICAL_TYPE_OPTIONS: SpacyTypeOption[] =
+const SPACY_CANONICAL_TYPE_OPTIONS: SpacyTypeOption[] =
   SPACY_TYPE_TIERS.flatMap((tier) => tier.options);
 
 export const SPACY_CANONICAL_TYPE_VALUES: string[] =
@@ -157,25 +157,6 @@ const SPACY_TYPE_SINGULARS = new Map(
 export function entityTypeName(type: string): string {
   return SPACY_TYPE_SINGULARS.get(normalizeTypeToken(type)) ?? entityTypeLabel(type);
 }
-
-/** The canonical types currently selected in a comma-joined `labels` value,
- *  in canonical render order.
- *
- *  Backend-supported aliases select their canonical type. Unknown free-text
- *  labels still fail validation rather than silently disappearing. */
-export function selectedSpacyTypes(value: string): string[] {
-  const wanted = new Set(parseCommaLabels(value).map(canonicalEntityType));
-  return SPACY_CANONICAL_TYPE_VALUES.filter((type) => wanted.has(type));
-}
-
-/** Canonical values → the comma-joined `labels` wire value, in canonical order. */
-export function spacyTypesValue(values: Iterable<string>): string {
-  const wanted = new Set(Array.from(values, canonicalEntityType));
-  return SPACY_CANONICAL_TYPE_VALUES.filter((type) => wanted.has(type)).join(', ');
-}
-
-export const ALL_SPACY_TYPES_VALUE = SPACY_CANONICAL_TYPE_VALUES.join(', ');
-export const RECOMMENDED_SPACY_TYPES_VALUE = spacyTypesValue(RECOMMENDED_SPACY_TYPES);
 
 /** Whether `labels` is submittable for the given engine. Required and
  *  non-empty for EVERY engine (C4b): zero-shot engines cannot be asked for

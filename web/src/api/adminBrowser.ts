@@ -25,8 +25,6 @@ type AdminBrowserErrorsWire =
 export type AdminHealth = AdminBrowserHealthWire;
 export type AdminUsers = AdminBrowserUsersWire;
 export type AdminUsersOrg = AdminUsers['orgs'][number];
-export type AdminUser = AdminUsersOrg['users'][number];
-export type AdminInvite = AdminUsersOrg['pending_invites'][number];
 export type AdminOrgRole = AdminUsers['capabilities']['assignable_roles'][number];
 export type AdminJob = AdminBrowserJobsWire['jobs'][number];
 export type AdminJobs = AdminBrowserJobsWire;
@@ -38,7 +36,6 @@ export type AdminRevokeInviteResult = AdminBrowserRevokeWire;
 export type AdminErrorEvent = AdminBrowserErrorsWire['errors'][number];
 export type AdminErrors = AdminBrowserErrorsWire;
 export type AdminAuditEvent = AdminBrowserAuditWire['events'][number];
-export type AdminAuditCategory = AdminAuditEvent['category'];
 export type AdminAuditLog = AdminBrowserAuditWire;
 
 /** Domain conveniences only; generated transport retains snake_case query keys. */
@@ -50,12 +47,12 @@ export interface AdminAuditFilters {
   action?: string;
 }
 
-export interface AdminBrowserOptions {
+interface AdminBrowserOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface AdminBrowserApi {
+interface AdminBrowserApi {
   getAdminHealth(options?: AdminBrowserOptions): Promise<AdminHealth>;
   getAdminUsers(options?: AdminBrowserOptions): Promise<AdminUsers>;
   inviteAdminUser(

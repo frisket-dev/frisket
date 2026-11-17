@@ -37,7 +37,7 @@ import {
 } from './useColumnValuesPreview';
 import './combine-form.css';
 
-export type CombineFormProps = GeneratedActionParamsBodyProps<'resolve.combine'>;
+type CombineFormProps = GeneratedActionParamsBodyProps<'resolve.combine'>;
 
 /** One authored bucket. `canonical` is free text (it starts as the most
  *  frequent member and ◆-promotion swaps it); `members` are exact cell

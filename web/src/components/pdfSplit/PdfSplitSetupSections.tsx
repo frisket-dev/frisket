@@ -16,9 +16,9 @@ export interface SplitSource {
   source_row_id?: number | null;
   text_category?: 'text' | 'missing' | 'suspicious' | 'unreadable' | null;
 }
-export type SplitScope = 'selected' | 'filtered' | 'all';
-export type SplitOrganization = 'pages' | 'split_documents';
-export type SplitDestination = 'new_sheet' | 'replace';
+type SplitScope = 'selected' | 'filtered' | 'all';
+type SplitOrganization = 'pages' | 'split_documents';
+type SplitDestination = 'new_sheet' | 'replace';
 
 function RadioCard({ name, checked, onSelect, title, detail, children }: {
   name: string; checked: boolean; onSelect(): void; title: string; detail?: string; children?: ReactNode;

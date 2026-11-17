@@ -5,7 +5,7 @@ import { WindowCloseButton } from '../WindowCloseButton';
 import { Download } from 'lucide-react';
 import styles from './ReviewResultsPanel.module.css';
 
-export interface ReviewRunSummaryProps {
+interface ReviewRunSummaryProps {
   run: ReviewRun;
   /** Limits the shown facts to one selected output column. */
   fieldId?: string | null;
@@ -64,7 +64,7 @@ function ResultRow({ label, counts }: { label: string; counts: ReviewRunCounts }
   );
 }
 
-export interface ReviewResultsPanelProps {
+interface ReviewResultsPanelProps {
   run: ReviewRun;
   exportUrl?: string;
   children?: ReactNode;

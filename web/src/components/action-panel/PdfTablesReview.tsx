@@ -17,7 +17,7 @@ export interface PdfTablesExportIntent {
   excludeColumns: string[];
 }
 
-export interface PdfTablesReviewProps {
+interface PdfTablesReviewProps {
   actionKind: string;
   sheet: Pick<SheetMeta, 'id' | 'columns'>;
   outputName: string;

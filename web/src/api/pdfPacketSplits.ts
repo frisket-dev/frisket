@@ -19,43 +19,22 @@ import type {
 } from '../generated/openHttpContracts';
 
 export type PdfPacketSplitSnapshot = HttpPdfPacketSplitStatus;
-export type PdfPacketSplitStatus = PdfPacketSplitSnapshot['status'];
-export type PdfPacketInfo = PdfPacketSplitSnapshot['packet'];
-export type PdfPacketProgress = PdfPacketSplitSnapshot['prepare']['progress'];
-export type PdfPacketJobState = PdfPacketSplitSnapshot['jobs'][number];
-export type PdfPacketPage = HttpPdfPacketPageResponse;
+type PdfPacketPage = HttpPdfPacketPageResponse;
 export type PdfPacketPhrase = Required<NonNullable<HttpPdfPacketCandidatesRequest['phrases']>[number]>;
 export type PdfPacketPageMatch = HttpPdfPacketCandidatesResponse['pages'][number];
 export type PdfPacketMatchResult = HttpPdfPacketCandidatesResponse;
-export type PdfPacketCommitResult = HttpPdfPacketJobStartResponse;
+type PdfPacketCommitResult = HttpPdfPacketJobStartResponse;
 
-export type PdfPacketOcrEstimate = Omit<HttpPdfPacketOcrEstimateResponse, 'estimate'> & {
+type PdfPacketOcrEstimate = Omit<HttpPdfPacketOcrEstimateResponse, 'estimate'> & {
   estimate: RunEstimate | null;
 };
 
-export interface PdfPacketRequestOptions {
+interface PdfPacketRequestOptions {
   signal?: AbortSignal;
 }
 
 const prefix = (projectId: string) =>
   `/api/projects/${encodeURIComponent(projectId)}/import/pdf-packet-splits`;
-
-export function createPdfPacketSplit(
-  projectId: string,
-  file: File,
-  requestId: string = crypto.randomUUID(),
-  options: PdfPacketRequestOptions = {},
-): Promise<PdfPacketSplitSnapshot> {
-  const body = new FormData();
-  body.append('file', file);
-  body.append('request_id', requestId);
-  return httpContract('tenant.create_pdf_packet_split.post', {
-    pathParams: { pid: projectId },
-    query: {},
-    body,
-    signal: options.signal,
-  });
-}
 
 export function getPdfPacketSplit(
   projectId: string,

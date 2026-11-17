@@ -24,7 +24,7 @@ import { narrowPanel, routeStatesEqual, type RouteState } from './RouteState';
 
 /** routes.ts's pure pathname parser (parsePathname), injected to keep core/
  *  framework-free. */
-export type ParsePathname = (pathname: string) => Route;
+type ParsePathname = (pathname: string) => Route;
 
 /** A parsed Route → RouteState, or null when the pathname is NOT a steady-state
  *  project-workspace route:

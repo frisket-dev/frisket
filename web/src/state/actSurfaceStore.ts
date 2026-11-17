@@ -34,7 +34,7 @@ export interface AddColumnPrompt {
   side?: 'left' | 'right';
 }
 
-export interface ActSurfaceState {
+interface ActSurfaceState {
   actExportTargets: ExportTarget[];
   /** Export modal opened from an Act-surface export command — same modals the
    *  project ▾ menu owns. */

@@ -2,17 +2,17 @@ import { httpContract } from './httpContract';
 import type { HttpProfilePatchRequest } from '../generated/openHttpContracts';
 import type { MeInfo } from './types';
 
-export interface IdentityProfileOptions {
+interface IdentityProfileOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface ProfilePatchInput {
+interface ProfilePatchInput {
   display_name?: string | null;
   cost_preapproval_usd?: string | null;
 }
 
-export interface IdentityProfileApi {
+interface IdentityProfileApi {
   getMe(options?: IdentityProfileOptions): Promise<MeInfo>;
   updateProfile(
     input: ProfilePatchInput,

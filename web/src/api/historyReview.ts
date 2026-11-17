@@ -29,27 +29,27 @@ import type {
   RunRowErrorSummary,
 } from './types';
 
-export interface HistoryReviewOptions {
+interface HistoryReviewOptions {
   projectId?: string;
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type ColumnRunsWire =
+type ColumnRunsWire =
   HttpContractSuccessResponse<'tenant.column_runs.get'>;
-export type ReviewedRunRevisionWire =
+type ReviewedRunRevisionWire =
   HttpContractSuccessResponse<'tenant.reviewed_run_revision.get'>;
-export type HistoryWire = HttpContractSuccessResponse<'tenant.history.get'>;
-export type ReviewBundlesWire =
+type HistoryWire = HttpContractSuccessResponse<'tenant.history.get'>;
+type ReviewBundlesWire =
   HttpContractSuccessResponse<'tenant.review_bundles_ep.get'>;
-export type ReviewCountWire =
+type ReviewCountWire =
   HttpContractSuccessResponse<'tenant.review_count_ep.get'>;
-export type ReviewRunsWire =
+type ReviewRunsWire =
   HttpContractSuccessResponse<'tenant.review_runs_ep.get'>;
-export type ReviewRunStatusWire =
+type ReviewRunStatusWire =
   HttpContractSuccessResponse<'tenant.review_run_status_ep.post'>;
 
-export interface HistoryReviewApi {
+interface HistoryReviewApi {
   getColumnRuns(
     columnId: string,
     offset?: number,
@@ -91,7 +91,7 @@ export interface HistoryReviewApi {
 /** The feature-facing history and review port: mapped reads plus the cursor
  * and review-queue mutations. real.ts composes this with the column-run cache
  * enrichment it still owns through the action-runs owner. */
-export interface HistoryReviewDomainApi {
+interface HistoryReviewDomainApi {
   getColumnRuns(
     columnId: string,
     offset?: number,
@@ -133,7 +133,7 @@ export interface HistoryReviewDomainApi {
 /** RealApi owns the one browser session; this domain receives only its narrow
  * V1 action surface for history and review mutations. It never mints its own
  * idempotency keys or project binding. */
-export interface HistoryReviewDependencies {
+interface HistoryReviewDependencies {
   v1ActionSession: Pick<
     V1ActionSession,
     | 'registeredProjectActionSpec'

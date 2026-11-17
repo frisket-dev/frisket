@@ -31,7 +31,7 @@ import {
 export type ActionPresentationResolution =
   { kind: 'generated' };
 
-export type ActionPresentationDisposition =
+type ActionPresentationDisposition =
   | ActionPresentationResolution
   | { kind: 'hidden'; reason: 'no_action_drawer_launcher' };
 

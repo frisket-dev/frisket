@@ -6,7 +6,7 @@ import {
   resizeTextareaToContent,
 } from './formControlHelpers';
 
-export interface ActionPromptFieldProps {
+interface ActionPromptFieldProps {
   id?: string;
   testId?: string;
   label: ReactNode;

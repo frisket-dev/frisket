@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import type { EngineOption } from '../../src/api/types';
 import {
   TRANSCRIBE_ENGINE_FALLBACK,
-  findTranscribeEngineDeclaration,
   transcribeActiveTargetOptionReason,
   transcribeDiarizationMode,
   transcribeEnginesFromCatalog,
@@ -176,31 +175,7 @@ describe('transcription engine option declarations', () => {
   });
 });
 
-describe('dead engine names and alias resolution', () => {
-  it('resolves only the advertised alias; dead names find nothing', () => {
-    // The shipped alias union carries only advertised aliases, so a dead name resolves no
-    // declaration here (the backend rejects it at validation, naming the
-    // canonical replacement).
-    for (const dead of [
-      'local',
-      'sidecar',
-      'quality',
-      'faster-whisper',
-      'modal',
-      'parakeet',
-      'parakeet_modal',
-      'remote',
-    ]) {
-      expect(
-        findTranscribeEngineDeclaration(TRANSCRIBE_ENGINE_FALLBACK, dead),
-      ).toBeUndefined();
-    }
-    // The advertised alias keeps resolving.
-    expect(
-      findTranscribeEngineDeclaration(TRANSCRIBE_ENGINE_FALLBACK, 'whisper')?.id,
-    ).toBe('faster_whisper');
-  });
-
+describe('fallback engine rows', () => {
   it('carries no remote row in the fallback', () => {
     // The `remote` placement row is deleted; the
     // provider-qualified openai/whisper-1 is the authorable form.
@@ -220,10 +195,5 @@ describe('dead engine names and alias resolution', () => {
     expect(whisper1?.tier).toBe('hosted');
     expect(whisper1?.billable).toBe(true);
     expect(whisper1?.available).toBe(false);
-    // Declaration lookup by the literal provider/model id works (no alias
-    // rewriting applies to a "/" id).
-    expect(
-      findTranscribeEngineDeclaration(TRANSCRIBE_ENGINE_FALLBACK, 'openai/whisper-1')?.id,
-    ).toBe('openai/whisper-1');
   });
 });

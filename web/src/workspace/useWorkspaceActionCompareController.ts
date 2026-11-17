@@ -22,7 +22,7 @@ function hasScratchWork(state: ActionCompareSessionSnapshot) {
   return state.variants.some(variant => !variant.baseline || variant.previewId !== null || variant.status === 'running');
 }
 
-export type ActionCompareRowScope = 'sample' | 'all' | 'expected';
+type ActionCompareRowScope = 'sample' | 'all' | 'expected';
 const MAX_COMPARE_ROWS = 500;
 const DEFAULT_SAMPLE_ROWS = 20;
 

@@ -19,11 +19,6 @@ import type { EngineOption, LanguageDeclaration } from '../api/types';
 import { makeEnginesFromCatalog } from './engineCatalog';
 
 export {
-  tierForEngine,
-  engineTierLabel,
-  engineTierOptions,
-  engineIsRemote,
-  engineModelsSummary,
   mergeEnginesWithFallback,
 } from './engineCatalog';
 

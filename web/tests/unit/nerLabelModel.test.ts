@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  nerLabelsOk, normalizeSpacyLabels, selectedSpacyTypes, spacyTypesValue,
+  nerLabelsOk, normalizeSpacyLabels,
 } from '../../src/components/action-panel/nerLabelModel';
 
 describe('backend entity aliases in spaCy authoring', () => {
@@ -10,10 +10,6 @@ describe('backend entity aliases in spaCy authoring', () => {
     expect(normalizeSpacyLabels(labels)).toEqual([
       'organization', 'person', 'location', 'work_of_art',
     ]);
-    expect(selectedSpacyTypes(labels.join(', '))).toEqual([
-      'person', 'organization', 'location', 'work_of_art',
-    ]);
-    expect(spacyTypesValue(labels)).toBe('person, organization, location, work_of_art');
   });
 
   it('retains unknown labels instead of silently broadening or narrowing the filter', () => {

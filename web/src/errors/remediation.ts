@@ -19,12 +19,12 @@
  *  `{loc, msg, type}` dict). `path` is the dotted `loc` (e.g. `fields.0.type`;
  *  a root-level model_validator failure has an empty `loc` and so an empty
  *  path). */
-export interface FieldValidationError {
+interface FieldValidationError {
   path: string;
   message: string;
 }
 
-export interface RemediatedError {
+interface RemediatedError {
   /** The message to show as the primary line. */
   message: string;
   /** Secondary guidance line, when the error class has known remediation. */
@@ -63,7 +63,7 @@ function fieldErrorsFromDetails(
  * or the plain {message, code, details} shape the workspace-chrome toast
  * state carries (WorkspaceToastError). Duck-typed rather than `instanceof
  * ApiError` so this seam works for both without a reconstruction step. */
-export interface TypedErrorLike {
+interface TypedErrorLike {
   message: string;
   code?: string;
   details?: Record<string, unknown>;

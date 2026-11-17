@@ -10,7 +10,7 @@ import {
 
 // The peek host context: the ONLY peek-side control is close(); backdrop,
 // Escape, stacking, and unmount semantics belong to the host.
-export interface PluginPeekContext extends PanelShapedSections {
+interface PluginPeekContext extends PanelShapedSections {
   schemaVersion: 'frisket.plugin_peek_context.v1';
   peek: {
     close(): void;

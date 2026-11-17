@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const raw = vi.hoisted(() => ({
   googleOAuthStartUrl: vi.fn(),
   mapErrorFactory: undefined as undefined | ((status: number, message: string) => Error),
-  getMapPoints: vi.fn(),
   getMapPointsArrowBuffer: vi.fn(),
   projectExportUrl: vi.fn(),
   sheetDatasetExportUrl: vi.fn(),
@@ -24,7 +23,6 @@ vi.mock('../../src/api/raw/mapPointsArrow', () => ({
   createMapPointsArrowApi: vi.fn((errorFactory) => {
     raw.mapErrorFactory = errorFactory;
     return {
-      getMapPoints: raw.getMapPoints,
       getMapPointsArrowBuffer: raw.getMapPointsArrowBuffer,
     };
   }),
@@ -59,14 +57,12 @@ describe('real API raw-boundary composition', () => {
   });
 
   it('delegates map Arrow reads and browser resource URLs with the captured project id', async () => {
-    raw.getMapPoints.mockResolvedValue({ count: 0, positions: new Float32Array(), rowIds: [], attributes: {} });
     raw.getMapPointsArrowBuffer.mockResolvedValue(new ArrayBuffer(0));
     raw.embeddingExportArtifactUrl.mockReturnValue('embedding-url');
     raw.projectExportUrl.mockReturnValue('project-export-url');
     raw.sheetDatasetExportUrl.mockReturnValue('sheet-dataset-url');
     raw.workLogExportUrl.mockReturnValue('work-log-url');
 
-    await expect(realApi.getMapPoints('sheet-1', 'column-1')).resolves.toMatchObject({ count: 0 });
     await expect(realApi.getMapPointsArrowBuffer('sheet-1', 'column-1')).resolves.toBeInstanceOf(ArrayBuffer);
     expect(realApi.embeddingExportArtifactUrl('index-1', 'parquet')).toBe('embedding-url');
     expect(realApi.projectExportUrl(false)).toBe('project-export-url');
@@ -75,7 +71,6 @@ describe('real API raw-boundary composition', () => {
     );
     expect(realApi.workLogExportUrl('pdf')).toBe('work-log-url');
 
-    expect(raw.getMapPoints).toHaveBeenCalledWith('sheet-1', 'column-1', {});
     expect(raw.getMapPointsArrowBuffer).toHaveBeenCalledWith('sheet-1', 'column-1', {});
     const mapError = raw.mapErrorFactory?.(422, 'map column is unavailable');
     expect(mapError).toBeInstanceOf(ApiError);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { EntityMentionsCoverage } from '../api/types';
-import { coverageLine, uncoveredRows } from './mentionsPanelModel';
+import type { EntityMentionsCoverage } from '../../src/api/types';
+import { coverageLine, uncoveredRows } from '../../src/components/mentionsPanelModel';
 
 const selectedCoverage: EntityMentionsCoverage = {
   targetRows: 2,

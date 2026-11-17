@@ -18,7 +18,7 @@ import { cloudConnectionApi, projectCloudRoutingApi } from '../api/cloudConnecti
 import { CloudConnectionPanel } from '../cloud/CloudConnectionPanel';
 import { useSetupEditing, useSetupRequests } from './setupLifetime';
 
-export interface SelectorSetupProps {
+interface SelectorSetupProps {
   projectId: string; choice: SelectorChoice; onChanged(): void; onEditingChange(editing: boolean): void;
   cloudSetup?: HttpSelectorChoicesResponse['cloud_setup'];
   /** SelectorField already owns the durable pull poll for its trigger and panel. */

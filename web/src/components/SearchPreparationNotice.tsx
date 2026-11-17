@@ -5,7 +5,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { SearchPreparationNotice as Notice } from './useSearchPreparationNotice';
 import { ActivityProgressCard, ProgressBar, ProgressRow } from './ActivityProgress';
 
-export interface ActivityProgressLine {
+interface ActivityProgressLine {
   key: string;
   label: string;
   completed: number | null;

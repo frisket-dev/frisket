@@ -38,7 +38,7 @@ const GRID_SIZES = [44, 57, 80, 110] as const;
 type PacketDispatch = Dispatch<Parameters<typeof pdfPacketFlowReducer>[1]>;
 type GridFilter = 'all' | 'starts';
 
-export interface PacketFindStepProps {
+interface PacketFindStepProps {
   projectId: string;
   splitId: string;
   state: ReturnType<typeof pdfPacketFlowReducer>;

@@ -5,7 +5,7 @@
 import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 
-export interface AudioPlaybackSource {
+interface AudioPlaybackSource {
   key: string;
   url: string;
   label: string;
@@ -28,14 +28,14 @@ export function createAudioPlaybackSource(
   };
 }
 
-export interface AudioPlaybackState {
+interface AudioPlaybackState {
   source: AudioPlaybackSource | null;
   playing: boolean;
   error: string | null;
   intentVersion: number;
 }
 
-export function createAudioPlaybackState(): AudioPlaybackState {
+function createAudioPlaybackState(): AudioPlaybackState {
   return { source: null, playing: false, error: null, intentVersion: 0 };
 }
 

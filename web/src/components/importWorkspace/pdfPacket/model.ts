@@ -4,7 +4,7 @@ import type {
   PdfPacketSplitSnapshot,
 } from '../../../api/pdfPacketSplits';
 
-export type PdfPacketMethod = 'visual' | 'text' | 'manual';
+type PdfPacketMethod = 'visual' | 'text' | 'manual';
 
 export interface PdfPacketDocument {
   index: number;
@@ -13,7 +13,7 @@ export interface PdfPacketDocument {
   pages: number;
 }
 
-export interface PdfPacketFlowState {
+interface PdfPacketFlowState {
   snapshot: PdfPacketSplitSnapshot | null;
   confirmedStarts: number[];
   fixedStarts: number[];
@@ -29,7 +29,7 @@ export interface PdfPacketFlowState {
   dirty: boolean;
 }
 
-export type PdfPacketFlowAction =
+type PdfPacketFlowAction =
   | { type: 'prepared'; snapshot: PdfPacketSplitSnapshot }
   | { type: 'snapshot'; snapshot: PdfPacketSplitSnapshot }
   | { type: 'toggleStart'; page: number }

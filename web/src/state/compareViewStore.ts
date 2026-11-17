@@ -13,14 +13,14 @@ export interface CompareTabSession {
   verdict: string;
 }
 
-export interface CompareTabState {
+interface CompareTabState {
   open: boolean;
   active: boolean;
   session: CompareTabSession;
   closeWarn: boolean;
 }
 
-export type CompareViewState = Record<CompareKind, CompareTabState>;
+type CompareViewState = Record<CompareKind, CompareTabState>;
 
 const COMPARE_KINDS = [
   'ocr',

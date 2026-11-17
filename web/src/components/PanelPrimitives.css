@@ -18,11 +18,6 @@
   padding: 14px 14px 8px;
 }
 }
-.panel-subheader {
-  font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--text-light);
-  padding: 8px 14px 4px;
-}
 /* THE one muted empty line + inline error block (ui-region-frames-v1 / C6,
    components/PanelPrimitives.tsx PanelEmpty/PanelError). Replaces the
    literal-duplicate .history-empty/.sources-empty/.notifications-empty/

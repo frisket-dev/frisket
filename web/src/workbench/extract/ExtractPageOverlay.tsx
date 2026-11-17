@@ -5,7 +5,7 @@ import styles from './ExtractView.module.css';
 
 interface DrawnRegion { target: AnnotationTarget; box: Box; label: string; band?: boolean; repeated?: boolean }
 interface Drag { start: { x: number; y: number }; band: boolean; pointerId: number }
-export interface ExtractPageOverlayProps {
+interface ExtractPageOverlayProps {
   page: number;
   template: ExtractionTemplate;
   tool: ExtractTool;

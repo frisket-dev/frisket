@@ -1,12 +1,12 @@
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import type { OAuthConnectionInfo } from './types';
 
-export interface OAuthConnectionsOptions {
+interface OAuthConnectionsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface OAuthConnectionsApi {
+interface OAuthConnectionsApi {
   listOAuthConnections(
     provider?: string,
     options?: OAuthConnectionsOptions,

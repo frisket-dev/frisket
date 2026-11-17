@@ -254,10 +254,3 @@ export function createActionComparisonApi(
   };
 }
 
-export function actionComparisonArtifactUrl(
-  projectId: string,
-  previewId: string,
-  artifactId: string,
-): string {
-  return `/api/projects/${encodeURIComponent(projectId)}/actions/v1/preview/${encodeURIComponent(previewId)}/artifacts/${encodeURIComponent(artifactId)}`;
-}

@@ -5,7 +5,6 @@ import {
   createPdfPacketSplitFromDraft,
   getPdfPacketSheetScopeToken,
   commitPdfPacketSplit,
-  createPdfPacketSplit,
   estimatePdfPacketOcr,
   matchPdfPacketCandidates,
   pdfPacketThumbnailUrl,
@@ -41,22 +40,6 @@ describe('PDF packet split API', () => {
       .resolves.toEqual({ job_id: 7, import_ref: 'i', sheet_id: 3 });
     fetchMock.mockResolvedValueOnce(response({ job_id: 'preview' }));
     await expect(applyPdfPacketSheetSplit('p', 's', { idempotency_key: 'key', destination: { kind: 'replace', sheet_id: 3 } })).rejects.toThrow(/durable import job/);
-  });
-
-  it('uploads multipart data without overriding its content type', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(response({ split_id: 'split-1' }));
-    vi.stubGlobal('fetch', fetchMock);
-    const file = new File(['pdf'], 'packet.pdf', { type: 'application/pdf' });
-
-    await createPdfPacketSplit('project 1', file, 'request-1');
-
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('/api/projects/project%201/import/pdf-packet-splits');
-    expect(init.method).toBe('POST');
-    expect(init.headers).toBeUndefined();
-    expect(init.body).toBeInstanceOf(FormData);
-    expect((init.body as FormData).get('file')).toBe(file);
-    expect((init.body as FormData).get('request_id')).toBe('request-1');
   });
 
   it('sends caller-owned labels and the frozen packet-wide candidate controls', async () => {

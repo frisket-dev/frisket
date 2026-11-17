@@ -21,7 +21,7 @@ type SelectSheetStores = Pick<
 >;
 
 /** Callers must pass the bind-layer wrappers that persist these chrome writes. */
-export interface PersistedChromeWrites {
+interface PersistedChromeWrites {
   setOpenSplit(split: OpenSplitState | null): void;
   setDocumentView(documentView: DocumentViewState | null): void;
   setPromotedViews(views: PromotedView[]): void;

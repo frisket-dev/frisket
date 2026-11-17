@@ -31,7 +31,7 @@ const FORMAT_OPTIONS = [
   { value: 'custom', label: 'Custom strftime' },
 ];
 
-export interface CleanDatesFormProps {
+interface CleanDatesFormProps {
   /** Explicit strftime override; blank delegates to the parser's auto mode. */
   format: string;
   onFormatChange: (format: string) => void;

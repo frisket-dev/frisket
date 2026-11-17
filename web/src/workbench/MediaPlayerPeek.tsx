@@ -10,7 +10,7 @@ import { useEffect, useRef } from 'react';
 // Compare v2, and this component is the source-peek parameter that instance
 // will plug in.
 
-export interface MediaPlayerPeekProps {
+interface MediaPlayerPeekProps {
   url: string;
   mediaKind: 'audio' | 'video';
   /** Start immediately when this short-lived player mounts. */

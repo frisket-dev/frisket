@@ -58,7 +58,6 @@ type OptionsPopoverRenderer = (props: {
   style: CSSProperties;
 }) => ReactNode;
 
-export type { DocumentPageImage } from '../media/PdfViewer';
 
 export interface DocumentFindSimilarTarget {
   kind: DocumentMediaKind;

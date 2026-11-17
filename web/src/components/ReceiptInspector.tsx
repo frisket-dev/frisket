@@ -7,7 +7,7 @@ import { type V1Receipt } from '../api/open';
 import { projectBlobUrl } from '../api/raw/projectResources';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 
-export interface ReceiptInspectorProps {
+interface ReceiptInspectorProps {
   receiptId: string;
   onCreateEntityTable?(receiptId: string): void;
 }

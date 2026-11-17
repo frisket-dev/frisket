@@ -42,24 +42,6 @@
     "doctor:gate": "python3 ../scripts/e2e/checklog.py --kind shell --label web-doctor-gate -- node scripts/check-react-doctor-gate.mjs",
     "doctor:changed": "python3 ../scripts/e2e/checklog.py --kind shell --label web-doctor-changed -- react-doctor . --yes --scope changed --blocking none --no-telemetry"
   },
-  "knip": {
-    "entry": [
-      "src/entries/local.tsx",
-      "src/entries/team.tsx",
-      "src/main.tsx"
-    ],
-    "playwright": {
-      "config": [
-        "playwright/playwright*.config.ts"
-      ],
-      "entry": [
-        "tests/**/*.spec.ts",
-        "tests/**/*.setup.ts",
-        "playwright/*.global-setup.ts",
-        "tests/inventory/setup.ts"
-      ]
-    }
-  },
   "dependencies": {
     "@deck.gl/aggregation-layers": "^9.3.4",
     "@deck.gl/core": "^9.1.0",

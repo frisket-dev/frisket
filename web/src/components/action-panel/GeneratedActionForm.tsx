@@ -258,7 +258,7 @@ export interface GeneratedActionFormProps {
   onClose(): void;
 }
 
-export interface GeneratedActionParamsEditorProps extends Omit<GeneratedActionFormProps,
+interface GeneratedActionParamsEditorProps extends Omit<GeneratedActionFormProps,
   'initialDraft' | 'running' | 'onExecute' | 'onClose' | 'editorPolicy' | 'onDraftChange'> {
   draft: GeneratedActionDraft;
   onDraftChange(draft: GeneratedActionDraft): void;

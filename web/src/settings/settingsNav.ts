@@ -6,7 +6,7 @@ import {
   type SettingsSectionDefinition,
 } from './settingsRegistry';
 
-export interface SettingsNavContext {
+interface SettingsNavContext {
   projectId?: string;
   identityMode: boolean;
   query?: string;

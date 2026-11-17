@@ -16,7 +16,7 @@ const FIELD_TYPES: readonly ExtractField['type'][] = [
   'text', 'score', 'integer', 'number', 'boolean', 'category', 'date', 'list', 'json',
 ];
 
-export function ExtractFieldsEditor({ fields, onChange, optional = false,
+function ExtractFieldsEditor({ fields, onChange, optional = false,
   structureLocked = false, lockReason }: {
   fields: ExtractField[];
   onChange(fields: ExtractField[]): void;

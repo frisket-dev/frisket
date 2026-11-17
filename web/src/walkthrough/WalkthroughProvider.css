@@ -91,19 +91,3 @@
   box-shadow: var(--shadow-menu);
 }
 .walkthrough-chooser h2 { margin: 0 0 12px; font-size: 17px; }
-.walkthrough-choices { display: grid; gap: 8px; }
-.walkthrough-choice {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-7);
-  background: var(--bg-panel);
-  color: var(--text);
-  text-align: left;
-}
-.walkthrough-choice:hover { border-color: var(--focus); background: var(--focus-bg); }
-.walkthrough-choice strong { font-size: 13px; }
-.walkthrough-choice span { color: var(--text-mid); font-size: 12px; line-height: 1.4; }
-.walkthrough-choice small { color: var(--text-light); font-size: 10.5px; }

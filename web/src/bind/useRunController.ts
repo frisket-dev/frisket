@@ -15,7 +15,7 @@ interface UseRunControllerArgs extends JobRunDeps {
   sheet: SheetMeta | null | undefined;
 }
 
-export interface RunController {
+interface RunController {
   startProposal(proposal: ActionProposal, confirmed?: boolean): Promise<boolean>;
   startRun(req: ActionExecutionRequest): void;
 }

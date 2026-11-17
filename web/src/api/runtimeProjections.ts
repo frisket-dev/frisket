@@ -13,7 +13,7 @@ import type {
   TimelineProjectionArtifact,
 } from './types';
 
-export interface RuntimeProjectionOptions {
+interface RuntimeProjectionOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
@@ -22,7 +22,7 @@ type RuntimeProjectionArtifactWire =
   HttpContractSuccessResponse<'tenant.runtime_projection_artifact.post'>;
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface RuntimeProjectionsApi {
+interface RuntimeProjectionsApi {
   status(
     input: RuntimeProjectionStatusRequest,
     options?: RuntimeProjectionOptions,

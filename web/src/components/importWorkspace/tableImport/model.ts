@@ -36,7 +36,7 @@ export function sourceIssueForFiles(files: File[], followTheMoneyEnabled = true)
   return null;
 }
 
-export interface PasteSummary {
+interface PasteSummary {
   columns: number;
   delimiter: 'tabs' | 'commas' | 'one';
   lines: number;

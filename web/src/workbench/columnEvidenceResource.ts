@@ -3,7 +3,7 @@ import type { ColumnEvidenceApiPort } from '../api/ports';
 import type { CellEvidenceLinkSummary } from '../api/types';
 import { createEvidenceResourceCache } from './evidenceResourceCache';
 
-export interface ColumnEvidenceSnapshot {
+interface ColumnEvidenceSnapshot {
   status: 'pending' | 'ready' | 'error';
   /** row_id -> active links in rank order; rows without evidence are absent. */
   byRow: Record<string, CellEvidenceLinkSummary[]>;

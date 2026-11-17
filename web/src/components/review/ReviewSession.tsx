@@ -17,7 +17,7 @@ import { decisionLabel, isDecided } from './reviewDecisions';
 import { isPlainTextReviewField, useReviewSession, type ReviewSessionController, type ReviewSessionOptions } from './useReviewSession';
 import styles from './ReviewWorkspace.module.css';
 
-export interface ReviewSessionProps extends ReviewSessionOptions {
+interface ReviewSessionProps extends ReviewSessionOptions {
   onClose?(): void;
   renderToolbar?(navigation: ReactNode, leave: (action: () => void) => void, busy: boolean): ReactNode;
   renderFrame?(content: ReactNode, leave: (action: () => void) => void, busy: boolean, editing: boolean): ReactNode;

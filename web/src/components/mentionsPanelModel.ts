@@ -23,7 +23,7 @@ import { countLabel } from '../format';
 export type SheetColumn = SheetMeta['columns'][number];
 
 /** The explicit marker map.ner stamps on its output column. */
-export const ENTITY_MENTIONS_SEMANTIC_TYPE = 'entity_mentions';
+const ENTITY_MENTIONS_SEMANTIC_TYPE = 'entity_mentions';
 
 /** The action whose drawer both empty-state CTAs open. */
 export const MENTIONS_EXTRACT_ACTION_KIND = 'map.ner';
@@ -45,7 +45,7 @@ export const MENTIONS_EMPTY_COLUMN_BLURB =
  *  are never inspected, and a column called "entities" is never adopted —
  *  eligibility must not silently change as data changes. Imported JSON is not
  *  auto-adopted in v1. */
-export function isEntityMentionsColumn(column: SheetColumn): boolean {
+function isEntityMentionsColumn(column: SheetColumn): boolean {
   return column.type === 'json' && column.semanticType === ENTITY_MENTIONS_SEMANTIC_TYPE;
 }
 
@@ -118,7 +118,7 @@ export function groupFilterValue(group: EntityMentionGroup): GridFilterEntityVal
   return selectorFilterValue(group.type, group.selector);
 }
 
-export function selectorFilterValue(
+function selectorFilterValue(
   type: string,
   selector: EntityMentionSelector,
 ): GridFilterEntityValue {
@@ -208,7 +208,7 @@ export function mentionFilterLabel(
   return `${typeName} · all mentions`;
 }
 
-export interface MentionTypeSection {
+interface MentionTypeSection {
   type: string;
   groups: EntityMentionGroup[];
   /** The category's exact constrained group count, from `typeTotals` — what the

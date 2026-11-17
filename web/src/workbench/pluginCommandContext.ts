@@ -13,7 +13,7 @@ import {
 // The command host context: an INVOCATION-SCOPED snapshot built fresh for each
 // palette click — never reactive, never rebuilt while a handler runs. sheet and
 // navigation are null when no sheet is active (no no-op stubs).
-export interface PluginCommandContext {
+interface PluginCommandContext {
   schemaVersion: 'frisket.plugin_command_context.v1';
   projectId: string;
   contributionId: string;

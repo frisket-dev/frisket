@@ -68,7 +68,7 @@ function fieldOption(field: ReviewRunField): PanelSelectOption {
   };
 }
 
-export interface ReviewRunControlsProps {
+interface ReviewRunControlsProps {
   /** All pages loaded so far. Paging and a pinned older run stay with the queue owner. */
   runs: readonly ReviewRun[];
   selectedRunId?: string | null;

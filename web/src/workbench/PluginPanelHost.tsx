@@ -13,7 +13,7 @@ import {
 import { nativePanelComponentForKey } from './firstPartyComponents';
 import { PluginRuntimeContribution } from './PluginRuntimeContribution';
 
-export interface PluginPanelHostProps {
+interface PluginPanelHostProps {
   descriptor: WorkbenchPanelDescriptor;
   sheet: SheetMeta | null;
   hostContext: WorkbenchHostContext;

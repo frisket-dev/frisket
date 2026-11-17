@@ -23,7 +23,7 @@ export interface ProjectSearchOptions {
   headers?: HeadersInit;
 }
 
-export interface ProjectSearchApi {
+interface ProjectSearchApi {
   searchProject(
     request: ProjectSearchRequestWire,
     options?: ProjectSearchOptions,

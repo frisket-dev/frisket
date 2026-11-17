@@ -10,12 +10,12 @@ type SelectorAuthoredSelection =
   | { kind: 'engine_model'; engine: string; model: string | null }
   | { kind: 'embedding'; provider: string; model: string };
 
-export interface ActionCompareSelectorChoice {
+interface ActionCompareSelectorChoice {
   label: string;
   authored_selection: SelectorAuthoredSelection;
 }
 
-export interface ActionComparePresentationOptions {
+interface ActionComparePresentationOptions {
   baselineMode: 'preview' | 'current_values';
   lockedParams: readonly string[];
   /** Choices already loaded by the ordinary selector, grouped by semantic field. */
@@ -23,7 +23,7 @@ export interface ActionComparePresentationOptions {
   maxChanges?: number;
 }
 
-export interface ActionComparePresentation {
+interface ActionComparePresentation {
   labelForDraft(draft: GeneratedActionDraft, displayKey: string): string;
   describeVariantChanges(
     baseline: GeneratedActionDraft,

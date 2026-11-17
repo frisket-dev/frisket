@@ -347,9 +347,9 @@ export default {
         rules: ['deslop/unused-export'],
       },
       {
-        // editions-posture-contract-v1: OPEN_EDITION_POSTURES is a test-pinned
-        // base vocabulary used by edition contract checks. Downstream edition
-        // ids are opaque descriptors and intentionally do not live here.
+        // The base edition descriptors are test-pinned vocabulary used by
+        // edition contract checks. Downstream edition ids are opaque
+        // descriptors and intentionally do not live here.
         files: ['src/editions/posture.ts'],
         rules: ['deslop/unused-export'],
       },

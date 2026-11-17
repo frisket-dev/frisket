@@ -9,12 +9,12 @@ import type {
   RemovalResult,
 } from './types';
 
-export interface ProjectCollaborationOptions {
+interface ProjectCollaborationOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface ProjectCollaborationApi {
+interface ProjectCollaborationApi {
   listMembers(
     projectId: string,
     options?: ProjectCollaborationOptions,

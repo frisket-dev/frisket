@@ -45,7 +45,7 @@ const BUILT_IN_PROJECTION_VIEW_COMPONENTS: Record<
   'trustedLocal.demoTimeline.TimelineView': TimelineProjectionView,
 };
 
-export interface PluginMainViewHostProps {
+interface PluginMainViewHostProps {
   descriptor: WorkbenchViewDescriptor;
   projectId: string;
   sheet: SheetMeta | null;

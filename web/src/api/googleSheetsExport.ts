@@ -20,11 +20,11 @@ const GOOGLE_SHEETS_EXPORT_MAX_POLLS = 300;
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface GoogleSheetsExportApi {
+interface GoogleSheetsExportApi {
   exportGoogleSheets(input: GoogleSheetsExportInput): Promise<GoogleSheetsExportResult>;
 }
 
-export interface GoogleSheetsExportDependencies {
+interface GoogleSheetsExportDependencies {
   v1ActionSession: Pick<
     V1ActionSession,
     | 'clearV1ActionIdempotencyKey'

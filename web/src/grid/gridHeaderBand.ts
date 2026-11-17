@@ -17,12 +17,12 @@
 // scrollbar from this.
 export const ADD_COLUMN_BUTTON_GUTTER = 64;
 
-export interface AnnotationPlacementColumn {
+interface AnnotationPlacementColumn {
   id?: string;
   group?: string;
 }
 
-export interface ResolvedAnnotationPlacement {
+interface ResolvedAnnotationPlacement {
   first: number;
   last: number;
   headerOffset: number;

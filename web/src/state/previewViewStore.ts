@@ -30,7 +30,7 @@ const PREVIEW_POLL_MS = 750;
 
 /** Call-time collaborators from useWorkspaceModel. The store is constructed
  * before either callback exists, so neither may be captured at construction. */
-export interface PreviewViewDeps {
+interface PreviewViewDeps {
   invalidateProjectData(): void;
   requestCostConfirmation(estimate: RunEstimate, message: string): Promise<boolean>;
   onComplete?(result: PreviewSampleResult): void;
@@ -60,12 +60,12 @@ export interface PreviewGridView {
   req: ActionExecutionRequest;
 }
 
-export interface PreviewViewState {
+interface PreviewViewState {
   /** Active preview run rendered as a scoped sheet view. null = no preview. */
   previewView: PreviewGridView | null;
 }
 
-export function createPreviewViewState(): PreviewViewState {
+function createPreviewViewState(): PreviewViewState {
   return { previewView: null };
 }
 

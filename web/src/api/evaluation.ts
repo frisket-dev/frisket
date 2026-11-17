@@ -12,7 +12,6 @@ import { downloadEvaluation } from './raw/evaluationDownloads';
 // that Pydantic always supplies in responses, so those are normalized below.
 export type EvaluationRule = HttpExpectedRuleSetting['rule'];
 export type EvaluationVerdict = HttpEvaluationResponse['variants'][number]['verdicts'][string][string];
-export type EvaluationOutput = HttpEvaluationResponse['output_columns'][number];
 export type EvaluationField = Required<HttpExpectedLink['fields'][number]>;
 export type EvaluationLinkInput = Omit<HttpExpectedLinkInput, 'fields' | 'hidden'> & {
   fields: EvaluationField[]; hidden: boolean;
@@ -20,7 +19,6 @@ export type EvaluationLinkInput = Omit<HttpExpectedLinkInput, 'fields' | 'hidden
 export type EvaluationLink = Omit<HttpExpectedLink, 'fields' | 'hidden'> & {
   fields: EvaluationField[]; hidden: boolean;
 };
-export type EvaluationVariantRef = HttpEvaluationRequest['variants'][number]['source'];
 export type EvaluationRequest = Omit<HttpEvaluationRequest, 'basis' | 'link_id'> & {
   basis: ActionComparisonSource; link_id: number | null;
 };
@@ -28,7 +26,6 @@ export type EvaluationBoundedValue = Required<NonNullable<HttpEvaluationCell['bo
 export type EvaluationCell = Omit<HttpEvaluationCell, 'bounded_value'> & { bounded_value?: EvaluationBoundedValue | null };
 export type EvaluationCellRequest = Omit<HttpEvaluationCellRequest, 'comparison'> & { comparison: EvaluationRequest };
 export type EvaluationCaptureRequest = Omit<HttpComparisonCaptureRequest, 'comparison'> & { comparison: EvaluationRequest };
-export type EvaluationAggregate = HttpEvaluationResponse['variants'][number]['scores'][string];
 export type EvaluationVariant = Omit<HttpEvaluationResponse['variants'][number], 'rows'> & {
   rows: Record<string, Record<string, EvaluationCell>>;
 };

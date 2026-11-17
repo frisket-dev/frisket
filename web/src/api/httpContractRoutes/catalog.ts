@@ -10,7 +10,7 @@ type ProjectActionCatalogWire =
   HttpContractSuccessResponse<'tenant.project_v1_action_catalog.get'>;
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface ActionCatalogContractOptions {
+interface ActionCatalogContractOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }

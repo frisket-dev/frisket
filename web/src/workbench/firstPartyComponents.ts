@@ -11,7 +11,7 @@ import { SELECTION_SUMMARY_PANEL_COMPONENT_KEY, SelectionSummaryPanel } from './
 // This is the "component binding resolves against the in-bundle registry
 // instead of requiring a moduleUrl" trust difference from
 // pluginRuntimeDescriptors.ts.
-export interface FirstPartyComponentBinding {
+interface FirstPartyComponentBinding {
   componentKey: string;
   handlerKey?: string;
 }

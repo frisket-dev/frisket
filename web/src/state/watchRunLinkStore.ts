@@ -5,7 +5,7 @@ import type { Store } from '../core/store/types';
 /** Per-project, memory-only Watch handoffs. Conditional Discover panels can
  * disappear, so in-flight intent must not live in a component or persist. */
 export interface WatchRunLink { watchId: number; runId: number; eventIds: number[]; }
-export interface PendingWatchRunLink { link: WatchRunLink; target: 'watches'; }
+interface PendingWatchRunLink { link: WatchRunLink; target: 'watches'; }
 
 export interface PendingCreateDraft {
   name: string;
@@ -26,7 +26,7 @@ export interface WatchActionOutcome {
 }
 
 const actionRevision = Symbol('watchActionRevision');
-export interface WatchActionRecord {
+interface WatchActionRecord {
   readonly watchId: number;
   readonly intent: WatchActionIntent;
   readonly phase: 'pending' | 'settled';
@@ -35,14 +35,14 @@ export interface WatchActionRecord {
 }
 
 const createRevision = Symbol('createWatchRevision');
-export interface CreateWatchRecord {
+interface CreateWatchRecord {
   readonly draft: PendingCreateDraft;
   readonly phase: 'pending' | 'settled';
   readonly outcome?: WatchActionOutcome;
   readonly [createRevision]: number;
 }
 
-export interface WatchRunLinkState {
+interface WatchRunLinkState {
   pendingWatchRunLink: PendingWatchRunLink | null;
   pendingCreateDraft: PendingCreateDraft | null;
   pendingCreateAction: CreateWatchRecord | null;
@@ -50,7 +50,7 @@ export interface WatchRunLinkState {
   watchActions: Readonly<Record<number, WatchActionRecord>>;
 }
 
-export function createWatchRunLinkState(): WatchRunLinkState {
+function createWatchRunLinkState(): WatchRunLinkState {
   return { pendingWatchRunLink: null, pendingCreateDraft: null, pendingCreateAction: null, watchActions: {} };
 }
 

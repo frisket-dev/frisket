@@ -7,7 +7,7 @@ import { syntheticActionCatalogEntry } from './actionCatalogFixtures';
 import { completeCatalogPayload, sheetMeta } from './actionFormFixtures';
 import { columnDef } from './domainFixtures';
 
-export const PYTHON_ENTRY = syntheticActionCatalogEntry('map.python', {
+const PYTHON_ENTRY = syntheticActionCatalogEntry('map.python', {
   title: 'Python',
   input_schema: {
     type: 'object', additionalProperties: false,
@@ -31,7 +31,7 @@ export const PYTHON_ENTRY = syntheticActionCatalogEntry('map.python', {
 
 export const PYTHON_CATALOG = completeCatalogPayload([PYTHON_ENTRY]);
 export const PYTHON_TEMPLATES = actionTemplatesFromCatalog(PYTHON_CATALOG);
-export const PYTHON_TEMPLATE = PYTHON_TEMPLATES.find((entry) => entry.kind === 'map.python')!;
+const PYTHON_TEMPLATE = PYTHON_TEMPLATES.find((entry) => entry.kind === 'map.python')!;
 export const PYTHON_SHEET = sheetMeta([
   columnDef({ id: '1', name: 'title', type: 'text' }),
   columnDef({ id: '2', name: 'transcript', type: 'text' }),

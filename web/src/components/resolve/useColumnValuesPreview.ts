@@ -5,38 +5,15 @@
 // here — the forms key their body component on `${sheetId}:${column}` so a
 // column switch remounts (and thereby resets) it instead of hand-clearing
 // every useState.
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { type ColumnValuesPreview, type SheetMeta } from '../../api/open';
+import { useEffect, useRef, useState } from 'react';
+import { type ColumnValuesPreview } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
-
-/** Column types the resolve actions operate on. */
-const TEXT_LIKE = new Set(['text', 'category', 'link']);
 
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** Text-like column roster + selection. `initialColumn` preselects when it
- *  names a text-like column (e.g. launched from a column ▾ menu), otherwise
- *  the first one; `activeColumn` re-derives when the sheet's columns change
- *  under the selection. */
-export function useResolveColumns(sheet: SheetMeta, initialColumn?: string) {
-  const columns = useMemo(
-    () => sheet.columns.filter((c) => TEXT_LIKE.has(c.type)),
-    [sheet.columns],
-  );
-  const [columnName, setColumnName] = useState(
-    initialColumn && columns.some((c) => c.name === initialColumn)
-      ? initialColumn
-      : columns[0]?.name ?? '',
-  );
-  const activeColumn = columns.some((c) => c.name === columnName)
-    ? columnName
-    : columns[0]?.name ?? '';
-  return { columns, activeColumn, setColumnName };
-}
-
 /** Output-column naming: a free-text draft whose blank state falls back to
  *  the `{input_column}_clean` default the executors also assume. */
-export interface UseColumnValuesPreviewOptions {
+interface UseColumnValuesPreviewOptions {
   sheetId: string;
   /** '' = the sheet has no text-like column; nothing is fetched. */
   column: string;

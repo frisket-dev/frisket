@@ -14,15 +14,12 @@ export type TableImportDraft = HttpTableImportDraft;
 export type TableImportCommitResult = HttpTableImportCommitResponse;
 export type TableImportSettings = NonNullable<TableImportDraft['settings']>;
 export type TableImportRequestedSettings = TableImportSettings['requested'];
-export type TableImportResolvedSettings = TableImportSettings['resolved'];
 export type TableImportPreview = NonNullable<TableImportDraft['preview']>;
 export type TableImportColumn = TableImportDraft['columns'][number];
 export type TableImportColumnPatch = HttpTableImportColumnsRequest['columns'][number];
 export type TableImportTargetType = TableImportColumnPatch['target_type'];
-export type TableImportDateOrder = NonNullable<TableImportColumnPatch['date_order']>;
 export type TableImportDestinationConfig = HttpTableImportDestinationRequest['destination'];
 export type TableImportMappingRequest = HttpTableImportDestinationRequest['mappings'][number];
-export type TableImportDestinationTarget = TableImportMappingRequest['target'];
 export type TableImportDestinationSnapshot = NonNullable<TableImportDraft['destination']>;
 
 export interface TableImportRequestOptions {
@@ -70,7 +67,7 @@ function requestOptions(options: TableImportRequestOptions) {
   };
 }
 
-export function createTableImportsApi(): TableImportsApi {
+function createTableImportsApi(): TableImportsApi {
   return {
     createFromFile(projectId, file, options = {}) {
       const body = new FormData();

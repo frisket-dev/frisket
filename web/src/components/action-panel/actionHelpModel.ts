@@ -1,11 +1,11 @@
 import type { ActionTemplate } from '../../api/types';
 
-export interface ActionHelpItem {
+interface ActionHelpItem {
   label: string;
   detail?: string;
 }
 
-export interface ActionHelpContent {
+interface ActionHelpContent {
   summary: string;
   how: string;
   inputs: ActionHelpItem[];

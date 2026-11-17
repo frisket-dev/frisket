@@ -11,12 +11,12 @@ export type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../g
 export type SelectorChoice = HttpSelectorChoicesResponse['groups'][number]['choices'][number];
 export type SelectorSubject = HttpSelectorChoicesQuery['subject'];
 
-export interface SelectorChoicesOptions {
+interface SelectorChoicesOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface SelectorChoicesApi {
+interface SelectorChoicesApi {
   getSelectorChoices(
     projectId: string,
     query: HttpSelectorChoicesQuery,
@@ -26,7 +26,7 @@ export interface SelectorChoicesApi {
 
 type SelectorChoicesRequest = HttpContractOperationMap['tenant.selector_choices.post']['request'];
 
-export function createSelectorChoicesApi(): SelectorChoicesApi {
+function createSelectorChoicesApi(): SelectorChoicesApi {
   return {
     getSelectorChoices(projectId, query, options = {}) {
       return httpContract(

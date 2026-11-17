@@ -14,7 +14,7 @@ import { AttemptReceiptList } from './AttemptReceiptList';
 
 const PROVENANCE_HISTORY_PAGE_SIZE = 25;
 
-export interface ProvenanceManifestProps {
+interface ProvenanceManifestProps {
   projectName: string;
   onClose(): void;
   onCreateEntityTable?(receiptId: string): void;

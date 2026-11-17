@@ -10,7 +10,7 @@ import { GridViewport } from '../../grid/GridViewport';
 import type { ActionCompareVariantEditorRenderProps } from '../ActionCompareTab';
 import type { ActionCompareSession, ActionCompareSessionSnapshot, ActionCompareUseSettings } from '../actionCompareSession';
 
-export interface TrySeveralProps {
+interface TrySeveralProps {
   session: ActionCompareSession;
   state: ActionCompareSessionSnapshot;
   response: EvaluationResponse | null;

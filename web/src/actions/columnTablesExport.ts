@@ -4,7 +4,7 @@ import type { ExportColumnTablesParams } from '../generated/actionTypes';
 /** Values authored by the export modal and PDF-table pickers. The browser
  * always writes a downloadable project artifact; other destinations remain
  * part of the typed API rather than a dataset export target. */
-export interface ColumnTablesExportValue {
+interface ColumnTablesExportValue {
   sheetId: string;
   columnId: string;
   groupBy?: string;

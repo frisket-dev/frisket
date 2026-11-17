@@ -12,7 +12,7 @@ type WorkbenchRuntimeIndexWire =
   HttpContractSuccessResponse<'tenant.workbench_plugins.get'>;
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface WorkbenchContractOptions {
+interface WorkbenchContractOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }

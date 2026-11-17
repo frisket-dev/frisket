@@ -68,7 +68,7 @@ export interface PdfBatchShellContext {
   busy: boolean;
 }
 
-export interface PdfBatchImportFlowProps {
+interface PdfBatchImportFlowProps {
   projectId: string;
   files?: readonly File[];
   resumeDraftId?: string | null;

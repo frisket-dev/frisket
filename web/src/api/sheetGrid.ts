@@ -42,14 +42,14 @@ type ReplayAcceptActionParams = GeneratedActionParams['replay.accept'];
 type ReplayAcceptColumnActionParams = GeneratedActionParams['replay.accept_column'];
 type ReplayDismissActionParams = GeneratedActionParams['replay.dismiss'];
 
-export interface SheetGridColumnRunInfo {
+interface SheetGridColumnRunInfo {
   runId: string;
   actionName: string;
   prompt: string;
   model: string;
 }
 
-export interface SheetGridDependencies {
+interface SheetGridDependencies {
   columnRunInfo(
     projectId: string,
     sheetId: string,
@@ -65,7 +65,7 @@ export interface SheetGridDependencies {
   >;
 }
 
-export interface SheetGridDomainApi {
+interface SheetGridDomainApi {
   listSheets(): Promise<SheetMeta[]>;
   setSheetTitleColumn(
     sheetId: string,

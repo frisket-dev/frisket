@@ -48,15 +48,6 @@ export function firstPendingRowId(ordered: number[]): number | null {
   return ordered.length > 0 ? ordered[0] : null;
 }
 
-/** Wrapping navigation across pending cells; an unknown current falls back to
- *  the first pending cell. */
-export function nextPendingRowId(ordered: number[], current: number): number | null {
-  if (ordered.length === 0) return null;
-  const index = ordered.indexOf(current);
-  if (index < 0) return ordered[0];
-  return ordered[(index + 1) % ordered.length];
-}
-
 /** After Accept/Keep on `acted`, auto-advance to the next still-pending cell,
  *  wrapping; null once the column is cleared. The acted cell has left the
  *  pending set (accept self-clears; keep is a durable dismiss). */

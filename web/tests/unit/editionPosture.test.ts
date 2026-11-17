@@ -2,14 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   LOCAL_EDITION_DESCRIPTOR,
-  OPEN_EDITION_POSTURES,
   TEAM_EDITION_DESCRIPTOR,
   immutableEditionDescriptor,
 } from '../../src/editions/posture';
 
 describe('edition descriptors', () => {
-  it('base owns only local and team', () => {
-    expect(OPEN_EDITION_POSTURES).toEqual(['local', 'team']);
+  it('base descriptors carry the local and team capabilities', () => {
     expect(LOCAL_EDITION_DESCRIPTOR.capabilities).toEqual({
       configurableNotificationDestinations: true,
       configurableNotificationEmail: true,

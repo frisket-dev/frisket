@@ -362,7 +362,7 @@ export function syntheticActionCatalogEntry(
   };
 }
 
-export interface CompleteMappedActionCatalogOptions {
+interface CompleteMappedActionCatalogOptions {
   /** Exact replacements for canonical kinds in the production mapped registry. */
   replacements?: readonly ActionCatalogEntry[];
   /** Explicit non-renderable stock entries needed by a focused test. */

@@ -6,7 +6,7 @@ import { syntheticActionCatalogEntry } from './actionCatalogFixtures';
 import { completeCatalogPayload, sheetMeta } from './actionFormFixtures';
 import { columnDef } from './domainFixtures';
 
-export const API_CALL_ENTRY = syntheticActionCatalogEntry('map.api_call', {
+const API_CALL_ENTRY = syntheticActionCatalogEntry('map.api_call', {
   title: 'Call an API',
   input_schema: { type: 'object', additionalProperties: false, required: ['request'],
     properties: { request: { type: 'object', required: ['url'], properties: {
@@ -25,7 +25,7 @@ export const API_CALL_ENTRY = syntheticActionCatalogEntry('map.api_call', {
 }) as GeneratedActionCatalogEntry;
 export const API_CALL_CATALOG = completeCatalogPayload([API_CALL_ENTRY]);
 export const API_CALL_TEMPLATES = actionTemplatesFromCatalog(API_CALL_CATALOG);
-export const API_CALL_TEMPLATE = API_CALL_TEMPLATES.find((entry) => entry.kind === 'map.api_call')!;
+const API_CALL_TEMPLATE = API_CALL_TEMPLATES.find((entry) => entry.kind === 'map.api_call')!;
 export const API_CALL_SHEET = sheetMeta([
   columnDef({ id: '1', name: 'customer_id', type: 'text' }),
 ], { id: '7', name: 'Customers', rowCount: 12 });

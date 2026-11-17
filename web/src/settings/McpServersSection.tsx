@@ -2,11 +2,11 @@ import './SettingsPrimitives.css';
 import { TextArea, TextInput } from '../components/FormControls';
 import { useMemo, useState } from 'react';
 
-export type McpServerEnvironmentValue =
+type McpServerEnvironmentValue =
   | { project_secret: string }
   | { value: string };
 
-export interface McpServerSettingsEntry {
+interface McpServerSettingsEntry {
   id: string;
   name: string;
   command: string;
@@ -22,7 +22,7 @@ export interface McpServerSettingsEntry {
   } | null;
 }
 
-export interface McpServerDraft {
+interface McpServerDraft {
   name: string;
   command: string;
   args: string[];
@@ -31,14 +31,14 @@ export interface McpServerDraft {
   enabled: boolean;
 }
 
-export interface McpServerTestResult {
+interface McpServerTestResult {
   status: 'passed' | 'failed';
   tested_at?: string | null;
   discovered_tool_count?: number;
   detail?: string;
 }
 
-export interface McpServersSectionProps {
+interface McpServersSectionProps {
   servers: readonly McpServerSettingsEntry[];
   projectSecrets: readonly string[];
   onCreate: (server: McpServerDraft) => void | Promise<void>;

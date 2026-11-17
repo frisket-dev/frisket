@@ -40,7 +40,7 @@ export interface AnnotationMark {
 
 /** A non-overlapping run of the text. `marks` is every occurrence covering it,
  *  outermost first. */
-export interface AnnotationFragment {
+interface AnnotationFragment {
   start: number;
   end: number;
   text: string;

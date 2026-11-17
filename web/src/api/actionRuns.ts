@@ -33,14 +33,14 @@ interface RunContext {
   rowIds: string[] | null;
 }
 
-export interface ColumnRunInfo {
+interface ColumnRunInfo {
   runId: string;
   actionName: string;
   prompt: string;
   model: string;
 }
 
-export interface ActionRunsDependencies {
+interface ActionRunsDependencies {
   v1ActionSession: V1ActionSession;
   runAction(
     req: ActionExecutionRequest,
@@ -75,7 +75,7 @@ function firstOutputSheetId(outputs: V1ActionResult['outputs']): string | null {
   return output?.sheet_id == null ? null : String(output.sheet_id);
 }
 
-export class ActionRunsApi {
+class ActionRunsApi {
   /** Context for runs started this session, so status reads can fill the UI
    * fields the backend endpoint does not carry. */
   private runMeta = new Map<string, RunContext>();

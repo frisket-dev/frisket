@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { emitActionCatalogInvalidated, onActionCatalogInvalidated } from './catalogEvents';
+import { emitActionCatalogInvalidated, onActionCatalogInvalidated } from '../../src/api/catalogEvents';
 
 describe('action-catalog invalidation bus', () => {
   const unsubs: Array<() => void> = [];

@@ -8,7 +8,6 @@ import {
   createScopedChromePreferenceOwner,
   type HydratedChromePreferences,
 } from './workspaceResources';
-export { chromeStorageKeys } from './workspaceResources';
 import { navigate } from '../routes';
 import { writeSettingsProjectContext } from '../settings/settingsProjectContext';
 import type { WorkViewKind } from '../core/selectors/workView';
@@ -91,7 +90,7 @@ export interface OpenSplitState {
   columnId?: string;
 }
 
-export interface EvidenceViewerState extends EvidenceViewerFocus {
+interface EvidenceViewerState extends EvidenceViewerFocus {
   linkId: string | number;
   host: EvidenceViewerHost;
 }
@@ -107,7 +106,7 @@ export interface WorkspaceToastError {
   details?: Record<string, unknown>;
 }
 
-export interface ChromeState {
+interface ChromeState {
   // Session-only; /action/{kind} is the durable reopen path.
   actionPanelOpen: boolean;
   activeBottomDockTab: string;

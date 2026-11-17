@@ -83,14 +83,6 @@ function builtinTranscriptionOptions(
   return transcribeBuiltinDeclarations.engines[engineId].transcription_options;
 }
 
-export {
-  tierForEngine,
-  engineTierLabel,
-  engineTierOptions,
-  engineIsRemote,
-  engineModelsSummary,
-  mergeEnginesWithFallback,
-} from './engineCatalog';
 
 export const TRANSCRIBE_ENGINE_FALLBACK: EngineOption[] = [
   // Post-R4 roster: the R2/R3b retired spellings (`parakeet`,
@@ -189,31 +181,7 @@ export const TRANSCRIBE_ENGINE_FALLBACK: EngineOption[] = [
   },
 ];
 
-// Every shipped alias is advertised. A dead name finds nothing here: the
-// backend rejects it at validation with the canonical replacement named.
-const TRANSCRIBE_SHIPPED_ALIASES: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(transcribeBuiltinDeclarations.engines).flatMap(
-    ([canonicalId, declaration]) =>
-      declaration.aliases.map((alias) => [alias, canonicalId] as const),
-  ),
-);
-
-/** Resolve shipped backend aliases while leaving direct provider/model ids
- * fail-closed unless the live catalog declares them. The EXACT id wins
- * before alias canonicalization (mirrors the backend's raw-before-canonical
- * rule): a version-skewed live catalog may advertise an id this
- * client does not ship — its own declaration must keep winning. */
-export function findTranscribeEngineDeclaration(
-  engines: EngineOption[],
-  engineId: string,
-): EngineOption | undefined {
-  const direct = engines.find((candidate) => candidate.id === engineId);
-  if (direct) return direct;
-  const canonicalId = TRANSCRIBE_SHIPPED_ALIASES[engineId] ?? engineId;
-  return engines.find((candidate) => candidate.id === canonicalId);
-}
-
-export type TranscriptionDiarizationMode = 'none' | 'optional' | 'intrinsic';
+type TranscriptionDiarizationMode = 'none' | 'optional' | 'intrinsic';
 
 /** Resolve the additive diarization enum while retaining the shipped
  * supported-bool contract for version-skewed declarations. */

@@ -5,17 +5,17 @@ import type {
   RunTraceRowEvidence,
 } from './types';
 
-export interface RunProvenanceOptions {
+interface RunProvenanceOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type RunTraceRowEvidenceWire =
+type RunTraceRowEvidenceWire =
   HttpContractSuccessResponse<'tenant.action_run_trace_row.get'>;
-export type ProvenanceManifestWire =
+type ProvenanceManifestWire =
   HttpContractSuccessResponse<'tenant.provenance.get'>;
 
-export interface RunProvenanceApi {
+interface RunProvenanceApi {
   getRunTraceRow(
     projectId: string,
     runId: string,

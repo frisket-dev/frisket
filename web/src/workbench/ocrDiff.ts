@@ -16,7 +16,7 @@ export interface DiffToken {
   chars: CharSpan[];
 }
 
-export interface WordDiff {
+interface WordDiff {
   left: DiffToken[];
   right: DiffToken[];
   /** Number of disagreement groups (a replace/insert/delete each count once). */
@@ -25,7 +25,7 @@ export interface WordDiff {
   allCharLevel: boolean;
 }
 
-export function normalizeWhitespace(text: string): string {
+function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 

@@ -3,7 +3,7 @@
 
 export type WorkspaceSessionGeneration = number;
 
-export interface WorkspaceSessionLeaseDeps {
+interface WorkspaceSessionLeaseDeps {
   /** Disposes jobStore's poll lanes (WorkspaceStores.dispose(), which today
    *  wraps job.dispose() — see createWorkspaceStores.ts). Called every
    *  deactivation, after the generation has already been invalidated. */

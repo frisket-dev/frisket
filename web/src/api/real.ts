@@ -115,7 +115,6 @@ export {
 } from './contractErrors';
 export { runEstimateFromV1Wire } from './actionEstimateValidation';
 
-export type { DiagnosticBundleRequest, DiagnosticBundleResponse } from './errorIntake';
 import { createApiTokensApi } from './apiTokens';
 import {
   createLocalProvidersApi,
@@ -261,7 +260,6 @@ import type {
   SavedViewRenameInput,
   SheetDatasetExportOptions,
   MapPointsOptions,
-  MapPointsResult,
   RuntimeProjectionArtifactRequest,
   RuntimeProjectionBuildPlan,
   RuntimeProjectionBuildRequest,
@@ -492,7 +490,7 @@ export const uninstallArtifact = localProvidersApi.uninstallArtifact;
 /** Clear the cached action catalog and signal mounted surfaces to refetch —
  *  called after an inline pair install/uninstall so the translate form's
  *  engine `models` reflects the new install without a remount. */
-export function invalidateActionCatalog(): void {
+function invalidateActionCatalog(): void {
   realApi.invalidateActionCatalog();
 }
 
@@ -1383,14 +1381,6 @@ class RealApi implements FrisketApi {
     opts: SheetDataOptions & { force?: boolean } = {},
   ): Promise<ColumnStats> {
     return this.sheetGrid.getColumnStats(sheetId, columnId, opts);
-  }
-
-  async getMapPoints(
-    sheetId: string,
-    columnId: string,
-    options: MapPointsOptions | null = {},
-  ): Promise<MapPointsResult> {
-    return this.mapPointsArrowApi.getMapPoints(sheetId, columnId, options);
   }
 
   async getMapPointsArrowBuffer(

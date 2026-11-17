@@ -76,7 +76,7 @@ function actionTitle(name: string): string {
   return `Action: ${name}`;
 }
 
-export function ActionProgressNotice({
+function ActionProgressNotice({
   run,
   onCancel,
   onDismiss,
@@ -141,7 +141,7 @@ const IDLE_IMPORT_PROGRESS: ImportProgressController = {
   remove() {},
 };
 
-export interface StatusBarProps {
+interface StatusBarProps {
   actions?: ReactNode;
   run: RunProgress | null;
   history: HistoryState | null;

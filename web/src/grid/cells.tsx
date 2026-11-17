@@ -38,7 +38,7 @@ export interface MediaCellData {
   playback?: 'playing' | 'paused';
 }
 
-export type MediaCell = CustomCell<MediaCellData>;
+type MediaCell = CustomCell<MediaCellData>;
 
 /** Playback may only use the media already resolved into the grid cell. */
 export function audioMedia(cell: GridCell): { url: string; label: string } | null {
@@ -76,22 +76,22 @@ export interface RegionBox {
   label?: string;
 }
 
-export interface RegionImageCellData {
+interface RegionImageCellData {
   kind: 'frisket-region-image';
   url: string | null;
   label: string;
   regions: RegionBox[];
 }
 
-export type RegionImageCell = CustomCell<RegionImageCellData>;
+type RegionImageCell = CustomCell<RegionImageCellData>;
 
-export interface MapPinCellData {
+interface MapPinCellData {
   kind: 'frisket-map-pin';
   point: GeoPoint | null;
   label: string;
 }
 
-export type MapPinCell = CustomCell<MapPinCellData>;
+type MapPinCell = CustomCell<MapPinCellData>;
 
 export interface TimelineCellData {
   kind: 'frisket-timeline';
@@ -406,13 +406,13 @@ const timelineCellRenderer: CustomRenderer<TimelineCell> = {
 // Pending cell: a subtle animated shimmer drawn while a run is streaming
 // results into this column (the cell has no value yet).
 
-export interface PendingCellData {
+interface PendingCellData {
   kind: 'frisket-pending';
   palette: GridCellPaletteValue['pending'];
   label?: string;
 }
 
-export type PendingCell = CustomCell<PendingCellData>;
+type PendingCell = CustomCell<PendingCellData>;
 
 // The pulse animates unless the viewer asked for reduced motion, in which case
 // it renders a single static band (still a legible "pending" affordance, no rAF
@@ -666,7 +666,7 @@ export function imageRegionsForRow(row: Row, imageColumn: ColumnDef): RegionBox[
 }
 
 /** Parse a json cell into an array, if that's what it holds. */
-export function parseJsonArray(v: CellValue): unknown[] | null {
+function parseJsonArray(v: CellValue): unknown[] | null {
   if (typeof v !== 'string' || !v.trimStart().startsWith('[')) return null;
   try {
     const arr = JSON.parse(v) as unknown;
@@ -761,7 +761,7 @@ function withEntityMentionToggle(cell: GridCell, expandable: boolean): GridCell 
   } as EntityMentionToggleCell;
 }
 
-export interface OneClickFacetValue {
+interface OneClickFacetValue {
   value: string;
   operator: Extract<TypeFacetBehavior, { kind: 'categorical' }>['operator'];
 }
@@ -918,7 +918,7 @@ export function shouldOpenDrawerOnKey(key: string, cellOverlayEditable: boolean)
 
 /** One grid-cell builder, resolved by the type registry's
  *  presentation.renderer (NOT by switching on the column type). */
-export type CellBuilder = (
+type CellBuilder = (
   col: ColumnDef,
   v: CellValue,
   opts: BuildCellOptions,

@@ -8,7 +8,7 @@ import { useCallback, useRef, type CSSProperties, type RefObject } from 'react';
 import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 
-export interface OptionsPopoverPlumbing {
+interface OptionsPopoverPlumbing {
   /** Attach with JSX `ref=` on the ⚙ button. Typed as @types/react's read-only
    *  JSX ref shape (not `| null`) — this hook only ever READS it. */
   triggerRef: RefObject<HTMLButtonElement>;

@@ -27,13 +27,13 @@ import type {
   RibbonMode,
 } from './chromeStore';
 
-export type PreferenceDiagnosticKind =
+type PreferenceDiagnosticKind =
   | 'missing'
   | 'malformed'
   | 'unsupported'
   | 'write_failed';
 
-export interface PreferenceDiagnostic {
+interface PreferenceDiagnostic {
   scope: 'project' | 'sheet';
   field: string;
   key: string;
@@ -48,7 +48,7 @@ export interface PreferenceStorage {
   removeItem(key: string): void;
 }
 
-export interface ScopedChromePreferenceOptions {
+interface ScopedChromePreferenceOptions {
   storage?: PreferenceStorage;
   diagnostic?: (diagnostic: PreferenceDiagnostic) => void;
 }
@@ -147,7 +147,7 @@ export interface SheetChromePreferenceCommands {
   ): void;
 }
 
-export interface ScopedChromePreferenceOwner {
+interface ScopedChromePreferenceOwner {
   readonly projectId: string;
   hydrate(): HydratedChromePreferences;
   bindCommands(target: ChromePreferenceMutationTarget): {

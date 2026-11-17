@@ -14,7 +14,7 @@
  * separate copies this was a four-site edit that could drift; with one component
  * it is added once and applies everywhere.
  */
-export interface ResizeSeamProps {
+interface ResizeSeamProps {
   /** Full className for the seam element, including any per-site resizing
    *  modifier the caller wants applied (sites differ on whether the modifier
    *  lands on the seam itself or a sibling — passed through as-is to keep

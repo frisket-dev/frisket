@@ -1,7 +1,7 @@
 /** Match full JSON values. Only null and '' are unchecked; whitespace is a value.
  * Sets accept arrays or JSON-encoded arrays. Slash dates are US month/day/year;
  * two-digit years mean 2000–2099. */
-export type MatchVerdict = 'match' | 'miss' | 'unchecked' | 'unscored' | 'not_run';
+type MatchVerdict = 'match' | 'miss' | 'unchecked' | 'unscored' | 'not_run';
 
 type Options = { state?: string; handVerdict?: string };
 

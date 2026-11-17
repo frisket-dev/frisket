@@ -19,7 +19,7 @@ import { ApiError, startArtifactPull } from '../api/open';
 import type { LocalHttpEndpointEntry, ModelPullDto } from '../api/types';
 import { ModelPullProgress } from './ModelPullProgress';
 
-export type LocalServerGuidanceStateId =
+type LocalServerGuidanceStateId =
   | 'unreachable'
   | 'unauthorized'
   | 'empty_native'

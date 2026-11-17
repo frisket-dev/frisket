@@ -20,7 +20,7 @@ import type { SelectionStoreHandle } from '../state/selectionStore';
 import { useSelector } from './useSelector';
 import { useWorkspaceStores } from './useWorkspaceStores';
 
-export interface RouteRowFetchDeps {
+interface RouteRowFetchDeps {
   route: RouteStoreHandle;
   detail: DetailStoreHandle;
   selection: SelectionStoreHandle;

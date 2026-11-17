@@ -26,7 +26,7 @@ export interface RowTextTarget {
   requestKey: string;
 }
 
-export interface DetailState {
+interface DetailState {
   rowDrawer: Row | null;
   /** The clicked in-memory sample; null means ordinary committed-row details. */
   rowDrawerPreview: PreviewCellDetail | null;

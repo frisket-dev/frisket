@@ -7,7 +7,7 @@ import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 import type { SavedView } from '../api/open';
 
-export type SavedViewsSheetId = string | number | null;
+type SavedViewsSheetId = string | number | null;
 
 export type SavedViewsEditor =
   | { kind: 'create' }
@@ -19,7 +19,7 @@ const savedViewsEditorMutationTicket = Symbol('savedViewsEditorMutationTicket');
  * A store-owned capability for one editor submission. Controllers may retain
  * and return it, but cannot construct a ticket for a different editor.
  */
-export type SavedViewsEditorMutationTicket = {
+type SavedViewsEditorMutationTicket = {
   readonly [savedViewsEditorMutationTicket]: true;
 };
 
@@ -37,7 +37,7 @@ export type SavedViewsConfirmation =
   | { kind: 'update-definition'; view: SavedView }
   | { kind: 'delete'; view: SavedView };
 
-export interface SavedViewsState {
+interface SavedViewsState {
   activeSheetId: SavedViewsSheetId;
   views: SavedView[];
   viewName: string;

@@ -22,7 +22,6 @@ export type PdfImportCategory = HttpPdfImportSamplesResponse['category'];
 export type PdfImportOcrPolicy = HttpPdfImportChoicesRequest['ocr_policy'];
 export type PdfImportOcrSelection = HttpPdfImportChoicesRequest['ocr_selection'];
 export type PdfImportDestination = HttpPdfImportChoicesRequest['destination'];
-export type PdfImportOrganization = HttpPdfImportChoicesRequest['organization'];
 export type PdfImportChoices = Omit<HttpPdfImportChoicesRequest, 'expected_revision'>;
 export type PdfImportBatchOcr = Omit<HttpPdfImportBatchOcrState, 'estimate'> & {
   estimate: RunEstimate | null;
@@ -40,7 +39,6 @@ export type PdfImportSamples = Pick<
   'items' | 'next_cursor' | 'extension_counts' | 'unlisted_extension_count'
 >;
 export type PdfImportReselectFile = HttpPdfImportReselectRequest['files'][number];
-export type PdfImportReselectResult = HttpPdfImportReselectResponse['items'][number];
 export type PdfImportReselectResponse = HttpPdfImportReselectResponse;
 export type PdfImportBatchOcrEstimate = PdfImportBatchOcr;
 export type PdfImportCommitInput = HttpPdfImportCommitRequest;

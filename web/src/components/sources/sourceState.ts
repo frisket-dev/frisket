@@ -3,7 +3,7 @@ import { emptyForm, sourceToForm, type SourceFormState } from './sourceConfig';
 
 export type BusySource = number | 'new' | null;
 
-export interface SourcesState {
+interface SourcesState {
   items: SourceInfo[] | null;
   runs: Record<number, SourceRun[]>;
   runPages: Record<number, SourceRunPage>;

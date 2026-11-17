@@ -8,9 +8,8 @@ import { useEffect, useState } from 'react';
 import { createInstanceRuntimeApi } from './api/instanceRuntime';
 import type { InstanceIdentity } from './api/types';
 
-export type { InstanceIdentity };
 
-export const DEFAULT_INSTANCE_IDENTITY: InstanceIdentity = {
+const DEFAULT_INSTANCE_IDENTITY: InstanceIdentity = {
   display_name: 'frisket',
   support_contact: null,
 };

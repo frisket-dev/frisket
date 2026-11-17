@@ -1,4 +1,4 @@
-export interface GridCellRevealRequest {
+interface GridCellRevealRequest {
   requestId: number;
   projectId: string;
   sheetId: string;

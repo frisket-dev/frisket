@@ -1,12 +1,12 @@
 import { httpContract } from './httpContract';
 import type { AttemptReceiptsPage } from './types';
 
-export interface ProjectAttemptsOptions {
+interface ProjectAttemptsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface ProjectAttemptsApi {
+interface ProjectAttemptsApi {
   listAttemptReceipts(
     projectId: string,
     runId?: number | string | null,

@@ -1,17 +1,17 @@
 import { httpContract } from "./httpContract";
 import type { ApiTokenCreateResponse, ApiTokenInfo } from "./types";
 
-export interface ApiTokensOptions {
+interface ApiTokensOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface ApiTokenRevokeResponse {
+interface ApiTokenRevokeResponse {
   ok: boolean;
   revoked: boolean;
 }
 
-export interface ApiTokensApi {
+interface ApiTokensApi {
   listApiKeys(options?: ApiTokensOptions): Promise<ApiTokenInfo[]>;
   createApiKey(
     name: string,

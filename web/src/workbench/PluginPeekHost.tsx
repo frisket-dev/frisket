@@ -11,7 +11,7 @@ import { buildPluginPeekContext } from './pluginPeekContext';
 import { resolvePluginPanelAvailability } from './pluginPanelContext';
 import { PluginRuntimeContribution } from './PluginRuntimeContribution';
 
-export interface PluginPeekHostProps {
+interface PluginPeekHostProps {
   descriptor: WorkbenchPanelDescriptor;
   sheet: SheetMeta | null;
   hostContext: WorkbenchHostContext;

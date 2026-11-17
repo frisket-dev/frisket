@@ -12,19 +12,19 @@ import type {
 import { isDeriveCompositeRequest } from './types';
 import { parsePreviewTemporalValue } from '../temporal/preview';
 
-export interface ActionPreviewRunOptions {
+interface ActionPreviewRunOptions {
   projectId?: string;
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type ActionPreviewRunRequest = HttpActionPreviewRunRequest;
+type ActionPreviewRunRequest = HttpActionPreviewRunRequest;
 export type ActionPreviewStartWire =
   HttpContractSuccessResponse<'tenant.v1_action_preview_start.post'>;
 export type ActionPreviewStatusWire =
   HttpContractSuccessResponse<'tenant.v1_action_preview_status.get'>;
 
-export interface ActionPreviewRunsApi {
+interface ActionPreviewRunsApi {
   registerStarted(previewId: string): void;
   start(
     action: ActionPreviewRunRequest,
@@ -39,11 +39,11 @@ export interface ActionPreviewRunsApi {
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface ActionPreviewDomainDependencies {
+interface ActionPreviewDomainDependencies {
   errorFactory: ContractErrorFactory;
 }
 
-export interface ActionPreviewDomainApi {
+interface ActionPreviewDomainApi {
   registerStarted(start: ActionPreviewStartWire): PreviewStartResult;
   start(
     request: ActionExecutionRequest,

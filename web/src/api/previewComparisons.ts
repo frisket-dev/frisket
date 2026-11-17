@@ -16,7 +16,7 @@ function ocrPayload(input: OcrCompareScratchInput): OcrCompareScratchInput {
   return { ...input, ...(input.language !== undefined ? { language: input.language?.trim() || null } : {}) };
 }
 
-export interface PreviewComparisonsApi {
+interface PreviewComparisonsApi {
   compareOcrScratch(file: File, input: OcrCompareScratchInput): Promise<ActionPreviewStartWire>;
   estimateOcrScratch(file: File, input: OcrCompareScratchInput): Promise<RunEstimate>;
   compareTranscribeScratch(

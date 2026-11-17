@@ -61,7 +61,7 @@ function currentAdminSection(): AdminSection {
     : 'overview';
 }
 
-export function AdminNav() {
+function AdminNav() {
   const { routes } = useEditionModule();
   const contributed = routes
     .filter((route) => route.discoverableFrom === 'admin' && route.linkLabel)

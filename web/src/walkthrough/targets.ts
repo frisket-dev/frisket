@@ -20,7 +20,7 @@ export function walkthroughTargetCandidates(target: WalkthroughTarget): string[]
 }
 
 /** Match additional semantic attributes after finding selector candidates. */
-export function matchesWalkthroughTarget(element: HTMLElement, target: WalkthroughTarget): boolean {
+function matchesWalkthroughTarget(element: HTMLElement, target: WalkthroughTarget): boolean {
   if (target.kind === 'completed-run') return matchesWalkthroughTarget(element, target.target);
   if (target.kind === 'sheet') return element.querySelector<HTMLElement>('.workbench-mainView-tab-name')?.textContent?.trim() === target.id;
   if (target.kind === 'local-endpoint') return element.dataset.endpointLabel === target.label;

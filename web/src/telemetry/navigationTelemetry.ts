@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { useTelemetryDisclosureReady } from './disclosureReady';
 import { sendProductTelemetry, type SettingsTelemetrySection, type WorkspaceTelemetryPanel, type WorkspaceTelemetryView } from './productTelemetry';
 
-export type { SettingsTelemetrySection, WorkspaceTelemetryPanel, WorkspaceTelemetryView } from './productTelemetry';
+export type { WorkspaceTelemetryPanel, WorkspaceTelemetryView } from './productTelemetry';
 
 const PANEL_KINDS: Readonly<Record<string, WorkspaceTelemetryPanel>> = {
   'frisket.investigative.panel.friendly_filters': 'filter',

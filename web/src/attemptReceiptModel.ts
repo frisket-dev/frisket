@@ -10,7 +10,7 @@
 import type { AttemptReceipt, AttemptSettlement } from './api/open';
 import { providerLabel } from './actions/model';
 
-export type ReceiptCharge =
+type ReceiptCharge =
   /** A rated charge. `amountUsd` may legitimately be 0 (a priced SKU that
    *  metered nothing); it is still a settlement the server computed. */
   | { kind: 'charged'; amountUsd: number; raw: string }
@@ -41,7 +41,7 @@ export function receiptCharge(receipt: AttemptReceipt): ReceiptCharge {
   return { kind: 'charged', amountUsd: amount, raw: settlement.charge_usd };
 }
 
-export const UNSETTLEABLE_LABELS: Record<string, string> = {
+const UNSETTLEABLE_LABELS: Record<string, string> = {
   metering_reclaimed:
     'the run’s metering was reclaimed by compaction, so the charge cannot be recomputed',
   // Retained wire spelling for receipts minted by older servers.
@@ -58,7 +58,7 @@ export function unsettleableLabel(reason: string): string {
   return UNSETTLEABLE_LABELS[reason] ?? reason;
 }
 
-export interface AttemptReceiptsSummary {
+interface AttemptReceiptsSummary {
   /** Receipts that produced a rated charge. */
   chargedCount: number;
   /** Sum of the rated charges, or null when nothing was rated — never 0. */

@@ -23,17 +23,6 @@ const DATE_PRESET_OPERATORS = new Set<GridFilterOperator>([
   'date_ytd',
   'date_invalid',
 ]);
-// Typed 400 codes that mean "the index is not searchable yet — refresh it",
-// mirrored from embeddings/constants.ts's REFRESH_NEEDED_CODES. A lens-open
-// hitting one of these is BLOCKED (no partial grid), not crashed.
-export const LENS_REFRESH_NEEDED_CODES = new Set([
-  'embedding_index_incomplete',
-  'embedding_source_stale',
-  'embedding_anchor_stale',
-  'embedding_index_scope_invalid',
-  'scope_invalid',
-]);
-
 const isGridFilterRangeValue = (value: GridFilterValue | undefined): value is GridFilterRangeValue =>
   typeof value === 'object' && value !== null && 'start' in value && 'end' in value;
 
@@ -68,7 +57,7 @@ export const INVALID_IN_FILTER_VALUE: string[] = [];
 /** An intentionally server-invalid sentinel for a malformed collection filter.
  * As with scalar multi-selects, preserving it prevents a saved view from
  * silently widening to every row. */
-export const INVALID_LIST_CONTAINS_ANY_FILTER_VALUE: GridFilterListSelector[] = [];
+const INVALID_LIST_CONTAINS_ANY_FILTER_VALUE: GridFilterListSelector[] = [];
 
 const ENTITY_FILTER_KEYS = new Set(['type', 'text', 'fingerprint']);
 
@@ -81,7 +70,7 @@ function listSelectorKey(selector: GridFilterListSelector): string {
 /** Parse the closed, server-authored list-member selector contract. Generic
  * JSON objects are intentionally not accepted: only scalar list members and
  * the known `{type, text}` entity shape have comparison semantics. */
-export function listContainsAnyFilterValue(raw: unknown): GridFilterListSelector[] | null {
+function listContainsAnyFilterValue(raw: unknown): GridFilterListSelector[] | null {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > 100) return null;
   const selectors: GridFilterListSelector[] = [];
   const seen = new Set<string>();

@@ -18,7 +18,7 @@ import type {
   NotificationSummary,
 } from "./types";
 
-export interface NotificationsOptions {
+interface NotificationsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
@@ -28,36 +28,36 @@ type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
   undefined
 >;
 
-export type NotificationPageWire =
+type NotificationPageWire =
   HttpContractSuccessResponse<"tenant.list_notifications.get">;
-export type NotificationItemWire = NotificationPageWire["notifications"][number];
-export type NotificationSummaryWire =
+type NotificationItemWire = NotificationPageWire["notifications"][number];
+type NotificationSummaryWire =
   HttpContractSuccessResponse<"tenant.notifications_summary.get">;
-export type NotificationSeenCountWire =
+type NotificationSeenCountWire =
   HttpContractSuccessResponse<"tenant.mark_notifications_seen.post">;
-export type NotificationActorStateWire =
+type NotificationActorStateWire =
   HttpContractSuccessResponse<"tenant.mark_notification_read.post">;
-export type NotificationChannelWire =
+type NotificationChannelWire =
   HttpContractSuccessResponse<"tenant.create_notification_channel.post">;
-export type NotificationChannelsPageWire =
+type NotificationChannelsPageWire =
   HttpContractSuccessResponse<"tenant.list_notification_channels.get">;
-export type NotificationRouteWire =
+type NotificationRouteWire =
   HttpContractSuccessResponse<"tenant.create_notification_route.post">;
-export type NotificationRoutesPageWire =
+type NotificationRoutesPageWire =
   HttpContractSuccessResponse<"tenant.list_notification_routes.get">;
-export type NotificationDeliveryRequestWire =
+type NotificationDeliveryRequestWire =
   HttpContractSuccessResponse<"tenant.test_notification_route.post">;
-export type NotificationDeliveryRequestsPageWire =
+type NotificationDeliveryRequestsPageWire =
   HttpContractSuccessResponse<"tenant.list_notification_delivery_requests.get">;
 
-export type NotificationFilterBody =
+type NotificationFilterBody =
   ContractRequestBody<"tenant.mark_notifications_seen.post">;
-export type NotificationChannelBody =
+type NotificationChannelBody =
   ContractRequestBody<"tenant.create_notification_channel.post">;
-export type NotificationRouteBody =
+type NotificationRouteBody =
   ContractRequestBody<"tenant.create_notification_route.post">;
 
-export interface NotificationsApi {
+interface NotificationsApi {
   listNotifications(
     state?: string | null,
     sourceKind?: string | null,
@@ -95,7 +95,7 @@ export interface NotificationsApi {
 /** Channel, route, and delivery-request operations are deliberately isolated
  * from notification reads so the established read adapter retains its exact
  * seven-method contract. */
-export interface NotificationDeliverySettingsApi {
+interface NotificationDeliverySettingsApi {
   listNotificationChannels(
     options?: NotificationsOptions,
   ): Promise<NotificationChannelsPageWire>;

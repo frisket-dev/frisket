@@ -1,6 +1,6 @@
 import type { ActionCatalogEntry, ColumnRun, JsonValue, RegisteredActionRequest } from '../api/types';
 
-export type NerReplayPlan =
+type NerReplayPlan =
   | { kind: 'run'; request: RegisteredActionRequest }
   | { kind: 'refused'; reason: string };
 

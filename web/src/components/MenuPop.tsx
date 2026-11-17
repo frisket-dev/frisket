@@ -5,7 +5,7 @@ import { useAnchoredPosition, type AnchoredPositionOptions } from '../hooks/useA
 import { overlayPortalRoot } from '../hooks/overlayPortalRoot';
 import { useNativePopover } from '../hooks/useNativePopover';
 
-export interface MenuPopProps extends HTMLAttributes<HTMLDivElement> {
+interface MenuPopProps extends HTMLAttributes<HTMLDivElement> {
   /** Extra classes appended after the shared `.menu-pop` visual class. */
   className?: string;
   /** Positioned menus use the anchor's measured width, not the default menu cap. */

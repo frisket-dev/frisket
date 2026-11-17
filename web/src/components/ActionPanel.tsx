@@ -57,7 +57,7 @@ interface OpenActionState {
   title?: string;
 }
 
-export type ActionFormFrame = ({ actionKind, title, children }: {
+type ActionFormFrame = ({ actionKind, title, children }: {
   actionKind: string;
   title: string;
   children: ReactNode;
@@ -81,7 +81,7 @@ function actionForRoute(availableActions: ActionTemplate[], routeKind: string): 
   return availableActions.find((action) => action.kind === routeKind);
 }
 
-export interface ActionPanelProps {
+interface ActionPanelProps {
   sheet: SheetMeta | null;
   /** The in-scope project — threaded through purely so onOpenDiagnose below
    *  can seed the Settings back-link's project context; optional/undefined

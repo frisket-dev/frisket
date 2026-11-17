@@ -19,7 +19,7 @@ export type ExtractionField = Omit<Required<WireField>, 'kind' | 'key' | 'value'
 };
 export type Box = PageRegion['box'];
 export type RepeatedSection = Required<NonNullable<WireTemplate['sections']>[number]>;
-export type PageSpan = RepeatedSection['first'];
+type PageSpan = RepeatedSection['first'];
 export type ExtractionTemplate = Omit<Required<WireTemplate>, 'fields' | 'sections'> & { fields: ExtractionField[]; sections: RepeatedSection[] };
 export type PositionedDocument = ExtractionDocument['document'];
 

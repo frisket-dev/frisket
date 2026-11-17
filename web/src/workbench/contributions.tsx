@@ -524,7 +524,7 @@ export function EntityDetailConnectionsTabFrame({ children }: { children: ReactN
   );
 }
 
-export function SourceDetailSummaryTabFrame({ children }: { children: ReactNode }) {
+function SourceDetailSummaryTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
       descriptor={SOURCE_SUMMARY_VIEW_DESCRIPTOR}
@@ -536,7 +536,7 @@ export function SourceDetailSummaryTabFrame({ children }: { children: ReactNode 
   );
 }
 
-export function SourceDetailHealthTabFrame({ children }: { children: ReactNode }) {
+function SourceDetailHealthTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
       descriptor={SOURCE_HEALTH_VIEW_DESCRIPTOR}
@@ -559,7 +559,7 @@ export function SourceHealthMainViewFrame({ children }: { children: ReactNode })
   );
 }
 
-export function SourceDetailRunsTabFrame({ children }: { children: ReactNode }) {
+function SourceDetailRunsTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
       descriptor={SOURCE_RUNS_VIEW_DESCRIPTOR}
@@ -576,7 +576,7 @@ export function SourceDetailRunsTabFrame({ children }: { children: ReactNode }) 
 // per-launch form is wrapped by ActionWorkbenchFormFrame (below), not a
 // resident rightInspector frame.
 
-export function SourceKindWorkbenchFormFrame({
+function SourceKindWorkbenchFormFrame({
   sourceKind,
   children,
 }: {

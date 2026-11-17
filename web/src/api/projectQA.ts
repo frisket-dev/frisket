@@ -13,7 +13,6 @@ export type AskEvent = HttpAskEventsPage['events'][number];
 export type AskTurn = HttpAskTurn;
 export type AskResearchOptions = Required<NonNullable<AskThread['research']>>;
 export type AskResearchConfiguration = HttpAskResearchConfiguration;
-export type AskResearchState = NonNullable<AskTurn['research_state']>;
 export type AskResearchResume = HttpAskResearchResume;
 export type AskThreadCreate = HttpAskThreadCreate;
 export type AskThreadUpdate = HttpAskThreadUpdate;

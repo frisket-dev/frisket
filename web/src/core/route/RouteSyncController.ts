@@ -42,13 +42,13 @@ export function pushVsReplace(prev: RouteState, next: RouteState): 'push' | 'rep
   return 'replace'; // no back-stack-worthy change → normalization
 }
 
-export interface RouteSyncDeps {
+interface RouteSyncDeps {
   /** Commits a RouteState to history via routes.ts navigate/replaceRoute. */
   write(next: RouteState, mode: 'push' | 'replace'): void;
   routeStore: Pick<RouteStoreHandle, 'subscribeHistoryCommands'>;
 }
 
-export interface RouteSyncController {
+interface RouteSyncController {
   dispose(): void;
 }
 

@@ -6,7 +6,7 @@ import type {
 import { uploadSkillMarkdown } from "./raw/skillMarkdownUpload";
 
 export type InstructionSkill = HttpInstructionSkill;
-export type SkillsEnvelope = HttpInstructionSkillList;
+type SkillsEnvelope = HttpInstructionSkillList;
 
 function skillRequestError(_status: number, payload: unknown): Error {
   const detail =

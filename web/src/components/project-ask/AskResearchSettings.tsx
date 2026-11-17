@@ -5,11 +5,11 @@ import { PanelSelect } from '../PanelSelect';
 import type { AskResearchConfiguration, AskResearchOptions } from '../../api/projectQA';
 import './AskResearch.css';
 
-export type AskResearchWriteMode = 'ask_each' | 'ask_overwrite' | 'full_access';
+type AskResearchWriteMode = 'ask_each' | 'ask_overwrite' | 'full_access';
 export type { AskResearchOptions } from '../../api/projectQA';
-export type AskResearchSkill = AskResearchConfiguration['skills'][number];
+type AskResearchSkill = AskResearchConfiguration['skills'][number];
 
-export interface AskResearchSettingsProps {
+interface AskResearchSettingsProps {
   value: AskResearchOptions | undefined;
   onChange(value: AskResearchOptions | undefined): void;
   availableSkills: readonly AskResearchSkill[];

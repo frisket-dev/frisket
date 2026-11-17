@@ -1,4 +1,4 @@
-export interface ProviderKeyHelp {
+interface ProviderKeyHelp {
   label: string;
   url?: string;
   prefix?: string;

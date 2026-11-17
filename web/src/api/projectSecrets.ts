@@ -2,12 +2,12 @@ import type { HttpContractOperationMap } from '../generated/openHttpContracts';
 import { httpContract } from './httpContract';
 import type { ProjectSecrets } from './types';
 
-export interface ProjectSecretsOptions {
+interface ProjectSecretsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface ProjectSecretsApi {
+interface ProjectSecretsApi {
   getProjectSecrets(
     projectId: string,
     options?: ProjectSecretsOptions,

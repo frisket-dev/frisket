@@ -42,7 +42,7 @@ export interface TableImportShellContext {
   subtitle: string;
 }
 
-export interface TableImportFlowProps {
+interface TableImportFlowProps {
   api?: TableImportsApi;
   destinationSheets: readonly TableImportDestinationSheet[];
   followTheMoneyEnabled?: boolean;

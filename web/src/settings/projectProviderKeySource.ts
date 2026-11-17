@@ -1,7 +1,7 @@
 import type { ProjectProviderKeyInfo } from '../api/types';
 import type { ProjectCloudRoutingView } from '../cloud/ProjectCloudRoutingSettings';
 
-export type ProjectProviderKeySource =
+type ProjectProviderKeySource =
   | { kind: 'local'; label: string }
   | { kind: 'cloud'; label: string; settingsUrl: string }
   | { kind: 'missing'; label: 'Add key' };

@@ -95,7 +95,7 @@ const FORMAT_OPTIONS: Array<{
   { value: 'percent', label: 'Percent', types: ['integer', 'number'] },
 ];
 
-export interface ColumnDrawerProps {
+interface ColumnDrawerProps {
   column: ColumnDef;
   sheetId: string;
   onClose(): void;

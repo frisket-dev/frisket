@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 
-export interface NativePopoverOptions {
+interface NativePopoverOptions {
   /** Attach listeners / show only while true (default true). Gate on open state. */
   enabled?: boolean;
   /**

@@ -10,7 +10,7 @@ import { PluginHostShell } from './pluginHostShell';
 import { resolvePluginPanelAvailability } from './pluginPanelContext';
 import { PluginRuntimeContribution } from './PluginRuntimeContribution';
 
-export interface PluginDockTabHostProps {
+interface PluginDockTabHostProps {
   descriptor: WorkbenchPanelDescriptor;
   sheet: SheetMeta | null;
   hostContext: WorkbenchHostContext;

@@ -1,7 +1,7 @@
 import { expect, type Page, type Route } from '@playwright/test';
 
 export const geoPluginId = 'frisket.geo';
-export const geoContributionId = 'frisket.geo.view.map';
+const geoContributionId = 'frisket.geo.view.map';
 export const geoPluginSourceValue = '/Users/example/plugins/frisket-geo';
 
 type RuntimeState = 'missing' | 'installed' | 'enabled' | 'disabled' | 'uninstalled';

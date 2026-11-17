@@ -16,7 +16,7 @@ const INSPECT_DETAIL_MIN_WIDTH = 260;
 const INSPECT_DETAIL_MAX_WIDTH = 560;
 const INSPECT_DETAIL_DEFAULT_WIDTH = 340;
 
-export interface InspectDetailColumnProps {
+interface InspectDetailColumnProps {
   projectId: string;
   sheet: SheetMeta;
   row: Row;

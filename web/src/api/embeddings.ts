@@ -19,12 +19,12 @@ import {
 } from './contractErrors';
 import type { V1ActionSession, V1ActionResult } from './v1ActionSession';
 
-export interface EmbeddingsOptions {
+interface EmbeddingsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface EmbeddingsApi {
+interface EmbeddingsApi {
   embeddingProviderCatalog(
     projectId: string,
     opts: { modality?: string; sourceColumnType?: string },
@@ -81,7 +81,7 @@ type EmbeddingsV1ActionSession = Pick<
   | 'releaseV1ActionIdempotencyKey'
 >;
 
-export interface EmbeddingsApiDependencies {
+interface EmbeddingsApiDependencies {
   v1ActionSession: EmbeddingsV1ActionSession;
 }
 

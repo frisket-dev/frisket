@@ -10,7 +10,7 @@ interface OverflowLayout {
   visibleIds: string[];
 }
 
-export interface OverflowItemsOptions<T> {
+interface OverflowItemsOptions<T> {
   getKey(item: T): string;
   /** Reserve a currently selected item in the visible row whenever possible. */
   keepVisibleKey?: string;

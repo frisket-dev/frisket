@@ -7,7 +7,7 @@ import { useCallback } from 'react';
 import { dispatch } from '../core/commands/registry';
 import type { CommandContext, WorkspaceCommand } from '../core/commands/types';
 
-export type DispatchCommand = (command: WorkspaceCommand) => void | Promise<void>;
+type DispatchCommand = (command: WorkspaceCommand) => void | Promise<void>;
 
 export function useCommand(ctx: CommandContext): DispatchCommand {
   return useCallback((command: WorkspaceCommand) => dispatch(command, ctx), [ctx]);

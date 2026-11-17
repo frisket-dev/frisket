@@ -10,7 +10,7 @@ import { projectBlobUrl } from '../api/raw/projectResources';
 import { columnTablesExportRequest } from '../actions/columnTablesExport';
 import { PanelSelect } from './PanelSelect';
 
-export interface ExportColumnTablesModalProps {
+interface ExportColumnTablesModalProps {
   projectId: string;
   currentSheet: SheetMeta;
   catalogEntry?: ActionCatalogEntry | null;

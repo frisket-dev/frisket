@@ -6,7 +6,7 @@
 
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 
-export const GOLDEN_RUN_TIMEOUT_MS = 240_000;
+const GOLDEN_RUN_TIMEOUT_MS = 240_000;
 
 /** Click Run, confirm whichever gate appears (cost or external-API — both use
  *  the cost-gate modal), and return the run_id from the real POST response. */

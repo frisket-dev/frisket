@@ -10,7 +10,7 @@ export interface OrganizationProvidersOptions {
   headers?: HeadersInit;
 }
 
-export interface OrganizationProvidersApi {
+interface OrganizationProvidersApi {
   providerCatalog(options?: OrganizationProvidersOptions): Promise<ProviderCatalog>;
   listOrgKeys(options?: OrganizationProvidersOptions): Promise<OrgKeyInfo[]>;
   setOrgKey(

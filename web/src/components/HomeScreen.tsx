@@ -67,11 +67,11 @@ import {
   sendProductTelemetry,
 } from '../telemetry/productTelemetry';
 
-export interface HomeOpenOptions {
+interface HomeOpenOptions {
   openGuide?: boolean;
 }
 
-export interface HomeScreenProps {
+interface HomeScreenProps {
   onOpen(project: ProjectInfo, options?: HomeOpenOptions): void;
 }
 

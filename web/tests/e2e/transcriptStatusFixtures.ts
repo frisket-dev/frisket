@@ -20,14 +20,14 @@ import path from 'node:path';
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
-export type TranscriptStatus = 'missing' | 'partial' | 'complete_visible' | 'complete_hidden';
+type TranscriptStatus = 'missing' | 'partial' | 'complete_visible' | 'complete_hidden';
 
-export interface SeedMediaColumnSpec {
+interface SeedMediaColumnSpec {
   name: string;
   status: TranscriptStatus;
 }
 
-export interface SeededTranscriptStatusSheet {
+interface SeededTranscriptStatusSheet {
   sheetId: number;
 }
 

@@ -31,7 +31,7 @@ import {
   type SelectionFragment,
 } from './pluginContextFragments';
 
-export type PluginProjectionViewCapability =
+type PluginProjectionViewCapability =
   | 'projection.status'
   | 'projection.build'
   | 'projection.artifact.read'
@@ -45,7 +45,7 @@ export type PluginProjectionViewCapability =
 export type PluginProjectionViewApi = PluginProjectionViewApiPort;
 
 /** ctx.projection.fetchData(params) — present IFF the descriptor declares
- *  hostCapability projection.data.read. Params mirror getMapPoints' query
+ *  hostCapability projection.data.read. Params mirror the map-points query
  *  surface minus filter/sort (the host applies the workspace's current
  *  ctx.gridState filter/sort itself; the plugin never assembles a
  *  GridFilterSpec). columnId is the geo_point (or other projected) column to
@@ -109,17 +109,17 @@ export interface PluginProjectionViewContext {
   libs?: HostLibraryDeckglFragment;
 }
 
-export interface PluginProjectionViewUnavailable {
+interface PluginProjectionViewUnavailable {
   available: false;
   reason: string;
 }
 
-export interface PluginProjectionViewAvailable {
+interface PluginProjectionViewAvailable {
   available: true;
   reason?: undefined;
 }
 
-export type PluginProjectionViewAvailability =
+type PluginProjectionViewAvailability =
   | PluginProjectionViewAvailable
   | PluginProjectionViewUnavailable;
 

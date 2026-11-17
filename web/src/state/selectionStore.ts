@@ -11,7 +11,7 @@ import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 import { emptySelectedRows, type SelectedGridRows } from '../workspace/workspaceState';
 
-export interface SelectionState {
+interface SelectionState {
   selectedRows: SelectedGridRows;
   selectedColumnId: string | null;
 }

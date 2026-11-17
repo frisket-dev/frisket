@@ -16,7 +16,7 @@ const ACTION_COMPLETION_POLL_INTERVAL_MS = 1000;
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface ActionCompletionApi {
+interface ActionCompletionApi {
   waitForRunCompletion(
     result: V1ActionResult,
     fallbackMessage: string,

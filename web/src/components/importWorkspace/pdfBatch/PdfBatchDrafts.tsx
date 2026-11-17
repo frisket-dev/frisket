@@ -8,7 +8,7 @@ import { count } from './model';
 import { formatBytes } from '../../../format';
 import './PdfBatchImportFlow.css';
 
-export interface PdfBatchDraftsProps {
+interface PdfBatchDraftsProps {
   projectId: string;
   onResume(draftId: string): void;
   api?: Pick<PdfImportsApi, 'list' | 'discard'>;

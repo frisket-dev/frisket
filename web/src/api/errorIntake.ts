@@ -1,13 +1,13 @@
 import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
 
-export interface ErrorIntakeOptions {
+interface ErrorIntakeOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
   credentials?: RequestCredentials;
   keepalive?: boolean;
 }
 
-export interface ClientErrorReportRequest {
+interface ClientErrorReportRequest {
   source: string;
   severity: string;
   name?: string | null;
@@ -17,7 +17,7 @@ export interface ClientErrorReportRequest {
   context?: Record<string, unknown>;
 }
 
-export interface ClientErrorReportResponse {
+interface ClientErrorReportResponse {
   ok: boolean;
   id: number;
   accepted?: boolean | null;
@@ -53,7 +53,7 @@ function mapDiagnosticBundle(
   };
 }
 
-export interface ErrorIntakeApi {
+interface ErrorIntakeApi {
   reportClientError(
     body: ClientErrorReportRequest,
     options?: ErrorIntakeOptions,

@@ -69,7 +69,7 @@ const ANSWERS_EVIDENCE_MIN_WIDTH = 420;
 const ANSWERS_EVIDENCE_MAX_WIDTH = 960;
 const ANSWERS_EVIDENCE_DEFAULT_WIDTH = 600;
 
-export interface AnswersViewProps {
+interface AnswersViewProps {
   projectId: string;
   sheet: SheetMeta;
   /** The sheet's cited columns, already resolved to ColumnDef, in sheet

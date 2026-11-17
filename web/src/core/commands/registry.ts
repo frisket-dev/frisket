@@ -31,7 +31,6 @@
 import { collectEagerRegistrations } from '../registration/glob';
 import type { CommandDescriptor, CommandContext, WorkspaceCommand } from './types';
 
-export type { CommandDescriptor };
 
 // ---- The internal registry — glob self-registration -----------------------
 //
