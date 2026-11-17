@@ -5,7 +5,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 import json
 
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 import pytest
 
@@ -20,13 +19,12 @@ from frisket.retrieval.preparation_policy import (
     write_preparation_policy,
 )
 from frisket.server import provider_config
-from frisket.server.app import create_app
 from frisket.team.app import TeamConfig, create_team_app
 from tests.team_setup_helpers import claim_server
 
 
 def test_project_config_routes_have_typed_successes_and_preserve_wire_rules(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
     monkeypatch.setattr(
         provider_config,
@@ -39,7 +37,6 @@ def test_project_config_routes_have_typed_successes_and_preserve_wire_rules(
             "detail": None,
         },
     )
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Config"}).json()["id"]
     spec = client.app.openapi()
 
@@ -110,8 +107,7 @@ def test_project_config_routes_have_typed_successes_and_preserve_wire_rules(
     assert secret.json()["schemaVersion"] == "frisket.project_secrets.v1"
 
 
-def test_project_settings_round_trip_typed_retrieval_policy(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_settings_round_trip_typed_retrieval_policy(client) -> None:
     pid = client.post("/api/projects", json={"name": "Retrieval settings"}).json()["id"]
 
     initial = client.get(f"/api/projects/{pid}/settings")
@@ -169,8 +165,7 @@ def test_project_settings_round_trip_typed_retrieval_policy(tmp_path) -> None:
     assert "retrieval" not in json.loads(project.get_meta("project_settings_v1"))
 
 
-def test_project_settings_reject_invalid_video_knobs(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_settings_reject_invalid_video_knobs(client) -> None:
     pid = client.post("/api/projects", json={"name": "Retrieval settings"}).json()["id"]
 
     wrong_strategy_field = client.patch(
@@ -201,9 +196,8 @@ def test_project_settings_reject_invalid_video_knobs(tmp_path) -> None:
 
 
 def test_concurrent_partial_retrieval_patches_merge_after_writer_lock(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Concurrent settings"}).json()[
         "id"
     ]
@@ -264,9 +258,8 @@ def test_concurrent_partial_retrieval_patches_merge_after_writer_lock(
     ],
 )
 def test_project_settings_preserve_untouched_future_policy_fields(
-    tmp_path, stored_video: dict, reported_strategy: str
+    client, stored_video: dict, reported_strategy: str
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Future policy"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     stored = json.loads(preparation_policy_json(DEFAULT_PREPARATION_POLICY))
@@ -300,9 +293,8 @@ def test_project_settings_preserve_untouched_future_policy_fields(
 
 
 def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Config"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     project.db.execute(

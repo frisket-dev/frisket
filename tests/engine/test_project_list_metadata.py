@@ -18,13 +18,11 @@ import json
 import os
 import time
 
-from fastapi.testclient import TestClient
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.runner.map_runner import MapRunner
 from frisket.engine.runner.review import review_queue
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 import frisket.engine.store.project as project_module
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
@@ -120,8 +118,7 @@ def run_classify(project: Project, sheet_id: int) -> None:
     asyncio.run(run_with_exact_confirmation(runner, classify_spec(sheet_id)))
 
 
-def test_project_list_carries_updated_at_and_zero_pending_count_on_create(tmp_path):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_list_carries_updated_at_and_zero_pending_count_on_create(client):
 
     created = client.post("/api/projects", json={"name": "Metadata Project"})
     assert created.status_code == 200, created.text
@@ -133,14 +130,13 @@ def test_project_list_carries_updated_at_and_zero_pending_count_on_create(tmp_pa
     assert entry["pending_review_count"] == 0
 
 
-def test_review_summary_manifest_write_carries_envelope_header(tmp_path):
+def test_review_summary_manifest_write_carries_envelope_header(client):
     """artifact-contract consolidation pin: every manifest writer stamps the bundle envelope header.
 
     refresh_pending_review_summary used to merge pending_review_count into
     manifest.json WITHOUT the format/schema_version header, so a manifest
     last written by the review-summary path could lose its envelope. The
     shared Project._write_manifest now stamps it on every write."""
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Envelope"}).json()["id"]
     project = client.app.state.workspace.get(pid)
 
@@ -159,8 +155,7 @@ def test_review_summary_manifest_write_carries_envelope_header(tmp_path):
     assert manifest["pending_review_count"] == 0  # recomputed, not trusted
 
 
-def test_project_list_pending_review_count_tracks_run_and_review_actions(tmp_path):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_list_pending_review_count_tracks_run_and_review_actions(client):
     created = client.post("/api/projects", json={"name": "Review Metadata"})
     pid = created.json()["id"]
     project = client.app.state.workspace.get(pid)
@@ -192,7 +187,7 @@ def test_project_list_pending_review_count_tracks_run_and_review_actions(tmp_pat
     assert entry_after_undo["pending_review_count"] == 2
 
 
-def test_cached_pending_count_equals_a_fresh_live_recount(tmp_path):
+def test_cached_pending_count_equals_a_fresh_live_recount(client):
     """Drift guard: the cached manifest count must always equal a freshly
     recomputed live count (review_bundle_count) after any mutation sequence.
     This is the invariant that protects against a future review-state write
@@ -201,7 +196,6 @@ def test_cached_pending_count_equals_a_fresh_live_recount(tmp_path):
     above still pass. (Added at wave-2 landing review, 2026-07-04.)"""
     from frisket.engine.runner.review import review_bundle_count
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Drift Guard"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet_id = seed_two_row_sheet(project)
@@ -223,8 +217,7 @@ def test_cached_pending_count_equals_a_fresh_live_recount(tmp_path):
     assert cached() == live()
 
 
-def test_project_list_updated_at_reflects_run_activity_not_just_creation(tmp_path):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_list_updated_at_reflects_run_activity_not_just_creation(client):
     created = client.post("/api/projects", json={"name": "Recency Project"})
     pid = created.json()["id"]
     project = client.app.state.workspace.get(pid)
@@ -242,12 +235,11 @@ def test_project_list_updated_at_reflects_run_activity_not_just_creation(tmp_pat
     assert after >= before
 
 
-def test_project_list_sorts_by_recency(tmp_path):
+def test_project_list_sorts_by_recency(client):
     """Sort order tracks bundle mtime end-to-end through the list endpoint.
     Timestamps are set explicitly via os.utime rather than relying on two
     real writes landing in different wall-clock seconds — some filesystems
     have 1-second mtime resolution, which would otherwise make this flake."""
-    client = TestClient(create_app(tmp_path / "workspace"))
     workspace_root = client.app.state.workspace.root
 
     a = client.post("/api/projects", json={"name": "Project A"}).json()["id"]
@@ -268,14 +260,13 @@ def test_project_list_sorts_by_recency(tmp_path):
     assert ids_after.index(a) < ids_after.index(b)
 
 
-def test_project_list_never_opens_project_bundles(tmp_path, monkeypatch):
+def test_project_list_never_opens_project_bundles(client, monkeypatch):
     """The NOT-done clause: pending-review counts must come from the list
     endpoint's own cheap read (manifest.json), never by opening each project's
     sqlite db at list-time — that's the one thing that would defeat the point
     on a many-project workspace (measured live: ~5-44ms per Project() open
     depending on OS page-cache state, i.e. seconds-to-a-minute across a
     thousand-project workspace like the repo's own e2e-ws fixture directory)."""
-    client = TestClient(create_app(tmp_path / "workspace"))
 
     pids = []
     for i in range(5):

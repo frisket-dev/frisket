@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.actions import run_action_spec
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     record_evidence_link,
@@ -113,9 +110,8 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
 
 
 def test_batch_returns_links_per_row_field_identical_to_per_cell_endpoint(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Column batch"}).json()[
         "id"
     ]
@@ -147,8 +143,7 @@ def test_batch_returns_links_per_row_field_identical_to_per_cell_endpoint(
     assert by_row[seed["row_ids"][0]]["links"][0] == per_cell.json()["links"][0]
 
 
-def test_batch_honors_row_ids_window_filter(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_batch_honors_row_ids_window_filter(client) -> None:
     project_id = client.post(
         "/api/projects", json={"name": "Column batch window"}
     ).json()["id"]
@@ -166,9 +161,8 @@ def test_batch_honors_row_ids_window_filter(tmp_path: Path) -> None:
 
 
 def test_batch_excludes_stale_superseded_links_current_value_ref_scoped(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post(
         "/api/projects", json={"name": "Column batch stale"}
     ).json()["id"]
@@ -208,8 +202,7 @@ def test_batch_excludes_stale_superseded_links_current_value_ref_scoped(
     assert seed["row_ids"][1] in by_row
 
 
-def test_batch_zero_row_ids_short_circuits_to_empty_rows(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_batch_zero_row_ids_short_circuits_to_empty_rows(client) -> None:
     project_id = client.post(
         "/api/projects", json={"name": "Column batch empty"}
     ).json()["id"]
@@ -225,8 +218,7 @@ def test_batch_zero_row_ids_short_circuits_to_empty_rows(tmp_path: Path) -> None
     assert empty.json()["rows"] == []
 
 
-def test_batch_unknown_column_is_typed_404(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_batch_unknown_column_is_typed_404(client) -> None:
     project_id = client.post("/api/projects", json={"name": "Column batch 404"}).json()[
         "id"
     ]
@@ -243,8 +235,7 @@ def test_batch_unknown_column_is_typed_404(tmp_path: Path) -> None:
     assert error.field == "column_id"
 
 
-def test_batch_invalid_row_ids_token_is_typed_400(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_batch_invalid_row_ids_token_is_typed_400(client) -> None:
     project_id = client.post(
         "/api/projects", json={"name": "Column batch bad row_ids"}
     ).json()["id"]
