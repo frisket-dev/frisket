@@ -1,5 +1,9 @@
 {
-  "source-reads": {},
+  "source-reads": {
+    "tests/execution/test_seam_column_readers.py": 1,
+    "tests/preview/test_preview_billable_closure.py": 1,
+    "tests/server/test_workspace_router_cache_posture.py": 5
+  },
   "deterministic-time": {},
   "subprocess-spawns": {
     "tests/helpers.py": "run_cli docstring cites the subprocess.run spelling it replaces",

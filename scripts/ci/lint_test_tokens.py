@@ -41,8 +41,17 @@ SOURCE_PATH = re.compile(
     r"""["'](?:\.{0,2}/)*(?:src|web|scripts|\.github)["'/]"""
     r"""|["'][^"']*(?:Dockerfile|docker-compose)"""
 )
-MODULE_FILE = re.compile(r"\b[A-Za-z_]\w*\s*\.\s*__file__\b")
+# Expressions that name a module's file. ``getsourcefile``/``getfile`` answer
+# the same question as ``__file__``.
+MODULE_FILE = re.compile(
+    r"\b[A-Za-z_]\w*\s*\.\s*__file__\b|\binspect\.(?:getsourcefile|getfile)\("
+)
+# Retrieving source text through the import system is a read in itself.
+SOURCE_TEXT = re.compile(r"(?:\binspect\.|(?<![\w.]))getsource(?:lines)?\(")
 READ_CALL = re.compile(r"\.read_text\(|\.read_bytes\(|(?<![\w.])open\(")
+# ``ast.parse`` counts only when its line carries a source origin or a tainted
+# name, so parsing a literal or an untainted parameter does not.
+AST_PARSE = re.compile(r"\bast\.parse\(")
 RECEIVER = re.compile(
     r"([A-Za-z_]\w*)\s*\.\s*read_(?:text|bytes)\(|open\(\s*([A-Za-z_]\w*)"
 )
@@ -52,11 +61,13 @@ NAME = re.compile(r"[A-Za-z_]\w*")
 
 
 def source_origin(text: str) -> bool:
-    return bool(SOURCE_PATH.search(text) or MODULE_FILE.search(text))
+    return bool(
+        SOURCE_PATH.search(text) or MODULE_FILE.search(text) or SOURCE_TEXT.search(text)
+    )
 
 
 def source_read_lines(lines: list[str]) -> Iterator[int]:
-    """Reads whose path reaches repo source.
+    """Reads, ``getsource`` calls and ``ast.parse`` calls reaching repo source.
 
     A name is tainted once assigned from, or looped over, an expression with a
     source origin or an already tainted name. Taint is file-wide by name.
@@ -82,13 +93,16 @@ def source_read_lines(lines: list[str]) -> Iterator[int]:
             iterable = loop.group(2)
             if source_origin(iterable) or set(NAME.findall(iterable)) & tainted:
                 tainted.add(loop.group(1))
-        if not READ_CALL.search(line):
-            continue
-        receivers = {m.group(1) or m.group(2) for m in RECEIVER.finditer(line)}
-        receivers.discard(None)
-        # Complex receiver: fall back to tainted names on the line.
         used_names = set(NAME.findall(line))
-        if sourcey or (receivers or used_names) & tainted:
+        hit = bool(SOURCE_TEXT.search(line))
+        if READ_CALL.search(line):
+            receivers = {m.group(1) or m.group(2) for m in RECEIVER.finditer(line)}
+            receivers.discard(None)
+            # Complex receiver: fall back to tainted names on the line.
+            hit = hit or sourcey or bool((receivers or used_names) & tainted)
+        if AST_PARSE.search(line):
+            hit = hit or sourcey or bool(used_names & tainted)
+        if hit:
             yield idx
 
 
