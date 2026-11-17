@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+import route_adapter_cache
 from frisket.testing import ensure_isolated_llm_cache
 from deployment_env_helpers import _deployment_env_names
 from helpers import make_client, replay_router
@@ -77,6 +78,8 @@ def _neutralize_ambient_dotenv() -> None:
 
 
 _neutralize_ambient_dotenv()
+# Before any test module builds an app; see tests/route_adapter_cache.py.
+route_adapter_cache.install()
 
 
 @pytest.fixture(autouse=True)
