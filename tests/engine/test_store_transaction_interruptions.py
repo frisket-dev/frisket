@@ -6,8 +6,12 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.column_descriptors import set_descriptor
+from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.leases import acquire_lease
+from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import write_transaction
 
 
@@ -207,8 +211,6 @@ def test_joined_transaction_requires_and_never_ends_the_callers(project):
 
 
 def _running_run(project):
-    from frisket.engine.store.runs import RunResultStore
-
     sheet_id = project.db.execute("SELECT id FROM sheets").fetchone()[0]
     op_id = project.append_op("map", {"recipe": "template"})
     return RunResultStore(project).start_run(op_id, sheet_id, "map.template")
@@ -218,8 +220,6 @@ def _running_run(project):
 def test_finish_run_rolls_back_interrupted_terminal_write(
     project, monkeypatch, failure
 ):
-    from frisket.engine.store.runs import RunResultStore
-
     run_id = _running_run(project)
     before = _snapshot(project.db)
     error = failure("interrupted after the terminal status UPDATE")
@@ -235,8 +235,6 @@ def test_finish_run_rolls_back_interrupted_terminal_write(
 
 @pytest.mark.parametrize("failure", INTERRUPTS)
 def test_start_run_rolls_back_interrupted_run_insert(project, monkeypatch, failure):
-    from frisket.engine.store.runs import RunResultStore
-
     sheet_id = project.db.execute("SELECT id FROM sheets").fetchone()[0]
     op_id = project.append_op("map", {"recipe": "template"})
     before = _snapshot(project.db)
@@ -253,8 +251,6 @@ def test_start_run_rolls_back_interrupted_run_insert(project, monkeypatch, failu
 
 @pytest.mark.parametrize("failure", INTERRUPTS)
 def test_owner_rolls_back_interrupted_halt_write(project, monkeypatch, failure):
-    from frisket.engine.store.runs import RunResultStore
-
     run_id = _running_run(project)
     before = _snapshot(project.db)
     error = failure("interrupted after the halt UPDATE")
@@ -271,8 +267,6 @@ def test_owner_rolls_back_interrupted_halt_write(project, monkeypatch, failure):
 
 @pytest.mark.parametrize("failure", INTERRUPTS)
 def test_begin_run_resume_rolls_back_interrupted_reopen(project, monkeypatch, failure):
-    from frisket.engine.store.runs import RunResultStore
-
     run_id = _running_run(project)
     project.db.execute(
         "UPDATE runs SET status='cancelled', finished_at=datetime('now') WHERE id=?",
@@ -295,8 +289,6 @@ def test_begin_run_resume_rolls_back_interrupted_reopen(project, monkeypatch, fa
 
 @pytest.mark.parametrize("failure", INTERRUPTS)
 def test_consume_group_retained_rolls_back_interrupted_consumption(project, failure):
-    from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-
     unit = {
         "family": "test_family",
         "group_key": "group-1",
@@ -330,8 +322,6 @@ def test_consume_group_retained_rolls_back_interrupted_consumption(project, fail
 def test_blob_metadata_update_rolls_back_interrupted_document_write(
     project, monkeypatch, failure
 ):
-    from frisket.engine.store.media_blobs import MediaBlobStore
-
     digest = project.add_blob(b"bytes", filename="a.bin")
     before = _snapshot(project.db)
     error = failure("interrupted after the metadata UPDATE")
@@ -349,8 +339,6 @@ def test_blob_metadata_update_rolls_back_interrupted_document_write(
 def test_set_descriptor_rolls_back_interrupted_descriptor_change(
     project, monkeypatch, failure
 ):
-    from frisket.engine.store.column_descriptors import set_descriptor
-
     column_id = project.db.execute("SELECT id FROM columns").fetchone()[0]
     before = _snapshot(project.db)
     error = failure("interrupted after the descriptor UPDATE")

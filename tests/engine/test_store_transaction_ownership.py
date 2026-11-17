@@ -13,9 +13,13 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.blob_metadata import BlobMetadataDocumentStore
+from frisket.engine.store.blob_metadata import (
+    BlobMetadataDocumentStore,
+    BlobMetadataNamespaceCASDecision,
+)
 from frisket.engine.store.column_descriptors import set_descriptor
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.runs import RunResultStore
 from tests.engine.test_run_review_stats import _managed_run
 
@@ -405,8 +409,6 @@ def test_blob_document_update_owns_its_transaction_when_none_is_open(
 
 
 def _write_namespace(_current, proposal):
-    from frisket.engine.store.blob_metadata import BlobMetadataNamespaceCASDecision
-
     return BlobMetadataNamespaceCASDecision(
         written=True, value=proposal, reason="written"
     )
@@ -425,8 +427,6 @@ def test_blob_namespace_swap_inside_caller_transaction_refuses(project, blob_dig
 
 
 def test_media_metadata_update_owns_the_merge_transaction(project, blob_digest):
-    from frisket.engine.store.media_blobs import MediaBlobStore
-
     MediaBlobStore(project).update_metadata(blob_digest, {"marked": True})
 
     assert not project.db.in_transaction
