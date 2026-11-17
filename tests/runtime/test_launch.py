@@ -71,7 +71,7 @@ def test_indra_policy_only_accepts_owned_optional_runtime(monkeypatch, tmp_path)
 
 def test_private_interpreter_loads_separate_app_not_ambient_pythonpath(tmp_path):
     environment = tmp_path / "private Python"
-    venv.EnvBuilder(with_pip=False).create(environment)
+    venv.EnvBuilder(with_pip=False, symlinks=os.name != "nt").create(environment)
     executable = environment / (
         "Scripts/python.exe" if os.name == "nt" else "bin/python"
     )
@@ -102,7 +102,7 @@ def test_private_interpreter_loads_separate_app_not_ambient_pythonpath(tmp_path)
 
 def test_worker_does_not_write_bytecode_into_its_app_tree(tmp_path):
     environment = tmp_path / "private Python"
-    venv.EnvBuilder(with_pip=False).create(environment)
+    venv.EnvBuilder(with_pip=False, symlinks=os.name != "nt").create(environment)
     executable = environment / (
         "Scripts/python.exe" if os.name == "nt" else "bin/python"
     )
