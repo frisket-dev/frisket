@@ -36,7 +36,6 @@ src/frisket/authoring/project_ask_actions.py::validate_action_proposal  test-onl
 src/frisket/authoring/workbench/contracts.py::_contains_key  test-only
 src/frisket/authoring/workbench/plugin_runtime_shared.py::_reset_plugin_composition_policy_for_tests  test-only
 src/frisket/authoring/workbench/plugin_runtime_status.py::_install_failure_response  unreferenced
-src/frisket/authoring/workbench/plugin_subprocess.py::_run_sandboxed_sync  unreferenced
 src/frisket/contracts/action_validation.py::payload_only_action_refusal  test-only
 src/frisket/contracts/action_validation.py::validate_action_spec  test-only
 src/frisket/contracts/actions/catalog_helpers.py::op_errors  test-only

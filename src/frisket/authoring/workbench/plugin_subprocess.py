@@ -12,16 +12,7 @@ from frisket.engine.sandbox.shim import (
     run_sandboxed_stdout_lines,
 )
 from frisket.engine.store import Project
-from frisket.plugins.process_client import (
-    PluginProcessClient,
-    run_sandboxed_sync,
-)
-
-_DEFAULT_RUN_SANDBOXED = run_sandboxed
-
-
-_DEFAULT_RUN_SANDBOXED_STDOUT_LINES = run_sandboxed_stdout_lines
-
+from frisket.plugins.process_client import PluginProcessClient
 
 _PROJECT_SECRET_FALLBACKS: dict[str, Callable[[str, str], str | None]] = {}
 
@@ -147,76 +138,11 @@ def _missing_project_plugin_secrets(
     return missing
 
 
-def _run_sandboxed_sync(
-    argv: list[str],
-    *,
-    policy: Any,
-    stdin_data: bytes | None = None,
-    stdin_file: Any | None = None,
-    extra_env: dict[str, str],
-    scratch_dir: str | Path | None = None,
-) -> Any:
-    return run_sandboxed_sync(
-        run_sandboxed,
-        argv,
-        policy=policy,
-        stdin_data=stdin_data,
-        stdin_file=stdin_file,
-        extra_env=extra_env,
-        scratch_dir=scratch_dir,
-    )
-
-
 def _plugin_process_client(plugin_root: str) -> PluginProcessClient:
     return PluginProcessClient(
         plugin_root,
         run_sandboxed_call=run_sandboxed,
-        run_sandboxed_stdout_lines_call=_run_plugin_stdout_lines,
-    )
-
-
-async def _run_plugin_stdout_lines(
-    argv: list[str],
-    *,
-    on_stdout_line: Callable[[str], None],
-    policy: Any,
-    stdin_data: bytes | None = None,
-    extra_env: dict[str, str] | None = None,
-    scratch_dir: str | Path | None = None,
-    should_cancel: Callable[[], bool] | None = None,
-) -> Any:
-    """Preserve the historical buffered-runner test seam during cutover."""
-
-    if run_sandboxed_stdout_lines is not _DEFAULT_RUN_SANDBOXED_STDOUT_LINES:
-        return await run_sandboxed_stdout_lines(
-            argv,
-            on_stdout_line=on_stdout_line,
-            policy=policy,
-            stdin_data=stdin_data,
-            extra_env=extra_env,
-            scratch_dir=scratch_dir,
-            should_cancel=should_cancel,
-        )
-    if run_sandboxed is not _DEFAULT_RUN_SANDBOXED:
-        result = await run_sandboxed(
-            argv,
-            policy=policy,
-            stdin_data=stdin_data,
-            extra_env=extra_env,
-            scratch_dir=scratch_dir,
-            should_cancel=should_cancel,
-        )
-        for line in result.stdout.splitlines():
-            on_stdout_line(line)
-        return result
-    return await run_sandboxed_stdout_lines(
-        argv,
-        on_stdout_line=on_stdout_line,
-        policy=policy,
-        stdin_data=stdin_data,
-        extra_env=extra_env,
-        scratch_dir=scratch_dir,
-        should_cancel=should_cancel,
+        run_sandboxed_stdout_lines_call=run_sandboxed_stdout_lines,
     )
 
 
