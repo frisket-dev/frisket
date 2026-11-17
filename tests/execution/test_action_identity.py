@@ -16,13 +16,8 @@ from frisket.engine.executor.map_rows_action import (
     typed_request_hash,
 )
 from frisket.execution.action_identity import (
-    IDENTITY_EXCLUDED_KEYS,
-    NON_IDENTITY_RUNNER_SPEC_KEYS,
-    STRUCTURAL_RUNNER_SPEC_KEYS,
     UnknownActionIdentityKind,
     action_identity_hash,
-    identity_fields,
-    runner_spec_allowlist,
 )
 
 
@@ -222,21 +217,8 @@ def _translate_spec(**params):
 
 
 def test_unrouted_typed_identity_has_no_second_declaration_authority():
-    # The op-declaration allowlist is retired for every kind: nothing remains
-    # to project a runner spec through, and identity never falls back to it.
-    with pytest.raises(
-        UnknownActionIdentityKind, match="has no registered op declaration"
-    ):
-        runner_spec_allowlist("map.translate")
-    with pytest.raises(
-        UnknownActionIdentityKind, match="never falls back to hashing the raw spec"
-    ):
-        identity_fields("map.translate")
-    # The structural/flow key rosters the projection excludes stay disjoint
-    # from what any declaration could ever have re-admitted.
-    assert IDENTITY_EXCLUDED_KEYS.isdisjoint(STRUCTURAL_RUNNER_SPEC_KEYS)
-    assert NON_IDENTITY_RUNNER_SPEC_KEYS.isdisjoint(STRUCTURAL_RUNNER_SPEC_KEYS)
-
+    # Runner-envelope copies never shift identity, and no op-declaration
+    # projection exists to fall back to.
     spec = _translate_spec()
     baseline = action_identity_hash(spec)
     # Runner-envelope copies, flow flags, and backfill scope never shift it.

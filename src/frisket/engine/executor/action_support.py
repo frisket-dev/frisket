@@ -22,9 +22,6 @@ from frisket.ai.models.metadata import (
 from frisket.engine.runner import (
     CostGate,
 )
-from frisket.engine.runner.confirmation_context import (
-    ActionScope,
-)
 
 
 def _row_input_action_error(action_kind: str, error: Any) -> ActionError:
@@ -84,19 +81,6 @@ def _params_hash_without_confirmed(action: ActionSpec) -> str:
         payload, sort_keys=True, separators=(",", ":"), allow_nan=False
     )
     return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def action_confirmation_scope(action: ActionSpec) -> ActionScope:
-    """The confirmation identity of a family that holds the whole ``ActionSpec``.
-
-    These families do not have a routed promise set, but their confirmation
-    has the same invariant: changing target, scope, or quote after the modal
-    was shown must produce a fresh 402 rather than spending under the old
-    approval. The payload and the hash belong to
-    ``engine/runner/confirmation_context.py``; this is only the identity half.
-    """
-
-    return ActionScope(action_hash=_params_hash_without_confirmed(action))
 
 
 def _estimate_confirmation_reason(estimate: float | None) -> str:
