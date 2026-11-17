@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import ConfigDict, field_validator, model_validator
+from pydantic import ConfigDict, model_validator
 
 from frisket.contracts.http.models import NamedCoerciveRequest, WireModel
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class _CompatibleRequest(NamedCoerciveRequest):
@@ -19,50 +20,36 @@ class ProviderKeyRequest(_CompatibleRequest):
 
 
 class LocalEndpointCreateRequest(WireModel):
-    display_name: str
-    origin: str
-    inference_token: str | None = None
-    provisioning_token: str | None = None
+    display_name: Annotated[
+        str, nonblank("local endpoint identity fields cannot be blank", strip=False)
+    ]
+    origin: Annotated[
+        str, nonblank("local endpoint identity fields cannot be blank", strip=False)
+    ]
+    inference_token: Annotated[
+        str | None, nonblank("endpoint tokens must be non-blank or null", strip=False)
+    ] = None
+    provisioning_token: Annotated[
+        str | None, nonblank("endpoint tokens must be non-blank or null", strip=False)
+    ] = None
     edge_auth: bool = False
     pull_enabled: bool = False
-
-    @field_validator("display_name", "origin")
-    @classmethod
-    def non_blank_identity(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("local endpoint identity fields cannot be blank")
-        return value
-
-    @field_validator("inference_token", "provisioning_token")
-    @classmethod
-    def non_blank_token(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("endpoint tokens must be non-blank or null")
-        return value
 
 
 class LocalEndpointPatchRequest(WireModel):
     model_config = ConfigDict(json_schema_extra={"minProperties": 1})
 
-    display_name: str = ""
-    inference_token: str | None = None
-    provisioning_token: str | None = None
+    display_name: Annotated[
+        str, nonblank("display_name cannot be blank", strip=False)
+    ] = ""
+    inference_token: Annotated[
+        str | None, nonblank("endpoint tokens must be non-blank or null", strip=False)
+    ] = None
+    provisioning_token: Annotated[
+        str | None, nonblank("endpoint tokens must be non-blank or null", strip=False)
+    ] = None
     edge_auth: bool = False
     pull_enabled: bool = False
-
-    @field_validator("display_name")
-    @classmethod
-    def non_blank_name(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("display_name cannot be blank")
-        return value
-
-    @field_validator("inference_token", "provisioning_token")
-    @classmethod
-    def non_blank_token(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("endpoint tokens must be non-blank or null")
-        return value
 
     @model_validator(mode="after")
     def at_least_one_change(self) -> LocalEndpointPatchRequest:

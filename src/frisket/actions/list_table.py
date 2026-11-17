@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+from typing import Annotated, Any, Iterator
 from collections.abc import Sequence
 
 from pydantic import Field, field_validator, model_validator
@@ -28,20 +28,16 @@ from frisket.contracts.actions.schemas._base import (
     MAX_IMPORT_ROWS_COLUMNS,
     canonical_column_type,
 )
+from frisket.contracts.actions.schemas._validators import trimmed
 
 
 class ListProjectionColumn(ActionParams):
-    name: str = Field(min_length=1)
+    name: Annotated[
+        str, trimmed("column name must be nonempty and trimmed", allow_empty=True)
+    ] = Field(min_length=1)
     path: str = Field(min_length=1)
     type: str = Field(min_length=1)
     hidden: bool = False
-
-    @field_validator("name")
-    @classmethod
-    def _name(cls, value: str) -> str:
-        if value != value.strip():
-            raise ValueError("column name must be nonempty and trimmed")
-        return value
 
     @field_validator("path")
     @classmethod

@@ -20,6 +20,7 @@ from pydantic import (
 )
 
 from frisket.authoring import column_types
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 ACTION_SCHEMA_VERSION = "frisket.action.v2"
@@ -81,6 +82,8 @@ class ContractModel(BaseModel):
 
 StrictPositiveInt = Annotated[int, Field(gt=0, strict=True)]
 StrictString = Annotated[str, Field(strict=True)]
+StrictInputRef = Annotated[StrictString, nonblank("invalid_input_ref")]
+OptionalStrictNonBlankParam = Annotated[StrictString | None, nonblank("invalid_params")]
 StrictPersistedId = Annotated[int, Field(gt=0, le=2**63 - 1, strict=True)]
 
 
@@ -398,7 +401,7 @@ def _value_matches_column_type(type_name: str, value: Any) -> bool:
     return column_types.validate_value(canonical_column_type(type_name), value)
 
 
-def _is_json_value(value: Any) -> bool:
+def is_json_value(value: Any) -> bool:
     try:
         json.dumps(value, allow_nan=False)
     except (TypeError, ValueError):

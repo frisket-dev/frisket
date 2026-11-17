@@ -5,11 +5,12 @@ A Watch enables alerts on a saved View; selection belongs to that View.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import ConfigDict, JsonValue, RootModel, field_validator, model_validator
+from pydantic import ConfigDict, JsonValue, RootModel, model_validator
 
 from frisket.contracts.http.models import WireModel
+from frisket.contracts.actions.schemas._validators import nonblank
 
 # The page/result literals the producers emit (server/services/watches.py and
 # frisket.features.watchlists.events.WATCH_RUN_EVENT_SCHEMA_VERSION). Restated
@@ -28,19 +29,11 @@ class _ClosedRequest(WireModel):
 
 
 class WatchCreateRequest(_ClosedRequest):
-    name: str
+    name: Annotated[str, nonblank("name is required")]
     view_id: int
     detection_policy: dict[str, JsonValue] | None = None
     enabled: bool = True
     schedule: str | None = "@hourly"
-
-    @field_validator("name")
-    @classmethod
-    def _name_is_nonblank(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("name is required")
-        return value
 
 
 class WatchPatchRequest(_ClosedRequest):

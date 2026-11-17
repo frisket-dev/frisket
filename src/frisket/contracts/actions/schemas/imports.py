@@ -15,7 +15,7 @@ from frisket.authoring import column_types
 from frisket.contracts.actions.schemas._base import (
     ContractModel,
     MAX_IMPORT_ROWS_COLUMNS,
-    _is_json_value,
+    is_json_value,
     _is_v1_column_type,
     canonical_column_type,
 )
@@ -98,7 +98,7 @@ def normalize_import_rows(
 
 def normalize_import_value(type_name: str, value: Any) -> Any:
     """Convert one supplied value once, then validate its stored representation."""
-    if not _is_json_value(value):
+    if not is_json_value(value):
         raise ValueError("invalid_params")
     try:
         parsed = column_types.parse_value(canonical_column_type(type_name), value)
@@ -113,7 +113,7 @@ def validate_import_value(type_name: str, value: Any) -> None:
 
     Temporal anchors still require the executor's project-specific preflight.
     """
-    if not _is_json_value(value) or not column_types.validate_value(
+    if not is_json_value(value) or not column_types.validate_value(
         canonical_column_type(type_name), value
     ):
         raise ValueError("invalid_params")

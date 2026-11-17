@@ -122,8 +122,7 @@
    "src/frisket/contracts/actions/schemas/temporal.py::TemporalDraftRangeSelection._validate_optional_text"
   ],
   [
-   "src/frisket/actions/mutations.py::_is_json_value",
-   "src/frisket/contracts/actions/schemas/_base.py::_is_json_value",
+   "src/frisket/contracts/actions/schemas/_base.py::is_json_value",
    "src/frisket/engine/executor/action_support.py::_is_json_value"
   ],
   [
@@ -530,8 +529,7 @@
    "src/frisket/actions/translate.py::TranslateParams._source"
   ],
   [
-   "src/frisket/actions/mutations.py::_is_json_value",
-   "src/frisket/contracts/actions/schemas/_base.py::_is_json_value",
+   "src/frisket/contracts/actions/schemas/_base.py::is_json_value",
    "src/frisket/engine/executor/action_support.py::_is_json_value"
   ],
   [

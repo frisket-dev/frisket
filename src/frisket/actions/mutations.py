@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -28,20 +27,13 @@ from frisket.actions.types import (
 from frisket.contracts.actions.schemas._base import (
     MAX_CELL_EDITS,
     canonical_column_type,
+    is_json_value,
 )
 
 
 COLUMN_DISPLAY_FORMATS = frozenset({"markdown", "filesize", "currency", "percent"})
 _MAX_ROW_ADD_CELLS = 256
 _MAX_ROW_DELETE_ROWS = 10_000
-
-
-def _is_json_value(value: Any) -> bool:
-    try:
-        json.dumps(value, allow_nan=False)
-    except (TypeError, ValueError):
-        return False
-    return True
 
 
 class ColumnPatchParams(ActionParams):
@@ -79,7 +71,7 @@ class RowAddParams(ActionParams):
         for name, value in cells.items():
             if not isinstance(name, str) or not name.strip():
                 raise ValueError("invalid_row_ref")
-            if not _is_json_value(value):
+            if not is_json_value(value):
                 raise ValueError("invalid_params")
         return cells
 
@@ -119,7 +111,7 @@ class CellEdit(BaseModel):
     @field_validator("value")
     @classmethod
     def _validate_value(cls, value: Any | None) -> Any | None:
-        if not _is_json_value(value):
+        if not is_json_value(value):
             raise ValueError("invalid_params")
         return value
 
@@ -143,7 +135,7 @@ class CellEditQueryParams(ActionParams):
     @field_validator("value")
     @classmethod
     def _validate_value(cls, value: Any | None) -> Any | None:
-        if not _is_json_value(value):
+        if not is_json_value(value):
             raise ValueError("invalid_params")
         return value
 

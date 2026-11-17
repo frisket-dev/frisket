@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -55,8 +55,39 @@ class StagedImportInput(ActionParams):
     request_hash: str | None = None
 
 
-class UpdateRowsParams(ImportRowsParams):
+class UpdateMappingParams(ActionParams):
+    """Keyed-update fields shared by the ``import.update_*`` params.
+
+    List it before the import params it extends so its fields follow theirs:
+    ``class UpdateCsvParams(UpdateMappingParams, ImportCsvParams)``.
+    """
+
+    duplicate_key_message: ClassVar[str] = (
+        "key_columns must uniquely name imported columns"
+    )
+    unknown_key_message: ClassVar[str] = duplicate_key_message
+
     staged_input: StagedImportInput | None = None
+    key_columns: list[str] = Field(min_length=1)
+    keep_existing_on_blank: bool = False
+    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @model_validator(mode="after")
+    def _validate_update_mapping(self) -> Self:
+        names = {column.name for column in self.columns}
+        if len(self.key_columns) != len(set(self.key_columns)):
+            raise ValueError(self.duplicate_key_message)
+        if not set(self.key_columns).issubset(names):
+            raise ValueError(self.unknown_key_message)
+        if names == set(self.key_columns):
+            raise ValueError("choose at least one non-key update column")
+        return self
+
+
+class UpdateRowsParams(UpdateMappingParams, ImportRowsParams):
+    duplicate_key_message: ClassVar[str] = "key_columns must be unique"
+    unknown_key_message: ClassVar[str] = "key_columns must name imported columns"
 
     @model_validator(mode="after")
     def _validate_rows(self) -> UpdateRowsParams:
@@ -73,22 +104,6 @@ class UpdateRowsParams(ImportRowsParams):
             }
             for row in self.rows
         ]
-        return self
-
-    key_columns: list[str] = Field(min_length=1)
-    keep_existing_on_blank: bool = False
-    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
-    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
-
-    @model_validator(mode="after")
-    def _validate_update_mapping(self) -> UpdateRowsParams:
-        names = {column.name for column in self.columns}
-        if len(self.key_columns) != len(set(self.key_columns)):
-            raise ValueError("key_columns must be unique")
-        if not set(self.key_columns).issubset(names):
-            raise ValueError("key_columns must name imported columns")
-        if names == set(self.key_columns):
-            raise ValueError("choose at least one non-key update column")
         return self
 
 
@@ -174,23 +189,8 @@ class ImportCsvParams(ActionParams):
         return self
 
 
-class UpdateCsvParams(ImportCsvParams):
-    staged_input: StagedImportInput | None = None
-    key_columns: list[str] = Field(min_length=1)
-    keep_existing_on_blank: bool = False
-    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
-    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
-
-    @model_validator(mode="after")
-    def _validate_update_mapping(self) -> UpdateCsvParams:
-        names = {column.name for column in self.columns}
-        if len(self.key_columns) != len(set(self.key_columns)) or not set(
-            self.key_columns
-        ).issubset(names):
-            raise ValueError("key_columns must uniquely name imported columns")
-        if names == set(self.key_columns):
-            raise ValueError("choose at least one non-key update column")
-        return self
+class UpdateCsvParams(UpdateMappingParams, ImportCsvParams):
+    pass
 
 
 def _columns(

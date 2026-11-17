@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Annotated, Any, Protocol
 
 from pydantic import (
     BaseModel,
@@ -17,6 +17,7 @@ from frisket.actions.types import ActionParams, Row
 from frisket.actions.media_types import DetectedLanguage
 from frisket.contracts.actions.schemas._language import canonicalize_languages
 from frisket.actions.translation_languages import translate_language_declaration
+from frisket.contracts.actions.schemas._validators import nonblank
 
 TRANSLATION_ENGINES = frozenset(
     {"llm", "deepl", "google_translate", "opus_mt", "hy_mt2"}
@@ -34,17 +35,11 @@ def translation_text(values: Mapping[str, Any]) -> str:
 
 
 class TranslationOptions(ActionParams):
-    target_language: StrictStr = "English"
+    target_language: Annotated[
+        StrictStr, nonblank("target_language must not be blank")
+    ] = "English"
     language: list[StrictStr] | None = Field(default=None, validate_default=True)
     save_detected_language: StrictBool = False
-
-    @field_validator("target_language")
-    @classmethod
-    def _target(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("target_language must not be blank")
-        return value
 
     @field_validator("language", mode="before")
     @classmethod

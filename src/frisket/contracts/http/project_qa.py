@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field, JsonValue, field_validator, model_validator
+from pydantic import Field, JsonValue, model_validator
 
 from frisket.contracts.http.models import WireModel
 from frisket.contracts.http.skills import InstructionSkill
@@ -12,6 +12,7 @@ from frisket.contracts.http.project_search import (
     ProjectSearchDocumentNavigation,
     ProjectSearchTextRange,
 )
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class AskSheetSource(WireModel):
@@ -96,19 +97,16 @@ class AskThreadCreate(AskOptions):
 
 class AskThreadUpdate(WireModel):
     expected_revision: int = Field(ge=1)
-    title: str | None = Field(default=None, min_length=1, max_length=200)
+    title: Annotated[str | None, nonblank("Enter a non-empty value.", strip=False)] = (
+        Field(default=None, min_length=1, max_length=200)
+    )
     scope: AskScope | None = None
-    model: str | None = Field(default=None, min_length=1, max_length=200)
+    model: Annotated[str | None, nonblank("Enter a non-empty value.", strip=False)] = (
+        Field(default=None, min_length=1, max_length=200)
+    )
     web: bool | None = None
     suggest_actions: bool | None = None
     research: AskResearchOptions | None = None
-
-    @field_validator("title", "model")
-    @classmethod
-    def nonblank(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("Enter a non-empty value.")
-        return value
 
 
 class AskTurnRequest(AskOptions):

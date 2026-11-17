@@ -43,10 +43,6 @@ src/frisket/contracts/actions/catalog_helpers.py::op_errors  test-only
 src/frisket/contracts/actions/catalog_helpers.py::temporal_persistence_errors  test-only
 src/frisket/contracts/actions/schemas/_base.py::_value_matches_column_type  unreferenced
 src/frisket/contracts/actions/schemas/_engines.py::receipt_provider_map  test-only
-src/frisket/contracts/actions/schemas/_validators.py::before_rule  test-only
-src/frisket/contracts/actions/schemas/_validators.py::cross_rule  test-only
-src/frisket/contracts/actions/schemas/_validators.py::ensure_unique_output_columns  unreferenced
-src/frisket/contracts/actions/schemas/_validators.py::validate_model_id  unreferenced
 src/frisket/contracts/actions/schemas/imports.py::ImportRowsOutput  unreferenced
 src/frisket/contracts/actions/schemas/temporal.py::TemporalDraftRangeSelection.as_item  unreferenced
 src/frisket/contracts/artifact_compatibility.py::<module>  frisket-cloud
