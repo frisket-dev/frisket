@@ -198,7 +198,7 @@
       "id": "frisket.core.panel.watches",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Watches",
+      "title": "Alerts",
       "icon": "Bell",
       "placements": [
         {

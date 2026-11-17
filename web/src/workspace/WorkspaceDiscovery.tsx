@@ -207,6 +207,8 @@ const DISCOVER_TAB_ICON: Record<DiscoverTab, LucideIcon> = {
   Notifications: BellRing,
 };
 
+const DISCOVER_TAB_LABEL: Partial<Record<DiscoverTab, string>> = { Facets: 'Filter', Watches: 'Alerts' };
+
 const PLUGIN_TAB_ICONS: Record<string, LucideIcon> = {
   AtSign,
   Bell,
@@ -306,7 +308,7 @@ export const WorkspaceDiscoverRegion = memo(function WorkspaceDiscoverRegion() {
   const tabs = useMemo<DiscoverTabDescriptor[]>(() => {
     const firstParty = DISCOVER_TABS.map((tab) => ({
       id: tab,
-      label: tab === 'Facets' ? 'Filter' : tab,
+      label: DISCOVER_TAB_LABEL[tab] ?? tab,
       slug: tab,
       Icon: DISCOVER_TAB_ICON[tab],
     }));

@@ -142,7 +142,7 @@ def test_watch_event_routes_through_worker_to_recorded_slack_transport(
     call = transport.calls[0]
     assert call["url"] == SLACK_WEBHOOK
     assert call["headers"] == {"Content-Type": "application/json"}
-    assert call["payload"]["text"].startswith("*Budget watch recorded 2 watch events*")
+    assert call["payload"]["text"].startswith("*Budget watch recorded 2 alert events*")
 
     project = workspace.get(pid)
     attempts = project.db.execute(

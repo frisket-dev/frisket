@@ -1020,7 +1020,7 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
 
         missing_watch = client.post(f"/api/projects/{project_id}/watches/9999/run")
         assert missing_watch.status_code == 404
-        assert missing_watch.json() == {"detail": "watch not found"}
+        assert missing_watch.json() == {"detail": "alert not found"}
 
         for body in ({}, {"name": "   "}, {"name": None}, {"enabled": None}):
             invalid_patch = client.patch(
@@ -1035,7 +1035,7 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
             == 404
         )
         assert client.delete(f"/api/projects/{project_id}/watches/9999").json() == {
-            "detail": "watch not found"
+            "detail": "alert not found"
         }
         assert (
             client.get(f"/api/projects/{project_id}/watches/9999/runs").status_code
@@ -1043,7 +1043,7 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
         )
         assert client.get(
             f"/api/projects/{project_id}/watches/{watch_id}/runs/9999/events"
-        ).json() == {"detail": "watch run not found"}
+        ).json() == {"detail": "alert run not found"}
 
         bad_event_kind = client.get(
             f"/api/projects/{project_id}/watches/{watch_id}/runs/{run_id}/events"

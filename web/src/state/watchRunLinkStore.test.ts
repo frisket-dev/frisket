@@ -24,7 +24,7 @@ describe('watch intent store', () => {
     expect(beta).not.toBeNull();
     expect(handle.claimWatchAction(1, 'delete')).toBeNull();
     handle.settleWatchAction(alpha!, {
-      status: 'Renamed Watch to Alpha 2.', error: null, errorCode: null, watch: {} as never, focusWatchId: 1,
+      status: 'Renamed alert to Alpha 2.', error: null, errorCode: null, watch: {} as never, focusWatchId: 1,
     });
     expect(handle.store.get().watchActions[1]).toMatchObject({ phase: 'settled', intent: 'rename' });
     expect(handle.store.get().watchActions[2]).toMatchObject({ phase: 'pending', intent: 'run' });
@@ -41,7 +41,7 @@ describe('watch intent store', () => {
     handle.ackCreateWatch(handle.store.get().pendingCreateAction!);
     expect(handle.store.get().pendingCreateDraft).toEqual(draft);
     const succeeded = handle.claimCreateWatch();
-    handle.settleCreateWatch(succeeded!, { status: 'Created Watch Open rows watch.', error: null, errorCode: null, watch: {} as never, focusWatchId: 3 });
+    handle.settleCreateWatch(succeeded!, { status: 'Created alert Open rows watch.', error: null, errorCode: null, watch: {} as never, focusWatchId: 3 });
     handle.ackCreateWatch(handle.store.get().pendingCreateAction!);
     expect(handle.store.get().pendingCreateDraft).toBeNull();
   });

@@ -29,7 +29,7 @@ function sourceRefLabel(ref: Record<string, unknown>): string {
 }
 
 function itemSourceLabel(item: NotificationItem): string {
-  if (item.sourceKind === 'watch') return 'Watch';
+  if (item.sourceKind === 'watch') return 'Alert';
   if (item.sourceKind === 'run') return 'Run';
   return item.sourceKind || 'Source';
 }

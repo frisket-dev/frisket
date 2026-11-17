@@ -33,7 +33,7 @@ test('a current grid selection becomes a persistent View with its own alert', as
   const item = panel.getByTestId('watch-item').filter({ hasText: 'Daily stories' });
   await expect(item).toBeVisible();
   await page.screenshot({ path: 'test-results/domain-view-alert.png', fullPage: true });
-  await item.getByRole('button', { name: 'Alert conditions', exact: true }).click();
+  await item.getByRole('button', { name: 'Conditions', exact: true }).click();
   await expect(item.getByLabel('Check frequency')).toHaveValue('@daily');
   await page.screenshot({ path: 'test-results/domain-alert-schedule.png', fullPage: true });
 });

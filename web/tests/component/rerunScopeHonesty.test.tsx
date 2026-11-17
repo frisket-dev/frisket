@@ -145,7 +145,7 @@ describe('Watches panel — re-run labels say what they buy (ruling 4)', () => {
     expect(refresh).toHaveTextContent('Refresh index & re-run');
     expect(refresh).toHaveAttribute(
       'title',
-      'Refresh the embedding index, then run the whole watch again',
+      'Refresh the embedding index, then check the whole alert again',
     );
   });
 

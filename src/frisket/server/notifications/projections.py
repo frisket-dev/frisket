@@ -47,7 +47,7 @@ def watch_run_notification_candidate(
     )
     matched_rows = int(run["matched_rows"] or 0)
     new_rows = int(run["new_rows"] or 0)
-    title = f"{watch_name} recorded {event_count} watch event"
+    title = f"{watch_name} recorded {event_count} alert event"
     if event_count != 1:
         title += "s"
     summary = (

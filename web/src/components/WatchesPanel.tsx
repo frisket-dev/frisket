@@ -346,7 +346,7 @@ function useWatchesPanelController(canEdit: boolean) {
   }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, watchRunLinkHandle]);
 
   const runWatch = useCallback((watchId: number) => {
-    runWatchAction(watchId, 'run', 'Running Watch…', () => projectApi.runWatch(watchId));
+    runWatchAction(watchId, 'run', 'Running alert…', () => projectApi.runWatch(watchId));
   }, [projectApi, runWatchAction]);
 
   const updateWatch = useCallback((
@@ -363,7 +363,7 @@ function useWatchesPanelController(canEdit: boolean) {
     setPanelState((current) => ({
       error: null,
       errorCode: null,
-      status: intent === 'configure' ? 'Saving alerts…' : intent === 'rename' ? 'Renaming Watch…' : intent === 'pause' ? 'Pausing Watch…' : 'Resuming Watch…',
+      status: intent === 'configure' ? 'Saving conditions…' : intent === 'rename' ? 'Renaming alert…' : intent === 'pause' ? 'Pausing alert…' : 'Resuming alert…',
       mutationErrors: { ...current.mutationErrors, [watchId]: '' },
     }));
     let outcome!: WatchActionOutcome;
@@ -373,7 +373,7 @@ function useWatchesPanelController(canEdit: boolean) {
         outcome = {
           status: (patch.detection_policy || patch.schedule !== undefined) ? `Saved alerts for ${updated.name}.` : patch.name === undefined
             ? `${updated.name} is now ${updated.enabled ? 'active' : 'paused'}.`
-            : `Renamed Watch to ${updated.name}.`,
+            : `Renamed alert to ${updated.name}.`,
           error: null,
           errorCode: null,
           watch: updated,
@@ -400,7 +400,7 @@ function useWatchesPanelController(canEdit: boolean) {
     setPanelState((current) => ({
       error: null,
       errorCode: null,
-      status: 'Deleting Watch…',
+      status: 'Deleting alert…',
       mutationErrors: { ...current.mutationErrors, [watchId]: '' },
     }));
     let outcome!: WatchActionOutcome;
@@ -408,7 +408,7 @@ function useWatchesPanelController(canEdit: boolean) {
       .deleteWatch(watchId)
       .then(() => {
         outcome = {
-          status: 'Watch deleted.',
+          status: 'Alert deleted.',
           error: null,
           errorCode: null,
           watch: null,
@@ -457,12 +457,12 @@ function useWatchesPanelController(canEdit: boolean) {
     if (!action) return;
 
     invalidateWatchList();
-    setPanelState({ creating: true, error: null, errorCode: null, status: 'Creating Watch…' });
+    setPanelState({ creating: true, error: null, errorCode: null, status: 'Creating alert…' });
     void projectApi
       .createWatch({ name, view_id: draft.view_id, detection_policy: draft.detection_policy, schedule: draft.schedule === undefined ? '@hourly' : draft.schedule })
       .then((watch) => {
         watchRunLinkHandle.settleCreateWatch(action, {
-          status: `Created Watch ${watch.name}.`, error: null, errorCode: null, watch, focusWatchId: watch.id,
+          status: `Created alert ${watch.name}.`, error: null, errorCode: null, watch, focusWatchId: watch.id,
         });
       })
       .catch((e: Error) => {
@@ -521,7 +521,7 @@ function useWatchesPanelController(canEdit: boolean) {
   };
 }
 
-// The Discover tab already labels this panel "Watches" — no second collapse
+// The Discover tab already labels this panel "Alerts" — no second collapse
 // level, no toggle button. This slim static row only exists to keep the
 // notification/item count badges visible somewhere once their old toggle
 // header is gone; it renders nothing when there is nothing to show.
@@ -564,15 +564,15 @@ function WatchCreateComposer({
     <div className="panel-card" data-testid="watch-create-composer">
       <div>
         <div className="panel-item-meta">View alerts</div>
-        <strong className="panel-item-title">Choose what to watch for.</strong>
+        <strong className="panel-item-title">Choose what to alert on.</strong>
       </div>
       <label className="form-field">
-        <span className="form-label">Watch name</span>
+        <span className="form-label">Alert name</span>
         <TextInput
           autoFocus
 
           data-testid="watch-create-name"
-          aria-label="Watch name"
+          aria-label="Alert name"
           aria-describedby={trimmedName ? undefined : 'watch-create-name-error'}
           value={draft.name}
           disabled={creating}
@@ -589,7 +589,7 @@ function WatchCreateComposer({
       </div>
       <div className="form-actions">
         <ListEditorActions testId="create-watch-button" cancelTestId="cancel"
-          icon={WatchIcon} saveLabel={creating ? 'Creating…' : 'Enable alerts'}
+          icon={WatchIcon} saveLabel={creating ? 'Creating…' : 'Create alert'}
           busy={creating} saveDisabled={!trimmedName} onSave={onCreate} onCancel={onCancel} />
       </div>
     </div>
@@ -768,11 +768,11 @@ function WatchItem({
       <div className="panel-item-description">
         {watchSummary(watch)}
       </div>
-      {canEdit && <Button type="button" disabled={isPending} onClick={() => { setConditions(watch.detectionPolicy); setSchedule(watch.schedule); setConfiguring(!configuring); }}>Alert conditions</Button>}
+      {canEdit && <Button type="button" disabled={isPending} onClick={() => { setConditions(watch.detectionPolicy); setSchedule(watch.schedule); setConfiguring(!configuring); }}>Conditions</Button>}
       {configuring && <div className="form-stack">
         <ViewAlertSchedule value={schedule} onChange={setSchedule} disabled={isPending} />
         <ViewAlertConditions value={conditions} onChange={setConditions} sheetId={watch.sheetId} disabled={isPending} />
-        <ListEditorActions busy={isPending} saveLabel="Save alerts" onSave={() => {
+        <ListEditorActions busy={isPending} saveLabel="Save conditions" onSave={() => {
           void onUpdateWatch(watch.id, { detection_policy: conditions, schedule }).then((saved) => { if (saved) setConfiguring(false); });
         }} onCancel={() => setConfiguring(false)} />
       </div>}
@@ -785,7 +785,7 @@ function WatchItem({
             data-testid={`watch-refresh-index-${watch.id}`}
             // Ruling 4 honesty: this refreshes the embedding index AND then
             // runs the whole watch again — two purchases, named up front.
-            title="Refresh the embedding index, then run the whole watch again"
+            title="Refresh the embedding index, then check the whole alert again"
             aria-busy={isRefreshingIndex}
             disabled={isPending}
             onClick={() => onRefreshIndex(watch.id, blockedIndexId)}
@@ -826,10 +826,10 @@ function WatchItem({
       {confirmingDelete && (
         <ConfirmDialog title={`Delete ${watch.name}?`} busy={isDeleting} danger
           testId="delete-watch-confirmation" confirmTestId="confirm-delete-watch"
-          confirmLabel={isDeleting ? 'Deleting…' : 'Delete Watch'}
+          confirmLabel={isDeleting ? 'Deleting…' : 'Delete alert'}
           onCancel={closeDeleteDialog} onConfirm={confirmDelete}>
           <p className="modal-body-text">
-            Deleting this Watch means its run history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
+            Deleting this alert means its run history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
           </p>
           {mutationError && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
         </ConfirmDialog>
@@ -935,7 +935,7 @@ function WatchesPanelBody({
       )}
       {canEdit && canCreateFromCurrentView && !draft && (
         <Button type="button" className="btn-primary" data-testid="new-watch-from-current-grid" onClick={onCreateFromCurrentView}>
-          <WatchIcon size={14} aria-hidden /> Create new watch
+          <WatchIcon size={14} aria-hidden /> Create new alert
         </Button>
       )}
       {error && <PanelError testId="watches-error">{error}</PanelError>}
@@ -948,7 +948,7 @@ function WatchesPanelBody({
       {items === null ? (
         <PanelEmpty>loading...</PanelEmpty>
       ) : items.length === 0 ? (
-        <PanelEmpty testId="watches-empty">No watches yet.</PanelEmpty>
+        <PanelEmpty testId="watches-empty">No alerts yet.</PanelEmpty>
       ) : (
         <ul className="panel-list">
           {items.map((watch, index) => (

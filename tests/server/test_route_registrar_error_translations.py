@@ -68,7 +68,7 @@ class _RaisingService:
             "/api/projects/p/watches/9/run",
             WatchNotFound("service text is intentionally hidden"),
             404,
-            b'{"detail":"watch not found"}',
+            b'{"detail":"alert not found"}',
         ),
         (
             register_workbench_routes,

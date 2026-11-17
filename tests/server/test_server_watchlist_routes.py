@@ -135,7 +135,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
 
     missing = client.post("/api/projects/p/watches/404/run")
     assert missing.status_code == 404
-    assert missing.json()["detail"] == "watch not found"
+    assert missing.json()["detail"] == "alert not found"
 
     runs = client.get(
         "/api/projects/p/watches/9/runs",
@@ -168,7 +168,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
 
     wrong_run = client.get("/api/projects/p/watches/9/runs/404/events")
     assert wrong_run.status_code == 404
-    assert wrong_run.json()["detail"] == "watch run not found"
+    assert wrong_run.json()["detail"] == "alert run not found"
 
 
 def _run_payload(run_id: int, *, watch_id: int) -> dict[str, Any]:
@@ -247,7 +247,7 @@ class _FakeWatchService:
     def run_watch(self, project_id: str, watch_id: int) -> dict:
         self.calls.append(("run_watch", project_id, watch_id))
         if watch_id == 404:
-            raise WatchNotFound("watch not found")
+            raise WatchNotFound("alert not found")
         return {
             "schema_version": "frisket.watch_run.v1",
             "watch": _watch_payload(watch_id),
@@ -268,14 +268,14 @@ class _FakeWatchService:
         if "name" in fields:
             name = str(fields["name"]).strip()
             if not name:
-                raise WatchRequestError("watch name is required")
+                raise WatchRequestError("alert name is required")
             return _watch_payload(watch_id, name=name)
         return {**_watch_payload(watch_id), "enabled": bool(fields["enabled"])}
 
     def delete_watch(self, project_id: str, watch_id: int) -> dict:
         self.calls.append(("delete_watch", project_id, watch_id))
         if watch_id == 404:
-            raise WatchNotFound("watch not found")
+            raise WatchNotFound("alert not found")
         return {"ok": True, "deleted": watch_id}
 
     def list_watch_runs(
@@ -324,7 +324,7 @@ class _FakeWatchService:
             )
         )
         if run_id == 404:
-            raise WatchRunNotFound("watch run not found")
+            raise WatchRunNotFound("alert run not found")
         if event_kind == "bad":
             raise WatchRequestError("unsupported watch run event kind")
         return {

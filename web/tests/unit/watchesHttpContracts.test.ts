@@ -428,13 +428,13 @@ describe("watchlist generated HTTP transport", () => {
   });
 
   it("keeps the plain-string watch error envelope on ApiError", async () => {
-    // Watch errors are plain string details ({"detail": "watch not found"}):
+    // Watch errors are plain string details ({"detail": "alert not found"}):
     // status + message, with code and details both undefined.
     const real = await import("../../src/api/real");
     const projectApi = real.createProjectApi("watch-error");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ detail: "watch not found" }, 404)),
+      vi.fn(async () => jsonResponse({ detail: "alert not found" }, 404)),
     );
     const error = await projectApi
       .runWatch(9999)
@@ -444,7 +444,7 @@ describe("watchlist generated HTTP transport", () => {
     expect(error).toBeInstanceOf(real.ApiError);
     const apiError = error as InstanceType<typeof real.ApiError>;
     expect(apiError.status).toBe(404);
-    expect(apiError.message).toBe("watch not found");
+    expect(apiError.message).toBe("alert not found");
     expect(apiError.code).toBeUndefined();
     expect(apiError.details).toBeUndefined();
   });
@@ -454,7 +454,7 @@ describe("watchlist generated HTTP transport", () => {
     const lifecycleApi = real.createProjectApi("watch-lifecycle-error");
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({ detail: "watch not found" }, 404)),
+      vi.fn(async () => jsonResponse({ detail: "alert not found" }, 404)),
     );
 
     const [patchError, deleteError] = await Promise.all([
@@ -466,7 +466,7 @@ describe("watchlist generated HTTP transport", () => {
       expect(error).toBeInstanceOf(real.ApiError);
       const apiError = error as InstanceType<typeof real.ApiError>;
       expect(apiError.status).toBe(404);
-      expect(apiError.message).toBe("watch not found");
+      expect(apiError.message).toBe("alert not found");
       expect(apiError.code).toBeUndefined();
       expect(apiError.details).toBeUndefined();
     }

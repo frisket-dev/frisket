@@ -20,14 +20,14 @@ export function ViewAlertConditions({ value, onChange, sheetId, disabled = false
     <label className="form-check"><input type="checkbox" checked={chooseFields} disabled={disabled} onChange={(event) => {
       setChooseFields(event.currentTarget.checked); if (!event.currentTarget.checked) change({ fields: [] });
     }} />Changes to selected columns</label>
-    {chooseFields && <div role="group" aria-label="Columns to monitor" className="form-stack">
+    {chooseFields && <div role="group" aria-label="Columns to check" className="form-stack">
       {columns.map((column) => <label key={column.id} className="form-check"><input type="checkbox" disabled={disabled}
         checked={value.fields.some((field) => field.column_id === column.id)} onChange={(event) => change({ fields: event.currentTarget.checked
           ? [...value.fields, { column_id: column.id }] : value.fields.filter((field) => field.column_id !== column.id) })} />{column.label}</label>)}
-      {value.fields.length === 0 && <span className="form-hint">Choose columns to monitor.</span>}
+      {value.fields.length === 0 && <span className="form-hint">Choose columns to check.</span>}
     </div>}
     <label className="form-check"><input type="checkbox" checked={value.exited} disabled={disabled} onChange={(event) => change({ exited: event.currentTarget.checked })} />Rows leaving this view</label>
-    <details><summary>Count alerts</summary><div className="form-stack">
+    <details><summary>Count conditions</summary><div className="form-stack">
       <label className="form-check"><input type="checkbox" checked={value.count_changed} disabled={disabled} onChange={(event) => change({ count_changed: event.currentTarget.checked })} />Matching row count changes</label>
       <FormField label="Count threshold"><TextInput type="number" min={1} disabled={disabled} value={typeof value.threshold?.threshold === 'number' ? value.threshold.threshold : ''}
         placeholder="None" onChange={(event) => change({ threshold: event.currentTarget.value ? { kind: 'threshold_crossed', metric: 'matched_rows', threshold: Number(event.currentTarget.value), direction: value.threshold?.direction ?? 'at_or_above' } : undefined })} /></FormField>

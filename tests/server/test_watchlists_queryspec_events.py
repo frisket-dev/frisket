@@ -256,4 +256,4 @@ def test_watch_run_events_route_rejects_run_from_another_watch(tmp_path: Path) -
         f"/api/projects/{pid}/watches/{second_watch['id']}/runs/{run['run']['id']}/events"
     )
     assert wrong_watch.status_code == 404, wrong_watch.text
-    assert "watch run not found" in wrong_watch.json()["detail"]
+    assert "alert run not found" in wrong_watch.json()["detail"]

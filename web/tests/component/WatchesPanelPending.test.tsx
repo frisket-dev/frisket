@@ -122,10 +122,10 @@ describe('WatchesPanel pending actions', () => {
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'conditions', api: { projectApi } });
     harness.render(<WatchesPanel canEdit />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Alert conditions' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Conditions' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Rows leaving this view' }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Check frequency' }), { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save alerts' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save conditions' }));
     await waitFor(() => expect(projectApi.updateWatch).toHaveBeenCalledWith(1, { detection_policy: { ...item.detectionPolicy, exited: true }, schedule: null }));
     expect(projectApi.updateWatch).toHaveBeenCalledTimes(1);
   });
