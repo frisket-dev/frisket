@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Land one pull request: verify, squash-merge, fast-forward, clean up.
 
-  land.py <pr-number> [--dry-run] [--repo OWNER/NAME] [--remote origin]
+  land.py <pr-number> [--wait] [--dry-run] [--repo OWNER/NAME] [--remote origin]
 
 Each step runs only when the previous one succeeded and stops with a message
 otherwise:
@@ -9,19 +9,25 @@ otherwise:
 1. every required check on the PR's current head commit is green (the
    checks are read from that exact commit, so a run for an older head
    never counts);
-2. GitHub reports the PR mergeable; if the branch is behind its base, the
-   branch is updated and the script exits: re-run it once CI is green on the
-   new head (it never waits or loops);
-3. squash-merge, pinned to the verified head commit (never ``--admin``);
-4. the PR state is confirmed MERGED;
+2. GitHub reports the PR mergeable; without a merge queue, a branch behind
+   its base is updated and the script exits: re-run it once CI is green on
+   the new head. With a merge queue a behind branch is left alone (the queue
+   tests the PR on top of the base);
+3. squash-merge, pinned to the verified head commit (never ``--admin``); with
+   a merge queue the command enqueues the PR (``--auto``) instead of merging;
+4. the PR state is confirmed MERGED. A queued PR exits with status 4 and its
+   queue position; ``--wait`` polls until it is MERGED or leaves the queue
+   (an ejection names the failing check);
 5. the main checkout fast-forwards its base branch to include the merge;
 6. only then is the lane's worktree removed and its local branch deleted,
    and the remote branch is deleted (never for a PR that is not MERGED).
 
-A PR that is already MERGED resumes at step 5. ``--dry-run`` performs the
-read-only checks and prints every mutating command instead of running it.
+A PR that is already MERGED resumes at step 5; one already in the queue
+resumes at step 4. ``--dry-run`` performs the read-only checks and prints
+every mutating command instead of running it.
 
-Exit status: 0 landed (or planned), 1 stopped, 3 branch updated: re-run later.
+Exit status: 0 landed (or planned), 1 stopped, 3 branch updated: re-run later,
+4 queued and not merged yet: re-run later or with ``--wait``.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -43,13 +50,18 @@ from worktree import (
 )
 
 UPDATED = 3
+QUEUED = 4
+POLL_SECONDS = 30
+WAIT_TIMEOUT_SECONDS = 7200
 PASSING_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 MERGEABLE_STATES = {"CLEAN", "HAS_HOOKS", "UNSTABLE"}
 PR_QUERY = """
 query($owner: String!, $repo: String!, $n: Int!) {
   repository(owner: $owner, name: $repo) {
+    mergeQueue { id }
     pullRequest(number: $n) {
       number state isDraft isCrossRepository
+      mergeQueueEntry { state position }
       headRefName headRefOid baseRefName mergeable mergeStateStatus
       mergeCommit { oid }
       commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {
@@ -123,10 +135,33 @@ def merge_gate(pr: dict) -> str:
     return "ok"
 
 
+def queue_summary(pr: dict) -> str:
+    entry = pr.get("mergeQueueEntry")
+    if entry is None:
+        return "auto-merge is enabled and the PR will enter the merge queue once its checks pass"
+    return (
+        f"in the merge queue at position {entry['position']} ({entry['state'].lower()})"
+    )
+
+
 class Lander:
     def __init__(
-        self, runner: Runner, *, repo: str, remote: str, dry_run: bool, number: int
+        self,
+        runner: Runner,
+        *,
+        repo: str,
+        remote: str,
+        dry_run: bool,
+        number: int,
+        wait: bool = False,
+        sleep=time.sleep,
+        poll_seconds: float = POLL_SECONDS,
+        timeout_seconds: float = WAIT_TIMEOUT_SECONDS,
     ) -> None:
+        self.wait = wait
+        self.sleep = sleep
+        self.poll_seconds = poll_seconds
+        self.timeout_seconds = timeout_seconds
         self.runner = runner
         self.repo = repo
         self.remote = remote
@@ -166,10 +201,11 @@ class Lander:
                 f"query={PR_QUERY}",
             ]
         )
-        pr = json.loads(text)["data"]["repository"]["pullRequest"]
+        repository = json.loads(text)["data"]["repository"]
+        pr = repository["pullRequest"]
         if pr is None:
             raise LandStop(f"PR #{self.number} not found in {self.repo}")
-        return pr
+        return {**pr, "hasMergeQueue": repository.get("mergeQueue") is not None}
 
     def merge(self, pr: dict) -> None:
         problems = check_problems(pr)
@@ -179,7 +215,8 @@ class Lander:
                 + "\n  - ".join(problems)
             )
         print(f"checks: required checks green on {pr['headRefOid']}")
-        if merge_gate(pr) == "behind":
+        queued = pr["hasMergeQueue"]
+        if merge_gate(pr) == "behind" and not queued:
             self.mutate(
                 ["gh", "pr", "update-branch", str(self.number), "--repo", self.repo]
             )
@@ -190,19 +227,97 @@ class Lander:
                 UPDATED,
             )
         print("mergeable: yes")
-        self.mutate(
-            [
-                "gh",
-                "pr",
-                "merge",
-                str(self.number),
-                "--repo",
-                self.repo,
-                "--squash",
-                "--match-head-commit",
-                pr["headRefOid"],
-            ]
+        command = [
+            "gh",
+            "pr",
+            "merge",
+            str(self.number),
+            "--repo",
+            self.repo,
+            "--squash",
+        ]
+        if queued:
+            command.append("--auto")
+        self.mutate([*command, "--match-head-commit", pr["headRefOid"]])
+
+    def ejection_reason(self, pr: dict) -> str:
+        """The failing queue check named for a PR that left the queue unmerged."""
+        try:
+            runs = json.loads(
+                self.read(
+                    [
+                        "gh",
+                        "run",
+                        "list",
+                        "--repo",
+                        self.repo,
+                        "--event",
+                        "merge_group",
+                        "--limit",
+                        "50",
+                        "--json",
+                        "name,conclusion,headBranch,url",
+                    ]
+                )
+            )
+        except (LandStop, ValueError):
+            runs = []
+        marker = f"/pr-{self.number}-"
+        failed = [
+            run
+            for run in runs
+            if marker in run.get("headBranch", "")
+            and run.get("conclusion") not in (None, "", "success", "skipped")
+        ]
+        if not failed:
+            return "no failing queue check could be found; open the PR for details"
+        return "failing check: " + ", ".join(
+            f"{run['name']} ({run.get('url', 'no url')})" for run in failed
         )
+
+    def settle(self, pr: dict) -> dict:
+        """The PR once MERGED; LandStop if it is queued, ejected or closed."""
+        if pr["state"] == "MERGED":
+            return pr
+        if not pr["hasMergeQueue"]:
+            raise LandStop(
+                f"after the merge command the PR is {pr['state']}, not MERGED; "
+                "nothing was cleaned up. Re-run land.py once it has merged."
+            )
+        print(f"queue: {queue_summary(pr)}")
+        if not self.wait:
+            raise LandStop(
+                f"PR #{self.number} is {queue_summary(pr)}; nothing was cleaned up. "
+                f"Re-run land.py {self.number} --wait, or once it has merged.",
+                QUEUED,
+            )
+        seen = pr.get("mergeQueueEntry") is not None
+        waited = 0.0
+        while True:
+            if waited >= self.timeout_seconds:
+                raise LandStop(
+                    f"PR #{self.number} is still {queue_summary(pr)} after "
+                    f"{int(waited)}s; re-run land.py to keep waiting",
+                    QUEUED,
+                )
+            self.sleep(self.poll_seconds)
+            waited += self.poll_seconds
+            latest = self.pull_request()
+            if latest["state"] == "MERGED":
+                return latest
+            if latest["state"] == "CLOSED":
+                raise LandStop("the PR was closed without merging")
+            entry = latest.get("mergeQueueEntry")
+            if entry is not None:
+                seen = True
+                if entry != (pr.get("mergeQueueEntry") or {}):
+                    print(f"queue: {queue_summary(latest)}")
+            elif seen:
+                raise LandStop(
+                    f"PR #{self.number} left the merge queue without merging; "
+                    f"{self.ejection_reason(latest)}"
+                )
+            pr = latest
 
     def fast_forward(self, main: Path, pr: dict) -> None:
         base = pr["baseRefName"]
@@ -274,7 +389,9 @@ class Lander:
             raise LandStop("the PR is closed without merging")
         if pr["isDraft"]:
             raise LandStop("the PR is a draft")
-        if pr["state"] == "OPEN":
+        if pr["state"] == "OPEN" and pr.get("mergeQueueEntry") is not None:
+            pr = self.settle(pr)
+        elif pr["state"] == "OPEN":
             self.merge(pr)
             if self.dry_run:
                 print("  would confirm the PR is MERGED, then:")
@@ -282,13 +399,7 @@ class Lander:
                 self.clean_up(main, pr)
                 print(f"dry run: planned PR #{self.number}")
                 return 0
-            pr = self.pull_request()
-            if pr["state"] != "MERGED":
-                raise LandStop(
-                    f"after the merge command the PR is {pr['state']}, not MERGED "
-                    "(a merge queue may hold it); nothing was cleaned up. Re-run "
-                    "land.py once it has merged."
-                )
+            pr = self.settle(self.pull_request())
         print(f"merged: {(pr.get('mergeCommit') or {}).get('oid')}")
         self.fast_forward(main, pr)
         self.clean_up(main, pr)
@@ -301,6 +412,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("number", type=int, help="pull request number")
+    parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="with a merge queue, poll until the PR is merged or leaves the queue",
+    )
     parser.add_argument("--dry-run", action="store_true", help="print the plan only")
     parser.add_argument("--repo", help="OWNER/NAME (default: the main checkout's repo)")
     parser.add_argument("--remote", default="origin", help="git remote of the base")
@@ -323,7 +439,12 @@ def main(argv: Optional[list[str]] = None) -> int:
             ).stdout.strip()
         )
         lander = Lander(
-            run, repo=repo, remote=args.remote, dry_run=args.dry_run, number=args.number
+            run,
+            repo=repo,
+            remote=args.remote,
+            dry_run=args.dry_run,
+            number=args.number,
+            wait=args.wait,
         )
         return lander.land()
     except LandStop as stop:

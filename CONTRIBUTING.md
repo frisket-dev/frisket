@@ -373,9 +373,14 @@ Parallel work happens in git worktrees that share the main checkout's
   Targeted runs, `suite.py -- tests/engine -k name`, skip the lock and use at
   most four workers.
 - `scripts/dev/land.py <pr>` lands one PR: required checks green on the
-  current head, mergeable (a behind branch is updated and the script exits),
-  squash-merge, confirmed MERGED, main checkout fast-forwarded, then the lane
-  worktree and branches removed. `--dry-run` prints the plan.
+  current head, mergeable, squash-merge, confirmed MERGED, main checkout
+  fast-forwarded, then the lane worktree and branches removed. `--dry-run`
+  prints the plan. With a merge queue the merge command enqueues the PR
+  (`--auto`) and a behind branch is left alone; the script exits 4 with the
+  queue position, and `--wait` polls until the PR is MERGED (then it
+  fast-forwards and cleans up) or leaves the queue (it names the failing
+  check, exit 1). Without a queue a behind branch is updated and the script
+  exits 3. Re-running on an already-queued or already-merged PR resumes.
 
 #### Smell reservoir
 
@@ -395,8 +400,9 @@ per entry, so pointing it at a private notes repository merges cleanly.
 ### Merge queue
 
 When `main` requires the merge queue, a PR no longer has to be up to date
-with `main` to land. `gh pr merge <pr> --squash --auto` (or "Merge when
-ready" in the UI) enqueues it once its PR checks pass. The queue tests each
+with `main` to land, and updating the branch only costs a CI run.
+`scripts/dev/land.py <pr> [--wait]` (or `gh pr merge <pr> --squash --auto`, or
+"Merge when ready" in the UI) enqueues it once its PR checks pass. The queue tests each
 entry on a temporary `gh-readonly-queue/main/...` commit that combines it with
 `main` and every entry ahead of it (the `merge_group` event), and
 squash-merges up to five entries together once all of their runs pass. A

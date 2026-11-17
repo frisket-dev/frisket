@@ -309,6 +309,8 @@ def _pr(
     checked_oid: str = HEAD,
     merge_state: str = "CLEAN",
     mergeable: str = "MERGEABLE",
+    queue: bool = False,
+    entry: dict | None = None,
 ) -> dict:
     contexts = [_check("ci-pass")] if checks is None else checks
     return {
@@ -322,6 +324,8 @@ def _pr(
         "mergeable": mergeable,
         "mergeStateStatus": merge_state,
         "mergeCommit": {"oid": MERGED} if state == "MERGED" else None,
+        "mergeQueueEntry": entry,
+        "_queue": queue,
         "commits": {
             "nodes": [
                 {
@@ -340,13 +344,18 @@ def _github(*states: dict) -> FakeRunner:
 
     def graphql() -> Reply:
         pr = pending.pop(0) if len(pending) > 1 else pending[0]
-        return 0, json.dumps({"data": {"repository": {"pullRequest": pr}}})
+        repository = {
+            "pullRequest": {k: v for k, v in pr.items() if k != "_queue"},
+            "mergeQueue": {"id": "MQ"} if pr["_queue"] else None,
+        }
+        return 0, json.dumps({"data": {"repository": repository}})
 
     return FakeRunner(
         {
             ("gh", "api", "graphql"): graphql,
             ("gh", "pr", "merge"): (0, ""),
             ("gh", "pr", "update-branch"): (0, ""),
+            ("gh", "run", "list"): (0, "[]"),
             ("git", "worktree", "list"): (0, PORCELAIN),
             ("git", "worktree", "remove"): (0, ""),
             ("git", "symbolic-ref"): (0, "main"),
@@ -362,9 +371,17 @@ def _github(*states: dict) -> FakeRunner:
     )
 
 
-def _land(runner: FakeRunner, *, dry_run: bool = False) -> int:
+def _land(runner: FakeRunner, *, dry_run: bool = False, wait: bool = False) -> int:
     return land.Lander(
-        runner, repo="owner/repo", remote="origin", dry_run=dry_run, number=7
+        runner,
+        repo="owner/repo",
+        remote="origin",
+        dry_run=dry_run,
+        number=7,
+        wait=wait,
+        sleep=lambda seconds: None,
+        poll_seconds=1,
+        timeout_seconds=5,
     ).land()
 
 
@@ -522,3 +539,99 @@ def test_land_dry_run_runs_no_mutating_command(capsys):
     out = capsys.readouterr().out
     assert "would run: gh pr merge 7 --repo owner/repo --squash" in out
     assert "would run: git push origin --delete wt/lane" in out
+
+
+def _entry(position: int, state: str = "QUEUED") -> dict:
+    return {"state": state, "position": position}
+
+
+QUEUE_MERGE = [
+    "gh",
+    "pr",
+    "merge",
+    "7",
+    "--repo",
+    "owner/repo",
+    "--squash",
+    "--auto",
+    "--match-head-commit",
+    HEAD,
+]
+
+
+def test_land_in_a_queue_repository_enqueues_and_exits_queued_without_cleanup():
+    runner = _github(
+        _pr(queue=True, merge_state="BEHIND"),
+        _pr(queue=True, merge_state="BEHIND", entry=_entry(3)),
+    )
+    with pytest.raises(land.LandStop, match="position 3") as stop:
+        _land(runner)
+    assert stop.value.code == land.QUEUED == 4
+    assert _mutations(runner) == [QUEUE_MERGE]
+    assert not runner.ran("gh", "pr", "update-branch")
+
+
+def test_land_waits_in_the_queue_then_fast_forwards_and_cleans_up():
+    runner = _github(
+        _pr(queue=True),
+        _pr(queue=True, entry=_entry(2)),
+        _pr(queue=True, entry=_entry(1, "AWAITING_CHECKS")),
+        _pr(queue=True, state="MERGED"),
+    )
+    assert _land(runner, wait=True) == 0
+    assert _mutations(runner) == [
+        QUEUE_MERGE,
+        ["git", "fetch", "origin", "main"],
+        ["git", "merge", "--ff-only", "origin/main"],
+        ["git", "worktree", "remove", str(LANE)],
+        ["git", "branch", "-D", "wt/lane"],
+        ["git", "push", "origin", "--delete", "wt/lane"],
+    ]
+
+
+def test_land_wait_reports_an_ejection_with_the_failing_check():
+    runner = _github(
+        _pr(queue=True),
+        _pr(queue=True, entry=_entry(1)),
+        _pr(queue=True, entry=_entry(1)),
+        _pr(queue=True),
+    )
+    runs = [
+        {
+            "name": "deterministic-source",
+            "conclusion": "failure",
+            "headBranch": f"gh-readonly-queue/main/pr-7-{HEAD}",
+            "url": "https://example/run/1",
+        },
+        {
+            "name": "ci-pass",
+            "conclusion": "failure",
+            "headBranch": f"gh-readonly-queue/main/pr-8-{HEAD}",
+            "url": "https://example/run/2",
+        },
+    ]
+    runner.replies[("gh", "run", "list")] = (0, json.dumps(runs))
+    with pytest.raises(land.LandStop, match="left the merge queue") as stop:
+        _land(runner, wait=True)
+    assert "deterministic-source" in str(stop.value)
+    assert "ci-pass" not in str(stop.value)
+    assert stop.value.code == 1
+    assert ["git", "worktree", "remove", str(LANE)] not in _mutations(runner)
+    assert not runner.ran("git", "fetch")
+
+
+def test_land_resumes_a_pr_that_is_already_queued_without_merging_again():
+    runner = _github(_pr(queue=True, entry=_entry(1)), _pr(queue=True, state="MERGED"))
+    assert _land(runner, wait=True) == 0
+    assert not runner.ran("gh", "pr", "merge")
+    assert runner.ran("git", "fetch")
+
+
+def test_land_without_a_queue_still_updates_a_behind_branch_and_merges_directly():
+    behind = _github(_pr(merge_state="BEHIND"))
+    with pytest.raises(land.LandStop) as stop:
+        _land(behind)
+    assert stop.value.code == land.UPDATED
+    direct = _github(_pr(), _pr(state="MERGED"))
+    assert _land(direct, wait=True) == 0
+    assert all("--auto" not in args for args in _mutations(direct))

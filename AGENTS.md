@@ -12,7 +12,8 @@ paid or external runs.
   `tests/` by hand). Targeted: `scripts/dev/suite.py -- tests/<path>`, or
   plain `pytest tests/<file>`.
 - Worktrees: `scripts/dev/worktree.py create <name>` (then follow the
-  commands it prints); land a PR with `scripts/dev/land.py <pr>`, never a
+  commands it prints); land a PR with `scripts/dev/land.py <pr> [--wait]`
+  (enqueues under the merge queue; exit 4 = queued), never a
   chained `gh pr merge && git branch -D ...`.
 - Smells outside your task: record a likely code smell with
   `python scripts/dev/smell.py add --file <path> [--symbol <name>] --kind <kind>
