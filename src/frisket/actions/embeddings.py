@@ -190,7 +190,7 @@ INDEX_EXPORT = action(
     title="Export embedding index",
     description=(
         "Export a fresh index's source originals and optional raw vectors as "
-        "JSONL, Parquet, or Arrow files, with recorded index provenance."
+        "JSONL, Parquet, or Arrow files, with a record of how the index was built."
     ),
     category=ActionCategory.SOURCES,
     run=export_index,
