@@ -7,6 +7,7 @@ import sys
 from types import ModuleType
 from pathlib import Path
 
+import httpx
 import pytest
 
 from frisket.operability import diagnostics
@@ -701,3 +702,22 @@ def test_engines_report_never_raises_when_provisioned_probe_breaks(monkeypatch):
     assert "summary" in full["info"]["local_engines"]
     # CORE probes alone decide healthy; local engines is INFO-only.
     assert full["healthy"] is all(c.get("ok") for c in full["core"].values())
+
+
+def test_models_sidecar_report_redacts_probe_error_and_url_credentials(monkeypatch):
+    token = "sidecar-bearer-token-value"
+    monkeypatch.setenv("FRISKET_MODELS_URL", "http://ops:url-password@127.0.0.1:9")
+    monkeypatch.setenv("FRISKET_MODELS_TOKEN", token)
+
+    def refuse(url, **_kwargs):
+        raise httpx.ConnectError(f"refused {url} with Authorization: Bearer {token}")
+
+    monkeypatch.setattr(httpx, "get", refuse)
+
+    report = diagnostics.models_sidecar_report()
+
+    assert report["available"] is False
+    rendered = repr(report)
+    assert token not in rendered
+    assert "url-password" not in rendered
+    assert "refused" in report["error"]

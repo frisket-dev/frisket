@@ -1088,12 +1088,18 @@ def models_sidecar_report() -> dict[str, Any]:
             "error": None,
             "summary": "FRISKET_MODELS_URL unset (sidecar engines disabled)",
         }
+    token = sidecar_token()
+    # Diagnose answers ordinary team members: the probe error and the
+    # configured URL pass through redaction like every sibling probe's detail.
     result = probe_sidecar_capabilities(
         base=base,
-        token=sidecar_token(),
+        token=token,
         timeout=5.0,
-        format_error=str,
+        format_error=lambda error: redact_text(
+            str(error), secret_values=(token,), max_chars=300
+        ),
     )
+    base = redact_text(base, secret_values=(token,), max_chars=300)
     engines_ = result["engines"]
     if result["available"]:
         ver = result.get("version", "?")
