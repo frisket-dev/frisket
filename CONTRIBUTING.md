@@ -319,6 +319,31 @@ read historical values by ID, without substituting a same-name successor.
   target with `FRISKET_CACHE_REFRESH=1 FRISKET_CACHE_MODE=replay`, then review
   and commit `tests/cache/llm_cache.db`.
 
+### Working in worktrees
+
+Parallel work happens in git worktrees that share the main checkout's
+`.venv`. Use the tools in `scripts/dev/` rather than hand-rolled shell:
+
+- `scripts/dev/worktree.py create <name> [--base <ref>]` adds
+  `../wt-<name>` on branch `wt/<name>` from the main checkout, prints the
+  base commit and provisions it: the native Vec1 library is copied, web and
+  SDK `node_modules` are symlinked, `sdk/src/contracts.gen.ts` is staged,
+  and `import frisket` is proven to resolve to the worktree. It refuses when
+  the main venv cannot import the project and prints the additive repair
+  (`uv sync --inexact --frozen`). The commands it prints are also written to
+  `.worktree-env`. `provision [<path>]` repeats the setup for an existing
+  worktree; `remove <name>` refuses while work is uncommitted or unpushed.
+- `scripts/dev/suite.py` is the one way to run the full Python suite. It holds
+  a machine-wide lock (a second full run refuses, or queues with `--wait`),
+  sizes `-n` from free CPU, and classifies failures as new, known, or fixed
+  against `scripts/dev/known_local_failures.txt` when that file exists.
+  Targeted runs, `suite.py -- tests/engine -k name`, skip the lock and use at
+  most four workers.
+- `scripts/dev/land.py <pr>` lands one PR: required checks green on the
+  current head, mergeable (a behind branch is updated and the script exits),
+  squash-merge, confirmed MERGED, main checkout fast-forwarded, then the lane
+  worktree and branches removed. `--dry-run` prints the plan.
+
 ### Reviewing model and pricing updates
 
 Pricing refresh and model discovery are separate workflows. Both run on a
