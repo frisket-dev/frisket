@@ -2,6 +2,12 @@ name: desktop-windows
 
 on:
   workflow_call:
+    inputs:
+      nightly:
+        description: "Prove the unsigned installed app on this revision regardless of the diff (the nightly platform run)"
+        required: false
+        default: false
+        type: boolean
     outputs:
       source_sha:
         description: "Revision verified by the signed installed-app proof"
@@ -12,7 +18,7 @@ on:
       desktop_version:
         description: "Electron version embedded in the verified installer"
         value: ${{ jobs.signed-installed-proof.outputs.desktop_version }}
-  # `labeled` lets adding `ci:full` rerun the PR against the queue's input set.
+  # `labeled` lets adding `ci:full` rerun the PR with every platform proof.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   merge_group:
@@ -22,27 +28,27 @@ on:
 permissions:
   contents: read
 
-# Each merge group has its own queue ref; a queue run is never cancelled.
+# Each merge group has its own queue ref; a queue run is never cancelled. A
+# nightly call gets a group of its own, so neither a release nor a manual
+# dispatch on main cancels it, and it cancels neither.
 concurrency:
-  group: desktop-windows-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
+  group: desktop-windows-${{ inputs.nightly && format('nightly-{0}', github.run_id) || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'merge_group' && !inputs.nightly }}
 
 jobs:
-  # Decides whether this run builds and proves the installed app.
-  #   * Merge queue and `ci:full` PRs: the queue input set below, everything
-  #     the installed app bundles or runs (the desktop shell, the Python
-  #     package and its locked dependencies, the web UI and SDK it serves,
-  #     the build scripts and native vendor sources the wheel is built from).
-  #   * Other PRs (fast tier): the job's own inputs only (the desktop shell,
-  #     the Python runtime supervisor and desktop server surface, the
-  #     packaging and this workflow), so the author sees platform breakage
-  #     before queueing. A change to the rest of the queue set is deferred to
-  #     the merge queue, which proves the app on exactly what lands.
+  # Decides whether this run builds and proves the unsigned installed app.
+  #   * Pull requests and the merge queue: only when the diff changes the
+  #     job's own inputs (listed beside the filter below). A change to the
+  #     rest of what the app bundles is deferred to the nightly platform run
+  #     on main, and the required check still passes, saying so.
+  #   * `ci:full` pull requests and the nightly platform run: always.
+  #   * Manual dispatches and release calls run the signed jobs instead.
   changes:
-    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || inputs.nightly
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
+      reason: ${{ steps.paths.outputs.reason }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -54,42 +60,73 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+          NIGHTLY: ${{ inputs.nightly || false }}
         run: |
           set -euo pipefail
-          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
-          packaging='pyproject\.toml$|uv\.lock$|hatch_build\.py$|scripts/build_vec1\.py$|vendor/sqlite-vec1/|scripts/release/build_frontend\.py$|\.github/workflows/desktop-windows\.yml$'
-          queue_inputs="^(desktop/|src/frisket/|web/|sdk/|sidecar/|$packaging)"
-          pr_inputs="^(desktop/|src/frisket/runtime/|src/frisket/server/desktop\.py$|$packaging)"
-          if [ "$EVENT_NAME" = merge_group ]; then
-            base="${QUEUE_BASE_SHA:-}"
-            inputs="$queue_inputs"
-          elif [ "${FULL_LABEL:-false}" = true ]; then
-            base="$BASE_SHA"
-            inputs="$queue_inputs"
-          else
-            base="$BASE_SHA"
-            inputs="$pr_inputs"
-          fi
+          # Packaging: the dependency lock and Python pin, the build hook and
+          # native extension sources, the web build script, this workflow.
+          packaging='pyproject\.toml$|uv\.lock$|\.python-version$|hatch_build\.py$|scripts/build_vec1\.py$|vendor/sqlite-vec1/|scripts/release/build_frontend\.py$|\.github/workflows/desktop-windows\.yml$'
+          # Platform-specific Python, the same in all four platform workflows:
+          # the runtime supervisor, launcher and guardian, the process sandbox,
+          # the native engine workers, the CLI and its signal handling, the
+          # model-server environment, and the modules that branch on the OS
+          # for process trees, file locking, reserved names and app paths.
+          platform_code='src/frisket/(runtime|engine/sandbox|engine/_workers|cli|data/model-server)/|src/frisket/(engine/recipe_fence_posture|retrieval/native|operability/diagnostics|cloud_connection|project_identity|server/workspace|team/security/secrets|ops/ytdlp|ops/media_metadata|ops/integrations/mcp_stdio)\.py$'
+          # A changed Python line anywhere under src/ that branches on the OS
+          # or starts, signals or confines a process, the same in all four.
+          platform_lines='sys\.platform|os\.name|platform\.(system|machine)\(|(import|from) +(fcntl|msvcrt|winreg|_winapi|termios|pwd|grp|resource)\b|creationflags|start_new_session|preexec_fn|os\.(kill|killpg|setsid|setpgrp|fork|getpgid)\(|signal\.(SIG|signal\()|subprocess\.(Popen|run|call|check_call|check_output)\(|create_subprocess_|multiprocessing|ctypes'
+          # Own inputs: the desktop shell, the desktop server entry point,
+          # the native Windows guardian test, platform-specific Python and
+          # packaging.
+          own="^(desktop/|src/frisket/server/desktop\.py$|tests/runtime/test_windows_guard\.py$|$platform_code|$packaging)"
+          # Everything the installed app bundles or runs. A change here outside
+          # the own inputs is proved by the nightly platform run on main.
+          bundled="^(desktop/|src/frisket/|web/|sdk/|sidecar/|$packaging)"
           relevant=true
-          reason="the diff base is unavailable, so the installed app is proved"
-          if [ -n "$base" ] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            files="$(git diff --name-only "$base" HEAD)"
-            if grep -E "$inputs" <<< "$files" >/dev/null; then
-              reason="this diff changes an input of the installed app"
-            elif [ "$inputs" = "$pr_inputs" ] && grep -E "$queue_inputs" <<< "$files" >/dev/null; then
-              relevant=false
-              reason="skipped on this PR: runs in the merge queue (add the \`ci:full\` label to run it here)"
+          if [ "${NIGHTLY:-false}" = true ]; then
+            reason="the nightly platform run proves this revision in full"
+          elif [ "${FULL_LABEL:-false}" = true ]; then
+            reason="the \`ci:full\` label runs every platform proof"
+          else
+            if [ "$EVENT_NAME" = merge_group ]; then base="${QUEUE_BASE_SHA:-}"; else base="${BASE_SHA:-}"; fi
+            if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              reason="the diff base is unavailable, so the installed app is proved"
             else
-              relevant=false
-              reason="skipped: this diff changes nothing the installed app bundles or runs"
+              files="$(git diff --name-only "$base" HEAD)"
+              inventory="$(git diff --name-only --diff-filter=ADR "$base" HEAD)"
+              patch="$(git diff -U0 "$base" HEAD -- 'src/*.py')"
+              changed="$(grep -E '^[+-]([^+-]|$)' <<< "$patch" | grep -E "$platform_lines" || true)"
+              if hit="$(grep -E "$own" <<< "$files")"; then
+                reason="this diff changes an input of the installed app: ${hit%%$'\n'*}"
+              # prepare.py refuses a wheel missing a resource it requires, so
+              # adding, removing or renaming package data or a bundled plugin
+              # file changes the packaging.
+              elif hit="$(grep -E '^src/frisket/(data|authoring/bundled_plugins)/' <<< "$inventory")"; then
+                reason="this diff adds, removes or renames a bundled resource: ${hit%%$'\n'*}"
+              elif [ -n "$changed" ]; then
+                line="${changed%%$'\n'*}"
+                reason="this diff changes platform-specific Python: $(tr -d '\r`' <<< "${line:0:100}")"
+              elif grep -E "$bundled" <<< "$files" >/dev/null; then
+                relevant=false
+                reason="deferred to the nightly platform run on main: this diff changes what the installed app bundles, but none of its own inputs"
+                if [ "$EVENT_NAME" = pull_request ]; then
+                  reason="$reason (add the \`ci:full\` label to run it here)"
+                fi
+              else
+                relevant=false
+                reason="not affected: this diff changes nothing the installed app bundles or runs"
+              fi
             fi
           fi
-          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
-          echo "### Windows installed app ($EVENT_NAME): $reason" >> "$summary"
+          {
+            echo "relevant=$relevant"
+            echo "reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+          echo "### Windows installed app ($EVENT_NAME): $reason" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
   installed-app:
     needs: changes
-    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.relevant == 'true'
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: windows-2022
     timeout-minutes: 75
     steps:
@@ -183,7 +220,7 @@ jobs:
             desktop/resources/runtime.json
 
   signed-distribution:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.nightly
     runs-on: windows-2022
     timeout-minutes: 75
     environment: desktop-signing
@@ -335,7 +372,7 @@ jobs:
             desktop/resources/runtime.json
 
   signed-installed-proof:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.nightly
     needs: signed-distribution
     runs-on: windows-2022
     timeout-minutes: 75
@@ -471,11 +508,13 @@ jobs:
 
   desktop-windows-ci:
     name: desktop-windows-ci
-    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || inputs.nightly) }}
     needs: [changes, installed-app]
     runs-on: ubuntu-latest
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}
+          REASON: ${{ needs.changes.outputs.reason }}
         run: |
+          echo "### $GITHUB_JOB: ${REASON:-the change filter did not finish}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"

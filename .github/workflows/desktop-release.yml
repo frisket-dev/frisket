@@ -26,6 +26,7 @@ jobs:
       desktop_version: ${{ steps.version.outputs.desktop_version }}
       tag: ${{ steps.version.outputs.tag }}
       full_ci_url: ${{ steps.full-ci.outputs.url }}
+      platform_proof_url: ${{ steps.platform-proof.outputs.url }}
     steps:
       - name: Require a main dispatch
         run: |
@@ -92,6 +93,41 @@ jobs:
           url="$(printf '%s' "$latest" | jq -r '.html_url')"
           if [ "$status" != completed ] || [ "$conclusion" != success ]; then
             echo "::error::latest full CI for ${SOURCE_SHA} is ${status}/${conclusion}; evidence: ${url}"
+            exit 1
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+      # Pull requests and the merge queue prove the platforms only for diffs
+      # that change the platform jobs' own inputs; nightly-platform.yml proves
+      # every revision of main in full. The latest such proof of this exact
+      # commit must have passed.
+      - name: Require the latest nightly platform proof of this exact revision to pass
+        id: platform-proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ steps.commit.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          workflow_url="https://github.com/${GITHUB_REPOSITORY}/actions/workflows/nightly-platform.yml"
+          runs="$RUNNER_TEMP/frisket-platform-proof-runs.json"
+          gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/workflows/nightly-platform.yml/runs" \
+            -f head_sha="$TARGET" -F per_page=100 > "$runs"
+          proof=""
+          for run in $(jq -r '[.workflow_runs[] | select(.event == "schedule" or .event == "workflow_dispatch")] | sort_by(.run_number) | reverse | .[].id' "$runs"); do
+            jobs="$RUNNER_TEMP/frisket-platform-proof-jobs-${run}.json"
+            gh api --method GET "repos/${GITHUB_REPOSITORY}/actions/runs/${run}/jobs" -F per_page=100 > "$jobs"
+            # A skipped night or an unfinished proof is no verdict; keep looking.
+            proof="$(jq -c 'first(.jobs[] | select(.name == "platform-proofs" and .conclusion != null and .conclusion != "skipped")) // empty' "$jobs")"
+            if [ -n "$proof" ]; then break; fi
+          done
+          if [ -z "$proof" ]; then
+            echo "::error::no nightly-platform run has proved ${TARGET}; run 'gh workflow run nightly-platform.yml --ref <main or the release tag>' at this commit, then rerun this workflow; ${workflow_url}"
+            exit 1
+          fi
+          conclusion="$(jq -r '.conclusion' <<< "$proof")"
+          url="$(jq -r '.html_url' <<< "$proof")"
+          echo "platform proof evidence: conclusion=${conclusion} url=${url}"
+          if [ "$conclusion" != success ]; then
+            echo "::error::the latest nightly platform proof of ${TARGET} is ${conclusion}; evidence: ${url}"
             exit 1
           fi
           echo "url=$url" >> "$GITHUB_OUTPUT"
@@ -210,6 +246,7 @@ jobs:
           DESKTOP_VERSION: ${{ needs.admission.outputs.desktop_version }}
           TAG: ${{ needs.admission.outputs.tag }}
           FULL_CI_URL: ${{ needs.admission.outputs.full_ci_url }}
+          PLATFORM_PROOF_URL: ${{ needs.admission.outputs.platform_proof_url }}
           DMG_NAME: ${{ steps.assets.outputs.dmg_name }}
           EXE_NAME: ${{ steps.assets.outputs.exe_name }}
         run: |
@@ -241,6 +278,7 @@ jobs:
             'Frisket Desktop checks for updates and downloads them in the background. Choose Restart to update when ready. Existing older versions require one manual installation. Your data and caches remain in the app profile.' \
             '' \
             "Full CI: ${FULL_CI_URL}" \
+            "Platform proofs: ${PLATFORM_PROOF_URL}" \
             "Release workflow: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" > "$notes"
           release_id="$(gh api -X POST "repos/${GITHUB_REPOSITORY}/releases" \
             -f tag_name="$TAG" \

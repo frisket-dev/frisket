@@ -1,7 +1,9 @@
 name: macos-portability
 
 on:
-  # `labeled` lets adding `ci:full` rerun the PR against the queue's input set.
+  # The nightly platform run calls this workflow on the head of main.
+  workflow_call:
+  # `labeled` lets adding `ci:full` rerun the PR with every platform proof.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   merge_group:
@@ -14,9 +16,11 @@ permissions:
   contents: read
 
 # A newer PR event supersedes the in-flight PR run. Every other run gets its
-# own group, so no queue or push run is cancelled or held pending here.
+# own group, so no queue, push or nightly run is cancelled or held pending
+# here. The name is literal: in a called workflow `github.workflow` is the
+# caller's, which would put both portability calls in one group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  group: macos-portability-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -29,19 +33,26 @@ jobs:
       job: macos-portability
 
   # Decides whether this run needs the macOS smoke.
-  #   * Merge queue and `ci:full` PRs: the queue input set below, everything
-  #     the smoke imports, installs or runs (the Python package, the tests,
-  #     the sidecar the package ships, the locked dependencies and Python
-  #     pin, the build hook and native vendor sources, and this workflow).
-  #   * Other PRs (fast tier): the job's own inputs only (the Python runtime
-  #     supervisor, the native retrieval extension loader, the packaging and
-  #     this workflow). A change to the rest of the queue set is deferred to
-  #     the merge queue, which runs the smoke on what lands.
-  #   * Pushes and manual dispatches always run, as before.
+  #   * Pull requests and the merge queue: only when the diff changes the
+  #     smoke's own inputs (listed beside the filter below). A change to the
+  #     rest of what the smoke imports or runs is deferred to the nightly
+  #     platform run on main, and the required check still passes, saying so.
+  #   * `ci:full` pull requests, manual dispatches and the nightly platform
+  #     run: always.
+  #   * Pushes to main: always, unless the merge queue already ran this exact
+  #     commit (whose queue run then stands for it).
+  #   * The non-required managed-python job runs whenever the Python package,
+  #     the tests or the dependency lock change, on pull requests and in the
+  #     queue alike.
   changes:
+    needs: queue-tested
+    # A failed queue lookup still decides, and the push then runs the smoke.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
+      managed_python: ${{ steps.paths.outputs.managed_python }}
+      reason: ${{ steps.paths.outputs.reason }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -53,47 +64,79 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+          QUEUE_TESTED: ${{ needs.queue-tested.outputs.tested }}
         run: |
           set -euo pipefail
-          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          # Packaging: the dependency lock and Python pin, the build hook and
+          # native extension sources, this workflow.
           packaging='pyproject\.toml$|uv\.lock$|\.python-version$|hatch_build\.py$|scripts/build_vec1\.py$|vendor/sqlite-vec1/|\.github/workflows/macos-portability\.yml$'
-          queue_inputs="^(src/|tests/|sidecar/|conftest\.py$|$packaging)"
-          pr_inputs="^(src/frisket/runtime/|src/frisket/retrieval/|$packaging)"
-          case "$EVENT_NAME" in
-            merge_group)
-              base="${QUEUE_BASE_SHA:-}"
-              inputs="$queue_inputs" ;;
-            pull_request)
-              base="$BASE_SHA"
-              if [ "${FULL_LABEL:-false}" = true ]; then inputs="$queue_inputs"; else inputs="$pr_inputs"; fi ;;
-            *)
-              echo 'relevant=true' >> "$GITHUB_OUTPUT"
-              exit 0 ;;
-          esac
+          # Platform-specific Python, the same in all four platform workflows:
+          # the runtime supervisor, launcher and guardian, the process sandbox,
+          # the native engine workers, the CLI and its signal handling, the
+          # model-server environment, and the modules that branch on the OS
+          # for process trees, file locking, reserved names and app paths.
+          platform_code='src/frisket/(runtime|engine/sandbox|engine/_workers|cli|data/model-server)/|src/frisket/(engine/recipe_fence_posture|retrieval/native|operability/diagnostics|cloud_connection|project_identity|server/workspace|team/security/secrets|ops/ytdlp|ops/media_metadata|ops/integrations/mcp_stdio)\.py$'
+          # A changed Python line anywhere under src/ that branches on the OS
+          # or starts, signals or confines a process, the same in all four.
+          platform_lines='sys\.platform|os\.name|platform\.(system|machine)\(|(import|from) +(fcntl|msvcrt|winreg|_winapi|termios|pwd|grp|resource)\b|creationflags|start_new_session|preexec_fn|os\.(kill|killpg|setsid|setpgrp|fork|getpgid)\(|signal\.(SIG|signal\()|subprocess\.(Popen|run|call|check_call|check_output)\(|create_subprocess_|multiprocessing|ctypes'
+          # Own inputs: platform-specific Python and packaging, the tests this
+          # smoke runs, and the modules they prove on macOS (store leases, blob
+          # paths, bulk import).
+          own="^(tests/runtime/|tests/test_cli_main\.py$|tests/engine/test_(blob_path_ingest|import_csv_executor|import_csv_typed_boundaries|store_leases)\.py$|tests/server/test_server_import_bulk_|tests/ai/test_store\.py$|src/frisket/engine/store/(leases|blob_backend|media_blobs)\.py$|src/frisket/server/services/import_bulk|conftest\.py$|tests/conftest\.py$|$platform_code|$packaging)"
+          # Everything the smoke imports, installs or runs. A change here
+          # outside the own inputs is proved by the nightly platform run.
+          imported="^(src/|tests/|sidecar/|conftest\.py$|$packaging)"
+          # The managed-python job: the Python package, the tests and their
+          # configuration, the lock and Python pin, the vec1 build, this workflow.
+          managed_inputs='^(src/frisket/|tests/|conftest\.py$|pyproject\.toml$|uv\.lock$|\.python-version$|hatch_build\.py$|scripts/build_vec1\.py$|vendor/sqlite-vec1/|\.github/workflows/macos-portability\.yml$)'
           relevant=true
-          reason="the diff base is unavailable, so the smoke runs"
-          if [ -n "$base" ] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            files="$(git diff --name-only "$base" HEAD)"
-            if grep -E "$inputs" <<< "$files" >/dev/null; then
-              reason="this diff changes an input of the smoke"
-            elif [ "$inputs" = "$pr_inputs" ] && grep -E "$queue_inputs" <<< "$files" >/dev/null; then
-              relevant=false
-              reason="skipped on this PR: runs in the merge queue (add the \`ci:full\` label to run it here)"
+          managed_python=true
+          if [ "$EVENT_NAME" = push ] && [ "${QUEUE_TESTED:-}" = true ]; then
+            relevant=false
+            managed_python=false
+            reason="this commit passed macos-portability in the merge queue, which stands for this push"
+          elif [ "$EVENT_NAME" != pull_request ] && [ "$EVENT_NAME" != merge_group ]; then
+            reason="this $EVENT_NAME run proves the revision in full"
+          elif [ "${FULL_LABEL:-false}" = true ]; then
+            reason="the \`ci:full\` label runs every platform proof"
+          else
+            if [ "$EVENT_NAME" = merge_group ]; then base="${QUEUE_BASE_SHA:-}"; else base="${BASE_SHA:-}"; fi
+            if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              reason="the diff base is unavailable, so the smoke runs"
             else
-              relevant=false
-              reason="skipped: this diff changes nothing the smoke imports or runs"
+              files="$(git diff --name-only "$base" HEAD)"
+              patch="$(git diff -U0 "$base" HEAD -- 'src/*.py')"
+              changed="$(grep -E '^[+-]([^+-]|$)' <<< "$patch" | grep -E "$platform_lines" || true)"
+              if ! grep -E "$managed_inputs" <<< "$files" >/dev/null; then managed_python=false; fi
+              if hit="$(grep -E "$own" <<< "$files")"; then
+                reason="this diff changes an input of the smoke: ${hit%%$'\n'*}"
+              elif [ -n "$changed" ]; then
+                line="${changed%%$'\n'*}"
+                reason="this diff changes platform-specific Python: $(tr -d '\r`' <<< "${line:0:100}")"
+              elif grep -E "$imported" <<< "$files" >/dev/null; then
+                relevant=false
+                reason="deferred to the nightly platform run on main: this diff changes what the smoke imports or runs, but none of its own inputs"
+                if [ "$EVENT_NAME" = pull_request ]; then
+                  reason="$reason (add the \`ci:full\` label to run it here)"
+                fi
+              else
+                relevant=false
+                reason="not affected: this diff changes nothing the smoke imports or runs"
+              fi
             fi
           fi
-          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
-          echo "### macos-portability ($EVENT_NAME): $reason" >> "$summary"
+          {
+            echo "relevant=$relevant"
+            echo "managed_python=$managed_python"
+            echo "reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+          echo "### macos-portability ($EVENT_NAME): $reason" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
   smoke:
     name: macos-portability smoke
-    needs: [queue-tested, changes]
-    # A push of the exact commit that passed in the merge queue skips the
-    # rerun; a failed lookup still runs it. A failed `changes` job skips it
-    # and fails the required check below.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.relevant == 'true' && needs.queue-tested.outputs.tested != 'true' }}
+    needs: changes
+    # A failed `changes` job skips it and fails the required check below.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.relevant == 'true' }}
     runs-on: macos-latest
     timeout-minutes: 20
     env:
@@ -124,6 +167,8 @@ jobs:
     # in ci.yml) has it on. Code that ATTACHes a `file:` URI through a
     # connection opened without uri=True passes there and fails here.
     name: macos-managed-python
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.managed_python == 'true' }}
     runs-on: macos-latest
     timeout-minutes: 20
     env:
@@ -158,8 +203,7 @@ jobs:
           tests/retrieval
 
   # The required check. It fails unless `changes` succeeded and the smoke
-  # passed or was deliberately skipped; why it skipped is in the `changes`
-  # job summary.
+  # passed or was deliberately skipped; its summary says why it skipped.
   macos-portability:
     name: macos-portability
     if: ${{ always() }}
@@ -168,5 +212,7 @@ jobs:
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}
+          REASON: ${{ needs.changes.outputs.reason }}
         run: |
+          echo "### $GITHUB_JOB: ${REASON:-the change filter did not finish}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
           jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"
