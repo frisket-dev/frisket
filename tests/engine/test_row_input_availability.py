@@ -27,7 +27,6 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.row_inputs import read_source_page
-from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from runner_test_helpers import run_with_output_claim
@@ -61,144 +60,139 @@ class Output(BaseModel):
 )
 @pytest.mark.parametrize("mode", ["required", "optional", "inherited_optional"])
 def test_dispatch_distinguishes_required_unavailable_from_optional_input(
-    tmp_path, state, mode
+    make_project, state, mode
 ):
     required = mode == "required"
-    project = Project.create(tmp_path / "availability.frisket")
-    try:
-        sheet = project.add_sheet("source")
-        source = project.add_column(
-            sheet, "source", type="integer", ai_generated=state != "invalid"
+    project = make_project("availability")
+    sheet = project.add_sheet("source")
+    source = project.add_column(
+        sheet, "source", type="integer", ai_generated=state != "invalid"
+    )
+    [row] = project.add_rows(
+        sheet,
+        [{"source": "bad integer"}] if state == "invalid" else [{}],
+        {"source": source},
+    )
+    if state != "invalid":
+        run = _start_claimed_run(
+            project,
+            sheet_id=sheet,
+            output_column_id=source,
+            row_ids=[row],
+            label="upstream",
         )
-        [row] = project.add_rows(
-            sheet,
-            [{"source": "bad integer"}] if state == "invalid" else [{}],
-            {"source": source},
-        )
-        if state != "invalid":
-            run = _start_claimed_run(
+        _declare(ResultGenerationStore(project), run, source, write_mode="create")
+        if state != "pending":
+            _write(
                 project,
-                sheet_id=sheet,
-                output_column_id=source,
-                row_ids=[row],
-                label="upstream",
+                run,
+                [
+                    {
+                        "row_id": row,
+                        "column_id": source,
+                        "value": None,
+                        "outcome": "empty"
+                        if state == "null"
+                        else state
+                        if state == "not_completed"
+                        else "model_error",
+                        "publication_effect": "publish_null"
+                        if state == "null"
+                        else "publish_error",
+                        "error": None if state == "null" else "upstream unavailable",
+                        "error_code": None
+                        if state == "null"
+                        else "upstream_unavailable",
+                    }
+                ],
             )
-            _declare(ResultGenerationStore(project), run, source, write_mode="create")
-            if state != "pending":
-                _write(
-                    project,
-                    run,
-                    [
-                        {
-                            "row_id": row,
-                            "column_id": source,
-                            "value": None,
-                            "outcome": "empty"
-                            if state == "null"
-                            else state
-                            if state == "not_completed"
-                            else "model_error",
-                            "publication_effect": "publish_null"
-                            if state == "null"
-                            else "publish_error",
-                            "error": None
-                            if state == "null"
-                            else "upstream unavailable",
-                            "error_code": None
-                            if state == "null"
-                            else "upstream_unavailable",
-                        }
-                    ],
-                )
-                _seal(ResultGenerationStore(project), run, source)
-        page = read_source_page(project, sheet, [source], [row])
-        assert "validity" in page.columns[source][1][row]
-        assert "validity" not in page.cell(sheet, source, row)[1]
-        calls = []
+            _seal(ResultGenerationStore(project), run, source)
+    page = read_source_page(project, sheet, [source], [row])
+    assert "validity" in page.columns[source][1][row]
+    assert "validity" not in page.cell(sheet, source, row)[1]
+    calls = []
 
-        def required_handler(params: RequiredInput, row: Row) -> RowResult[Output]:
-            calls.append(params.source.read(row))
-            return RowResult(output=Output(answer="handled"))
+    def required_handler(params: RequiredInput, row: Row) -> RowResult[Output]:
+        calls.append(params.source.read(row))
+        return RowResult(output=Output(answer="handled"))
 
-        def optional_handler(params: OptionalInput, row: Row) -> RowResult[Output]:
-            calls.append(params.source.read(row))
-            return RowResult(output=Output(answer="handled"))
+    def optional_handler(params: OptionalInput, row: Row) -> RowResult[Output]:
+        calls.append(params.source.read(row))
+        return RowResult(output=Output(answer="handled"))
 
-        def inherited_optional_handler(
-            params: InheritedOptionalInput, row: Row
-        ) -> RowResult[Output]:
-            calls.append(params.source.read(row))
-            return RowResult(output=Output(answer="handled"))
+    def inherited_optional_handler(
+        params: InheritedOptionalInput, row: Row
+    ) -> RowResult[Output]:
+        calls.append(params.source.read(row))
+        return RowResult(output=Output(answer="handled"))
 
-        registry = ActionRegistry(
-            [
-                ActionNamespace(
-                    "probe",
-                    actions=[
-                        action(
-                            name="availability",
-                            title="Availability",
-                            description="Check input availability",
-                            category=ActionCategory.TEXT,
-                            run=map_rows(
-                                required_handler
-                                if required
-                                else inherited_optional_handler
-                                if mode == "inherited_optional"
-                                else optional_handler
-                            ),
-                        )
-                    ],
-                )
-            ]
-        )
-        request = ActionRequest(
-            action_id="probe.availability",
-            scope=SheetRows(sheet_id=sheet, row_ids=[row]),
-            params={"source": "source"},
-            idempotency_key="availability",
-        )
-        plan = build_typed_map_rows_plan(
-            project,
-            BoundTypedActionRequest.bind(registry.get(request.action_id), request),
-        )
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
-        )
-        runner = MapRunner(
-            project,
-            router,
-            authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
-        )
-        progress = asyncio.run(
-            run_with_output_claim(
-                runner, plan.spec_dict(), program=plan.program, confirmed=True
+    registry = ActionRegistry(
+        [
+            ActionNamespace(
+                "probe",
+                actions=[
+                    action(
+                        name="availability",
+                        title="Availability",
+                        description="Check input availability",
+                        category=ActionCategory.TEXT,
+                        run=map_rows(
+                            required_handler
+                            if required
+                            else inherited_optional_handler
+                            if mode == "inherited_optional"
+                            else optional_handler
+                        ),
+                    )
+                ],
             )
+        ]
+    )
+    request = ActionRequest(
+        action_id="probe.availability",
+        scope=SheetRows(sheet_id=sheet, row_ids=[row]),
+        params={"source": "source"},
+        idempotency_key="availability",
+    )
+    plan = build_typed_map_rows_plan(
+        project,
+        BoundTypedActionRequest.bind(registry.get(request.action_id), request),
+    )
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
+    )
+    runner = MapRunner(
+        project,
+        router,
+        authority=UnroutedOnlyAuthority(project),
+        allow_action_lifecycle_only_recipes=True,
+    )
+    progress = asyncio.run(
+        run_with_output_claim(
+            runner, plan.spec_dict(), program=plan.program, confirmed=True
         )
-        assert calls == ([] if required else [None])
-        output = next(
-            column
-            for column in project.columns(sheet, include_hidden=True)
-            if column["name"] == "answer"
+    )
+    assert calls == ([] if required else [None])
+    output = next(
+        column
+        for column in project.columns(sheet, include_hidden=True)
+        if column["name"] == "answer"
+    )
+    values, refs = project.get_values_with_refs(sheet, output["id"], row_ids=[row])
+    assert refs[row]["outcome"] == ("not_completed" if required else "completed")
+    assert values[row] == (None if required else "handled")
+    saved = project.db.execute(
+        "SELECT outcome,error_code FROM results WHERE run_id=?", (progress.run_id,)
+    ).fetchone()
+    assert saved["outcome"] == ("not_completed" if required else "ok")
+    if required:
+        assert saved["error_code"] == "input_" + (
+            "missing" if state == "null" else state
         )
-        values, refs = project.get_values_with_refs(sheet, output["id"], row_ids=[row])
-        assert refs[row]["outcome"] == ("not_completed" if required else "completed")
-        assert values[row] == (None if required else "handled")
-        saved = project.db.execute(
-            "SELECT outcome,error_code FROM results WHERE run_id=?", (progress.run_id,)
-        ).fetchone()
-        assert saved["outcome"] == ("not_completed" if required else "ok")
-        if required:
-            assert saved["error_code"] == "input_" + (
-                "missing" if state == "null" else state
-            )
-        assert not project.db.execute(
-            "SELECT 1 FROM model_calls WHERE run_id=?", (progress.run_id,)
-        ).fetchone()
-        asyncio.run(router.aclose())
-    finally:
-        project.close()
+    assert not project.db.execute(
+        "SELECT 1 FROM model_calls WHERE run_id=?", (progress.run_id,)
+    ).fetchone()
+    asyncio.run(router.aclose())
 
 
 @pytest.mark.parametrize("mixed", [False, True])
@@ -239,12 +233,12 @@ def test_model_does_not_buy_answer_when_one_required_source_is_invalid(work, mix
 
 
 def test_unavailable_current_input_does_not_replace_a_returned_paid_checkpoint(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     import test_map_row_effect_checkpoint as effects
 
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = Project.create(tmp_path / "returned-unavailable.frisket")
+    project = make_project("returned-unavailable")
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test"},

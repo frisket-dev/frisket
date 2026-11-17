@@ -133,37 +133,34 @@ def test_source_create_validation_normalizes_params() -> None:
 
 
 def test_source_create_replay_normalizes_omitted_and_explicit_defaults(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor import run_action_spec
 
-    project = Project.create(tmp_path / "defaults.frisket", name="defaults")
-    try:
-        base = {
-            "action_id": "source.create",
-            "scope": {"kind": "project"},
-            "params": {"name": "Feed"},
-            "idempotency_key": "source-create-defaults",
-        }
-        first = run_action_spec(project, base, project_id="project-defaults")
-        replay = run_action_spec(
-            project,
-            {
-                **base,
-                "params": {
-                    "name": "Feed",
-                    "kind": "url",
-                    "url": None,
-                    "config": {},
-                    "sheet_id": None,
-                    "schedule": None,
-                    "enabled": True,
-                },
+    project = make_project("defaults")
+    base = {
+        "action_id": "source.create",
+        "scope": {"kind": "project"},
+        "params": {"name": "Feed"},
+        "idempotency_key": "source-create-defaults",
+    }
+    first = run_action_spec(project, base, project_id="project-defaults")
+    replay = run_action_spec(
+        project,
+        {
+            **base,
+            "params": {
+                "name": "Feed",
+                "kind": "url",
+                "url": None,
+                "config": {},
+                "sheet_id": None,
+                "schedule": None,
+                "enabled": True,
             },
-            project_id="project-defaults",
-        )
-        assert first.status == replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        assert replay.outputs[0].ref == first.outputs[0].ref
-    finally:
-        project.close()
+        },
+        project_id="project-defaults",
+    )
+    assert first.status == replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    assert replay.outputs[0].ref == first.outputs[0].ref

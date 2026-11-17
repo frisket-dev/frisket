@@ -1081,7 +1081,7 @@ def test_subset_overwrite_receipt_uses_the_run_output_generation(
 
 
 def test_all_rows_failed_writes_failed_receipt_and_replays_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.contracts.action import Receipt
     from frisket.engine.executor import research_read
@@ -1092,38 +1092,35 @@ def test_all_rows_failed_writes_failed_receipt_and_replays_it(
 
     monkeypatch.setattr(research_read._BoundResearcher, "_search", fake_search)  # noqa: SLF001
     router, adapter = _failing_router()
-    project = Project.create(tmp_path / "failed.frisket", name="research failed")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _research_answer_action(
-            seeded["sheet_id"],
-            idempotency_key="research_answer@sha256:all-failed",
+    project = make_project("research failed")
+    seeded = _seed(project, tmp_path)
+    action = _research_answer_action(
+        seeded["sheet_id"],
+        idempotency_key="research_answer@sha256:all-failed",
+    )
+    failed = run_action_with_confirmation(
+        project, action, project_id="project-research-answer", router=router
+    )
+    assert failed.status == "failed"
+    assert failed.receipt_id is not None
+    assert failed.errors[0].code == "model_run_failed"
+    assert len(adapter.requests) == 2
+    failed_receipt = Receipt.model_validate(
+        json.loads(
+            project.db.execute(
+                "SELECT body FROM receipts WHERE id=?", (failed.receipt_id,)
+            ).fetchone()["body"]
         )
-        failed = run_action_with_confirmation(
-            project, action, project_id="project-research-answer", router=router
-        )
-        assert failed.status == "failed"
-        assert failed.receipt_id is not None
-        assert failed.errors[0].code == "model_run_failed"
-        assert len(adapter.requests) == 2
-        failed_receipt = Receipt.model_validate(
-            json.loads(
-                project.db.execute(
-                    "SELECT body FROM receipts WHERE id=?", (failed.receipt_id,)
-                ).fetchone()["body"]
-            )
-        )
-        assert failed_receipt.status == "failed"
-        assert failed_receipt.errors[0].code == "model_run_failed"
+    )
+    assert failed_receipt.status == "failed"
+    assert failed_receipt.errors[0].code == "model_run_failed"
 
-        replay = run_action_with_confirmation(
-            project, action, project_id="project-research-answer", router=router
-        )
-        assert replay.status == "failed"
-        assert replay.receipt_id == failed.receipt_id
-        assert len(adapter.requests) == 2
-    finally:
-        project.close()
+    replay = run_action_with_confirmation(
+        project, action, project_id="project-research-answer", router=router
+    )
+    assert replay.status == "failed"
+    assert replay.receipt_id == failed.receipt_id
+    assert len(adapter.requests) == 2
 
 
 # The exact tool-JSON debris an owner-QA run persisted as an ANSWER value: a

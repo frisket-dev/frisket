@@ -65,24 +65,21 @@ def test_exact_target_rows_refuse_membership_lost_after_resolution() -> None:
     assert exc_info.value.missing == [12]
 
 
-def test_target_rows_refuse_sheet_hidden_after_resolution(tmp_path) -> None:
-    project = Project.create(tmp_path / "hidden-sheet.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        row_id = project.add_rows(sheet_id, [{}], {})[0]
-        assert validation_module.target_rows(
+def test_target_rows_refuse_sheet_hidden_after_resolution(make_project) -> None:
+    project = make_project("hidden-sheet")
+    sheet_id = project.add_sheet("data")
+    row_id = project.add_rows(sheet_id, [{}], {})[0]
+    assert validation_module.target_rows(
+        project,
+        {"sheet_id": sheet_id, "row_ids": [row_id]},
+    ) == [row_id]
+    project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
+
+    with pytest.raises(validation_module.InvalidTargetSheet):
+        validation_module.target_rows(
             project,
             {"sheet_id": sheet_id, "row_ids": [row_id]},
-        ) == [row_id]
-        project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
-
-        with pytest.raises(validation_module.InvalidTargetSheet):
-            validation_module.target_rows(
-                project,
-                {"sheet_id": sheet_id, "row_ids": [row_id]},
-            )
-    finally:
-        project.close()
+        )
 
 
 def test_all_empty_probe_pages_large_explicit_scope() -> None:

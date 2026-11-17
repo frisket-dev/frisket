@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -78,7 +77,7 @@ def _new_source(url: str = "https://feeds.example/policy.xml") -> dict[str, Any]
 
 
 def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     feed = _feed(
         [
@@ -97,7 +96,7 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
         ]
     )
     register_source_poller(RssPoller(fetch=lambda _url: feed), replace=True)
-    project = Project.create(tmp_path / "rss-source-poll.frisket", name="RSS poll")
+    project = make_project("RSS poll")
     try:
         first = run_action_spec(
             project,
@@ -199,7 +198,7 @@ def _sheet_row_count(project: Project) -> int:
 
 @pytest.mark.parametrize("conflicting", [False, True])
 def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
-    tmp_path: Path,
+    make_project,
     conflicting: bool,
 ) -> None:
     """A same-batch duplicate must not make every later poll append a row.
@@ -212,7 +211,7 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
     """
     feed = _duplicate_key_feed(conflicting=conflicting)
     register_source_poller(RssPoller(fetch=lambda _url: feed), replace=True)
-    project = Project.create(tmp_path / "rss-dup-key.frisket", name="RSS dup")
+    project = make_project("RSS dup")
     try:
         first = run_action_spec(
             project,
@@ -258,7 +257,7 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
 
 
 def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """The fence: a duplicate inside one batch is collapsed, and counted as such.
 
@@ -268,7 +267,7 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
     """
     feed = _duplicate_key_feed(conflicting=False)
     register_source_poller(RssPoller(fetch=lambda _url: feed), replace=True)
-    project = Project.create(tmp_path / "rss-dup-fence.frisket", name="RSS dup fence")
+    project = make_project("RSS dup fence")
     try:
         result = run_action_spec(
             project,

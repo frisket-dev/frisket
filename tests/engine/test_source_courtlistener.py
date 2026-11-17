@@ -414,7 +414,7 @@ def test_courtlistener_provider_never_follows_unsafe_or_cyclic_next_links(
 
 
 def test_courtlistener_solo_poll_materializes_legacy_cap_plus_one(
-    tmp_path: Path,
+    make_project,
     restore_courtlistener_poller: None,
 ) -> None:
     entries = [
@@ -430,47 +430,44 @@ def test_courtlistener_solo_poll_materializes_legacy_cap_plus_one(
     )
     source["config"].pop("max_entries_per_poll")
 
-    project = Project.create(tmp_path / "courtlistener-unbounded.frisket", name="Court")
-    try:
-        result = run_action_spec(
-            project,
-            _source_poll_action(
-                source=source,
-                idempotency_key="source_courtlistener@sha256:legacy-cap-plus-one",
-            ),
-            project_id=PROJECT_ID,
-        )
+    project = make_project("Court")
+    result = run_action_spec(
+        project,
+        _source_poll_action(
+            source=source,
+            idempotency_key="source_courtlistener@sha256:legacy-cap-plus-one",
+        ),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        assert provider.calls[0]["max_entries"] is None
-        sheet_id = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        assert sheet_id is not None
-        item_ids = [
-            str(row["source_item_id"])
-            for row in _rows(project, sheet_id)
-            if row["item_type"] == "docket_entry"
-        ]
-        assert len(item_ids) == 501
-        assert len(set(item_ids)) == 501
-        run_ref = next(
-            output.ref for output in result.outputs if output.kind == "source_run"
-        )
-        source_run = project.db.execute(
-            "SELECT cursor_after FROM source_runs WHERE id=?",
-            (run_ref["source_run_id"],),
-        ).fetchone()
-        assert source_run is not None
-        cursor = json.loads(source_run["cursor_after"])
-        assert cursor["entry_count"] == 501
-        assert cursor["truncated"] is False
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    assert provider.calls[0]["max_entries"] is None
+    sheet_id = next(
+        output.sheet_id for output in result.outputs if output.kind == "sheet"
+    )
+    assert sheet_id is not None
+    item_ids = [
+        str(row["source_item_id"])
+        for row in _rows(project, sheet_id)
+        if row["item_type"] == "docket_entry"
+    ]
+    assert len(item_ids) == 501
+    assert len(set(item_ids)) == 501
+    run_ref = next(
+        output.ref for output in result.outputs if output.kind == "source_run"
+    )
+    source_run = project.db.execute(
+        "SELECT cursor_after FROM source_runs WHERE id=?",
+        (run_ref["source_run_id"],),
+    ).fetchone()
+    assert source_run is not None
+    cursor = json.loads(source_run["cursor_after"])
+    assert cursor["entry_count"] == 501
+    assert cursor["truncated"] is False
 
 
 def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
-    tmp_path: Path,
+    make_project,
     restore_courtlistener_poller: None,
 ) -> None:
     first_documents = [_document(7001, "1", "Complaint PDF with injunction exhibit")]
@@ -511,182 +508,176 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
     )
     register_source_poller(CourtListenerDocketPoller(provider=provider), replace=True)
 
-    project = Project.create(tmp_path / "courtlistener.frisket", name="CourtListener")
-    try:
-        first = run_action_spec(
-            project,
-            _source_poll_action(source=_courtlistener_source()),
-            project_id=PROJECT_ID,
-        )
-        assert first.status == "completed"
-        assert first.receipt_id is not None
-        assert provider.calls == [
-            {
-                "docket_id": DOCKET_ID,
-                "docket_url": DOCKET_URL,
-                "include_parties": True,
-                "include_documents": True,
-                "max_entries": 10,
-            }
-        ]
-        source_id = next(
-            output.ref["source_id"]
-            for output in first.outputs
-            if output.kind == "source"
-        )
-        source_run_id = next(
-            output.ref["source_run_id"]
-            for output in first.outputs
-            if output.kind == "source_run"
-        )
-        sheet_id = next(
-            output.sheet_id for output in first.outputs if output.kind == "sheet"
-        )
-        assert sheet_id is not None
+    project = make_project("CourtListener")
+    first = run_action_spec(
+        project,
+        _source_poll_action(source=_courtlistener_source()),
+        project_id=PROJECT_ID,
+    )
+    assert first.status == "completed"
+    assert first.receipt_id is not None
+    assert provider.calls == [
+        {
+            "docket_id": DOCKET_ID,
+            "docket_url": DOCKET_URL,
+            "include_parties": True,
+            "include_documents": True,
+            "max_entries": 10,
+        }
+    ]
+    source_id = next(
+        output.ref["source_id"] for output in first.outputs if output.kind == "source"
+    )
+    source_run_id = next(
+        output.ref["source_run_id"]
+        for output in first.outputs
+        if output.kind == "source_run"
+    )
+    sheet_id = next(
+        output.sheet_id for output in first.outputs if output.kind == "sheet"
+    )
+    assert sheet_id is not None
 
-        rows = _rows(project, sheet_id)
-        assert [row["item_type"] for row in rows] == [
-            "docket_snapshot",
-            "party",
-            "party",
-            "docket_entry",
-            "docket_entry",
-            "recap_document",
-        ]
-        snapshot = rows[0]
-        assert snapshot["source_id"] == source_id
-        assert snapshot["source_run_id"] == source_run_id
-        assert snapshot["source_item_id"] == f"courtlistener:docket:{DOCKET_ID}"
-        assert snapshot["docket_id"] == int(DOCKET_ID)
-        assert snapshot["case_name"] == "SEC v. Acme Holdings"
-        assert snapshot["court_id"] == "nysd"
-        assert snapshot["source_url"] == DOCKET_URL
+    rows = _rows(project, sheet_id)
+    assert [row["item_type"] for row in rows] == [
+        "docket_snapshot",
+        "party",
+        "party",
+        "docket_entry",
+        "docket_entry",
+        "recap_document",
+    ]
+    snapshot = rows[0]
+    assert snapshot["source_id"] == source_id
+    assert snapshot["source_run_id"] == source_run_id
+    assert snapshot["source_item_id"] == f"courtlistener:docket:{DOCKET_ID}"
+    assert snapshot["docket_id"] == int(DOCKET_ID)
+    assert snapshot["case_name"] == "SEC v. Acme Holdings"
+    assert snapshot["court_id"] == "nysd"
+    assert snapshot["source_url"] == DOCKET_URL
 
-        assert rows[1]["source_item_id"] == f"courtlistener:party:{DOCKET_ID}:10"
-        assert rows[1]["party_name"] == "SEC"
-        assert rows[1]["party_type"] == "plaintiff"
-        assert rows[2]["source_item_id"] == f"courtlistener:party:{DOCKET_ID}:11"
-        assert rows[3]["entry_number"] == "1"
-        assert rows[3]["matched_keywords"] == ["injunction"]
-        assert rows[4]["matched_keywords"] == []
-        document = rows[5]
-        assert document["entry_number"] == "1"
-        assert document["document_url"].endswith(f"/{DOCKET_ID}/sec-v-acme/1/")
-        assert document["recap_available"] is True
-        assert document["matched_keywords"] == ["injunction"]
-        assert "media" not in document
-        assert _table_count(project, "keyed_observations") == 6
-        assert _table_count(project, "blobs") == 0
-        assert "agency" not in _columns(project, sheet_id)
+    assert rows[1]["source_item_id"] == f"courtlistener:party:{DOCKET_ID}:10"
+    assert rows[1]["party_name"] == "SEC"
+    assert rows[1]["party_type"] == "plaintiff"
+    assert rows[2]["source_item_id"] == f"courtlistener:party:{DOCKET_ID}:11"
+    assert rows[3]["entry_number"] == "1"
+    assert rows[3]["matched_keywords"] == ["injunction"]
+    assert rows[4]["matched_keywords"] == []
+    document = rows[5]
+    assert document["entry_number"] == "1"
+    assert document["document_url"].endswith(f"/{DOCKET_ID}/sec-v-acme/1/")
+    assert document["recap_available"] is True
+    assert document["matched_keywords"] == ["injunction"]
+    assert "media" not in document
+    assert _table_count(project, "keyed_observations") == 6
+    assert _table_count(project, "blobs") == 0
+    assert "agency" not in _columns(project, sheet_id)
 
-        first_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (source_run_id,),
-        ).fetchone()
-        assert first_run is not None
-        assert first_run["status"] == "ok"
-        assert first_run["new_rows"] == 6
-        assert first_run["warning_count"] == 0
-        first_cursor = json.loads(first_run["cursor_after"])
-        assert first_cursor["schema_version"] == "frisket.courtlistener_cursor.v1"
-        assert first_cursor["docket_id"] == DOCKET_ID
-        assert first_cursor["entry_count"] == 2
-        assert "courtlistener:docket_entry:9001" in first_cursor["item_hashes"]
+    first_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (source_run_id,),
+    ).fetchone()
+    assert first_run is not None
+    assert first_run["status"] == "ok"
+    assert first_run["new_rows"] == 6
+    assert first_run["warning_count"] == 0
+    first_cursor = json.loads(first_run["cursor_after"])
+    assert first_cursor["schema_version"] == "frisket.courtlistener_cursor.v1"
+    assert first_cursor["docket_id"] == DOCKET_ID
+    assert first_cursor["entry_count"] == 2
+    assert "courtlistener:docket_entry:9001" in first_cursor["item_hashes"]
 
-        receipt = _receipt(project, first.receipt_id)
-        assert receipt["action_kind"] == "source.poll"
-        assert receipt["status"] == "completed"
-        assert receipt["warnings"] == []
-        assert receipt["provider_use"][0]["provider"] == "courtlistener"
-        assert receipt["provider_use"][0]["service"] == "fake-courtlistener"
-        assert receipt["provider_use"][0]["docket_url_hash"].startswith("sha256:")
-        assert DOCKET_URL not in json.dumps(receipt["provider_use"])
+    receipt = _receipt(project, first.receipt_id)
+    assert receipt["action_kind"] == "source.poll"
+    assert receipt["status"] == "completed"
+    assert receipt["warnings"] == []
+    assert receipt["provider_use"][0]["provider"] == "courtlistener"
+    assert receipt["provider_use"][0]["service"] == "fake-courtlistener"
+    assert receipt["provider_use"][0]["docket_url_hash"].startswith("sha256:")
+    assert DOCKET_URL not in json.dumps(receipt["provider_use"])
 
-        second = run_action_spec(
-            project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_courtlistener@sha256:second",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert second.status == "completed"
-        second_run_id = next(
-            output.ref["source_run_id"]
-            for output in second.outputs
-            if output.kind == "source_run"
-        )
-        second_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (second_run_id,),
-        ).fetchone()
-        assert second_run["new_rows"] == 2
-        assert second_run["skipped_rows"] == 6
-        assert second_run["changed_rows"] == 0
-        assert second_run["revisions"] == 0
-        rows = _rows(project, sheet_id)
-        assert [row["source_item_id"] for row in rows[-2:]] == [
-            "courtlistener:docket_entry:9003",
-            f"courtlistener:recap_document:{DOCKET_ID}:7002",
-        ]
-        assert rows[-2]["matched_keywords"] == ["settlement"]
-        assert _table_count(project, "keyed_observations") == 8
-        assert _table_count(project, "blobs") == 0
+    second = run_action_spec(
+        project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_courtlistener@sha256:second",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert second.status == "completed"
+    second_run_id = next(
+        output.ref["source_run_id"]
+        for output in second.outputs
+        if output.kind == "source_run"
+    )
+    second_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (second_run_id,),
+    ).fetchone()
+    assert second_run["new_rows"] == 2
+    assert second_run["skipped_rows"] == 6
+    assert second_run["changed_rows"] == 0
+    assert second_run["revisions"] == 0
+    rows = _rows(project, sheet_id)
+    assert [row["source_item_id"] for row in rows[-2:]] == [
+        "courtlistener:docket_entry:9003",
+        f"courtlistener:recap_document:{DOCKET_ID}:7002",
+    ]
+    assert rows[-2]["matched_keywords"] == ["settlement"]
+    assert _table_count(project, "keyed_observations") == 8
+    assert _table_count(project, "blobs") == 0
 
-        stable_rows = dict(
-            project.db.execute(
-                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
-                (source_id,),
-            )
+    stable_rows = dict(
+        project.db.execute(
+            "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+            (source_id,),
         )
-        third = run_action_spec(
-            project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_courtlistener@sha256:third",
-            ),
-            project_id=PROJECT_ID,
+    )
+    third = run_action_spec(
+        project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_courtlistener@sha256:third",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert third.status == "completed"
+    third_run_id = next(
+        output.ref["source_run_id"]
+        for output in third.outputs
+        if output.kind == "source_run"
+    )
+    third_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (third_run_id,),
+    ).fetchone()
+    assert third_run["new_rows"] == 0
+    assert third_run["skipped_rows"] == 7
+    assert third_run["changed_rows"] == 1
+    assert third_run["revisions"] == 0
+    after_rows = dict(
+        project.db.execute(
+            "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+            (source_id,),
         )
-        assert third.status == "completed"
-        third_run_id = next(
-            output.ref["source_run_id"]
-            for output in third.outputs
-            if output.kind == "source_run"
-        )
-        third_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (third_run_id,),
-        ).fetchone()
-        assert third_run["new_rows"] == 0
-        assert third_run["skipped_rows"] == 7
-        assert third_run["changed_rows"] == 1
-        assert third_run["revisions"] == 0
-        after_rows = dict(
-            project.db.execute(
-                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
-                (source_id,),
-            )
-        )
-        assert {key: after_rows[key] for key in stable_rows} == stable_rows
-        third_receipt = _receipt(project, third.receipt_id)
-        assert third_receipt["warnings"] == [
-            "courtlistener_docket existing item changed: "
-            "courtlistener:docket_entry:9002"
-        ]
-        rows = _rows(project, sheet_id)
-        corrected = next(
-            row
-            for row in rows
-            if row["source_item_id"] == "courtlistener:docket_entry:9002"
-        )
-        assert len(rows) == len(stable_rows)
-        assert corrected["description"] == "Notice of appearance corrected"
-    finally:
-        project.close()
+    )
+    assert {key: after_rows[key] for key in stable_rows} == stable_rows
+    third_receipt = _receipt(project, third.receipt_id)
+    assert third_receipt["warnings"] == [
+        "courtlistener_docket existing item changed: courtlistener:docket_entry:9002"
+    ]
+    rows = _rows(project, sheet_id)
+    corrected = next(
+        row
+        for row in rows
+        if row["source_item_id"] == "courtlistener:docket_entry:9002"
+    )
+    assert len(rows) == len(stable_rows)
+    assert corrected["description"] == "Notice of appearance corrected"
 
 
 def test_courtlistener_entry_cap_retains_all_documents_from_kept_entry(
-    tmp_path: Path,
+    make_project,
     restore_courtlistener_poller: None,
 ) -> None:
     retained_documents = [
@@ -717,82 +708,76 @@ def test_courtlistener_entry_cap_retains_all_documents_from_kept_entry(
     )
     register_source_poller(CourtListenerDocketPoller(provider=provider), replace=True)
 
-    project = Project.create(tmp_path / "courtlistener-entry-cap.frisket", name="Court")
-    try:
-        result = run_action_spec(
-            project,
-            _source_poll_action(
-                source=_courtlistener_source(
-                    {
-                        "include_parties": False,
-                        "max_entries_per_poll": 1,
-                    }
-                ),
-                idempotency_key="source_courtlistener@sha256:entry-cap-documents",
+    project = make_project("Court")
+    result = run_action_spec(
+        project,
+        _source_poll_action(
+            source=_courtlistener_source(
+                {
+                    "include_parties": False,
+                    "max_entries_per_poll": 1,
+                }
             ),
-            project_id=PROJECT_ID,
-        )
+            idempotency_key="source_courtlistener@sha256:entry-cap-documents",
+        ),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        sheet_id = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        assert sheet_id is not None
-        rows = _rows(project, sheet_id)
-        assert [row["source_item_id"] for row in rows] == [
-            f"courtlistener:docket:{DOCKET_ID}",
-            "courtlistener:docket_entry:9001",
-            f"courtlistener:recap_document:{DOCKET_ID}:7001",
-            f"courtlistener:recap_document:{DOCKET_ID}:7002",
-        ]
-        assert "courtlistener:docket_entry:9002" not in {
-            row["source_item_id"] for row in rows
-        }
-        assert f"courtlistener:recap_document:{DOCKET_ID}:7003" not in {
-            row["source_item_id"] for row in rows
-        }
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    sheet_id = next(
+        output.sheet_id for output in result.outputs if output.kind == "sheet"
+    )
+    assert sheet_id is not None
+    rows = _rows(project, sheet_id)
+    assert [row["source_item_id"] for row in rows] == [
+        f"courtlistener:docket:{DOCKET_ID}",
+        "courtlistener:docket_entry:9001",
+        f"courtlistener:recap_document:{DOCKET_ID}:7001",
+        f"courtlistener:recap_document:{DOCKET_ID}:7002",
+    ]
+    assert "courtlistener:docket_entry:9002" not in {
+        row["source_item_id"] for row in rows
+    }
+    assert f"courtlistener:recap_document:{DOCKET_ID}:7003" not in {
+        row["source_item_id"] for row in rows
+    }
 
 
 def test_courtlistener_validation_caps_and_provider_failure_redaction(
-    tmp_path: Path,
+    make_project,
     restore_courtlistener_poller: None,
 ) -> None:
     assert get_source_poller(COURTLISTENER_DOCKET_KIND) is not None
 
-    invalid_project = Project.create(tmp_path / "invalid.frisket", name="Invalid")
-    try:
-        invalid = run_action_spec(
-            invalid_project,
-            _source_poll_action(
-                source=_courtlistener_source({"api_token": "SECRET"}),
-                idempotency_key="source_courtlistener@sha256:invalid",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert invalid.status == "failed"
-        assert invalid.errors[0].code == "unsupported_source_config"
-        assert "token" in invalid.errors[0].message
-        assert "SECRET" not in invalid.errors[0].message
-        assert _table_count(invalid_project, "sources") == 0
-        assert _table_count(invalid_project, "source_runs") == 0
+    invalid_project = make_project("Invalid")
+    invalid = run_action_spec(
+        invalid_project,
+        _source_poll_action(
+            source=_courtlistener_source({"api_token": "SECRET"}),
+            idempotency_key="source_courtlistener@sha256:invalid",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert invalid.status == "failed"
+    assert invalid.errors[0].code == "unsupported_source_config"
+    assert "token" in invalid.errors[0].message
+    assert "SECRET" not in invalid.errors[0].message
+    assert _table_count(invalid_project, "sources") == 0
+    assert _table_count(invalid_project, "source_runs") == 0
 
-        bad_schema = run_action_spec(
-            invalid_project,
-            _source_poll_action(
-                source=_courtlistener_source({"schema_version": "frisket.old"}),
-                idempotency_key="source_courtlistener@sha256:bad-schema",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert bad_schema.status == "failed"
-        assert bad_schema.errors[0].code == "unsupported_source_config"
-        assert "schema_version" in bad_schema.errors[0].message
-        assert _table_count(invalid_project, "sources") == 0
-        assert _table_count(invalid_project, "source_runs") == 0
-    finally:
-        invalid_project.close()
+    bad_schema = run_action_spec(
+        invalid_project,
+        _source_poll_action(
+            source=_courtlistener_source({"schema_version": "frisket.old"}),
+            idempotency_key="source_courtlistener@sha256:bad-schema",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert bad_schema.status == "failed"
+    assert bad_schema.errors[0].code == "unsupported_source_config"
+    assert "schema_version" in bad_schema.errors[0].message
+    assert _table_count(invalid_project, "sources") == 0
+    assert _table_count(invalid_project, "source_runs") == 0
 
     capped_provider = FakeCourtListenerProvider(
         [
@@ -819,54 +804,51 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
     register_source_poller(
         CourtListenerDocketPoller(provider=capped_provider), replace=True
     )
-    capped_project = Project.create(tmp_path / "capped.frisket", name="Capped")
-    try:
-        capped = run_action_spec(
-            capped_project,
-            _source_poll_action(
-                source=_courtlistener_source(
-                    {
-                        "docket_url": None,
-                        "docket_id": DOCKET_ID,
-                        "include_parties": False,
-                        "max_entries_per_poll": 1,
-                    }
-                ),
-                idempotency_key="source_courtlistener@sha256:capped",
+    capped_project = make_project("Capped")
+    capped = run_action_spec(
+        capped_project,
+        _source_poll_action(
+            source=_courtlistener_source(
+                {
+                    "docket_url": None,
+                    "docket_id": DOCKET_ID,
+                    "include_parties": False,
+                    "max_entries_per_poll": 1,
+                }
             ),
-            project_id=PROJECT_ID,
-        )
-        assert capped.status == "completed"
-        assert capped_provider.calls[0]["docket_id"] == DOCKET_ID
-        assert capped_provider.calls[0]["max_entries"] == 1
-        sheet_id = next(
-            output.sheet_id for output in capped.outputs if output.kind == "sheet"
-        )
-        assert sheet_id is not None
-        rows = _rows(capped_project, sheet_id)
-        assert [row["item_type"] for row in rows] == [
-            "docket_snapshot",
-            "docket_entry",
-            "recap_document",
-        ]
-        assert rows[2]["recap_available"] is False
-        assert "document_url" not in rows[2]
-        assert "media" not in rows[2]
-        run_ref = next(
-            output.ref for output in capped.outputs if output.kind == "source_run"
-        )
-        source_run = capped_project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (run_ref["source_run_id"],),
-        ).fetchone()
-        cursor = json.loads(source_run["cursor_after"])
-        assert cursor["max_entries_per_poll"] == 1
-        assert cursor["truncated"] is True
-        assert _receipt(capped_project, capped.receipt_id)["warnings"] == [
-            "courtlistener_docket entry cap reached; limited to 1 entries"
-        ]
-    finally:
-        capped_project.close()
+            idempotency_key="source_courtlistener@sha256:capped",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert capped.status == "completed"
+    assert capped_provider.calls[0]["docket_id"] == DOCKET_ID
+    assert capped_provider.calls[0]["max_entries"] == 1
+    sheet_id = next(
+        output.sheet_id for output in capped.outputs if output.kind == "sheet"
+    )
+    assert sheet_id is not None
+    rows = _rows(capped_project, sheet_id)
+    assert [row["item_type"] for row in rows] == [
+        "docket_snapshot",
+        "docket_entry",
+        "recap_document",
+    ]
+    assert rows[2]["recap_available"] is False
+    assert "document_url" not in rows[2]
+    assert "media" not in rows[2]
+    run_ref = next(
+        output.ref for output in capped.outputs if output.kind == "source_run"
+    )
+    source_run = capped_project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (run_ref["source_run_id"],),
+    ).fetchone()
+    cursor = json.loads(source_run["cursor_after"])
+    assert cursor["max_entries_per_poll"] == 1
+    assert cursor["truncated"] is True
+    assert _receipt(capped_project, capped.receipt_id)["warnings"] == [
+        "courtlistener_docket entry cap reached; limited to 1 entries"
+    ]
 
     failing_provider = FakeCourtListenerProvider(
         [
@@ -878,74 +860,68 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
     register_source_poller(
         CourtListenerDocketPoller(provider=failing_provider), replace=True
     )
-    failed_project = Project.create(tmp_path / "failed.frisket", name="Failed")
-    try:
-        source_id = SourceStore(failed_project).add_source(
-            name="Failing docket",
-            kind=COURTLISTENER_DOCKET_KIND,
-            url=DOCKET_URL,
-            config={"docket_id": DOCKET_ID},
-        )
-        failed = run_action_spec(
-            failed_project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_courtlistener@sha256:provider-failed",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert failed.status == "failed"
-        assert failed.receipt_id is not None
-        assert failed.errors[0].code == "source_poll_failed"
-        assert "SECRET" not in failed.errors[0].message
-        assert "abc123" not in failed.errors[0].message
-        source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
-        assert source_run["status"] == "error"
-        assert "SECRET" not in source_run["error"]
-        assert "abc123" not in source_run["error"]
-        receipt = _receipt(failed_project, failed.receipt_id)
-        assert receipt["status"] == "failed"
-        assert "SECRET" not in receipt["errors"][0]["message"]
-        assert "abc123" not in receipt["errors"][0]["message"]
-    finally:
-        failed_project.close()
+    failed_project = make_project("Failed")
+    source_id = SourceStore(failed_project).add_source(
+        name="Failing docket",
+        kind=COURTLISTENER_DOCKET_KIND,
+        url=DOCKET_URL,
+        config={"docket_id": DOCKET_ID},
+    )
+    failed = run_action_spec(
+        failed_project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_courtlistener@sha256:provider-failed",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert failed.status == "failed"
+    assert failed.receipt_id is not None
+    assert failed.errors[0].code == "source_poll_failed"
+    assert "SECRET" not in failed.errors[0].message
+    assert "abc123" not in failed.errors[0].message
+    source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
+    assert source_run["status"] == "error"
+    assert "SECRET" not in source_run["error"]
+    assert "abc123" not in source_run["error"]
+    receipt = _receipt(failed_project, failed.receipt_id)
+    assert receipt["status"] == "failed"
+    assert "SECRET" not in receipt["errors"][0]["message"]
+    assert "abc123" not in receipt["errors"][0]["message"]
 
 
 def test_courtlistener_missing_token_returns_disabled_source_state(
-    tmp_path: Path,
+    make_project,
     restore_courtlistener_poller: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("COURTLISTENER_API_TOKEN", raising=False)
     register_source_poller(CourtListenerDocketPoller(), replace=True)
 
-    project = Project.create(tmp_path / "missing-token.frisket", name="Missing Token")
-    try:
-        result = run_action_spec(
-            project,
-            _source_poll_action(
-                source=_courtlistener_source(),
-                idempotency_key="source_courtlistener@sha256:missing-token",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "failed"
-        assert result.receipt_id is not None
-        assert result.errors[0].code == "source_poll_failed"
-        assert "disabled" in result.errors[0].message
-        assert "COURTLISTENER_API_TOKEN" in result.errors[0].message
+    project = make_project("Missing Token")
+    result = run_action_spec(
+        project,
+        _source_poll_action(
+            source=_courtlistener_source(),
+            idempotency_key="source_courtlistener@sha256:missing-token",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "failed"
+    assert result.receipt_id is not None
+    assert result.errors[0].code == "source_poll_failed"
+    assert "disabled" in result.errors[0].message
+    assert "COURTLISTENER_API_TOKEN" in result.errors[0].message
 
-        source = project.db.execute(
-            "SELECT * FROM sources WHERE kind=?", (COURTLISTENER_DOCKET_KIND,)
-        ).fetchone()
-        assert source is not None
-        source_run = SourceStore(project).source_runs(int(source["id"]), limit=1)[0]
-        assert source_run["status"] == "error"
-        assert "disabled" in source_run["error"]
-        assert "COURTLISTENER_API_TOKEN" in source_run["error"]
-        assert "token=" not in source_run["error"].lower()
-    finally:
-        project.close()
+    source = project.db.execute(
+        "SELECT * FROM sources WHERE kind=?", (COURTLISTENER_DOCKET_KIND,)
+    ).fetchone()
+    assert source is not None
+    source_run = SourceStore(project).source_runs(int(source["id"]), limit=1)[0]
+    assert source_run["status"] == "error"
+    assert "disabled" in source_run["error"]
+    assert "COURTLISTENER_API_TOKEN" in source_run["error"]
+    assert "token=" not in source_run["error"].lower()
 
 
 def test_courtlistener_scheduled_source_dispatches_generic_source_poll(

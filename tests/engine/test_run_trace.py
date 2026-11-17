@@ -546,7 +546,7 @@ def test_tracing_router_final_record_resolves_observed_models_without_key_cache(
     assert numeric_record["cost"] == 0.25
 
 
-def test_trace_records_retry_attempts_with_errors(tmp_path, monkeypatch):
+def test_trace_records_retry_attempts_with_errors(make_project, monkeypatch):
     # first adapter call 429s; the router retries and succeeds — the trace
     # must show that failed attempt with its error text. Driven at the
     # runner level so the router's retry backoff doesn't race the HTTP
@@ -554,9 +554,7 @@ def test_trace_records_retry_attempts_with_errors(tmp_path, monkeypatch):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     import asyncio
 
-    from frisket.engine.store import Project
-
-    p = Project.create(tmp_path / "p.frisket")
+    p = make_project("p")
     sheet = p.add_sheet("data")
     cols = {"story": p.add_column(sheet, "story")}
     p.add_rows(sheet, [{"story": "Mayor Reyes met Quayle."}], cols)

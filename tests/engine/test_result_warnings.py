@@ -332,45 +332,42 @@ def test_progress_metadata_is_nullable_separate_from_inputs_and_retained(
         reopened.close()
 
 
-def test_warning_storage_is_bounded_and_redacts_secrets(tmp_path):
-    project = Project.create(tmp_path / "bounded.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "value")
-        row_id = project.add_rows(sheet_id, [{"value": "x"}], {"value": column_id})[0]
-        op_id = project.append_op("map.regex_extract", {})
-        store = RunResultStore(project)
-        run_id = store.start_run(op_id, sheet_id, "map.regex_extract", row_ids=[row_id])
-        authority = run_writer_authority_fixture(
-            project, run_id, output_column_ids={column_id}
-        )
-        store.write_results(
-            run_id,
-            [
-                {
-                    "row_id": row_id,
-                    "column_id": column_id,
-                    "value": "still successful",
-                    "warnings": [
-                        "api_key=super-secret-key",
-                        "x" * 4_000,
-                        *[f"warning {i}" for i in range(30)],
-                    ],
-                }
-            ],
-            **authority.kwargs(),
-        )
-        row = project.db.execute(
-            "SELECT warnings,outcome,error FROM results WHERE run_id=?", (run_id,)
-        ).fetchone()
-        warnings = json.loads(row["warnings"])
-        assert len(warnings) == RESULT_WARNING_MAX_ITEMS
-        assert all(len(warning) <= RESULT_WARNING_MAX_CHARS for warning in warnings)
-        assert "super-secret-key" not in row["warnings"]
-        assert warnings[-1].endswith("additional warnings omitted")
-        assert row["outcome"] == "ok" and row["error"] is None
-    finally:
-        project.close()
+def test_warning_storage_is_bounded_and_redacts_secrets(make_project):
+    project = make_project("bounded")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "value")
+    row_id = project.add_rows(sheet_id, [{"value": "x"}], {"value": column_id})[0]
+    op_id = project.append_op("map.regex_extract", {})
+    store = RunResultStore(project)
+    run_id = store.start_run(op_id, sheet_id, "map.regex_extract", row_ids=[row_id])
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={column_id}
+    )
+    store.write_results(
+        run_id,
+        [
+            {
+                "row_id": row_id,
+                "column_id": column_id,
+                "value": "still successful",
+                "warnings": [
+                    "api_key=super-secret-key",
+                    "x" * 4_000,
+                    *[f"warning {i}" for i in range(30)],
+                ],
+            }
+        ],
+        **authority.kwargs(),
+    )
+    row = project.db.execute(
+        "SELECT warnings,outcome,error FROM results WHERE run_id=?", (run_id,)
+    ).fetchone()
+    warnings = json.loads(row["warnings"])
+    assert len(warnings) == RESULT_WARNING_MAX_ITEMS
+    assert all(len(warning) <= RESULT_WARNING_MAX_CHARS for warning in warnings)
+    assert "super-secret-key" not in row["warnings"]
+    assert warnings[-1].endswith("additional warnings omitted")
+    assert row["outcome"] == "ok" and row["error"] is None
 
 
 @pytest.mark.parametrize(("row_count", "warnings_per_cell"), [(101, 1), (6, 20)])

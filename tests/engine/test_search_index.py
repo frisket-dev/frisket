@@ -169,33 +169,30 @@ def test_deleted_unified_sidecar_is_rebuilt_from_authoritative_cells(documents):
     assert len(search_project(project, "needle", rerank="off")) == 7
 
 
-def test_byte_budget_loads_only_the_admitted_cell_page(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "bytes.frisket", name="bytes")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        project.add_rows(
-            sheet,
-            [{"body": "x" * (1536 * 1024) + f" tailneedle{i}"} for i in range(4)],
-            {"body": column},
-        )
-        loaded = []
-        get_values = ProjectReadSnapshot.get_values
+def test_byte_budget_loads_only_the_admitted_cell_page(make_project, monkeypatch):
+    project = make_project("bytes")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    project.add_rows(
+        sheet,
+        [{"body": "x" * (1536 * 1024) + f" tailneedle{i}"} for i in range(4)],
+        {"body": column},
+    )
+    loaded = []
+    get_values = ProjectReadSnapshot.get_values
 
-        def observe(snapshot, sheet_id, column_id, row_ids=None, **kwargs):
-            loaded.append(list(row_ids or []))
-            return get_values(snapshot, sheet_id, column_id, row_ids=row_ids, **kwargs)
+    def observe(snapshot, sheet_id, column_id, row_ids=None, **kwargs):
+        loaded.append(list(row_ids or []))
+        return get_values(snapshot, sheet_id, column_id, row_ids=row_ids, **kwargs)
 
-        monkeypatch.setattr(ProjectReadSnapshot, "get_values", observe)
-        progress = index_batch(project)
+    monkeypatch.setattr(ProjectReadSnapshot, "get_values", observe)
+    progress = index_batch(project)
 
-        assert not progress.complete
-        assert 3 * 1024 * 1024 < progress.processed_bytes < 4 * 1024 * 1024
-        assert loaded == [project.visible_row_ids(sheet)[:2]]
-        drain_index(project)
-        assert search_project(project, "tailneedle3", rerank="off")
-    finally:
-        project.close()
+    assert not progress.complete
+    assert 3 * 1024 * 1024 < progress.processed_bytes < 4 * 1024 * 1024
+    assert loaded == [project.visible_row_ids(sheet)[:2]]
+    drain_index(project)
+    assert search_project(project, "tailneedle3", rerank="off")
 
 
 def test_concurrent_edit_during_publication_remains_dirty_and_is_reconciled(

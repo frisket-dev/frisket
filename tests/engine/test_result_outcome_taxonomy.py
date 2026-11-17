@@ -175,7 +175,7 @@ def test_batch_missing_siblings_respect_producer_requiredness() -> None:
     assert failed
 
 
-def test_missing_outputs_publish_explicit_null_or_error(tmp_path: Path) -> None:
+def test_missing_outputs_publish_explicit_null_or_error(make_project) -> None:
     batch_cells, failed, _cost = normalize_batch_row(
         {"present": "value"},
         ["present", "missing"],
@@ -186,33 +186,30 @@ def test_missing_outputs_publish_explicit_null_or_error(tmp_path: Path) -> None:
     assert batch_cells["missing"]["value"] is None
     assert batch_cells["missing"]["publication_effect"] == "publish_error"
 
-    project = Project.create(tmp_path / "legacy-missing-output.frisket")
-    try:
-        row_cells = asyncio.run(
-            execute_row(
-                project,
-                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                AdaptiveThrottle(),
-                _LegacyOmissionRecipe(),
-                {"seed": "value"},
-                {"action_kind": "map.extract", "with_error": True},
-                OpContext(
-                    project=project,
-                    http=None,
-                    extras={"preview": True, "cancelled": lambda: False},
-                ),
-                output_field_names=("present", "missing"),
-                required_output_field_names=frozenset({"present", "missing"}),
-                managed_publication=True,
-            )
+    project = make_project("legacy-missing-output")
+    row_cells = asyncio.run(
+        execute_row(
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+            AdaptiveThrottle(),
+            _LegacyOmissionRecipe(),
+            {"seed": "value"},
+            {"action_kind": "map.extract", "with_error": True},
+            OpContext(
+                project=project,
+                http=None,
+                extras={"preview": True, "cancelled": lambda: False},
+            ),
+            output_field_names=("present", "missing"),
+            required_output_field_names=frozenset({"present", "missing"}),
+            managed_publication=True,
         )
-        assert row_cells["present"]["value"] is None
-        assert row_cells["present"]["publication_effect"] == "publish_error"
-        assert row_cells["missing"]["value"] is None
-        assert row_cells["missing"]["publication_effect"] == "publish_error"
-        assert all("publication_effect" in cell for cell in row_cells.values())
-    finally:
-        project.close()
+    )
+    assert row_cells["present"]["value"] is None
+    assert row_cells["present"]["publication_effect"] == "publish_error"
+    assert row_cells["missing"]["value"] is None
+    assert row_cells["missing"]["publication_effect"] == "publish_error"
+    assert all("publication_effect" in cell for cell in row_cells.values())
 
 
 def test_result_and_batch_error_boundaries_survive_hostile_stringification(

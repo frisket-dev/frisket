@@ -183,7 +183,7 @@ class _ByRowAdapter:
         raise LLMError(f"model exploded on row {row}", status=500)
 
 
-def test_streak_is_source_order_not_completion_order(tmp_path, monkeypatch) -> None:
+def test_streak_is_source_order_not_completion_order(make_project, monkeypatch) -> None:
     """A concurrency regression: under concurrency, a burst of
     FAST failures must not trip the breaker while EARLIER slow successes are
     still in flight. Source order here: row 0 success, rows 1-5 fail, row 6
@@ -193,7 +193,7 @@ def test_streak_is_source_order_not_completion_order(tmp_path, monkeypatch) -> N
     at each in-flight success and never does."""
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     texts = [f"row {i}" for i in range(14)]
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project = make_project("p")
     sheet = project.add_sheet("data")
     cols = {"text": project.add_column(sheet, "text")}
     project.add_rows(sheet, [{"text": t} for t in texts], cols)

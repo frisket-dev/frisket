@@ -218,93 +218,88 @@ def _field(project: Project, run_id: int, column_id: int) -> sqlite3.Row:
 
 
 def test_review_stats_distinguish_resolved_unknown_from_human_decisions(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "review-stats.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        first = project.add_column(sheet_id, "answer", ai_generated=True)
-        second = project.add_column(sheet_id, "category", ai_generated=True)
-        support = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
-        row_ids = project.add_rows(sheet_id, [{}, {}], {})
-        run_id = _managed_run(
-            project,
-            sheet_id=sheet_id,
-            columns=[first, second, support],
-            row_ids=row_ids,
-        )
-        store = RunResultStore(project)
+    project = make_project("review-stats")
+    sheet_id = project.add_sheet("Rows")
+    first = project.add_column(sheet_id, "answer", ai_generated=True)
+    second = project.add_column(sheet_id, "category", ai_generated=True)
+    support = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
+    row_ids = project.add_rows(sheet_id, [{}, {}], {})
+    run_id = _managed_run(
+        project,
+        sheet_id=sheet_id,
+        columns=[first, second, support],
+        row_ids=row_ids,
+    )
+    store = RunResultStore(project)
 
-        # A migrated verified result has resolved work but no invented human
-        # decision. Rebuilding preserves that distinction.
+    # A migrated verified result has resolved work but no invented human
+    # decision. Rebuilding preserves that distinction.
+    project.db.execute(
+        "UPDATE results SET review_state='verified' "
+        "WHERE run_id=? AND row_id=? AND column_id=?",
+        (run_id, row_ids[0], second),
+    )
+    mark_run_review_stats_dirty(project.db, run_id)
+    rebuild_run_review_stats(project.db, run_id)
+    project.db.commit()
+
+    first_stats = _field(project, run_id, first)
+    second_stats = _field(project, run_id, second)
+    support_stats = _field(project, run_id, support)
+    assert (first_stats["eligible_count"], first_stats["resolved_count"]) == (
+        2,
+        0,
+    )
+    assert (
+        second_stats["eligible_count"],
+        second_stats["resolved_count"],
+        second_stats["reviewed_count"],
+    ) == (2, 1, 0)
+    assert support_stats["is_primary"] == 0
+    assert support_stats["eligible_count"] == 0
+
+    run = project.db.execute(
+        "SELECT review_bundle_count,review_resolved_bundle_count FROM runs WHERE id=?",
+        (run_id,),
+    ).fetchone()
+    assert tuple(run) == (2, 0)
+
+    # The production writer separates state and metadata inside one
+    # judgment transaction. Both directions keep row-bundle resolution
+    # exact throughout that ordering.
+    project.db.execute("BEGIN IMMEDIATE")
+    assert store.set_result_review_state(run_id, row_ids[0], first, "verified") == 1
+    assert (
         project.db.execute(
-            "UPDATE results SET review_state='verified' "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (run_id, row_ids[0], second),
-        )
-        mark_run_review_stats_dirty(project.db, run_id)
-        rebuild_run_review_stats(project.db, run_id)
-        project.db.commit()
+            "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        store.set_result_review_metadata(run_id, row_ids[0], first, "accept", None) == 1
+    )
+    assert _field(project, run_id, first)["reviewed_count"] == 1
 
-        first_stats = _field(project, run_id, first)
-        second_stats = _field(project, run_id, second)
-        support_stats = _field(project, run_id, support)
-        assert (first_stats["eligible_count"], first_stats["resolved_count"]) == (
-            2,
-            0,
-        )
-        assert (
-            second_stats["eligible_count"],
-            second_stats["resolved_count"],
-            second_stats["reviewed_count"],
-        ) == (2, 1, 0)
-        assert support_stats["is_primary"] == 0
-        assert support_stats["eligible_count"] == 0
-
-        run = project.db.execute(
-            "SELECT review_bundle_count,review_resolved_bundle_count FROM runs "
-            "WHERE id=?",
-            (run_id,),
-        ).fetchone()
-        assert tuple(run) == (2, 0)
-
-        # The production writer separates state and metadata inside one
-        # judgment transaction. Both directions keep row-bundle resolution
-        # exact throughout that ordering.
-        project.db.execute("BEGIN IMMEDIATE")
-        assert store.set_result_review_state(run_id, row_ids[0], first, "verified") == 1
-        assert (
-            project.db.execute(
-                "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
-            ).fetchone()[0]
-            == 1
-        )
-        assert (
-            store.set_result_review_metadata(run_id, row_ids[0], first, "accept", None)
-            == 1
-        )
-        assert _field(project, run_id, first)["reviewed_count"] == 1
-
-        # Undo order restores state first while the decision is still present;
-        # only clearing the decision makes the item and bundle pending again.
-        store.set_result_review_state(run_id, row_ids[0], first, "unreviewed")
-        assert (
-            project.db.execute(
-                "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
-            ).fetchone()[0]
-            == 1
-        )
-        store.set_result_review_metadata(run_id, row_ids[0], first, None, None)
-        assert (
-            project.db.execute(
-                "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
-            ).fetchone()[0]
-            == 0
-        )
-        assert _field(project, run_id, first)["reviewed_count"] == 0
-        project.db.commit()
-    finally:
-        project.close()
+    # Undo order restores state first while the decision is still present;
+    # only clearing the decision makes the item and bundle pending again.
+    store.set_result_review_state(run_id, row_ids[0], first, "unreviewed")
+    assert (
+        project.db.execute(
+            "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
+        == 1
+    )
+    store.set_result_review_metadata(run_id, row_ids[0], first, None, None)
+    assert (
+        project.db.execute(
+            "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    assert _field(project, run_id, first)["reviewed_count"] == 0
+    project.db.commit()
 
 
 @pytest.mark.parametrize("transition", ["state", "metadata"])
@@ -473,111 +468,103 @@ def test_concurrent_review_stats_ensure_rechecks_ready_under_write_lock(
         project.close()
 
 
-def test_ready_review_stats_ensure_does_not_take_write_lock(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "ready-read.frisket")
+def test_ready_review_stats_ensure_does_not_take_write_lock(make_project) -> None:
+    project = make_project("ready-read")
+    sheet_id = project.add_sheet("Rows")
+    output = project.add_column(sheet_id, "answer", ai_generated=True)
+    rows = project.add_rows(sheet_id, [{}], {})
+    run_id = _managed_run(project, sheet_id=sheet_id, columns=[output], row_ids=rows)
+    statements: list[str] = []
+    project.db.set_trace_callback(statements.append)
     try:
-        sheet_id = project.add_sheet("Rows")
-        output = project.add_column(sheet_id, "answer", ai_generated=True)
-        rows = project.add_rows(sheet_id, [{}], {})
-        run_id = _managed_run(
-            project, sheet_id=sheet_id, columns=[output], row_ids=rows
-        )
-        statements: list[str] = []
-        project.db.set_trace_callback(statements.append)
-        try:
-            ensure_run_review_stats(project.db, run_id)
-        finally:
-            project.db.set_trace_callback(None)
-
-        assert not project.db.in_transaction
-        assert all(
-            statement.strip().upper() != "BEGIN IMMEDIATE" for statement in statements
-        )
+        ensure_run_review_stats(project.db, run_id)
     finally:
-        project.close()
+        project.db.set_trace_callback(None)
+
+    assert not project.db.in_transaction
+    assert all(
+        statement.strip().upper() != "BEGIN IMMEDIATE" for statement in statements
+    )
 
 
 def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "stable-review-run.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        first = project.add_column(sheet_id, "answer", ai_generated=True)
-        second = project.add_column(sheet_id, "category", ai_generated=True)
-        support = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
-        row_ids = project.add_rows(sheet_id, [{}, {}], {})
-        original = _managed_run(
-            project,
-            sheet_id=sheet_id,
-            columns=[first, second, support],
-            row_ids=row_ids,
-        )
-        original_totals = tuple(
+    project = make_project("stable-review-run")
+    sheet_id = project.add_sheet("Rows")
+    first = project.add_column(sheet_id, "answer", ai_generated=True)
+    second = project.add_column(sheet_id, "category", ai_generated=True)
+    support = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
+    row_ids = project.add_rows(sheet_id, [{}, {}], {})
+    original = _managed_run(
+        project,
+        sheet_id=sheet_id,
+        columns=[first, second, support],
+        row_ids=row_ids,
+    )
+    original_totals = tuple(
+        project.db.execute(
+            "SELECT review_bundle_count,review_resolved_bundle_count "
+            "FROM runs WHERE id=?",
+            (original,),
+        ).fetchone()
+    )
+
+    project.db.execute(
+        "UPDATE columns SET name='renamed_primary_looking' WHERE id=?", (support,)
+    )
+    mark_run_review_stats_dirty(project.db, original)
+    rebuild_run_review_stats(project.db, original)
+    frozen_support = _field(project, original, support)
+    assert frozen_support["column_name"] == "answer_confidence"
+    assert frozen_support["is_primary"] == 0
+
+    replacement = _managed_run(
+        project,
+        sheet_id=sheet_id,
+        columns=[first],
+        row_ids=row_ids,
+    )
+    # Named-result columns can be hidden implementation details while
+    # their outputs remain current and reviewable.
+    project.db.execute(
+        "UPDATE columns SET hidden=1 WHERE id IN (?,?)", (second, support)
+    )
+    predicate = current_review_run_predicate("candidate")
+    still_current = project.db.execute(
+        f"SELECT 1 FROM runs candidate WHERE candidate.id=? AND {predicate}",
+        (original,),
+    ).fetchone()
+    assert still_current is not None
+    assert (
+        tuple(
             project.db.execute(
                 "SELECT review_bundle_count,review_resolved_bundle_count "
                 "FROM runs WHERE id=?",
                 (original,),
             ).fetchone()
         )
+        == original_totals
+    )
 
+    _managed_run(
+        project,
+        sheet_id=sheet_id,
+        columns=[second, support],
+        row_ids=row_ids,
+    )
+    no_longer_current = project.db.execute(
+        f"SELECT 1 FROM runs candidate WHERE candidate.id=? AND {predicate}",
+        (original,),
+    ).fetchone()
+    assert no_longer_current is None
+    assert (
         project.db.execute(
-            "UPDATE columns SET name='renamed_primary_looking' WHERE id=?", (support,)
-        )
-        mark_run_review_stats_dirty(project.db, original)
-        rebuild_run_review_stats(project.db, original)
-        frozen_support = _field(project, original, support)
-        assert frozen_support["column_name"] == "answer_confidence"
-        assert frozen_support["is_primary"] == 0
-
-        replacement = _managed_run(
-            project,
-            sheet_id=sheet_id,
-            columns=[first],
-            row_ids=row_ids,
-        )
-        # Named-result columns can be hidden implementation details while
-        # their outputs remain current and reviewable.
-        project.db.execute(
-            "UPDATE columns SET hidden=1 WHERE id IN (?,?)", (second, support)
-        )
-        predicate = current_review_run_predicate("candidate")
-        still_current = project.db.execute(
             f"SELECT 1 FROM runs candidate WHERE candidate.id=? AND {predicate}",
-            (original,),
+            (replacement,),
         ).fetchone()
-        assert still_current is not None
-        assert (
-            tuple(
-                project.db.execute(
-                    "SELECT review_bundle_count,review_resolved_bundle_count "
-                    "FROM runs WHERE id=?",
-                    (original,),
-                ).fetchone()
-            )
-            == original_totals
-        )
-
-        _managed_run(
-            project,
-            sheet_id=sheet_id,
-            columns=[second, support],
-            row_ids=row_ids,
-        )
-        no_longer_current = project.db.execute(
-            f"SELECT 1 FROM runs candidate WHERE candidate.id=? AND {predicate}",
-            (original,),
-        ).fetchone()
-        assert no_longer_current is None
-        assert (
-            project.db.execute(
-                f"SELECT 1 FROM runs candidate WHERE candidate.id=? AND {predicate}",
-                (replacement,),
-            ).fetchone()
-            is not None
-        )
-    finally:
-        project.close()
+        is not None
+    )
 
 
 def _downgrade_review_stats_schema(path: Path) -> None:
