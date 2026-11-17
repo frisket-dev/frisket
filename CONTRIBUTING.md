@@ -393,17 +393,43 @@ When `main` requires the merge queue, a PR no longer has to be up to date
 with `main` to land. `gh pr merge <pr> --squash --auto` (or "Merge when
 ready" in the UI) enqueues it once its PR checks pass. The queue tests each
 entry on a temporary `gh-readonly-queue/main/...` commit that combines it with
-`main` and every entry ahead of it, runs the complete suite there (the
-`merge_group` event; PR runs keep path-aware selection), and squash-merges up
-to five entries together once all of their runs pass. A failing entry is
-removed and the entries behind it are retested without it.
+`main` and every entry ahead of it (the `merge_group` event), and
+squash-merges up to five entries together once all of their runs pass. A
+failure in the queue ejects that PR: it leaves the queue unmerged, the
+entries behind it are retested without it, and it must be fixed and
+enqueued again.
 
-Every workflow that produces a required check also runs on `merge_group` and
-reports the same check name there. The `ci`, `docker` and portability push
-runs on `main` then ask `queue-tested.yml` whether that exact commit already
-passed in the queue; if so their test jobs skip and the run still succeeds,
-otherwise
-(a direct push, or the queue disabled) it runs the complete suite as before.
+Because the queue gates what lands, the PR run is fast feedback only. Every
+required check (`deterministic-source`, `ci-pass`, `docker-ci`,
+`desktop-macos-ci`, `desktop-windows-ci`, `macos-portability`,
+`windows-portability`) still reports on every PR, passing when its heavy jobs
+are deliberately skipped; each workflow's `changes` job summary says whether a
+skipped job runs in the queue or is not affected by the diff at all.
+
+| | Pull request (fast tier) | Merge queue |
+| --- | --- | --- |
+| Lint, formatting, `scripts/ci` gates and ratchets, pyright, `tsc -b`, web tests type ratchet | yes, by layer | yes |
+| Web lint, vitest, build | when `web/`, `sdk/`, `scripts/`, `.github/`, `pyproject.toml` or `uv.lock` changed | yes |
+| Python tests | the test directories of the changed source areas plus the root tests; the complete suite when dependencies, test configuration, shared test helpers, package data, a top-level module, `sidecar/` or a wheel build input changed | complete suite, including the `gap` subset |
+| Sidecar, Postgres, GPU-topology checks | by layer | yes |
+| `deploy-smoke`, `e2e-cassette-core` | when the e2e specs, Playwright configs, `scripts/e2e/`, `web/package*.json` or `ci.yml` changed | yes |
+| Docker build and Compose smoke | when an image input changed | when an image input changed |
+| Desktop installed-app proofs | when `desktop/`, `src/frisket/runtime/`, `src/frisket/server/desktop.py`, packaging (`pyproject.toml`, `uv.lock`, `hatch_build.py`, `scripts/build_vec1.py`, `vendor/sqlite-vec1/`, `scripts/release/build_frontend.py`) or the workflow changed | when anything the app bundles changed: also `src/frisket/`, `web/`, `sdk/`, `sidecar/` |
+| macOS and Windows portability smokes | when packaging (as above plus `.python-version`), the workflow, `src/frisket/runtime/`, and on Windows `src/frisket/engine/sandbox/`, on macOS `src/frisket/retrieval/` changed | when `src/`, `tests/`, `sidecar/`, `conftest.py`, packaging or the workflow changed |
+
+Each workflow states its input sets next to its `changes` filter. A diff
+whose base cannot be resolved runs everything.
+
+For a risky change, add the `ci:full` label: the PR reruns with exactly what
+the queue would run (the complete `ci` suite and the queue input sets for the
+platform jobs). `gh workflow run ci.yml --ref <branch>` also runs the complete
+`ci` suite on the branch head.
+
+The `ci`, `docker` and portability push runs on `main` ask
+`queue-tested.yml` whether that exact commit already passed in the queue; if
+so their test jobs skip and the run still succeeds, otherwise (a direct push,
+or the queue disabled) they run the complete suite as before. Releases still
+require a successful `ci` push or dispatch run for the released commit.
 
 ### Reviewing model and pricing updates
 
