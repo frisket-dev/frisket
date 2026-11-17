@@ -24,7 +24,9 @@ on:
       desktop_version:
         description: "Electron version embedded in the verified installer"
         value: ${{ jobs.signed-distribution.outputs.desktop_version }}
+  # `labeled` lets adding `ci:full` rerun the PR against the queue's input set.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
@@ -44,8 +46,16 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
-  # The queue run gates what lands on main, so it always runs the installed
-  # proof; pull requests keep path-aware selection.
+  # Decides whether this run builds and proves the installed app.
+  #   * Merge queue and `ci:full` PRs: the queue input set below, everything
+  #     the installed app bundles or runs (the desktop shell, the Python
+  #     package and its locked dependencies, the web UI and SDK it serves,
+  #     the build scripts and native vendor sources the wheel is built from).
+  #   * Other PRs (fast tier): the job's own inputs only (the desktop shell,
+  #     the Python runtime supervisor and desktop server surface, the
+  #     packaging and this workflow), so the author sees platform breakage
+  #     before queueing. A change to the rest of the queue set is deferred to
+  #     the merge queue, which proves the app on exactly what lands.
   changes:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
@@ -60,17 +70,40 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
         run: |
+          set -euo pipefail
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          packaging='pyproject\.toml$|uv\.lock$|hatch_build\.py$|scripts/build_vec1\.py$|vendor/sqlite-vec1/|scripts/release/build_frontend\.py$|\.github/workflows/desktop-macos\.yml$'
+          queue_inputs="^(desktop/|src/frisket/|web/|sdk/|sidecar/|$packaging)"
+          pr_inputs="^(desktop/|src/frisket/runtime/|src/frisket/server/desktop\.py$|$packaging)"
           if [ "$EVENT_NAME" = merge_group ]; then
-            echo 'relevant=true' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          files="$(git diff --name-only "$BASE_SHA" HEAD)"
-          if grep -E '^(desktop/|src/frisket/|web/|sdk/|pyproject\.toml$|uv\.lock$|\.github/workflows/desktop-macos\.yml$)' <<< "$files" >/dev/null; then
-            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+            base="${QUEUE_BASE_SHA:-}"
+            inputs="$queue_inputs"
+          elif [ "${FULL_LABEL:-false}" = true ]; then
+            base="$BASE_SHA"
+            inputs="$queue_inputs"
           else
-            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+            base="$BASE_SHA"
+            inputs="$pr_inputs"
           fi
+          relevant=true
+          reason="the diff base is unavailable, so the installed app is proved"
+          if [ -n "$base" ] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            files="$(git diff --name-only "$base" HEAD)"
+            if grep -E "$inputs" <<< "$files" >/dev/null; then
+              reason="this diff changes an input of the installed app"
+            elif [ "$inputs" = "$pr_inputs" ] && grep -E "$queue_inputs" <<< "$files" >/dev/null; then
+              relevant=false
+              reason="skipped on this PR: runs in the merge queue (add the \`ci:full\` label to run it here)"
+            else
+              relevant=false
+              reason="skipped: this diff changes nothing the installed app bundles or runs"
+            fi
+          fi
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "### macOS installed app ($EVENT_NAME): $reason" >> "$summary"
 
   startup-window:
     needs: changes

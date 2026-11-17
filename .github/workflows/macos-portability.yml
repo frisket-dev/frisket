@@ -1,7 +1,9 @@
 name: macos-portability
 
 on:
+  # `labeled` lets adding `ci:full` rerun the PR against the queue's input set.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   merge_group:
     types: [checks_requested]
   push:
@@ -10,6 +12,12 @@ on:
 
 permissions:
   contents: read
+
+# A newer PR event supersedes the in-flight PR run. Every other run gets its
+# own group, so no queue or push run is cancelled or held pending here.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   queue-tested:
@@ -20,13 +28,72 @@ jobs:
       workflow: macos-portability.yml
       job: macos-portability
 
+  # Decides whether this run needs the macOS smoke.
+  #   * Merge queue and `ci:full` PRs: the queue input set below, everything
+  #     the smoke imports, installs or runs (the Python package, the tests,
+  #     the sidecar the package ships, the locked dependencies and Python
+  #     pin, the build hook and native vendor sources, and this workflow).
+  #   * Other PRs (fast tier): the job's own inputs only (the Python runtime
+  #     supervisor, the native retrieval extension loader, the packaging and
+  #     this workflow). A change to the rest of the queue set is deferred to
+  #     the merge queue, which runs the smoke on what lands.
+  #   * Pushes and manual dispatches always run, as before.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+        run: |
+          set -euo pipefail
+          summary="${GITHUB_STEP_SUMMARY:-/dev/null}"
+          packaging='pyproject\.toml$|uv\.lock$|\.python-version$|hatch_build\.py$|scripts/build_vec1\.py$|vendor/sqlite-vec1/|\.github/workflows/macos-portability\.yml$'
+          queue_inputs="^(src/|tests/|sidecar/|conftest\.py$|$packaging)"
+          pr_inputs="^(src/frisket/runtime/|src/frisket/retrieval/|$packaging)"
+          case "$EVENT_NAME" in
+            merge_group)
+              base="${QUEUE_BASE_SHA:-}"
+              inputs="$queue_inputs" ;;
+            pull_request)
+              base="$BASE_SHA"
+              if [ "${FULL_LABEL:-false}" = true ]; then inputs="$queue_inputs"; else inputs="$pr_inputs"; fi ;;
+            *)
+              echo 'relevant=true' >> "$GITHUB_OUTPUT"
+              exit 0 ;;
+          esac
+          relevant=true
+          reason="the diff base is unavailable, so the smoke runs"
+          if [ -n "$base" ] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            files="$(git diff --name-only "$base" HEAD)"
+            if grep -E "$inputs" <<< "$files" >/dev/null; then
+              reason="this diff changes an input of the smoke"
+            elif [ "$inputs" = "$pr_inputs" ] && grep -E "$queue_inputs" <<< "$files" >/dev/null; then
+              relevant=false
+              reason="skipped on this PR: runs in the merge queue (add the \`ci:full\` label to run it here)"
+            else
+              relevant=false
+              reason="skipped: this diff changes nothing the smoke imports or runs"
+            fi
+          fi
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "### macos-portability ($EVENT_NAME): $reason" >> "$summary"
+
   smoke:
-    name: macos-portability
-    needs: queue-tested
+    name: macos-portability smoke
+    needs: [queue-tested, changes]
     # A push of the exact commit that passed in the merge queue skips the
-    # rerun. A failed lookup still runs the check: a required job skipped by
-    # a failed dependency would otherwise report as passing.
-    if: ${{ !cancelled() && needs.queue-tested.outputs.tested != 'true' }}
+    # rerun; a failed lookup still runs it. A failed `changes` job skips it
+    # and fails the required check below.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.relevant == 'true' && needs.queue-tested.outputs.tested != 'true' }}
     runs-on: macos-latest
     timeout-minutes: 20
     env:
@@ -89,3 +156,17 @@ jobs:
           tests/ai/test_embedding_similarity_queryspec.py
           tests/features/test_composed_view_selection.py
           tests/retrieval
+
+  # The required check. It fails unless `changes` succeeded and the smoke
+  # passed or was deliberately skipped; why it skipped is in the `changes`
+  # job summary.
+  macos-portability:
+    name: macos-portability
+    if: ${{ always() }}
+    needs: [changes, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"
