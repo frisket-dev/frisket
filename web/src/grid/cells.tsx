@@ -1040,8 +1040,9 @@ const CELL_BUILDERS: Record<string, CellBuilder> = {
     allowOverlay: false,
   }),
 
-  image: (_col, v, opts) => {
+  image: (col, v, opts, pres) => {
     const media = resolveMediaValue(v, opts.projectId ?? '');
+    if (!media && v !== null && v !== '') return textBuilder(col, v, opts, pres);
     return {
       kind: GridCellKind.Image,
       data: media ? [media.url] : [],
@@ -1091,8 +1092,9 @@ const CELL_BUILDERS: Record<string, CellBuilder> = {
 
   // video / audio / file share one builder; which badge to draw comes from
   // the type's presentation hints ({renderer: 'media', mediaType: ...}).
-  media: (_col, v, opts, pres) => {
+  media: (col, v, opts, pres) => {
     const media = resolveMediaValue(v, opts.projectId ?? '');
+    if (!media && v !== null && v !== '') return textBuilder(col, v, opts, pres);
     const mt = pres.mediaType;
     const mediaType: MediaKind =
       mt === 'video' || mt === 'audio' || mt === 'file' ? mt : 'file';

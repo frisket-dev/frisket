@@ -2,7 +2,7 @@ import type { RunTraceRow, RunTraceRowEvidence } from '../../api/types';
 import { Button } from '../Button';
 import { CopyButton } from '../CopyButton';
 import { Modal } from '../Modal';
-import { safeHttpUrl } from '../rowInspection/ValueLinks';
+import { safeHttpUrl } from '../../core/safeUrl';
 import './ResearchDetails.css';
 
 type ResearchStep = NonNullable<RunTraceRow['research']>['steps'][number];

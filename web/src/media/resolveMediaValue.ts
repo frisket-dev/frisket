@@ -1,5 +1,6 @@
 import type { CellValue } from '../api/types';
 import { projectBlobUrl } from '../api/raw/projectResources';
+import { safeMediaUrl } from '../core/safeUrl';
 
 export interface ResolvedMediaValue {
   url: string;
@@ -35,6 +36,11 @@ export function mediaFilename(media: ResolvedMediaValue): string | null {
 /**
  * Media cell values come in two shapes: a plain URL string, or the backend's
  * blob envelope {blob, mime, filename} encoded as JSON by the web adapter.
+ *
+ * Null for an empty value and for a plain string that is not a media URL
+ * (see `safeMediaUrl`: another scheme, a local file path); a caller that
+ * displays the cell shows such a value as text. Every `url` returned is safe
+ * for `href` and `src`.
  */
 export function resolveMediaValue(value: CellValue, projectId: string): ResolvedMediaValue | null {
   if (value === null || value === '') return null;
@@ -65,5 +71,6 @@ export function resolveMediaValue(value: CellValue, projectId: string): Resolved
       // Not a blob envelope; fall through to the raw string path.
     }
   }
-  return { url: raw, label: fileLabel(raw) };
+  const url = safeMediaUrl(raw);
+  return url ? { url, label: fileLabel(url) } : null;
 }
