@@ -6,24 +6,16 @@ import { returningUserStorageState } from './playwright.returning-user';
 // calls through the real UI, run on a weekly schedule by
 // .github/workflows/goldens.yml and by hand via `npm run e2e:goldens`.
 //
-// Missing credentials are a LOUD failure, never a silent skip: a golden run
-// without a provider key would either mock or green-wash, and both are lies.
 // GEMINI_API_KEY must be present in the environment that boots the backend
-// (locally: `set -a; source .secrets/frisket.env; set +a`).
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error(
-    'GOLDENS NOT RUN: GEMINI_API_KEY is not set. The golden projects make ' +
-      'live model calls by design (no mocked model output). Set GEMINI_API_KEY ' +
-      '(repo secret in CI, .secrets/frisket.env locally) and re-run.',
-  );
-}
-
+// (locally: `set -a; source .secrets/frisket.env; set +a`); the global setup
+// refuses the run before any test starts when it is missing.
 const stack = localStack();
 
 export default defineConfig({
   testDir: '../tests/e2e',
   outputDir: '../test-results',
   testMatch: /golden-(tariff|ntsb)\.spec\.ts/,
+  globalSetup: './goldens.global-setup.ts',
   // Sequential: DDG politeness plus honest, attributable spend per step.
   workers: 1,
   fullyParallel: false,
