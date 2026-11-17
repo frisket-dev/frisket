@@ -12,14 +12,12 @@ from pydantic import ConfigDict, JsonValue, RootModel, model_validator
 from frisket.contracts.http.models import WireModel
 from frisket.contracts.actions.schemas._validators import nonblank
 
-# The page/result literals the producers emit (server/services/watches.py and
+# The schema_version literals below are the ones the producers emit
+# (server/services/watches.py and
 # frisket.features.watchlists.events.WATCH_RUN_EVENT_SCHEMA_VERSION). Restated
 # here because the contracts package stays out of the service/runtime layers;
 # the backend contract test pins the events literal against the producer's own
 # constant.
-WATCH_RUN_RESULT_SCHEMA_VERSION = "frisket.watch_run.v1"
-WATCH_RUNS_PAGE_SCHEMA_VERSION = "frisket.watch_runs_page.v1"
-WATCH_RUN_EVENTS_PAGE_SCHEMA_VERSION = "frisket.watch_run_events_page.v1"
 
 
 class _ClosedRequest(WireModel):
@@ -118,14 +116,14 @@ class WatchDelete(WireModel):
 
 
 class WatchRunResult(WireModel):
-    schema_version: Literal[WATCH_RUN_RESULT_SCHEMA_VERSION]
+    schema_version: Literal["frisket.watch_run.v1"]
     watch: Watch
     run: WatchRun
     hits: list[WatchHit]
 
 
 class WatchRunsPage(WireModel):
-    schema_version: Literal[WATCH_RUNS_PAGE_SCHEMA_VERSION]
+    schema_version: Literal["frisket.watch_runs_page.v1"]
     order: Literal["desc"]
     offset: int
     limit: int
@@ -153,7 +151,7 @@ class WatchRunEvent(WireModel):
 
 
 class WatchRunEventsPage(WireModel):
-    schema_version: Literal[WATCH_RUN_EVENTS_PAGE_SCHEMA_VERSION]
+    schema_version: Literal["frisket.watch_run_events_page.v1"]
     order: Literal["asc"]
     offset: int
     limit: int
@@ -164,9 +162,6 @@ class WatchRunEventsPage(WireModel):
 
 
 __all__ = [
-    "WATCH_RUN_EVENTS_PAGE_SCHEMA_VERSION",
-    "WATCH_RUN_RESULT_SCHEMA_VERSION",
-    "WATCH_RUNS_PAGE_SCHEMA_VERSION",
     "Watch",
     "WatchCreateRequest",
     "WatchDelete",

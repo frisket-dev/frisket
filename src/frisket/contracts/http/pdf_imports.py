@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal, get_args
 
 from pydantic import Field
 
@@ -14,7 +14,10 @@ from frisket.contracts.http.selector_choices import (
 )
 
 
-PDF_IMPORT_SCHEMA_VERSION = "frisket.pdf_import.v1"
+PdfImportSchemaVersion = Literal["frisket.pdf_import.v1"]
+PDF_IMPORT_SCHEMA_VERSION: Final[PdfImportSchemaVersion] = get_args(
+    PdfImportSchemaVersion
+)[0]
 PDF_IMPORT_OCCURRENCE_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
 PdfImportState = Literal[
     "open", "committing", "committed", "cancelling", "cancelled", "error"
@@ -74,7 +77,7 @@ class PdfImportReselectResult(PdfImportReselectFile):
 
 
 class PdfImportReselectResponse(WireModel):
-    schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
+    schema_version: PdfImportSchemaVersion
     draft_id: str
     items: list[PdfImportReselectResult] = Field(max_length=256)
 
@@ -200,7 +203,7 @@ class PdfImportOrganizationSummary(WireModel):
 
 
 class PdfImportStatus(WireModel):
-    schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
+    schema_version: PdfImportSchemaVersion
     id: str
     draft_id: str
     state: PdfImportState
@@ -250,7 +253,7 @@ class PdfImportExtensionCount(WireModel):
 
 
 class PdfImportSamplesResponse(WireModel):
-    schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
+    schema_version: PdfImportSchemaVersion
     draft_id: str
     category: PdfTextCategory
     items: list[PdfImportSample] = Field(max_length=6)
@@ -260,7 +263,7 @@ class PdfImportSamplesResponse(WireModel):
 
 
 class PdfImportPageResponse(WireModel):
-    schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
+    schema_version: PdfImportSchemaVersion
     draft_id: str
     occurrence_id: str
     page: int = Field(ge=1)
@@ -278,7 +281,7 @@ class PdfImportOcrPreviewRequest(WireModel):
 
 
 class PdfImportOcrPreviewEstimate(WireModel):
-    schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
+    schema_version: PdfImportSchemaVersion
     draft_id: str
     occurrence_id: str
     page: int = Field(ge=1)
@@ -288,7 +291,7 @@ class PdfImportOcrPreviewEstimate(WireModel):
 
 
 class PdfImportOcrPreviewStart(WireModel):
-    schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
+    schema_version: PdfImportSchemaVersion
     draft_id: str
     occurrence_id: str
     page: int = Field(ge=1)
@@ -313,7 +316,7 @@ class PdfImportCommitRequest(WireModel):
 
 
 class PdfImportCommitResponse(WireModel):
-    schema_version: Literal[PDF_IMPORT_SCHEMA_VERSION]
+    schema_version: PdfImportSchemaVersion
     draft_id: str
     commit_id: str
     status: Literal["accepted"]

@@ -57,7 +57,7 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal, get_args
 
 from pydantic import ConfigDict, Field
 
@@ -437,7 +437,8 @@ def rate_estimate(
 # Scope: WHICH identity the approval is pinned to.
 # ---------------------------------------------------------------------------
 
-_SCHEMA_VERSION = "frisket.confirmation-context.v1"
+_SchemaVersion = Literal["frisket.confirmation-context.v1"]
+_SCHEMA_VERSION: Final[_SchemaVersion] = get_args(_SchemaVersion)[0]
 
 
 class RunnerScope(ContractModel):
@@ -501,7 +502,7 @@ class MoneyConfirmationContext(ContractModel):
     model_config = _HASHABLE_PAYLOAD
 
     gate: Literal["money"] = "money"
-    schema_version: Literal[_SCHEMA_VERSION] = _SCHEMA_VERSION
+    schema_version: _SchemaVersion = _SCHEMA_VERSION
     family_kind: str = Field(min_length=1)
     scope: ConfirmationScope
     # Family-specific facts resolved live at gate time (a parent op's model,
@@ -525,7 +526,7 @@ class ScopeConfirmationContext(ContractModel):
     model_config = _HASHABLE_PAYLOAD
 
     gate: Literal["scope"] = "scope"
-    schema_version: Literal[_SCHEMA_VERSION] = _SCHEMA_VERSION
+    schema_version: _SchemaVersion = _SCHEMA_VERSION
     family_kind: str = Field(min_length=1)
     scope: ConfirmationScope
     bindings: dict[str, Any] = Field(default_factory=dict)

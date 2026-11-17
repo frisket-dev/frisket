@@ -28,7 +28,7 @@ The ``options.context`` field is "non-empty, at most
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal, get_args
 
 from pydantic import (
     BaseModel,
@@ -41,7 +41,10 @@ from pydantic import (
 )
 
 
-TRANSCRIPTION_CONTRACT_VERSION = "frisket.transcription.v1"
+TranscriptionContractVersion = Literal["frisket.transcription.v1"]
+TRANSCRIPTION_CONTRACT_VERSION: Final[TranscriptionContractVersion] = get_args(
+    TranscriptionContractVersion
+)[0]
 TRANSCRIPTION_ENDPOINT = "/v1/transcribe"
 
 # One contract, three surfaces: this wire bound is THE source for the app-side
@@ -129,7 +132,7 @@ class LocalFasterWhisperRequest(TranscriptionWireModel):
     hyphenated wire engine name, and :class:`TranscriptionOptions`.
     """
 
-    contract_version: Literal[TRANSCRIPTION_CONTRACT_VERSION]
+    contract_version: TranscriptionContractVersion
     engine: Literal["faster-whisper"]
     audio_path: NonemptyString
     options: TranscriptionOptions
@@ -251,7 +254,7 @@ class TranscriptionResult(TranscriptionWireModel):
 
 
 class TranscriptionResponse(TranscriptionWireModel):
-    contract_version: Literal[TRANSCRIPTION_CONTRACT_VERSION]
+    contract_version: TranscriptionContractVersion
     results: list[TranscriptionResult] = Field(min_length=1)
 
 
@@ -263,7 +266,7 @@ class TranscriptionError(TranscriptionWireModel):
 
 
 class TranscriptionErrorEnvelope(TranscriptionWireModel):
-    contract_version: Literal[TRANSCRIPTION_CONTRACT_VERSION]
+    contract_version: TranscriptionContractVersion
     error: TranscriptionError
 
 

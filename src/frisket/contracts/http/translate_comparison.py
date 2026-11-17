@@ -9,9 +9,6 @@ from pydantic import ConfigDict, Field, JsonValue, RootModel
 from frisket.contracts.http.models import WireModel
 
 
-TRANSLATE_COMPARISON_SCHEMA_VERSION = "frisket.translate_compare_preview.v1"
-
-
 class TranslateComparisonRequest(WireModel):
     """JSON input owned jointly by the browser and scratch preview service."""
 
@@ -59,7 +56,7 @@ class TranslateComparisonEngineResult(WireModel):
 class TranslateComparisonResponse(WireModel):
     """Closed comparison envelope with explicitly JSON-shaped extensions."""
 
-    schema_version: Literal[TRANSLATE_COMPARISON_SCHEMA_VERSION]
+    schema_version: Literal["frisket.translate_compare_preview.v1"]
     source: TranslateComparisonSource
     target_language: str
     engines: list[str]
@@ -69,7 +66,6 @@ class TranslateComparisonResponse(WireModel):
 
 
 __all__ = [
-    "TRANSLATE_COMPARISON_SCHEMA_VERSION",
     "TranslateComparisonCompatibilityRequest",
     "TranslateComparisonEngineResult",
     "TranslateComparisonRequest",
