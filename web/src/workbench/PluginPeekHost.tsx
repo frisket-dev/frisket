@@ -1,15 +1,12 @@
 import './WorkbenchCommandPalette.css';
 import '../workspace/WorkspaceOverlays.css';
-import { useMemo } from 'react';
+import { useCallback } from 'react';
 import type { SheetMeta } from '../api/types';
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
-import { WorkbenchContributionFrame } from './contributions';
 import type { WorkbenchPanelDescriptor } from './descriptors';
 import type { WorkbenchHostContext } from './hostContext';
-import { PluginHostShell } from './pluginHostShell';
 import { buildPluginPeekContext } from './pluginPeekContext';
-import { resolvePluginPanelAvailability } from './pluginPanelContext';
-import { PluginRuntimeContribution } from './PluginRuntimeContribution';
+import { PluginPanelFamilyHost } from './PluginPanelFamilyHost';
 
 interface PluginPeekHostProps {
   descriptor: WorkbenchPanelDescriptor;
@@ -20,21 +17,11 @@ interface PluginPeekHostProps {
   onDismiss(): void;
 }
 
-function unavailablePeek(descriptor: WorkbenchPanelDescriptor, reason: string) {
+function peekUnavailableBody(reason: string) {
   return (
-    <WorkbenchContributionFrame
-      descriptor={descriptor}
-      host="modalOrPeek"
-      className="workbench-contribution-host plugin-peek-contribution-host"
-      dataAttributes={{
-        'data-plugin-peek-status': 'unavailable',
-        'data-plugin-peek-unavailable-reason': reason,
-      }}
-    >
-      <div className="plugin-detail-unavailable" data-testid="plugin-peek-unavailable">
-        {reason}
-      </div>
-    </WorkbenchContributionFrame>
+    <div className="plugin-detail-unavailable" data-testid="plugin-peek-unavailable">
+      {reason}
+    </div>
   );
 }
 
@@ -47,6 +34,11 @@ export function PluginPeekHost(props: PluginPeekHostProps) {
   // rather than `showModal()` so that clickable backdrop contract survives (a
   // modal dialog's inert background would swallow the pinned backdrop click).
   useEscapeDismiss(onDismiss);
+  const buildContext = useCallback(
+    (resolvedSheet: SheetMeta) =>
+      buildPluginPeekContext({ descriptor, sheet: resolvedSheet, hostContext, close: onDismiss }),
+    [descriptor, hostContext, onDismiss],
+  );
 
   return (
     <div
@@ -66,63 +58,18 @@ export function PluginPeekHost(props: PluginPeekHostProps) {
         style={{ position: 'static', margin: 0 }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <PluginHostShell
+        <PluginPanelFamilyHost
+          family="peek"
           descriptor={descriptor}
           sheet={sheet}
-          resolveAvailability={(resolvedDescriptor, resolvedSheet) =>
-            resolvePluginPanelAvailability(resolvedDescriptor, resolvedSheet, hostContext)
-          }
-          renderUnavailable={(reason) => unavailablePeek(descriptor, reason)}
-          mount={(resolvedSheet) => (
-            <MountedPluginPeek {...props} sheet={resolvedSheet} />
-          )}
+          hostContext={hostContext}
+          host="modalOrPeek"
+          className="workbench-contribution-host plugin-peek-contribution-host"
+          renderUnavailableBody={peekUnavailableBody}
+          buildContext={buildContext}
+          renderWithoutRuntime={() => peekUnavailableBody('missing_component')}
         />
       </dialog>
     </div>
-  );
-}
-
-function MountedPluginPeek({
-  descriptor,
-  sheet,
-  hostContext,
-  onDismiss,
-}: {
-  descriptor: WorkbenchPanelDescriptor;
-  sheet: SheetMeta;
-  hostContext: WorkbenchHostContext;
-  onDismiss(): void;
-}) {
-  const ctx = useMemo(
-    () =>
-      buildPluginPeekContext({
-        descriptor,
-        sheet,
-        hostContext,
-        close: onDismiss,
-      }),
-    [descriptor, hostContext, onDismiss, sheet],
-  );
-
-  if (!descriptor.runtimeComponent) {
-    return (
-      <div className="plugin-detail-unavailable" data-testid="plugin-peek-unavailable">
-        missing_component
-      </div>
-    );
-  }
-
-  return (
-    <PluginRuntimeContribution
-      descriptor={descriptor}
-      host="modalOrPeek"
-      className="workbench-contribution-host plugin-peek-contribution-host"
-      dataAttributes={{
-        'data-plugin-peek-status': 'mounted',
-        'data-plugin-peek-context-schema-version': ctx.schemaVersion,
-      }}
-      runtime={descriptor.runtimeComponent}
-      ctx={ctx}
-    />
   );
 }
