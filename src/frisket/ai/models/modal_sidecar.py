@@ -168,7 +168,7 @@ if modal is not None:
             add_python="3.12",
         )
         .entrypoint([])
-        .apt_install("ffmpeg", "libgl1", "libglib2.0-0", "libgomp1")
+        .apt_install("build-essential", "ffmpeg", "libgl1", "libglib2.0-0", "libgomp1")
         .pip_install("uv==0.11.29")
         .add_local_dir(
             sidecar_dir,
