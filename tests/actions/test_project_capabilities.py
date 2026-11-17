@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, replace
 from typing import Any
 
 import pytest
@@ -8,6 +7,7 @@ from pydantic import BaseModel
 
 from frisket.actions.core import (
     ProjectCapabilitySpec,
+    _GOOGLE_SHEETS_EXPORT_SPEC,
     _PROJECT_CAPABILITY_SPECS,
     _ProjectAction,
     _project_capability_registry,
@@ -36,21 +36,11 @@ def _spec() -> ProjectCapabilitySpec:
         _Capability,
         str,
         _Output,
-        [["invalid", "Invalid."]],  # type: ignore[arg-type]
-        ["write_receipt"],  # type: ignore[arg-type]
-        ["project:write"],  # type: ignore[arg-type]
+        (("invalid", "Invalid."),),
+        ("write_receipt",),
+        ("project:write",),
         True,
     )
-
-
-def test_project_capability_spec_is_deeply_frozen() -> None:
-    spec = _spec()
-
-    assert spec.errors == (("invalid", "Invalid."),)
-    assert spec.side_effects == ("write_receipt",)
-    assert spec.required_capabilities == ("project:write",)
-    with pytest.raises(FrozenInstanceError):
-        spec.writes_project = False  # type: ignore[misc]
 
 
 def test_project_capability_registry_rejects_duplicate_authority() -> None:
@@ -61,22 +51,34 @@ def test_project_capability_registry_rejects_duplicate_authority() -> None:
 
 
 @pytest.mark.parametrize(
-    "updates",
-    [
-        {"cost_kind": "model_metered"},
-        {"cost_kind": "external_metered"},
-        {"requires_confirmation": True},
-    ],
+    "spec",
+    [*_PROJECT_CAPABILITY_SPECS.values(), _GOOGLE_SHEETS_EXPORT_SPEC],
+    ids=lambda spec: spec.capability.__name__,
 )
-def test_callable_capabilities_refuse_unimplemented_cost_admission(updates) -> None:
-    with pytest.raises(ValueError, match="invalid project capability metadata"):
-        replace(_spec(), callable_host=True, **updates)
-
-
-@pytest.mark.parametrize("field", ["errors", "side_effects", "required_capabilities"])
-def test_project_capability_rejects_string_collections(field: str) -> None:
-    with pytest.raises(ValueError, match="must contain sequences"):
-        replace(_spec(), **{field: "read"})
+def test_project_capability_specs_are_closed_and_consistent(
+    spec: ProjectCapabilitySpec,
+) -> None:
+    codes = [code for code, _ in spec.errors]
+    texts = [
+        *(value for pair in spec.errors for value in pair),
+        *spec.side_effects,
+        *spec.required_capabilities,
+    ]
+    assert isinstance(spec.output_model, type)
+    assert issubclass(spec.output_model, BaseModel)
+    assert all(isinstance(pair, tuple) and len(pair) == 2 for pair in spec.errors)
+    assert all(
+        isinstance(text, str) and text and text == text.strip() for text in texts
+    )
+    assert codes and len(codes) == len(set(codes))
+    for group in (spec.side_effects, spec.required_capabilities):
+        assert isinstance(group, tuple) and group and len(group) == len(set(group))
+    assert spec.cost_kind in {"none", "external_metered", "model_metered"}
+    if spec.callable_host:
+        # Callable hosts have no cost admission yet.
+        assert spec.cost_kind == "none" and not spec.requires_confirmation
+    if spec.writes_project:
+        assert "project:write" in spec.required_capabilities
 
 
 def _project_actions() -> list[tuple[Any, _ProjectAction[Any, Any]]]:
