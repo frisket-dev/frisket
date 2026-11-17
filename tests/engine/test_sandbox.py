@@ -119,7 +119,7 @@ def _force_trusted_linux_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("frisket.engine.sandbox.shim.sys.platform", "linux")
     monkeypatch.setattr(
         "frisket.engine.sandbox.shim._darwin_netwall_argv",
-        lambda argv, scratch, policy, env: argv,
+        lambda argv, policy, env: argv,
     )
 
 
@@ -390,6 +390,10 @@ class TestEnvScrubbing:
         }
 
     def test_trusted_python_netwall_rejects_other_commands(self, monkeypatch):
+        # The audit netwall needs the managed bootstrap; macOS replaces it with
+        # the sandbox-exec wall, which accepts any command, so the rejection
+        # is pinned on the audit-hook path every non-Darwin host takes.
+        _force_trusted_linux_path(monkeypatch)
         with pytest.raises(ValueError, match="managed Python entrypoint"):
             asyncio.run(
                 run_sandboxed(
