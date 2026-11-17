@@ -152,33 +152,19 @@ def _committed_review(project, run_id, row_id, column_id):
 
 
 REVIEW_WRITES = {
-    "state": lambda store, target, **kw: store.set_result_review_state(
-        *target, "verified", **kw
-    ),
-    "metadata": lambda store, target, **kw: store.set_result_review_metadata(
-        *target, "accept", None, **kw
+    "state": lambda store, target: store.set_result_review_state(*target, "verified"),
+    "metadata": lambda store, target: store.set_result_review_metadata(
+        *target, "accept", None
     ),
 }
 REVIEW_AFTER = {"state": ("verified", None), "metadata": ("unreviewed", "accept")}
 
 
 @pytest.mark.parametrize("field", sorted(REVIEW_WRITES))
-def test_review_write_owns_its_transaction_when_none_is_open(
-    project, review_target, field
-):
-    assert REVIEW_WRITES[field](RunResultStore(project), review_target) == 1
-
-    assert not project.db.in_transaction
-    assert _committed_review(project, *review_target) == REVIEW_AFTER[field]
-
-
-@pytest.mark.parametrize("field", sorted(REVIEW_WRITES))
-def test_review_write_commit_false_joins_caller_transaction(
-    project, review_target, field
-):
+def test_review_write_joins_caller_transaction(project, review_target, field):
     _open_caller_transaction(project)
 
-    REVIEW_WRITES[field](RunResultStore(project), review_target, commit=False)
+    assert REVIEW_WRITES[field](RunResultStore(project), review_target) == 1
 
     assert project.db.in_transaction
     assert _committed_review(project, *review_target) == ("unreviewed", None)
@@ -187,27 +173,12 @@ def test_review_write_commit_false_joins_caller_transaction(
 
 
 @pytest.mark.parametrize("field", sorted(REVIEW_WRITES))
-def test_review_write_commit_true_inside_caller_transaction_refuses_and_keeps_it(
-    project, review_target, field
-):
-    _open_caller_transaction(project)
-
-    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+def test_review_write_requires_caller_transaction(project, review_target, field):
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
         REVIEW_WRITES[field](RunResultStore(project), review_target)
 
-    assert project.db.in_transaction
-    assert _committed_sheet_name(project) == "Source"
-    assert _committed_review(project, *review_target) == ("unreviewed", None)
-
-
-@pytest.mark.parametrize("field", sorted(REVIEW_WRITES))
-def test_review_write_commit_false_requires_caller_transaction(
-    project, review_target, field
-):
-    with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        REVIEW_WRITES[field](RunResultStore(project), review_target, commit=False)
-
     assert not project.db.in_transaction
+    assert _committed_review(project, *review_target) == ("unreviewed", None)
 
 
 # -- start_run, set_run_halt, begin_run_resume -------------------------------
@@ -257,23 +228,21 @@ def _committed_halt(project, run_id):
     )
 
 
-def test_set_run_halt_commit_false_requires_caller_transaction(project):
+def test_set_run_halt_requires_caller_transaction(project):
     run_id = _running_run(project)
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        RunResultStore(project).set_run_halt(
-            run_id, "source_changed", "x", commit=False
-        )
+        RunResultStore(project).set_run_halt(run_id, "source_changed", "x")
 
     assert not project.db.in_transaction
     assert _committed_halt(project, run_id) == (None, None)
 
 
-def test_set_run_halt_commit_false_joins_caller_transaction(project):
+def test_set_run_halt_joins_caller_transaction(project):
     run_id = _running_run(project)
     _open_caller_transaction(project)
 
-    RunResultStore(project).set_run_halt(run_id, "source_changed", "x", commit=False)
+    RunResultStore(project).set_run_halt(run_id, "source_changed", "x")
 
     assert project.db.in_transaction
     project.db.commit()
@@ -300,13 +269,14 @@ def test_begin_run_resume_owns_its_transaction_when_none_is_open(project):
     assert _committed_run_status(project, run_id) == "running"
 
 
-def test_begin_run_resume_commit_false_requires_caller_transaction(project):
+def test_begin_run_resume_inside_caller_transaction_refuses_and_keeps_it(project):
     run_id = _cancelled_run(project)
+    _open_caller_transaction(project)
 
-    with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        RunResultStore(project).begin_run_resume(run_id, commit=False)
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        RunResultStore(project).begin_run_resume(run_id)
 
-    assert not project.db.in_transaction
+    assert project.db.in_transaction
     assert _committed_run_status(project, run_id) == "cancelled"
 
 
@@ -329,13 +299,12 @@ def returned_checkpoint(project):
     return store
 
 
-def _consume_group(store, **kw):
+def _consume_group(store):
     return store.consume_group_retained(
         family=UNIT["family"],
         group_key=UNIT["group_key"],
         action_kind=UNIT["action_kind"],
         audit=lambda raw: {"sha_of": raw},
-        **kw,
     )
 
 
@@ -352,13 +321,15 @@ def test_consume_group_retained_owns_its_transaction_when_none_is_open(
     assert _committed_checkpoint_state(project) == "consumed"
 
 
-def test_consume_group_retained_commit_false_requires_caller_transaction(
+def test_consume_group_retained_inside_caller_transaction_refuses(
     project, returned_checkpoint
 ):
-    with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        _consume_group(returned_checkpoint, commit=False)
+    _open_caller_transaction(project)
 
-    assert not project.db.in_transaction
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        _consume_group(returned_checkpoint)
+
+    assert project.db.in_transaction
     assert _committed_checkpoint_state(project) == "returned"
 
 
@@ -441,15 +412,15 @@ def _write_namespace(_current, proposal):
     )
 
 
-def test_blob_namespace_swap_commit_false_requires_caller_transaction(
-    project, blob_digest
-):
-    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+def test_blob_namespace_swap_inside_caller_transaction_refuses(project, blob_digest):
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
         BlobMetadataDocumentStore(project).compare_and_swap_metadata_namespace(
-            blob_digest, "ns", {"v": 1}, _write_namespace, commit=False
+            blob_digest, "ns", {"v": 1}, _write_namespace
         )
 
-    assert not project.db.in_transaction
+    assert project.db.in_transaction
     assert '"ns"' not in _committed_blob_metadata(project, blob_digest)
 
 

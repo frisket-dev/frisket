@@ -106,10 +106,8 @@ def project_judgments(project: Any, op_id: int) -> None:
             from .runs import RunResultStore
 
             store = RunResultStore(project)
-            store.set_result_review_state(owner, row_id, column_id, state, commit=False)
-            store.set_result_review_metadata(
-                owner, row_id, column_id, decision, note, commit=False
-            )
+            store.set_result_review_state(owner, row_id, column_id, state)
+            store.set_result_review_metadata(owner, row_id, column_id, decision, note)
         else:
             db.execute(
                 "UPDATE copied_result_outcomes SET review_state=?,review_decision=?,review_note=? WHERE op_id=? AND row_id=? AND column_id=?",

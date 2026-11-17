@@ -497,7 +497,6 @@ def write_find_result(
             receipt_id=receipt_id,
             action_kind=action.kind,
             params_hash=params_hash,
-            commit=False,
         )
         output_fields = [
             {"name": column.name, "column_type": column.type} for column in columns
@@ -563,7 +562,6 @@ def write_find_result(
             action_kind=action.kind,
             params_hash=params_hash,
             claim_token=claim_token,
-            commit=False,
         )
         artifact_cache: dict[tuple[int, int], dict[str, Any]] = {}
         link_ids: list[str] = []

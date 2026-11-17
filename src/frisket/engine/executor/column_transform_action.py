@@ -735,7 +735,6 @@ def run_typed_column_transform_action(
             action_kind=bound.action.action_id,
             params_hash=params_hash,
             claim_token=token,
-            commit=False,
         )
         store_capture(
             project,

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.querysets import resolve_sheet_filter_rows
@@ -133,7 +134,10 @@ def test_failed_and_withheld_heads_refresh_to_explicit_null_current_values(
             "run_result",
         ]
         results.fail_result_value(run.run_id, row_ids[0], column_id, "model failed")
-        results.withhold_result_value(run.run_id, row_ids[1], column_id, "no citation")
+        with write_transaction(project.db):
+            results.withhold_result_value(
+                run.run_id, row_ids[1], column_id, "no citation"
+            )
 
         _seal(generations, run, column_id)
 

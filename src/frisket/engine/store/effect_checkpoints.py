@@ -717,7 +717,6 @@ class EffectCheckpointStore:
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
-        commit: bool = True,
     ) -> int:
         """Move a group's ``returned`` units to retained ``consumed`` rows.
 
@@ -725,12 +724,9 @@ class EffectCheckpointStore:
         audit payload that replaces it (the plugin shape hashes the exact
         envelope bytes, so it receives the raw string).  ``reserved`` rows
         are deliberately untouched: they remain an explicit possible-effect
-        reconciliation record.  With ``commit=False`` this joins the caller's
-        surrounding transaction (e.g. a terminal receipt write)."""
+        reconciliation record."""
 
-        with write_transaction(
-            self.db, commit=commit, what="consume_group_retained(commit=False)"
-        ):
+        with write_transaction(self.db):
             rows = self.db.execute(
                 "SELECT id, payload, authorized_attempt_id FROM effect_checkpoints "
                 "WHERE family=? AND group_key=? AND action_kind=? "

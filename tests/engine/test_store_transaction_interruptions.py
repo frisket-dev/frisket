@@ -252,7 +252,7 @@ def test_start_run_rolls_back_interrupted_run_insert(project, monkeypatch, failu
 
 
 @pytest.mark.parametrize("failure", INTERRUPTS)
-def test_set_run_halt_rolls_back_interrupted_halt_write(project, monkeypatch, failure):
+def test_owner_rolls_back_interrupted_halt_write(project, monkeypatch, failure):
     from frisket.engine.store.runs import RunResultStore
 
     run_id = _running_run(project)
@@ -261,7 +261,8 @@ def test_set_run_halt_rolls_back_interrupted_halt_write(project, monkeypatch, fa
     db = _interrupt_project_db(project, monkeypatch, "UPDATE runs SET halted", error)
 
     with pytest.raises(failure) as caught:
-        RunResultStore(project).set_run_halt(run_id, "source_changed", "x")
+        with write_transaction(project.db):
+            RunResultStore(project).set_run_halt(run_id, "source_changed", "x")
 
     assert caught.value is error
     assert not db.in_transaction

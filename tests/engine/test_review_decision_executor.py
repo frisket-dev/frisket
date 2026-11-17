@@ -888,7 +888,6 @@ def test_row_note_uses_stable_legacy_note_and_normalizes_primary_siblings(
             seeded["risk_column_id"],
             None,
             "First field note.",
-            commit=False,
         )
         store.set_result_review_metadata(
             seeded["run_id"],
@@ -896,7 +895,6 @@ def test_row_note_uses_stable_legacy_note_and_normalizes_primary_siblings(
             severity_column,
             None,
             "Second field note.",
-            commit=False,
         )
         project.db.commit()
 

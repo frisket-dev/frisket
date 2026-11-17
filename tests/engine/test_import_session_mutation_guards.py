@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     EditCellWrite,
@@ -144,7 +145,8 @@ def test_result_write_sheet_delete_blocked_but_undo_cancels_import(
         )
 
         with pytest.raises(ImportInProgress):
-            RunResultStore(project).mark_run_results_verified(run_id)
+            with write_transaction(project.db):
+                RunResultStore(project).mark_run_results_verified(run_id)
         with pytest.raises(ImportInProgress):
             project.delete_sheet(writer.sheet_id)
         project.undo()

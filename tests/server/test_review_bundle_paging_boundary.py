@@ -6,6 +6,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.engine.runner import review as review_runner
+from frisket.engine.store.transactions import write_transaction
 from frisket.server.app import create_app
 from frisket.engine.runner.review import queue_count, review_bundle_page
 from frisket.engine.store.runs import RunResultStore
@@ -334,17 +335,18 @@ def test_review_runs_report_decisions_and_persist_workflow_status(
         for row in project.db.execute("SELECT id, name FROM columns").fetchall()
     }
     store = RunResultStore(project)
-    store.set_result_review_state(run_id, row_ids[0], columns["risk"], "verified")
-    store.set_result_review_metadata(
-        run_id, row_ids[0], columns["risk"], "accept", None
-    )
-    store.set_result_review_state(run_id, row_ids[0], columns["tone"], "verified")
-    store.set_result_review_metadata(
-        run_id, row_ids[0], columns["tone"], "reject", None
-    )
-    # Old reviewed rows have no durable accept-vs-edit fact. They stay in the
-    # eligible total, but not in known decisions or pending work.
-    store.set_result_review_state(run_id, row_ids[1], columns["risk"], "verified")
+    with write_transaction(project.db):
+        store.set_result_review_state(run_id, row_ids[0], columns["risk"], "verified")
+        store.set_result_review_metadata(
+            run_id, row_ids[0], columns["risk"], "accept", None
+        )
+        store.set_result_review_state(run_id, row_ids[0], columns["tone"], "verified")
+        store.set_result_review_metadata(
+            run_id, row_ids[0], columns["tone"], "reject", None
+        )
+        # Old reviewed rows have no durable accept-vs-edit fact. They stay in the
+        # eligible total, but not in known decisions or pending work.
+        store.set_result_review_state(run_id, row_ids[1], columns["risk"], "verified")
 
     response = client.get(
         f"/api/projects/{project_id}/review/runs",
@@ -505,8 +507,9 @@ def test_random_review_batches_and_exact_history(tmp_path: Path) -> None:
         project.db.execute("SELECT id FROM columns WHERE name='risk'").fetchone()[0]
     )
     store = RunResultStore(project)
-    store.set_result_review_state(run_id, shown[0], risk, "verified")
-    store.set_result_review_metadata(run_id, shown[0], risk, "accept", "Checked")
+    with write_transaction(project.db):
+        store.set_result_review_state(run_id, shown[0], risk, "verified")
+        store.set_result_review_metadata(run_id, shown[0], risk, "accept", "Checked")
     exact = client.post(
         url,
         json={

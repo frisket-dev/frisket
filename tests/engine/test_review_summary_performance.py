@@ -156,7 +156,6 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
             replacement_rows[0],
             answer_id,
             "verified",
-            commit=False,
         )
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[1],))
 

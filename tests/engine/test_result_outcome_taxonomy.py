@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.engine.store.transactions import write_transaction
 
 import asyncio
 import sqlite3
@@ -361,7 +362,8 @@ def test_withhold_result_value_marks_terminal_without_failing(tmp_path: Path) ->
     with pytest.raises(
         sqlite3.IntegrityError, match="published result semantics are immutable"
     ):
-        store.withhold_result_value(run_id, row_ids[0], out, "no citation")
+        with write_transaction(project.db):
+            store.withhold_result_value(run_id, row_ids[0], out, "no citation")
     row = project.db.execute(
         "SELECT value_kind, value, error, outcome FROM results "
         "WHERE run_id=? AND row_id=?",

@@ -245,8 +245,6 @@ class MediaBlobStore(BlobMetadataDocumentStore):
         self,
         digest: str,
         metadata: Mapping[str, Any],
-        *,
-        commit: bool = True,
     ) -> dict[str, Any]:
         """Atomically replace only the probe-owned namespace."""
 
@@ -256,7 +254,7 @@ class MediaBlobStore(BlobMetadataDocumentStore):
             current[MEDIA_PROBE_NAMESPACE] = probe
             return current
 
-        return self.transactionally_update_document(digest, replace, commit=commit)
+        return self.transactionally_update_document(digest, replace)
 
     def compare_and_swap_media_metadata_cache(
         self,
@@ -264,7 +262,6 @@ class MediaBlobStore(BlobMetadataDocumentStore):
         proposal: Mapping[str, Any],
         *,
         expected_generation: int,
-        commit: bool = True,
     ) -> MediaMetadataCacheCASResult:
         """Atomically replace only the extractor-owned cache namespace.
 
@@ -340,7 +337,6 @@ class MediaBlobStore(BlobMetadataDocumentStore):
             MEDIA_METADATA_CACHE_NAMESPACE,
             candidate,
             resolve,
-            commit=commit,
         )
         return MediaMetadataCacheCASResult(
             written=result.written,

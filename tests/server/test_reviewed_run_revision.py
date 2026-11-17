@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.services.column_runs import (
     ColumnRunHistoryRouteError,
@@ -53,8 +54,9 @@ def test_revision_reuses_config_on_exact_reviewed_rows_without_authorization(
         tmp_path / "workspace"
     )
     store = RunResultStore(project)
-    store.set_result_review_metadata(run_id, row_ids[2], output_id, "reject", None)
-    store.set_result_review_metadata(run_id, row_ids[0], output_id, "accept", None)
+    with write_transaction(project.db):
+        store.set_result_review_metadata(run_id, row_ids[2], output_id, "reject", None)
+        store.set_result_review_metadata(run_id, row_ids[0], output_id, "accept", None)
 
     response = ColumnRunHistoryService(workspace).reviewed_run_revision(
         "reviewed-revision", output_id, run_id
@@ -83,9 +85,10 @@ def test_revision_reuses_reviewed_rows_while_producer_is_running(
     workspace, project, _sheet_id, row_ids, run_id, output_id = _completed_template_run(
         tmp_path / "workspace"
     )
-    RunResultStore(project).set_result_review_metadata(
-        run_id, row_ids[0], output_id, "accept", None
-    )
+    with write_transaction(project.db):
+        RunResultStore(project).set_result_review_metadata(
+            run_id, row_ids[0], output_id, "accept", None
+        )
     with project.db:
         project.db.execute(
             "UPDATE runs SET status='running' WHERE id=?",
@@ -110,9 +113,10 @@ def test_revision_reuses_historical_spec_after_receipt_hash_evolves(
     workspace, project, _sheet_id, row_ids, run_id, output_id = _completed_template_run(
         tmp_path / "workspace"
     )
-    RunResultStore(project).set_result_review_metadata(
-        run_id, row_ids[1], output_id, "reject", None
-    )
+    with write_transaction(project.db):
+        RunResultStore(project).set_result_review_metadata(
+            run_id, row_ids[1], output_id, "reject", None
+        )
     with project.db:
         project.db.execute(
             "UPDATE receipts SET params_hash=? WHERE run_id=?",

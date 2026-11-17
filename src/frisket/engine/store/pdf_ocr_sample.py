@@ -250,7 +250,6 @@ def publish_pdf_ocr_sample(
             receipt_id=receipt_id,
             action_kind="media.ocr",
             params_hash=receipt.params_hash,
-            commit=False,
         )
         token = f"output-claim:{receipt_id}"
         claims, conflict = OutputColumnClaimStore(project).acquire(
@@ -292,7 +291,6 @@ def publish_pdf_ocr_sample(
             action_kind="media.ocr",
             params_hash=receipt.params_hash,
             claim_token=token,
-            commit=False,
         )
         spans = []
         members = project.db.execute(

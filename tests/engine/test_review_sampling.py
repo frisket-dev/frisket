@@ -163,10 +163,8 @@ def test_exact_rows_preserve_order_filter_fields_and_read_fresh_decisions(
 
         store = RunResultStore(project)
         project.db.execute("BEGIN IMMEDIATE")
-        store.set_result_review_state(run_id, rows[0], answer, "verified", commit=False)
-        store.set_result_review_metadata(
-            run_id, rows[0], answer, "accept", "checked", commit=False
-        )
+        store.set_result_review_state(run_id, rows[0], answer, "verified")
+        store.set_result_review_metadata(run_id, rows[0], answer, "accept", "checked")
         project.db.commit()
 
         pending = exact_review_bundle_page(

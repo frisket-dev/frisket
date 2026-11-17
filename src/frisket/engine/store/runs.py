@@ -27,7 +27,7 @@ from frisket.engine.store.effect_checkpoints import (
 )
 from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.prepared_content import decode_logical_value
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.engine.store.value_codec import PreparedContentRef, encode_stored_value
 from frisket.engine.store.prepared_ocr import (
     prepare_ocr_results,
@@ -415,10 +415,8 @@ class RunResultStore:
         run_id: int,
         halted_code: str | None,
         halted_reason: str | None,
-        *,
-        commit: bool = True,
     ) -> None:
-        """Write both durable halt representations atomically.
+        """Write both durable halt representations in the caller's transaction.
 
         ``halted_reason``-without-``halted_code`` stays representable: the
         legacy consecutive-failure circuit breaker sets a reason with no typed
@@ -428,35 +426,33 @@ class RunResultStore:
         stored_code = halted_code
         stored_reason = halted_reason if halted_code is None else halted_reason or ""
 
-        with write_transaction(
-            self.db, commit=commit, what="set_run_halt(commit=False)"
-        ):
-            row = self.db.execute(
-                "SELECT params FROM runs WHERE id=?", (run_id,)
-            ).fetchone()
-            try:
-                params = json.loads(row["params"] or "{}") if row else {}
-            except (TypeError, ValueError):
-                params = {}
-            if not isinstance(params, dict):
-                params = {}
-            if stored_code is not None:
-                params["halted_code"] = stored_code
-                params["halted_reason"] = stored_reason
-            elif stored_reason is not None:
-                params.pop("halted_code", None)
-                params["halted_reason"] = stored_reason
-            else:
-                params.pop("halted_code", None)
-                params.pop("halted_reason", None)
-            self.db.execute(
-                "UPDATE runs SET halted_code=?, halted_reason=? WHERE id=?",
-                (stored_code, stored_reason, run_id),
-            )
-            self.db.execute(
-                "UPDATE runs SET params=? WHERE id=?",
-                (json.dumps(params, sort_keys=True), run_id),
-            )
+        require_transaction(self.db, "run halt")
+        row = self.db.execute(
+            "SELECT params FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
+        try:
+            params = json.loads(row["params"] or "{}") if row else {}
+        except (TypeError, ValueError):
+            params = {}
+        if not isinstance(params, dict):
+            params = {}
+        if stored_code is not None:
+            params["halted_code"] = stored_code
+            params["halted_reason"] = stored_reason
+        elif stored_reason is not None:
+            params.pop("halted_code", None)
+            params["halted_reason"] = stored_reason
+        else:
+            params.pop("halted_code", None)
+            params.pop("halted_reason", None)
+        self.db.execute(
+            "UPDATE runs SET halted_code=?, halted_reason=? WHERE id=?",
+            (stored_code, stored_reason, run_id),
+        )
+        self.db.execute(
+            "UPDATE runs SET params=? WHERE id=?",
+            (json.dumps(params, sort_keys=True), run_id),
+        )
 
     def set_worker_version(
         self, run_id: int, worker_version: str, *, commit: bool = True
@@ -790,13 +786,12 @@ class RunResultStore:
         row_id: int,
         column_id: int,
         reason: str,
-        *,
-        commit: bool = True,
     ) -> None:
         """Deliberately keep a value out on policy (e.g. map.extract citation grounding):
         null the value + record the human-readable reason, but mark it terminal
         `withheld_unverified` -- NOT a failure. So it does not inflate failed_rows and is
         not re-run by backfill (the run-completion queries treat it as done)."""
+        require_transaction(self.db, "withheld result")
         self._require_run_sheet_mutable(run_id)
         self.db.execute(
             "UPDATE results SET value_kind=NULL, value=NULL, error=?, justification=NULL, "
@@ -804,8 +799,6 @@ class RunResultStore:
             "WHERE run_id=? AND row_id=? AND column_id=?",
             (_safe_result_error(reason, "withheld_result"), run_id, row_id, column_id),
         )
-        if commit:
-            self.db.commit()
 
     def set_result_review_state(
         self,
@@ -813,36 +806,32 @@ class RunResultStore:
         row_id: int,
         column_id: int,
         review_state: str,
-        *,
-        commit: bool = True,
     ) -> int:
-        with write_transaction(
-            self.db, commit=commit, what="set_result_review_state(commit=False)"
-        ):
-            self._require_run_sheet_mutable(run_id)
-            before = self.db.execute(
-                "SELECT review_state,review_decision FROM results "
-                "WHERE run_id=? AND row_id=? AND column_id=?",
-                (run_id, row_id, column_id),
-            ).fetchone()
-            cur = self.db.execute(
-                "UPDATE results SET review_state=? "
-                "WHERE run_id=? AND row_id=? AND column_id=?",
-                (review_state, run_id, row_id, column_id),
-            )
-            if before is not None and cur.rowcount == 1:
-                from .review_stats import adjust_review_stats_for_result_transition
+        require_transaction(self.db, "result review state")
+        self._require_run_sheet_mutable(run_id)
+        before = self.db.execute(
+            "SELECT review_state,review_decision FROM results "
+            "WHERE run_id=? AND row_id=? AND column_id=?",
+            (run_id, row_id, column_id),
+        ).fetchone()
+        cur = self.db.execute(
+            "UPDATE results SET review_state=? "
+            "WHERE run_id=? AND row_id=? AND column_id=?",
+            (review_state, run_id, row_id, column_id),
+        )
+        if before is not None and cur.rowcount == 1:
+            from .review_stats import adjust_review_stats_for_result_transition
 
-                adjust_review_stats_for_result_transition(
-                    self.db,
-                    run_id=run_id,
-                    row_id=row_id,
-                    column_id=column_id,
-                    before_state=before["review_state"],
-                    before_decision=before["review_decision"],
-                    after_state=review_state,
-                    after_decision=before["review_decision"],
-                )
+            adjust_review_stats_for_result_transition(
+                self.db,
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
+                before_state=before["review_state"],
+                before_decision=before["review_decision"],
+                after_state=review_state,
+                after_decision=before["review_decision"],
+            )
         return int(cur.rowcount)
 
     def set_result_review_metadata(
@@ -852,39 +841,35 @@ class RunResultStore:
         column_id: int,
         decision: str | None,
         note: str | None,
-        *,
-        commit: bool = True,
     ) -> int:
-        with write_transaction(
-            self.db, commit=commit, what="set_result_review_metadata(commit=False)"
-        ):
-            self._require_run_sheet_mutable(run_id)
-            before = self.db.execute(
-                "SELECT review_state,review_decision FROM results "
-                "WHERE run_id=? AND row_id=? AND column_id=?",
-                (run_id, row_id, column_id),
-            ).fetchone()
-            cur = self.db.execute(
-                "UPDATE results SET review_decision=?, review_note=? "
-                "WHERE run_id=? AND row_id=? AND column_id=?",
-                (decision, note, run_id, row_id, column_id),
-            )
-            if before is not None and cur.rowcount == 1:
-                from .review_stats import adjust_review_stats_for_result_transition
+        require_transaction(self.db, "result review metadata")
+        self._require_run_sheet_mutable(run_id)
+        before = self.db.execute(
+            "SELECT review_state,review_decision FROM results "
+            "WHERE run_id=? AND row_id=? AND column_id=?",
+            (run_id, row_id, column_id),
+        ).fetchone()
+        cur = self.db.execute(
+            "UPDATE results SET review_decision=?, review_note=? "
+            "WHERE run_id=? AND row_id=? AND column_id=?",
+            (decision, note, run_id, row_id, column_id),
+        )
+        if before is not None and cur.rowcount == 1:
+            from .review_stats import adjust_review_stats_for_result_transition
 
-                adjust_review_stats_for_result_transition(
-                    self.db,
-                    run_id=run_id,
-                    row_id=row_id,
-                    column_id=column_id,
-                    before_state=before["review_state"],
-                    before_decision=before["review_decision"],
-                    after_state=before["review_state"],
-                    after_decision=decision,
-                )
+            adjust_review_stats_for_result_transition(
+                self.db,
+                run_id=run_id,
+                row_id=row_id,
+                column_id=column_id,
+                before_state=before["review_state"],
+                before_decision=before["review_decision"],
+                after_state=before["review_state"],
+                after_decision=decision,
+            )
         return int(cur.rowcount)
 
-    def mark_run_results_verified(self, run_id: int, *, commit: bool = True) -> int:
+    def mark_run_results_verified(self, run_id: int) -> int:
         """Auto-verify every still-unreviewed result in a run (mechanical ops).
 
         clean_column has no confidence columns, so without this
@@ -892,6 +877,7 @@ class RunResultStore:
         queue. Only ``unreviewed`` rows flip — a re-run that upserts over a
         previously accepted/edited/rejected cell keeps that human decision (the
         write_results ON CONFLICT clause never touches review_state)."""
+        require_transaction(self.db, "result auto-verification")
         self._require_run_sheet_mutable(run_id)
         cur = self.db.execute(
             "UPDATE results SET review_state='verified' "
@@ -901,8 +887,6 @@ class RunResultStore:
         from .review_stats import mark_run_review_stats_dirty
 
         mark_run_review_stats_dirty(self.db, run_id)
-        if commit:
-            self.db.commit()
         return int(cur.rowcount)
 
     def write_results(
@@ -1130,7 +1114,6 @@ class RunResultStore:
         action_kind: str,
         params_hash: str,
         claim_token: str,
-        commit: bool = True,
     ) -> None:
         """Publish receipt-owned action outputs through the result substrate.
 
@@ -1141,11 +1124,9 @@ class RunResultStore:
         owns the output claim and transaction; provider accounting remains in
         the neutral ledger and can be attached to this run separately.
         """
+        require_transaction(self.db, "precomputed result publication")
         if not batch:
             return
-        started_transaction = not self.db.in_transaction
-        if started_transaction:
-            self.db.execute("BEGIN IMMEDIATE")
         savepoint = f"write_precomputed_results_{uuid.uuid4().hex}"
         self.db.execute(f"SAVEPOINT {savepoint}")
         try:
@@ -1184,12 +1165,8 @@ class RunResultStore:
         except BaseException:
             self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-            if started_transaction:
-                self.db.rollback()
             raise
         self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-        if commit:
-            self.db.commit()
 
     def attach_unscoped_model_calls(
         self,
@@ -1199,7 +1176,6 @@ class RunResultStore:
         receipt_id: str,
         action_kind: str,
         params_hash: str,
-        commit: bool = True,
     ) -> None:
         """Associate already-accounted neutral facts with a materialized run.
 
@@ -1207,6 +1183,7 @@ class RunResultStore:
         spend, so a whole-action executor can keep its established accounting
         path while making the final run's cost and model-call history complete.
         """
+        require_transaction(self.db, "model-call attachment")
         ids = sorted({str(call_id) for call_id in call_ids if str(call_id)})
         if not ids:
             return
@@ -1258,8 +1235,6 @@ class RunResultStore:
                 (run_id, *ids),
             )
             self._project_cost_actual(run_id)
-        if commit:
-            self.db.commit()
 
     def _require_precomputed_result_authority(
         self,
@@ -3241,7 +3216,6 @@ class RunResultStore:
         *,
         reopen_operator_cancelled: bool = True,
         resumable_halt_codes: Collection[str] = (),
-        commit: bool = True,
     ) -> RunResumeAdmission:
         """Atomically reopen a genuine resume and clear prior halt metadata.
 
@@ -3259,9 +3233,7 @@ class RunResultStore:
         admission actually saw, not what a racing writer left behind.
         """
 
-        with write_transaction(
-            self.db, commit=commit, what="begin_run_resume(commit=False)"
-        ):
+        with write_transaction(self.db):
             row = self.db.execute(
                 "SELECT run.status,run.finished_at,run.params,run.cancel_requested_at, "
                 "run.halted_code,run.halted_reason,op.status AS change_status, "

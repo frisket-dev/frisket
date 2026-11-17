@@ -194,16 +194,12 @@ class BlobMetadataDocumentStore:
         namespace: str,
         proposal: Any,
         resolve: Callable[[Any, Any], BlobMetadataNamespaceCASDecision],
-        *,
-        commit: bool = True,
     ) -> BlobMetadataNamespaceCASResult:
         """Apply an owned namespace's CAS policy under one locked transaction."""
 
         if not isinstance(namespace, str) or not namespace:
             raise ValueError("blob metadata namespace must be a non-empty string")
-        with write_transaction(
-            self.db, commit=commit, what="blob metadata namespace swap"
-        ):
+        with write_transaction(self.db):
             row = self.db.execute(
                 "SELECT metadata FROM blobs WHERE hash=?", (digest,)
             ).fetchone()
