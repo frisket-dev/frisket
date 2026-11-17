@@ -1,0 +1,67 @@
+name: queue-tested
+
+# Answers whether this push to main landed a commit the merge queue already
+# tested: a merge_group run of the calling workflow on this exact SHA in which
+# the named required job succeeded. The answer is "false" for every other
+# event, for any commit the queue did not test (an admin direct push, the queue
+# disabled or bypassed, a landed SHA that differs from the tested one), and
+# when the lookup itself fails, so callers then run their complete push suite.
+on:
+  workflow_call:
+    inputs:
+      workflow:
+        description: "Workflow file whose merge_group run must have tested this SHA"
+        required: true
+        type: string
+      job:
+        description: "Name of the required job that must have succeeded in that run"
+        required: true
+        type: string
+    outputs:
+      tested:
+        description: "'true' only when that job succeeded in a merge_group run on this SHA"
+        value: ${{ jobs.lookup.outputs.tested }}
+
+permissions:
+  actions: read
+
+jobs:
+  lookup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tested: ${{ steps.lookup.outputs.tested }}
+    steps:
+      - id: lookup
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW: ${{ inputs.workflow }}
+          JOB: ${{ inputs.job }}
+        run: |
+          set -euo pipefail
+          tested=false
+          if [ "$EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            # The job's check run is what the queue waited on before merging,
+            # so it is complete even while its workflow run is still finalizing.
+            if runs="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW/runs" \
+                -f event=merge_group -f head_sha="$GITHUB_SHA" -F per_page=100 \
+                --jq '.workflow_runs[].id')"; then
+              for run in $runs; do
+                if ! evidence="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs" \
+                    -F per_page=100 \
+                    --jq 'first(.jobs[] | select(.name == env.JOB and .conclusion == "success") | .html_url)')"; then
+                  echo "::warning::could not read the jobs of merge_group run $run; running the complete suite"
+                  break
+                fi
+                if [ -n "$evidence" ]; then
+                  tested=true
+                  echo "$GITHUB_SHA passed $JOB in the merge queue: $evidence" | tee -a "$GITHUB_STEP_SUMMARY"
+                  break
+                fi
+              done
+            else
+              echo "::warning::could not list merge_group runs of $WORKFLOW; running the complete suite"
+            fi
+          fi
+          echo "tested=$tested" >> "$GITHUB_OUTPUT"

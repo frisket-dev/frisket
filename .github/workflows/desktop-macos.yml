@@ -25,6 +25,8 @@ on:
         description: "Electron version embedded in the verified installer"
         value: ${{ jobs.signed-distribution.outputs.desktop_version }}
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       notary_status_only:
@@ -36,13 +38,16 @@ on:
 permissions:
   contents: read
 
+# Each merge group has its own queue ref; a queue run is never cancelled.
 concurrency:
   group: desktop-macos-${{ github.event.pull_request.number || github.ref }}-${{ inputs.notary_status_only || false }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
+  # The queue run gates what lands on main, so it always runs the installed
+  # proof; pull requests keep path-aware selection.
   changes:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
@@ -53,8 +58,13 @@ jobs:
           fetch-depth: 0
       - id: paths
         env:
+          EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          if [ "$EVENT_NAME" = merge_group ]; then
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           files="$(git diff --name-only "$BASE_SHA" HEAD)"
           if grep -E '^(desktop/|src/frisket/|web/|sdk/|pyproject\.toml$|uv\.lock$|\.github/workflows/desktop-macos\.yml$)' <<< "$files" >/dev/null; then
             echo 'relevant=true' >> "$GITHUB_OUTPUT"
@@ -64,7 +74,7 @@ jobs:
 
   startup-window:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.relevant == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     steps:
@@ -139,9 +149,11 @@ jobs:
 
   installed-app:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && needs.changes.outputs.relevant == 'true'
     runs-on: macos-15
-    timeout-minutes: 60
+    # A healthy run takes 6-11 minutes; the per-step bounds below stop a hung
+    # launch or proof early enough for the evidence upload to still run.
+    timeout-minutes: 40
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       # This job has no signing secrets; explicitly permit the ad-hoc PR build.
@@ -193,10 +205,14 @@ jobs:
           ditto "$mount_path/Frisket Desktop.app" "$FRISKET_DESKTOP_APP"
           codesign --verify --deep --strict "$FRISKET_DESKTOP_APP"
       - name: First launch with an empty profile and cache (no Retry)
+        # Two bounded launch attempts plus the script's 15-minute startup wait.
+        timeout-minutes: 20
         run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
+        timeout-minutes: 10
         run: node desktop/scripts/prewarm.mjs --browser
       - name: Installed app and native engines (no new external connections)
+        timeout-minutes: 15
         run: python3 desktop/scripts/test-installed.py
       - name: Verify installed app signature after use
         run: codesign --verify --deep --strict --verbose=4 "$FRISKET_DESKTOP_APP"
@@ -424,7 +440,7 @@ jobs:
 
   desktop-macos-ci:
     name: desktop-macos-ci
-    if: ${{ always() && github.event_name == 'pull_request' }}
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
     needs: [changes, installed-app, startup-window]
     runs-on: ubuntu-latest
     steps:

@@ -4,20 +4,34 @@ permissions:
   contents: read
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   workflow_dispatch:
 
-# A superseding run on the same ref obsoletes the in-flight run.
+# A superseding run on the same ref obsoletes the in-flight run. Each merge
+# group runs on its own queue ref, never sharing a group with PR or push runs,
+# and a queue run is never cancelled from here.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
+  queue-tested:
+    permissions:
+      actions: read
+    uses: ./.github/workflows/queue-tested.yml
+    with:
+      workflow: ci.yml
+      job: ci-pass
+
   # Coarse path classification for per-layer test selection. Diff-based and
   # dependency-free; it FAILS OPEN (runs everything) whenever the base commit
-  # cannot be resolved. Manual dispatches and pushes to main intentionally run
-  # every layer; pull requests retain path-aware selection. Two independent
+  # cannot be resolved. Merge-queue runs, manual dispatches, and pushes to main
+  # intentionally run every layer; pull requests retain path-aware selection.
+  # A push to main whose exact commit already passed this workflow in the merge
+  # queue runs no layer: that queue run is its complete suite. Two independent
   # outputs:
   #   * job gates (backend/frontend/infra) skip a whole job a commit
   #     provably cannot affect -- e.g. a frontend-only commit skips the Python
@@ -31,6 +45,7 @@ jobs:
   #     deterministic-time lints and the import-boundary gate in the `test`
   #     job stay unconditional regardless of this subset.
   changes:
+    needs: queue-tested
     runs-on: ubuntu-latest
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
@@ -49,14 +64,22 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
+          QUEUE_TESTED: ${{ needs.queue-tested.outputs.tested }}
         run: |
           set -euo pipefail
+          if [ "${QUEUE_TESTED:-}" = "true" ]; then
+            printf '%s=false\n' backend sidecar models_gpu frontend infra >> "$GITHUB_OUTPUT"
+            echo "pytest_target=tests" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           allchanged=0
           if [ "$EVENT_NAME" = "pull_request" ]; then
             base="$PR_BASE_SHA"
-          elif [ "$EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
-            # Every releasable main commit gets the complete suite. PRs retain
-            # the cheaper path-aware selection for fast feedback.
+          elif [ "$EVENT_NAME" = "merge_group" ] \
+            || { [ "$EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; }; then
+            # Every releasable main commit gets the complete suite, here or in
+            # the queue run that tested this exact commit. PRs retain the
+            # cheaper path-aware selection for fast feedback.
             allchanged=1
             base=""
           else
@@ -519,7 +542,7 @@ jobs:
   ci-pass:
     name: ci-pass
     if: ${{ always() }}
-    needs: [changes, models-gpu-topology, sidecar-contract, python-quality, test-engine, test, deploy-smoke, e2e-cassette-core, postgres, web]
+    needs: [queue-tested, changes, models-gpu-topology, sidecar-contract, python-quality, test-engine, test, deploy-smoke, e2e-cassette-core, postgres, web]
     runs-on: ubuntu-latest
     steps:
       - env:

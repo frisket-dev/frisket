@@ -2,15 +2,18 @@ name: deterministic-source
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
 permissions:
   contents: read
 
+# Each merge group has its own queue ref; a queue run is never cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
   gate:

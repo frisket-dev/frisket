@@ -2,6 +2,8 @@ name: macos-portability
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   workflow_dispatch:
@@ -10,8 +12,21 @@ permissions:
   contents: read
 
 jobs:
+  queue-tested:
+    permissions:
+      actions: read
+    uses: ./.github/workflows/queue-tested.yml
+    with:
+      workflow: macos-portability.yml
+      job: macos-portability
+
   smoke:
     name: macos-portability
+    needs: queue-tested
+    # A push of the exact commit that passed in the merge queue skips the
+    # rerun. A failed lookup still runs the check: a required job skipped by
+    # a failed dependency would otherwise report as passing.
+    if: ${{ !cancelled() && needs.queue-tested.outputs.tested != 'true' }}
     runs-on: macos-latest
     timeout-minutes: 20
     env:

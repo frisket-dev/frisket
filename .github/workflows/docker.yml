@@ -14,19 +14,33 @@ on:
       - .github/workflows/docker.yml
   pull_request:
     branches: [main]
+  # The queue run gates what lands on main, so it always builds; a push of
+  # the exact commit the queue built then skips the rebuild.
+  merge_group:
+    types: [checks_requested]
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
 
+# Each merge group has its own queue ref; a queue run is never cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 permissions:
   contents: read
 
 jobs:
+  queue-tested:
+    permissions:
+      actions: read
+    uses: ./.github/workflows/queue-tested.yml
+    with:
+      workflow: docker.yml
+      job: docker-ci
+
   changes:
+    needs: queue-tested
     runs-on: ubuntu-latest
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
@@ -39,7 +53,12 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          QUEUE_TESTED: ${{ needs.queue-tested.outputs.tested }}
         run: |
+          if [ "$QUEUE_TESTED" = true ]; then
+            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$EVENT_NAME" != pull_request ]; then
             echo 'relevant=true' >> "$GITHUB_OUTPUT"
             exit 0

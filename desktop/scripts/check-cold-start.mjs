@@ -1,21 +1,42 @@
 // Networked first-launch proof. Run before prewarming; no credentials or real projects.
-import { _electron } from '@playwright/test';
+import { _electron, errors } from '@playwright/test';
 import { access, readFile, readdir, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { waitForStartup } from '../e2e/startup.mjs';
 import { installedExecutable } from '../e2e/installed-platform.mjs';
 
-const profile = process.env.FRISKET_DESKTOP_PROFILE && `${process.env.FRISKET_DESKTOP_PROFILE}-cold-start`;
+const profileBase = process.env.FRISKET_DESKTOP_PROFILE && `${process.env.FRISKET_DESKTOP_PROFILE}-cold-start`;
 const app = process.env.FRISKET_DESKTOP_APP;
-if (!profile || !path.isAbsolute(profile) || !app || !path.isAbsolute(app)) throw new Error('Absolute installed app and profile paths are required.');
-try {
-  await access(profile);
-  throw new Error('Cold-start proof requires a new profile, not a prewarmed one.');
-} catch (error) { if (error.code !== 'ENOENT') throw error; }
+if (!profileBase || !path.isAbsolute(profileBase) || !app || !path.isAbsolute(app)) throw new Error('Absolute installed app and profile paths are required.');
 const env = { ...process.env };
 for (const key of ['UV_CACHE_DIR', 'UV_OFFLINE', 'UV_PYTHON_INSTALL_DIR', 'PLAYWRIGHT_BROWSERS_PATH']) delete env[key];
+
+// A healthy launch attaches in seconds. On a fresh hosted macOS runner the
+// attach occasionally stalls with the process up and both debuggers connected;
+// Playwright then kills the process tree. That stall is a harness failure, not
+// a startup Retry, so it gets one more launch, and only into a second
+// never-used profile: the proof never continues from a half-initialized one.
+// Nothing after the attach (startup card, error dialog, Home) is retried.
+const LAUNCH_ATTEMPTS = 2;
+async function launchIntoNewProfile() {
+  for (let attempt = 1; ; attempt += 1) {
+    const profile = attempt === 1 ? profileBase : `${profileBase}-${attempt}`;
+    try {
+      await access(profile);
+      throw new Error('Cold-start proof requires a new profile, not a prewarmed one.');
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    try {
+      const electron = await _electron.launch({ executablePath: installedExecutable(app), args: [`--user-data-dir=${profile}`], chromiumSandbox: true, timeout: 60000, env });
+      return { electron, profile };
+    } catch (error) {
+      if (!(error instanceof errors.TimeoutError) || attempt === LAUNCH_ATTEMPTS) throw error;
+      process.stderr.write(`Launch attempt ${attempt} did not attach; relaunching into a new profile.\n${error.message}\n`);
+    }
+  }
+}
+
 const started = Date.now();
-const electron = await _electron.launch({ executablePath: installedExecutable(app), args: [`--user-data-dir=${profile}`], chromiumSandbox: true, timeout: 60000, env });
+const { electron, profile } = await launchIntoNewProfile();
 electron.process().stderr.on('data', chunk => process.stderr.write(chunk));
 await electron.evaluate(({ dialog }) => {
   const original = dialog.showMessageBox.bind(dialog);

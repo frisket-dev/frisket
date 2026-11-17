@@ -9,11 +9,14 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import tomllib
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -24,6 +27,11 @@ RESOURCES = DESKTOP / "resources"
 PYTHON_VERSION = "3.12.13"
 UV_VERSION = "0.11.29"
 NATIVE_TOOL_NAMES = frozenset(("uv", "ffmpeg", "ffprobe", "deno"))
+# Hosted runners occasionally fail name resolution or drop a connection for a
+# few seconds. Only those failures are retried; any HTTP status is final.
+DOWNLOAD_ATTEMPTS = 3
+DOWNLOAD_BACKOFF_SECONDS = 5.0
+TRANSIENT_NETWORK_ERRORS = (socket.gaierror, ConnectionError, TimeoutError)
 
 # These are executable package resources, not an inventory of every source file.
 WHEEL_RESOURCES = (
@@ -82,17 +90,38 @@ def native_assets(platform: str) -> dict[str, dict]:
     return assets
 
 
+def download(url: str, destination: Path) -> None:
+    """Write url's body to destination, retrying transient connection failures."""
+    request = urllib.request.Request(
+        url, headers={"User-Agent": "Frisket-desktop-build"}
+    )
+    for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response:
+                with destination.open("wb") as output:
+                    shutil.copyfileobj(response, output)
+            return
+        except OSError as error:
+            # An HTTPError's reason is its status text, so it is never retried.
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            if attempt == DOWNLOAD_ATTEMPTS or not isinstance(
+                reason, TRANSIENT_NETWORK_ERRORS
+            ):
+                raise
+            delay = DOWNLOAD_BACKOFF_SECONDS * 2 ** (attempt - 1)
+            print(
+                f"Download of {url} failed ({error}); retrying in {delay:.0f}s",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+
+
 def stage_native(name: str, asset: dict, cache: Path) -> None:
     archive_path = cache / asset["sha256"]
     if not archive_path.is_file():
         temporary = archive_path.with_suffix(".download")
         try:
-            request = urllib.request.Request(
-                asset["url"], headers={"User-Agent": "Frisket-desktop-build"}
-            )
-            with urllib.request.urlopen(request, timeout=120) as response:
-                with temporary.open("wb") as output:
-                    shutil.copyfileobj(response, output)
+            download(asset["url"], temporary)
             temporary.replace(archive_path)
         finally:
             temporary.unlink(missing_ok=True)

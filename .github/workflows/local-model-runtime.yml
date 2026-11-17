@@ -27,6 +27,7 @@ on:
       - 'sidecar/pyproject.toml'
       - 'scripts/smoke/retrieval_runtime.py'
       - 'scripts/smoke/local_model_server.py'
+      - 'scripts/smoke/prefetch_docling_models.py'
       - 'pyproject.toml'
 
 permissions:

@@ -60,6 +60,7 @@ def main() -> None:
         from frisket.runtime.model_install import install_docling
         from frisket.runtime.model_install import runtime_python
         from frisket.runtime.model_server import LocalModelServer
+        from frisket.runtime.model_server import _child_environment
 
         server = LocalModelServer(environ=os.environ)
         # Prove the running app's monitor notices an install that completes
@@ -76,6 +77,18 @@ def main() -> None:
                 "assert importlib.util.find_spec('frisket') is None",
             ],
             check=True,
+        )
+        # Model weights come from the Hugging Face Hub, which rate-limits the
+        # shared runner IPs; fetch them into the server's cache with a bounded
+        # Retry-After wait so the conversions below need no Hub API answer.
+        subprocess.run(
+            [
+                str(runtime_python()),
+                "-I",
+                str(Path(__file__).with_name("prefetch_docling_models.py")),
+            ],
+            check=True,
+            env=_child_environment(os.environ),
         )
         args.url = server.url
         args.token = os.environ["FRISKET_LOCAL_MODELS_TOKEN"]
