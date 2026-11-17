@@ -4,11 +4,10 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import type { CellValue } from '../../api/open';
 import { projectBlobUrl } from '../../api/raw/projectResources';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
+import { safeHttpUrl } from '../../core/safeUrl';
 import { formatTimecode } from '../../temporal/model';
 import structuredStyles from '../StructuredValue.module.css';
 import { linkify } from './ValueLinks';
-
-const isUrl = (s: string): boolean => /^https?:\/\//.test(s);
 
 const cellText = (v: unknown): string =>
   v === null || v === undefined ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v);
@@ -182,10 +181,11 @@ export function JsonMiniTable({
             <tr key={key} data-testid={itemTestId} {...resultItemProps(index, onSelectItem, selectableItemIndices)}>
               {shownKeys.map((k) => {
                 const v = it[k];
+                const href = typeof v === 'string' ? safeHttpUrl(v) : null;
                 return (
                   <td key={k}>
-                    {typeof v === 'string' && isUrl(v) ? (
-                      <a className="row-field-link" href={v} target="_blank" rel="noopener noreferrer">
+                    {typeof v === 'string' && href ? (
+                      <a className="row-field-link" href={href} target="_blank" rel="noopener noreferrer">
                         {v.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)}
                       </a>
                     ) : (

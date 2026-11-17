@@ -107,4 +107,19 @@ describe('Ask event presentation', () => {
     expect(screen.getByText('Sources')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Source 1' })).not.toBeInTheDocument();
   });
+
+  it.each([
+    ['https://example.test/story', true],
+    ['javascript:alert(document.domain)', false],
+  ])('links a cited web page only when its URL is http(s): %s', async (url, linked) => {
+    const web: AskCitation = { id: 'web', label: 'Web page', excerpt: 'Snippet', message: null, source_kind: 'web', status: 'current',
+      target: { kind: 'web', url, fetched: true, retrieved_at: '2026-01-01T00:00:00Z' } };
+    mocks.citation.mockResolvedValueOnce(web);
+    const { container } = renderEvent(event('answer', { text: 'Answer', citation_ids: ['web'] }));
+    fireEvent.click(screen.getByRole('button', { name: '[1] Source 1' }));
+    await waitFor(() => expect(screen.getByText('Snippet')).toBeInTheDocument());
+    expect(screen.getByText(url)).toBeInTheDocument();
+    const anchors = [...container.querySelectorAll('.ask-source-preview a')];
+    expect(anchors.map((anchor) => anchor.getAttribute('href'))).toEqual(linked ? [url] : []);
+  });
 });

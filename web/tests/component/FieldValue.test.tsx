@@ -411,4 +411,42 @@ describe('FieldValue renderer', () => {
     expect(screen.getByTestId('temporal-value')).toHaveTextContent('0:05 – 0:17.250');
     expect(screen.getByTestId('temporal-value')).toHaveTextContent('Key quote');
   });
+
+  it.each(['file', 'image', 'video', 'audio'])('shows a script URL in a %s column as text, not a link or media', (type) => {
+    const col = columnDef({ id: 'media', name: 'media', type });
+    const value = 'javascript:alert(document.domain)';
+    const { container } = render(<FieldValue col={col} columns={[col]} row={row({ media: value })} value={value} />);
+    expect(container).toHaveTextContent(value);
+    expect(container.querySelector('a, img, video, audio, [href], [src]')).toBeNull();
+    expect(screen.queryByTestId('row-audio')).toBeNull();
+  });
+
+  it('keeps an https file value as a new-tab link', () => {
+    const col = columnDef({ id: 'media', name: 'media', type: 'file' });
+    const value = 'https://example.test/files/report.pdf';
+    render(<FieldValue col={col} columns={[col]} row={row({ media: value })} value={value} />);
+    const link = screen.getByRole('link', { name: 'report.pdf' });
+    expect(link).toHaveAttribute('href', value);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('keeps an https image value as an image', () => {
+    const col = columnDef({ id: 'media', name: 'photo', type: 'image' });
+    const value = 'https://example.test/photo.png';
+    render(<FieldValue col={col} columns={[col]} row={row({ media: value })} value={value} />);
+    expect(screen.getByRole('img', { name: 'photo' })).toHaveAttribute('src', value);
+  });
+
+  it('links only http(s) strings in a JSON result table', () => {
+    const col = columnDef({ id: 'results', name: 'results', type: 'json' });
+    const value = JSON.stringify([
+      { title: 'Good', url: 'https://example.test/story' },
+      { title: 'Bad', url: 'javascript:alert(1)' },
+    ]);
+    const { container } = render(<FieldValue col={col} columns={[col]} row={row({ results: value })} value={value} />);
+    const links = [...container.querySelectorAll<HTMLAnchorElement>('a')];
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['https://example.test/story']);
+    expect(container).toHaveTextContent('javascript:alert(1)');
+  });
 });
