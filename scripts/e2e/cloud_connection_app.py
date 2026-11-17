@@ -14,6 +14,7 @@ from functools import partial
 import httpx
 import uvicorn
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.ai.llm import ModelRouter
 from frisket.cloud_connection import CloudConnectionClient, CloudConnectionStore
 from frisket.contracts.http.cloud_connection import (
@@ -341,7 +342,12 @@ def build_app(*, workspace: Path, static_dir: Path):
     profile_dir = workspace.with_name(f"{workspace.name}-cloud-profile")
     return create_app(
         workspace,
-        router=ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+            max_retries=0,
+        ),
         static_dir=static_dir,
         serve_spa=True,
         cloud_connection_store=CloudConnectionStore(profile_dir),

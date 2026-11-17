@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import pytest
@@ -22,8 +23,10 @@ from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import (
+    StaleAttemptWriter,
     abandon_stale_dispatching_attempts,
     open_attempt,
 )
@@ -76,6 +79,7 @@ def _seed_orphaned_run(
     *,
     reserved_checkpoint: bool = False,
     include_attempt_evidence: bool = True,
+    request_cancel: bool = True,
 ) -> _OrphanedRun:
     sheet_id = project.add_sheet("Source")
     source_column_id = project.add_column(sheet_id, "source", type="text")
@@ -188,7 +192,8 @@ def _seed_orphaned_run(
     )
     project.db.commit()
     assert abandon_stale_dispatching_attempts(project, run_id) == 1
-    assert RunResultStore(project).request_cancel(run_id)
+    if request_cancel:
+        assert RunResultStore(project).request_cancel(run_id)
     return _OrphanedRun(
         run_id=run_id,
         attempt_id=attempt_id,
@@ -383,6 +388,99 @@ def _never_dispatched_consent_error() -> ActionError:
         message="the confirmed source changed before dispatch",
         action_kind=ACTION_KIND,
     )
+
+
+def test_terminalizer_closes_change_and_resolves_unpublished_scope(project) -> None:
+    from frisket.engine.store.changes import ChangePublicationClosed, ChangeStore
+
+    run = _seed_never_dispatched_run(project, attempt_count=0)
+    row = project.db.execute(
+        "SELECT op_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
+    ).fetchone()
+    column = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='extracted'",
+        (row["sheet_id"],),
+    ).fetchone()
+    assert run.claim_token is not None
+    ResultGenerationStore(project).declare(
+        run.run_id,
+        int(column["id"]),
+        output_role="extracted",
+        compatibility_key="sha256:terminalizer-output-v1",
+        write_mode="create",
+        claim_token=run.claim_token,
+    )
+
+    result = terminalize_project_run(
+        project,
+        run_id=run.run_id,
+        receipt_id=run.receipt_id,
+        status="failed",
+        authority=NeverDispatchedRunTerminalAuthority(),
+    )
+
+    assert result.disposition == "terminalized"
+    operation = project.db.execute(
+        "SELECT status,publication_closed FROM ops WHERE id=?", (row["op_id"],)
+    ).fetchone()
+    assert tuple(operation) == ("applied", 1)
+    with pytest.raises(ChangePublicationClosed):
+        ChangeStore(project).require_publication(int(row["op_id"]))
+    outcome = project.db.execute(
+        "SELECT outcome FROM effective_current_cells WHERE row_id IN "
+        "(SELECT row_id FROM run_rows WHERE run_id=?) AND column_id=?",
+        (run.run_id, int(column["id"])),
+    ).fetchone()
+    assert outcome is not None
+    assert outcome["outcome"] == "not_completed"
+
+
+def test_terminalizer_preserves_deferred_family_empty_output_visibility(
+    project,
+) -> None:
+    run = _seed_never_dispatched_run(project, attempt_count=0)
+    row = project.db.execute(
+        "SELECT op_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
+    ).fetchone()
+    column = project.db.execute(
+        "SELECT id,hidden FROM columns WHERE sheet_id=? AND name='extracted'",
+        (row["sheet_id"],),
+    ).fetchone()
+    assert run.claim_token is not None
+    project.db.execute(
+        "UPDATE ops SET spec=? WHERE id=?",
+        (json.dumps({"deferred_publication": True}), int(row["op_id"])),
+    )
+    project.set_undo_info(int(row["op_id"]), {"created_columns": [int(column["id"])]})
+    ResultGenerationStore(project).declare(
+        run.run_id,
+        int(column["id"]),
+        output_role="extracted",
+        compatibility_key="sha256:deferred-output-v1",
+        write_mode="create",
+        claim_token=run.claim_token,
+    )
+
+    result = terminalize_project_run(
+        project,
+        run_id=run.run_id,
+        receipt_id=run.receipt_id,
+        status="failed",
+        authority=NeverDispatchedRunTerminalAuthority(),
+    )
+
+    assert result.disposition == "terminalized"
+    stored_column = project.db.execute(
+        "SELECT hidden FROM columns WHERE id=?", (int(column["id"]),)
+    ).fetchone()
+    assert int(stored_column["hidden"]) == int(column["hidden"])
+    outcome = project.db.execute(
+        "SELECT outcome FROM effective_current_cells WHERE row_id IN "
+        "(SELECT row_id FROM run_rows WHERE run_id=?) AND column_id=?",
+        (run.run_id, int(column["id"])),
+    ).fetchone()
+    assert outcome is not None
+    assert outcome["outcome"] == "not_completed"
 
 
 def test_never_dispatched_created_attempt_converges_failed_tuple(project) -> None:
@@ -1652,4 +1750,88 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_fails(
         )
 
     assert release_reached
+    assert _durable_snapshot(project, orphan) == before
+
+
+def test_run_store_refuses_current_writer_without_authority(
+    project,
+):
+    orphan = _seed_orphaned_run(project, request_cancel=False)
+    project.db.execute("BEGIN IMMEDIATE")
+    project.db.execute(
+        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+        (orphan.attempt_id,),
+    )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id=? WHERE id=?",
+        (orphan.attempt_id, orphan.run_id),
+    )
+    from frisket.engine.store.changes import start_change
+
+    op_id = project.db.execute(
+        "SELECT op_id FROM runs WHERE id=?",
+        (orphan.run_id,),
+    ).fetchone()[0]
+    start_change(project.db, op_id, writing=True)
+    RunResultStore(project).request_cancel(orphan.run_id, commit=False)
+    project.db.commit()
+    assert RunResultStore(project).get_run(orphan.run_id)["status"] == "running"
+    with pytest.raises(StaleAttemptWriter, match="current writer"):
+        RunResultStore(project).finish_run(
+            orphan.run_id,
+            "cancelled",
+        )
+    project.db.rollback()
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops WHERE id=?",
+            (op_id,),
+        ).fetchone()[0]
+        == 1
+    )
+    result = terminalize_project_run(
+        project,
+        run_id=orphan.run_id,
+        receipt_id=orphan.receipt_id,
+        status="cancelled",
+        authority=CurrentWriterTerminalAuthority(
+            writer_attempt_id=orphan.attempt_id,
+            claim_token=orphan.claim_token,
+        ),
+    )
+    assert result.disposition == "terminalized"
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops WHERE id=?",
+            (op_id,),
+        ).fetchone()[0]
+        == 1
+    )
+
+
+def test_current_writer_cannot_reclassify_a_terminal_run(project):
+    orphan = _seed_orphaned_run(project, request_cancel=False)
+    # A partially repaired historical tuple is not permission to change an
+    # already-terminal execution, even if a writer pointer remains attached.
+    project.db.execute(
+        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+        (orphan.attempt_id,),
+    )
+    project.db.execute(
+        "UPDATE runs SET status='completed',current_attempt_id=? WHERE id=?",
+        (orphan.attempt_id, orphan.run_id),
+    )
+    project.db.commit()
+    before = _durable_snapshot(project, orphan)
+    outcome = terminalize_project_run(
+        project,
+        run_id=orphan.run_id,
+        receipt_id=orphan.receipt_id,
+        status="failed",
+        authority=CurrentWriterTerminalAuthority(
+            writer_attempt_id=orphan.attempt_id, claim_token=orphan.claim_token
+        ),
+    )
+    assert outcome.disposition == "conflict"
+    assert outcome.reason == "run_already_terminal_with_different_outcome"
     assert _durable_snapshot(project, orphan) == before

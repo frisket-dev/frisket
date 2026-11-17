@@ -55,6 +55,7 @@ ACTION_RUN_KIND = "action.run"
 MODEL_PULL_KIND = "model.pull"
 BLOB_METADATA_KIND = "blob.metadata.backfill"
 SEARCH_INDEX_KIND = "search.index"
+SOURCE_VERIFY_KIND = "source.verify"
 IMPORT_FILES_PAGE_KIND = "import.files.page"
 IMPORT_TABLE_ANALYSIS_KIND = "import.table.analysis"
 IMPORT_TABLE_STREAM_KIND = "import.table.stream"
@@ -73,6 +74,7 @@ COOPERATIVELY_CANCELLABLE_RUNNING_KINDS = frozenset(
         MODEL_PULL_KIND,
         BLOB_METADATA_KIND,
         SEARCH_INDEX_KIND,
+        SOURCE_VERIFY_KIND,
         IMPORT_FILES_PAGE_KIND,
         IMPORT_TABLE_STREAM_KIND,
         PDF_SPLIT_APPLY_KIND,
@@ -519,6 +521,23 @@ class JobQueue(ABC):
         """
 
     @abstractmethod
+    def handler_execution_stopped(self, job_id: int, authority_id: str) -> bool:
+        """The original handler exited; a successor on the same job is distinct.
+
+        A never-issued job id is unknown, never proof that a handler died. An
+        issued id whose row is gone belonged to a replaced older queue.
+        """
+
+    @abstractmethod
+    def job_execution_stopped(self, job_id: int) -> bool:
+        """A terminal job has no remaining durable handler authority.
+
+        A never-issued job id or an expired lease is not proof that executable
+        code has exited. Recovery must not infer death from heartbeat age alone.
+        An issued id whose row is gone belonged to a replaced older queue.
+        """
+
+    @abstractmethod
     def has_active_project_handler(
         self,
         project_id: str,
@@ -742,6 +761,7 @@ class JobQueue(ABC):
         row_id: int | None = None,
         workspace_root: str | None = None,
         dedupe_key: str | None = None,
+        dedupe_key_prefix: str | None = None,
     ) -> Job | None: ...
 
     @abstractmethod
@@ -854,6 +874,8 @@ jobs_metadata = sa.MetaData()
 jobs_table = sa.Table(
     "jobs",
     jobs_metadata,
+    # Project stores keep job ids; a SQLite rowid restarts on an empty table,
+    # so new local queues never reuse an id (see frisket.upgrades.queue).
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("kind", sa.String, nullable=False),
     sa.Column("payload", sa.Text, nullable=False, default="{}", server_default="{}"),
@@ -937,6 +959,7 @@ jobs_table = sa.Table(
     ),
     sa.Index("idx_jobs_receipt", "receipt_id"),
     sa.Index("idx_jobs_dedupe", "kind", "project_id", "dedupe_key", "status"),
+    sqlite_autoincrement=True,
 )
 
 # ``-1`` groups unscoped rows because NULL index keys are distinct; real org
@@ -1017,18 +1040,22 @@ class SqlAlchemyJobQueue(JobQueue):
         if self._is_sqlite:
             _install_sqlite_begin_immediate(self.engine)
         if schema_mode == "initialize":
-            from frisket.engine.jobs.queue_migrations import apply_pending_migrations
+            from frisket.upgrades.queue import ensure_current_queue_schema
 
-            if self._is_sqlite:
-                with _sqlite_initialization_lock(self.engine):
-                    _negotiate_sqlite_wal(self.engine)
+            try:
+                if self._is_sqlite:
+                    with _sqlite_initialization_lock(self.engine):
+                        _negotiate_sqlite_wal(self.engine)
+                        with self._write_transaction() as cx:
+                            ensure_current_queue_schema(cx)
+                else:
                     with self._write_transaction() as cx:
-                        apply_pending_migrations(cx)
-            else:
-                with self._write_transaction() as cx:
-                    apply_pending_migrations(cx)
+                        ensure_current_queue_schema(cx)
+            except BaseException:
+                self.engine.dispose()
+                raise
         elif schema_mode == "strict":
-            from frisket.engine.jobs.queue_migrations import validate_queue_schema
+            from frisket.engine.jobs.queue_schema import validate_queue_schema
 
             try:
                 validate_queue_schema(self.engine)
@@ -1173,7 +1200,13 @@ class SqlAlchemyJobQueue(JobQueue):
             .order_by(
                 c.priority_class,
                 sa.case(
-                    (c.kind.in_((SEARCH_INDEX_KIND, "watch.evaluate")), 1), else_=0
+                    (
+                        c.kind.in_(
+                            (SEARCH_INDEX_KIND, SOURCE_VERIFY_KIND, "watch.evaluate")
+                        ),
+                        1,
+                    ),
+                    else_=0,
                 ),
                 c.id,
             )
@@ -1333,6 +1366,71 @@ class SqlAlchemyJobQueue(JobQueue):
             job_handler_authorities_table.delete().where(*filters)
         )
         return result.rowcount > 0
+
+    def handler_execution_stopped(self, job_id, authority_id):
+        if not authority_id:
+            return False
+        job = jobs_table.c
+        authority = job_handler_authorities_table.c
+        with self.engine.connect() as cx:
+            if cx.execute(sa.select(job.id).where(job.id == job_id)).first() is None:
+                return self._retired_job_id(cx, job_id)
+            return (
+                cx.execute(
+                    sa.select(authority.authority_id).where(
+                        authority.authority_id == authority_id
+                    )
+                ).first()
+                is None
+            )
+
+    def job_execution_stopped(self, job_id):
+        job = jobs_table.c
+        authority = job_handler_authorities_table.c
+        with self.engine.connect() as cx:
+            row = cx.execute(sa.select(job.status).where(job.id == job_id)).first()
+            if row is None:
+                return self._retired_job_id(cx, job_id)
+            return (
+                row.status in TERMINAL
+                and cx.execute(
+                    sa.select(authority.authority_id).where(authority.job_id == job_id)
+                ).first()
+                is None
+            )
+
+    def _retired_job_id(self, cx, job_id) -> bool:
+        """An issued id with no row belonged to a queue that
+        ``frisket.upgrades.queue`` replaced. Jobs are never deleted otherwise,
+        and that replacement only runs once no user handler holds authority,
+        so such a job is as stopped as its terminal row would have shown."""
+        if self._is_sqlite:
+            issued = cx.execute(
+                sa.text(
+                    "SELECT seq FROM sqlite_sequence WHERE name = 'jobs'"
+                    if cx.execute(
+                        sa.text(
+                            "SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'"
+                        )
+                    ).first()
+                    else "SELECT NULL"
+                )
+            ).scalar()
+        else:
+            sequence = cx.execute(
+                sa.text("SELECT pg_get_serial_sequence('jobs', 'id')")
+            ).scalar()
+            issued = (
+                cx.execute(
+                    sa.text(
+                        "SELECT CASE WHEN is_called THEN last_value END FROM "
+                        + sequence
+                    )
+                ).scalar()
+                if sequence
+                else None
+            )
+        return issued is not None and 0 < int(job_id) <= int(issued)
 
     def has_active_project_handler(self, project_id, *, storage_org_id):
         c = job_handler_authorities_table.c
@@ -1801,7 +1899,10 @@ class SqlAlchemyJobQueue(JobQueue):
         row_id: int | None = None,
         workspace_root: str | None = None,
         dedupe_key: str | None = None,
+        dedupe_key_prefix: str | None = None,
     ) -> Job | None:
+        if dedupe_key_prefix is not None and project_id is None:
+            raise ValueError("find_job_by_refs requires project_id for scoped refs")
         _validate_ref_lookup(
             kind,
             statuses=statuses,
@@ -1831,6 +1932,8 @@ class SqlAlchemyJobQueue(JobQueue):
             q = q.where(c.workspace_root == workspace_root)
         if dedupe_key is not None:
             q = q.where(c.dedupe_key == dedupe_key)
+        if dedupe_key_prefix is not None:
+            q = q.where(c.dedupe_key.startswith(dedupe_key_prefix, autoescape=True))
         with self.engine.connect() as cx:
             row = cx.execute(q).first()
         return self._job(row) if row else None

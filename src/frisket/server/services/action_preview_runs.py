@@ -536,13 +536,6 @@ class ActionPreviewRunService:
         receipt.status = finished.status
         receipt.run_id = finished.run_id
         receipt.provider_use = finished.provider_use
-        port = self._workspace.direct_action_receipt_settlement_port
-        if port is not None:
-            port.settle_action_receipt(
-                project=project,
-                project_id=project_id,
-                receipt_id=receipt.receipt_id,
-            )
 
     def start_preview(
         self,
@@ -1399,6 +1392,7 @@ def _scratch_claims(project, plan: ScratchActionPreviewPlan):
             has_cost_claim=any(
                 promise.field == "cost" for promise in resolved.promise_set.promises
             ),
+            rated_estimate=estimate,
         )
         payload["promise_set_hash"] = consented_set_hash(resolved.promise_set)
     return (

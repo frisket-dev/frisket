@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Annotated, Any, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
@@ -86,6 +86,8 @@ def register_sheet_dataset_export_route(
         sort: str | None = None,
         formula_policy: str = Query(default="escape"),
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: Annotated[int | None, Query(gt=0)] = None,
         include_attachments: bool = False,
     ) -> Response:
         """Export selected sheets through the shared dataset export plan.
@@ -109,6 +111,8 @@ def register_sheet_dataset_export_route(
                     filter_=filter_,
                     sort=sort,
                     scope_row_ids=scope_row_ids,
+                    selection=selection,
+                    view_id=view_id,
                     formula_policy=formula_policy,
                 )
                 return _ClosingStreamingResponse(
@@ -127,6 +131,8 @@ def register_sheet_dataset_export_route(
                 filter_=filter_,
                 sort=sort,
                 scope_row_ids=scope_row_ids,
+                selection=selection,
+                view_id=view_id,
                 formula_policy=formula_policy,
             )
         except SheetDatasetExportError as exc:

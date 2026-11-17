@@ -15,6 +15,7 @@ from typing import Any
 from mcp.client.stdio import get_default_environment
 
 from frisket.contracts.http.project_mcp import McpServer
+from frisket.credentials import resolve_project_secret
 from frisket.ops.base import RecipeInvocationHalt
 from frisket.ops.integrations.mcp_stdio import McpStdioClient, McpStdioError, McpTool
 from frisket.project_settings import read_project_mcp_servers
@@ -45,7 +46,7 @@ def project_mcp_launch_config(
         secret_name = binding.get("project_secret")
         if not isinstance(secret_name, str):
             continue
-        plaintext = project.secret_plaintext(secret_name)
+        plaintext = resolve_project_secret(project, secret_name)
         if plaintext is None:
             raise ValueError("missing_project_secret")
         env[name] = plaintext

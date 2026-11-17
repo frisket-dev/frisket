@@ -169,6 +169,112 @@ def test_source_poll_materializes_boolean_columns_as_valid_booleans(
         unregister_source_poller("fake")
 
 
+def test_poll_hidden_destination_is_unavailable_until_undo(tmp_path):
+    from contextlib import closing
+    from frisket.engine.executor import run_action_spec
+
+    poller = FakePoller()
+    poller.items = [SourcePollItem(dedupe_key="entry", row={"title": "Original"})]
+    register_source_poller(poller)
+    try:
+        with closing(Project.create(tmp_path / "hidden-feed.frisket")) as project:
+            source = SourceStore(project).add_source("Feed", kind="fake")
+            first = run_action_spec(
+                project, _source_poll_action(source_id=source), project_id=PROJECT_ID
+            )
+            assert first.status == "completed", first.errors
+            sheet = int(SourceStore(project).get_source(source)["sheet_id"])
+            project.delete_sheet(sheet)
+            refused = run_action_spec(
+                project,
+                _source_poll_action(
+                    source_id=source, idempotency_key="poll@sha256:hidden"
+                ),
+                project_id=PROJECT_ID,
+            )
+            assert refused.status == "failed"
+            assert refused.errors[0].code == "invalid_input_ref"
+            assert poller.calls == 1
+            assert len(project.sheets(include_hidden=True)) == 1
+            assert SourceStore(project).get_source(source)["sheet_id"] == sheet
+            assert project.undo() is not None
+            resumed = run_action_spec(
+                project,
+                _source_poll_action(
+                    source_id=source, idempotency_key="poll@sha256:restored"
+                ),
+                project_id=PROJECT_ID,
+            )
+            assert resumed.status == "completed", resumed.errors
+            assert poller.calls == 2
+            assert SourceStore(project).get_source(source)["sheet_id"] == sheet
+    finally:
+        unregister_source_poller("fake")
+
+
+def test_poll_key_column_rename_preserves_binding_and_manual_changes(tmp_path):
+    from contextlib import closing
+    from frisket.engine.executor import run_action_spec
+
+    poller = FakePoller()
+    poller.items = [SourcePollItem(dedupe_key="entry", row={"title": "Original"})]
+    register_source_poller(poller)
+    try:
+        with closing(Project.create(tmp_path / "renamed-feed.frisket")) as project:
+            source = SourceStore(project).add_source("Feed", kind="fake")
+            first = run_action_spec(
+                project, _source_poll_action(source_id=source), project_id=PROJECT_ID
+            )
+            assert first.status == "completed", first.errors
+            sheet = int(SourceStore(project).get_source(source)["sheet_id"])
+            columns = {
+                column["name"]: int(column["id"]) for column in project.columns(sheet)
+            }
+            [row] = project.visible_row_ids(sheet)
+            project.apply_edits(
+                [
+                    {
+                        "row_id": row,
+                        "column_id": columns["title"],
+                        "value": "My correction",
+                    }
+                ]
+            )
+            with project.db:
+                for name in ("source_id", "source_item_id"):
+                    project.db.execute(
+                        "UPDATE columns SET name=? WHERE id=?",
+                        (f"renamed_{name}", columns[name]),
+                    )
+            poller.items = [
+                SourcePollItem(
+                    dedupe_key="entry", row={"title": "Revised", "new_field": "New"}
+                )
+            ]
+            second = run_action_spec(
+                project,
+                _source_poll_action(
+                    source_id=source, idempotency_key="poll@sha256:renamed"
+                ),
+                project_id=PROJECT_ID,
+            )
+            assert second.status == "completed", second.errors
+            assert project.visible_row_ids(sheet) == [row]
+            assert (
+                project.get_values(sheet, columns["title"], [row])[row]
+                == "My correction"
+            )
+            after = {
+                column["name"]: int(column["id"]) for column in project.columns(sheet)
+            }
+            assert "source_id" not in after and "source_item_id" not in after
+            assert after["renamed_source_id"] == columns["source_id"]
+            assert after["renamed_source_item_id"] == columns["source_item_id"]
+            assert project.get_values(sheet, after["new_field"], [row])[row] == "New"
+    finally:
+        unregister_source_poller("fake")
+
+
 class _RenamedPollParams(ActionParams):
     target: str
 
@@ -323,7 +429,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(tmp_path, fai
         assert "author failed after polling" not in json.dumps(receipt)
         assert "secret-author-detail-after-polling" not in json.dumps(receipt)
         assert "secret-author-detail-after-polling" not in run["error"]
-        assert _table_count(project, "source_items") == 0
+        assert _table_count(project, "keyed_observations") == 0
         assert _table_count(project, "ops") == 0
         artifacts = next(
             item["ref"]
@@ -409,7 +515,7 @@ def test_poll_publication_rolls_back_with_receipt_failure(tmp_path, monkeypatch)
         assert poller.calls == 1
         for table in (
             "source_runs",
-            "source_items",
+            "keyed_observations",
             "sheets",
             "columns",
             "rows",
@@ -568,7 +674,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert source_run["cost_micro"] == 12_000
             assert json.loads(source_run["cursor_after"]) == {"page": 1}
             assert json.loads(source_run["summary_json"])["materialized_rows"] == 2
-            assert _table_count(project, "source_items") == 2
+            assert _table_count(project, "keyed_observations") == 2
 
             receipt = _receipt(project, first.receipt_id)
             assert receipt["action_kind"] == "source.poll"
@@ -586,7 +692,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
 
             before_replay = {
                 table: _table_count(project, table)
-                for table in ("source_runs", "source_items", "rows", "receipts")
+                for table in ("source_runs", "keyed_observations", "rows", "receipts")
             }
             replay = run_action_spec(
                 project,
@@ -598,7 +704,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert poller.calls == 1
             assert {
                 table: _table_count(project, table)
-                for table in ("source_runs", "source_items", "rows", "receipts")
+                for table in ("source_runs", "keyed_observations", "rows", "receipts")
             } == before_replay
 
             poller.items = [
@@ -652,22 +758,14 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert second_run["new_rows"] == 1
             assert second_run["skipped_rows"] == 1
             assert second_run["changed_rows"] == 1
-            assert second_run["revisions"] == 1
+            assert second_run["revisions"] == 0
             assert [row["title"] for row in _rows(project, sheet_id)] == [
                 "Alpha",
-                "Beta",
                 "Beta revised",
                 "Gamma",
             ]
-            assert _rows(project, sheet_id)[2]["_revises"] == "b"
-            assert _rows(project, sheet_id)[2]["_revision"] == 1
-            assert _table_count(project, "source_items") == 3
-            beta_item = project.db.execute(
-                "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key='b'",
-                (source_id,),
-            ).fetchone()
-            assert beta_item is not None
-            assert beta_item["revision"] == 1
+            assert len(_rows(project, sheet_id)) == 3
+            assert _table_count(project, "keyed_observations") == 3
 
             poller.items = [
                 SourcePollItem(
@@ -690,14 +788,11 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             )
             assert third.status == "completed"
             assert poller.calls == 3
-            assert _rows(project, sheet_id)[-1]["_revises"] == "b"
-            assert _rows(project, sheet_id)[-1]["_revision"] == 2
-            beta_item = project.db.execute(
-                "SELECT revision FROM source_items WHERE source_id=? AND dedupe_key='b'",
-                (source_id,),
-            ).fetchone()
-            assert beta_item is not None
-            assert beta_item["revision"] == 2
+            assert [row["title"] for row in _rows(project, sheet_id)] == [
+                "Alpha",
+                "Beta second revision",
+                "Gamma",
+            ]
 
             poller.fail = RuntimeError("provider down")
             failed = run_action_spec(
@@ -861,7 +956,7 @@ def test_source_poll_running_reservation_replays_without_provider_call(
             assert result.receipt_id == receipt.receipt_id
             assert poller.calls == 0
             assert _table_count(project, "source_runs") == 0
-            assert _table_count(project, "source_items") == 0
+            assert _table_count(project, "keyed_observations") == 0
         finally:
             project.close()
     finally:
@@ -931,7 +1026,7 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
             assert poller.calls == 0
             assert _table_count(project, "receipts") == before_receipts
             assert _table_count(project, "source_runs") == 0
-            assert _table_count(project, "source_items") == 0
+            assert _table_count(project, "keyed_observations") == 0
             assert (
                 project.db.execute(
                     "SELECT id FROM receipts WHERE id=?",

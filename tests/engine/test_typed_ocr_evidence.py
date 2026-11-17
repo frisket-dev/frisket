@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
@@ -229,7 +230,12 @@ def setup(tmp_path, monkeypatch):
                 None,
                 lambda p, router: MapRunner(
                     p,
-                    router or ModelRouter(cache=None, cache_mode="off"),
+                    router
+                    or ModelRouter(
+                        model_call_policy=LOCAL_PURCHASE_POLICY,
+                        cache=None,
+                        cache_mode="off",
+                    ),
                     authority=UnroutedOnlyAuthority(p),
                 ),
             )

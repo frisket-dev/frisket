@@ -273,6 +273,7 @@ def run_typed_temporal_extract_action(
     *,
     reserved_action_id: str | None = None,
     reserved_receipt_id: str | None = None,
+    execution=None,
 ) -> ActionResult:
     kind = bound.action.action_id
     queued = reserved_receipt_id is not None
@@ -348,6 +349,8 @@ def run_typed_temporal_extract_action(
             staged = []
             plan.revalidate(project)
             for ordinal, source_plan in enumerate(plan.sources):
+                if execution is not None:
+                    execution.check()
                 source = source_plan.source
                 suffix = ".flac" if source.lease.media_kind == "audio" else ".mp4"
                 path = Path(scratch) / f"clip-{ordinal:04d}{suffix}"
@@ -377,6 +380,8 @@ def run_typed_temporal_extract_action(
                 )
             project.db.execute("BEGIN IMMEDIATE")
             try:
+                if execution is not None:
+                    execution.check()
                 result = _write_extract_in_transaction(
                     project,
                     bound,
@@ -413,16 +418,18 @@ def run_typed_temporal_extract_action(
         )
 
 
-def run_typed_temporal_extract_job(project, envelope):
+def run_typed_temporal_extract_job(project, envelope, *, execution):
     from frisket.engine.executor.action_jobs import bind_typed_action_job
 
     bound = bind_typed_action_job(envelope)
     if isinstance(bound, ActionResult):
         return bound
+    execution.check()
     return run_typed_temporal_extract_action(
         project,
         envelope.project_id,
         bound,
         reserved_action_id=envelope.action_id,
         reserved_receipt_id=envelope.receipt_id,
+        execution=execution,
     )

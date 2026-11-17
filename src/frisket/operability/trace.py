@@ -23,12 +23,14 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Awaitable, Iterable, Protocol
 
+from frisket.ai.models.usage_counts import sum_known_counts
 from frisket.ai.llm.types import (
     LLMRequest,
     LLMResponse,
     ModelRouterTransport,
     ModelTrace,
     SchemaViolation,
+    wire_responses,
 )
 from frisket.redaction import (
     CYCLE,
@@ -43,7 +45,15 @@ MAX_OBSERVED_TRACE_PROVIDERS = 64
 MAX_CALL_BODIES = 32
 MAX_CALL_HEADERS = 1024
 MAX_ROW_BYTES = 1024 * 1024
-_CALL_BODY_KEYS = ("prompt", "request", "raw_response", "data", "tool_calls", "events")
+_CALL_BODY_KEYS = (
+    "prompt",
+    "request",
+    "raw_response",
+    "data",
+    "tool_calls",
+    "events",
+    "returned_calls",
+)
 _CALL_HEADER_KEYS = (
     "model",
     "latency_ms",
@@ -547,13 +557,21 @@ class TracingRouter:
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
 
-    def adapter_for(self, provider: str) -> Any:
-        self._remember_model(provider)
-        return self._inner.adapter_for(provider)
+    def for_execution(self, execution):
+        # Rebinding validates the inner owner while preserving this row's trace
+        # and selected-secret accumulators across the borrowed router view.
+        bound = TracingRouter(self._inner.for_execution(execution), self._row)
+        bound._observed_models = self._observed_models
+        bound._extra_secret_values = self._extra_secret_values
+        return bound
 
-    def resolve_local_model(self, model: str) -> tuple[Any, Any, str]:
+    def has_provider(self, provider: str) -> bool:
+        self._remember_model(provider)
+        return self._inner.has_provider(provider)
+
+    def local_endpoint_identity(self, model: str) -> tuple[str, str]:
         self._remember_model(model)
-        return self._inner.resolve_local_model(model)
+        return self._inner.local_endpoint_identity(model)
 
     def _remember_model(self, model: str) -> None:
         if (
@@ -704,6 +722,46 @@ class TracingRouter:
                     entry = None
                 logger.warning("dropping model-call trace after capture failure")
 
+        def capture_returned(responses):
+            wires = wire_responses(responses)
+            if entry is None or not wires:
+                return
+            entry["tokens_in"] = sum_known_counts(
+                wire.tokens_in if wire.usage_available else None for wire in wires
+            )
+            entry["tokens_out"] = sum_known_counts(
+                wire.tokens_out if wire.usage_available else None for wire in wires
+            )
+            live = [wire for wire in wires if not wire.cached]
+            entry["cost"] = (
+                None
+                if any(wire.cost is None for wire in live)
+                else sum(wire.cost for wire in live)
+            )
+            entry["cached"] = all(wire.cached for wire in wires)
+            if capture_body:
+                entry["returned_calls"] = _part(
+                    [
+                        {
+                            "model": wire.model,
+                            "tokens_in": wire.tokens_in
+                            if wire.usage_available
+                            else None,
+                            "tokens_out": wire.tokens_out
+                            if wire.usage_available
+                            else None,
+                            "cost": wire.cost,
+                            "cached": wire.cached,
+                            "duration_ms": wire.duration_ms,
+                        }
+                        for wire in wires[:MAX_CALL_BODIES]
+                    ],
+                    secret_values,
+                    truncated=truncated,
+                )
+            if len(wires) > MAX_CALL_BODIES:
+                entry["truncated"] = True
+
         def capture_effective_request(prepared: LLMRequest) -> None:
             capture_request(prepared)
             if on_request is not None:
@@ -722,6 +780,7 @@ class TracingRouter:
             )
         except BaseException as exc:  # record cancellation too; preserve original
             try:
+                capture_returned(getattr(exc, "wire_calls", ()) or ())
                 if entry is not None:
                     entry["latency_ms"] = int((time.perf_counter() - started) * 1000)
                     if capture_body:
@@ -768,10 +827,7 @@ class TracingRouter:
                     )
                 if len(response.tool_calls or []) > 256 or truncated[0]:
                     entry["truncated"] = True
-                entry["tokens_in"] = response.tokens_in
-                entry["tokens_out"] = response.tokens_out
-                entry["cost"] = response.cost
-                entry["cached"] = response.cached
+                capture_returned([response])
         except Exception:  # noqa: BLE001 - preserve successful provider response
             logger.warning("dropping successful-call trace details")
         return response

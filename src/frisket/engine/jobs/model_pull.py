@@ -570,10 +570,8 @@ def register_model_pull_handler(
 
             # mark_running now reports whether the reactivation actually
             # applied. A refusal means this pull row is terminal in a way
-            # THIS job_id may not reactivate -- e.g. a migration
-            # reconciliation (queue_migrations
-            # ._reconcile_multiple_active_pulls_per_workspace) already
-            # cancelled this row's job outright, but if that job somehow
+            # THIS job_id may not reactivate -- e.g. the row was cancelled or
+            # finished under another job, but if this job somehow
             # still runs (a stale claim, an admin retry of a cancelled job),
             # the row itself remains the authority and must fence it: abort
             # immediately, before any upstream server is ever contacted, as a

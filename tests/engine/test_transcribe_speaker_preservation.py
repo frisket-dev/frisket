@@ -110,18 +110,3 @@ def test_numbered_segments_text_carries_speaker_prefix():
     lines = text.splitlines()
     assert "[S1]" in lines[0] and "hi" in lines[0]
     assert "[S" not in lines[1]
-
-
-def test_inject_grounding_segments_preserves_speaker(project: Project):
-    from frisket.engine.runner.grounding import inject_grounding_segments
-
-    sheet, row_id, _artifact_id = _speaker_artifact(project)
-    values: dict = {"transcript": "hi"}
-    spec = {
-        "action_kind": "map.extract",
-        "sheet_id": sheet,
-        "grounding": {"enabled": True},
-    }
-    inject_grounding_segments(project, spec, row_id, values)
-    injected = values.get("transcript_segments")
-    assert injected and injected[0]["speaker"] == "S1"

@@ -91,6 +91,61 @@ def test_diagnose_routes_preserve_open_json_and_project_path_decoding(
     assert calls == [(None, None), ({"id": "project id%"}, "project id%")]
 
 
+@pytest.mark.parametrize("route", _ROUTES.values())
+def test_diagnose_keeps_probe_exception_details_in_operator_logs(
+    monkeypatch: Any, caplog: Any, route: str
+) -> None:
+    from frisket.operability import diagnostics
+
+    # Isolate optional/network probes; exercise the real aggregate and HTTP route.
+    for name in (
+        "python_version_report",
+        "provider_report",
+        "local_model_endpoints_report",
+        "provider_key_validation_report",
+        "replay_mode_report",
+        "plugin_health_report",
+        "engines_report",
+        "retrieval_report",
+        "spacy_model_report",
+        "entities_report",
+        "models_sidecar_report",
+        "media_toolbelt_report",
+        "ytdlp_update_report",
+        "static_assets_report",
+    ):
+        monkeypatch.setattr(diagnostics, name, lambda *args, **kwargs: {"ok": True})
+
+    detail = "internal-db.example:5432 operator_private_sql /srv/private/project.db"
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise OSError(detail)
+
+    monkeypatch.setattr(diagnostics, "store_roundtrip_report", fail)
+    monkeypatch.setattr(diagnostics, "queue_health_report", fail)
+    monkeypatch.setattr(diagnostics.shutil, "disk_usage", fail)
+    app = FastAPI()
+    register_diagnose_routes(app, workspace=_Workspace())  # type: ignore[arg-type]
+    with TestClient(app) as client:
+        response = client.get(route)
+
+    assert response.status_code == 200
+    assert detail not in response.text
+    report = response.json()
+    assert report["healthy"] is False
+    for failure in (
+        report["core"]["project_store"],
+        report["info"]["queue_health"],
+        report["info"]["disk_free"],
+    ):
+        assert failure["ok"] is False
+        assert failure["error"] == "OSError"
+        assert failure["diag_id"].startswith("diag-")
+        assert failure["diag_id"] in failure["summary"]
+        assert failure["diag_id"] in caplog.text
+    assert detail in caplog.text
+
+
 def test_diagnose_openapi_has_typed_lossless_json_responses(monkeypatch: Any) -> None:
     client, _workspace, _calls = _client(monkeypatch)
     document = client.app.openapi()

@@ -15,7 +15,15 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
+from frisket.execution.dispatch_control import TransientDispatch
+from frisket.execution.purchases import (
+    LOCAL_PURCHASE_POLICY,
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+)
 from frisket.retrieval.encoding import (
+    EMBEDDINGGEMMA2_MODEL_ID,
     EmbeddingGemma2Encoder,
     EmbeddingGemma2SessionProtocol,
     EmbeddingGemma2Space,
@@ -184,7 +192,27 @@ class EmbeddingRuntime:
                     )
                 if _is_cancelled(cancelled):
                     raise asyncio.CancelledError
-                return await self._encoder.encode(inputs, purpose=purpose, space=space)
+                return await execute_purchase(
+                    PurchaseRequest(
+                        provider="local",
+                        capability="llm.embed",
+                        engine=EMBEDDINGGEMMA2_MODEL_ID,
+                        credential_source="none",
+                        prepared={
+                            "purpose": purpose.value,
+                            "dimensions": space.dimensions,
+                        },
+                        quantity={"input_count": len(inputs)},
+                    ),
+                    policy=LOCAL_PURCHASE_POLICY,
+                    dispatch=TransientDispatch(lambda: _is_cancelled(cancelled)),
+                    invoke=lambda: self._encoder.encode(
+                        inputs, purpose=purpose, space=space
+                    ),
+                    observe=lambda result: PurchaseObservation(
+                        result, {"input_count": len(inputs)}, 0
+                    ),
+                )
             except EncodingError as exc:
                 if exc.code in {
                     "invalid_input",

@@ -8,6 +8,11 @@ provider (row anchors only).
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
+from tests.watch_helpers import post_watch
+
+from tests.watch_helpers import add_watch
 
 from fastapi.testclient import TestClient
 
@@ -42,7 +47,12 @@ class _Gateway:
 
 
 def _client(tmp_path):
-    return TestClient(create_app(tmp_path / "ws", router=ModelRouter(keys={})))
+    return TestClient(
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        )
+    )
 
 
 def _seed(client):
@@ -128,7 +138,7 @@ def _make_watch(
         },
         "detection_policy": policy or {"kind": "new_matches"},
     }
-    return client.post(f"/api/projects/{pid}/watches", json=body)
+    return post_watch(client, f"/api/projects/{pid}/watches", json=body)
 
 
 def _run(client, pid, watch_id):
@@ -148,7 +158,7 @@ def _notifications(client, pid):
 # --------------------------------------------------------------------------
 
 
-def test_fresh_watch_emits_enter_events_and_a_notification(tmp_path):
+def test_first_embedding_watch_observation_is_silent(tmp_path):
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
@@ -157,17 +167,13 @@ def test_fresh_watch_emits_enter_events_and_a_notification(tmp_path):
     watch = _make_watch(client, pid, sheet, index_id, cat).json()
 
     first = _run(client, pid, watch["id"])
-    assert first["run"]["status"] == "ok"
-    # the anchor is excluded; the other two rows are the similar set, all new
+    assert first["run"]["status"] == "ok", first["run"].get("error")
+    # The anchor is excluded; the first successful membership is a silent baseline.
     assert first["run"]["matched_rows"] == 2
-    assert first["run"]["new_rows"] == 2
+    assert first["run"]["new_rows"] == 0
     events = _events(client, pid, watch["id"], first["run"]["id"])
-    assert events["total"] == 2
-    assert {e["event_kind"] for e in events["events"]} == {"row_entered"}
-    # reuses the notification substrate (source_kind=watch), not a new inbox
-    notifs = _notifications(client, pid)
-    assert notifs["total"] == 1
-    assert notifs["notifications"][0]["source_kind"] == "watch"
+    assert events["total"] == 0
+    assert _notifications(client, pid)["total"] == 0
 
 
 def test_no_duplicate_events_across_reruns(tmp_path):
@@ -179,13 +185,13 @@ def test_no_duplicate_events_across_reruns(tmp_path):
     watch = _make_watch(client, pid, sheet, index_id, cat).json()
 
     first = _run(client, pid, watch["id"])
-    assert first["run"]["new_rows"] == 2
+    assert first["run"]["new_rows"] == 0
     # rerun with an unchanged index: no new rows, no new events, no new notification
     second = _run(client, pid, watch["id"])
     assert second["run"]["status"] == "ok"
     assert second["run"]["new_rows"] == 0
     assert _events(client, pid, watch["id"], second["run"]["id"])["total"] == 0
-    assert _notifications(client, pid)["total"] == 1
+    assert _notifications(client, pid)["total"] == 0
 
 
 def test_stale_index_blocks_watch_with_typed_result(tmp_path):
@@ -205,7 +211,7 @@ def test_stale_index_blocks_watch_with_typed_result(tmp_path):
     assert blocked["run"]["error_code"] == "embedding_index_stale"
     assert blocked["run"]["new_rows"] == 0
     # no spurious notification for a blocked run
-    assert _notifications(client, pid)["total"] == 1
+    assert _notifications(client, pid)["total"] == 0
 
 
 def test_hidden_published_member_does_not_block_watch(tmp_path):
@@ -263,7 +269,7 @@ def test_appended_unembedded_row_blocks_watch_then_refresh_emits_enter(tmp_path)
     assert blocked["run"]["status"] == "error"
     assert blocked["run"]["error_code"] == "embedding_index_incomplete"
     assert blocked["run"]["new_rows"] == 0
-    assert _notifications(client, pid)["total"] == 1  # no spurious notification
+    assert _notifications(client, pid)["total"] == 0  # no spurious notification
 
     # refresh embeds the new row; the watch then evaluates ok and the new row enters
     _refresh(project, pid, index_id, key="r@2")
@@ -285,19 +291,22 @@ def test_create_rejects_watch_sheet_mismatching_index_sheet(tmp_path):
     project.add_column(other_sheet, "headline")
     cat = _row_id(project, sheet, col, "cat")
     resp = client.post(
-        f"/api/projects/{pid}/watches",
+        f"/api/projects/{pid}/views",
         json={
-            "name": "cross sheet",
-            "scope": {"kind": "sheet", "sheet_id": other_sheet},
-            "query": {
-                "kind": "embedding_similarity",
-                "embedding_index_id": index_id,
-                "anchor": {"kind": "row", "row_id": cat},
+            "name": "Wrong sheet",
+            "selection": {
+                "scope": {"kind": "sheet", "sheet_id": other_sheet},
+                "similarity": {
+                    "kind": "embedding_similarity",
+                    "scope": {"kind": "sheet", "sheet_id": other_sheet},
+                    "embedding_index_id": index_id,
+                    "anchor": {"kind": "row", "row_id": cat},
+                },
             },
         },
     )
-    assert resp.status_code == 400
-    assert "does not match" in resp.json()["detail"]
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["code"] == "embedding_index_sheet_mismatch"
 
 
 def test_evaluator_blocks_legacy_cross_sheet_watch(tmp_path):
@@ -311,31 +320,41 @@ def test_evaluator_blocks_legacy_cross_sheet_watch(tmp_path):
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
     other_sheet = project.add_sheet("other")
-    watch_id = project.add_watch(
-        "legacy cross sheet",
+    watch_id = add_watch(
+        project,
+        "Corrupt scope",
         scope="sheet",
-        sheet_id=other_sheet,
+        sheet_id=sheet,
         query={
             "kind": "embedding_similarity",
-            "scope": {"kind": "sheet", "sheet_id": other_sheet},
+            "scope": {"kind": "sheet", "sheet_id": sheet},
             "embedding_index_id": index_id,
             "anchor": {"kind": "row", "row_id": cat},
         },
     )
+    import json
+
+    watch = project.get_watch(watch_id)
+    spec = json.loads(watch["view_spec"])
+    spec["selection"]["scope"]["sheet_id"] = other_sheet
+    project.db.execute(
+        "UPDATE views SET spec=? WHERE id=?", (json.dumps(spec), watch["view_id"])
+    )
+    project.db.commit()
     result = run_watch_evaluation(project, project.get_watch(watch_id))
     assert result["run"]["status"] == "error"
     assert result["run"]["error_code"] == "embedding_index_sheet_mismatch"
 
 
-def test_row_cell_anchor_is_rejected(tmp_path):
-    # row_cell is not column-specific yet (resolver uses the whole-row vector), so
-    # it is not watchable — the create must 400.
+def test_single_column_cell_anchor_is_precise_and_supported(tmp_path):
+    # A single-column index is a truthful cached cell representation.
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
-    resp = client.post(
+    resp = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "row cell",
@@ -347,17 +366,18 @@ def test_row_cell_anchor_is_rejected(tmp_path):
             },
         },
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200, resp.text
+    assert _run(client, pid, resp.json()["id"])["run"]["status"] == "ok"
 
 
-def test_manual_text_query_anchor_is_rejected(tmp_path):
-    # a manual_text_query would re-embed (and possibly egress) on every run, so it
-    # is not watchable in this slice — the create must 400.
+def test_manual_text_query_waits_for_explicit_preparation(tmp_path):
+    # Saving may retain a query; observation never authorizes its embedding.
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
-    resp = client.post(
+    resp = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "manual text",
@@ -365,8 +385,13 @@ def test_manual_text_query_anchor_is_rejected(tmp_path):
             "query": {
                 "kind": "embedding_similarity",
                 "embedding_index_id": index_id,
-                "anchor": {"kind": "manual_text_query", "text": "cat"},
+                "anchor": {
+                    "kind": "manual_text_query",
+                    "text": "uncached feline question",
+                },
             },
         },
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 200, resp.text
+    checked = _run(client, pid, resp.json()["id"])
+    assert checked["run"]["error_code"] == "selection_needs_preparation"

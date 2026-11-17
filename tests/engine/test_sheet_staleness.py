@@ -1,13 +1,4 @@
-"""Lazy derived-sheet staleness (Workbench IA increment 7 backend).
-
-Staleness is PULL-computed at read time from the watermark
-(``sheets.last_verified_op_cursor`` falling back to ``parent_op_id``) versus the
-live op log -- never pushed from mutation sites. These tests drive REAL actions
-(import -> derive -> cell.edit -> undo) and assert the resolver
-(``frisket.store.staleness.compute_sync_states``) flips a derived sheet
-synced<->stale, cascades to grandchildren, honors cursor rewinds (undo), covers
-review-state flips on ancestors, and never reports syncState for a root sheet.
-"""
+"""Actual consumed source identity drives lazy derived-sheet freshness."""
 
 from __future__ import annotations
 
@@ -239,7 +230,9 @@ def test_grandchild_cascade_from_root_edit(tmp_path: Path) -> None:
         project.close()
 
 
-def test_review_flip_on_ancestor_marks_descendant_stale(tmp_path: Path) -> None:
+def test_unrelated_review_flip_preserves_consumed_source_freshness(
+    tmp_path: Path,
+) -> None:
     project = _build(tmp_path)
     try:
         parent_id, _, row_ids = _ids(project, "Filings")
@@ -266,12 +259,6 @@ def test_review_flip_on_ancestor_marks_descendant_stale(tmp_path: Path) -> None:
             (run_id, row_ids[0], ai_col, value_kind, stored_value),
         )
         project.db.commit()
-        # Refresh the child's watermark past this seed so it starts synced.
-        project.db.execute(
-            "UPDATE sheets SET last_verified_op_cursor=? WHERE name='Vendors'",
-            (project.op_cursor,),
-        )
-        project.db.commit()
         assert _state(project, "Vendors")["sync_state"] == "synced"
 
         run_action_spec(
@@ -289,7 +276,7 @@ def test_review_flip_on_ancestor_marks_descendant_stale(tmp_path: Path) -> None:
             },
             project_id="p-stale",
         )
-        assert _state(project, "Vendors")["sync_state"] == "stale"
+        assert _state(project, "Vendors")["sync_state"] == "synced"
     finally:
         project.close()
 
@@ -309,5 +296,56 @@ def test_ancestry_is_acyclic_by_construction(tmp_path: Path) -> None:
                 assert cur not in seen, "cycle detected in sheet forest"
                 assert cur != sid, "sheet is its own ancestor"
                 seen.add(cur)
+    finally:
+        project.close()
+
+
+def test_row_action_shared_corpus_does_not_become_sheet_derivation(tmp_path):
+    from frisket.engine.store.consumed_sources import (
+        read_consumed_source,
+        store_capture,
+    )
+
+    project = _build(tmp_path)
+    try:
+        parent, column, rows = _ids(project, "Filings")
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": column, "value": [{"vendor": "Changed"}]}]
+        )
+        assert _state(project, "Vendors")["sync_state"] == "stale"
+        target = int(
+            project.db.execute("SELECT id FROM sheets WHERE name='Vendors'").fetchone()[
+                0
+            ]
+        )
+        target_row = project.visible_row_ids(target)[0]
+        target_column = project.columns(target)[0]["id"]
+        project.apply_edits(
+            [
+                {
+                    "row_id": target_row,
+                    "column_id": target_column,
+                    "value": "A row action result",
+                }
+            ]
+        )
+        owner = int(
+            project.db.execute(
+                "SELECT id FROM ops ORDER BY change_order DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        _, _, capture = read_consumed_source(project, parent, [column])
+        project.db.execute("BEGIN IMMEDIATE")
+        store_capture(
+            project,
+            capture,
+            owner_op_id=owner,
+            output_sheet_id=target,
+            row_id=target_row,
+        )
+        project.db.commit()
+        # This latest, freshly read corpus belongs to a row operation. It must
+        # not mask the older derived sheet's still-stale input snapshot.
+        assert _state(project, "Vendors")["sync_state"] == "stale"
     finally:
         project.close()

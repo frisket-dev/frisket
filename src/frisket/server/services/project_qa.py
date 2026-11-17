@@ -376,9 +376,6 @@ class ProjectQAService:
                 await await_thread_worker(
                     store.reconcile_abandoned_turns, live_turn_ids=[]
                 )
-                await await_thread_worker(
-                    ProjectQAResearchStore(project).interrupt_abandoned
-                )
                 self._seen.add(project)
         return store
 
@@ -693,9 +690,6 @@ class ProjectQAService:
                         status="failed",
                         error_summary="This question could not be started. Please try again.",
                     )
-                    await await_thread_worker(
-                        ProjectQAResearchStore(project).interrupt_abandoned
-                    )
                     raise
                 research = None
                 if turn.get("research"):
@@ -939,9 +933,7 @@ class ProjectQAService:
             )
         finally:
             if research is not None:
-                await await_thread_worker(
-                    research.store.finish, research.id, completed=status == "completed"
-                )
+                research.close()
             await await_thread_worker(
                 store.finalize_turn,
                 turn["id"],
@@ -1006,13 +998,16 @@ class ProjectQAService:
             return store.request_stop(turn_id)
 
         turn = await await_thread_worker(request_stop)
+        session = self._research_sessions.get((project, turn_id))
+        if session is not None:
+            session.close()
         task = self._tasks.get((project, turn_id))
         if task is not None and not task.done():
             if (project, turn_id) in self._started:
                 task.cancel()
         elif turn["status"] == "stopping":
             turn = await await_thread_worker(
-                store.finalize_turn, turn_id, status="stopped"
+                store.finalize_turn, turn_id, status="interrupted"
             )
             self._tasks.pop((project, turn_id), None)
         return turn
@@ -1043,51 +1038,31 @@ class ProjectQAService:
                     "This research run is no longer active. Start a new question to continue."
                 )
 
-            def resume():
+            def authorize():
                 turn = store.get_turn(turn_id)
                 if turn["thread_id"] != thread_id:
                     raise ProjectQANotFoundError("Turn not found in this conversation.")
-                if turn["submitted_by"] != actor:
-                    raise PermissionError(
-                        "Only the person who started this run can approve it."
-                    )
-                if turn["status"] != "running":
-                    raise ProjectQAConflictError("This research run has stopped.")
-                current = session.store.get(session.id)
-                self._authorize_run(project_id, context, current["skills"])
-                approval = current["pending_approval"] or {}
-                if (
-                    current["state"] != "paused"
-                    or approval.get("id") != body.approval_id
-                ):
-                    raise ProjectQAConflictError("This approval is no longer pending.")
-                if approval.get("kind") == "unknown_cost":
-                    raise ValueError(
-                        "Cost is unavailable. Stop this run and choose a priced model or engine."
-                    )
-                if approval.get("kind") == "action" and body.decision not in {
-                    "approve",
-                    "skip",
-                }:
-                    raise ValueError("Approve or skip this action.")
-                changes = {"state": "running", "pending_approval": None}
-                if body.budget_usd is not None:
-                    changes["budget_micros"] = usd_to_micros(body.budget_usd)
-                if "max_turns" in body.model_fields_set:
-                    changes["max_turns"] = body.max_turns
-                if body.write_mode is not None:
-                    changes["write_mode"] = body.write_mode
-                session.store.update(
-                    session.id, expected_revision=body.expected_revision, **changes
+                self._authorize_run(
+                    project_id, context, session.store.get(session.id)["skills"]
                 )
-                return turn
 
-            turn = await await_thread_worker(resume)
-            session.authorize = lambda: self._authorize_run(
-                project_id, context, session.store.get(session.id)["skills"]
+            preferences = {}
+            if body.budget_usd is not None:
+                preferences["budget_micros"] = usd_to_micros(body.budget_usd)
+            if "max_turns" in body.model_fields_set:
+                preferences["max_turns"] = body.max_turns
+            if body.write_mode is not None:
+                preferences["write_mode"] = body.write_mode
+            await session.resume(
+                approval_id=body.approval_id,
+                expected_revision=body.expected_revision,
+                decision=body.decision,
+                actor=actor,
+                authorize=authorize,
+                context=context,
+                **preferences,
             )
-            session.context = context
-            session.wake(body.decision)
+            turn = await await_thread_worker(store.get_turn, turn_id)
             return await await_thread_worker(self._research_projection, project, turn)
 
     async def shutdown(self) -> None:
@@ -1096,6 +1071,8 @@ class ProjectQAService:
             tracing = self._tracing
             self._tracing = None
             tasks = list(self._tasks.values())
+            for session in self._research_sessions.values():
+                session.close()
             for task in tasks:
                 task.cancel()
         try:
@@ -1116,9 +1093,6 @@ class ProjectQAService:
                 await await_thread_worker(
                     ProjectQAStore(project).reconcile_abandoned_turns,
                     live_turn_ids=[],
-                )
-                await await_thread_worker(
-                    ProjectQAResearchStore(project).interrupt_abandoned
                 )
             self._tasks.clear()
         finally:

@@ -22,7 +22,7 @@ from typing import Any, Callable, Iterator
 
 from frisket.calendar_dates import is_valid_calendar_date
 from frisket.iso_datetimes import is_valid_iso_datetime
-from frisket.features.temporal_values import (
+from frisket.contracts.temporal_values import (
     is_valid_temporal_value,
     normalize_temporal_value,
 )

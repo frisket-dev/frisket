@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from frisket.engine.store.current_cells import register_current_cell_functions
 from frisket.engine.store.import_inventory import ImportInventory
 
 
@@ -32,6 +33,8 @@ class PdfDraftInventory:
     def __init__(self, path: Path) -> None:
         self.base = ImportInventory(path)
         self.db = self.base._db
+        # Destination comparison reads attached project current-value views.
+        register_current_cell_functions(self.db)
         self.db.executescript(
             """
             CREATE TABLE IF NOT EXISTS pdf_selected (

@@ -1,7 +1,6 @@
 """HTTP contracts for the watchlist browser routes.
 
-These DTOs freeze the executable wire truth the watch service/store producers
-emit. A Watch owns one normalized query captured at creation time.
+A Watch enables alerts on a saved View; selection belongs to that View.
 """
 
 from __future__ import annotations
@@ -30,10 +29,10 @@ class _ClosedRequest(WireModel):
 
 class WatchCreateRequest(_ClosedRequest):
     name: str
-    query: dict[str, JsonValue]
-    scope: dict[str, JsonValue] | None = None
+    view_id: int
     detection_policy: dict[str, JsonValue] | None = None
     enabled: bool = True
+    schedule: str | None = "@hourly"
 
     @field_validator("name")
     @classmethod
@@ -47,6 +46,8 @@ class WatchCreateRequest(_ClosedRequest):
 class WatchPatchRequest(_ClosedRequest):
     name: str | None = None
     enabled: bool | None = None
+    schedule: str | None = None
+    detection_policy: dict[str, JsonValue] | None = None
 
     @model_validator(mode="after")
     def _is_nonempty_and_nonnull(self) -> "WatchPatchRequest":
@@ -58,6 +59,11 @@ class WatchPatchRequest(_ClosedRequest):
             self.name = name
         if "enabled" in self.model_fields_set and self.enabled is None:
             raise ValueError("enabled must be a boolean")
+        if (
+            "detection_policy" in self.model_fields_set
+            and self.detection_policy is None
+        ):
+            raise ValueError("detection_policy must be an object")
         return self
 
 
@@ -96,13 +102,11 @@ class WatchRunWithHits(WatchRun):
 class Watch(WireModel):
     id: int
     name: str
-    scope: str
+    view_id: int
     sheet_id: int | None
-    query: dict[str, JsonValue]
-    query_version: str | None
-    query_hash: str | None
     detection_policy: dict[str, JsonValue]
     enabled: bool
+    schedule: str | None
     last_evaluated_op: int
     last_run_id: int | None
     last_status: str | None

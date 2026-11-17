@@ -292,6 +292,16 @@ def resolve_map_preview(
             typed = bind_installed_action(project, ActionRequest.model_validate(data))
             if typed is None:
                 typed = typed_action_for_request(data)
+            from .selection_scope import resolve_action_selection
+
+            from frisket.execution.action_admission import action_admission_error
+
+            refusal = action_admission_error(
+                project, typed.action, runtime_binding=typed.runtime_binding
+            )
+            if refusal is not None:
+                return refusal
+            typed = resolve_action_selection(project, typed)
             if isinstance(
                 typed.action.definition.run,
                 (CreateSheet, _ProjectAction, GoogleSheetsExport),
@@ -523,6 +533,46 @@ def run_action_spec(
         typed = bind_installed_action(project, ActionRequest.model_validate(data))
         if typed is None:
             typed = typed_action_for_request(data)
+        from .selection_scope import resolve_action_selection
+        from frisket.actions.core import MapBatch, MapRows, ModelRows
+        from frisket.actions.cluster_types import ValueClusterer
+        from frisket.engine.executor.map_rows_action import typed_map_rows_replay_result
+
+        if isinstance(typed.action.definition.run, SemanticJoin):
+            from frisket.engine.executor.semantic_join_action import (
+                recover_typed_semantic_join_publication,
+            )
+
+            recovered = recover_typed_semantic_join_publication(
+                project, project_id, typed
+            )
+            if recovered is not None:
+                return recovered
+
+        if isinstance(
+            typed.action.definition.run, (MapRows, MapBatch, ModelRows, SemanticJoin)
+        ) or (
+            getattr(typed.action.definition.run, "capabilities", ())
+            == (ValueClusterer,)
+        ):
+            replay = typed_map_rows_replay_result(project, project_id, typed)
+            if replay is not None:
+                return replay
+
+        from frisket.execution.action_admission import action_admission_error
+        from frisket.authoring.action_metadata import product_edition_from_snapshot
+
+        refusal = action_admission_error(
+            project,
+            typed.action,
+            edition=product_edition_from_snapshot(edition_run_context),
+            runtime_binding=typed.runtime_binding,
+        )
+        if refusal is not None:
+            return _runtime_support._failed_result(
+                project_id=project_id, action_kind=typed.action.action_id, error=refusal
+            )
+        typed = resolve_action_selection(project, typed, replay_before_resolution=True)
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         return _runtime_support._failed_result(
             project_id=project_id,
@@ -532,6 +582,15 @@ def run_action_spec(
                 message=str(exc),
                 action_kind=str(data.get("action_id", "unknown")),
             ),
+        )
+    from frisket.engine.executor.import_update_admission import (
+        UPDATE_ACTIONS,
+        run_typed_update,
+    )
+
+    if typed.request.action_id in UPDATE_ACTIONS:
+        return run_typed_update(
+            project, project_id, typed, deps or _runtime_inventory.ExecutorDeps()
         )
     from frisket.actions.types import SheetRows
     from frisket.engine.executor.import_read_guard import (
@@ -623,6 +682,13 @@ def run_action_spec(
         from frisket.engine.executor.page_capture_action import (
             run_typed_page_capture_action,
         )
+
+        from frisket.actions.types import RetainedResultPublisher
+
+        if terminal.capabilities == (RetainedResultPublisher,):
+            from frisket.engine.executor.reapply_results import reapply_results
+
+            return reapply_results(project, project_id, typed)
 
         owners = [
             name
@@ -730,7 +796,14 @@ def run_action_spec(
                 edition_run_context=edition_run_context,
             )
         if owners[0] == "sheet_refresh":
-            return run_typed_sheet_refresh_action(project, project_id, typed)
+            return run_typed_sheet_refresh_action(
+                project,
+                project_id,
+                typed,
+                router=router,
+                deps=deps,
+                edition=product_edition_from_snapshot(edition_run_context),
+            )
         if owners[0] == "backfill":
             executor_deps = _executor_deps_with_defaults(
                 deps=deps,
@@ -746,6 +819,7 @@ def run_action_spec(
                 typed,
                 executor_deps.router,
                 executor_deps.map_runner_factory,
+                edition=product_edition_from_snapshot(edition_run_context),
             )
         if owners[0] == "plugin":
             return run_typed_plugin_load_action(project, project_id, typed)

@@ -1,4 +1,4 @@
-"""Permanent sheet deletion and dependency inspection."""
+"""Reversible sheet deletion and dependency inspection."""
 
 from __future__ import annotations
 
@@ -6,7 +6,9 @@ import json
 from typing import Any
 
 from frisket.engine.store.import_sessions import require_import_sheet_write
-from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.changes import start_change
+from frisket.engine.store.op_log import append_op
+from frisket.engine.store.structural_changes import note_row_membership_change
 
 
 class SheetDeleteNotFound(LookupError):
@@ -68,7 +70,7 @@ def dependent_sheets(project: Any, sheet_id: int) -> list[dict[str, Any]]:
         WHERE child.hidden=0 AND child.parent_sheet_id=?
         UNION
         SELECT DISTINCT child.id, child.name
-        FROM materialized_row_sources source
+        FROM current_materialized_row_sources source
         JOIN rows materialized ON materialized.id=source.materialized_row_id
         JOIN sheets child ON child.id=materialized.sheet_id
         WHERE child.hidden=0 AND child.id<>? AND source.source_sheet_id=?
@@ -96,113 +98,41 @@ def dependent_sheets(project: Any, sheet_id: int) -> list[dict[str, Any]]:
 
 
 def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
+    """Hide containment without deleting independently retained derived data."""
     if project.db.in_transaction:
         raise RuntimeError("sheet deletion cannot run in a caller-owned transaction")
-
-    sheet = project.db.execute(
-        "SELECT id, name FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
-    ).fetchone()
-    if sheet is None:
-        raise SheetDeleteNotFound(f"no sheet {sheet_id}")
-    require_import_sheet_write(project.db, sheet_id)
-
-    dependents = dependent_sheets(project, sheet_id)
-    if dependents:
-        names = ", ".join(item["name"] for item in dependents)
-        raise SheetDeleteBlocked(
-            f"cannot delete {sheet['name']!r}; used by {names}",
-            dependent_sheet_ids=[item["id"] for item in dependents],
-        )
-
-    running = project.db.execute(
-        "SELECT COUNT(*) FROM runs WHERE sheet_id=? AND status='running'", (sheet_id,)
-    ).fetchone()[0]
-    if running:
-        raise SheetDeleteBlocked(
-            f"cannot delete {sheet['name']!r} while it has a run in progress"
-        )
-
     with project.db:
-        # Split children keep immutable originals even after the source sheet
-        # is removed. Detach ownership, retaining historical navigation facts.
-        retained = project.db.execute(
-            "SELECT artifact.id,artifact.source_sheet_id,artifact.source_row_id,"
-            "artifact.source_column_id,artifact.external_ref_json "
-            "FROM source_artifacts artifact WHERE artifact.source_sheet_id=? "
-            "AND artifact.media_type='application/pdf' "
-            "AND json_extract(artifact.external_ref_json,'$.kind') "
-            "IN ('pdf_split_source','pdf_packet_split_source') AND EXISTS ("
-            "SELECT 1 FROM source_spans span "
-            "JOIN evidence_link_spans member ON member.span_id=span.id "
-            "JOIN evidence_links link ON link.id=member.link_id "
-            "JOIN sheets survivor ON survivor.id=link.sheet_id "
-            "WHERE span.artifact_id=artifact.id AND survivor.id<>? "
-            "AND link.link_role='source_provenance')",
-            (sheet_id, sheet_id),
-        ).fetchall()
-        for artifact in retained:
-            external = json.loads(artifact["external_ref_json"] or "{}")
-            external["original_source_cell"] = {
-                "sheet_id": artifact["source_sheet_id"],
-                "row_id": artifact["source_row_id"],
-                "column_id": artifact["source_column_id"],
-            }
-            project.db.execute(
-                "UPDATE source_artifacts SET source_sheet_id=NULL,source_row_id=NULL,"
-                "source_column_id=NULL,external_ref_json=? WHERE id=?",
-                (json.dumps(external), artifact["id"]),
-            )
-        project.db.execute(
-            "DELETE FROM artifact_timeline_segments WHERE "
-            "derived_artifact_id IN ("
-            "SELECT id FROM source_artifacts WHERE source_sheet_id=?"
-            ") OR source_artifact_id IN ("
-            "SELECT id FROM source_artifacts WHERE source_sheet_id=?"
-            ")",
-            (sheet_id, sheet_id),
+        project.db.execute("BEGIN IMMEDIATE")
+        sheet = project.db.execute(
+            "SELECT id,name FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
+        ).fetchone()
+        if sheet is None:
+            raise SheetDeleteNotFound(f"no sheet {sheet_id}")
+        require_import_sheet_write(project.db, sheet_id)
+        op_id = append_op(
+            project,
+            "sheet.delete",
+            {"sheet_id": sheet_id},
+            label=f"delete sheet {sheet['name']}",
+            undo_info={"deleted_sheets": [sheet_id]},
+            commit=False,
         )
-        project.db.execute(
-            "DELETE FROM source_artifacts WHERE source_sheet_id=?", (sheet_id,)
-        )
+        start_change(project.db, op_id)
+        project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
+        from .source_dependencies import stop_direct_consumers
 
-        # Physical deletion makes this sheet's run history permanently
-        # unredoable. Discard only its owning operations before removing the
-        # authoritative declarations; the schema intentionally refuses any
-        # generation deletion while its operation can still be applied.
-        project.db.execute(
-            "UPDATE ops SET status='discarded' WHERE id IN ("
-            "SELECT op_id FROM runs WHERE sheet_id=?)",
-            (sheet_id,),
+        stop_direct_consumers(
+            project,
+            sheet_ids=[sheet_id],
+            column_ids=[
+                int(row[0])
+                for row in project.db.execute(
+                    "SELECT id FROM columns WHERE sheet_id=?", (sheet_id,)
+                )
+            ],
         )
-        ResultGenerationStore(project).delete_for_sheet_removal(sheet_id)
-        project.db.execute("DELETE FROM runs WHERE sheet_id=?", (sheet_id,))
-
-        project.db.execute("DELETE FROM sheets WHERE id=?", (sheet_id,))
-        project.db.execute(
-            "UPDATE sheets SET position=("
-            "SELECT COUNT(*) FROM sheets earlier "
-            "WHERE earlier.hidden=0 AND (earlier.position<sheets.position "
-            "OR (earlier.position=sheets.position AND earlier.id<sheets.id))"
-            ")+1 WHERE hidden=0"
-        )
-        project.db.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
-        spec = json.dumps(
-            {"sheet_id": sheet_id, "sheet_name": str(sheet["name"])}, sort_keys=True
-        )
-        cursor = project.db.execute(
-            "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
-            "VALUES ('sheet.delete', ?, ?, NULL, 1)",
-            (f"delete sheet {sheet['name']}", spec),
-        ).lastrowid
-        project.db.execute(
-            "UPDATE meta SET value=? WHERE key='op_cursor'", (str(cursor),)
-        )
-
+        note_row_membership_change(project.db, [sheet_id])
     project.refresh_pending_review_summary()
-
-    # Physical sheet deletion drops cells/results/evidence roots. Reclaim any
-    # media bytes that are no longer referenced elsewhere in the project.
-    project.gc_blobs()
     return {
         "ok": True,
         "deleted_sheet_id": sheet_id,

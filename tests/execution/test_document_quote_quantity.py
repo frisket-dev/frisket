@@ -1,5 +1,7 @@
 """Document quotes cannot infer which admitted source a typed handler reads."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from dataclasses import dataclass
 
 import pytest
@@ -85,7 +87,9 @@ def _resolve(project, spec, *, capability=CAPABILITY_TO_MARKDOWN):
         spec,
         program,
         composition=open_execution_composition(
-            project, ModelRouter(), ExecutionCompositionContext.direct()
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            ExecutionCompositionContext.direct(),
         ),
     )
 

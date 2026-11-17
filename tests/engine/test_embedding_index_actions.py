@@ -272,6 +272,41 @@ def test_incremental_skips_current_and_refreshes_stale(project):
     assert len(gw2.calls[0][0]) == 1
 
 
+def test_scoped_edit_undo_repair_rebinds_cached_vectors_without_provider_calls(project):
+    from frisket.ai.embeddings.freshness import index_freshness
+    from frisket.engine.store.cell_projection import repair_current_cells
+
+    index_id = _create(project)
+    gateway = FakeGateway()
+    assert (
+        _run(project, _refresh_action(index_id, key="initial"), gateway=gateway).status
+        == "completed"
+    )
+    assert len(gateway.calls) == 1
+    row = project.visible_row_ids(project._sheet_id)[0]
+    project.apply_edits(
+        [
+            {
+                "row_id": row,
+                "column_id": project._cols["headline"],
+                "value": "temporarily changed",
+            }
+        ]
+    )
+    project.undo()
+    while repair_current_cells(project):
+        pass
+    result = _run(
+        project, _refresh_action(index_id, key="rebind-after-undo"), gateway=gateway
+    )
+    assert result.status == "completed", result.errors
+    assert len(gateway.calls) == 1
+    freshness = index_freshness(project, EmbeddingStore(project).get_index(index_id))
+    assert freshness.ready_count == 3
+    assert freshness.stale_count == 0
+    assert freshness.missing_count == 0
+
+
 def test_full_mode_rebuilds_all(project):
     index_id = _create(project)
     _run(project, _refresh_action(index_id, key="r1"), gateway=FakeGateway())

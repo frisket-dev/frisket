@@ -18,6 +18,16 @@ from frisket.engine.store.schema import (
 from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
 from frisket.engine.store.value_codec import decode_stored_value
+from tests.engine.historical_schema import PRE_DOMAIN_SCHEMA, restore_pre_domain_schema
+
+
+# This retired table still belongs in historical index-migration fixtures.
+_source_items_start = PRE_DOMAIN_SCHEMA.index(
+    "CREATE TABLE IF NOT EXISTS source_items ("
+)
+_LEGACY_SOURCE_ITEMS_SCHEMA = PRE_DOMAIN_SCHEMA[
+    _source_items_start : PRE_DOMAIN_SCHEMA.index("\n\n", _source_items_start)
+]
 
 
 # Independently pinned from v0.1.1a64 (6602458d), before consent_principal.
@@ -209,6 +219,7 @@ def _without_rowid_cell_layout(schema: str) -> str:
 def _with_pre_hygiene_indexes(schema: str) -> str:
     """Restore indexes that existed in every schema fixture below."""
 
+    assert "CREATE TABLE IF NOT EXISTS source_items (" in schema
     assert "idx_execution_attempts_run" not in schema
     assert "idx_source_items_source_dedupe" not in schema
     assert "idx_source_runs_source ON" not in schema
@@ -234,6 +245,7 @@ def _with_pre_hygiene_indexes(schema: str) -> str:
 
 def _restore_pre_hygiene_indexes(db: sqlite3.Connection) -> None:
     db.executescript(
+        _LEGACY_SOURCE_ITEMS_SCHEMA + "\n"
         "CREATE INDEX IF NOT EXISTS idx_execution_attempts_run "
         "ON execution_attempts(run_id,seq DESC);"
         "CREATE INDEX IF NOT EXISTS idx_source_items_source_dedupe "
@@ -387,15 +399,7 @@ def _remove_execution_metadata(db: sqlite3.Connection) -> None:
 def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
     """Downgrade fresh typed fixtures before exercising historical upgrades."""
 
-    _remove_document_text_authority(db)
-    _remove_execution_metadata(db)
-    _remove_extraction_layouts(db)
-    db.execute("DROP TABLE run_review_fields")
-    db.execute("DROP INDEX idx_cell_result_heads_run")
-    db.execute("DROP INDEX idx_columns_current_run")
-    db.execute("ALTER TABLE runs DROP COLUMN review_resolved_bundle_count")
-    db.execute("ALTER TABLE runs DROP COLUMN review_bundle_count")
-    db.execute("ALTER TABLE runs DROP COLUMN review_stats_ready")
+    restore_pre_domain_schema(db)
 
     current_rows = [
         (
@@ -409,6 +413,17 @@ def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
             "origin_run_id,base_producer_id,validity FROM current_cell_values"
         )
     ]
+    db.execute("DROP VIEW current_cell_values")
+    _remove_document_text_authority(db)
+    _remove_execution_metadata(db)
+    _remove_extraction_layouts(db)
+    db.execute("DROP TABLE run_review_fields")
+    db.execute("DROP INDEX idx_cell_result_heads_run")
+    db.execute("DROP INDEX idx_columns_current_run")
+    db.execute("ALTER TABLE runs DROP COLUMN review_resolved_bundle_count")
+    db.execute("ALTER TABLE runs DROP COLUMN review_bundle_count")
+    db.execute("ALTER TABLE runs DROP COLUMN review_stats_ready")
+
     authority_rows: dict[str, tuple[list[str], list[tuple[object, ...]]]] = {}
     for table in ("cells", "results", "edits"):
         columns = [str(row[1]) for row in db.execute(f"PRAGMA table_info({table})")]
@@ -423,13 +438,12 @@ def _restore_legacy_authorities(db: sqlite3.Connection) -> None:
             rows,
         )
 
-    db.execute("DROP VIEW current_cell_values")
     _remove_prepared_content(db)
     db.execute("DROP TABLE citation_texts")
     db.execute("DROP TABLE current_cells")
     for table in ("cells", "results", "edits"):
         db.execute(f"DROP TABLE {table}")
-    db.executescript(_without_typed_values(SCHEMA))
+    db.executescript(_without_typed_values(PRE_DOMAIN_SCHEMA))
     for table, (columns, rows) in authority_rows.items():
         if rows:
             db.executemany(
@@ -611,7 +625,7 @@ def _a62_bundle(tmp_path):
     prior_ddl = (
         _without_project_qa(
             _without_current_cells_foundation(
-                _without_rowid_cell_layout(_without_import_sessions(SCHEMA))
+                _without_rowid_cell_layout(_without_import_sessions(PRE_DOMAIN_SCHEMA))
             )
         )
         .replace(
@@ -661,8 +675,8 @@ def _a62_bundle(tmp_path):
         )
         db.execute(
             "INSERT INTO receipts (id,run_id,action_kind,status,body) "
-            "VALUES ('old-receipt',?,'map.classify','running','{}')",
-            (run,),
+            "VALUES ('old-receipt',?,'map.classify','running',?)",
+            (run, json.dumps({"receipt_id": "old-receipt", "status": "running"})),
         )
         db.execute(
             "UPDATE meta SET value=? WHERE key=?", (_A62_DIGEST, SCHEMA_DIGEST_META_KEY)
@@ -694,7 +708,7 @@ def test_a62_bundle_preserves_data_and_attempts_on_upgrade(tmp_path):
         attempt["run_id"],
         attempt["receipt_id"],
         attempt["state"],
-    ) == ("old-attempt", run, None, "dispatching")
+    ) == ("old-attempt", run, None, "abandoned")
     assert (
         project.db.execute(
             "SELECT run_id FROM receipts WHERE id='old-receipt'"
@@ -746,8 +760,8 @@ def test_receipt_attempt_constraints_match_fresh_and_upgraded_bundles(
     insert("run-first", run_id=run, seq=9, state="created")
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
         insert("run-duplicate", run_id=run, seq=9)
-    if not upgraded:
-        insert("run-dispatch", run_id=run, seq=10, state="dispatching")
+    # The cutover retires historical dispatches; test the constraint with a new one.
+    insert("run-dispatch", run_id=run, seq=10, state="dispatching")
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
         insert("double-run-dispatch", run_id=run, seq=11, state="dispatching")
     insert("orphan-one", state="dispatching")

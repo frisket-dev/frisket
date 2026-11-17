@@ -20,6 +20,7 @@ def write_edit_overlay(
     targets: list[dict[str, Any]],
     stale_reason: str,
     undo_info: Mapping[str, Any] | None = None,
+    close_change: bool = True,
 ) -> int:
     """Write one edit operation and its citation transition in the caller's txn."""
 
@@ -44,6 +45,7 @@ def write_edit_overlay(
             )
             for target, value in zip(targets, values, strict=True)
         ],
+        close_change=False,
     )
     stale_ids = mark_evidence_stale_for_cell_refs(
         project,
@@ -57,4 +59,8 @@ def write_edit_overlay(
             for stable_id in stale_ids
         ]
         set_undo_info(project, op_id, info, commit=False)
+    if close_change:
+        from frisket.engine.store.changes import ChangeStore
+
+        ChangeStore(project).close(op_id)
     return op_id

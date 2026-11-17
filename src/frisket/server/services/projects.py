@@ -1138,9 +1138,7 @@ class ProjectLifecycleService:
             ]
             entry["refreshable"] = sheet_id in refreshable_sheet_ids
             entry["columns"] = sheet_columns_payload(project, sheet_id)
-            state = (
-                sync_states.get(sheet_id) if sheet_id in refreshable_sheet_ids else None
-            )
+            state = sync_states.get(sheet_id)
             if state is not None:
                 entry["syncState"] = state["sync_state"]
                 entry["stale_reason"] = state["stale_reason"]
@@ -1193,12 +1191,7 @@ class ProjectLifecycleService:
         """
         self._ensure_exists(project_id)
         project = self._workspace.get(project_id)
-        refreshable_sheet_ids = {
-            int(sheet["id"])
-            for sheet in project.sheets()
-            if sheet_supports_refresh(project, int(sheet["id"]))
-        }
         return {
             "project_id": project_id,
-            **build_lineage_dag(project, refreshable_sheet_ids=refreshable_sheet_ids),
+            **build_lineage_dag(project),
         }

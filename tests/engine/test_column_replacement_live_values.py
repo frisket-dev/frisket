@@ -93,7 +93,10 @@ def test_selected_replacement_supersedes_only_exact_reject_clear_cell(
                 }
             ],
         )
-        assert _seal(generations, replacement, column_id) == 1
+        # Same-descriptor replacement already published this row; sealing
+        # closes the owner without replaying a second head update.
+        assert project.get_values(sheet_id, column_id)[row_ids[0]] == "replacement"
+        assert _seal(generations, replacement, column_id) == 0
         _release(project, replacement)
 
         live = project.get_values(sheet_id, column_id, row_ids=row_ids)

@@ -1,3 +1,5 @@
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.execution.dispatch_control import STANDALONE
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 import asyncio
 import io
@@ -130,7 +132,9 @@ def test_vibevoice_sidecar_request_omits_unsupported_clean_default(
             "vibevoice-asr",
             str(audio),
             {"clean": False, "context": "names"},
-            OpContext(),
+            OpContext(
+                extras={"standalone_dispatch": STANDALONE},
+            ),
         )
     )
 
@@ -224,7 +228,9 @@ def test_shared_engine_boundary_dispatches_each_existing_family(
             engine,
             "/nonexistent.wav",
             {"engine": engine},
-            OpContext(),
+            OpContext(
+                extras={"standalone_dispatch": STANDALONE},
+            ),
             transport=transport,
         )
     )
@@ -237,7 +243,13 @@ def test_unknown_engine_rejected(tmp_path):
     with pytest.raises(ValueError, match="unknown transcription engine"):
         asyncio.run(
             transcribe_engines.run_transcription_engine(
-                "bogus", str(tmp_path / "a.wav"), {}, OpContext(), transport="local"
+                "bogus",
+                str(tmp_path / "a.wav"),
+                {},
+                OpContext(
+                    extras={"standalone_dispatch": STANDALONE},
+                ),
+                transport="local",
             )
         )
 
@@ -759,8 +771,13 @@ def test_remote_engine_needs_configured_provider(tmp_path, monkeypatch):
     """engine='openai/whisper-1' without provider keys fails with a pointer
     to the local engines — never a silent fallback."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    router = ModelRouter(cache=None, cache_mode="off")
-    ctx = OpContext(http=httpx.AsyncClient(), extras={"router": router})
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
+    ctx = OpContext(
+        http=httpx.AsyncClient(),
+        extras={"router": router, "standalone_dispatch": STANDALONE},
+    )
     path = _wav(tmp_path / "a.wav")
     with pytest.raises(RuntimeError, match="'openai' provider"):
         asyncio.run(
@@ -775,7 +792,9 @@ def test_remote_engine_posts_audio(tmp_path, monkeypatch):
     /audio/transcriptions with the router's credentials; segments and
     language come back in the whisper-engine shape."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -798,7 +817,7 @@ def test_remote_engine_posts_audio(tmp_path, monkeypatch):
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     path = _wav(tmp_path / "a.wav")
     result = asyncio.run(
@@ -825,6 +844,7 @@ def test_remote_engine_posts_audio(tmp_path, monkeypatch):
 def test_mai_transcribe_2_posts_its_documented_openrouter_options(tmp_path):
     """MAI is an exact OpenRouter profile, never a widening of remote defaults."""
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openrouter": "or-test"},
         cache=None,
         cache_mode="off",
@@ -858,7 +878,7 @@ def test_mai_transcribe_2_posts_its_documented_openrouter_options(tmp_path):
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     result = asyncio.run(
         transcribe_engines.run_transcription_engine(
@@ -907,6 +927,7 @@ def test_mai_transcribe_2_posts_its_documented_openrouter_options(tmp_path):
 
 def test_mai_transcribe_2_rejects_unsupported_format_before_egress(tmp_path):
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openrouter": "or-test"},
         cache=None,
         cache_mode="off",
@@ -918,7 +939,7 @@ def test_mai_transcribe_2_rejects_unsupported_format_before_egress(tmp_path):
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     unsupported = _wav(tmp_path / "mai.ogg")
     with pytest.raises(ValueError, match="MAI-Transcribe 2 accepts WAV, MP3, or FLAC"):
@@ -951,6 +972,7 @@ def test_declared_openrouter_model_does_not_inherit_mai_request_options(
         (*media.TRANSCRIBE_ENGINE_TABLE, declaration),
     )
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openrouter": "or-test"},
         cache=None,
         cache_mode="off",
@@ -965,7 +987,7 @@ def test_declared_openrouter_model_does_not_inherit_mai_request_options(
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     asyncio.run(
         transcribe_engines.OpenAITranscriptionAdapter().transcribe(
@@ -989,6 +1011,7 @@ def test_remote_engine_routes_qualified_local_model_and_records_local_facts(
 
     secret = "local-transcribe-token"
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(
@@ -1025,7 +1048,7 @@ def test_remote_engine_routes_qualified_local_model_and_records_local_facts(
     engine = "ollama/@studio/whisper-1"
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     result = asyncio.run(
         transcribe_engines.run_transcription_engine(
@@ -1055,6 +1078,7 @@ def test_qualified_local_http_failure_still_records_known_zero(tmp_path) -> None
     from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(
@@ -1071,7 +1095,7 @@ def test_qualified_local_http_failure_still_records_known_zero(tmp_path) -> None
         http=httpx.AsyncClient(
             transport=httpx.MockTransport(lambda _request: httpx.Response(503))
         ),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     engine = "ollama/@studio/frisket-new-unlisted-model"
 
@@ -1116,7 +1140,9 @@ def test_remote_engine_names_the_upload_from_the_media_row(tmp_path, monkeypatch
     """
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     seen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1148,7 +1174,7 @@ def test_remote_engine_names_the_upload_from_the_media_row(tmp_path, monkeypatch
         ctx = OpContext(
             project=project,
             http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-            extras={"router": router},
+            extras={"router": router, "preview": True, "cancelled": lambda: False},
         )
         with project.materialize_blob(digest) as path:
             asyncio.run(
@@ -1174,7 +1200,9 @@ def test_remote_engine_upload_suffix_follows_the_media_mime(tmp_path, monkeypatc
     with no filename still gets an honest extension, derived from its mime."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     seen: dict[str, object] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1196,7 +1224,7 @@ def test_remote_engine_upload_suffix_follows_the_media_mime(tmp_path, monkeypatc
         ctx = OpContext(
             project=project,
             http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-            extras={"router": router},
+            extras={"router": router, "preview": True, "cancelled": lambda: False},
         )
         with project.materialize_blob(digest) as path:
             asyncio.run(
@@ -1230,6 +1258,7 @@ def test_remote_engine_ollama_edge_auth_raises_typed_unsupported_error(
     from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(
@@ -1243,7 +1272,10 @@ def test_remote_engine_ollama_edge_auth_raises_typed_unsupported_error(
             ),
         ),
     )
-    ctx = OpContext(http=httpx.AsyncClient(), extras={"router": router})
+    ctx = OpContext(
+        http=httpx.AsyncClient(),
+        extras={"router": router, "standalone_dispatch": STANDALONE},
+    )
     path = _wav(tmp_path / "a.wav")
     with pytest.raises(
         LocalTranscribeUnsupportedError, match="authenticated front door"
@@ -1263,6 +1295,7 @@ def test_remote_engine_ollama_tokenless_keeps_todays_behavior(tmp_path) -> None:
     from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         cache=None,
         cache_mode="off",
         local_endpoints=(
@@ -1280,7 +1313,7 @@ def test_remote_engine_ollama_tokenless_keeps_todays_behavior(tmp_path) -> None:
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     path = _wav(tmp_path / "a.wav")
     from frisket.sdk.ops.transcribe_engines import LocalTranscribeUnsupportedError
@@ -1298,7 +1331,11 @@ def test_remote_engine_ollama_tokenless_keeps_todays_behavior(tmp_path) -> None:
 def test_remote_engine_failure_redacts_borrowed_provider_key(tmp_path) -> None:
     secret = "checkpoint1b-transcribe-secret"
     router = ModelRouter(
-        keys={"openai": secret}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1307,7 +1344,7 @@ def test_remote_engine_failure_redacts_borrowed_provider_key(tmp_path) -> None:
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     with pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
@@ -1325,7 +1362,11 @@ def test_remote_engine_normalizes_all_success_path_failures(
 ) -> None:
     secret = "checkpoint1b-remote-normalize-secret"
     router = ModelRouter(
-        keys={"openai": secret}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -1339,7 +1380,7 @@ def test_remote_engine_normalizes_all_success_path_failures(
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     with pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
@@ -1353,7 +1394,11 @@ def test_remote_engine_normalizes_all_success_path_failures(
 def test_remote_engine_survives_hostile_transport_stringification(tmp_path) -> None:
     secret = "checkpoint1b-hostile-transcribe-transport-secret"
     router = ModelRouter(
-        keys={"openai": secret}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
 
     class HostileConnectError(httpx.ConnectError):
@@ -1365,7 +1410,7 @@ def test_remote_engine_survives_hostile_transport_stringification(tmp_path) -> N
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     with pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
@@ -1382,7 +1427,11 @@ def test_remote_engine_survives_hostile_postprocess_stringification(
 ) -> None:
     secret = "checkpoint1b-hostile-transcribe-postprocess-secret"
     router = ModelRouter(
-        keys={"openai": secret}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
 
     class HostileValueError(ValueError):
@@ -1403,7 +1452,7 @@ def test_remote_engine_survives_hostile_postprocess_stringification(
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     with pytest.raises(RuntimeError) as excinfo:
         asyncio.run(
@@ -1419,7 +1468,9 @@ def test_remote_engine_token_priced_model_costs_from_usage(tmp_path, monkeypatch
     """gpt-4o-transcribe-class models bill per token: cost comes from the
     response's usage block times the rates in pricing_data.json."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -1432,7 +1483,7 @@ def test_remote_engine_token_priced_model_costs_from_usage(tmp_path, monkeypatch
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     path = _wav(tmp_path / "a.wav")
     result = asyncio.run(
@@ -1450,14 +1501,16 @@ def test_remote_engine_unknown_model_reports_unknown_cost(tmp_path, monkeypatch)
     """A model absent from pricing_data.json bills cost=None — 'price
     unknown', not a fabricated estimate and not a false $0."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"text": "hello", "duration": 60.0})
 
     ctx = OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={"router": router},
+        extras={"router": router, "standalone_dispatch": STANDALONE},
     )
     path = _wav(tmp_path / "a.wav")
     result = asyncio.run(
@@ -1528,7 +1581,12 @@ def test_parakeet_transcribes_speech_end_to_end(tmp_path):
             None,
             lambda project, router: MapRunner(
                 project,
-                router or ModelRouter(cache=None, cache_mode="off"),
+                router
+                or ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                ),
                 authority=open_attempt_authority(project),
             ),
         )
@@ -1687,3 +1745,76 @@ def test_whisper_offline_worker_consumes_prepared_pinned_cache(monkeypatch, tmp_
     result = json.loads(output.getvalue())["results"][0]
     assert result["revision"] == snap.revision
     assert result["warnings"] == []
+
+
+@pytest.mark.parametrize("malformation", ["segments", "json"])
+def test_remote_transcription_records_returned_usage_before_output_validation(
+    tmp_path, malformation
+):
+    from frisket.execution.purchases import PurchaseAdmission
+
+    events = []
+    observations = []
+
+    def admit(request):
+        events.append("admit")
+        assert request.capability == "transcribe"
+        assert request.engine == "openai/whisper-1"
+        return PurchaseAdmission("metered", "transcription-test")
+
+    def record(request, admission, observation):
+        events.append("record")
+        observations.append(observation)
+
+    policy = SimpleNamespace(
+        admit_purchase=admit,
+        record_purchase=record,
+        fail_purchase=lambda *args: pytest.fail(
+            "returned response lost its accounting"
+        ),
+    )
+
+    def handler(request):
+        events.append("send")
+        if malformation == "json":
+            return httpx.Response(200, text="not json")
+        return httpx.Response(
+            200, json={"text": "transcript", "duration": 2.0, "segments": "bad"}
+        )
+
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "fake-test-key"},
+        use_env_keys=False,
+    )
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    ctx = OpContext(
+        http=client,
+        extras={
+            "router": router,
+            "service_operation_policy": policy,
+            "standalone_dispatch": STANDALONE,
+        },
+    )
+
+    async def run():
+        try:
+            await transcribe_engines.OpenAITranscriptionAdapter().transcribe(
+                "openai/whisper-1", str(_wav(tmp_path / "audio.wav")), {}, ctx, None
+            )
+        finally:
+            await client.aclose()
+            await router.aclose()
+
+    with pytest.raises(RuntimeError, match="malformed remote transcription") as raised:
+        asyncio.run(run())
+    assert events == ["admit", "send", "record"]
+    assert len(observations) == 1
+    if malformation == "segments":
+        cost = 2.0 * audio_price("openai/whisper-1")["per_second"]
+        assert observations[0].usage["audio_seconds"] == 2.0
+        assert observations[0].provider_cost_micro == round(cost * 1_000_000)
+        assert raised.value.accounting["cost"] == pytest.approx(cost)
+    else:
+        assert observations[0].usage == {}
+        assert observations[0].provider_cost_micro is None

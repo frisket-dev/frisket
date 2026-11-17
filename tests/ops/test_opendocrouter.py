@@ -101,6 +101,8 @@ def test_sync_inline_and_reported_cost(png):
     assert fact["provider_cost_usd"] == 0.00397
     assert fact["credential_source"] == "project_key"
     assert fact["units"]["price_version"] == "2026-10-06"
+    assert fact["units"]["tokens_in"] == 20
+    assert fact["units"]["tokens_out"] == 10
     assert len(recorded) == 1
     assert recorded[0]["cost"] == 0.00397
     assert recorded[0]["model_calls"][0]["id"] == fact["id"]
@@ -768,3 +770,22 @@ def test_async_uses_model_specific_page_limit(tmp_path, monkeypatch):
     pages, _ = run(pdf(tmp_path, 2), handler)
     assert len(pages) == 2
     assert calls == ["POST", "GET", "DELETE"]
+
+
+@pytest.mark.parametrize("capability", ["ocr", "document.convert"])
+def test_missing_document_usage_remains_unknown_when_merged(png, capability):
+    from frisket.ai.models.accounting import merge_accounting_meta
+
+    def handler(request):
+        body = response()
+        body.pop("usage")
+        return httpx.Response(200, json=body)
+
+    _, unknown = run(png, handler)
+    _, known = run(png, lambda request: httpx.Response(200, json=response()))
+    for accounting in (unknown, known):
+        accounting["model_calls"][0]["capability"] = capability
+    merged = merge_accounting_meta(known, unknown)
+    assert merged["tokens_in"] is None
+    assert merged["tokens_out"] is None
+    assert merged["cost"] == pytest.approx(0.00794)

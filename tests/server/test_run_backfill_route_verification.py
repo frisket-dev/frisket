@@ -27,6 +27,7 @@ fix) so only the BACKFILL half exercises the new direct-path code.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -205,7 +206,11 @@ def _run_original_to_completion(client: TestClient, project_id: str, project, sp
     run_id = int(launched["run_id"])
     registry = HandlerRegistry()
     root = client.app.state.workspace.root
-    register_project_run_handler(registry, workspace_root=root, router=ModelRouter())
+    register_project_run_handler(
+        registry,
+        workspace_root=root,
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+    )
     worker = Worker(client.app.state.workspace.queue, registry)
     job = run_worker_until_job_terminal(
         worker,
@@ -313,7 +318,7 @@ def test_maprunner_refuses_to_reopen_a_sealed_routed_generation(
 
     unverified_runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         authority=UnroutedOnlyAuthority(project),
         allow_action_lifecycle_only_recipes=True,
     )

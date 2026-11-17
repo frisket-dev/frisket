@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
-from frisket.authoring.action_metadata import gated_capability_phrase
 from frisket.contracts.action import (
     ActionError,
     ActionResultStatus,
@@ -97,6 +95,7 @@ def _resolve_backfill_target(
     column: str,
     row_ids: list[int] | None = None,
     confirmation: str | None = None,
+    source_run_id: int | None = None,
 ) -> dict[str, Any] | ActionError:
     action_kind = "run.backfill"
     column_name = column.strip()
@@ -132,7 +131,15 @@ def _resolve_backfill_target(
     ]
     generation_store = ResultGenerationStore(project)
     heads = generation_store.read_cell_heads(column_id)
-    if row_ids is not None:
+    if source_run_id is not None:
+        requested = set(row_ids or [])
+        if not requested.issubset(all_row_ids):
+            return ActionError(
+                code="invalid_row_ref", message="Retry rows must remain visible"
+            )
+        unrun_row_ids = [row_id for row_id in all_row_ids if row_id in requested]
+        source_run_ids = [source_run_id]
+    elif row_ids is not None:
         # An explicit retry inherits the action that produced those exact
         # cells. A scalar column pointer is only chronology after subset
         # publication and cannot identify their generation.
@@ -156,6 +163,27 @@ def _resolve_backfill_target(
             reverse=True,
         )
         if missing_heads:
+            # Unavailable outcomes deliberately are not published heads, but
+            # their retained owner still identifies a whole-column transform.
+            from frisket.authoring.action_metadata import action_supports_row_retry
+
+            from frisket.engine.store.change_schema import generated_candidates_sql
+
+            owners = project.db.execute(
+                f"SELECT DISTINCT run.action_kind FROM ({generated_candidates_sql()}) head "
+                "JOIN runs run ON run.id=head.run_id "
+                "WHERE head.column_id=? "
+                "AND head.outcome='not_completed' "
+                "AND head.row_id IN (SELECT value FROM json_each(?))",
+                (column_id, json.dumps(missing_heads)),
+            )
+            if any(not action_supports_row_retry(row[0]) for row in owners):
+                return ActionError(
+                    code="run_required",
+                    message="This action transforms the whole column; run the action again instead of backfilling rows.",
+                    action_kind=action_kind,
+                    field="params.column",
+                )
             return ActionError(
                 code="backfill_source_unavailable",
                 message=(
@@ -201,7 +229,7 @@ def _resolve_backfill_target(
         )
     run_id = source_run_ids[0]
     run_row = project.db.execute(
-        "SELECT id, op_id, params FROM runs WHERE id=?",
+        "SELECT id, op_id, params, action_kind FROM runs WHERE id=?",
         (run_id,),
     ).fetchone()
     if run_row is None:
@@ -211,6 +239,15 @@ def _resolve_backfill_target(
             action_kind=action_kind,
             field="params.column",
             details={"run_id": int(run_id)},
+        )
+    from frisket.authoring.action_metadata import action_supports_row_retry
+
+    if not action_supports_row_retry(run_row["action_kind"]):
+        return ActionError(
+            code="run_required",
+            message="This action transforms the whole column; run the action again instead of backfilling rows.",
+            action_kind=action_kind,
+            field="params.column",
         )
     try:
         runner_spec = json.loads(run_row["params"] or "{}")
@@ -277,7 +314,7 @@ def _resolve_backfill_target(
             )
         bindings = generation_store.bindings_for_run(run_id)
         bindings_by_role = {binding.output_role: binding for binding in bindings}
-        stored_roles = {str(name) for name in output_names.values()}
+        stored_roles = {str(name) for name in output_names}
         if set(bindings_by_role) != stored_roles:
             return ActionError(
                 code="invalid_run_params",
@@ -317,16 +354,17 @@ def _resolve_backfill_target(
         stored_output_names = dict(output_names)
         output_names = {
             str(logical): str(
-                columns_by_id[bindings_by_role[str(role)].column_id]["name"]
+                columns_by_id[bindings_by_role[str(logical)].column_id]["name"]
             )
-            for logical, role in stored_output_names.items()
+            for logical in stored_output_names
         }
         runner_spec["output_names"] = output_names
         runner_spec["output_target_preconditions"] = {
-            output_names[str(logical)]: bindings_by_role[str(role)].column_id
-            for logical, role in stored_output_names.items()
+            output_names[str(logical)]: bindings_by_role[str(logical)].column_id
+            for logical in stored_output_names
         }
         runner_spec["replace_existing"] = True
+    runner_spec.pop("execution_root_run_id", None)
     runner_spec.pop("confirmed", None)
     # The claims-gate echo is per-invocation retry-flow
     # plumbing, exactly like ``confirmed`` above. The stored spec's echo
@@ -360,28 +398,33 @@ def _guard_backfill_run_spec(
     runner_spec: dict[str, Any],
     *,
     project: Project | None = None,
+    edition: str | None = None,
 ) -> ActionError | None:
-    # Persisted runner specs carry the canonical ``action_kind``. WHAT is
-    # gated comes from the action's
-    # declared capabilities in the contract registry, not a list of kinds.
-    code_id = runner_spec.get("action_kind")
+    from frisket.actions.registry import ACTION_REGISTRY
+    from frisket.execution.action_admission import action_admission_error
+
+    code_id = str(runner_spec.get("action_kind") or "")
+    registered = None
+    binding = None
     if runner_spec.get("implementation_identity") is not None and project is not None:
         from frisket.authoring.workbench.installed_actions import (
             resolve_installed_action,
         )
 
-        resolve_installed_action(project, str(code_id))
-        return None
-    gated = gated_capability_phrase(code_id)
-    if gated and os.environ.get("FRISKET_ALLOW_CODE_RECIPES", "1") != "1":
-        return ActionError(
-            code="code_action_disabled",
-            message=(
-                f"the '{code_id}' action declares {gated}, which is disabled on "
-                "this server; enable it only on trusted/local deployments"
-            ),
-            action_kind="run.backfill",
-            field="params.column",
+        installed = resolve_installed_action(project, code_id)
+        if installed is not None:
+            registered, binding = installed
+    if registered is None:
+        try:
+            registered = ACTION_REGISTRY.get(code_id)
+        except KeyError:
+            return None  # The typed reconstruction owns unknown action refusal.
+    error = action_admission_error(
+        project, registered, edition=edition, runtime_binding=binding
+    )
+    if error is not None:
+        return error.model_copy(
+            update={"action_kind": "run.backfill", "field": "params.column"}
         )
     return None
 

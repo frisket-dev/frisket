@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -31,7 +32,12 @@ def _client(tmp_path, monkeypatch, *, duration=15.0):
         "frisket.server.services.scratch_transcribe.probe_for_ingest",
         lambda *args, **kwargs: {"kind": "audio", "duration_seconds": duration},
     )
-    router = ModelRouter(keys={"openai": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     client = TestClient(
         create_app(
             tmp_path / "ws",
@@ -73,18 +79,7 @@ def test_scratch_transcription_default_limit_quote_and_paid_receipt(
 ):
     client, pid = _client(tmp_path, monkeypatch)
     project = client.app.state.workspace.get(pid)
-    settled = []
 
-    class Settlement:
-        def settle_action_receipt(self, *, project, project_id, receipt_id):
-            receipt = ReceiptStore(project).parsed_by_id(receipt_id)
-            assert project_id == pid
-            assert receipt.status == (
-                "cancelled" if cancel_after_provider_acceptance else "completed"
-            )
-            settled.append(receipt_id)
-
-    client.app.state.workspace.direct_action_receipt_settlement_port = Settlement()
     untouched = {
         table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         for table in ("rows", "columns", "blobs", "runs", "results")
@@ -180,7 +175,6 @@ def test_scratch_transcription_default_limit_quote_and_paid_receipt(
     assert receipt.run_id is None and receipt.status == (
         "cancelled" if cancel_after_provider_acceptance else "completed"
     )
-    assert settled == [receipt.receipt_id]
     assert project.db.execute(
         "SELECT state FROM execution_attempts WHERE receipt_id=?",
         (receipt.receipt_id,),
@@ -449,7 +443,6 @@ def test_scratch_transcription_preserves_returned_remote_failure_accounting(
 ):
     client, pid = _client(tmp_path, monkeypatch)
     project = client.app.state.workspace.get(pid)
-    settled = []
 
     async def failed_response(self, url, **kwargs):
         del self, kwargs
@@ -462,14 +455,6 @@ def test_scratch_transcription_preserves_returned_remote_failure_accounting(
 
     monkeypatch.setattr(httpx.AsyncClient, "post", failed_response)
 
-    class Settlement:
-        def settle_action_receipt(self, *, project, project_id, receipt_id):
-            receipt = ReceiptStore(project).parsed_by_id(receipt_id)
-            assert project_id == pid and receipt.status == "failed"
-            assert receipt.provider_use
-            settled.append(receipt_id)
-
-    client.app.state.workspace.direct_action_receipt_settlement_port = Settlement()
     request = {"engine": "openai/whisper-1"}
     quote = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch/estimate",
@@ -488,7 +473,6 @@ def test_scratch_transcription_preserves_returned_remote_failure_accounting(
     receipt_id = result["accounting"]["receipt_id"]
     receipt = ReceiptStore(project).parsed_by_id(receipt_id)
     assert receipt.status == "failed" and receipt.provider_use
-    assert settled == [receipt_id]
 
 
 def test_scratch_transport_failure_keeps_terminal_outcome_unresolved(
@@ -658,7 +642,12 @@ def test_mai_transcription_compare_estimate_uses_model_specific_options(
         "frisket.server.services.scratch_transcribe.probe_for_ingest",
         lambda *args, **kwargs: {"kind": "audio", "duration_seconds": 30.0},
     )
-    router = ModelRouter(keys={"openrouter": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openrouter": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     client = TestClient(
         create_app(
             tmp_path / "ws",

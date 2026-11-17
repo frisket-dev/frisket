@@ -48,3 +48,40 @@ REDO = action(
     run=redo_operation,
     form="operation_step",
 )
+
+
+class OperationTargetParams(ActionParams):
+    op_id: int = Field(gt=0, strict=True)
+
+
+def revert_operation(
+    params: OperationTargetParams, operations: OperationUndoer
+) -> OperationTransition:
+    return operations.revert(op_id=params.op_id)
+
+
+def restore_operation(
+    params: OperationTargetParams, operations: OperationRedoer
+) -> OperationTransition:
+    return operations.restore(op_id=params.op_id)
+
+
+REVERT = action(
+    examples=(OperationTargetParams(op_id=1),),
+    name="revert",
+    title="Revert change",
+    description="Revert one selected change without moving Undo/Redo navigation.",
+    category=ActionCategory.CLEANUP,
+    run=revert_operation,
+    form="operation_step",
+)
+
+RESTORE = action(
+    examples=(OperationTargetParams(op_id=1),),
+    name="restore",
+    title="Restore change",
+    description="Restore one reverted change without resuming its execution.",
+    category=ActionCategory.CLEANUP,
+    run=restore_operation,
+    form="operation_step",
+)

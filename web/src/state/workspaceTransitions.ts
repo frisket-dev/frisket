@@ -10,7 +10,6 @@ import type { ActionLaunch, AddColumnPrompt } from './actSurfaceStore';
 import type { ActionLaunchPrefill } from '../actions/actionFormInitial';
 import { type RouteState } from '../core/route/RouteState';
 import type { ColumnDef, PreviewCellDetail, Row } from '../api/open';
-import type { LensGridView } from './lensViewStore';
 import type { RowTextTarget } from './detailStore';
 import type { CompareKind } from './compareViewStore';
 
@@ -18,7 +17,7 @@ type FilterSortStores = Pick<WorkspaceStores, 'gridView' | 'detail' | 'selection
 type ClearStores = Pick<WorkspaceStores, 'gridView' | 'selection'>;
 type SelectSheetStores = Pick<
   WorkspaceStores,
-  'gridView' | 'selection' | 'detail' | 'workView' | 'lensView' | 'previewView'
+  'gridView' | 'selection' | 'detail' | 'workView' | 'previewView'
 >;
 
 /** Callers must pass the bind-layer wrappers that persist these chrome writes. */
@@ -86,14 +85,21 @@ export function clearGridSortTransition(stores: ClearStores, sheetId: string | u
   if (sheetId) stores.selection.clearRowSelection(sheetId);
 }
 
-/** Applying a saved view deliberately preserves the child filter. */
+/** A saved definition owns its scope; previous browsing filters do not leak in. */
 export function applySavedViewTransition(
   stores: FilterSortStores,
   sheetId: string,
   grid: GridViewSavedViewApplication,
 ): void {
+  stores.detail.setChildFilter(null);
   stores.gridView.applySavedViewGrid(grid);
   stores.detail.clearForSavedView();
+  stores.selection.clearRowSelection(sheetId);
+}
+
+export function clearViewSelectionTransition(stores: Pick<WorkspaceStores, 'gridView' | 'detail' | 'selection'>, sheetId: string): void {
+  stores.gridView.resetForSheetChange();
+  stores.detail.setChildFilter(null);
   stores.selection.clearRowSelection(sheetId);
 }
 
@@ -104,7 +110,6 @@ export function resetForRouteSheetChange(stores: SelectSheetStores, sheetId: str
   stores.detail.closeAll();
   stores.detail.closeHeaderMenu();
   stores.workView.resetForSheetChange();
-  stores.lensView.resetForSheetChange();
   stores.previewView.resetForSheetChange();
 }
 
@@ -386,15 +391,4 @@ export function confirmDeleteRowsTransition(
 ): void {
   stores.selection.clearRowSelection(sheetId);
   stores.detail.closeDrawers({ clearChildFilter: true });
-}
-
-/** Callers must bump dataVersion immediately after this transition. */
-export function applyLensTransition(
-  stores: Pick<WorkspaceStores, 'gridView' | 'detail' | 'lensView'>,
-  lensView: LensGridView,
-): void {
-  stores.gridView.resetForLensEntry();
-  stores.detail.closeHeaderMenu();
-  stores.lensView.setLensOpenError(null);
-  stores.lensView.setLensView(lensView);
 }

@@ -125,6 +125,13 @@ async def _request(
             and not isinstance(
                 error, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
             ),
+            purchase_dispatched=(
+                False
+                if isinstance(
+                    error, (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+                )
+                else None
+            ),
         ) from None
     if billable and (response.status_code >= 500 or response.is_redirect):
         # Only documented pre-execution refusals establish that no work ran.
@@ -207,7 +214,7 @@ def _accounting(
         provider_reported_cost_usd=None,
         provider_cost_usd=None,
         cost_source="unknown",
-        units={"requests": 1},
+        units={"requests": 1, "tokens_in": None, "tokens_out": None},
         request_id=job_id,
         duration_ms=None,
     ).as_dict()
@@ -236,7 +243,7 @@ def _enrich(accounting: dict, body: dict, started: float) -> None:
     for name, key in (("input_tokens", "tokens_in"), ("output_tokens", "tokens_out")):
         value = usage.get(name)
         if type(value) is int and value >= 0:
-            accounting[key] = units[name] = value
+            accounting[key] = units[key] = value
 
 
 async def _read_pages(

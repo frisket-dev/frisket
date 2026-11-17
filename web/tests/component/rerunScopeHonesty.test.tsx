@@ -1,20 +1,6 @@
 // @vitest-environment jsdom
-//
-// Ruling 4 ("a retry is a resume") — honest labels on the re-run doors that
-// CANNOT resume by construction. sheet.refresh replaces every derived row and
-// a watch run is a full fresh evaluation; each door must say so BEFORE the
-// click (the 402 cost gate then prices any model step — no new confirmation
-// is added here, only scope honesty).
-//
-//   * the stale-cascade confirm (tab-strip stale pill + Lineage tab share it)
-//     names that every row is replaced, not just the changed ones, AND that
-//     re-running is a fresh purchase rather than a resume;
-//   * the Watches panel's run and refresh-index buttons name the full fresh
-//     check instead of reading like a cheap poke.
-//
-// (The SheetInfo popover's "Re-run now" carries the same scope sentence —
-// data-testid sheet-info-rerun-scope — but lives module-private in App.tsx;
-// the cascade dialog covers the shared sheet.refresh copy contract here.)
+// Refresh uses each sheet's saved settings. Deterministic work is free;
+// paid steps retain the ordinary estimate/confirmation flow.
 
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
@@ -73,7 +59,7 @@ function staleSheet(id: string, name: string): SheetMeta {
 }
 
 describe('stale-cascade confirm — scope honesty (ruling 4)', () => {
-  it('says every row is replaced before the click', () => {
+  it('describes saved settings without promising replacement or charging free work', () => {
     render(
       <CascadeConfirmDialog
         staleDeepestFirst={[staleSheet('2', 'People'), staleSheet('3', 'Places')]}
@@ -83,14 +69,12 @@ describe('stale-cascade confirm — scope honesty (ruling 4)', () => {
     );
 
     expect(screen.getByTestId('cascade-rerun-scope')).toHaveTextContent(
-      'every row is replaced and re-derived, not just the changed ones',
+      'Refresh these sheets from current sources using their saved settings.',
     );
-    // The money half: without this the scope sentence still reads like a
-    // resume that only pays for what changed.
     expect(screen.getByTestId('cascade-rerun-scope')).toHaveTextContent(
-      'a new run, not a resume: every derived row in every sheet listed above'
-        + ' is charged again',
+      'Paid steps may require confirmation.',
     );
+    expect(screen.getByTestId('cascade-rerun-scope')).not.toHaveTextContent('every row is replaced');
     // The confirm itself is unchanged — the honesty is copy, not a new gate.
     const confirm = screen.getByTestId('cascade-confirm-run');
     expect(confirm).toHaveTextContent('Re-run 2');
@@ -115,11 +99,10 @@ function blockedEmbeddingWatch(): WatchInfo {
   return {
     id: 5,
     name: 'Leads',
-    scope: 'sheet',
     sheetId: 1,
-    query: { kind: 'embedding_similarity', embedding_index_id: 'idx-1' },
-    queryVersion: null,
-    queryHash: null,
+    viewId: 4,
+    schedule: '@hourly',
+  detectionPolicy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
     enabled: true,
     lastEvaluatedOp: 0,
     lastRunId: 3,
@@ -137,7 +120,7 @@ function blockedEmbeddingWatch(): WatchInfo {
       error: 'embedding index is stale',
       errorCode: 'embedding_index_stale',
       resolvedQueryHash: null,
-      resolvedQuery: {},
+      resolvedQuery: { similarity: { kind: 'embedding_similarity', embedding_index_id: 'idx-1' } },
       startedAt: '2026-07-27 00:00:00',
       finishedAt: null,
     },

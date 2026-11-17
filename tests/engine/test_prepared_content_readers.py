@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from helpers import stored_output_descriptor
 
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cell_pairs
@@ -87,13 +88,6 @@ def test_current_reads_and_sql_filter_resolve_prepared_content(
         assert refs[row_ids[0]]["prepared_ref_id"] == document_ref.ref_id
         assert refs[row_ids[1]]["prepared_ref_id"] == page_ref.ref_id
 
-        candidate_values, candidate_refs = project.get_values_with_refs(
-            sheet_id, body_id, row_ids, apply_edits=False
-        )
-        assert candidate_values == values
-        assert candidate_refs[row_ids[0]]["prepared_ref_id"] == document_ref.ref_id
-        assert candidate_refs[row_ids[1]]["prepared_ref_id"] == page_ref.ref_id
-
         crossing = resolve_sheet_filter_rows(
             project,
             sheet_id,
@@ -131,17 +125,27 @@ def test_historical_result_readers_resolve_prepared_content(tmp_path: Path) -> N
                 (run_op_id, sheet_id, "map.test"),
             ).lastrowid
         )
+        from frisket.engine.store.changes import start_change
+
+        RunResultStore(project).record_run_row_scope(run_id, [row_id])
+        start_change(project.db, run_op_id, writing=True)
         project.db.execute(
             "INSERT INTO run_output_generations "
             "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-            "claim_token) VALUES (?,?,?,'prepared-reader-test','create','active',?)",
-            (run_id, body_id, "body", "claim"),
+            "claim_token,output_descriptor_json) VALUES (?,?,?,'prepared-reader-test','create','active',?,?)",
+            (
+                run_id,
+                body_id,
+                "body",
+                "claim",
+                stored_output_descriptor(project.db, body_id),
+            ),
         )
         value_kind, stored_value = encode_stored_value(document_ref)
         project.db.execute(
             "INSERT INTO results "
-            "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
-            "VALUES (?,?,?,?,?,'ok','publish_value')",
+            "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,published) "
+            "VALUES (?,?,?,?,?,'ok','publish_value',1)",
             (run_id, row_id, body_id, value_kind, stored_value),
         )
         project.db.execute(

@@ -23,6 +23,7 @@ Two-part fix, tested independently:
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 from typing import Any
@@ -265,16 +266,7 @@ def test_download_backfills_empty_channel_cells_and_never_clobbers_non_empty(
     monkeypatch.setattr(youtube_ops, "download_media", fake_download)
 
     action = _youtube_download_action(sheet_id=sheet_id, row_ids=row_ids)
-    router = ModelRouter()
-    challenge = run_action_spec(
-        project,
-        action,
-        project_id=PROJECT_ID,
-        router=router,
-    )
-    assert challenge.status == "needs_confirmation", challenge.errors
-    promise_set_hash = challenge.errors[0].details["promise_set_hash"]
-    action["confirmation"] = promise_set_hash
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     result = run_action_spec(
         project,
         action,

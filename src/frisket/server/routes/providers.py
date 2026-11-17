@@ -466,6 +466,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
     )
     def setup_model_engine(body: EngineSetupRequest) -> ModelPullStartResponse:
         """Start an allowlisted local engine setup operation."""
+        from frisket.contracts.classification import LOCAL_CLASSIFIERS
         from frisket.engine.jobs.engine_setup import (
             CHROMIUM_SETUP_REF,
             SPACY_SETUP_REF,
@@ -488,6 +489,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             DOCLING_SETUP_REF,
             INDRA_OCR_SETUP_REF,
             EMBEDDINGGEMMA_SETUP_REF,
+            *(spec.setup_ref for spec in LOCAL_CLASSIFIERS.values()),
         }:
             raise RouteError(
                 400,
@@ -541,21 +543,26 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                 },
             )
         engine = workspace.queue.engine
-        # Fence lookup->tombstone->delete atomically. The store refuses if
-        # a pull is in flight and flips ALL done rows for the ref in ONE
-        # transaction, so a concurrent install can't race the delete.
+        from frisket.engine.jobs.artifact_pull import (
+            uninstall_artifact as remove_artifact,
+        )
+
         try:
-            row = model_pull_store.mark_ref_uninstalled(
-                engine, workspace_root=str(root), model_ref=art.canonical
-            )
+            row = remove_artifact(engine, workspace_root=str(root), art=art)
         except model_pull_store.UninstallInFlightError as exc:
             raise RouteError(
                 409,
                 {
                     "code": "pull_in_flight",
-                    "message": (
-                        f"a pull is in progress for {art.canonical}; cannot uninstall"
-                    ),
+                    "message": "The model is being installed or removed; try again when it finishes.",
+                },
+            ) from exc
+        except OSError as exc:
+            raise RouteError(
+                409,
+                {
+                    "code": "artifact_remove_failed",
+                    "message": "Could not remove the model files. Stop work using this model and retry.",
                 },
             ) from exc
         if row is None:
@@ -567,11 +574,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                 },
             )
         from frisket.ops.integrations import opus_mt
-        from frisket.ai.models import model_cache
 
-        # Bytes are removed AFTER the tombstone commits; the translator-cache
-        # invalidation covers the brief in-flight-load window.
-        model_cache.uninstall(art)
         opus_mt._clear_translator_cache()
         return _pull_dto(model_pull_store.get(engine, row.id))
 

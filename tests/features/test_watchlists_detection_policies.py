@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +56,8 @@ def _create_filter_watch(
     *,
     policy: dict[str, Any],
 ) -> dict[str, Any]:
-    response = client.post(
+    response = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": f"{policy['kind']} watch",
@@ -70,7 +73,9 @@ def _create_filter_watch(
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["detection_policy"] == policy
+    from frisket.contracts.query_spec import detection_conditions
+
+    assert body["detection_policy"] == detection_conditions(policy)
     return body
 
 
@@ -115,11 +120,7 @@ def test_membership_changed_emits_entered_and_exited_rows(tmp_path: Path) -> Non
     first = _run_watch(client, pid, watch["id"])
     assert first["run"]["matched_rows"] == 2
     first_events = _events(client, pid, watch["id"], first["run"]["id"])
-    assert [event["event_kind"] for event in first_events] == [
-        "row_entered",
-        "row_entered",
-    ]
-    assert {event["after_json"]["is_new"] for event in first_events} == {True}
+    assert first_events == []
 
     edit = post_cell_edit_as_v1_action(
         client,
@@ -191,6 +192,11 @@ def test_count_and_threshold_events_use_approved_first_run_baseline(
         },
     )
 
+    from watch_helpers import seed_empty_watch_baseline
+
+    project = client.app.state.workspace.get(pid)
+    seed_empty_watch_baseline(project, count_watch["id"])
+    seed_empty_watch_baseline(project, threshold_watch["id"])
     first_count = _run_watch(client, pid, count_watch["id"])
     count_events = _events(client, pid, count_watch["id"], first_count["run"]["id"])
     assert [event["event_kind"] for event in count_events] == ["count_changed"]
@@ -306,7 +312,8 @@ def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
 
-    empty_fields = client.post(
+    empty_fields = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "bad row changed",
@@ -322,7 +329,8 @@ def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
     assert empty_fields.status_code == 400, empty_fields.text
     assert "fields" in empty_fields.json()["detail"]
 
-    bad_metric = client.post(
+    bad_metric = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "bad threshold",

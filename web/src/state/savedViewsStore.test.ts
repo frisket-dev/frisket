@@ -6,7 +6,8 @@ const view = (id: number, name: string, sheetId = 1): SavedView => ({
   id,
   name,
   sheet_id: sheetId,
-  spec: { filter: { status: { eq: 'open' } } },
+  spec: { selection: { scope: { kind: 'sheet', sheet_id: sheetId }, filters: [{ column_id: 1, condition: { eq: 'open' } }], order: [], limit: null }, presentation: {} },
+  unavailable_reason: null,
   op_id: null,
 });
 
@@ -282,9 +283,9 @@ describe('createSavedViewsStore', () => {
       completeDefinitionUpdate,
     } = createSavedViewsStore();
     const original = view(1, 'Open only');
-    const updated = {
+    const updated: SavedView = {
       ...view(1, 'Open only'),
-      spec: { filter: { status: { eq: 'closed' } }, sort: [{ column: 'city', dir: 'asc' }] },
+      spec: { selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [{ column_id: 1, condition: { eq: 'closed' } }], order: [{ column_id: 2, dir: 'asc' }], limit: null }, presentation: {} },
     };
 
     resetForSheet(1);

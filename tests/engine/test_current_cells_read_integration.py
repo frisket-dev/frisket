@@ -44,19 +44,14 @@ def test_current_reads_and_querysets_follow_candidate_beneath_edit_undo_redo(
         live, live_refs = project.get_values_with_refs(
             sheet_id, column_id, [row_ids[0]]
         )
-        candidate, candidate_refs = project.get_values_with_refs(
-            sheet_id, column_id, [row_ids[0]], apply_edits=False
+        from frisket.engine.store.runs import RunResultStore
+
+        saved = RunResultStore(project).decoded_result_rows(
+            [(run.run_id, row_ids[0], column_id)]
         )
         assert live[row_ids[0]] == "manual"
         assert live_refs[row_ids[0]]["kind"] == "manual_edit"
-        assert candidate[row_ids[0]] == "first:0"
-        assert candidate_refs[row_ids[0]] == {
-            "kind": "run_result",
-            "op_id": run.op_id,
-            "row_id": row_ids[0],
-            "column_id": column_id,
-            "run_id": run.run_id,
-        }
+        assert saved[(run.run_id, row_ids[0], column_id)]["value"] == "first:0"
 
         manual = resolve_sheet_filter_rows(
             project,
@@ -131,9 +126,11 @@ def test_failed_and_withheld_heads_refresh_to_explicit_null_current_values(
             sheet_id, column_id, row_ids[:2]
         )
         assert staged_values == {row_ids[0]: None, row_ids[1]: None}
+        # Fixed output scope has an owner immediately, even before a
+        # checkpoint is published. Its pending values remain unavailable.
         assert [staged_refs[row_id]["kind"] for row_id in row_ids[:2]] == [
-            "missing",
-            "missing",
+            "run_result",
+            "run_result",
         ]
         results.fail_result_value(run.run_id, row_ids[0], column_id, "model failed")
         results.withhold_result_value(run.run_id, row_ids[1], column_id, "no citation")
@@ -190,6 +187,8 @@ def test_current_cell_grid_payload_handles_a_page_larger_than_sqlite_bind_chunk(
             "row_id": row_ids[-1],
             "column_id": column_id,
             "run_id": None,
+            "producer_id": 1,
+            "outcome": "completed",
         }
     finally:
         project.close()

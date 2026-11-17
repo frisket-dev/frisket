@@ -26,6 +26,7 @@ to" amount caps the customer debit while Frisket absorbs metered variance.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
@@ -401,6 +402,39 @@ def test_accepted_unknown_call_reconciles_into_spend_once(tmp_path) -> None:
         project.close()
 
 
+@pytest.mark.parametrize("replacement", [None, 101])
+def test_unknown_token_meter_can_be_enriched_but_not_rewritten(
+    tmp_path, replacement
+) -> None:
+    project = _project(tmp_path)
+    try:
+        run_id = _run_id(project)
+        call_id = "unknown-token-meter"
+        accepted = _call(cost_usd=None, call_id=call_id)
+        accepted["units"] = {"requests": 1, "tokens_in": None, "tokens_out": None}
+        _record(project, run_id, [accepted])
+
+        known = _call(cost_usd=None, call_id=call_id)
+        known["units"] = {"requests": 1, "tokens_in": 100}
+        _record(project, run_id, [known])
+        [fact] = RunResultStore(project).model_calls(run_id)
+        assert json.loads(fact["units"]) == {
+            "requests": 1,
+            "tokens_in": 100,
+            "tokens_out": None,
+        }
+
+        conflict = _call(cost_usd=None, call_id=call_id)
+        conflict["units"] = {"requests": 1, "tokens_in": replacement}
+        with pytest.raises(RuntimeError, match="meter drift"):
+            _record(project, run_id, [conflict])
+        [fact] = RunResultStore(project).model_calls(run_id)
+        assert json.loads(fact["units"])["tokens_in"] == 100
+        assert _spend(project).unmetered_calls == 1
+    finally:
+        project.close()
+
+
 def test_negative_terminal_cost_cannot_credit_the_cap(tmp_path) -> None:
     """Reconciliation may only ADD information, never refund the key.
 
@@ -603,7 +637,10 @@ def _runner_and_spec(project: Project, *, router: ModelRouter | None = None):
     cols = {"text": project.add_column(sheet_id, "text")}
     project.add_rows(sheet_id, [{"text": "hello there"}], cols)
     router = router or ModelRouter(
-        keys={"anthropic": "sk-ant-test"}, cache=None, cache_mode="off"
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "sk-ant-test"},
+        cache=None,
+        cache_mode="off",
     )
     runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
     return runner, _classify_spec(sheet_id)
@@ -679,6 +716,7 @@ def test_launch_refuses_under_the_default_replay_router(tmp_path) -> None:
         runner, spec = _runner_and_spec(
             project,
             router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "sk-ant-test"},
                 cache=ResponseCache(project.path / "project.cache.db"),
                 cache_mode="replay",
@@ -699,6 +737,7 @@ def test_replay_strict_never_refuses_on_the_cap(tmp_path) -> None:
         runner, spec = _runner_and_spec(
             project,
             router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={"anthropic": "sk-ant-test"},
                 cache=ResponseCache(project.path / "project.cache.db"),
                 cache_mode="replay_strict",
@@ -724,7 +763,13 @@ def test_the_cap_answers_before_the_missing_key(tmp_path) -> None:
         # A router with NO key for the capped provider: the withheld-key
         # scene, whatever withheld it.
         runner, spec = _runner_and_spec(
-            project, router=ModelRouter(keys={}, cache=None, cache_mode="off")
+            project,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            ),
         )
         with pytest.raises(ProviderSpendCapExceeded):
             _prepare_after_exact_confirmation(runner, spec)
@@ -843,5 +888,44 @@ def test_refusal_message_admits_the_total_is_a_lower_bound(tmp_path) -> None:
         assert "no published price" in message
         assert "higher" in message
         assert excinfo.value.details["unmetered_calls"] == 1
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize("ocr_tokens", [(10, 2), (None, None)])
+def test_run_and_receipt_token_totals_share_meter_semantics(tmp_path, ocr_tokens):
+    from frisket.ai.models.usage_counts import model_call_token_counts
+    from frisket.engine.executor.action_support import _model_call_provider_use
+    from frisket.server.run_payloads import run_tokens
+
+    project = _project(tmp_path)
+    try:
+        run_id = _run_id(project)
+        calls = []
+        for capability, units in (
+            ("ocr", {"tokens_in": ocr_tokens[0], "tokens_out": ocr_tokens[1]}),
+            ("ocr", {"pages": 3}),
+            ("embedding", {"input_tokens": 5}),
+        ):
+            call = _call(cost_usd=0.001)
+            call.update(capability=capability, units=units)
+            calls.append(call)
+        _record(project, run_id, calls)
+        expected = (
+            {"tokens_in": 15, "tokens_out": 2}
+            if ocr_tokens[0] is not None
+            else {
+                "tokens_in": None,
+                "tokens_out": None,
+            }
+        )
+        assert model_call_token_counts(calls) == expected
+        assert {
+            name: run_tokens(project, run_id, name) for name in expected
+        } == expected
+        [receipt] = _model_call_provider_use(
+            calls, model="anthropic/test-model", run=None
+        )
+        assert {name: receipt[name] for name in expected} == expected
     finally:
         project.close()

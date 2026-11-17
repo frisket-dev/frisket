@@ -14,7 +14,11 @@ from frisket.engine.store.cell_writes import (
     remove_base_cells,
     replace_base_cells,
 )
-from frisket.engine.store.import_sessions import ImportInProgress, ImportSessionStore
+from frisket.engine.store.import_sessions import (
+    ImportInProgress,
+    ImportSessionStore,
+    ImportSessionConflict,
+)
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.server.services.project_exports import (
@@ -127,7 +131,7 @@ def test_import_replacement_requires_current_writer_token(tmp_path, token):
         project.close()
 
 
-def test_result_write_sheet_delete_and_undo_are_blocked_during_import(
+def test_result_write_sheet_delete_blocked_but_undo_cancels_import(
     tmp_path: Path,
 ) -> None:
     project = Project.create(tmp_path / "boundaries.frisket", name="boundaries")
@@ -143,9 +147,14 @@ def test_result_write_sheet_delete_and_undo_are_blocked_during_import(
             RunResultStore(project).mark_run_results_verified(run_id)
         with pytest.raises(ImportInProgress):
             project.delete_sheet(writer.sheet_id)
-        with pytest.raises(ImportInProgress):
-            project.undo()
+        project.undo()
+        assert project.sheets() == []
+        assert ImportSessionStore(project).get(session.id).state == "removed"
+        project.redo()
         assert project.sheets()[0]["id"] == writer.sheet_id
+        assert ImportSessionStore(project).get(session.id).state == "removed"
+        with pytest.raises(ImportSessionConflict):
+            writer.append_page([{"value": "late"}], expected_cursor=0, next_cursor=1)
     finally:
         project.close()
 
@@ -249,7 +258,7 @@ def test_bundle_export_round_trips_resolved_import(tmp_path: Path, state: str) -
         writer = _session(project)
         writer.append_page([{"value": "one"}], expected_cursor=0, next_cursor=1)
         if state == "completed":
-            writer.finalize_session(expected_cursor=1)
+            writer.finalize_session(expected_cursor=1, enumeration_complete=True)
         else:
             writer.cancel(expected_cursor=1)
             if state == "kept":

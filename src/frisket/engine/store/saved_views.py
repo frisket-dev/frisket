@@ -1,9 +1,4 @@
-"""Saved views and lenses for a project bundle. A view is a named, reusable
-filter/sort over a sheet; a lens is a saved semantic view (LensSpec). Both are
-provenance-bearing: creating or re-saving one appends an op through the
-facade's op log. Free functions over the facade's per-thread SQLite
-connection; ``project`` stays duck-typed (``Any``) so this leaf never
-re-imports the facade module."""
+"""One saved View definition: selection plus display preferences."""
 
 from __future__ import annotations
 
@@ -32,7 +27,7 @@ def add_view(
     name: str,
     spec: dict[str, Any] | None = None,
     *,
-    sheet_id: int,
+    sheet_id: int | None = None,
     commit: bool = True,
 ) -> int:
     """Create a saved view and log it as an op.
@@ -42,7 +37,13 @@ def add_view(
     "sort/filter the sheet" action becomes provenance-bearing. Returns the
     new view id.
     """
-    spec = spec or {}
+    from frisket.engine.views.specs import normalize_view_spec
+
+    spec = normalize_view_spec(project, spec or {})
+    derived_sheet = spec["selection"]["scope"].get("sheet_id")
+    if sheet_id is not None and sheet_id != derived_sheet:
+        raise ValueError("view sheet_id does not match selection scope")
+    sheet_id = derived_sheet
     op_id = project.append_op(
         "view",
         {"name": name, "sheet_id": sheet_id, "spec": spec},
@@ -72,8 +73,11 @@ def update_view(
         sets.append("name=?")
         vals.append(name)
     if spec is not None:
-        sets.append("spec=?")
-        vals.append(json.dumps(spec))
+        from frisket.engine.views.specs import normalize_view_spec
+
+        spec = normalize_view_spec(project, spec)
+        sets.extend(["spec=?", "sheet_id=?"])
+        vals.extend([json.dumps(spec), spec["selection"]["scope"].get("sheet_id")])
     if not sets:
         return
     op_id = project.append_op(
@@ -90,75 +94,12 @@ def update_view(
 
 
 def delete_view(project: Any, view_id: int) -> None:
+    # Reuse alert deletion so notification payloads cannot retain deleted details.
+    from .watches import delete_watch
+
+    for row in project.db.execute(
+        "SELECT id FROM watches WHERE view_id=?", (view_id,)
+    ).fetchall():
+        delete_watch(project, int(row["id"]))
     project.db.execute("DELETE FROM views WHERE id=?", (view_id,))
-    project.db.commit()
-
-
-def lenses(project: Any, sheet_id: int | None = None) -> list[sqlite3.Row]:
-    if sheet_id is None:
-        return project.db.execute(
-            "SELECT * FROM lenses ORDER BY created_at, id"
-        ).fetchall()
-    return project.db.execute(
-        "SELECT * FROM lenses WHERE sheet_id=? ORDER BY created_at, id",
-        (sheet_id,),
-    ).fetchall()
-
-
-def get_lens(project: Any, lens_id: int) -> sqlite3.Row | None:
-    return project.db.execute("SELECT * FROM lenses WHERE id=?", (lens_id,)).fetchone()
-
-
-def add_lens(
-    project: Any,
-    name: str,
-    spec: dict[str, Any],
-    sheet_id: int | None = None,
-) -> int:
-    """Persist a saved lens (a LensSpec) and log it as an op (kind='lens') so
-    saving a semantic view is provenance-bearing. Returns the new lens id."""
-    op_id = project.append_op(
-        "lens",
-        {"name": name, "sheet_id": sheet_id, "spec": spec},
-        label=f"lens {name}",
-    )
-    cur = project.db.execute(
-        "INSERT INTO lenses (sheet_id, name, spec, op_id) VALUES (?,?,?,?)",
-        (sheet_id, name, json.dumps(spec, sort_keys=True), op_id),
-    )
-    project.db.commit()
-    return cur.lastrowid
-
-
-def update_lens(
-    project: Any,
-    lens_id: int,
-    name: str | None = None,
-    spec: dict[str, Any] | None = None,
-) -> None:
-    sets: list[str] = []
-    vals: list[Any] = []
-    if name is not None:
-        sets.append("name=?")
-        vals.append(name)
-    if spec is not None:
-        sets.append("spec=?")
-        vals.append(json.dumps(spec, sort_keys=True))
-    if not sets:
-        return
-    op_id = project.append_op(
-        "lens",
-        {"lens_id": lens_id, "name": name, "spec": spec},
-        label=f"update lens {name or lens_id}",
-    )
-    sets.append("op_id=?")
-    vals.append(op_id)
-    sets.append("updated_at=datetime('now')")
-    vals.append(lens_id)
-    project.db.execute(f"UPDATE lenses SET {', '.join(sets)} WHERE id=?", vals)
-    project.db.commit()
-
-
-def delete_lens(project: Any, lens_id: int) -> None:
-    project.db.execute("DELETE FROM lenses WHERE id=?", (lens_id,))
     project.db.commit()

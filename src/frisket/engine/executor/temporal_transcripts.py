@@ -8,6 +8,8 @@ compatibility reader: only links written with the V1 semantic marker qualify.
 
 from __future__ import annotations
 
+from frisket.engine.store.cell_reference import evidence_subject_ref
+
 import json
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Mapping
@@ -140,9 +142,34 @@ def _candidate_payload(
     if not isinstance(value_ref, dict):
         return None
     value_ref_kind = value_ref.get("kind")
-    if value_ref_kind not in {"run_result", "source_cell", "manual_edit"}:
+    if value_ref_kind not in {
+        "run_result",
+        "source_cell",
+        "manual_edit",
+        "copied_result",
+    }:
         return None
-    if link["link_role"] == "media_transcribe_temporal":
+    if value_ref_kind == "copied_result":
+        retained = value_ref.get("retained_result")
+        if not isinstance(retained, dict) or link["op_id"] != value_ref.get("op_id"):
+            return None
+        copy = project.db.execute(
+            "SELECT source_run_id,source_row_id,source_column_id FROM copied_result_outcomes "
+            "WHERE op_id=? AND row_id=? AND column_id=?",
+            (value_ref.get("op_id"), row_id, column_id),
+        ).fetchone()
+        if (
+            copy is None
+            or dict(retained)
+            != {
+                "run_id": copy["source_run_id"],
+                "row_id": copy["source_row_id"],
+                "column_id": copy["source_column_id"],
+            }
+            or transcript_run_id != copy["source_run_id"]
+        ):
+            return None
+    elif link["link_role"] == "media_transcribe_temporal":
         if value_ref_kind != "run_result" or link["run_id"] != value_ref.get("run_id"):
             return None
     elif value_ref_kind == "manual_edit":
@@ -154,7 +181,7 @@ def _candidate_payload(
     elif value_ref_kind != "source_cell":
         return None
     subject_ref = _loads_object(link["subject_ref_json"])
-    if subject_ref != value_ref:
+    if subject_ref != evidence_subject_ref(value_ref):
         return None
 
     try:

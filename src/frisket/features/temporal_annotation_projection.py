@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from frisket.features.temporal_values import (
+from frisket.contracts.temporal_values import (
     TimelineAnchor,
     TimelinePointItem,
     TimelinePointsValue,

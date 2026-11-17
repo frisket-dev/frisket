@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 import copy
@@ -60,7 +61,12 @@ class _PartialClassifyAdapter:
 
 
 def _router(adapter: Any | None = None) -> ModelRouter:
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter or _ClassifyAdapter()  # noqa: SLF001
     return router
 
@@ -278,6 +284,7 @@ def test_run_context_uses_complete_binding_and_current_renamed_target(
                         }
                     ],
                 },
+                "output_names": {"beat": "initial_beat"},
                 "idempotency_key": "action-compare-run@1",
             },
         )
@@ -285,7 +292,9 @@ def test_run_context_uses_complete_binding_and_current_renamed_target(
         run_id = int(started.json()["run_id"])
         drain_queue(client)
         output = next(
-            column for column in project.columns(sheet_id) if column["name"] == "beat"
+            column
+            for column in project.columns(sheet_id)
+            if column["name"] == "initial_beat"
         )
         with project.db:
             project.db.execute(

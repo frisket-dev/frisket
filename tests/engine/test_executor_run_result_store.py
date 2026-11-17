@@ -6,9 +6,11 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.engine.store.runs import RunResultStore
-from helpers import write_claimed_test_results
+from frisket.execution.attempt import StaleAttemptWriter
+from helpers import run_writer_authority_fixture, write_claimed_test_results
 
 
 def _seed_project(
@@ -137,8 +139,48 @@ def test_run_result_store_preserves_scopes_results_model_calls_and_pointers(
     assert sorted(call["id"] for call in calls) == ["call-score-1", "call-score-2"]
     assert json.loads(calls[0]["model_ids"]) == ["fixture-model"]
 
-    store.finish_run(run_id)
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={columns["score"]}
+    )
+    with pytest.raises(StaleAttemptWriter):
+        store.finish_run(run_id)
+    assert store.get_run(run_id)["status"] == "running"
+    store.finish_run(
+        run_id,
+        writer_attempt_id=authority.writer_attempt_id,
+        claim_token=authority.claim_token,
+    )
     store.point_column_at_run(op_id, columns["score"], run_id)
     assert project.get_column(columns["score"])["current_run_id"] == run_id
     project.undo()
     assert project.get_column(columns["score"])["current_run_id"] is None
+
+
+def test_pre_dispatch_undo_cannot_be_finished_as_completed(tmp_path: Path) -> None:
+    project, sheet_id, _columns, row_ids, op_id = _seed_project(tmp_path)
+    store = RunResultStore(project)
+    try:
+        run_id = store.start_run(
+            op_id,
+            sheet_id,
+            "test.score",
+            params={},
+            total_rows=len(row_ids),
+            row_ids=row_ids,
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        ChangeStore(project).start(op_id, writing=True)
+        project.db.commit()
+        assert project.undo() == op_id
+        # Cancellation targets this ordered execution, leaving the earlier
+        # source-row import visible rather than falling through to undo it.
+        assert project.visible_row_ids(sheet_id) == row_ids
+        run = store.get_run(run_id)
+        assert run["cancel_requested_at"] is not None
+        with pytest.raises(StaleAttemptWriter, match="cancellation intent"):
+            store.finish_run(run_id, "completed")
+        assert store.get_run(run_id)["status"] == "running"
+        store.finish_run(run_id, "cancelled")
+        assert store.get_run(run_id)["status"] == "cancelled"
+    finally:
+        project.close()

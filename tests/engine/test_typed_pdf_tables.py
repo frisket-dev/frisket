@@ -1,3 +1,4 @@
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from contextlib import closing
 from copy import deepcopy
 from dataclasses import replace
@@ -169,7 +170,9 @@ def test_page_scoped_pdf_read_extracts_one_page_and_reports_physical_page(
         cell["page"] = 2
         [row_id] = project.add_rows(sheet, [{"pdf": cell}], {"pdf": column})
 
-        router = ModelRouter(cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
         composition = replace(
             open_execution_composition(
                 project,

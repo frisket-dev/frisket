@@ -25,7 +25,7 @@ export function CostGateModal({ estimate, message, onConfirm, onCancel }: CostGa
   return (
     <ConfirmDialog title="Cost gate" onConfirm={onConfirm} onCancel={onCancel} confirmLabel="Run it"
       testId="cost-gate-modal" confirmTestId="cost-gate-confirm" cancelTestId="cost-gate-cancel">
-        <p className="modal-body-text">{message}</p>
+        <p className="modal-body-text">{estimate.claims?.length ? 'This run needs your confirmation.' : message}</p>
         {(estimate.claims?.length ?? 0) > 0 && (
           <ul className="modal-body-text" data-testid="cost-gate-claims">
             {estimate.claims!.map((claim) => (

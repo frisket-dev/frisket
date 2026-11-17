@@ -12,7 +12,7 @@ from frisket.authoring.workbench.plugin_runtime_shared import (
 )
 from frisket.server.routes.notifications import register_notification_routes
 from frisket.server.routes.projects import register_project_lifecycle_routes
-from frisket.server.routes.views import register_view_lens_routes
+from frisket.server.routes.views import register_view_routes
 from frisket.server.routes.watches import register_watch_routes
 from frisket.server.routes.workbench import register_workbench_routes
 from frisket.server.services.notifications import NotificationRequestError
@@ -55,7 +55,7 @@ class _RaisingService:
             b'{"detail":"notification conflict"}',
         ),
         (
-            register_view_lens_routes,
+            register_view_routes,
             "GET",
             "/api/projects/p/views/9",
             ViewNotFound("service text is intentionally hidden"),
@@ -113,7 +113,7 @@ def test_registrar_translates_its_typed_service_errors_standalone(
     [
         (register_project_lifecycle_routes, "GET", "/api/projects/p"),
         (register_notification_routes, "GET", "/api/projects/p/notifications"),
-        (register_view_lens_routes, "GET", "/api/projects/p/views/9"),
+        (register_view_routes, "GET", "/api/projects/p/views/9"),
         (register_watch_routes, "POST", "/api/projects/p/watches/9/run"),
         (
             register_workbench_routes,

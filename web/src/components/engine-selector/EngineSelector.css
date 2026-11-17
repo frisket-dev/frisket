@@ -11,6 +11,14 @@
   padding-right: 10px;
 }
 
+.engine-selector[aria-busy='true'] .engine-selector__trigger-copy,
+.engine-selector[aria-busy='true'] .engine-selector__status {
+  visibility: hidden;
+}
+
+/* Reserve the secondary line while the empty trigger awaits its choice. */
+.engine-selector__trigger-copy small:empty::before { content: '\00a0'; }
+
 .engine-selector__trigger-copy,
 .engine-selector__choice-copy {
   display: grid;

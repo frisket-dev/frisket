@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { createLensViewStore } from './lensViewStore';
 import {
   previewViewForSheet,
   type PreviewGridView,
@@ -22,26 +21,6 @@ const preview = (sheetId: string): PreviewGridView => ({
     output_names: {},
     idempotency_key: 'preview-1',
   },
-});
-
-describe('STRUCT-A1 lens resolve generation', () => {
-  it('resetForSheetChange invalidates a token issued before the reset', () => {
-    const lensView = createLensViewStore();
-    const token = lensView.beginLensResolve();
-
-    expect(lensView.isCurrentLensResolve(token)).toBe(true);
-    lensView.resetForSheetChange();
-    expect(lensView.isCurrentLensResolve(token)).toBe(false);
-  });
-
-  it('the exit path generation bump invalidates a token issued before exit', () => {
-    const lensView = createLensViewStore();
-    const token = lensView.beginLensResolve();
-
-    // exitLensView uses beginLensResolve as its generation bump before clearing.
-    lensView.beginLensResolve();
-    expect(lensView.isCurrentLensResolve(token)).toBe(false);
-  });
 });
 
 describe('previewViewForSheet', () => {

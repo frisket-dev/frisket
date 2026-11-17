@@ -176,7 +176,13 @@ def test_queue_reserves_intent_without_index_lookup_or_handler(source, monkeypat
     assert envelope.action["action_id"] == "embedding.index_refresh"
     assert envelope.resolve_phase == "worker"
     assert envelope.params_hash == typed_request_hash(bound)
-    result = run_index_refresh_action_job(project, envelope)
+    from frisket.engine.executor.action_jobs import run_action_run_job
+
+    result = run_action_run_job(
+        project,
+        {"action_job": envelope.to_json()},
+        executor_lookup=lambda kind: run_index_refresh_action_job,
+    )
     assert result.status == "failed"
     assert result.errors[0].code == "embedding_index_not_found"
     assert (

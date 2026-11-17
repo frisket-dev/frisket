@@ -9,6 +9,7 @@ on:
       - 'src/frisket/runtime/classifier_install.py'
       - 'src/frisket/runtime/embeddinggemma_install.py'
       - 'src/frisket/runtime/_bootstrap.py'
+      - 'src/frisket/runtime/_environment_use.py'
       - 'src/frisket/runtime/launch.py'
       - 'src/frisket/engine/_workers/classifier_*.py'
       - 'src/frisket/engine/_workers/embeddinggemma_*.py'

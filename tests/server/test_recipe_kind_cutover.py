@@ -1,6 +1,7 @@
 """Durable canonical-writer and plugin action-kind integration checks."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -40,7 +41,9 @@ def _run_row(project: Project, run_id: int) -> Any:
 
 
 def _run_recipe(project: Project, spec: dict) -> Any:
-    router = ModelRouter(keys={"anthropic": "k"})
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+    )
     return asyncio.run(
         run_with_output_claim(
             MapRunner(project, router, authority=UnroutedOnlyAuthority(project)),

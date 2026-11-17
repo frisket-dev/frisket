@@ -109,3 +109,37 @@ def test_gateway_preserves_other_local_model_failures_as_provider_errors(monkeyp
         EmbeddingGateway().embed(
             ["input"], provider="fastembed", model=None, modality="text"
         )
+
+
+@pytest.mark.parametrize("error_type", [TypeError, RuntimeError])
+def test_remote_gateway_does_not_disguise_dispatch_wiring_errors(error_type):
+    error = error_type("remote failure")
+
+    class Router:
+        async def embed_batch(self, texts, *, model, modality):
+            raise error
+
+    expected = TypeError if error_type is TypeError else EmbeddingProviderError
+    with pytest.raises(expected, match="remote failure") as caught:
+        EmbeddingGateway(router=Router()).embed(
+            ["input"],
+            provider="openai",
+            model="text-embedding-3-small",
+            modality="text",
+        )
+    if error_type is TypeError:
+        assert caught.value is error
+
+
+def test_remote_gateway_preserves_missing_execution_keyword_type_error():
+    class Router:
+        async def embed_batch(self, texts, *, model, modality, _execution):
+            raise AssertionError("unowned dispatch must fail before transport")
+
+    with pytest.raises(TypeError, match="_execution"):
+        EmbeddingGateway(router=Router()).embed(
+            ["input"],
+            provider="openai",
+            model="text-embedding-3-small",
+            modality="text",
+        )

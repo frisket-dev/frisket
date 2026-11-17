@@ -129,6 +129,7 @@ describe('StatusBar PDF indexing progress', () => {
       resume: vi.fn(),
       stop: vi.fn(async () => {}),
       keep: vi.fn(),
+      remove: vi.fn(),
     };
     view.rerender(statusBar(importProgress));
     fireEvent.click(screen.getByTestId('search-activity-toggle'));

@@ -272,8 +272,12 @@ export function useReviewSession({ runId, options, readOnly = false, onDecisionS
     let saved = 0;
     try {
       for (const target of targets) {
-        await api.reviewItem(target.id, action, value);
-        updated = { ...updated, fields: updated.fields.map((item) => item.id === target.id ? applyDecision(item, action, value) : item) };
+        if (action === 'edit') {
+          await api.editCells([{ rowId: bundle.rowId, columnId: target.columnId, value: value ?? null }]);
+        } else {
+          await api.reviewItem(target.id, action, undefined);
+        }
+        updated = { ...updated, fields: updated.fields.map((item) => item.id === target.id ? applyDecision(item, action) : item) };
         const next = updated;
         setPage((current) => current && ({ ...current, bundles: current.bundles.map((row) => row.id === next.id ? next : row) }));
         saved += 1;

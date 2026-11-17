@@ -16,10 +16,13 @@ from frisket.engine.executor.web_search_read import (
     search_provider_use,
 )
 from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.execution.dispatch_control import STANDALONE
 
 
 def _context(**extras):
-    return OpContext(project=None, http=None, extras=extras)
+    return OpContext(
+        project=None, http=None, extras={"standalone_dispatch": STANDALONE, **extras}
+    )
 
 
 @pytest.mark.parametrize("mode", ["preview", "network_off", "missing_writer"])
@@ -228,3 +231,51 @@ def test_search_service_dependency_reaches_map_runner_context() -> None:
     assert runner.op_context_extras["search_service_factory"] is factory
     assert runner.op_context_extras["url_capture_browser"] is browser
     assert "existing" in runner.op_context_extras
+
+
+def test_paid_search_keeps_returned_receipt_when_accounting_write_fails(monkeypatch):
+    events = []
+
+    from frisket.execution.purchases import PurchaseAdmission
+
+    class Policy:
+        def admit_purchase(self, request):
+            events.append("admitted")
+            assert request.provider == "tavily"
+            return PurchaseAdmission("metered", "search-operation")
+
+        def record_purchase(self, request, admission, observation):
+            assert observation.result["provider"] == "tavily"
+            events.append("accounting")
+            raise RuntimeError("accounting write unavailable")
+
+        def fail_purchase(self, request, admission, error):
+            assert admission.operation_id == "search-operation"
+            assert error.provider_result.provider == "tavily"
+            assert error.observation.provider_cost_micro == 8000
+            assert error.observation.usage == {"requests": 1, "credits": 1}
+
+    def transport(request):
+        events.append("provider")
+        return httpx.Response(200, json={"results": [], "usage": {"credits": 1}})
+
+    def record(self, attempt, *, response, error, quote):
+        assert response is not None
+        events.append("receipt")
+
+    monkeypatch.setattr(AdmittedWebSearcher, "_record", record)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as http:
+            service = SearchService(
+                preference="tavily", effective_keys={"tavily": "fixture"}, http=http
+            )
+            reader = AdmittedWebSearcher(
+                _context(service_operation_policy=Policy()), search_service=service
+            )
+            with pytest.raises(RuntimeError, match="accounting write unavailable"):
+                await reader.search("query", max_results=1)
+            await reader.aclose()
+
+    asyncio.run(run())
+    assert events == ["admitted", "provider", "accounting", "receipt"]

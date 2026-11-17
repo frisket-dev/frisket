@@ -33,11 +33,17 @@ def watch_run_notification_candidate(
     if not events:
         return None
     event_ids = sorted(int(event["id"]) for event in events)
-    event_kinds = sorted({str(event["event_kind"]) for event in events})
-    event_count = len(events)
+    event_groups = list(
+        project.db.execute(
+            "SELECT event_kind,severity,COUNT(*) total FROM watch_run_events WHERE run_id=? GROUP BY event_kind,severity",
+            (run_id,),
+        )
+    )
+    event_kinds = sorted({str(event["event_kind"]) for event in event_groups})
+    event_count = project.watch_run_events_total(int(run_id))
     watch_name = str(watch["name"])
     severity = _highest_severity(
-        str(event.get("severity") or "info") for event in events
+        str(event["severity"] or "info") for event in event_groups
     )
     matched_rows = int(run["matched_rows"] or 0)
     new_rows = int(run["new_rows"] or 0)
@@ -54,6 +60,7 @@ def watch_run_notification_candidate(
         "source_kind": "watch",
         "source_ref": {"watch_id": int(watch_id), "run_id": int(run_id)},
         "source_event_ids": event_ids,
+        "event_count": event_count,
         "dedupe_key": watch_events_dedupe_key(
             watch_id=int(watch_id),
             run_id=int(run_id),
@@ -74,6 +81,7 @@ def watch_run_notification_candidate(
             "matched_rows": matched_rows,
             "new_rows": new_rows,
             "event_kinds": event_kinds,
+            "event_count": event_count,
         },
     }
 
@@ -90,9 +98,19 @@ def emit_watch_run_notification(
         watch_id=watch_id,
         run_id=run_id,
     )
-    if candidate is None:
-        return None
-    return emit_notification_candidate(project, candidate, actor_id=actor_id)
+    result = (
+        emit_notification_candidate(project, candidate, actor_id=actor_id)
+        if candidate is not None
+        else None
+    )
+    # The observation transaction creates this obligation. Only clear it after
+    # durable notification and delivery planning; recovery safely repeats either.
+    project.db.execute(
+        "UPDATE watch_runs SET notification_pending=0 WHERE id=? AND watch_id=?",
+        (run_id, watch_id),
+    )
+    project.db.commit()
+    return result
 
 
 def _highest_severity(values: Any) -> str:

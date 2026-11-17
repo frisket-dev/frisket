@@ -1,6 +1,7 @@
 """Judge contract: AI-generated target, same-family allowed, generic skeleton."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import copy
@@ -37,7 +38,10 @@ class _SequenceAdapter:
 
 def _stub_router(*replies: dict[str, Any]) -> tuple[ModelRouter, _SequenceAdapter]:
     router = ModelRouter(
-        keys={"anthropic": "k", "openai": "k"}, cache=None, cache_mode="off"
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k", "openai": "k"},
+        cache=None,
+        cache_mode="off",
     )
     adapter = _SequenceAdapter(list(replies))
     router._adapters["anthropic"] = adapter  # noqa: SLF001

@@ -89,6 +89,7 @@ from frisket.execution.provider import (
 from frisket.execution.targets import (
     CAPABILITY_CENSUS as CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY as CAPABILITY_CLASSIFY,
+    CAPABILITY_NER as CAPABILITY_NER,
     CAPABILITY_GEOCODE as CAPABILITY_GEOCODE,
     CAPABILITY_LLM as CAPABILITY_LLM,
     CAPABILITY_OCR as CAPABILITY_OCR,
@@ -107,6 +108,7 @@ from frisket.execution.targets import (
     US_CENSUS_TARGET_ID as US_CENSUS_TARGET_ID,
     CensusOptionSupport,
     ClassifyOptionSupport,
+    NerOptionSupport,
     ExecutionTarget,
     GeocodeOptionSupport,
     LLMOptionSupport,
@@ -141,6 +143,7 @@ LOCAL_MODELS_TOKEN_ENV = "FRISKET_LOCAL_MODELS_TOKEN"
 
 _MODELS_GATEWAY_ROUTE_BY_CAPABILITY = {
     CAPABILITY_CLASSIFY: "/classify",
+    CAPABILITY_NER: "/ner",
     CAPABILITY_OCR: "/ocr",
     CAPABILITY_TO_MARKDOWN: "/to-markdown",
     CAPABILITY_TRANSCRIBE: "/v1/transcribe",
@@ -406,6 +409,15 @@ def _with_current_llm_catalog(target: ExecutionTarget) -> ExecutionTarget:
     return replace(target, engines=tuple(engines))
 
 
+def _ner_support(engine: str, transport: str) -> TargetEngineSupport:
+    return TargetEngineSupport(
+        engine=engine,
+        transport=transport,
+        capability=CAPABILITY_NER,
+        options=NerOptionSupport(),
+    )
+
+
 def _classify_support(engine: str, transport: str) -> TargetEngineSupport:
     return TargetEngineSupport(
         engine=engine,
@@ -559,6 +571,7 @@ def build_static_targets(
         *_gateway_ocr_engines(),
         *_gateway_to_markdown_engines(),
         _classify_support("clef-flash", "sidecar.classify"),
+        _ner_support("gliner", "sidecar.ner"),
     )
     if managed_models_gateway_roster is not None:
         configured = {
@@ -595,6 +608,7 @@ def build_static_targets(
                     sizes=LOCAL_WHISPER_SIZES,
                 ),
                 *_local_ocr_engines(),
+                _ner_support("spacy", "local"),
                 *_local_translate_engines(),
                 *_local_to_markdown_engines(),
                 *(

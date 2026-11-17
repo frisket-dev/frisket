@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -12,6 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.jobs import model_pull_store
@@ -26,6 +28,7 @@ from frisket.server.workspace import Workspace
 def _app(
     root: Path,
     *,
+    edition: str = "solo",
     router: ModelRouter | None = None,
     capabilities_for: Callable[..., SelectorCapabilities] | None = None,
     execution_router_factory: Callable[[], ModelRouter] | None = None,
@@ -43,6 +46,7 @@ def _app(
     register_selector_choices_routes(
         app,
         workspace=workspace,
+        edition=edition,
         capabilities_for=(
             capabilities_for or (lambda _request, _pid: SelectorCapabilities())
         ),
@@ -415,7 +419,9 @@ def test_provider_setup_carries_backend_owned_scopes_and_never_key_material(
 ) -> None:
     client, _workspace, project_id = _app(
         tmp_path / "provider",
-        router=ModelRouter(keys={}, use_env_keys=False),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
+        ),
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
             may_author_actions=True,
             may_run_actions=True,
@@ -450,7 +456,11 @@ def test_configured_provider_is_runnable_only_with_run_capability(
     key = "test-openai-key-must-never-render"
     client, _workspace, project_id = _app(
         tmp_path / "configured",
-        router=ModelRouter(keys={"openai": key}, use_env_keys=False),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"openai": key},
+            use_env_keys=False,
+        ),
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
             may_author_actions=True,
             may_run_actions=True,
@@ -600,15 +610,20 @@ def test_configured_local_endpoint_discovery_is_called_once_and_preserves_model_
     assert response.json()["groups"][0]["label"] == "Lab server"
 
 
+@pytest.mark.parametrize("edition", ["solo", "team"])
 def test_clef_setup_distinguishes_gateway_and_cloudflare(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edition: str
 ) -> None:
+    from frisket.execution.resolver import Refusal, Resolution, resolve
+    from frisket.execution.targets import CAPABILITY_CLASSIFY
+
     monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
-    client, _workspace, pid = _app(
+    client, workspace, pid = _app(
         tmp_path / "clef",
+        edition=edition,
         capabilities_for=lambda *_: SelectorCapabilities(
             may_author_actions=True,
             may_run_actions=True,
@@ -649,18 +664,80 @@ def test_clef_setup_distinguishes_gateway_and_cloudflare(
         if choice["authored_selection"].get("engine") == "clef"
     )
     assert clef["setup"]["title"] == "Connect Cloudflare"
-    assert clef["status"] == "unavailable"
-    assert not clef["can_author"]
+    assert clef["status"] == "needs_setup"
+    assert clef["can_author"] is True
     assert not clef["can_run"]
     assert clef["blocker"]["message"] in clef["setup"]["steps"]
-    assert "environment running frisket" in " ".join(clef["setup"]["steps"])
+    assert clef["resolved_target"]["target_id"] == "cloudflare-clef"
+    guidance = " ".join(clef["setup"]["steps"])
+    assert (
+        "environment running frisket" if edition == "solo" else "server administrator"
+    ) in guidance
+
+    def execution_outcome():
+        project = workspace.get(pid)
+        composition = workspace.execution_composition_for(
+            project,
+            workspace.action_execution_router_for(project),
+            workspace.edition_execution_composition_context_for(),
+        )
+        return resolve(
+            composition.resolution_request(
+                "clef", capability=CAPABILITY_CLASSIFY, options={}
+            ),
+            composition.provider_for_resolution(),
+            composition.facts,
+        )
+
+    blocked = execution_outcome()
+    assert isinstance(blocked, Refusal)
+    assert blocked.family == "no_live_target"
+    assert blocked.target_id == clef["resolved_target"]["target_id"]
+
+    # Configuration removes the known blocker; no inference or health guarantee
+    # is required, and neither surface substitutes the gateway CLEF variant.
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a" * 32)
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "cloudflare-test-token")
+    configured = client.post(
+        f"/api/projects/{pid}/selector-choices",
+        json=_query(
+            {
+                "kind": "action",
+                "action_id": "map.classify",
+                "field": "engine",
+                "params": {"engine": "clef"},
+            }
+        ),
+    )
+    assert configured.status_code == 200, configured.text
+    current = next(
+        choice for choice in _choices(configured.json()) if choice["is_current"]
+    )
+    assert current["authored_selection"] == clef["authored_selection"]
+    assert current["resolved_target"] == clef["resolved_target"]
+    assert current["status"] == "ready"
+    assert current["can_author"] is True
+    assert current["can_run"] is True
+    assert current["setup"] is None
+    admitted = execution_outcome()
+    assert isinstance(admitted, Resolution)
+    assert admitted.target.id == current["resolved_target"]["target_id"]
+    assert "cloudflare-test-token" not in configured.text
 
 
 def test_action_and_project_ask_use_their_distinct_effective_routers(
     tmp_path: Path,
 ) -> None:
-    ordinary = ModelRouter(keys={"anthropic": "ordinary-key"}, use_env_keys=False)
-    execution = ModelRouter(keys={"openai": "execution-key"}, use_env_keys=False)
+    ordinary = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "ordinary-key"},
+        use_env_keys=False,
+    )
+    execution = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "execution-key"},
+        use_env_keys=False,
+    )
     client, _workspace, project_id = _app(
         tmp_path / "routers",
         router=ordinary,
@@ -723,7 +800,11 @@ def test_catalog_discovers_only_effective_authenticated_local_endpoints(
         inference_token="inference-secret",
         edge_auth=True,
     )
-    router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        local_endpoints=(endpoint,),
+    )
     seen: list[tuple[str, str | None, bool]] = []
 
     def reachable(
@@ -761,7 +842,11 @@ def test_fixed_engine_selector_does_not_discover_local_models(
         origin="https://models.example.test",
         source="local_file",
     )
-    router = ModelRouter(use_env_keys=False, local_endpoints=(endpoint,))
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        local_endpoints=(endpoint,),
+    )
     probes: list[str] = []
 
     def unreachable(origin: str, **_kwargs: Any) -> dict[str, Any]:
@@ -1006,7 +1091,11 @@ def test_passive_gateway_status_projects_owner_scope_and_mutation_policy(
 def test_provider_bound_custom_embedding_id_is_preserved_and_placeholder_cannot_run(
     tmp_path: Path,
 ) -> None:
-    router = ModelRouter(keys={"openrouter": "configured-key"}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openrouter": "configured-key"},
+        use_env_keys=False,
+    )
     client, _workspace, project_id = _app(
         tmp_path / "custom-embedding",
         router=router,
@@ -1094,7 +1183,7 @@ def test_network_off_preserves_policy_refusal_for_keyless_hosted_engine(
 ) -> None:
     client, workspace, project_id = _app(
         tmp_path / "off",
-        router=ModelRouter(use_env_keys=False),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False),
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
             may_author_actions=True,
             may_run_actions=True,
@@ -1126,11 +1215,13 @@ def test_ambient_embedding_key_does_not_unlock_an_unconfigured_effective_router(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "ambient-key-not-selected")
-    router = ModelRouter(use_env_keys=False)
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False)
     assert router.providers() == []
     with pytest.raises(LLMError, match="no embedding backend"):
         asyncio.run(
-            router.embed_batch(["example"], model="openai/text-embedding-3-small")
+            router.for_execution(STANDALONE).embed_batch(
+                ["example"], model="openai/text-embedding-3-small"
+            )
         )
     client, _workspace, project_id = _app(
         tmp_path / "embedding-router",
@@ -1157,6 +1248,125 @@ def test_ambient_embedding_key_does_not_unlock_an_unconfigured_effective_router(
     assert current["blocker"]["code"] == "provider_key_required"
 
 
+@pytest.mark.parametrize(
+    "provider,model,runnable",
+    [
+        ("openai", "text-embedding-3-small", False),
+        ("fastembed", "paraphrase-multilingual-MiniLM-L12-v2", True),
+    ],
+)
+def test_embedding_picker_and_refresh_share_offline_provider_eligibility(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    model: str,
+    runnable: bool,
+) -> None:
+    from frisket.ai.embeddings import build_batch_result
+    from frisket.engine.executor import ExecutorDeps, run_action_spec
+
+    monkeypatch.setattr(
+        "frisket.ai.embeddings.capabilities._detect_local_text", lambda _env: True
+    )
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "configured-test-key"},
+        use_env_keys=False,
+    )
+    client, workspace, project_id = _app(
+        tmp_path / provider,
+        router=router,
+        capabilities_for=lambda *_: SelectorCapabilities(
+            may_author_actions=True, may_run_actions=True
+        ),
+    )
+    project = workspace.get(project_id)
+    project.set_network_policy(mode="off")
+    response = client.post(
+        f"/api/projects/{project_id}/selector-choices",
+        json=_query(
+            {
+                "kind": "embedding",
+                "provider": provider,
+                "model": model,
+                "modality": "text",
+            }
+        ),
+    )
+    assert response.status_code == 200, response.text
+    current = next(
+        choice for choice in _choices(response.json()) if choice["is_current"]
+    )
+    assert current["authored_selection"] == {
+        "kind": "embedding",
+        "provider": provider,
+        "model": model,
+    }
+    assert current["can_run"] is runnable
+    assert current["status"] == ("ready" if runnable else "unavailable")
+    if not runnable:
+        assert current["blocker"]["code"] == "project_network_off"
+        assert current["setup"] is None
+
+    sheet = project.add_sheet("source")
+    column = project.add_column(sheet, "text")
+    project.add_rows(sheet, [{"text": "example"}], {"text": column})
+
+    class Gateway:
+        def __init__(self):
+            self.calls = []
+
+        def embed(self, texts, *, provider, model, modality):
+            self.calls.append((provider, model))
+            return build_batch_result(
+                [[1.0] + [0.0] * 383 for _ in texts],
+                provider_id=provider,
+                provider_kind="local_process",
+                actual_model_id=model,
+                modality=modality,
+            )
+
+    gateway = Gateway()
+    deps = ExecutorDeps(router=router, embedding_gateway=gateway)
+    created = run_action_spec(
+        project,
+        {
+            "action_id": "embedding.index_create",
+            "scope": {"kind": "project"},
+            "params": {
+                "sheet_id": sheet,
+                "source_columns": ["text"],
+                "modality": "text",
+                "provider": provider,
+                "model": model,
+                "source_policy": {"kind": "text_cell"},
+                "provider_policy": {"allow_remote": True},
+            },
+            "idempotency_key": "offline-create",
+        },
+        project_id=project_id,
+        deps=deps,
+    )
+    assert created.status == "completed", created.errors
+    refreshed = run_action_spec(
+        project,
+        {
+            "action_id": "embedding.index_refresh",
+            "scope": {"kind": "project"},
+            "params": {"index_id": created.outputs[0].ref["index_id"]},
+            "idempotency_key": "offline-refresh",
+        },
+        project_id=project_id,
+        deps=deps,
+    )
+    assert refreshed.status == ("completed" if runnable else "failed"), refreshed.errors
+    if runnable:
+        assert gateway.calls == [(provider, model)]
+    else:
+        assert refreshed.errors[0].code == "network_disabled"
+        assert gateway.calls == []
+
+
 @pytest.mark.parametrize("provider", ["fastembed", "local"])
 def test_supported_custom_fastembed_current_uses_owner_registry_dimensions(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, provider: str
@@ -1170,7 +1380,7 @@ def test_supported_custom_fastembed_current_uses_owner_registry_dimensions(
     )
     client, _workspace, project_id = _app(
         tmp_path / "custom-local",
-        router=ModelRouter(use_env_keys=False),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False),
         capabilities_for=lambda _request, _pid: SelectorCapabilities(
             may_author_actions=True, may_run_actions=True
         ),
@@ -1273,6 +1483,7 @@ def test_model_choices_reuse_provider_setup_credential_and_spend_facts_within_re
     monkeypatch.setattr(ModelRouter, "credential_source_for", source)
     monkeypatch.setattr(Project, "provider_spend_state", spend)
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "selected-project-key"},
         key_sources={"openai": "project_key"},
         use_env_keys=False,
@@ -1689,7 +1900,9 @@ def test_extract_defaults_to_llm_from_available_choices(
     tmp_path: Path, provider: str | None
 ) -> None:
     router = ModelRouter(
-        keys={provider: "test-key"} if provider else {}, use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={provider: "test-key"} if provider else {},
+        use_env_keys=False,
     )
     client, _workspace, project_id = _app(tmp_path / "workspace", router=router)
     with client:
@@ -1721,7 +1934,10 @@ def test_extract_defaults_to_llm_from_available_choices(
 
 def test_extract_preserves_explicit_clef_selection(tmp_path: Path) -> None:
     client, _workspace, project_id = _app(
-        tmp_path / "workspace", router=ModelRouter(keys={}, use_env_keys=False)
+        tmp_path / "workspace",
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
+        ),
     )
     with client:
         response = client.post(

@@ -192,7 +192,25 @@ class EmbeddingGateway:
             return asyncio.run(
                 self._router.embed_batch(texts, model=model_ref, modality=modality)
             )
-        except EmbeddingBackendUnavailable:
+        except (EmbeddingBackendUnavailable, TypeError):
+            # Dispatch/signature bugs are programming failures, not provider data.
             raise
         except Exception as exc:  # noqa: BLE001 — provider failure is data
             raise EmbeddingProviderError(_provider_error_message(exc)) from None
+
+
+class ExecutionEmbeddingGateway:
+    """Borrow an embedding capability for one owner without mutating its router."""
+
+    def __init__(self, gateway: Any, execution: Any):
+        self._execution = execution
+        if isinstance(gateway, EmbeddingGateway):
+            router = gateway._router
+            gateway = EmbeddingGateway(
+                router=router.for_execution(execution) if router is not None else None
+            )
+        self._gateway = gateway
+
+    def embed(self, texts: list[str], **kwargs: Any) -> EmbeddingBatchResult:
+        self._execution.check()
+        return self._gateway.embed(texts, **kwargs)

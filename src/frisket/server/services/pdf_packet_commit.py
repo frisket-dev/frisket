@@ -676,12 +676,8 @@ class PdfPacketCommitter:
         stored = ReceiptStore(project).find_by_id(envelope.receipt_id)
         if stored is None:
             raise ValueError("split receipt is unavailable")
-        if stored.status == "queued":
-            ReceiptStore(project).update_body_status(
-                stored.parsed().model_copy(update={"status": "running"}),
-                require_status="queued",
-            )
-        elif stored.status != "running":
+        # Starting the streaming session owns the queued -> running transition.
+        if stored.status not in {"queued", "running"}:
             raise ValueError("split reservation is already terminal")
         if session is None:
             try:

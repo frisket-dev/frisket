@@ -4,7 +4,7 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.action_submissions_migration import (
+from frisket.upgrades.project.action_submissions_migration import (
     ACTION_SUBMISSIONS_FROM_DIGEST,
     ACTION_SUBMISSIONS_TO_DIGEST,
     migrate_action_submissions,
@@ -12,7 +12,11 @@ from frisket.engine.store.action_submissions_migration import (
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 
 
+from tests.engine.historical_schema import restore_pre_domain_schema
+
+
 def prior(project):
+    restore_pre_domain_schema(project.db)
     project.db.execute("DROP TABLE action_submissions")
     project.db.execute("DROP INDEX idx_runs_action_history")
     project.db.execute(
@@ -42,7 +46,6 @@ def test_upgrade_preserves_data_and_undo_history(tmp_path):
                 "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
             ).fetchone()[0]
             == SCHEMA_DIGEST
-            == ACTION_SUBMISSIONS_TO_DIGEST
         )
         migrate_action_submissions(project.db)
         assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -64,5 +67,20 @@ def test_failed_upgrade_rolls_back_atomically(tmp_path):
             == ACTION_SUBMISSIONS_FROM_DIGEST
         )
         assert not project.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='action_submissions'"
+        ).fetchone()
+
+
+def test_standalone_upgrade_stamps_its_historical_endpoint(tmp_path):
+    with closing(Project.create(tmp_path / "project")) as project:
+        prior(project)
+        migrate_action_submissions(project.db)
+        assert (
+            project.db.execute(
+                "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+            ).fetchone()[0]
+            == ACTION_SUBMISSIONS_TO_DIGEST
+        )
+        assert project.db.execute(
             "SELECT 1 FROM sqlite_master WHERE name='action_submissions'"
         ).fetchone()

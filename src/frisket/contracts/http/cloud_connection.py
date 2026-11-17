@@ -16,6 +16,10 @@ from frisket.contracts.http.models import WireModel
 from frisket.contracts.transcription_sidecar import TranscriptionOptions
 
 
+# Bump only for breaking Desktop/Cloud execution protocol changes, not releases.
+CLOUD_PROTOCOL_REVISION = "1"
+
+
 CloudAccountKind = Literal["personal", "organization"]
 CloudCapability = Literal["llm.complete", "ocr", "transcribe", "document.convert"]
 CloudLane = Literal["account_key", "frisket_credits"]
@@ -296,6 +300,7 @@ class CloudLLMResult(WireModel):
     data: dict[str, JsonValue] | None
     tokens_in: int = Field(ge=0)
     tokens_out: int = Field(ge=0)
+    usage_available: bool = True
     cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     model: str = Field(min_length=1)
     cost_source: str = Field(min_length=1)
@@ -396,12 +401,23 @@ CloudExecutionResult = (
 
 class CloudLLMUsage(WireModel):
     kind: Literal["llm.complete"]
-    tokens_in: int = Field(ge=0)
-    tokens_out: int = Field(ge=0)
+    tokens_in: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
+    tokens_out: int | None = Field(
+        default=None, ge=0, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def _complete_token_counts(self) -> "CloudLLMUsage":
+        if (self.tokens_in is None) != (self.tokens_out is None):
+            raise ValueError("LLM usage must contain both token counts or neither")
+        return self
 
 
 class CloudOCRUsage(WireModel):
     kind: Literal["ocr"]
+    meter: Literal["pages", "tokens"]
     pages: int | None = Field(
         default=None, ge=0, exclude_if=lambda value: value is None
     )
@@ -417,8 +433,12 @@ class CloudOCRUsage(WireModel):
         has_pages = self.pages is not None
         has_tokens = self.tokens_in is not None and self.tokens_out is not None
         has_partial_tokens = (self.tokens_in is None) != (self.tokens_out is None)
-        if has_partial_tokens or has_pages == has_tokens:
-            raise ValueError("OCR usage must contain either pages or token counts")
+        if (
+            has_partial_tokens
+            or (self.meter == "pages" and has_tokens)
+            or (self.meter == "tokens" and has_pages)
+        ):
+            raise ValueError("OCR usage cannot mix pages and token counts")
         return self
 
 
@@ -472,12 +492,19 @@ class CloudErrorResponse(WireModel):
     execution_id: str | None = None
 
 
+class CloudExecutionAccounting(WireModel):
+    status: Literal["open", "pending", "settled", "absorbed"]
+    usage: CloudExecutionUsage | None = None
+    provider_cost_micro: int | None = Field(default=None, ge=0)
+
+
 class CloudExecutionResponse(WireModel):
     execution_id: str = Field(min_length=1)
     status: CloudExecutionStatus
     route: CloudCapabilityRoute
     result: CloudExecutionResult | None
     receipt: CloudExecutionReceipt | None
+    accounting: CloudExecutionAccounting | None = None
     error: CloudErrorResponse | None = None
 
 

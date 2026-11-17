@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Check that protected cell tables have one named Python store owner.
+"""Check that cell and execution lifecycle writes use named Python owners.
 
 This is intentionally a small architectural check, not a SQL parser.  It
 finds literal and partly-literal f-string SQL passed to sqlite-style
 ``execute``, ``executemany``, and ``executescript`` calls.  Dynamic SQL is
 outside its proof boundary; callers must keep table names static or use the
-owning store API.
+owning store API. Static runs updates inspect assignment targets, not predicates
+or right-hand expressions. Unknown runs assignment targets require the run owner.
 """
 
 from __future__ import annotations
@@ -27,26 +28,48 @@ PROTECTED_TABLES = frozenset(
         "base_cell_producers",
         "results",
         "cell_result_heads",
+        "execution_attempts",
     }
 )
 
 # Exact paths are intentional.  Add a path only when that module is the
 # named store owner; do not replace these with a broad ``store/**`` exemption.
 TABLE_OWNERS: Mapping[str, tuple[str, ...]] = {
+    "execution_attempts": (
+        "src/frisket/execution/attempt.py",  # Mint, admit, claim, and explicit close.
+        "src/frisket/engine/store/output_claims.py",  # Fenced dead-writer recovery.
+        "src/frisket/engine/executor/project_run_terminalization.py",  # Pending closure.
+        "src/frisket/upgrades/project/domain_migration.py",  # Frozen stopped-work cutover.
+    ),
     "cells": ("src/frisket/engine/store/cell_writes.py",),
     "edits": ("src/frisket/engine/store/cell_writes.py",),
-    "current_cells": ("src/frisket/engine/store/current_cells.py",),
+    "current_cells": (
+        "src/frisket/engine/store/current_cells.py",
+        "src/frisket/upgrades/project/historical_current_cells.py",  # Frozen pre-cutover migrations.
+        "src/frisket/engine/store/cell_projection.py",
+    ),
     "base_cell_producers": ("src/frisket/engine/store/cell_writes.py",),
     "results": (
         "src/frisket/engine/store/runs.py",
+        "src/frisket/engine/store/result_generations.py",  # Atomic publication fact.
         "src/frisket/engine/store/bundle_io.py",  # Discarded-run garbage collection.
     ),
     "cell_result_heads": ("src/frisket/engine/store/result_generations.py",),
 }
 
-# Structural metadata is intentionally scoped to DELETE only. INSERT and
-# UPDATE of rows/columns/sheets remain outside this checker.
+# Frozen one-time upgrades write preceding schemas, not current store commands.
+# Keep this list exact; it is not an exemption for arbitrary migration modules.
+for _table in ("cells", "base_cell_producers", "current_cells", "results"):
+    TABLE_OWNERS[_table] += ("src/frisket/upgrades/project/domain_migration.py",)
+for _table in ("cells", "base_cell_producers", "current_cells", "edits"):
+    TABLE_OWNERS[_table] += (
+        "src/frisket/upgrades/project/domain_document_text_migration.py",
+    )
+
+# Additional owners scoped to DELETE only. Offline purge cannot insert/update
+# result facts. Structural INSERT/UPDATE remain outside this checker.
 DELETE_OWNERS: Mapping[str, tuple[str, ...]] = {
+    "results": ("src/frisket/engine/store/purge.py",),
     "rows": (
         "src/frisket/engine/store/cell_writes.py",
         "src/frisket/engine/store/sheet_lifecycle.py",
@@ -57,6 +80,24 @@ DELETE_OWNERS: Mapping[str, tuple[str, ...]] = {
         "src/frisket/engine/store/streaming_import.py",
     ),
 }
+
+# Run metadata/progress has several legitimate writers. Lifecycle fields have
+# narrower owners; e.g. Undo can request cancellation, never mark a run complete.
+_RUN_STORE = "src/frisket/engine/store/runs.py"
+_RUN_TERMINALIZER = "src/frisket/engine/executor/project_run_terminalization.py"
+_DOMAIN_MIGRATION = "src/frisket/upgrades/project/domain_migration.py"
+RUN_FIELD_OWNERS: Mapping[str, tuple[str, ...]] = {
+    "status": (_RUN_STORE, _RUN_TERMINALIZER, _DOMAIN_MIGRATION),
+    "finished_at": (_RUN_STORE, _RUN_TERMINALIZER, _DOMAIN_MIGRATION),
+    "current_attempt_id": (
+        _RUN_STORE,
+        "src/frisket/execution/attempt.py",
+        "src/frisket/engine/store/output_claims.py",
+        _DOMAIN_MIGRATION,
+    ),
+    "cancel_requested_at": (_RUN_STORE, "src/frisket/engine/store/changes.py"),
+}
+
 
 _IDENT = r'(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_]\w*)'
 _TABLE = rf"(?P<table>{_IDENT}(?:\s*\.\s*{_IDENT})?)"
@@ -75,6 +116,7 @@ class Violation:
     line: int
     table: str
     operation: str
+    field: str | None = None
 
 
 def _constant_strings(tree: ast.AST) -> dict[str, str]:
@@ -116,25 +158,86 @@ def _table_name(token: str) -> str:
     return token.split(".")[-1].strip().strip('"`[]').lower()
 
 
-def _writes(sql: str) -> Iterable[tuple[str, str]]:
+def _run_update_fields(tail: str) -> set[str]:
+    """Read only SET targets, including SQLite row-value assignments.
+
+    This is a bounded token scan, not expression evaluation. Parenthesis depth
+    skips subqueries/function arguments; quoted identifiers stay single tokens.
+    ``*`` means a dynamic or unsupported target, never proof of metadata-only SQL.
+    """
+    header = re.match(rf"\s+(?:(?:AS\s+)?{_IDENT}\s+)?SET\b", tail, re.I)
+    if header is None:
+        return {"*"}
+    fields: set[str] = set()
+    lhs: list[str] = []
+    depth = 0
+    in_value = False
+    for match in re.finditer(rf"{_IDENT}|\S", tail[header.end() :]):
+        token = match.group()
+        if depth == 0 and token.upper() in {
+            "WHERE",
+            "FROM",
+            "RETURNING",
+            "ORDER",
+            "LIMIT",
+            ";",
+        }:
+            break
+        if token == "=" and depth == 0 and not in_value:
+            target = " ".join(lhs)
+            if re.fullmatch(_IDENT, target):
+                fields.add(_table_name(target))
+            elif re.fullmatch(rf"\(\s*{_IDENT}(?:\s*,\s*{_IDENT})*\s*\)", target):
+                fields.update(
+                    _table_name(t.group()) for t in re.finditer(_IDENT, target)
+                )
+            else:
+                fields.add("*")
+            in_value = True
+        elif token == "," and depth == 0:
+            if not in_value:
+                fields.add("*")
+            lhs, in_value = [], False
+        elif not in_value:
+            lhs.append(token)
+        depth += (token == "(") - (token == ")")
+    if not in_value:
+        fields.add("*")
+    return fields
+
+
+def _writes(sql: str) -> Iterable[tuple[str, str, str | None]]:
     sql = _SQL_NON_CODE.sub(" ", sql)
     for pattern in _WRITE_PATTERNS:
         for match in pattern.finditer(sql):
             table = _table_name(match.group("table"))
             operation = match.group(0).split()[0].upper()
-            if table in PROTECTED_TABLES or (
+            if table == "runs":
+                if operation == "UPDATE":
+                    for field in sorted(_run_update_fields(sql[match.end() :])):
+                        if field in RUN_FIELD_OWNERS or field == "*":
+                            yield table, operation, field
+                else:
+                    # Inserting a row establishes lifecycle defaults too.
+                    yield table, operation, None
+            elif table in PROTECTED_TABLES or (
                 operation == "DELETE" and table in DELETE_OWNERS
             ):
-                yield table, operation
+                yield table, operation, None
 
 
 def _owners_for(
     table: str,
     operation: str,
     owners: Mapping[str, tuple[str, ...]],
+    field: str | None = None,
 ) -> tuple[str, ...] | None:
+    if table == "runs":
+        return RUN_FIELD_OWNERS.get(field, (_RUN_STORE,))
     if table in PROTECTED_TABLES:
-        return owners.get(table, ())
+        return owners.get(table, ()) + (
+            DELETE_OWNERS.get(table, ()) if operation == "DELETE" else ()
+        )
     if operation == "DELETE" and table in DELETE_OWNERS:
         # Custom maps keep fixture tests independent of repository paths.
         return owners.get(table, DELETE_OWNERS[table])
@@ -160,10 +263,10 @@ def _scan_file(
         sql = _static_sql(node.args[0], names) if node.args else None
         if sql is None:
             continue
-        for table, operation in _writes(sql):
-            allowed = _owners_for(table, operation, owners)
+        for table, operation, field in _writes(sql):
+            allowed = _owners_for(table, operation, owners, field)
             if allowed is not None and relative not in allowed:
-                violations.append(Violation(path, node.lineno, table, operation))
+                violations.append(Violation(path, node.lineno, table, operation, field))
     return violations
 
 
@@ -198,7 +301,9 @@ def main(argv: list[str] | None = None) -> int:
     for violation in violations:
         print(
             f"{violation.path}:{violation.line}: {violation.operation} write to "
-            f"protected table {violation.table!r} is outside its named store owner"
+            f"protected target {violation.table!r}"
+            f"{'.' + violation.field if violation.field else ''} "
+            "is outside its named owner"
         )
     return 1 if violations else 0
 

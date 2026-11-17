@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +36,8 @@ def _create_fts_watch(client: TestClient, pid: str, *, sheet_id: int | None = No
     scope: dict[str, Any] = {"kind": "project"}
     if sheet_id is not None:
         scope = {"kind": "sheet", "sheet_id": sheet_id}
-    response = client.post(
+    response = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Budget watch",
@@ -59,22 +62,17 @@ def test_fts_watch_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> Non
     pid, sheet_id = _seed_project(client)
 
     watch = _create_fts_watch(client, pid)
-    assert watch["query"] == {
-        "kind": "fts",
-        "q": "budget",
-        "mode": "keyword",
-        "rerank": "off",
-        "limit": 10,
-    }
+    view = client.get(f"/api/projects/{pid}/views/{watch['view_id']}").json()
+    assert view["spec"]["selection"]["search"] == {"text": "budget"}
     assert watch["latest_run"] is None
 
     first = _run_watch(client, pid, watch["id"])
     assert first["run"]["matched_rows"] == 2
-    assert first["run"]["new_rows"] == 2
+    assert first["run"]["new_rows"] == 0
     assert {hit["run_id"] for hit in first["hits"]} == {first["run"]["id"]}
-    assert [hit["is_new"] for hit in first["hits"]] == [True, True]
+    assert [hit["is_new"] for hit in first["hits"]] == [False, False]
     assert {hit["sheet_id"] for hit in first["hits"]} == {sheet_id}
-    assert all(hit["snippet"] for hit in first["hits"])
+    assert all(hit["snippet"] is None for hit in first["hits"])
 
     second = _run_watch(client, pid, watch["id"])
     assert second["run"]["matched_rows"] == 2
@@ -141,7 +139,8 @@ def test_filter_watch_owns_captured_membership_and_uses_shared_tables(
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
 
-    watch_response = client.post(
+    watch_response = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Open rows watch",
@@ -156,21 +155,13 @@ def test_filter_watch_owns_captured_membership_and_uses_shared_tables(
     )
     assert watch_response.status_code == 200, watch_response.text
     watch = watch_response.json()
-    assert watch["scope"] == "sheet"
     assert watch["sheet_id"] == sheet_id
-    assert watch["query"] == {
-        "kind": "filter",
-        "sheet_id": sheet_id,
-        "filter": {"status": {"eq": "open"}},
-    }
-
+    view = client.get(f"/api/projects/{pid}/views/{watch['view_id']}").json()
+    assert view["spec"]["selection"]["scope"] == {"kind": "sheet", "sheet_id": sheet_id}
     run = _run_watch(client, pid, watch["id"])
     assert run["run"]["matched_rows"] == 2
-    assert run["run"]["new_rows"] == 2
-    assert [hit["snippet"] for hit in run["hits"]] == [
-        "Matched filter",
-        "Matched filter",
-    ]
+    assert run["run"]["new_rows"] == 0
+    assert [hit["snippet"] for hit in run["hits"]] == [None, None]
 
     project = client.app.state.workspace.get(pid)
     tables = {
@@ -205,33 +196,15 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
     project = client.app.state.workspace.get(pid)
     sheet_id = project.add_sheet("Documents")
     text_column_id = project.add_column(sheet_id, "text", type="text")
-    row_ids = project.add_rows(
+    project.add_rows(
         sheet_id,
         [{"text": f"needle {index}"} for index in range(501)],
         {"text": text_column_id},
     )
 
-    import frisket.search as search
-
-    observed_limits: list[int] = []
-
-    def fake_search_project(project_arg, query, limit=50, rerank="auto"):
-        assert project_arg is project
-        assert query == "needle"
-        assert rerank == "off"
-        observed_limits.append(limit)
-        return [
-            {
-                "sheet_id": sheet_id,
-                "row_id": row_id,
-                "column_id": text_column_id,
-                "snip": f"needle {index}",
-            }
-            for index, row_id in enumerate(row_ids)
-        ]
-
-    monkeypatch.setattr(search, "search_project", fake_search_project)
-    created = client.post(
+    drain_index(project)
+    created = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "All needles",
@@ -253,11 +226,21 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
         "SELECT COUNT(*) AS count FROM watch_run_hits WHERE run_id=?",
         (run_id,),
     ).fetchone()
-    assert watch["query"]["limit"] == 501
-    assert observed_limits == [501]
+    assert (
+        client.get(f"/api/projects/{pid}/views/{watch['view_id']}").json()["spec"][
+            "selection"
+        ]["limit"]
+        == 501
+    )
     assert result["run"]["matched_rows"] == 501
-    assert result["run"]["new_rows"] == 501
-    assert persisted["count"] == 501
+    assert result["run"]["new_rows"] == 0
+    assert persisted["count"] == 500
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM watch_seen_rows WHERE watch_id=?", (watch["id"],)
+        ).fetchone()[0]
+        == 501
+    )
     assert len(result["hits"]) <= 500
 
 
@@ -284,7 +267,7 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
 def test_embedding_query_normalization_preserves_501_requested_limit(
     query: dict[str, Any],
 ) -> None:
-    from frisket.features.watchlists.specs import normalize_query_spec
+    from frisket.contracts.query_spec import normalize_query_spec
 
     assert normalize_query_spec(query)["limit"] == 501
 
@@ -305,7 +288,7 @@ def test_watch_patch_pause_resume_preserves_execution_state_and_manual_runs(
     assert renamed.status_code == 200, renamed.text
     assert renamed.json()["name"] == "Budget alerts"
     for field in (
-        "query",
+        "view_id",
         "enabled",
         "last_evaluated_op",
         "last_run_id",
@@ -351,7 +334,8 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
     client = _client(tmp_path)
     pid, _sheet_id = _seed_project(client)
     deleted_watch = _create_fts_watch(client, pid)
-    retained_watch = client.post(
+    retained_watch = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Retained watch",
@@ -359,6 +343,11 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
             "query": {"kind": "fts", "q": "bridge", "limit": 10},
         },
     ).json()
+    from watch_helpers import seed_empty_watch_baseline
+
+    project = client.app.state.workspace.get(pid)
+    seed_empty_watch_baseline(project, deleted_watch["id"])
+    seed_empty_watch_baseline(project, retained_watch["id"])
     deleted_run = _run_watch(client, pid, deleted_watch["id"])["run"]
     retained_run = _run_watch(client, pid, retained_watch["id"])["run"]
     project = client.app.state.workspace.get(pid)

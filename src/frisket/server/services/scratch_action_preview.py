@@ -81,10 +81,13 @@ class ScratchActionPreviewRunContext:
     execution_limits: Any
     progress: Callable[[int, int | None], None]
     cancel_event: threading.Event
+    owner_cancelled: Callable[[], bool] | None = None
 
     @property
     def cancelled(self) -> bool:
-        return self.cancel_event.is_set()
+        return self.cancel_event.is_set() or (
+            self.owner_cancelled is not None and self.owner_cancelled()
+        )
 
     def op_context(self, *, http: Any = None) -> OpContext:
         return self._op_context(self._cloud_binding(), http=http)
@@ -94,7 +97,7 @@ class ScratchActionPreviewRunContext:
             "preview": True,
             "preview_execution": self.resolved_for_preview,
             "router": self.router,
-            "cancelled": self.cancel_event.is_set,
+            "cancelled": lambda: self.cancelled,
         }
         if self.attempt is not None:
             extras[ATTEMPT_EXTRA] = self.attempt
@@ -132,13 +135,32 @@ class ScratchActionPreviewRunContext:
         binding = self._cloud_binding()
         ctx = self._op_context(binding, http=http)
         if binding is None or binding.llm_binding is None:
-            yield ctx
+            from contextlib import nullcontext
+
+            capture = getattr(
+                getattr(self.router, "model_call_policy", None), "operation_scope", None
+            )
+            with capture(ctx) if capture is not None else nullcontext():
+                yield ctx
             return
         from frisket.cloud_execution import cloud_llm_execution_scope
 
-        with cloud_llm_execution_scope(binding.llm_binding):
-            yield ctx
-        binding.llm_coordinator.retire_returned()
+        from frisket.execution.runtime_binding import bind_fact_to_route
+
+        try:
+            with cloud_llm_execution_scope(binding.llm_binding):
+                yield ctx
+        finally:
+            # Parsing or rendering may fail after Cloud has returned paid work.
+            # The scope owns these facts independently of the engine's output.
+            calls = [
+                bind_fact_to_route(binding.route, call)
+                for accounting in binding.llm_coordinator.returned_accounting
+                for call in accounting.get("model_calls", ())
+            ]
+            self.write_model_calls(calls)
+            # If recording fails, leave the returned checkpoint recoverable.
+            binding.llm_coordinator.retire_returned()
 
     @property
     def resolved_for_preview(self) -> ResolvedExecution | None:

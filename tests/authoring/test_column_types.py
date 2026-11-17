@@ -9,6 +9,8 @@ and undoes/redoes. The frontend half (renderers resolved from the registry)
 lives in web/src/grid/typeRegistry.ts + cells.tsx.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -30,7 +32,12 @@ PLUGIN_TYPE_OWNER = "test.column_types"
 
 @pytest.fixture
 def client(tmp_path) -> TestClient:
-    return make_client(tmp_path, router=ModelRouter(cache=None, cache_mode="off"))
+    return make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
 
 
 @pytest.fixture

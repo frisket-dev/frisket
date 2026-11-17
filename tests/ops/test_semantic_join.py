@@ -1,6 +1,7 @@
 """Semantic matching, source ownership, review ordering and linked materialization."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -166,7 +167,9 @@ def _client(tmp_path) -> TestClient:
     return TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
     )
 
@@ -451,7 +454,11 @@ def test_runner_end_to_end_gray_band_surfaces_first(tmp_path):
     p, a, b, a_rows, b_rows = _project(tmp_path)
     try:
         result = _run_confirmed(
-            p, ModelRouter(cache=None, cache_mode="off"), _request(a, b)
+            p,
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+            _request(a, b),
         )
         assert result.status == "completed", result.errors
         cols = {c["name"]: c for c in p.columns(a)}
@@ -484,7 +491,9 @@ def test_materialization_keeps_parent_lineage_and_exact_source_carry(tmp_path, c
     try:
         result = _run_confirmed(
             p,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             _request(a, b, carry=carry, sheet_name="linkage", output_names=names),
         )
         assert result.status == "completed", result.errors
@@ -816,7 +825,11 @@ def test_semantic_join_remote_embedder_gates_before_any_embed_call(
 
     embed_calls = _patch_async_remote_embedding(monkeypatch)
     router = ModelRouter(
-        keys={"openai": "sk-test"}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "sk-test"},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
     assert router.has_embedding_backend()
     client = TestClient(create_app(tmp_path / "workspace", router=router))
@@ -876,7 +889,11 @@ def test_semantic_join_tiny_known_zero_quote_is_preapproved(tmp_path, monkeypatc
 
     embed_calls = _patch_async_remote_embedding(monkeypatch)
     router = ModelRouter(
-        keys={"openai": "sk-test"}, cache=None, cache_mode="off", use_env_keys=False
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "sk-test"},
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
     )
     client = TestClient(create_app(tmp_path / "workspace", router=router))
     pid, donors, registry = _api_project(client)
@@ -1036,7 +1053,12 @@ def test_remote_semantic_join_refuses_exhausted_project_key_before_queue_or_embe
     client = TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off", use_env_keys=False),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                cache=None,
+                cache_mode="off",
+                use_env_keys=False,
+            ),
         )
     )
     pid, donors, registry = _api_project(client)
@@ -1117,7 +1139,12 @@ def test_remote_semantic_join_completes_through_the_async_router_bridge(
     client = TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off", use_env_keys=False),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                cache=None,
+                cache_mode="off",
+                use_env_keys=False,
+            ),
         )
     )
     pid, donors, registry = _api_project(client)
@@ -1199,7 +1226,12 @@ def test_remote_semantic_join_persists_each_call_and_receipts_actual_cost(
     client = TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off", use_env_keys=False),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                cache=None,
+                cache_mode="off",
+                use_env_keys=False,
+            ),
         )
     )
     pid, donors, registry = _api_project(client)
@@ -1308,6 +1340,7 @@ def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors
         spend_cap_micro=1_000_000,
     )
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "sk-project-openai"},
         key_sources={"openai": "project_key"},
         cache=None,
@@ -1507,6 +1540,7 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
 
     def make_router():
         return ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "sk-project-openai"},
             key_sources={"openai": "project_key"},
             cache=None,
@@ -1584,17 +1618,12 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
     # (execution/attempt_authority.py:152), but only once BOTH the attempt
     # and its claims' 6-hour lease (STALE_DISPATCHING_AGE) are old enough --
     # a real crash discovered hours later clears this organically as a
-    # byproduct of the next dispatch. Simulate "hours passed" the same way
-    # this call already gets exercised in production (a `now` far enough
-    # ahead), and release the claims themselves (their `status` never
-    # expires on its own -- OutputColumnClaimStore marks this exact shape
-    # `requires_recovery: True` for an operator/reconcile flow, defect 4's
-    # territory) to isolate what THIS defect's fix owns: once the crashed
-    # attempt is closed, does the retry resume run_a's row checkpoints
-    # instead of re-buying them?
+    # byproduct of the next dispatch. Simulate the old attempt and its actual
+    # claim lease expiring; let the normal stale-recovery path prove and
+    # release the claim rather than pre-releasing it in the fixture.
     project.db.execute(
-        "UPDATE output_column_claims SET status='released', "
-        "released_at=datetime('now') WHERE run_id=? AND status='active'",
+        "UPDATE output_column_claims SET lease_expires_at=datetime('now', '-1 hour') "
+        "WHERE run_id=? AND status='active'",
         (run_a,),
     )
     project.db.commit()

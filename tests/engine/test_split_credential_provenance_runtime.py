@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY, PurchaseAdmission
 
 import json
 import re
@@ -15,6 +16,31 @@ _SECRETISH_FIELD = re.compile(
     r"(?i)(?:api[_-]?key|secret|token|password|credential[_-]?value|key[_-]?hint)"
 )
 _VERSION_TOKEN = re.compile(r"^[a-z][a-z0-9_.-]*v[1-9][0-9]*$")
+
+
+class _RecordingPurchasePolicy:
+    """Own the platform fixture's purchase without changing local policy."""
+
+    def __init__(self):
+        self.admitted = []
+        self.recorded = []
+
+    def prepare(self, request, credential_source):
+        return request
+
+    def admit_purchase(self, request):
+        self.admitted.append(request.credential_source)
+        return (
+            PurchaseAdmission("metered", "fixture-platform-purchase")
+            if request.credential_source == "platform_key"
+            else PurchaseAdmission("byok")
+        )
+
+    def record_purchase(self, request, admission, observation):
+        self.recorded.append(request.credential_source)
+
+    def fail_purchase(self, request, admission, error):
+        pytest.fail(f"unexpected fixture purchase failure: {error}")
 
 
 class _StubAdapter:
@@ -162,6 +188,7 @@ def test_sync_workspace_keeps_project_org_and_local_provenance_distinct(
     # A project key must still win it.
     project, sheet_id = _project(tmp_path, "sync-project")
     hosted_router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": org},
         key_sources={"openai": "org_byok"},
     )
@@ -254,8 +281,10 @@ def test_queued_router_keeps_runtime_precedence_in_persisted_facts(
     project_key = "test-project-credential"
     project, sheet_id = _project(tmp_path, f"queued-{expected_source}")
     monkeypatch.setattr(project, "provider_model_keys", lambda: project_keys)
+    policy = _RecordingPurchasePolicy()
     try:
         base_router = ModelRouter(
+            model_call_policy=policy,
             keys={"openai": platform},
             key_sources={"openai": "platform_key"},
         )
@@ -277,6 +306,8 @@ def test_queued_router_keeps_runtime_precedence_in_persisted_facts(
             router,
             key=f"queued-{expected_source}",
         )
+        assert policy.admitted == [expected_source]
+        assert policy.recorded == [expected_source]
         if not project_keys and not org_keys:
             assert router._adapters["openai"] is base_adapter  # noqa: SLF001
         _assert_durable_fact_contract(

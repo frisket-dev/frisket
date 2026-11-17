@@ -4,12 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from frisket.contracts.view import ViewSelection
+
 
 class ExtractionModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
 class ExtractionScope(ExtractionModel):
+    selection: ViewSelection | None = None
     kind: Literal["this", "filter", "all", "layout"]
     row_id: int | None = Field(default=None, gt=0)
     filter: dict | None = None
@@ -19,6 +22,12 @@ class ExtractionScope(ExtractionModel):
 
     @model_validator(mode="after")
     def selected_document(self) -> "ExtractionScope":
+        if self.selection is not None:
+            if self.kind != "filter" or any(
+                value is not None
+                for value in (self.filter, self.parent_row_id, self.scope_row_ids)
+            ):
+                raise ValueError("A View selection replaces the current filter scope")
         if self.kind == "this" and self.row_id is None:
             raise ValueError("Choose the document to extract")
         if self.scope_row_ids is not None and (

@@ -25,6 +25,33 @@ from frisket.ops.base import Recipe
 _COMPATIBILITY_SCHEMA_VERSION = "frisket.output_compatibility.v1"
 
 
+def _logical_output_roles(project: Project, prepared: PreparedRun) -> dict[str, str]:
+    """Map each materialized output name to its immutable logical field key."""
+
+    run = project.db.execute(
+        "SELECT params FROM runs WHERE id=?", (int(prepared.run_id),)
+    ).fetchone()
+    try:
+        params = json.loads(str(run["params"] or "{}")) if run is not None else {}
+    except (TypeError, ValueError):
+        params = {}
+    output_names = params.get("output_names") if isinstance(params, dict) else None
+    inverse: dict[str, str] = {}
+    if isinstance(output_names, dict):
+        for logical, materialized in output_names.items():
+            if isinstance(logical, str) and isinstance(materialized, str):
+                inverse[materialized] = logical
+    field_keys = {
+        str(field["name"]): str(field["key"])
+        for field in prepared.output_fields
+        if isinstance(field.get("key"), str) and field["key"]
+    }
+    return {
+        str(name): field_keys.get(str(name), inverse.get(str(name), str(name)))
+        for name in prepared.out_cols
+    }
+
+
 def _compatibility_key(
     *,
     field: dict[str, Any],
@@ -104,6 +131,10 @@ def declare_prepared_outputs(
     fields = {str(field["name"]): dict(field) for field in prepared.output_fields}
     if set(fields) != set(prepared.out_cols):
         raise RuntimeError("prepared output descriptors do not match output columns")
+    roles_by_name = _logical_output_roles(project, prepared)
+    if len(set(roles_by_name.values())) != len(roles_by_name):
+        raise RuntimeError("prepared output logical keys are not unique")
+    names_by_role = {role: name for name, role in roles_by_name.items()}
     write_modes = {
         str(output_role): _write_mode_for_prepared_column(
             project, prepared, int(column_id)
@@ -136,8 +167,8 @@ def declare_prepared_outputs(
     try:
         existing_bindings = generations.bindings_for_run(prepared.run_id)
         prepared_roles = {
-            (str(output_role), int(column_id))
-            for output_role, column_id in prepared.out_cols.items()
+            (roles_by_name[str(output_name)], int(column_id))
+            for output_name, column_id in prepared.out_cols.items()
         }
         if existing_bindings:
             existing_roles = {
@@ -150,8 +181,9 @@ def declare_prepared_outputs(
                     "declaration set"
                 )
             for binding in existing_bindings:
-                field = fields[binding.output_role]
-                expected_mode = write_modes[binding.output_role]
+                output_name = names_by_role[binding.output_role]
+                field = fields[output_name]
+                expected_mode = write_modes[output_name]
                 if (
                     binding.compatibility_key != _compatibility_key(field=field)
                     or binding.write_mode != expected_mode
@@ -183,19 +215,20 @@ def declare_prepared_outputs(
                         f"output column {int(column_id)} currently points at legacy "
                         f"run {current_run_id} after managed publication"
                     )
-        for output_role, column_id in prepared.out_cols.items():
-            field = fields[output_role]
+        for output_name, column_id in prepared.out_cols.items():
+            field = fields[output_name]
             generations.declare(
                 prepared.run_id,
                 int(column_id),
-                output_role=output_role,
+                output_role=roles_by_name[output_name],
                 compatibility_key=_compatibility_key(field=field),
-                write_mode=write_modes[output_role],
+                write_mode=write_modes[output_name],
                 claim_token=claim_token,
                 target_descriptor={
                     "type": str(field["column_type"]),
                     "format": field.get("format"),
                     "semantic_type": field.get("semantic_type"),
+                    "schema": field.get("schema") or {},
                 },
                 defer_publication=stage_output_group,
                 commit=False,

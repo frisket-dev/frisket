@@ -41,7 +41,11 @@ async def test_capability_finally_attaches_tools_and_preserves_failure_identity(
         add_secret_values=secrets.extend,
         secret_values_for_model=lambda model: (model_secret,),
     )
-    ctx = SimpleNamespace(extras={"router": router}, http=None)
+    ctx = SimpleNamespace(
+        project=None,
+        extras={"router": router, "preview": True, "cancelled": lambda: False},
+        http=None,
+    )
     owner = SimpleNamespace(_model="test", accounting_by_row={})
     searcher = SimpleNamespace(secret_values=lambda: ("selected-search-secret",))
     bound = research_read._BoundResearcher(owner, object(), 1, ctx, searcher)
@@ -130,7 +134,11 @@ async def test_tokenless_ollama_research_preserves_ordinary_tool_text_and_source
     searcher = SimpleNamespace(
         secret_values=lambda: (), search_response=search_response
     )
-    ctx = SimpleNamespace(extras={"router": router}, http=None)
+    ctx = SimpleNamespace(
+        project=None,
+        extras={"router": router, "preview": True, "cancelled": lambda: False},
+        http=None,
+    )
     bound = research_read._BoundResearcher(owner, object(), 1, ctx, searcher)
     monkeypatch.setattr(
         research_read, "AccountedAgentRouter", lambda inner, *args: inner

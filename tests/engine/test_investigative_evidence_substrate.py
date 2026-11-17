@@ -447,6 +447,20 @@ def test_investigative_evidence_substrate_contract(tmp_path: Path) -> None:
         )
         assert coarse["selector"]["kind"] == "whole"
 
+        # Citations describe provenance; actual retained files own these bytes.
+        retained_files = project.add_column(sheet_id, "Saved sources", type="json")
+        project.apply_edits(
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": retained_files,
+                    "value": [
+                        {"blob": value}
+                        for value in (pdf_hash, html_hash, audio_hash, video_hash)
+                    ],
+                }
+            ]
+        )
         gc_preview = project.gc_blobs(dry_run=True)
         assert gc_preview["hashes"] == [unused_hash]
         project.gc_blobs()

@@ -7,18 +7,17 @@ visible; failures remove the staging sheet and its cascading row/cell state.
 
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Mapping, Self
 
-from frisket.contracts.action import Receipt, ReceiptIO, ReceiptEvidence
+from frisket.contracts.action import ActionError, Receipt, ReceiptIO, ReceiptEvidence
 from frisket.engine.store import op_log
+from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.cell_writes import (
     bind_base_cell_producer,
     create_base_cell_producer,
-    delete_sheet_rows,
     discard_pending_base_cell_producer,
 )
 from frisket.engine.store.import_blobs import (
@@ -233,7 +232,7 @@ class StreamingSheetWriter:
             if stored_receipt is not None:
                 reserved_receipt = stored_receipt.parsed()
                 if (
-                    stored_receipt.status != "running"
+                    stored_receipt.status not in {"queued", "running"}
                     or stored_receipt.action_kind != action_kind
                     or stored_receipt.action_id != action_id
                     or stored_receipt.idempotency_key != idempotency_key
@@ -292,6 +291,7 @@ class StreamingSheetWriter:
                 barrier=True,
                 commit=False,
             )
+            ChangeStore(project).start(op_id)
             op_log.set_undo_info(
                 project, op_id, {"created_sheets": [sheet_id]}, commit=False
             )
@@ -318,6 +318,7 @@ class StreamingSheetWriter:
                     )
                 receipt = reserved_receipt.model_copy(
                     update={
+                        "status": "running",
                         "op_ids": [op_id],
                         "inputs": [
                             *reserved_receipt.inputs,
@@ -326,7 +327,7 @@ class StreamingSheetWriter:
                     }
                 )
                 if not receipt_store.update_body_status(
-                    receipt, require_status="running", commit=False
+                    receipt, require_status=stored_receipt.status, commit=False
                 ):
                     raise ImportSessionConflict("reserved import receipt changed")
             db.execute(
@@ -409,7 +410,7 @@ class StreamingSheetWriter:
                 "SELECT name FROM sheets WHERE id=? AND hidden=0", (int(sheet_id),)
             ).fetchone()
             if sheet is None:
-                raise ValueError("append destination sheet is unavailable")
+                raise ImportSessionConflict("append destination sheet is unavailable")
             active = db.execute(
                 "SELECT id FROM import_sessions WHERE sheet_id=? "
                 "AND state IN ('active','paused','cancelled')",
@@ -463,7 +464,7 @@ class StreamingSheetWriter:
             if stored_receipt is not None:
                 reserved_receipt = stored_receipt.parsed()
                 if (
-                    stored_receipt.status != "running"
+                    stored_receipt.status not in {"queued", "running"}
                     or stored_receipt.action_kind != action_kind
                     or stored_receipt.action_id != action_id
                     or stored_receipt.idempotency_key != idempotency_key
@@ -498,11 +499,17 @@ class StreamingSheetWriter:
                 barrier=True,
                 undo_info={
                     "created_rows": [],
-                    "created_rows_import_session_id": session_id,
+                    **(
+                        {}
+                        if source_ref.get("update_relationship") is not None
+                        else {"created_rows_import_session_id": session_id}
+                    ),
                     "created_columns": created_column_ids,
                 },
                 commit=False,
             )
+            if created_column_ids:
+                ChangeStore(project).start(op_id)
             producer_id = create_base_cell_producer(
                 db, stage_id=f"import-session:{session_id}", op_id=op_id
             )
@@ -526,6 +533,7 @@ class StreamingSheetWriter:
                     )
                 receipt = reserved_receipt.model_copy(
                     update={
+                        "status": "running",
                         "op_ids": [op_id],
                         "inputs": [
                             *reserved_receipt.inputs,
@@ -534,7 +542,7 @@ class StreamingSheetWriter:
                     }
                 )
                 if not receipt_store.update_body_status(
-                    receipt, require_status="running", commit=False
+                    receipt, require_status=stored_receipt.status, commit=False
                 ):
                     raise ImportSessionConflict("reserved import receipt changed")
             db.execute(
@@ -702,6 +710,11 @@ class StreamingSheetWriter:
                     for offset, row_id in enumerate(row_ids, start=1)
                 ),
             )
+            # Membership is an effect even when every imported cell is null.
+            # Register only this page, rather than rereading the whole session.
+            from .structural_changes import record_structural_changes
+
+            record_structural_changes(db, self._op_id, {"created_rows": row_ids})
             if blob_plan is not None:
                 publish_import_blobs(
                     self.project,
@@ -738,28 +751,29 @@ class StreamingSheetWriter:
 
     def pause(self, *, expected_cursor: int) -> ImportSession:
         self._require_session()
-        return ImportSessionStore(self.project).set_state(
+        return ImportSessionStore(self.project).pause(
             self._session_id,
             self._writer_authority,
             expected_cursor,
-            from_states=("active",),
-            state="paused",
         )
 
     def cancel(self, *, expected_cursor: int) -> ImportSession:
         """Stop acquisition while retaining every committed visible page."""
 
         self._require_session()
-        return ImportSessionStore(self.project).set_state(
+        return ImportSessionStore(self.project).cancel(
             self._session_id,
             self._writer_authority,
             expected_cursor,
-            from_states=("active", "paused"),
-            state="cancelled",
         )
 
     def finalize_session(
-        self, *, expected_cursor: int, keep_cancelled: bool = False
+        self,
+        *,
+        expected_cursor: int,
+        keep_cancelled: bool = False,
+        failure: ActionError | None = None,
+        enumeration_complete: bool = False,
     ) -> StreamingSheetPublication:
         """Finalize the one reserved receipt; cancelled sessions require Keep."""
 
@@ -782,25 +796,28 @@ class StreamingSheetWriter:
                 row_count=session.committed_rows,
                 status="partial" if keep_cancelled else "completed",
             )
+            if failure is not None:
+                receipt = receipt.model_copy(
+                    update={
+                        "status": "partial" if receipt.op_ids else "failed",
+                        "errors": [*receipt.errors, failure],
+                        "warnings": [
+                            *receipt.warnings,
+                            "The action failed after publication; completed updates were kept.",
+                        ],
+                    }
+                )
             if not ReceiptStore(self.project).update_body_status(
                 receipt, require_status="running", commit=False
             ):
                 raise ImportSessionConflict("import receipt finalization lost its CAS")
+            ChangeStore(self.project).close(self._op_id)
             db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
-            final_state = "kept" if keep_cancelled else "completed"
-            updated = db.execute(
-                "UPDATE import_sessions SET state=?,updated_at=datetime('now') "
-                "WHERE id=? AND writer_authority=? AND cursor=? AND state=?",
-                (
-                    final_state,
-                    self._session_id,
-                    self._writer_authority,
-                    int(expected_cursor),
-                    allowed[0] if len(allowed) == 1 else session.state,
-                ),
+            ImportSessionStore(self.project).finish(
+                session,
+                keep=keep_cancelled or failure is not None,
+                enumeration_complete=enumeration_complete,
             )
-            if updated.rowcount != 1:
-                raise ImportSessionConflict("import session finalization lost its CAS")
             db.commit()
         except BaseException:
             db.rollback()
@@ -818,8 +835,7 @@ class StreamingSheetWriter:
         return publication
 
     def remove_session(self, *, expected_cursor: int) -> None:
-        """Remove a newly-created import sheet; appended rows use normal Undo."""
-
+        """Revert only this import's contribution using ordinary Change history."""
         self._require_session()
         db = self.project.db
         try:
@@ -830,78 +846,50 @@ class StreamingSheetWriter:
                 expected_cursor,
                 states=("cancelled",),
             )
-            operation = db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (session.op_id,)
-            ).fetchone()
-            undo_info = json.loads(operation["undo_info"] or "{}")
-            if "created_sheets" in undo_info:
-                foreign_row = db.execute(
-                    "SELECT 1 FROM rows AS r WHERE r.sheet_id=? AND NOT EXISTS ("
-                    "SELECT 1 FROM cells AS c WHERE c.row_id=r.id "
-                    "AND c.producer_id=?) LIMIT 1",
-                    (session.sheet_id, session.producer_id),
-                ).fetchone()
-                if foreign_row is not None:
-                    raise ImportSessionConflict(
-                        "import sheet has unrelated rows; keep it and use Undo"
-                    )
+            self.prepare_removal(session)
+            if (
                 db.execute(
-                    "DELETE FROM evidence_links WHERE sheet_id=? OR op_id=?",
-                    (session.sheet_id, session.op_id),
-                )
-                db.execute(
-                    "DELETE FROM artifact_timeline_segments WHERE "
-                    "derived_artifact_id IN (SELECT id FROM source_artifacts "
-                    "WHERE source_sheet_id=?) OR source_artifact_id IN "
-                    "(SELECT id FROM source_artifacts WHERE source_sheet_id=?)",
-                    (session.sheet_id, session.sheet_id),
-                )
-                db.execute(
-                    "DELETE FROM source_artifacts WHERE source_sheet_id=?",
-                    (session.sheet_id,),
-                )
-                delete_sheet_rows(
-                    db,
-                    sheet_id=session.sheet_id,
-                    producer_id=session.producer_id,
-                    import_writer_authority=self._writer_authority,
-                    import_expected_cursor=expected_cursor,
-                )
-            else:
-                raise ImportSessionConflict(
-                    "an existing-sheet import must be kept and removed with Undo"
-                )
-            stored = ReceiptStore(self.project).find_by_id(self._receipt_id)
-            if stored is None or stored.status != "running":
-                raise ImportSessionConflict("import receipt is no longer running")
-            receipt = self._completed_session_receipt(
-                stored.parsed(), row_count=0, status="cancelled"
-            )
-            if not ReceiptStore(self.project).update_body_status(
-                receipt, require_status="running", commit=False
+                    "SELECT change_order FROM ops WHERE id=?", (self._op_id,)
+                ).fetchone()[0]
+                is not None
             ):
-                raise ImportSessionConflict("import receipt cancellation lost its CAS")
-            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
-            updated = db.execute(
-                "UPDATE import_sessions SET state='removed',updated_at=datetime('now') "
-                "WHERE id=? AND writer_authority=? AND cursor=? AND state='cancelled'",
-                (
-                    self._session_id,
-                    self._writer_authority,
-                    int(expected_cursor),
-                ),
-            )
-            if updated.rowcount != 1:
-                raise ImportSessionConflict("import session removal lost its CAS")
+                op_log.step_operation(self.project, "revert", op_id=self._op_id)
             db.commit()
         except BaseException:
             db.rollback()
             raise
         self._closed = True
 
+    def prepare_removal(self, session: ImportSession) -> None:
+        """Fence acquisition and settle its receipt in the caller's Undo transaction.
+
+        Undo owns visibility changes; payloads and provenance remain available
+        for restoration. A restored import never resumes acquisition.
+        """
+        db = self.project.db
+        if not db.in_transaction:
+            raise RuntimeError("Import removal requires a history transaction")
+        stored = ReceiptStore(self.project).find_by_id(self._receipt_id)
+        if stored is None or stored.status != "running":
+            raise ImportSessionConflict("import receipt is no longer running")
+        receipt = self._completed_session_receipt(
+            stored.parsed(), row_count=0, status="cancelled"
+        )
+        if not ReceiptStore(self.project).update_body_status(
+            receipt, require_status="running", commit=False
+        ):
+            raise ImportSessionConflict("import receipt cancellation lost its CAS")
+        ChangeStore(self.project).close(self._op_id)
+        db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
+        ImportSessionStore(self.project).remove(session)
+
     def _completed_session_receipt(
         self, receipt: Receipt, *, row_count: int, status: str
     ) -> Receipt:
+        if self._source_ref.get("update_relationship") is not None:
+            return self._completed_update_receipt(
+                receipt, row_count=row_count, status=status
+            )
         source = self._source_ref
         outputs = [
             ReceiptIO(
@@ -968,6 +956,54 @@ class StreamingSheetWriter:
                         else [*receipt.warnings, *self._warnings]
                     )
                 ),
+            }
+        )
+
+    def _completed_update_receipt(
+        self, receipt: Receipt, *, row_count: int, status: str
+    ) -> Receipt:
+        # The receipt refers to durable version ownership, not a second huge
+        # row-ID list or a fictitious newly materialized sheet.
+        counts = self.project.db.execute(
+            "SELECT COUNT(*) AS cells, COUNT(DISTINCT cell.row_id) AS rows, "
+            "COALESCE(SUM(cell.value IS NULL),0) AS cleared "
+            "FROM cells cell JOIN base_cell_producers producer ON producer.id=cell.producer_id "
+            "WHERE producer.op_id=?",
+            (self._op_id,),
+        ).fetchone()
+        ref = {
+            "kind": "updated_import_rows",
+            "sheet_id": self.sheet_id,
+            "op_id": self._op_id,
+            "row_count": counts["rows"],
+            "edit_count": counts["cells"],
+            "cleared_cells": counts["cleared"],
+            "matched": row_count,
+        }
+        changed = (
+            self.project.db.execute(
+                "SELECT change_order FROM ops WHERE id=?", (self._op_id,)
+            ).fetchone()[0]
+            is not None
+        )
+        return receipt.model_copy(
+            update={
+                "status": status,
+                "op_ids": [self._op_id] if changed else [],
+                "outputs": [ReceiptIO(name="updated_rows", ref=ref)],
+                "evidence": [
+                    *receipt.evidence,
+                    ReceiptEvidence(ref=ref, retention="pinned"),
+                ],
+                "warnings": [
+                    *receipt.warnings,
+                    *self._warnings,
+                    *(
+                        ["Import was stopped; completed updates were kept."]
+                        if status == "partial"
+                        else []
+                    ),
+                ],
             }
         )
 
@@ -1145,6 +1181,7 @@ class StreamingSheetWriter:
                     receipt_id=self._receipt_id,
                 )
                 receipt.evidence.extend(ReceiptEvidence(ref=ref) for ref in published)
+            ChangeStore(self.project).close(op_id)
             ReceiptStore(self.project).insert_completed(receipt, commit=False)
             updated = db.execute(
                 "UPDATE sheets SET name=?, hidden=0 WHERE id=? AND hidden=1",

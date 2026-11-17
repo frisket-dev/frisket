@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from helpers import stored_output_descriptor
 from fastapi.testclient import TestClient
 
 from frisket.engine.store.current_cells import rebuild_current_cells
@@ -436,16 +437,29 @@ def test_preview_tolerant_live_resolution_preserves_edit_head_source_precedence(
         row_ids=[head_row],
         total_rows=1,
     )
+    from frisket.engine.store.changes import start_change
+
+    project.db.execute("BEGIN IMMEDIATE")
+    start_change(project.db, op_id, writing=True)
     project.db.execute(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token) VALUES (?,?,?,?,?,?,?)",
-        (run_id, tags, "tags", "sha256:list-facet", "create", "active", "claim:test"),
+        "claim_token,output_descriptor_json) VALUES (?,?,?,?,?,?,?,?)",
+        (
+            run_id,
+            tags,
+            "tags",
+            "sha256:list-facet",
+            "create",
+            "active",
+            "claim:test",
+            stored_output_descriptor(project.db, tags),
+        ),
     )
     project.db.execute(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,published) "
+        "VALUES (?,?,?,?,?,?,?,1)",
         (
             run_id,
             head_row,

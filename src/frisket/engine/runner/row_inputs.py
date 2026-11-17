@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from frisket.actions.types import RowError
@@ -15,7 +15,6 @@ from frisket.ops.base import Recipe
 from frisket.engine.runner.grounding import (
     MAX_IMAGE_BYTES,
     image_part,
-    inject_grounding_segments,
 )
 from frisket.engine.store import Project
 from frisket.authoring.templates import render_column_template
@@ -107,10 +106,14 @@ class RowInputValues(dict[str, Any]):
         *,
         source_cells_empty: bool,
         source_cells: Mapping[str, Mapping[str, Any]] | None = None,
+        consumed_capture: Mapping[str, Any] | None = None,
+        unavailable_inputs: tuple[Mapping[str, str], ...] = (),
     ):
         super().__init__(values)
         self.source_cells_empty = source_cells_empty
         self.source_cells = source_cells
+        self.consumed_capture = consumed_capture
+        self.unavailable_inputs = unavailable_inputs
 
 
 def row_source_values_empty(values: Mapping[str, Any]) -> bool:
@@ -131,6 +134,8 @@ class RowSourcePage:
     sheet_id: int
     row_ids: frozenset[int]
     columns: Mapping[int, tuple[dict[int, Any], dict[int, dict[str, Any]]]]
+    descriptors: Mapping[int, Any] = field(default_factory=dict)
+    revisions: Mapping[str, int] = field(default_factory=dict)
 
     def cell(
         self, sheet_id: int, column_id: int, row_id: int
@@ -138,7 +143,12 @@ class RowSourcePage:
         if sheet_id != self.sheet_id or row_id not in self.row_ids:
             raise ValueError("row is outside the local source page")
         values, refs = self.columns[column_id]
-        return values.get(row_id), refs.get(row_id)
+        ref = refs.get(row_id)
+        return values.get(row_id), (
+            {key: value for key, value in ref.items() if key != "validity"}
+            if ref is not None
+            else None
+        )
 
 
 def read_source_page(
@@ -151,69 +161,26 @@ def read_source_page(
 ) -> RowSourcePage:
     # Close the coherent read transaction before queueing or executing a row.
     preserved = frozenset(preserve_invalid_column_ids)
+    from frisket.engine.store.column_descriptors import descriptor_identity
+    from frisket.engine.store.consumed_sources import authority_revisions
+
     with project.read_snapshot() as snapshot:
+        descriptors = {
+            column_id: descriptor_identity(snapshot, column_id)
+            for column_id in column_ids
+        }
+        revisions = authority_revisions(snapshot, column_ids)
         columns = {
             column_id: snapshot.get_values_with_refs(
                 sheet_id,
                 column_id,
                 row_ids=row_ids,
+                include_validity=True,
                 **({"preserve_invalid": True} if column_id in preserved else {}),
             )
             for column_id in column_ids
         }
-    return RowSourcePage(sheet_id, frozenset(row_ids), columns)
-
-
-def _refuse_changed_admitted_input(name: str, row_id: int) -> None:
-    from frisket.ops.base import RecipeInvocationHalt
-
-    raise RecipeInvocationHalt(
-        "promise_violation",
-        "the source value or revision for "
-        f"{name!r} on row {row_id} changed after attempt admission; "
-        "nothing was sent. Review and confirm the current work scope before "
-        "resuming",
-    )
-
-
-def _expected_source_cell(
-    snapshot: Mapping[str, Any],
-    *,
-    source_index: int,
-    name: str,
-    column_id: int | None,
-    row_id: int,
-) -> Mapping[str, Any]:
-    from frisket.execution.scope_identity import AdmittedWorkScopeSnapshot
-
-    sources = snapshot.get("sources")
-    if not isinstance(sources, list) or source_index >= len(sources):
-        _refuse_changed_admitted_input(name, row_id)
-    source = sources[source_index]
-    if (
-        not isinstance(source, Mapping)
-        or source.get("name") != name
-        or source.get("column_id") != column_id
-    ):
-        _refuse_changed_admitted_input(name, row_id)
-    cells = source.get("cells")
-    if not isinstance(cells, list):
-        _refuse_changed_admitted_input(name, row_id)
-    expected = (
-        snapshot.source_cell(source_index, cells, row_id)
-        if isinstance(snapshot, AdmittedWorkScopeSnapshot)
-        else next(
-            (
-                cell
-                for cell in cells
-                if isinstance(cell, Mapping) and cell.get("row_id") == row_id
-            ),
-            None,
-        )
-    )
-    if expected is None:
-        _refuse_changed_admitted_input(name, row_id)
-    return expected
+    return RowSourcePage(sheet_id, frozenset(row_ids), columns, descriptors, revisions)
 
 
 def row_values(
@@ -229,8 +196,23 @@ def row_values(
     admitted_work_scope: Mapping[str, Any] | None = None,
     source_page: RowSourcePage | None = None,
 ) -> dict[str, Any]:
-    if source_page is not None and (for_model or admitted_work_scope is not None):
-        raise ValueError("admitted/model rows require live source reads")
+    if admitted_work_scope is not None and row_id not in admitted_work_scope.get(
+        "row_ids", ()
+    ):
+        raise ValueError("row is outside the admitted selection")
+    if source_page is None:
+        names = recipe.source_columns(spec)
+        source_page = read_source_page(
+            project,
+            spec["sheet_id"],
+            [col_map[name] for name in names if name in col_map],
+            [row_id],
+            preserve_invalid_column_ids=[
+                col_map[name]
+                for name in getattr(recipe, "preserve_invalid_source_columns", ())
+                if name in col_map
+            ],
+        )
     if capture is None and (
         source_page is not None or getattr(recipe, "capture_source_cells", False)
     ):
@@ -240,6 +222,13 @@ def row_values(
         col_types = {c["name"]: c["type"] for c in project.columns(spec["sheet_id"])}
     values: dict[str, Any] = {}
     source_names = [str(name) for name in recipe.source_columns(spec)]
+    required_sources = frozenset(
+        getattr(recipe, "required_source_columns", source_names)
+    )
+    missing_capable_sources = frozenset(
+        getattr(recipe, "missing_capable_source_columns", ())
+    )
+    unavailable_inputs = []
     preserve_invalid_names = frozenset(
         getattr(recipe, "preserve_invalid_source_columns", ())
     )
@@ -249,21 +238,22 @@ def row_values(
     prompt_source_names = set(getattr(recipe, "prompt_source_columns", source_names))
     for source_index, name in enumerate(source_names):
         cid = col_map.get(name)
-        if admitted_work_scope is not None:
-            expected = _expected_source_cell(
-                admitted_work_scope,
-                source_index=source_index,
-                name=name,
-                column_id=cid,
-                row_id=row_id,
-            )
-        else:
-            expected = None
         if cid is None:
             continue
         if source_page is not None:
             val, ref = source_page.cell(spec["sheet_id"], cid, row_id)
-        elif capture is None and expected is None:
+            from frisket.engine.store.input_availability import input_unavailability
+
+            reason = input_unavailability(
+                name,
+                source_page.columns[cid][1].get(row_id),
+                required=name in required_sources,
+                preserve_invalid=name in preserve_invalid_names,
+                allow_missing=name in missing_capable_sources,
+            )
+            if reason is not None:
+                unavailable_inputs.append(reason)
+        elif capture is None:
             read_options = (
                 {"preserve_invalid": True} if name in preserve_invalid_names else {}
             )
@@ -283,15 +273,6 @@ def row_values(
             )
             val = got.get(row_id)
             ref = refs.get(row_id)
-        if expected is not None:
-            from frisket.engine.store.cells import replay_generated_value_hash
-
-            canonical_ref = dict(ref) if isinstance(ref, Mapping) else None
-            if (
-                expected.get("value_hash") != replay_generated_value_hash(val)
-                or expected.get("value_ref") != canonical_ref
-            ):
-                _refuse_changed_admitted_input(name, row_id)
         if capture is not None:
             capture[name] = {
                 "column_id": cid,
@@ -350,6 +331,19 @@ def row_values(
     source_cells_empty = bool(prompt_source_names) and all(
         is_empty_cell_value(value) for value in values.values()
     )
+    from frisket.engine.store.consumed_sources import row_capture
+
+    consumed_capture = (
+        row_capture(
+            sheet_id=spec["sheet_id"],
+            row_id=row_id,
+            source_cells=capture,
+            descriptors=source_page.descriptors,
+            revisions=source_page.revisions,
+        )
+        if capture and source_page is not None
+        else None
+    )
     template = str(spec.get("input_template") or "").strip()
     # Evaluations render source and answer separately; collapsing here would
     # conflate the template's synthetic "input" key with a real subject column.
@@ -375,11 +369,13 @@ def row_values(
             rendered,
             source_cells_empty=source_cells_empty,
             source_cells=capture,
+            consumed_capture=consumed_capture,
+            unavailable_inputs=tuple(unavailable_inputs),
         )
-    if for_model:
-        inject_grounding_segments(project, spec, row_id, values)
     return RowInputValues(
         values,
         source_cells_empty=source_cells_empty,
         source_cells=capture,
+        consumed_capture=consumed_capture,
+        unavailable_inputs=tuple(unavailable_inputs),
     )

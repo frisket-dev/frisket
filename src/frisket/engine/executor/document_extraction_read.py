@@ -74,6 +74,7 @@ class LoadedDocument:
     artifact_id: int | None = None
     page: int | None = None
     page_count: int = 1
+    artifact_version: str | None = None
 
     @property
     def selector(self) -> tuple[str, int | None]:
@@ -89,6 +90,7 @@ class DocumentIdentity:
     page_count: int
     artifact_id: int | None
     page: int | None
+    artifact_version: str | None
 
     @classmethod
     def from_loaded(cls, loaded):
@@ -100,7 +102,83 @@ class DocumentIdentity:
             loaded.page_count,
             loaded.artifact_id,
             loaded.page,
+            loaded.artifact_version,
         )
+
+
+def _positioned_record_bytes(role, coordinate, loaded, error=None):
+    identity = (
+        [
+            loaded.blob_id,
+            loaded.page,
+            loaded.artifact_id,
+            loaded.artifact_version,
+            loaded.fingerprint,
+        ]
+        if loaded is not None
+        else ["unavailable", error]
+    )
+    return (
+        json.dumps(
+            [role, coordinate, identity],
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+        + b"\n"
+    )
+
+
+def positioned_scope_fingerprint(project, scope, *, cancelled=None):
+    """Resolve the same typed geometry keys that the extraction reader consumed."""
+    digest = hashlib.sha256()
+    reference_key = scope["reference"]
+    reference = None
+    try:
+        reference = load_positioned_document(
+            project,
+            reference_key["blob_id"],
+            page=reference_key["page"],
+            cancelled=cancelled,
+        )
+        reference_identity = DocumentIdentity.from_loaded(reference)
+        digest.update(
+            _positioned_record_bytes("reference", reference_key, reference_identity)
+        )
+    except TableError as exc:
+        digest.update(
+            _positioned_record_bytes("reference", reference_key, None, exc.code)
+        )
+    column = project.db.execute(
+        "SELECT type FROM columns WHERE id=?", (scope["column_id"],)
+    ).fetchone()
+    for offset in range(0, len(scope["cohort"]), 256):
+        ids = scope["cohort"][offset : offset + 256]
+        values = project.get_values(scope["sheet_id"], scope["column_id"], row_ids=ids)
+        for row_id in ids:
+            if cancelled is not None and cancelled():
+                return None
+            try:
+                source = _document_cell_value(
+                    values.get(row_id),
+                    column_type=column[0] if column is not None else "",
+                )
+                loaded = (
+                    reference
+                    if reference is not None
+                    and source == DocumentCell(reference.blob_id, reference.page)
+                    else load_positioned_document(
+                        project, source.blob_id, page=source.page, cancelled=cancelled
+                    )
+                )
+                digest.update(
+                    _positioned_record_bytes(
+                        "row", row_id, DocumentIdentity.from_loaded(loaded)
+                    )
+                )
+            except TableError as exc:
+                digest.update(_positioned_record_bytes("row", row_id, None, exc.code))
+    return digest.hexdigest()
 
 
 def _source_document_value(document: DocumentIdentity) -> dict[str, object]:
@@ -183,8 +261,8 @@ def _ocr_pages(
                     != set(range(1, page_count + 1))
                 ):
                     continue
-            return pages, resolved.artifact_id
-    return [], None
+            return pages, resolved.artifact_id, resolved.span_identity
+    return [], None, None
 
 
 def load_positioned_document(
@@ -208,7 +286,7 @@ def load_positioned_document(
             "invalid_input_ref", "Document page selector must be a positive integer"
         )
     is_pdf = mime == "application/pdf" or filename.lower().endswith(".pdf")
-    pages, artifact_id = _ocr_pages(
+    pages, artifact_id, artifact_version = _ocr_pages(
         project,
         blob_id,
         page=page,
@@ -304,6 +382,7 @@ def load_positioned_document(
         artifact_id,
         page,
         page_count,
+        artifact_version,
     )
 
 
@@ -381,6 +460,7 @@ class AdmittedPositionedDocumentReader:
                 raise TableError("invalid_input_ref", str(exc)) from exc
         self.scope = scope
         self.rows = AdmittedSheetRowsReader(project, scope=scope, params=params)
+        self.consumed_captures = self.rows.consumed_captures
         self.parent_sheet_id = scope.sheet_id
         self.sources = self.rows.sources
         self.facts = self.rows.facts
@@ -414,6 +494,8 @@ class AdmittedPositionedDocumentReader:
         self.source_cells = {}
         self.reference = None
         self.final_names = {}
+        self._positioned_digest = None
+        self._positioned_units = 0
 
     def close(self):
         self.rows.close()
@@ -439,9 +521,27 @@ class AdmittedPositionedDocumentReader:
         reference_source = DocumentCell(
             params.template.reference_blob_id, params.template.reference_page
         )
+        from frisket.engine.store.consumed_sources import positioned_source_revision
+
+        self._positioned_revision = positioned_source_revision(self.project)
         reference = self._load(reference_source)
         self.reference = reference
         self.identities[reference.selector] = DocumentIdentity.from_loaded(reference)
+        self._positioned_digest = hashlib.sha256()
+        self._positioned_reference = {
+            "blob_id": reference.blob_id,
+            "page": reference.page,
+        }
+        self._positioned_digest.update(
+            _positioned_record_bytes(
+                "reference",
+                self._positioned_reference,
+                DocumentIdentity.from_loaded(reference),
+            )
+        )
+        self._positioned_units = 1 + sum(
+            len(page.tokens) for page in reference.document.pages
+        )
         try:
             compiled = compile_template(params.template, reference.document)
         except ValueError as exc:
@@ -472,6 +572,11 @@ class AdmittedPositionedDocumentReader:
                     column_type=source_column_type,
                 )
                 loaded = self._load(source_cell)
+                self._positioned_units += 1
+                if loaded is not self.reference:
+                    self._positioned_units += sum(
+                        len(page.tokens) for page in loaded.document.pages
+                    )
                 result = extract_document(
                     compiled, loaded.document, params.repeat_group_id
                 )
@@ -488,6 +593,11 @@ class AdmittedPositionedDocumentReader:
                     outcome="error",
                     error_code=exc.code,
                 )
+            self._positioned_digest.update(
+                _positioned_record_bytes(
+                    "row", item.source.row_id, loaded, result.error_code
+                )
+            )
             if result.outcome != "error":
                 self.successful_row_ids.append(item.source.row_id)
             outcome = {
@@ -565,6 +675,47 @@ class AdmittedPositionedDocumentReader:
                             parent=source,
                         )
             finally:
+                if self._positioned_digest is not None:
+                    from frisket.engine.store.consumed_sources import (
+                        positioned_source_revision,
+                    )
+
+                    read = next(
+                        (
+                            fact
+                            for fact in self.rows.facts
+                            if fact.get("kind") == "sheet_rows_read"
+                        ),
+                        None,
+                    )
+                    if read is not None:
+                        self.consumed_captures.append(
+                            {
+                                "schema_version": 1,
+                                "kind": "aggregate",
+                                "scopes": [],
+                                "revisions": {
+                                    "positioned_source_revision": self._positioned_revision
+                                },
+                                "coherent": positioned_source_revision(self.project)
+                                == self._positioned_revision,
+                                "positioned_scopes": [
+                                    {
+                                        "sheet_id": self.scope.sheet_id,
+                                        "column_id": self.rows._column_ids[
+                                            self.params.source.name
+                                        ],
+                                        "cohort": read.get(
+                                            "read_row_ids", read["row_ids"]
+                                        ),
+                                        "reference": self._positioned_reference,
+                                        "fingerprint": self._positioned_digest.hexdigest(),
+                                        "verification_units": self._positioned_units,
+                                    }
+                                ],
+                            }
+                        )
+                    self._positioned_digest = None
                 if (
                     self.outcome_counts["zero_records"]
                     or self.outcome_counts["error"]
@@ -615,7 +766,7 @@ class AdmittedPositionedDocumentReader:
             if loaded.artifact_id is not None:
                 # Use the same admissibility predicate as the original read:
                 # a newer unusable artifact does not make an older one stale.
-                _pages, artifact_id = _ocr_pages(
+                _pages, artifact_id, _artifact_version = _ocr_pages(
                     self.project,
                     blob_id,
                     page=loaded.page,

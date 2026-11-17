@@ -86,10 +86,9 @@ TERMINAL_ATTEMPT_STATES = ("effected", "halted", "superseded", "abandoned")
 #: detector). Recovery closes it explicitly BEFORE a resume is admitted, so a
 #: crash cannot leave one live forever and block the run permanently.
 #:
-#: This is the one liveness bound. Output-producing work renews the existing
-#: ``output_column_claims`` lease in each result transaction. A claimless
-#: direct effect has no output lease to renew, so its existing age-only bound
-#: remains the honest (and deliberately narrower) fallback.
+#: Output-producing work renews its existing claim lease. Claimless work has
+#: no such liveness clock: recovery needs proof that its original handler has
+#: exited (or, without lineage, that its entire linked job stopped), never age.
 STALE_DISPATCHING_AGE = timedelta(hours=6)
 
 
@@ -530,6 +529,21 @@ def load_attempt(project: Any, attempt_id: str) -> Any:
     ).fetchone()
 
 
+def require_returned_attempt(project: Any, run_id: int | None, attempt_id: str) -> Any:
+    """A returned external fact belongs to its dispatched attempt, not a live claim."""
+    row = load_attempt(project, attempt_id)
+    if (
+        row is None
+        or row["run_id"] != run_id
+        or (run_id is None and row["receipt_id"] is None)
+        or row["state"] not in {"dispatching", "effected", "halted", "abandoned"}
+    ):
+        raise StaleAttemptWriter(
+            "returned usage does not belong to a dispatched provider attempt"
+        )
+    return row
+
+
 def require_receipt_attempt_writer(
     project: Any, receipt_id: str, attempt_id: str, *, state: str = "dispatching"
 ) -> Any:
@@ -559,7 +573,10 @@ def abandon_stale_dispatching_attempts(
 
     A claimed output run is stale only after its attempt is old enough *and*
     every active claim row bound to the run has an expired (or malformed
-    missing) lease. A claimless direct effect retains the same age-only bound.
+    missing) lease. Claimless work instead requires its original durable
+    handler to have exited; without lineage, the entire linked job must stop.
+    Unknown/unlinked work needs
+    explicit stopped-writer recovery; its age alone cannot revoke authority.
     The caller may join an existing project transaction with ``commit=False``;
     initial-attempt mint does exactly that.
     """
@@ -727,6 +744,21 @@ def claim(
         run_id = row["run_id"]
         receipt_id = row["receipt_id"]
         owner_column, owner_id = _attempt_owner(run_id, receipt_id)
+        if run_id is not None:
+            from frisket.engine.store.source_dependencies import (
+                ExecutionSourceUnavailable,
+                require_execution_sources,
+            )
+
+            owner = db.execute(
+                "SELECT op_id FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            try:
+                if owner is None:
+                    raise ExecutionSourceUnavailable("The execution no longer exists")
+                require_execution_sources(project, int(owner[0]))
+            except ExecutionSourceUnavailable as exc:
+                raise AttemptClaimRefused("input_source_unavailable", str(exc)) from exc
         from frisket.engine.store.output_claims import OutputColumnClaimStore
 
         output_claims = OutputColumnClaimStore(project)
@@ -780,13 +812,22 @@ def claim(
                     "the prepared dispatch's output claim group does not "
                     f"cover columns {sorted(missing)}",
                 )
+        from frisket.execution.handler_lineage import current_handler_lineage
+
+        handler = current_handler_lineage()
         try:
             updated = db.execute(
-                "UPDATE execution_attempts SET state='dispatching' "
+                "UPDATE execution_attempts SET state='dispatching', "
+                "job_id=?, handler_authority_id=? "
                 "WHERE id=? AND state='admitted' AND NOT EXISTS ("
                 "SELECT 1 FROM execution_attempts live "
                 f"WHERE live.{owner_column}=? AND live.state='dispatching')",
-                (commitment.attempt_id, owner_id),
+                (
+                    handler.job_id if handler is not None else None,
+                    handler.authority_id if handler is not None else None,
+                    commitment.attempt_id,
+                    owner_id,
+                ),
             )
         except sqlite3.IntegrityError as exc:
             # uq_execution_attempts_one_dispatching. The CAS above should have
@@ -1277,16 +1318,29 @@ def _apply_quoted_row_settlement(
     return receipt
 
 
-def run_attempt_receipts(project: Any, run_id: int) -> list[dict[str, Any]]:
-    """Every attempt on one run, newest first. A retry mints a new attempt
-    rather than mutating the old one, so this is also how a user sees two
-    attempts covering a row that was paid for twice (§1.5).
+def run_attempt_receipts(
+    project: Any, run_id: int, *, attempt_only: bool = False
+) -> list[dict[str, Any]]:
+    """Attempts across an execution, or one generation for detailed inspection."""
+    from frisket.engine.store.execution_groups import execution_runs
 
-    ``WHERE run_id=?`` by construction, which is why it cannot reach a
-    COMPACTION-ORPHANED attempt: see ``project_attempt_receipts``."""
+    if attempt_only:
+        ids = [run_id]
+    else:
+        # Compaction may reclaim the run while preserving its attempt receipt
+        # with run_id=NULL. The run-keyed surface answers no attempts after
+        # that boundary; project_attempt_receipts is the retained reader for
+        # the orphan and must not make the detail route raise.
+        exists = project.db.execute(
+            "SELECT 1 FROM runs WHERE id=?", (int(run_id),)
+        ).fetchone()
+        if exists is None:
+            return []
+        ids = execution_runs(project, run_id)[1]
+    ph = ",".join("?" for _ in ids)
     rows = project.db.execute(
-        "SELECT id FROM execution_attempts WHERE run_id=? ORDER BY seq DESC",
-        (run_id,),
+        f"SELECT id FROM execution_attempts WHERE run_id IN ({ph}) ORDER BY run_id DESC,seq DESC",
+        ids,
     ).fetchall()
     receipts = [attempt_receipt(project, str(row["id"])) for row in rows]
     return [receipt for receipt in receipts if receipt is not None]

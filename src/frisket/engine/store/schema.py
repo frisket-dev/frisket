@@ -1,8 +1,8 @@
 """SQLite schema for a frisket project.
 
-Run-based versioning: the provenance envelope lives once per run; results
-hold per-cell deltas; a column's live state is a pointer to its latest run
-plus a sparse manual-edit overlay. Undo/redo moves pointers, copies nothing.
+Ordered Changes own source versions, results, edits and fixed pending scopes.
+The latest applied contribution wins per cell; cached current heads can be
+rebuilt without changing historical payloads or publication permission.
 
 This module is AUTHORITATIVE. Known prior schemas upgrade atomically in
 ``bundle_open.py``; unrecognized bundles are refused by
@@ -16,9 +16,20 @@ import re
 import sqlite3
 from pathlib import Path
 
+from .materialized_lineage import MATERIALIZED_LINEAGE_SCHEMA_SQL
+from .change_schema import CHANGE_SCHEMA_SQL
+from .current_value_sql import CURRENT_CELL_VALUES_SQL
+from .copied_results import COPIED_RESULTS_SCHEMA_SQL
+from .consumed_sources import CONSUMED_SOURCE_SCHEMA_SQL
+from .purge import PURGE_SCHEMA_SQL
+from .review_judgments import JUDGMENT_SCHEMA_SQL
+from .keyed_updates import KEYED_UPDATE_SCHEMA
+from .column_descriptors import DESCRIPTOR_SCHEMA_SQL
+from .structural_changes import STRUCTURAL_SCHEMA_SQL
 from .citation_text import CITATION_TEXT_SCHEMA_SQL
 from .extraction_layouts import EXTRACTION_LAYOUTS_SCHEMA_SQL
 from .evaluation import EVALUATION_SCHEMA_SQL
+from .execution_groups import EXECUTION_GROUP_SCHEMA_SQL
 from .action_submissions import ACTION_SUBMISSIONS_SCHEMA_SQL
 from .pdf_split_schema import PDF_SPLIT_SCHEMA_SQL
 from .document_text import (
@@ -33,64 +44,6 @@ SCHEMA_DIGEST_META_KEY = "schema_digest"
 REVIEW_OUTPUT_ROLES_META_KEY = "review_output_roles"
 REVIEW_OUTPUT_ROLES_VERSION = "ocr-v1"
 
-# The exact logical current-value view at the scalar-storage endpoint. Older
-# migrations install this pinned intermediate definition; they must not reach
-# forward into the latest SCHEMA, whose view can depend on tables added later.
-SCALAR_CURRENT_CELL_VALUES_SQL = """
-CREATE VIEW IF NOT EXISTS current_cell_values AS
-SELECT head.column_id,head.row_id,
-       CASE WHEN head.inline_value_kind IS NOT NULL
-       THEN head.inline_value_kind ELSE CASE head.origin_kind
-         WHEN 'source_cell' THEN (
-           SELECT source.value_kind FROM cells AS source
-           WHERE source.row_id=head.row_id
-             AND source.column_id=head.column_id
-             AND source.producer_id IS head.base_producer_id
-         )
-         WHEN 'run_result' THEN (
-           SELECT CASE result.publication_effect
-             WHEN 'publish_value' THEN result.value_kind
-             WHEN 'publish_null' THEN 'null'
-           END
-           FROM results AS result
-           WHERE result.run_id=head.origin_run_id
-             AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
-         )
-         WHEN 'manual_edit' THEN (
-           SELECT edit.value_kind FROM edits AS edit
-           WHERE edit.op_id=head.origin_op_id
-             AND edit.row_id=head.row_id
-             AND edit.column_id=head.column_id
-         )
-       END END AS value_kind,
-       CASE WHEN head.inline_value_kind IS NOT NULL
-       THEN head.inline_value ELSE CASE head.origin_kind
-         WHEN 'source_cell' THEN (
-           SELECT source.value FROM cells AS source
-           WHERE source.row_id=head.row_id
-             AND source.column_id=head.column_id
-             AND source.producer_id IS head.base_producer_id
-         )
-         WHEN 'run_result' THEN (
-           SELECT CASE WHEN result.publication_effect='publish_value'
-             THEN result.value END
-           FROM results AS result
-           WHERE result.run_id=head.origin_run_id
-             AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
-         )
-         WHEN 'manual_edit' THEN (
-           SELECT edit.value FROM edits AS edit
-           WHERE edit.op_id=head.origin_op_id
-             AND edit.row_id=head.row_id
-             AND edit.column_id=head.column_id
-         )
-       END END AS value,
-       head.origin_kind,head.origin_op_id,head.origin_run_id,
-       head.base_producer_id,head.validity
-FROM current_cells AS head INDEXED BY idx_current_cells_column_row
-"""
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -102,8 +55,8 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 
 CREATE TABLE IF NOT EXISTS sheets (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
   position INTEGER NOT NULL DEFAULT 0,
   parent_sheet_id INTEGER REFERENCES sheets(id),
   parent_op_id INTEGER,
@@ -135,8 +88,10 @@ CREATE TABLE IF NOT EXISTS sheets (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_visible_sheet_name ON sheets(name) WHERE hidden=0;
+
 CREATE TABLE IF NOT EXISTS columns (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   type TEXT NOT NULL DEFAULT 'text',
@@ -164,7 +119,7 @@ CREATE INDEX IF NOT EXISTS idx_columns_current_run
 -- RUN_REVIEW_CURRENT_COLUMN_INDEX_END
 
 CREATE TABLE IF NOT EXISTS rows (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
   position INTEGER NOT NULL DEFAULT 0,
   parent_row_id INTEGER REFERENCES rows(id),
@@ -180,7 +135,7 @@ CREATE INDEX IF NOT EXISTS idx_rows_parent ON rows(parent_row_id);
 -- The operation remains the provenance envelope -- this row is only linkage.
 -- BASE_CELL_PRODUCERS_BEGIN
 CREATE TABLE IF NOT EXISTS base_cell_producers (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   stage_id TEXT NOT NULL UNIQUE CHECK (length(trim(stage_id)) > 0),
   op_id INTEGER REFERENCES ops(id) ON DELETE RESTRICT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -202,7 +157,7 @@ CREATE TABLE IF NOT EXISTS cells (
   -- CELL_PRODUCER_ID_BEGIN
   producer_id INTEGER REFERENCES base_cell_producers(id) ON DELETE RESTRICT,
   -- CELL_PRODUCER_ID_END
-  UNIQUE (row_id, column_id),
+  UNIQUE (row_id, column_id, producer_id),
   CHECK (
     (value_kind='null' AND value IS NULL)
     OR (value_kind='text' AND typeof(value)='text')
@@ -223,36 +178,20 @@ CREATE INDEX IF NOT EXISTS idx_cells_column ON cells(column_id, row_id);
 -- Append-only operation log. spec is declarative JSON. undo_info captures
 -- the pointer state needed to step back (e.g. prior current_run_id per column).
 CREATE TABLE IF NOT EXISTS ops (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL,
   label TEXT,
   spec TEXT NOT NULL DEFAULT '{}',
   undo_info TEXT,
-  status TEXT NOT NULL DEFAULT 'applied',  -- applied | undone | barrier
+  status TEXT NOT NULL DEFAULT 'applied',
+  change_order INTEGER,
+  publication_closed INTEGER NOT NULL DEFAULT 1 CHECK(publication_closed IN (0,1)),
+  redo_eligible INTEGER NOT NULL DEFAULT 1 CHECK(redo_eligible IN (0,1)),
   barrier INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- MATERIALIZED_ROW_SOURCES_BEGIN
-CREATE TABLE IF NOT EXISTS materialized_row_sources (
-  materialized_row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
-  source_row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
-  source_sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
-  op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (
-    role IN (
-      'edge_source', 'edge_target', 'aggregate_source', 'join_left', 'join_right'
-    )
-  ),
-  PRIMARY KEY (materialized_row_id, source_row_id, role)
-);
-CREATE INDEX IF NOT EXISTS idx_materialized_row_sources_source
-  ON materialized_row_sources(source_sheet_id, source_row_id, role);
-CREATE INDEX IF NOT EXISTS idx_materialized_row_sources_materialized
-  ON materialized_row_sources(materialized_row_id, role);
-CREATE INDEX IF NOT EXISTS idx_materialized_row_sources_op
-  ON materialized_row_sources(op_id);
--- MATERIALIZED_ROW_SOURCES_END
+
 
 -- Run = one execution of an op over a sheet. The provenance envelope,
 -- stored once. cost figures in USD.
@@ -264,6 +203,9 @@ CREATE TABLE IF NOT EXISTS runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   op_id INTEGER NOT NULL REFERENCES ops(id),
   sheet_id INTEGER NOT NULL REFERENCES sheets(id),
+  -- Content-free immutable identity survives payload purges. NULL is a root
+  -- (including migrated historical singleton runs); retries name that root.
+  execution_root_run_id INTEGER REFERENCES runs(id) ON DELETE RESTRICT,
   -- Canonical action identity. There is deliberately no persisted runner
   -- implementation alias or compatibility column.
   action_kind TEXT NOT NULL,
@@ -396,6 +338,7 @@ CREATE TABLE IF NOT EXISTS results (
   -- the legacy/unmanaged contract; managed writers must choose one terminal
   -- effect after every payload transform has completed.
   publication_effect TEXT,
+  published INTEGER NOT NULL DEFAULT 0 CHECK(published IN (0,1)),
   PRIMARY KEY (run_id, row_id, column_id),
   CHECK (
     (value_kind IS NULL AND value IS NULL)
@@ -412,6 +355,11 @@ CREATE TABLE IF NOT EXISTS results (
   ),
   CHECK (
     publication_effect IS NULL
+    OR (
+      publication_effect = 'retain'
+      AND ((error IS NULL AND value_kind IS NOT NULL)
+        OR (error IS NOT NULL AND value_kind IS NULL AND value IS NULL))
+    )
     OR (
       publication_effect = 'publish_value'
       AND value_kind IS NOT NULL
@@ -779,6 +727,7 @@ CREATE TABLE IF NOT EXISTS run_output_generations (
   run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE RESTRICT,
   column_id INTEGER NOT NULL REFERENCES columns(id) ON DELETE RESTRICT,
   output_role TEXT NOT NULL CHECK (length(trim(output_role)) > 0),
+  output_descriptor_json TEXT NOT NULL CHECK (json_valid(output_descriptor_json)),
   compatibility_key TEXT NOT NULL CHECK (length(trim(compatibility_key)) > 0),
   write_mode TEXT NOT NULL CHECK (write_mode IN ('create', 'replace_scope')),
   state TEXT NOT NULL CHECK (state IN ('active', 'staged', 'sealed')),
@@ -793,10 +742,6 @@ CREATE TABLE IF NOT EXISTS run_output_generations (
   sealed_at TEXT,
   PRIMARY KEY (run_id, column_id),
   UNIQUE (run_id, output_role),
-  CHECK (
-    (write_mode = 'create' AND state IN ('active', 'staged', 'sealed'))
-    OR (write_mode = 'replace_scope' AND state IN ('staged', 'sealed'))
-  ),
   CHECK (
     (state = 'sealed' AND terminal_disposition IS NOT NULL AND sealed_at IS NOT NULL)
     OR (state <> 'sealed' AND terminal_disposition IS NULL AND sealed_at IS NULL)
@@ -1007,6 +952,9 @@ WHEN OLD.publication_effect IS NOT NULL
     WHERE generation.run_id = OLD.run_id
       AND generation.column_id = OLD.column_id
   )
+  AND frisket_purge_result_delete_authorized(
+    OLD.run_id, OLD.row_id, OLD.column_id
+  )=0
 BEGIN
   SELECT RAISE(ABORT, 'published result is immutable');
 END;
@@ -1016,6 +964,7 @@ BEFORE UPDATE ON run_output_generations
 WHEN NEW.run_id IS NOT OLD.run_id
   OR NEW.column_id IS NOT OLD.column_id
   OR NEW.output_role IS NOT OLD.output_role
+  OR NEW.output_descriptor_json IS NOT OLD.output_descriptor_json
   OR NEW.compatibility_key IS NOT OLD.compatibility_key
   OR NEW.write_mode IS NOT OLD.write_mode
   OR NEW.claim_token IS NOT OLD.claim_token
@@ -1074,8 +1023,8 @@ WHEN NOT EXISTS (
   WHERE result.run_id = NEW.run_id
     AND result.row_id = NEW.row_id
     AND result.column_id = NEW.column_id
-    AND result.publication_effect IS NOT NULL
-    AND generation.state IN ('active', 'sealed')
+    AND result.publication_effect IN ('publish_value','publish_null','publish_error')
+    AND generation.state IN ('active', 'staged', 'sealed')
     AND op.status = 'applied'
 )
 BEGIN
@@ -1095,8 +1044,8 @@ WHEN NOT EXISTS (
   WHERE result.run_id = NEW.run_id
     AND result.row_id = NEW.row_id
     AND result.column_id = NEW.column_id
-    AND result.publication_effect IS NOT NULL
-    AND generation.state IN ('active', 'sealed')
+    AND result.publication_effect IN ('publish_value','publish_null','publish_error')
+    AND generation.state IN ('active', 'staged', 'sealed')
     AND op.status = 'applied'
 )
 BEGIN
@@ -1108,7 +1057,7 @@ END;
 -- artifact deletion removes the native locator but deliberately retains text
 -- already referenced by ordinary result/edit history.
 CREATE TABLE IF NOT EXISTS prepared_page_versions (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_artifact_id INTEGER REFERENCES source_artifacts(id) ON DELETE SET NULL,
   page_number INTEGER NOT NULL CHECK (page_number>0),
   prepared_text TEXT NOT NULL,
@@ -1122,7 +1071,7 @@ CREATE INDEX IF NOT EXISTS idx_prepared_page_versions_artifact_page
   ON prepared_page_versions(source_artifact_id,page_number,id);
 
 CREATE TABLE IF NOT EXISTS prepared_content_sets (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   source_artifact_id INTEGER REFERENCES source_artifacts(id) ON DELETE SET NULL,
   producing_op_id INTEGER NOT NULL REFERENCES ops(id) ON DELETE RESTRICT
 );
@@ -1137,7 +1086,7 @@ CREATE INDEX IF NOT EXISTS idx_prepared_content_set_pages_version
   ON prepared_content_set_pages(version_id,set_id,page_number);
 
 CREATE TABLE IF NOT EXISTS prepared_content_refs (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   set_id INTEGER NOT NULL REFERENCES prepared_content_sets(id) ON DELETE CASCADE,
   page_number INTEGER CHECK (page_number IS NULL OR page_number>0)
 );
@@ -1206,7 +1155,7 @@ CREATE TABLE IF NOT EXISTS current_cells (
   row_id INTEGER NOT NULL REFERENCES rows(id) ON DELETE CASCADE,
   retrieval_revision INTEGER NOT NULL CHECK (retrieval_revision > 0),
   origin_kind TEXT NOT NULL CHECK (
-    origin_kind IN ('source_cell', 'run_result', 'manual_edit')
+    origin_kind IN ('source_cell', 'run_result', 'manual_edit', 'copied_result')
   ),
   origin_op_id INTEGER REFERENCES ops(id) ON DELETE CASCADE,
   origin_run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
@@ -1216,6 +1165,7 @@ CREATE TABLE IF NOT EXISTS current_cells (
     'null','text','integer','real','boolean','bigint'
   )),
   inline_value,
+  outcome TEXT NOT NULL DEFAULT 'completed' CHECK(outcome IN ('completed','pending','failed','not_completed')),
   CHECK (
     (inline_value_kind IS NULL AND inline_value IS NULL)
     OR (inline_value_kind='null' AND inline_value IS NULL)
@@ -1238,6 +1188,11 @@ CREATE TABLE IF NOT EXISTS current_cells (
       origin_kind='run_result'
       AND origin_op_id IS NOT NULL
       AND origin_run_id IS NOT NULL
+      AND base_producer_id IS NULL
+    )
+    OR (
+      origin_kind='copied_result'
+      AND origin_op_id IS NOT NULL
       AND base_producer_id IS NULL
     )
     OR (
@@ -1265,97 +1220,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_current_cells_column_row
 -- head table in FROM lets SQLite flatten this view into an outer sheet query.
 -- Cached bounded scalars avoid authority probes; fallback CASE probes use one
 -- complete authority key. CASE, rather than COALESCE, preserves explicit nulls.
-CREATE VIEW IF NOT EXISTS current_cell_values AS
-SELECT head.column_id,head.row_id,
-       CASE WHEN head.inline_value_kind IS NOT NULL
-       THEN head.inline_value_kind ELSE CASE head.origin_kind
-         WHEN 'source_cell' THEN (
-           SELECT CASE source.value_kind
-             WHEN 'prepared_content_ref' THEN 'text' ELSE source.value_kind END
-           FROM cells AS source
-           WHERE source.row_id=head.row_id
-             AND source.column_id=head.column_id
-             AND source.producer_id IS head.base_producer_id
-         )
-         WHEN 'run_result' THEN (
-           SELECT CASE result.publication_effect
-             WHEN 'publish_value' THEN CASE result.value_kind
-               WHEN 'prepared_content_ref' THEN 'text' ELSE result.value_kind END
-             WHEN 'publish_null' THEN 'null'
-           END
-           FROM results AS result
-           WHERE result.run_id=head.origin_run_id
-             AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
-         )
-         WHEN 'manual_edit' THEN (
-           SELECT CASE edit.value_kind
-             WHEN 'prepared_content_ref' THEN 'text' ELSE edit.value_kind END
-           FROM edits AS edit
-           WHERE edit.op_id=head.origin_op_id
-             AND edit.row_id=head.row_id
-             AND edit.column_id=head.column_id
-         )
-       END END AS value_kind,
-       CASE WHEN head.inline_value_kind IS NOT NULL
-       THEN head.inline_value ELSE CASE head.origin_kind
-         WHEN 'source_cell' THEN (
-           SELECT CASE source.value_kind WHEN 'prepared_content_ref' THEN (
-             SELECT prepared.value FROM prepared_content_ref_values AS prepared
-             WHERE prepared.ref_id=source.value
-           ) ELSE source.value END FROM cells AS source
-           WHERE source.row_id=head.row_id
-             AND source.column_id=head.column_id
-             AND source.producer_id IS head.base_producer_id
-         )
-         WHEN 'run_result' THEN (
-           SELECT CASE WHEN result.publication_effect='publish_value'
-             THEN CASE result.value_kind WHEN 'prepared_content_ref' THEN (
-               SELECT prepared.value FROM prepared_content_ref_values AS prepared
-               WHERE prepared.ref_id=result.value
-             ) ELSE result.value END END
-           FROM results AS result
-           WHERE result.run_id=head.origin_run_id
-             AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
-         )
-         WHEN 'manual_edit' THEN (
-           SELECT CASE edit.value_kind WHEN 'prepared_content_ref' THEN (
-             SELECT prepared.value FROM prepared_content_ref_values AS prepared
-             WHERE prepared.ref_id=edit.value
-           ) ELSE edit.value END FROM edits AS edit
-           WHERE edit.op_id=head.origin_op_id
-             AND edit.row_id=head.row_id
-             AND edit.column_id=head.column_id
-         )
-       END END AS value,
-       head.origin_kind,head.origin_op_id,head.origin_run_id,
-       head.base_producer_id,head.validity,
-       CASE WHEN head.inline_value_kind IS NULL THEN CASE head.origin_kind
-         WHEN 'source_cell' THEN (
-           SELECT CASE source.value_kind WHEN 'prepared_content_ref'
-             THEN source.value END FROM cells AS source
-           WHERE source.row_id=head.row_id
-             AND source.column_id=head.column_id
-             AND source.producer_id IS head.base_producer_id
-         )
-         WHEN 'run_result' THEN (
-           SELECT CASE WHEN result.publication_effect='publish_value'
-             AND result.value_kind='prepared_content_ref' THEN result.value END
-           FROM results AS result
-           WHERE result.run_id=head.origin_run_id
-             AND result.row_id=head.row_id
-             AND result.column_id=head.column_id
-         )
-         WHEN 'manual_edit' THEN (
-           SELECT CASE edit.value_kind WHEN 'prepared_content_ref'
-             THEN edit.value END FROM edits AS edit
-           WHERE edit.op_id=head.origin_op_id
-             AND edit.row_id=head.row_id
-             AND edit.column_id=head.column_id
-         )
-       END END AS prepared_ref_id
-FROM current_cells AS head INDEXED BY idx_current_cells_column_row;
+
 CREATE TABLE IF NOT EXISTS search_dirty_scopes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sheet_id INTEGER,
@@ -1442,9 +1307,9 @@ CREATE TABLE IF NOT EXISTS blobs (
 -- SOURCE for a further derivation (clip-of-a-clip), so the read side walks
 -- the chain hop by hop rather than this table modeling a tree directly.
 CREATE TABLE IF NOT EXISTS blob_derivations (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   derived_hash TEXT NOT NULL REFERENCES blobs(hash) ON DELETE CASCADE,
-  source_hash TEXT NOT NULL REFERENCES blobs(hash) ON DELETE RESTRICT,
+  source_hash TEXT NOT NULL,
   op TEXT NOT NULL,
   params_json TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -1788,76 +1653,35 @@ CREATE INDEX IF NOT EXISTS idx_source_runs_source_started
   ON source_runs(source_id, started_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_source_runs_receipt ON source_runs(receipt_id);
 
-CREATE TABLE IF NOT EXISTS source_items (
-  id INTEGER PRIMARY KEY,
-  source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-  source_item_id TEXT NOT NULL,
-  dedupe_key TEXT NOT NULL,
-  item_hash TEXT NOT NULL,
-  row_id INTEGER REFERENCES rows(id) ON DELETE SET NULL,
-  first_seen_run_id INTEGER NOT NULL REFERENCES source_runs(id) ON DELETE CASCADE,
-  last_seen_run_id INTEGER NOT NULL REFERENCES source_runs(id) ON DELETE CASCADE,
-  revision INTEGER NOT NULL DEFAULT 0,
-  status TEXT NOT NULL DEFAULT 'active',
-  raw_ref_json TEXT NOT NULL DEFAULT '{}',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE(source_id, dedupe_key)
-);
-CREATE INDEX IF NOT EXISTS idx_source_items_run
-  ON source_items(last_seen_run_id);
-
--- Saved views. A view is a named,
--- reusable filter/sort over a sheet. Creating or updating one is logged
--- as an op (ops.kind='view'), so sort/filter becomes provenance-bearing
--- instead of an ephemeral, unlogged grid setting (the Cheatsheet "sort the
--- sheet" provenance gap). `spec` is JSON: {filter, sort, columns, ...}.
+-- A View owns the selection; alerts only reference it.
 CREATE TABLE IF NOT EXISTS views (
-  id INTEGER PRIMARY KEY,
-  sheet_id INTEGER NOT NULL REFERENCES sheets(id) ON DELETE CASCADE,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  spec TEXT NOT NULL DEFAULT '{}',       -- JSON: filter / sort / columns
-  op_id INTEGER REFERENCES ops(id),      -- the op that created/last-saved it
+  spec TEXT NOT NULL DEFAULT '{}',
+  op_id INTEGER REFERENCES ops(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_views_sheet ON views(sheet_id);
 
--- Saved lenses: a named LensSpec — a normalized QuerySpec (e.g.
--- a row-anchor embedding_similarity) + presentation. Unlike a `views` row (a
--- presentation-only filter/sort blob) a lens carries the query KIND, so it can be
--- re-resolved on demand into a row-set with distance/score through the query spine.
-CREATE TABLE IF NOT EXISTS lenses (
-  id INTEGER PRIMARY KEY,
-  sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  spec TEXT NOT NULL DEFAULT '{}',       -- JSON: frisket.lens.v1 {query, presentation}
-  op_id INTEGER REFERENCES ops(id),      -- the op that created/last-saved it
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_lenses_sheet ON lenses(sheet_id);
-
 -- Watchlists promote saved queries into recurring checks. A watch is a
--- saved query with its own cursor and manual run history. Notification
--- channels/scheduler hooks are intentionally not part of this MVP schema.
+-- saved View with shared conditions, cadence, and check history.
 CREATE TABLE IF NOT EXISTS watches (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
-  scope TEXT NOT NULL DEFAULT 'project', -- project | sheet
-  sheet_id INTEGER REFERENCES sheets(id) ON DELETE CASCADE,
-  query TEXT NOT NULL,
-  query_version TEXT,
-  query_hash TEXT,
+  view_id INTEGER NOT NULL REFERENCES views(id) ON DELETE CASCADE,
   detection_policy TEXT NOT NULL DEFAULT '{"kind":"new_matches"}',
   enabled INTEGER NOT NULL DEFAULT 1,
+  schedule TEXT DEFAULT '@hourly',
   last_evaluated_op INTEGER NOT NULL DEFAULT 0,
   last_run_id INTEGER,
+  baseline_run_id INTEGER,
   last_status TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
-CREATE INDEX IF NOT EXISTS idx_watches_sheet ON watches(sheet_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_watches_view ON watches(view_id);
 
 CREATE TABLE IF NOT EXISTS watch_runs (
   id INTEGER PRIMARY KEY,
@@ -1870,10 +1694,13 @@ CREATE TABLE IF NOT EXISTS watch_runs (
   error TEXT,
   resolved_query_hash TEXT,
   resolved_query TEXT NOT NULL DEFAULT '{}',
+  detection_policy TEXT,
+  notification_pending INTEGER NOT NULL DEFAULT 0,
   error_code TEXT,
   started_at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_watch_runs_notification_pending ON watch_runs(id) WHERE notification_pending=1;
 CREATE INDEX IF NOT EXISTS idx_watch_runs_watch_started
   ON watch_runs(watch_id, started_at DESC, id DESC);
 
@@ -2309,6 +2136,10 @@ CREATE TABLE IF NOT EXISTS execution_attempts (
   -- Accounted previews own no run/output columns. Their running receipt is
   -- the alternative owner; both NULL means the original owner was reclaimed.
   receipt_id TEXT REFERENCES receipts(id) ON DELETE SET NULL,
+  -- Exact original handler, frozen when this attempt starts dispatching.
+  -- Cross-database queue IDs; NULL for direct/nonqueued executions.
+  job_id INTEGER,
+  handler_authority_id TEXT,
   state TEXT NOT NULL CHECK (state IN
     ('created','admitted','dispatching','effected','halted','superseded','abandoned')),
   action_identity_hash TEXT NOT NULL,
@@ -2491,6 +2322,7 @@ CREATE INDEX IF NOT EXISTS idx_project_qa_research_operations_unsettled
 
 # Citation fallback DDL is owned beside its resolver/triggers, but remains part
 # of the one authoritative fresh-bundle schema and therefore of its digest.
+SCHEMA += "\n" + MATERIALIZED_LINEAGE_SCHEMA_SQL
 SCHEMA += "\n" + CITATION_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + EXTRACTION_LAYOUTS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + EVALUATION_SCHEMA_SQL + "\n"
@@ -2498,6 +2330,13 @@ SCHEMA += "\n" + ACTION_SUBMISSIONS_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SCHEMA_SQL + "\n"
 SCHEMA += "\n" + DOCUMENT_TEXT_SELECTION_VIEW_SQL + "\n"
 SCHEMA += "\n" + PDF_SPLIT_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + COPIED_RESULTS_SCHEMA_SQL + "\n"
+SCHEMA += CONSUMED_SOURCE_SCHEMA_SQL + PURGE_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + EXECUTION_GROUP_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + CHANGE_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + KEYED_UPDATE_SCHEMA + "\n"
+SCHEMA += "\n" + DESCRIPTOR_SCHEMA_SQL + STRUCTURAL_SCHEMA_SQL + "\n"
+SCHEMA += "\n" + JUDGMENT_SCHEMA_SQL + "\n"
 # This durable bootstrap row gives the data-only OCR role repair an exact
 # schema endpoint. Fresh bundles start repaired; the known prior revision is
 # upgraded once during open and never needs a Review read-time compatibility
@@ -2516,11 +2355,13 @@ WHERE validity='valid' AND inline_value_kind IN ('integer','real');
 """
 SCHEMA += NUMERIC_CURRENT_INDEX_SQL
 
+SCHEMA += "\n" + CURRENT_CELL_VALUES_SQL + "\n"
+
 # The run queue (jobs + worker_heartbeats) lives in its OWN database, never a
 # project bundle: `<workspace>/.queue.db` locally, the hosted run-queue Postgres
 # in production. Its schema is owned entirely by frisket.jobs.queue as a single
-# SQLAlchemy MetaData (jobs_metadata) provisioned through the ordered version
-# ledger (frisket.jobs.queue_migrations), so both backends share one definition.
+# SQLAlchemy MetaData (jobs_metadata) created by frisket.engine.jobs.queue_schema,
+# so both backends share one definition.
 
 
 class BundleSchemaMismatch(Exception):

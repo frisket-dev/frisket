@@ -21,6 +21,7 @@ project (whose migration minted the standing consent).
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -102,7 +103,7 @@ def _spec(sheet_id: int, **overrides):
 
 
 def _gate_claim_fields(project, spec, *, unit_rate: str = "0.000164") -> list[str]:
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     composition = open_execution_composition(
         project, router, ExecutionCompositionContext.direct()
     )

@@ -17,6 +17,7 @@ from typing import Any, Callable, Mapping
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import SchemaValidator
 
+from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.actions.geospatial_types import Geocoder, CensusDemographics
 from frisket.actions.document_types import DocumentConverter
 from frisket.actions.media_types import OcrReader, Transcriber, TranscriptText, OcrText
@@ -93,7 +94,7 @@ from frisket.engine.executor.action_reservations import (
     _queued_receipt_job_id,
 )
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import _failed_result, _model_call_units
 from frisket.engine.executor.action_support import (
     _external_cost_requires_confirmation_error,
     _model_cost_requires_confirmation_error,
@@ -292,6 +293,12 @@ class _TypedMapRowsProgram(Recipe):
         self.name = action.action_id
         self.description = action.definition.description
         self._terminal = action.definition.run
+        self.required_source_columns = frozenset(
+            ref.column for ref in discover_references(params) if ref.required
+        )
+        self.missing_capable_source_columns = frozenset(
+            ref.column for ref in discover_references(params) if ref.allow_missing
+        )
         self.preserve_invalid_source_columns = frozenset(
             preserve_invalid_source_columns
         )
@@ -318,7 +325,10 @@ class _TypedMapRowsProgram(Recipe):
             for cap in self._file_capabilities
         )
         if PythonEvaluator in getattr(self._terminal, "capabilities", ()):
-            self.allow_all_empty_input = False
+            self.allow_all_empty_input = all(
+                not ref.required or ref.allow_missing
+                for ref in discover_references(params)
+            )
         self.capture_source_cells = any(
             cap in getattr(self._terminal, "capabilities", ())
             for cap in (
@@ -392,8 +402,12 @@ class _TypedMapRowsProgram(Recipe):
             cap in getattr(self._terminal, "capabilities", ())
             for cap in (HttpRequester, FileFetcher, MediaDownloader)
         ):
-            self.cost_class = "unpriceable"
             self.disable_failure_halt = True
+        # Downloading bytes with the local fetch/yt-dlp host has no provider
+        # purchase. Arbitrary authored API calls may spend money; absence of
+        # a price remains unknown for that capability alone.
+        if HttpRequester in getattr(self._terminal, "capabilities", ()):
+            self.cost_class = "unpriceable"
         if (
             WebSearcher in getattr(self._terminal, "capabilities", ())
             and self.cost_class == "free"
@@ -468,10 +482,7 @@ class _TypedMapRowsProgram(Recipe):
                 resolution.resolution.estimate_basis.quantity_hint
             )
 
-        if any(
-            cap in getattr(self._terminal, "capabilities", ())
-            for cap in (HttpRequester, FileFetcher, MediaDownloader)
-        ):
+        if HttpRequester in getattr(self._terminal, "capabilities", ()):
             estimate.update(cost=None, cost_source="unknown")
         return estimate
 
@@ -1651,6 +1662,18 @@ def build_typed_map_rows_plan(
 ) -> TypedMapRowsPlan:
     """Resolve a typed request into a registry-free MapRunner program."""
 
+    from frisket.execution.action_admission import action_admission_error
+
+    refusal = action_admission_error(
+        project, bound.action, runtime_binding=bound.runtime_binding
+    )
+    if refusal is not None:
+        raise TypedMapRowsPlanError(
+            refusal.code, refusal.message, field=refusal.field, details=refusal.details
+        )
+    from .selection_scope import resolve_action_selection
+
+    bound = resolve_action_selection(project, bound)
     request = bound.request
     evaluation_context = None
     if isinstance(bound.action.definition.run, ModelRows):
@@ -1690,6 +1713,20 @@ def build_typed_map_rows_plan(
                 row_ids=request.scope.row_ids,
                 source_column_ids=references.source_column_ids,
             )
+    overlapping_columns = sorted(
+        set(references.source_columns)
+        & {
+            field.materialized_name(request.output_names)
+            for field in bound.output_fields
+        }
+    )
+    if overlapping_columns:
+        raise TypedMapRowsPlanError(
+            "input_output_overlap",
+            "Output columns must be separate from input columns. Choose a new output name.",
+            field="output_names",
+            details={"columns": overlapping_columns},
+        )
     if _admit_output_targets:
         output_names, output_target_preconditions = _resolve_typed_output_targets(
             project,
@@ -1784,8 +1821,9 @@ def resolve_row_output_targets(
         column_id = int(column["id"])
         generation_managed = (
             project.db.execute(
-                "SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
-                (column_id,),
+                "SELECT 1 FROM run_output_generations WHERE column_id=? "
+                "UNION ALL SELECT 1 FROM copied_result_outcomes WHERE column_id=? LIMIT 1",
+                (column_id, column_id),
             ).fetchone()
             is not None
         )
@@ -2172,7 +2210,6 @@ def _strict_evaluation_subject_context(
         sheet_id,
         subject_column_id,
         row_ids=ordered_row_ids,
-        apply_edits=True,
     )
     manual_edit_row_ids = [
         row_id
@@ -2626,9 +2663,12 @@ def normalized_typed_request_identity(
                 for key in action.definition.run.child_output_keys(bound.params)
             }
         )
+    scope_identity = (bound.authored_scope or request.scope).model_dump(mode="json")
+    if scope_identity.get("selection") is None:
+        scope_identity.pop("selection", None)
     payload = {
         "action_id": action.action_id,
-        "scope": request.scope.model_dump(mode="json"),
+        "scope": scope_identity,
         # Rebinding must preserve supplied-only option semantics, recursively.
         "params": bound.params.model_dump(
             mode="json", by_alias=True, exclude_unset=True
@@ -2763,6 +2803,19 @@ def _typed_replay_error(
             # output to revalidate, but any published refs still take the normal
             # generation/value checks below, including on unsuccessful runs.
             return None
+        requested_rows = request.scope.row_ids
+        if request.scope.selection is not None and receipt.run_id is not None:
+            from frisket.engine.store.runs import RunResultStore
+
+            requested_rows = RunResultStore(project).run_row_scope_if_present(
+                receipt.run_id
+            )
+            if requested_rows is None:
+                return ActionError(
+                    code="stale_replay",
+                    message="The recorded selection cohort is unavailable.",
+                    action_kind=action.action_id,
+                )
         return output_columns_replay_error(
             project,
             receipt,
@@ -2780,9 +2833,7 @@ def _typed_replay_error(
                 project,
                 sheet_id=request.scope.sheet_id,
                 requested_row_ids=(
-                    list(request.scope.row_ids)
-                    if request.scope.row_ids is not None
-                    else None
+                    list(requested_rows) if requested_rows is not None else None
                 ),
             ),
         )
@@ -2800,6 +2851,35 @@ def typed_map_rows_replay_result(
     existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
     if existing is None:
         return None
+    if existing["status"] == "running" and getattr(
+        bound.action.definition.run, "capabilities", ()
+    ):
+        from frisket.actions.cluster_types import ValueClusterer
+
+        if bound.action.definition.run.capabilities == (ValueClusterer,):
+            run_id = existing["run_id"]
+            ready = None
+            if run_id is not None and existing["params_hash"] == typed_request_hash(
+                bound
+            ):
+                ready = project.db.execute(
+                    "SELECT 1 FROM runs r WHERE r.id=? AND r.status='running' "
+                    "AND r.total_rows IS NOT NULL AND r.completed_rows>=r.total_rows "
+                    "AND (r.current_attempt_id IS NOT NULL OR ("
+                    "r.current_attempt_id IS NULL AND EXISTS ("
+                    "SELECT 1 FROM execution_attempts a WHERE a.run_id=r.id "
+                    "AND a.state='halted' AND a.seq=(SELECT MAX(last.seq) "
+                    "FROM execution_attempts last WHERE last.run_id=r.id)) "
+                    "AND NOT EXISTS (SELECT 1 FROM output_column_claims c "
+                    "WHERE c.run_id=r.id AND c.status='active'))) LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+            if ready is not None:
+                # A previous invocation returned all rows but did not close
+                # its coupled cluster publication. Let the cluster owner
+                # either reconcile a stopped handler or resume an explicitly
+                # halted direct writer from its retained checkpoints.
+                return None
     action = _TypedExecutionEnvelope(
         kind=bound.action.action_id,
         idempotency_key=bound.request.idempotency_key,
@@ -3394,11 +3474,12 @@ def _typed_receipt(
                     "model": facts.model,
                     "model_call_ids": facts.model_call_ids,
                     "model_call_count": len(facts.model_call_ids),
-                    "tokens_in": sum(
-                        int(item.get("tokens_in") or 0) for item in provider_use
-                    ),
-                    "tokens_out": sum(
-                        int(item.get("tokens_out") or 0) for item in provider_use
+                    **model_call_token_counts(
+                        {
+                            "capability": call["capability"],
+                            "units": _model_call_units(call),
+                        }
+                        for call in facts.model_calls
                     ),
                     "cost_actual": facts.cost_actual,
                     "op_id": facts.op_id,
@@ -3510,8 +3591,13 @@ def typed_queued_map_spec(
             )
             if recovering_queued and type(existing["run_id"]) is int:
                 run_id = int(existing["run_id"])
+                role_to_name = {
+                    str(role): str(name) for role, name in plan.output_names.items()
+                }
                 prepared_targets = {
-                    binding.output_role: binding.column_id
+                    role_to_name.get(
+                        binding.output_role, binding.output_role
+                    ): binding.column_id
                     for binding in ResultGenerationStore(project).bindings_for_run(
                         run_id
                     )
@@ -3606,6 +3692,13 @@ def typed_queued_map_spec(
         payload: Mapping[str, Any],
         _params: BaseModel,
     ) -> ActionError | None:
+        from frisket.execution.action_admission import action_admission_error
+
+        refusal = action_admission_error(
+            project, bound.action, runtime_binding=bound.runtime_binding
+        )
+        if refusal is not None:
+            return refusal
         expected_ids = payload.get("v1_input_column_ids")
         expected_types = payload.get("v1_input_column_types")
         expected_output_names = payload.get("v1_output_names")
@@ -3688,9 +3781,14 @@ def typed_queued_map_spec(
             )
         }
         run_id = payload.get("run_id")
+        role_to_name = {
+            str(role): str(name) for role, name in current_plan.output_names.items()
+        }
         prepared_targets = (
             {
-                binding.output_role: binding.column_id
+                role_to_name.get(
+                    binding.output_role, binding.output_role
+                ): binding.column_id
                 for binding in ResultGenerationStore(project).bindings_for_run(run_id)
             }
             if type(run_id) is int
@@ -3774,6 +3872,17 @@ def typed_queued_map_spec(
             plan=plan,
             params_hash=str(kwargs["params_hash"]),
         )
+
+        def release_output_claim():
+            from frisket.execution.attempt import StaleAttemptWriter
+
+            if not OutputColumnClaimStore(project).release(
+                claim_token=_output_claim_token(str(kwargs["receipt_id"])),
+                status="failed" if receipt.status == "failed" else "released",
+                commit=False,
+            ):
+                raise StaleAttemptWriter("queued map receipt lost its output claim")
+
         finalized = _finalize_reserved_action_receipt(
             project,
             action,
@@ -3784,13 +3893,9 @@ def typed_queued_map_spec(
             update_failed_message=f"{action.kind} receipt update failed",
             replay_error_fn=_typed_replay_error(project, bound),
             require_running_status=False,
+            before_commit=release_output_claim,
         )
-        result = finalized or _result_from_receipt(receipt)
-        OutputColumnClaimStore(project).release(
-            claim_token=_output_claim_token(str(kwargs["receipt_id"])),
-            status="failed" if result.status == "failed" else "released",
-        )
-        return result
+        return finalized or _result_from_receipt(receipt)
 
     spec = _QueuedActionSpec(
         kind=bound.action.action_id,

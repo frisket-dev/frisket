@@ -9,6 +9,13 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal, TypeAlias
 
+from frisket.execution.dispatch_control import STANDALONE
+from frisket.execution.purchases import (
+    LOCAL_PURCHASE_POLICY,
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase_sync,
+)
 
 EmbeddingResult: TypeAlias = list[list[float]] | dict[str, Any]
 Embedder: TypeAlias = Callable[[list[str]], EmbeddingResult]
@@ -165,23 +172,46 @@ def local_embedder(
     resolved = _FASTEMBED_ALIASES.get(model_id or "", model_id) or LOCAL_MODEL
 
     def embed(texts: list[str]) -> list[list[float]]:
-        cache_key = (resolved, threads, capability)
-        model = _local_models.get(cache_key)
-        if model is None:
-            options: dict[str, Any] = {"local_files_only": True}
-            if threads:
-                options["threads"] = threads
-            if providerless:
-                options.update(
-                    specific_model_path=str(_providerless_classify_snapshot()),
-                )
-            try:
-                model = TextEmbedding(resolved, **options)
-            except ValueError as exc:
-                _raise_if_fastembed_cache_miss(exc, model_id=resolved, modality="text")
-                raise
-            _local_models[cache_key] = model
-        return [vector.tolist() for vector in model.embed(texts)]
+        if not texts:
+            return []
+
+        def invoke():
+            cache_key = (resolved, threads, capability)
+            model = _local_models.get(cache_key)
+            if model is None:
+                options: dict[str, Any] = {"local_files_only": True}
+                if threads:
+                    options["threads"] = threads
+                if providerless:
+                    options.update(
+                        specific_model_path=str(_providerless_classify_snapshot()),
+                    )
+                try:
+                    model = TextEmbedding(resolved, **options)
+                except ValueError as exc:
+                    _raise_if_fastembed_cache_miss(
+                        exc, model_id=resolved, modality="text"
+                    )
+                    raise
+                _local_models[cache_key] = model
+            return [vector.tolist() for vector in model.embed(texts)]
+
+        return execute_purchase_sync(
+            PurchaseRequest(
+                provider="local",
+                capability="llm.embed",
+                engine=f"fastembed/{resolved}",
+                credential_source="none",
+                prepared={"modality": "text"},
+                quantity={"input_count": len(texts)},
+            ),
+            policy=LOCAL_PURCHASE_POLICY,
+            dispatch=STANDALONE,
+            invoke=invoke,
+            observe=lambda result: PurchaseObservation(
+                result, {"input_count": len(texts)}, 0
+            ),
+        )
 
     return embed, f"fastembed/{resolved}"
 
@@ -204,15 +234,38 @@ def local_image_embedder(
     resolved = model_id or LOCAL_IMAGE_MODEL
 
     def embed(images: list[Any]) -> list[list[float]]:
-        model = _local_image_models.get(resolved)
-        if model is None:
-            try:
-                model = ImageEmbedding(resolved, local_files_only=True)
-            except ValueError as exc:
-                _raise_if_fastembed_cache_miss(exc, model_id=resolved, modality="image")
-                raise
-            _local_image_models[resolved] = model
-        return [vector.tolist() for vector in model.embed(images)]
+        if not images:
+            return []
+
+        def invoke():
+            model = _local_image_models.get(resolved)
+            if model is None:
+                try:
+                    model = ImageEmbedding(resolved, local_files_only=True)
+                except ValueError as exc:
+                    _raise_if_fastembed_cache_miss(
+                        exc, model_id=resolved, modality="image"
+                    )
+                    raise
+                _local_image_models[resolved] = model
+            return [vector.tolist() for vector in model.embed(images)]
+
+        return execute_purchase_sync(
+            PurchaseRequest(
+                provider="local",
+                capability="llm.embed",
+                engine=f"fastembed/{resolved}",
+                credential_source="none",
+                prepared={"modality": "image"},
+                quantity={"input_count": len(images)},
+            ),
+            policy=LOCAL_PURCHASE_POLICY,
+            dispatch=STANDALONE,
+            invoke=invoke,
+            observe=lambda result: PurchaseObservation(
+                result, {"input_count": len(images)}, 0
+            ),
+        )
 
     return embed, f"fastembed/{resolved}"
 
@@ -240,10 +293,35 @@ def local_reranker(
         return None
 
     def score(query: str, documents: list[str]) -> list[float]:
-        global _local_rerank_model
-        if _local_rerank_model is None:
-            _local_rerank_model = TextCrossEncoder(RERANK_MODEL, local_files_only=True)
-        return [float(value) for value in _local_rerank_model.rerank(query, documents)]
+        if not documents:
+            return []
+
+        def invoke():
+            global _local_rerank_model
+            if _local_rerank_model is None:
+                _local_rerank_model = TextCrossEncoder(
+                    RERANK_MODEL, local_files_only=True
+                )
+            return [
+                float(value) for value in _local_rerank_model.rerank(query, documents)
+            ]
+
+        return execute_purchase_sync(
+            PurchaseRequest(
+                provider="local",
+                capability="rerank",
+                engine=f"fastembed/{RERANK_MODEL}",
+                credential_source="none",
+                prepared={},
+                quantity={"input_count": len(documents)},
+            ),
+            policy=LOCAL_PURCHASE_POLICY,
+            dispatch=STANDALONE,
+            invoke=invoke,
+            observe=lambda result: PurchaseObservation(
+                result, {"input_count": len(documents)}, 0
+            ),
+        )
 
     return score
 

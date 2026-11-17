@@ -10,11 +10,14 @@ from dataclasses import asdict
 import httpx
 import pytest
 
+from frisket.execution.purchases import PurchaseAdmission
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.cache import ResponseCache, request_key
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import (
     LLMError,
     LLMRequest,
+    LLMResponse,
     OutputLimitReached,
     SchemaViolation,
 )
@@ -33,6 +36,147 @@ MODELS = {
 SECRET = "fixture-credential-do-not-expose"
 
 
+def test_unknown_usage_survives_structured_aggregation_and_cache(tmp_path):
+    from frisket.ai.llm.structured import _sum_response
+    from frisket.ai.models.accounting import wire_accounting_meta
+
+    unknown = LLMResponse(
+        content="invalid",
+        data=None,
+        tokens_in=0,
+        tokens_out=0,
+        cost=None,
+        model=MODELS["openai"],
+        usage_available=False,
+    )
+    known = LLMResponse(
+        content='{"summary":"answer"}',
+        data={"summary": "answer"},
+        tokens_in=42,
+        tokens_out=17,
+        cost=0.01,
+        model=MODELS["openai"],
+    )
+    combined = _sum_response(known.model, [unknown, known], known.data)
+    assert combined.usage_available is False
+    assert combined.cost is None
+    assert combined.tokens_in == 42  # Available diagnostic counts remain useful.
+    aggregate = wire_accounting_meta(known.model, [unknown, known])
+    assert aggregate["tokens_in"] is None
+    assert aggregate["tokens_out"] is None
+    facts = aggregate["model_calls"]
+    assert facts[0]["units"] == {"tokens_in": None, "tokens_out": None}
+    assert facts[1]["units"] == {"tokens_in": 42, "tokens_out": 17}
+    from frisket.ai.models.accounting import merge_accounting_meta
+    from frisket.engine.executor.action_support import _model_call_provider_use
+
+    merged = merge_accounting_meta(aggregate, aggregate)
+    assert merged["tokens_in"] is None
+    assert merged["tokens_out"] is None
+    [provider_use] = _model_call_provider_use(facts, model=known.model, run=None)
+    assert provider_use["tokens_in"] is None
+    assert provider_use["tokens_out"] is None
+    cache = ResponseCache(tmp_path / "cache.db")
+    try:
+        cache.put("unknown-usage", combined)
+        replay = cache.get("unknown-usage")
+        assert replay is not None and replay.cached
+        assert replay.usage_available is False
+        assert replay.cost is None
+        replay_total = _sum_response(known.model, [replay], replay.data)
+        assert replay_total.usage_available is False
+        assert replay_total.cost == 0  # Replaying content makes no paid request.
+        replay_accounting = wire_accounting_meta(known.model, [replay])
+        assert replay_accounting["tokens_in"] is None
+        assert replay_accounting["cost"] == 0
+    finally:
+        cache.close()
+
+
+@pytest.mark.parametrize(
+    "provider,kind", [("openai", "platform_api"), ("ollama", "local_http")]
+)
+def test_research_uses_shared_accounting_and_provider_kind(provider, kind):
+    from frisket.ai.models.accounting import wire_accounting_meta
+    from frisket.ai.research.row_answer import model_call_accounting
+
+    assert model_call_accounting is wire_accounting_meta
+    response = LLMResponse(
+        content="answer",
+        data=None,
+        tokens_in=0,
+        tokens_out=0,
+        cost=None,
+        model="ollama/@fixture/example"
+        if provider == "ollama"
+        else f"{provider}/example",
+        provider=provider,
+        usage_available=False,
+    )
+    [fact] = model_call_accounting(response.model, [response])["model_calls"]
+    assert fact["units"] == {"tokens_in": None, "tokens_out": None}
+    assert fact["provider_kind"] == kind
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", [*MODELS, "openai_responses"])
+@pytest.mark.parametrize("known_usage", [False, True])
+async def test_malformed_payload_preserves_only_supplied_usage(name, known_usage):
+    provider_name = "openai" if name == "openai_responses" else name
+    native_usage = name in {"anthropic", "openai_responses"}
+    body = (
+        {"content": None}
+        if name == "anthropic"
+        else {"status": "completed", "output": None}
+        if name == "openai_responses"
+        else {"choices": [{"message": None}]}
+    )
+    if known_usage:
+        body["usage"] = (
+            {"input_tokens": 42, "output_tokens": 17}
+            if native_usage
+            else {"prompt_tokens": 42, "completion_tokens": 17}
+        )
+    calls = []
+
+    def respond(request):
+        calls.append(request.url.path)
+        return httpx.Response(200, json=body)
+
+    policy = UsagePolicy()
+    router = ModelRouter(
+        keys={provider_name: SECRET},
+        use_env_keys=False,
+        model_call_policy=policy,
+        max_retries=0,
+        cache_mode="off",
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        router._client = client
+        req = LLMRequest(
+            model=MODELS[provider_name],
+            messages=[],
+            tools=[
+                {
+                    "name": "read",
+                    "description": "Read",
+                    "parameters": {"type": "object"},
+                }
+            ]
+            if name == "openai_responses"
+            else None,
+        )
+        with pytest.raises(LLMError) as raised:
+            await router.for_execution(STANDALONE).complete(req)
+    assert len(calls) == 1
+    assert len(policy.responses) == int(known_usage)
+    if known_usage:
+        assert policy.responses[0]["tokens_in"] == 42
+        assert policy.responses[0]["tokens_out"] == 17
+        assert len(raised.value.wire_calls) == 1
+    assert SECRET not in str(raised.value)
+
+
 class UsagePolicy:
     def __init__(self):
         self.responses = []
@@ -40,11 +184,14 @@ class UsagePolicy:
     def prepare(self, request, credential_source):
         return request
 
-    def before_live(self, request, credential_source):
+    def admit_purchase(self, request):
+        return PurchaseAdmission("metered", f"wire-{len(self.responses)}")
+
+    def fail_purchase(self, request, admission, error):
         pass
 
-    def after_live(self, request, response, credential_source):
-        self.responses.append(response)
+    def record_purchase(self, request, admission, observation):
+        self.responses.append(observation.result)
 
 
 @asynccontextmanager
@@ -100,7 +247,7 @@ def request(name="openrouter", **kwargs):
 async def test_output_limit_precedes_parsing_and_never_repairs(name, content):
     async with provider((content, "length"), name=name) as (router, bodies, policy):
         with pytest.raises(OutputLimitReached) as raised:
-            await router.complete(request(name))
+            await router.for_execution(STANDALONE).complete(request(name))
     assert len(bodies) == len(policy.responses) == len(raised.value.wire_calls) == 1
     call = raised.value.wire_calls[0]
     assert call.content == content
@@ -124,15 +271,19 @@ async def test_malformed_then_repaired_keeps_both_calls_and_does_not_cache_failu
             name=name,
             cache=cache,
         ) as (router, bodies, policy):
-            result = await router.complete(request(name))
+            result = await router.for_execution(STANDALONE).complete(request(name))
         assert result.data == {"summary": "Recovered"}
         assert len(bodies) == len(policy.responses) == 2
         assert (result.tokens_in, result.tokens_out) == (84, 34)
-        assert result.cost == pytest.approx(sum(r.cost for r in policy.responses))
-        assert [r.raw["id"] for r in policy.responses] == ["response-1", "response-2"]
-        assert policy.responses[0].content == "]]]}}]]"
+        assert result.cost == pytest.approx(sum(r["cost"] for r in policy.responses))
+        assert [r["raw"]["id"] for r in policy.responses] == [
+            "response-1",
+            "response-2",
+        ]
+        assert policy.responses[0]["content"] == "]]]}}]]"
         assert all(
-            r.provider == name and r.duration_ms is not None for r in policy.responses
+            r["provider"] == name and r["duration_ms"] is not None
+            for r in policy.responses
         )
         assert cache.get(request_key(request(name))) is None
     finally:
@@ -149,9 +300,9 @@ async def test_explicit_retry_after_output_limit_reaches_provider(tmp_path):
             cache=cache,
         ) as (router, bodies, policy):
             with pytest.raises(OutputLimitReached):
-                await router.complete(request())
+                await router.for_execution(STANDALONE).complete(request())
             assert cache.get(request_key(request())) is None
-            result = await router.complete(request())
+            result = await router.for_execution(STANDALONE).complete(request())
         assert len(bodies) == len(policy.responses) == 2
         assert result.data == {"summary": "Recovered"}
         assert not result.cached
@@ -164,7 +315,7 @@ async def test_explicit_retry_after_output_limit_reaches_provider(tmp_path):
 async def test_exhausted_malformed_replies_preserve_usage_and_redact_credentials():
     async with provider((f"]]]}}]] {SECRET}", "stop")) as (router, bodies, policy):
         with pytest.raises(SchemaViolation) as raised:
-            await router.complete(request())
+            await router.for_execution(STANDALONE).complete(request())
     assert len(bodies) == len(policy.responses) == len(raised.value.wire_calls) == 2
     assert sum(call.tokens_out for call in raised.value.wire_calls) == 34
     serialized = json.dumps([asdict(call) for call in raised.value.wire_calls])
@@ -182,7 +333,7 @@ async def test_oversized_invalid_data_cannot_break_error_redaction():
     content = json.dumps({"summary": [SECRET] * 300})
     async with provider((content, "stop")) as (router, bodies, policy):
         with pytest.raises(SchemaViolation) as raised:
-            await router.complete(request())
+            await router.for_execution(STANDALONE).complete(request())
     assert len(bodies) == len(policy.responses) == len(raised.value.wire_calls) == 2
     assert sum(call.tokens_out for call in raised.value.wire_calls) == 34
     serialized = json.dumps([asdict(call) for call in raised.value.wire_calls])
@@ -200,7 +351,7 @@ async def test_repair_transport_failure_retains_prior_paid_malformed_call():
         ("]]]}", "stop"), ("provider refused repair", "http-error")
     ) as (router, bodies, policy):
         with pytest.raises(LLMError) as raised:
-            await router.complete(request())
+            await router.for_execution(STANDALONE).complete(request())
     assert len(bodies) == 2
     assert raised.value.status == 400
     assert len(policy.responses) == len(raised.value.wire_calls) == 1
@@ -214,7 +365,9 @@ async def test_only_openrouter_format_requests_require_parameter_support(
     name, mechanism
 ):
     async with provider(('{"summary":"OK"}', "stop"), name=name) as (router, bodies, _):
-        await router.complete(request(name, mechanism=mechanism))
+        await router.for_execution(STANDALONE).complete(
+            request(name, mechanism=mechanism)
+        )
     if name == "openrouter" and mechanism != "prose_json":
         assert bodies[0]["provider"] == {"require_parameters": True}
     else:
@@ -224,7 +377,7 @@ async def test_only_openrouter_format_requests_require_parameter_support(
 @pytest.mark.asyncio
 async def test_openrouter_plain_text_is_not_restricted_to_json_endpoints():
     async with provider(("A plain answer", "stop")) as (router, bodies, _):
-        result = await router.complete(
+        result = await router.for_execution(STANDALONE).complete(
             LLMRequest(model=MODELS["openrouter"], messages=[])
         )
     assert result.content == "A plain answer"
@@ -242,8 +395,8 @@ async def test_plain_text_output_limit_preserves_existing_cache_behavior(tmp_pat
             bodies,
             policy,
         ):
-            first = await router.complete(req)
-            replay = await router.complete(req)
+            first = await router.for_execution(STANDALONE).complete(req)
+            replay = await router.for_execution(STANDALONE).complete(req)
         assert len(bodies) == len(policy.responses) == 1
         assert first.content == replay.content == "A partial answer"
         assert replay.cached

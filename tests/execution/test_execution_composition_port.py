@@ -1,6 +1,7 @@
 """Closure and request-scoping proofs for the downstream composition port."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -80,7 +81,9 @@ def test_request_context_is_typed_detached_and_passed_by_identity(tmp_path) -> N
         state=SimpleNamespace(execution_composition_context=context)
     )
     received = Workspace.execution_composition_context_for(request)
-    workspace.execution_composition_for(project, ModelRouter(), received)
+    workspace.execution_composition_for(
+        project, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY), received
+    )
     assert observed == [context]
     assert observed[0] is context
 
@@ -173,7 +176,7 @@ def test_every_production_map_runner_consumes_the_composition_carrier() -> None:
     found = _production_calls_to("MapRunner")
     # The retired semantic recipe used a separate constructor; its typed host
     # now uses the existing composition-bound factory.
-    assert len(found) == 8, found  # Installed rows share the builtin runner host.
+    assert len(found) == 9, found  # Includes grouped summaries on the row runner.
     missing = [
         (module, owner, line)
         for module, owner, line, keys in found
@@ -189,7 +192,7 @@ def test_every_production_attempt_authority_consumes_the_full_composition() -> N
         for name in ("AttemptAuthority", "admit_routed", "build_attempt_authority")
     }
     assert {name: len(calls) for name, calls in found.items()} == {
-        "AttemptAuthority": 5,  # Ordinary and uploaded previews own attempts.
+        "AttemptAuthority": 6,  # Includes grouped summaries on the row runner.
         "admit_routed": 2,
         "build_attempt_authority": 5,
     }, found
@@ -238,11 +241,13 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
     assert project.provider_model_keys() == {}
 
     org_router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "org-key"},
         key_sources={"openai": "org_byok"},
         use_env_keys=False,
     )
     platform_router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "platform-key"},
         key_sources={"openai": "platform_key"},
         use_env_keys=False,

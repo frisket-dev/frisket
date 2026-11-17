@@ -1,0 +1,308 @@
+// @vitest-environment jsdom
+
+import { memo, useEffect } from 'react';
+import { act, cleanup, waitFor, render } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { useWorkspaceModel } from '../../src/workspace/useWorkspaceModel';
+import { useWorkspaceStores } from '../../src/bind/useWorkspaceStores';
+import { WorkspaceStoresProvider } from '../../src/bind/WorkspaceStoresProvider';
+import type { ProjectInfo, RunActionLaunchResult } from '../../src/api/open';
+import type { WorkspaceStores } from '../../src/state/createWorkspaceStores';
+
+
+const PROJECT: ProjectInfo = { id: 'p1', name: 'Lens generation test project' };
+
+type Model = ReturnType<typeof useWorkspaceModel>;
+let latestModel: Model | null = null;
+let latestStores: WorkspaceStores | null = null;
+const mainRegionCommit = vi.fn();
+const overlayRegionCommit = vi.fn();
+const MainRegion = memo(function MainRegion({ value }: { value: Model['mainViewModel'] }) {
+  useEffect(() => { mainRegionCommit(value); });
+  return null;
+});
+const OverlayRegion = memo(function OverlayRegion({ value }: { value: Model['overlayModel'] }) {
+  useEffect(() => { overlayRegionCommit(value); });
+  return null;
+});
+
+function Probe() {
+  const currentModel = useWorkspaceModel({ project: PROJECT });
+  const currentStores = useWorkspaceStores();
+  useEffect(() => {
+    latestModel = currentModel;
+    latestStores = currentStores;
+  });
+  return <><MainRegion value={currentModel.mainViewModel} /><OverlayRegion value={currentModel.overlayModel} /></>;
+}
+
+function mountWorkspaceModel() {
+  render(
+    <WorkspaceStoresProvider projectId={PROJECT.id}>
+      <Probe />
+    </WorkspaceStoresProvider>,
+  );
+}
+
+function model(): Model {
+  if (!latestModel) throw new Error('useWorkspaceModel has not rendered yet');
+  return latestModel;
+}
+
+function stores(): WorkspaceStores {
+  if (!latestStores) throw new Error('workspace stores have not rendered yet');
+  return latestStores;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  return { promise, resolve, reject };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+const SHEET_LIST_WIRE = [1, 2].map((id) => ({
+  id,
+  name: `Sheet ${id}`,
+  parent_sheet_id: null,
+  parent_op_id: null,
+  rows: 2,
+  title_column_id: null,
+  cited_column_ids: [],
+  annotated_text_column_ids: [],
+  document_text_column_ids: [],
+  dependent_sheet_ids: [],
+  columns: [
+    {
+      id: 7, name: 'text', type: 'text', ai_generated: false,
+      format: null, semantic_type: null, current_run_id: null, latest_run_id: null,
+      generation_managed: false, mixed_origins: false, transcript_status: null,
+      media_download_candidate: null, replay_pending_count: 0, default_hidden: false,
+    },
+  ],
+}));
+
+const SHEET_DATA_WIRE = {
+  total: 2,
+  columns: [
+    {
+      id: 11,
+      name: 'text',
+      type: 'text',
+      ai_generated: false,
+      format: null,
+      current_run_id: null,
+      transcript_status: null,
+      media_download_candidate: null,
+    },
+  ],
+  rows: [],
+};
+
+const HISTORY_WIRE = {
+  ops: [],
+  offset: 0,
+  limit: 50,
+  total: 0,
+  has_more_before: false,
+  has_more_after: false,
+  prev_offset: null,
+  next_offset: null,
+  cursor_index: -1,
+  cursor_op: null,
+  cursor_op_loaded: true,
+  undo_target: null,
+  redo_target: null,
+  revision: { total: 0, max_op_id: 0, op_cursor: 0 },
+};
+
+function installFetchStub() {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = (init?.method ?? 'GET').toUpperCase();
+      if (method === 'GET' && url.startsWith('/api/projects/p1/views')) return Promise.resolve(jsonResponse([]));
+      if (method === 'GET' && url === '/api/projects/p1/sheets') {
+        return Promise.resolve(jsonResponse(SHEET_LIST_WIRE));
+      }
+      if (method === 'GET' && /^\/api\/projects\/p1\/sheets\/\d+\/data/.test(url)) {
+        return Promise.resolve(jsonResponse(SHEET_DATA_WIRE));
+      }
+      if (method === 'GET' && url.startsWith('/api/projects/p1/history')) {
+        return Promise.resolve(jsonResponse(HISTORY_WIRE));
+      }
+      return Promise.resolve(jsonResponse({}));
+    }),
+  );
+}
+
+async function readyWorkspace() {
+  mountWorkspaceModel();
+  await waitFor(() => expect(model().sheetsLoaded).toBe(true));
+  await waitFor(() => expect(stores().route.store.get().sheetId).toBe('1'));
+}
+
+beforeEach(() => {
+  mainRegionCommit.mockClear();
+  overlayRegionCommit.mockClear();
+  installFetchStub();
+});
+
+afterEach(() => {
+  cleanup();
+  latestModel = null;
+  latestStores = null;
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe('saved View asynchronous opening', () => {
+  const view = (id: number) => ({ id, name: `View ${id}`, sheet_id: 1, op_id: null, unavailable_reason: null,
+    spec: { selection: { scope: { kind: 'sheet' as const, sheet_id: 1 }, filters: [], order: [], limit: id }, presentation: {} } });
+  it('drops a definition released after a sheet switch', async () => {
+    await readyWorkspace();
+    const pending = deferred<ReturnType<typeof view>[]>();
+    vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(pending.promise);
+    let opening!: Promise<void>;
+    act(() => { opening = model().openSavedView(1); });
+    act(() => model().selectSheet('2'));
+    await act(async () => { pending.resolve([view(1)]); await opening; });
+    expect(stores().gridView.store.get().activeSavedViewId).toBeNull();
+    expect(stores().gridView.store.get().applied.selection).toBeUndefined();
+  });
+  it('lets the newer same-sheet opening win when the older definition arrives last', async () => {
+    await readyWorkspace();
+    const older = deferred<ReturnType<typeof view>[]>();
+    const newer = deferred<ReturnType<typeof view>[]>();
+    vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise).mockResolvedValue([view(1), view(2)]);
+    let a!: Promise<void>; let b!: Promise<void>;
+    act(() => { a = model().openSavedView(1); b = model().openSavedView(2); });
+    await act(async () => { newer.resolve([view(2)]); await b; });
+    expect(stores().gridView.store.get().applied.selection?.limit).toBe(2);
+    await act(async () => { older.resolve([view(1)]); await a; });
+    expect(stores().gridView.store.get().applied.selection?.limit).toBe(2);
+  });
+  it('show all rows invalidates an outstanding definition request', async () => {
+    await readyWorkspace();
+    const pending = deferred<ReturnType<typeof view>[]>();
+    vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(pending.promise);
+    let opening!: Promise<void>;
+    act(() => { opening = model().openSavedView(1); model().mainViewModel.clearViewSelection(); });
+    await act(async () => { pending.resolve([view(1)]); await opening; });
+    expect(stores().gridView.store.get().applied.selection).toBeUndefined();
+  });
+});
+
+describe('workspace controller composition boundaries', () => {
+
+  it('a launch accepted after sheet navigation closes the current action route', async () => {
+    await readyWorkspace();
+    const launch = deferred<RunActionLaunchResult>();
+    const runAction = vi.spyOn(stores().projectApi, 'runAction').mockReturnValueOnce(launch.promise);
+    act(() => model().mainViewModel.startRun({
+      action_id: 'map.classify',
+      scope: { kind: 'sheet_rows', sheet_id: 1 },
+      params: { instruction: 'Classify this row', model: 'test' },
+      output_names: { result: 'classification' },
+      idempotency_key: 'late-launch',
+    }));
+    expect(runAction).toHaveBeenCalledOnce();
+
+    act(() => model().selectSheet('2'));
+    act(() => model().runActionFromSurface('media.ocr'));
+    expect(stores().route.store.get()).toMatchObject({ sheetId: '2', actionKind: 'media.ocr' });
+
+    await act(async () => { launch.resolve({ runId: 'late-run' }); });
+
+    expect(stores().route.store.get()).toMatchObject({ sheetId: '2', actionKind: null });
+    expect(stores().chrome.store.get().actionPanelOpen).toBe(false);
+  });
+
+  it('updates palette state without rerendering the main view projection', async () => {
+    await readyWorkspace();
+    const before = model().mainViewModel;
+    const askNavigation = model().askNavigation;
+    const mainCommits = mainRegionCommit.mock.calls.length;
+    const overlayCommits = overlayRegionCommit.mock.calls.length;
+
+    act(() => model().overlayModel.setCommandPaletteQuery('document search'));
+
+    expect(model().overlayModel.commandPaletteQuery).toBe('document search');
+    expect(model().mainViewModel).toBe(before);
+    expect(model().askNavigation).toBe(askNavigation);
+    expect(mainRegionCommit).toHaveBeenCalledTimes(mainCommits);
+    expect(overlayRegionCommit.mock.calls.length).toBeGreaterThan(overlayCommits);
+  });
+
+  it('updates the main projection for expected-answer state and data revisions', async () => {
+    await readyWorkspace();
+    const before = model().mainViewModel;
+    act(() => model().expectedAnswers.openJoin());
+    expect(model().mainViewModel).not.toBe(before);
+    expect(model().mainViewModel.expectedAnswers.join).not.toBeNull();
+    const dataVersion = model().mainViewModel.comparisonDataVersion;
+    act(() => model().invalidateProjectData());
+    expect(model().mainViewModel.comparisonDataVersion).toBeGreaterThan(dataVersion);
+  });
+
+  it('updates comparison sessions without rerendering overlays', async () => {
+    await readyWorkspace();
+    const before = model().overlayModel;
+    const overlayCommits = overlayRegionCommit.mock.calls.length;
+
+    act(() => model().mainViewModel.setOcrCompareCloseWarn(true));
+
+    expect(model().mainViewModel.ocrCompareCloseWarn).toBe(true);
+    expect(model().overlayModel).toBe(before);
+    expect(overlayRegionCommit).toHaveBeenCalledTimes(overlayCommits);
+  });
+
+  it('keeps document focus separate from action selection while Answers selects rows', async () => {
+    await readyWorkspace();
+    act(() => model().mainViewModel.openRowById('101'));
+    const selected = stores().selection.store.get().selectedRows;
+
+    act(() => model().mainViewModel.selectDocumentRow('202'));
+
+    expect(stores().route.store.get().panel).toMatchObject({ kind: 'row', rowId: '202' });
+    expect(stores().selection.store.get().selectedRows).toBe(selected);
+
+    act(() => model().mainViewModel.selectAnswersRow('303'));
+
+    expect(stores().selection.store.get().selectedRows.rowIds).toEqual(['303']);
+    expect(stores().route.store.get().panel).toMatchObject({ kind: 'row', rowId: '202' });
+  });
+
+  it('confirms the captured delete request after selection and sheet change', async () => {
+    await readyWorkspace();
+    const deleteRows = vi.spyOn(stores().projectApi, 'deleteRows')
+      .mockResolvedValue({ rowIds: ['101'], deleted: 1, total: 1 });
+    act(() => {
+      stores().selection.setSelectedRows({ sheetId: '1', rowIds: ['101'], rowIndexes: [] });
+    });
+    act(() => model().mainViewModel.requestDeleteRows());
+    const captured = model().overlayModel.deleteRowsConfirm;
+    expect(captured).toEqual({ sheetId: '1', rowIds: ['101'] });
+
+    act(() => model().selectSheet('2'));
+    act(() => {
+      stores().selection.setSelectedRows({ sheetId: '2', rowIds: ['202'], rowIndexes: [] });
+    });
+    act(() => model().overlayModel.confirmDeleteRows());
+
+    await waitFor(() => expect(deleteRows).toHaveBeenCalledWith('1', ['101']));
+    expect(model().overlayModel.deleteRowsConfirm).toBeNull();
+  });
+});

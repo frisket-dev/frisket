@@ -7,7 +7,7 @@ import math
 import re
 import statistics
 from collections import Counter
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime
 from typing import Any, Callable, Iterator
 
@@ -69,6 +69,19 @@ def sheet_columns_payload(project: Project, sheet_id: int) -> list[dict[str, Any
     )["columns"]
 
 
+@contextmanager
+def _selected_sheet(project, sheet_id, selection, view_id, *, legacy_scope=()):
+    from frisket.server.services.view_selection import open_sheet_selection
+
+    try:
+        with open_sheet_selection(
+            project, sheet_id, selection, view_id, legacy_scope=legacy_scope
+        ) as selected:
+            yield selected
+    except ValueError as exc:
+        raise SheetGridRouteError(400, str(exc)) from exc
+
+
 class SheetGridService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
@@ -88,8 +101,36 @@ class SheetGridService:
         column_ids: str | None = None,
         include_scope_metadata: bool = True,
         value_mode: str = "exact",
+        selection: str | None = None,
+        view_id: int | None = None,
     ) -> dict:
         project = self._workspace.get(project_id)
+        if selection is not None or view_id is not None:
+            with _selected_sheet(
+                project,
+                sheet_id,
+                selection,
+                view_id,
+                legacy_scope=(parent_row_id, filter_, sort, row_ids, scope_row_ids),
+            ) as selected:
+                snapshot = selected.snapshot
+                columns = _projected_columns(
+                    _visible_sheet_columns(snapshot, sheet_id),
+                    _parse_column_ids_param(column_ids),
+                )
+                return _sheet_data_payload(
+                    snapshot,
+                    sheet_id,
+                    columns,
+                    [
+                        int(hit["row_id"])
+                        for hit in selected.hits(offset=offset, limit=limit)
+                    ],
+                    total=selected.total if include_scope_metadata else None,
+                    cell_projection=column_ids is not None,
+                    include_scope_metadata=include_scope_metadata,
+                    value_mode=value_mode,
+                )
         with read_transaction(project.db):
             visible_columns = _visible_sheet_columns(project, sheet_id)
             projected_columns = _projected_columns(
@@ -279,6 +320,7 @@ class SheetGridService:
         filter_: str | None = None,
         sort: str | None = None,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
         q: str | None = None,
         cursor: str | None = None,
         anchor_row_id: int | None = None,
@@ -291,20 +333,41 @@ class SheetGridService:
                 filter_, expected=dict, name="filter"
             )
             decoded_sort = _decode_document_json(sort, expected=list, name="sort")
-            page = document_browse(
-                project,
-                sheet_id,
-                source_column_id=source_column_id,
-                title_column_id=title_column_id,
-                parent_row_id=parent_row_id,
-                filter=decoded_filter,
-                sort=decoded_sort,
-                scope_row_ids=_parse_row_ids_param(scope_row_ids),
-                q=q,
-                cursor=cursor,
-                anchor_row_id=anchor_row_id,
-                limit=limit,
-            )
+            if selection is not None:
+                with _selected_sheet(
+                    project,
+                    sheet_id,
+                    selection,
+                    None,
+                    legacy_scope=(parent_row_id, filter_, sort, scope_row_ids),
+                ) as selected:
+                    page = document_browse(
+                        selected.snapshot,
+                        sheet_id,
+                        source_column_id=source_column_id,
+                        title_column_id=title_column_id,
+                        q=q,
+                        cursor=cursor,
+                        anchor_row_id=anchor_row_id,
+                        limit=limit,
+                        _selection=selected,
+                        _storage_identity=project.storage_identity,
+                    )
+            else:
+                page = document_browse(
+                    project,
+                    sheet_id,
+                    source_column_id=source_column_id,
+                    title_column_id=title_column_id,
+                    parent_row_id=parent_row_id,
+                    filter=decoded_filter,
+                    sort=decoded_sort,
+                    scope_row_ids=_parse_row_ids_param(scope_row_ids),
+                    q=q,
+                    cursor=cursor,
+                    anchor_row_id=anchor_row_id,
+                    limit=limit,
+                )
         except SheetGridRouteError:
             raise
         except ValueError as exc:
@@ -328,9 +391,26 @@ class SheetGridService:
         filter_: str | None = None,
         sort: str | None = None,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: int | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         require_visible_sheet(project, sheet_id)
+        if selection is not None or view_id is not None:
+            with _selected_sheet(
+                project,
+                sheet_id,
+                selection,
+                view_id,
+                legacy_scope=(parent_row_id, filter_, sort, scope_row_ids),
+            ) as selected:
+                return _column_stats_payload(
+                    selected.snapshot,
+                    sheet_id,
+                    column_id,
+                    force=force,
+                    selected=selected,
+                )
         return _column_stats_payload(
             project,
             sheet_id,
@@ -354,8 +434,24 @@ class SheetGridService:
         sort: str | None = None,
         row_ids: str | None = None,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: int | None = None,
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
+        if selection is not None or view_id is not None:
+            with _selected_sheet(
+                project,
+                sheet_id,
+                selection,
+                view_id,
+                legacy_scope=(parent_row_id, filter_, sort, row_ids, scope_row_ids),
+            ) as selected:
+                return _sheet_row_location_payload(
+                    sheet_id,
+                    row_id,
+                    page_size,
+                    index=selected.index_of(sheet_id=sheet_id, row_id=row_id),
+                )
         require_visible_sheet(project, sheet_id)
         explicit_row_ids = _parse_row_ids_param(row_ids)
         if explicit_row_ids is not None:
@@ -698,6 +794,7 @@ def _column_stats_payload(
     filter_: str | None = None,
     sort: str | None = None,
     scope_row_ids: list[int] | None = None,
+    selected: Any | None = None,
 ) -> dict[str, Any]:
     plan = _sheet_row_scope_plan(
         project,
@@ -710,10 +807,14 @@ def _column_stats_payload(
     column = next((c for c in plan.columns if int(c["id"]) == column_id), None)
     if column is None:
         raise SheetGridRouteError(404, "column not found")
-    total = project.db.execute(
-        f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
-        plan.filter_params,
-    ).fetchone()[0]
+    total = (
+        selected.total
+        if selected is not None
+        else project.db.execute(
+            f"SELECT COUNT(*) FROM {plan.filter_from_sql} WHERE {plan.where_sql}",
+            plan.filter_params,
+        ).fetchone()[0]
+    )
     base: dict[str, Any] = {
         "schema_version": "frisket.column_stats.v1",
         "sheet_id": sheet_id,
@@ -745,17 +846,23 @@ def _column_stats_payload(
     is_file_column = str(column["type"]) == "file"
     offset = 0
     while offset < total:
-        rows = project.db.execute(
-            f"""
-            SELECT r.id
-            FROM {plan.filter_from_sql}
-            WHERE {plan.where_sql}
-            ORDER BY r.id
-            LIMIT ? OFFSET ?
-            """,
-            [*plan.filter_params, COLUMN_STATS_CHUNK_SIZE, offset],
-        ).fetchall()
-        row_ids = [int(r["id"]) for r in rows]
+        if selected is not None:
+            row_ids = [
+                int(hit["row_id"])
+                for hit in selected.hits(offset=offset, limit=COLUMN_STATS_CHUNK_SIZE)
+            ]
+        else:
+            rows = project.db.execute(
+                f"""
+                SELECT r.id
+                FROM {plan.filter_from_sql}
+                WHERE {plan.where_sql}
+                ORDER BY r.id
+                LIMIT ? OFFSET ?
+                """,
+                [*plan.filter_params, COLUMN_STATS_CHUNK_SIZE, offset],
+            ).fetchall()
+            row_ids = [int(r["id"]) for r in rows]
         if not row_ids:
             break
         values, refs = project.get_values_with_refs(
@@ -1172,13 +1279,16 @@ def _result_metadata(project: Project, column_id: int, row_ids: list[int]) -> di
     for start in range(0, len(row_ids), 400):
         chunk = row_ids[start : start + 400]
         placeholders = ",".join("?" for _ in chunk)
+        from frisket.engine.store.current_read_sql import current_heads_sql
+
+        heads = current_heads_sql(project.db, [column_id], chunk)
         rows = project.db.execute(
             "SELECT head.row_id,result.publication_effect,result.confidence,"
             "result.justification,result.error,result.review_state,result.outcome, "
             "result.warnings AS warnings_json "
-            "FROM cell_result_heads head JOIN results result "
-            "ON result.run_id=head.run_id AND result.row_id=head.row_id "
-            "AND result.column_id=head.column_id "
+            f"FROM {heads} head JOIN results result "
+            "ON head.origin_kind='run_result' AND result.run_id=head.origin_run_id AND result.row_id=head.row_id "
+            "AND result.column_id=head.column_id AND result.published=1 "
             f"WHERE head.column_id=? AND head.row_id IN ({placeholders})",
             (column_id, *chunk),
         ).fetchall()

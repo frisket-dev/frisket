@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from frisket.execution.dispatch_control import STANDALONE
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
@@ -254,7 +255,12 @@ def test_recipe_execute_threads_words_through_faster_whisper(
     )
     result = asyncio.run(
         transcribe_mod.run_transcription_engine(
-            "faster_whisper", str(tmp_path / "a.wav"), {}, OpContext()
+            "faster_whisper",
+            str(tmp_path / "a.wav"),
+            {},
+            OpContext(
+                extras={"standalone_dispatch": STANDALONE},
+            ),
         )
     )
     (segment,) = segments_with_index(result.output["segments"])
@@ -296,7 +302,12 @@ def test_parakeet_default_vad_true_stays_segment_level_no_words(
     monkeypatch.setattr(parakeet_mod, "ParakeetProcessSession", FakeParakeetSession)
     result = asyncio.run(
         transcribe_mod.run_transcription_engine(
-            "parakeet-tdt", str(tmp_path / "a.wav"), {}, OpContext()
+            "parakeet-tdt",
+            str(tmp_path / "a.wav"),
+            {},
+            OpContext(
+                extras={"standalone_dispatch": STANDALONE},
+            ),
         )
     )
     (segment,) = segments_with_index(result.output["segments"])

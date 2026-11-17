@@ -35,6 +35,8 @@ def _contributed_action_job_executors(
     def run_google_sheets_action_job(
         project: Any,
         envelope: ActionJobEnvelope,
+        *,
+        execution,
     ):
         deps = (
             executor_deps_factory(envelope.project_id, None)
@@ -44,12 +46,15 @@ def _contributed_action_job_executors(
         return execute_google_sheets_job(
             project,
             envelope,
+            execution=execution,
             deps=deps if deps is not None else ExecutorDeps(),
         )
 
     def run_map_find_action_job(
         project: Any,
         envelope: ActionJobEnvelope,
+        *,
+        execution,
     ):
         deps = (
             executor_deps_factory(envelope.project_id, None)
@@ -59,6 +64,7 @@ def _contributed_action_job_executors(
         return run_typed_find_action_job(
             project,
             envelope,
+            execution=execution,
             deps=deps if deps is not None else ExecutorDeps(),
         )
 

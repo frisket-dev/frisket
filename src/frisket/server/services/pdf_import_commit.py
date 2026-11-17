@@ -255,7 +255,7 @@ class PdfImportCommitService:
         with import_worker_lock(directory, timeout=5):
             session = ImportSessionStore(project).get(ref)
             if session is None:
-                self._start_reserved_receipt(project, envelope, frozen)
+                self._annotate_reserved_receipt(project, envelope, frozen)
                 with ImportInventory(directory / "inventory.db") as inventory:
                     self._promote_page_blobs(project, directory, inventory, after=0)
                     session = run_inventory_table_page(
@@ -480,9 +480,10 @@ class PdfImportCommitService:
         return sheet_id, str(row["name"])
 
     @staticmethod
-    def _start_reserved_receipt(
+    def _annotate_reserved_receipt(
         project: Any, envelope: ActionJobEnvelope, frozen: Any
-    ) -> dict[str, Any]:
+    ) -> None:
+        """Record the frozen plan without starting work before session admission."""
         receipts = ReceiptStore(project)
         stored = receipts.find_by_id(envelope.receipt_id)
         if stored is None:
@@ -492,11 +493,14 @@ class PdfImportCommitService:
         if stored.status != "queued":
             raise ValueError("PDF import reservation is already terminal")
         receipt = stored.parsed()
-        running = receipt.model_copy(
+        annotated = receipt.model_copy(
             update={
-                "status": "running",
                 "inputs": [
-                    *receipt.inputs,
+                    *(
+                        item
+                        for item in receipt.inputs
+                        if item.name != "pdf_import_commit"
+                    ),
                     ReceiptIO(
                         name="pdf_import_commit",
                         ref={
@@ -514,7 +518,7 @@ class PdfImportCommitService:
             }
         )
         if not receipts.update_body_status(
-            running, require_status="queued", commit=True
+            annotated, require_status="queued", commit=True
         ):
             raise ValueError("PDF import reservation changed")
 

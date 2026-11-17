@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 
 from frisket.actions.core import ActionCategory, RowScope, action, create_sheet
-from frisket.actions.imports import FileSource
+from frisket.actions.imports import FileSource, StagedImportInput
 from frisket.actions.types import (
     ActionParams,
     DynamicOutput,
@@ -36,8 +36,11 @@ class ImportXlsxParams(ActionParams):
 
 
 class UpdateXlsxParams(ImportXlsxParams):
+    staged_input: StagedImportInput | None = None
     key_columns: list[str] = Field(min_length=1)
     keep_existing_on_blank: bool = False
+    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
 
     @model_validator(mode="after")
     def _validate_update_mapping(self) -> UpdateXlsxParams:

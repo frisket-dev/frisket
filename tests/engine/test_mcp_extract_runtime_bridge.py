@@ -7,6 +7,7 @@ the transport-client test suite.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import os
@@ -174,7 +175,11 @@ def _response(
 
 def _router(adapter: _ToolThenStrictAdapter) -> ModelRouter:
     router = ModelRouter(
-        keys={"anthropic": "test"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     router._adapters["anthropic"] = adapter  # noqa: SLF001 - test transport seam
     return router

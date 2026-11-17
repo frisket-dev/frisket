@@ -181,7 +181,7 @@ def test_workspace_router_threads_exact_persisted_endpoint_bundle(tmp_path) -> N
     finally:
         project.close()
     assert router.local_endpoints == (endpoint,)
-    selected, adapter, bare = router.resolve_local_model(
+    selected, adapter, bare = router._resolve_local_model(
         f"ollama/@{endpoint.endpoint_id}/qwen3:8b"
     )
     assert selected == endpoint

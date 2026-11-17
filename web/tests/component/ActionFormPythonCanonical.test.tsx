@@ -76,8 +76,9 @@ describe('typed Python consumer boundary', () => {
     }));
     expect(screen.queryByTestId('field-output-proof')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('generated-action-preview'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByTestId('generated-action-run'));
-    expect(onExecute).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(2));
     for (const [request] of onExecute.mock.calls) {
       expect(request.params).toEqual({ ...draft.params,
         return_schema: returnSchema, output_routes: outputRoutes });
@@ -137,8 +138,9 @@ describe('typed Python consumer boundary', () => {
       fireEvent.change(screen.getByTestId('field-code'), { target: { value: code } });
       await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
       fireEvent.click(screen.getByTestId('generated-action-preview'));
+      await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
       fireEvent.click(screen.getByTestId('generated-action-run'));
-      expect(onExecute).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(2));
       for (const [request] of onExecute.mock.calls) expect(request).toMatchObject({
         ...draft, params: { ...draft.params, code },
         output_names: hiddenOnly ? {} : { length: 'Length edited' },

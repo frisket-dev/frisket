@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import asyncio
 import hashlib
 from contextlib import ExitStack
 from typing import Any
@@ -64,7 +65,11 @@ from frisket.ai.embeddings import (
     resolve_embedding_capability,
 )
 from frisket.ai.embeddings.capabilities import embedding_model_size_budget_gb
-from frisket.ai.embeddings.gateway import provider_normalization
+from frisket.ai.models.metadata import provider_network_blocked
+from frisket.ai.embeddings.gateway import (
+    ExecutionEmbeddingGateway,
+    provider_normalization,
+)
 from frisket.ai.embeddings.scope import IndexScopeError, resolve_scope_rows
 from frisket.ai.embeddings.source_payload import build_source_payloads
 from frisket.ai.embeddings.spaces import canonical_json
@@ -1025,7 +1030,10 @@ def _run_paid_embedding_dimension_probe(
             scope=tuple(probe_row_ids),
         )
     except AttemptClaimRefused as exc:
-        run_store.finish_run(run_id, "failed")
+        run_store.finish_run(
+            run_id,
+            "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+        )
         _delete_embedding_probe_reservation(project, receipt_id)
         return _error(
             action,
@@ -1049,7 +1057,13 @@ def _run_paid_embedding_dimension_probe(
         )
     except Exception:
         project.db.execute("BEGIN IMMEDIATE")
-        run_store.finish_run(run_id, "failed", commit=False)
+        run_store.finish_run(
+            run_id,
+            "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+            commit=False,
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
         set_attempt_state(project, attempt_id, "halted", commit=False)
         ReceiptStore(project).delete_running(receipt_id, commit=False)
         project.db.commit()
@@ -1060,7 +1074,12 @@ def _run_paid_embedding_dimension_probe(
             "embedding probe egress reservation could not be written",
         )
 
-    gateway = embedding_gateway or EmbeddingGateway(router=router)
+    from frisket.execution.dispatch_control import RunDispatch
+
+    execution = RunDispatch(project, run_id, attempt_id)
+    gateway = ExecutionEmbeddingGateway(
+        embedding_gateway or EmbeddingGateway(router=router), execution
+    )
     try:
         probe = gateway.embed(
             ["dimension probe"],
@@ -1068,9 +1087,33 @@ def _run_paid_embedding_dimension_probe(
             model=params.model,
             modality=modality,
         )
+    except asyncio.CancelledError:
+        project.db.rollback()
+        project.db.execute("BEGIN IMMEDIATE")
+        try:
+            run_store.request_cancel(run_id, commit=False)
+            run_store.finish_run(
+                run_id,
+                "cancelled",
+                commit=False,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+            )
+            set_attempt_state(project, attempt_id, "halted", commit=False)
+            project.db.commit()
+        except BaseException:
+            project.db.rollback()
+            raise
+        raise
     except EmbeddingBackendUnavailable as exc:
         project.db.execute("BEGIN IMMEDIATE")
-        run_store.finish_run(run_id, "failed", commit=False)
+        run_store.finish_run(
+            run_id,
+            "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+            commit=False,
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
         set_attempt_state(project, attempt_id, "halted", commit=False)
         ReceiptStore(project).delete_running(receipt_id, commit=False)
         project.db.commit()
@@ -1119,7 +1162,12 @@ def _run_paid_embedding_dimension_probe(
     probe_for_fact.setdefault("actual_model_id", params.model or str(cap["model_id"]))
     provider_fact = _embedding_provider_fact(probe_for_fact)
     if provider_fact is None:  # pragma: no cover - non-None result above
-        run_store.finish_run(run_id, "failed")
+        run_store.finish_run(
+            run_id,
+            "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
         return _error(
             action,
             project_id,
@@ -1148,7 +1196,13 @@ def _run_paid_embedding_dimension_probe(
             claimless_direct_effect=True,
             authorized_attempt_id=attempt_id,
         )
-        run_store.finish_run(run_id, "failed", commit=False)
+        run_store.finish_run(
+            run_id,
+            "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+            commit=False,
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
         set_attempt_state(project, attempt_id, "effected", commit=False)
         project.db.commit()
         return _error(
@@ -1228,7 +1282,33 @@ def _run_paid_embedding_dimension_probe(
         )
         if not landed:
             raise RuntimeError("embedding probe reservation was lost")
-        set_attempt_state(project, attempt_id, "effected", commit=False)
+        # This run records the provider effect, not the later index metadata
+        # write. Settle the returned probe with its paid fact so a metadata
+        # retry never needs to rewrite a terminal run.
+        cancelled_after_return = run_store.cancellation_requested(run_id)
+        if not cancelled_after_return:
+            settled = project.db.execute(
+                "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                "WHERE id=? AND total_rows=1 AND status='running'",
+                (run_id,),
+            )
+            if settled.rowcount != 1:
+                raise RuntimeError(
+                    "embedding probe run changed before returned-effect settlement"
+                )
+        run_store.finish_run(
+            run_id,
+            "cancelled" if cancelled_after_return else "completed",
+            commit=False,
+            writer_attempt_id=attempt_id,
+            claimless_direct_effect=True,
+        )
+        set_attempt_state(
+            project,
+            attempt_id,
+            "halted" if cancelled_after_return else "effected",
+            commit=False,
+        )
         project.db.commit()
     except BaseException as exc:
         project.db.rollback()
@@ -1250,7 +1330,13 @@ def _run_paid_embedding_dimension_probe(
                 authorized_attempt_id=attempt_id,
             )
             project.db.execute("BEGIN IMMEDIATE")
-            run_store.finish_run(run_id, "failed", commit=False)
+            run_store.finish_run(
+                run_id,
+                "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+                commit=False,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+            )
             set_attempt_state(project, attempt_id, "effected", commit=False)
             project.db.commit()
         except BaseException:
@@ -1266,6 +1352,11 @@ def _run_paid_embedding_dimension_probe(
             "project_write_failed",
             "embedding probe reconciliation checkpoint could not be written",
         )
+    if run_store.cancellation_requested(run_id):
+        probe_run = run_store.get_run(run_id)
+        if probe_run is not None and probe_run["status"] == "running":
+            run_store.finish_run(run_id, "cancelled")
+        raise asyncio.CancelledError
     return {
         "receipt": checkpoint_receipt,
         "checkpoint": checkpoint_ref,
@@ -1412,9 +1503,9 @@ def _create_index(
                 },
             )
         if checkpoint_state is None:
-            if (
-                cap["provider_kind"] in REMOTE_PROVIDER_KINDS
-                and project.effective_network_policy() == "off"
+            if provider_network_blocked(
+                cap["provider_kind"],
+                network_off=project.effective_network_policy() == "off",
             ):
                 return _error(
                     action,
@@ -1481,6 +1572,11 @@ def _create_index(
                 field="idempotency_key",
                 details={"receipt_id": reserved_receipt_id},
             )
+        if probe_run_store.cancellation_requested(probe_run_id):
+            probe = probe_run_store.get_run(probe_run_id)
+            if probe["status"] == "running":
+                probe_run_store.finish_run(probe_run_id, "cancelled")
+            raise asyncio.CancelledError
         discovered_dimension = int(checkpoint["dimension"])
         actual_model_id = str(checkpoint["actual_model_id"])
         probe_used = True
@@ -1508,7 +1604,9 @@ def _create_index(
         budget = embedding_model_size_budget_gb()
         if size_gb > budget:
             if probe_run_id is not None and probe_run_store is not None:
-                probe_run_store.finish_run(probe_run_id, "failed")
+                probe = probe_run_store.get_run(probe_run_id)
+                if probe is not None and probe["status"] == "running":
+                    probe_run_store.finish_run(probe_run_id, "failed")
             return _error(
                 action,
                 project_id,
@@ -1668,24 +1766,38 @@ def _create_index(
         else:
             _insert_receipt(project, receipt)
         if probe_run_id is not None and probe_run_store is not None:
-            # A paid probe run has exactly one provider input.
-            settled = project.db.execute(
-                "UPDATE runs SET completed_rows=1, failed_rows=0 "
-                "WHERE id=? AND total_rows=1",
-                (probe_run_id,),
-            )
-            if settled.rowcount != 1:
-                raise RuntimeError(
-                    "embedding probe run disappeared or changed scope before completion"
+            # An exact metadata retry may reference the already terminal probe
+            # run that recorded the paid provider fact. Its run history is
+            # immutable; only a still-running probe is completed here.
+            probe = probe_run_store.get_run(probe_run_id)
+            if probe is None:
+                raise RuntimeError("embedding probe run disappeared before completion")
+            if probe["status"] == "running":
+                settled = project.db.execute(
+                    "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                    "WHERE id=? AND total_rows=1",
+                    (probe_run_id,),
                 )
-            probe_run_store.finish_run(probe_run_id, "completed", commit=False)
+                if settled.rowcount != 1:
+                    raise RuntimeError(
+                        "embedding probe run disappeared or changed scope before completion"
+                    )
+                probe_run_store.finish_run(probe_run_id, "completed", commit=False)
         project.db.commit()
     except BaseException as exc:
         project.db.rollback()
+        if probe_run_id is not None and probe_run_store is not None:
+            if probe_run_store.cancellation_requested(probe_run_id):
+                probe = probe_run_store.get_run(probe_run_id)
+                if probe["status"] == "running":
+                    probe_run_store.finish_run(probe_run_id, "cancelled")
+                raise asyncio.CancelledError from exc
         if isinstance(exc, StaleAttemptWriter):
             raise
         if probe_run_id is not None and probe_run_store is not None:
-            probe_run_store.finish_run(probe_run_id, "failed")
+            probe = probe_run_store.get_run(probe_run_id)
+            if probe is not None and probe["status"] == "running":
+                probe_run_store.finish_run(probe_run_id, "failed")
         if not isinstance(exc, Exception):
             raise
         logger.debug(
@@ -1735,7 +1847,10 @@ def _refresh_index(
     reserved_action_id: str | None = None,
     reserved_receipt_id: str | None = None,
     skip_replay: bool = False,
+    parent_execution=None,
 ) -> ActionResult:
+    if parent_execution is not None:
+        parent_execution.check()
     if not skip_replay:
         replay = _replay(
             project,
@@ -1789,7 +1904,9 @@ def _refresh_index(
     # here, at the same pre-claim/pre-provider choke point as the
     # allow_remote policy — which stays the primary consent gate; this one
     # only enforces the project-wide ``network=off`` safety default.
-    if remote and project.effective_network_policy() == "off":
+    if provider_network_blocked(
+        provider_kind, network_off=project.effective_network_policy() == "off"
+    ):
         return _error(
             action,
             project_id,
@@ -1890,9 +2007,11 @@ def _refresh_index(
             index=index,
             space=space,
             modality=modality,
-            gateway=embedding_gateway or EmbeddingGateway(router=router),
+            gateway=embedding_gateway,
+            router=router,
             params_hash=params_hash,
             row_ids=candidate_row_ids,
+            parent_execution=parent_execution,
             reserved_action_id=reserved_action_id,
             reserved_receipt_id=reserved_receipt_id,
         )
@@ -1923,10 +2042,12 @@ def _do_refresh(
     space,
     modality,
     gateway,
+    router,
     params_hash,
     row_ids,
     reserved_action_id=None,
     reserved_receipt_id=None,
+    parent_execution=None,
 ) -> ActionResult:
     from frisket.engine.store.effect_checkpoints import (
         EffectCheckpointRefused,
@@ -2213,8 +2334,25 @@ def _do_refresh(
                                     ),
                                     field="params.index_id",
                                 )
+                        from frisket.execution.dispatch_control import RunDispatch
+
+                        from frisket.execution.dispatch_control import (
+                            dispatch_cancelled,
+                        )
+
+                        execution = RunDispatch(
+                            project,
+                            run_id,
+                            attempt_id,
+                            (lambda: dispatch_cancelled(parent_execution))
+                            if parent_execution is not None
+                            else None,
+                        )
+                        batch_gateway = ExecutionEmbeddingGateway(
+                            gateway or EmbeddingGateway(router=router), execution
+                        )
                         try:
-                            result = gateway.embed(
+                            result = batch_gateway.embed(
                                 gateway_inputs,
                                 provider=space["provider_id"],
                                 model=space["actual_model_id"],
@@ -2381,6 +2519,12 @@ def _do_refresh(
                         field="params.index_id",
                         details={"retryable": True},
                     )
+            # Returned facts are durable above; cancellation now refuses publication.
+            from frisket.execution.dispatch_control import RunDispatch
+
+            if parent_execution is not None:
+                parent_execution.check()
+            RunDispatch(project, run_id, attempt_id).check()
             vectors = result["vectors"]
             # Validate the whole batch BEFORE writing any sidecar row: a short
             # batch is a provider error; a wrong-width vector is a space mismatch.
@@ -2664,23 +2808,49 @@ def _do_refresh(
             ],
             receipt_id=receipt_id,
         )
+    except asyncio.CancelledError:
+        project.db.rollback()
+        if run_id is not None:
+            run_store.request_cancel(run_id)
+        raise
     except StaleAttemptWriter:
         stale_writer = True
         raise
     finally:
-        if not stale_writer and run_id is not None and not run_finalized:
-            run = run_store.get_run(run_id)
-            if run is not None and run["status"] == "running":
-                # Normal Python failures quarantine the accounting envelope.
-                # A hard process crash intentionally leaves it running so stale-
-                # run recovery can surface/reconcile it rather than call it free.
-                run_store.finish_run(run_id, "failed")
-        if not stale_writer and attempt_id is not None and not attempt_closed:
-            # In-process failure: the dispatch is over.  A hard process crash
-            # skips this by construction, leaving 'dispatching' for the
-            # stale-attempt sweep — the ambiguous case stays visible.
-            set_attempt_state(project, attempt_id, "halted")
-        retrieval.close()
+        try:
+            if not stale_writer and run_id is not None and not run_finalized:
+                run = run_store.get_run(run_id)
+                if run is not None and run["status"] == "running":
+                    # Close the run and its current attempt atomically. Cancellation
+                    # must not be relabeled failure or leave an open transaction.
+                    project.db.execute("BEGIN IMMEDIATE")
+                    try:
+                        run_store.finish_run(
+                            run_id,
+                            "cancelled"
+                            if run_store.cancellation_requested(run_id)
+                            else "failed",
+                            writer_attempt_id=(
+                                attempt_id if not attempt_closed else None
+                            ),
+                            claimless_direct_effect=bool(
+                                attempt_id and not attempt_closed
+                            ),
+                            commit=False,
+                        )
+                        if attempt_id is not None and not attempt_closed:
+                            set_attempt_state(
+                                project, attempt_id, "halted", commit=False
+                            )
+                            attempt_closed = True
+                        project.db.commit()
+                    except BaseException:
+                        project.db.rollback()
+                        raise
+            if not stale_writer and attempt_id is not None and not attempt_closed:
+                set_attempt_state(project, attempt_id, "halted")
+        finally:
+            retrieval.close()
 
 
 def repair_unfinalized_refresh(project: Any, index_id: str) -> dict[str, int] | None:
@@ -2727,6 +2897,7 @@ def run_index_refresh_action_job(
     project: Project,
     envelope: Any,
     *,
+    execution,
     router: Any | None = None,
     embedding_gateway: Any | None = None,
 ) -> ActionResult:
@@ -2748,6 +2919,7 @@ def run_index_refresh_action_job(
         reserved_action_id=envelope.action_id,
         reserved_receipt_id=envelope.receipt_id,
         skip_replay=True,
+        parent_execution=execution,
     )
 
 
@@ -3184,6 +3356,7 @@ class _EmbeddingLifecycleCapability:
         reserved_action_id,
         reserved_receipt_id,
         skip_replay,
+        parent_execution,
     ):
         from frisket.engine.executor.map_rows_action import typed_request_hash
 
@@ -3196,6 +3369,7 @@ class _EmbeddingLifecycleCapability:
         self.reserved_action_id = reserved_action_id
         self.reserved_receipt_id = reserved_receipt_id
         self.skip_replay = skip_replay
+        self.parent_execution = parent_execution
         self.result: ActionResult | None = None
         self.called = False
 
@@ -3240,6 +3414,7 @@ class _EmbeddingLifecycleCapability:
                 reserved_action_id=self.reserved_action_id,
                 reserved_receipt_id=self.reserved_receipt_id,
                 skip_replay=self.skip_replay,
+                parent_execution=self.parent_execution,
             )
         result = (_create_index if create else _refresh_index)(
             self.project,
@@ -3332,6 +3507,7 @@ def run_typed_embedding_action(
     reserved_action_id=None,
     reserved_receipt_id=None,
     skip_replay=False,
+    parent_execution=None,
 ) -> ActionResult:
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
@@ -3369,6 +3545,7 @@ def run_typed_embedding_action(
             reserved_action_id=reserved_action_id,
             reserved_receipt_id=reserved_receipt_id,
             skip_replay=skip_replay,
+            parent_execution=parent_execution,
         )
         try:
             returned = terminal.handler(bound.params, capability)

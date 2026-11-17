@@ -1,5 +1,7 @@
 """Canonical {{column}} templates."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 
 import httpx
@@ -132,7 +134,9 @@ def test_typed_runner_template_infers_columns_without_input_columns(
         p,
         [{"address": "Tour Eiffel", "city": "Paris", "country": "France"}],
     )
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     deps = ExecutorDeps(

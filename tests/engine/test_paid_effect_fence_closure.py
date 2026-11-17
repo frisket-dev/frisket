@@ -16,10 +16,9 @@ partitioned, with nothing left over, into:
   ``test_map_row_effect_checkpoint.py`` (paid row reserves; free row writes
   zero checkpoints).
 - **shared-store families** — inline/queued executors that reserve on the
-  ``EffectCheckpointStore`` (``reduce_group_summary``,
-  ``embedding_index_refresh``, and ``model_call`` for clustering). Behavior
-  pinned by ``test_reduce_effect_checkpoint``, ``test_embedding_effect_checkpoint``,
-  and ``test_typed_cluster_action``.
+  ``EffectCheckpointStore`` (``embedding_index_refresh`` and ``model_call``
+  for clustering). Grouped summaries delegate to the ordinary row runner;
+  behavior is pinned by ``test_reduce_effect_checkpoint``.
 - **named exclusions** — kinds genuinely outside checkpoint authority, each
   with the concrete reason it cannot silently double-buy.
 
@@ -101,9 +100,6 @@ CHECKPOINT_AUTHORITIES: dict[str, str] = {
     # embeddings._refresh_index reserves per provider batch on the shared
     # store, family "embedding_index_refresh" (test_embedding_effect_checkpoint).
     "embedding.index_refresh": "EffectCheckpointStore family embedding_index_refresh",
-    # reduces._complete_reduce_group_summaries reserves per group on the
-    # shared store, family "reduce_group_summary" (test_reduce_effect_checkpoint).
-    "reduce.group_summary": "EffectCheckpointStore family reduce_group_summary",
     # exports._run_export_google_sheets reserves before client.export_tabs on
     # the shared store, family "export_google_sheets_egress"
     # (test_export_google_sheets_effect_checkpoint). $0 cost, but
@@ -119,9 +115,13 @@ CHECKPOINT_AUTHORITIES: dict[str, str] = {
 #: one effect site — the row_effect fence applies there, not in their own
 #: executor.
 DELEGATES_TO_ROW_EFFECT = {
-    # runs._run_backfill re-enters MapRunner.run(resume_run_id=...); every
-    # provider call it can cause is a row execution under the same fence.
+    # Group summaries materialize groups as rows, then use the ordinary runner
+    # and its row_effect/model_call checkpoints (test_reduce_effect_checkpoint).
+    "reduce.group_summary",
+    # Both RunBackfiller controls delegate provider work to MapRunner; every
+    # call is a row execution under its attempt-owned checkpoint fence.
     "run.backfill",
+    "run.retry",
 }
 
 #: Paid kinds genuinely OUTSIDE checkpoint authority.  Each line carries the
@@ -361,17 +361,12 @@ def test_shared_store_family_names_match_the_executors() -> None:
     from frisket.engine.executor.action_families.exports import (
         _EXPORT_GOOGLE_SHEETS_EFFECT_FAMILY,
     )
-    from frisket.engine.executor.group_summary_runtime import (
-        _REDUCE_EFFECT_FAMILY,
-    )
     from frisket.engine.store.runs import MODEL_CALL_CHECKPOINT_FAMILY
 
-    assert _REDUCE_EFFECT_FAMILY == "reduce_group_summary"
     assert _EMBEDDING_REFRESH_EFFECT_FAMILY == "embedding_index_refresh"
     assert _EXPORT_GOOGLE_SHEETS_EFFECT_FAMILY == "export_google_sheets_egress"
     assert MODEL_CALL_CHECKPOINT_FAMILY == "model_call"
     assert MODEL_CALL_CHECKPOINT_FAMILY in CHECKPOINT_AUTHORITIES["cluster.values"]
-    assert _REDUCE_EFFECT_FAMILY in CHECKPOINT_AUTHORITIES["reduce.group_summary"]
     assert (
         _EMBEDDING_REFRESH_EFFECT_FAMILY
         in CHECKPOINT_AUTHORITIES["embedding.index_refresh"]

@@ -127,10 +127,10 @@ def test_unconfirmed_million_row_join_validates_names_but_cannot_expand(
         },
     }
 
-    def no_expansion(**kwargs):
+    def no_expansion(*args, **kwargs):
         pytest.fail("discovery and unconfirmed execution must not expand the join")
 
-    monkeypatch.setattr(joined_tables_read, "iter_join_records", no_expansion)
+    monkeypatch.setattr(joined_tables_read.JoinReadStage, "records", no_expansion)
     service = action_param_validation.ActionParamValidationService(
         SimpleNamespace(edition="local", get=lambda _id: project)
     )

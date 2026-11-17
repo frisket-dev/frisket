@@ -18,7 +18,7 @@ from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.pdf_split_intake import read_pdf_split_plan
 from frisket.engine.store.pdf_split_text import (
     capture_pdf_split_text_identities,
-    publish_pdf_split_page,
+    publish_pdf_split_pages,
 )
 from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrGrant
 from frisket.server.services.pdf_import_preparation import PdfImportPreparationSummary
@@ -45,8 +45,8 @@ class PdfSplitPreparationJobs:
             preview_runs=self.preview_runs,
             inventory_path=directory / "inventory.db",
             project_id=project_id,
-            publish_child_page=lambda binding, ref: publish_pdf_split_page(
-                project, binding, ref
+            publish_child_pages=lambda bindings, ref: publish_pdf_split_pages(
+                project, bindings, ref
             ),
         )
 

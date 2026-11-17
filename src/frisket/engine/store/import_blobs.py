@@ -16,6 +16,8 @@ from frisket.engine.store.evidence import (
 from frisket.engine.store.blob_backend import BlobIntegrityError, ProjectBlobStore
 from frisket.engine.store.project_blobs import publish_prepared_blob
 from frisket.engine.store.cell_writes import BaseCellWrite, replace_base_cells
+from frisket.engine.store.cell_reference import current_value_ref
+from frisket.engine.store.current_read_sql import current_values_sql
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
@@ -373,12 +375,13 @@ def publish_import_blobs(
             raise ValueError("prepared PDF page has no admitted text output column")
         column_id = int(column_ids[column_name])
         existing = project.db.execute(
-            "SELECT producer_id FROM cells WHERE row_id=? AND column_id=?",
+            "SELECT base_producer_id FROM effective_current_cells "
+            "WHERE row_id=? AND column_id=? AND origin_kind='source_cell'",
             (cell.row_id, column_id),
         ).fetchone()
         if existing is None:
             raise ValueError("prepared PDF page text cell was not materialized")
-        key = (int(existing["producer_id"]), column_id)
+        key = (int(existing["base_producer_id"]), column_id)
         replacements.setdefault(key, []).append(
             BaseCellWrite(cell.row_id, column_id, prepared_ref)
         )
@@ -458,13 +461,7 @@ def publish_import_blobs(
             link = record_evidence_link(
                 project,
                 subject_kind="cell_value",
-                subject_ref={
-                    "kind": "source_cell",
-                    "op_id": None,
-                    "row_id": cell.row_id,
-                    "column_id": column_id,
-                    "run_id": None,
-                },
+                subject_ref=_imported_cell_ref(project, cell.row_id, column_id),
                 spans=[{"span_id": int(span["id"])}],
                 sheet_id=sheet_id,
                 row_id=cell.row_id,
@@ -488,7 +485,8 @@ def publish_import_blobs(
                     )
                 source_column_id = int(column_ids[blob.source_link_column_name])
                 producer = project.db.execute(
-                    "SELECT producer_id FROM cells WHERE row_id=? AND column_id=?",
+                    "SELECT base_producer_id FROM effective_current_cells "
+                    "WHERE row_id=? AND column_id=? AND origin_kind='source_cell'",
                     (cell.row_id, column_id),
                 ).fetchone()
                 if producer is None:
@@ -547,12 +545,7 @@ def publish_import_blobs(
             link = record_evidence_link(
                 project,
                 subject_kind="cell_value",
-                subject_ref={
-                    "kind": "source_cell",
-                    "sheet_id": sheet_id,
-                    "row_id": cell.row_id,
-                    "column_id": column_id,
-                },
+                subject_ref=_imported_cell_ref(project, cell.row_id, column_id),
                 spans=[{"span_id": span["id"]}],
                 sheet_id=sheet_id,
                 row_id=cell.row_id,
@@ -568,6 +561,18 @@ def publish_import_blobs(
     return tuple(refs)
 
 
+def _imported_cell_ref(project: Any, row_id: int, column_id: int) -> dict[str, Any]:
+    """Bind evidence to the exact published source version, without loading text."""
+    current = current_values_sql(project.db, [column_id], [row_id])
+    row = project.db.execute(
+        "SELECT origin_kind,origin_op_id,origin_run_id,base_producer_id,"
+        f"prepared_ref_id,outcome FROM {current}"
+    ).fetchone()
+    if row is None or row["origin_kind"] != "source_cell":
+        raise ValueError("import evidence has no published source cell")
+    return current_value_ref(row, row_id=row_id, column_id=column_id)
+
+
 def _publish_packet_ocr_evidence(
     project: Any,
     *,
@@ -580,6 +585,11 @@ def _publish_packet_ocr_evidence(
     op_id: int,
     receipt_id: str,
 ) -> None:
+    value_ref = _imported_cell_ref(project, row_id, column_id)
+    if value_ref.get("prepared_ref_id") != prepared_ref.ref_id:
+        raise ValueError(
+            "import OCR evidence does not match the published prepared text"
+        )
     prepared = PreparedContentStore(project).resolve(prepared_ref.ref_id)
     spans = []
     for pin in prepared.pins:
@@ -638,14 +648,7 @@ def _publish_packet_ocr_evidence(
     record_evidence_link(
         project,
         subject_kind="cell",
-        subject_ref={
-            "kind": "source_cell",
-            "op_id": None,
-            "row_id": row_id,
-            "column_id": column_id,
-            "run_id": None,
-            "prepared_ref_id": int(prepared_ref.ref_id),
-        },
+        subject_ref=value_ref,
         spans=spans,
         sheet_id=sheet_id,
         row_id=row_id,

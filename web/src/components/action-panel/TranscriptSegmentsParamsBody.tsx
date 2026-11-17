@@ -120,7 +120,7 @@ function TemporalSegmentsEditor({
     else setRanges(rangeText);
   };
 
-  return <div className="temporal-action-body" data-testid={`${purpose}-segments-params`}>
+  return <div className="form-stack" data-testid={`${purpose}-segments-params`}>
     <Field name="source" label={purpose === 'media' ? 'Audio or video' : 'Timestamped transcript'} testId="split-source" />
     {!(sheet?.columns ?? []).some((column) => purpose === 'media'
       ? column.type === 'audio' || column.type === 'video' : column.type === 'timestamped_transcript') && (

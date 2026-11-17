@@ -4,6 +4,8 @@ from collections.abc import Iterable
 import json
 from pathlib import Path
 
+from helpers import stored_output_descriptor
+
 from frisket.engine.store import Project
 from frisket.engine.runner.review import review_bundle_count
 from frisket.engine.store.review_stats import mark_run_review_stats_dirty
@@ -29,10 +31,15 @@ def _publish_managed_results(
         row_ids=row_ids,
         total_rows=len(row_ids),
     )
+    if point_heads:
+        from frisket.engine.store.changes import start_change
+
+        project.db.execute("BEGIN IMMEDIATE")
+        start_change(project.db, op_id, writing=True)
     project.db.executemany(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token) VALUES (?,?,?,?,?,?,?)",
+        "claim_token,output_descriptor_json) VALUES (?,?,?,?,?,?,?,?)",
         [
             (
                 run_id,
@@ -42,14 +49,15 @@ def _publish_managed_results(
                 "create",
                 "active",
                 f"claim:{run_id}",
+                stored_output_descriptor(project.db, column_id),
             )
             for column_id in column_ids
         ],
     )
     project.db.executemany(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
-        "VALUES (?,?,?,?,?,?,?)",
+        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,published) "
+        "VALUES (?,?,?,?,?,?,?,?)",
         [
             (
                 run_id,
@@ -58,6 +66,7 @@ def _publish_managed_results(
                 *encode_stored_value("value"),
                 "ok",
                 "publish_value",
+                int(point_heads),
             )
             for row_id in row_ids
             for column_id in column_ids
@@ -189,5 +198,44 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
             (first_run_id, answer_id, answer_id, replacement_run_id),
         ).fetchone()
         assert stale is not None and int(stale[0]) == len(replacement_rows)
+    finally:
+        project.close()
+
+
+def test_history_listing_prepares_only_paged_dirty_saved_runs(tmp_path, monkeypatch):
+    from frisket.engine.runner import review
+
+    project = Project.create(tmp_path / "historical-review.frisket")
+    try:
+        sheet = project.add_sheet("Rows")
+        column = project.add_column(sheet, "answer", ai_generated=True)
+        rows = project.add_rows(sheet, [{}], {})
+        runs = [
+            _publish_managed_results(
+                project,
+                sheet_id=sheet,
+                action_kind="map.extract",
+                columns=[column],
+                row_ids=rows,
+            )
+            for _ in range(4)
+        ]
+        # Simulate retained results whose lazy summaries have never been built.
+        project.db.execute("DELETE FROM run_review_fields")
+        project.db.execute("UPDATE runs SET review_stats_ready=0")
+        project.db.commit()
+        prepared = []
+        original = review.ensure_run_review_stats
+
+        def ensure(db, run_id):
+            prepared.append(run_id)
+            return original(db, run_id)
+
+        monkeypatch.setattr(review, "ensure_run_review_stats", ensure)
+        page = review.review_runs_page(project, limit=1, offset=2)
+        assert page["total"] == 4
+        assert [item["run_id"] for item in page["runs"]] == [runs[1]]
+        assert set(prepared) == {runs[1]}
+        assert page["runs"][0]["total"]["eligible_count"] == 1
     finally:
         project.close()

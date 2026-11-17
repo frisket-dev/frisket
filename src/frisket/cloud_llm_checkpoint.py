@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from copy import deepcopy
 from typing import Any
 
 from frisket.cloud_execution import (
@@ -13,10 +14,12 @@ from frisket.cloud_execution import (
     CloudQuoteAuthority,
     CloudModelCapability,
     cloud_execution_accounting,
+    cloud_llm_estimated_spend_micro,
 )
 from frisket.contracts.http.cloud_connection import (
     CloudExecutionResponse,
     CloudLLMRequest,
+    CloudTokenPrice,
 )
 from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointRef,
@@ -223,6 +226,48 @@ class CloudLLMCheckpointCoordinator:
 
         store = EffectCheckpointStore(self.project.db)
         for ref in self.returned_checkpoints:
+            returned = store.returned_for_replay(
+                family=_FAMILY,
+                group_key=ref.group_key,
+                unit_key=ref.unit_key,
+                action_kind=ref.action_kind,
+                identity=ref.identity,
+            )
+            owner = returned["authorized_attempt_id"]
+            original = (
+                self.project.db.execute(
+                    "SELECT run_id FROM execution_attempts WHERE id=?", (owner,)
+                ).fetchone()
+                if owner is not None
+                else None
+            )
+            original_run = original[0] if original is not None else None
+            calls = self._accounting[ref.checkpoint_id]["model_calls"]
+
+            def verify_accounted(_checkpoint):
+                for call in calls:
+                    fact = self.project.db.execute(
+                        "SELECT attempt_id FROM model_calls WHERE id=?", (call["id"],)
+                    ).fetchone()
+                    if fact is None or fact[0] != owner:
+                        raise RuntimeError(
+                            "returned Cloud call has not been accounted under its original attempt"
+                        )
+                return 0.0
+
+            store.account_returned(
+                ref.checkpoint_id,
+                family=_FAMILY,
+                group_key=ref.group_key,
+                unit_key=ref.unit_key,
+                action_kind=ref.action_kind,
+                identity=ref.identity,
+                payload=returned["payload"],
+                accrue=verify_accounted,
+                run_id=original_run,
+                writer_attempt_id=owner,
+                claimless_direct_effect=True,
+            )
             store.consume_and_retire(
                 ref.checkpoint_id,
                 family=_FAMILY,
@@ -230,10 +275,9 @@ class CloudLLMCheckpointCoordinator:
                 unit_key=ref.unit_key,
                 action_kind=ref.action_kind,
                 identity=ref.identity,
-                run_id=self.run_id,
-                writer_attempt_id=self.writer_attempt_id,
-                claim_token=self.claim_token,
-                claimless_direct_effect=self.claimless_direct_effect,
+                run_id=original_run,
+                writer_attempt_id=owner,
+                claimless_direct_effect=True,
             )
             self._returned.pop(ref.checkpoint_id, None)
             self._accounting.pop(ref.checkpoint_id, None)
@@ -260,6 +304,23 @@ class CloudLLMCheckpointCoordinator:
             prior_cost = accounting["model_calls"][0]["units"].get(
                 "cloud_effective_cost_micro"
             )
+            if accounting.get("cloud_accounting_status") == "pending" and isinstance(
+                response.route.price, CloudTokenPrice
+            ):
+                # Only an explicitly configured agent budget reaches here.
+                # Reserve the saved call's estimate while settlement is pending;
+                # keep it out of the accounting envelope and actual charges.
+                try:
+                    prior_cost = cloud_llm_estimated_spend_micro(
+                        CloudLLMRequest.model_validate(row["payload"]["request"]),
+                        response.route.price,
+                    )
+                except ValueError:
+                    raise CloudExecutionRefused(
+                        "external_effect_reconciliation_required",
+                        "Cloud accounting is pending and the prior call cannot be estimated for the explicit research budget",
+                        retryable=False,
+                    ) from None
             if isinstance(prior_cost, bool) or not isinstance(prior_cost, int):
                 raise CloudExecutionRefused(
                     "external_effect_reconciliation_required",
@@ -302,6 +363,16 @@ class CloudLLMCheckpointCoordinator:
     def _response(row: dict[str, Any]) -> CloudExecutionResponse:
         payload = row.get("payload")
         response = payload.get("response") if isinstance(payload, dict) else None
+        if isinstance(response, dict):
+            response = deepcopy(response)
+            # Saved checkpoints predate the explicit OCR meter. This coordinator
+            # only handles LLM transport, so its OCR usage is token-metered.
+            # Upgrade stored data here; the live wire contract stays strict.
+            for key in ("receipt", "accounting"):
+                block = response.get(key)
+                usage = block.get("usage") if isinstance(block, dict) else None
+                if isinstance(usage, dict) and usage.get("kind") == "ocr":
+                    usage.setdefault("meter", "tokens")
         try:
             return CloudExecutionResponse.model_validate(response)
         except (TypeError, ValueError) as exc:

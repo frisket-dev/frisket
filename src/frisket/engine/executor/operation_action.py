@@ -42,7 +42,9 @@ from frisket.engine.store.op_log import (
     IrreversibleOperation,
     OperationMismatch,
     OperationUnavailable,
+    RestorationUnavailable,
     operation_affected_refs,
+    operation_target,
     step_operation,
 )
 from frisket.engine.store.receipts import ReceiptStore
@@ -89,7 +91,7 @@ def _text_hash(text: str) -> str:
 
 
 class _OperationStep:
-    direction: Literal["undo", "redo"]
+    direction: Literal["undo", "redo", "revert", "restore"]
 
     def __init__(self, project: Any, action: _TypedProjectEnvelope):
         self._project = project
@@ -100,7 +102,9 @@ class _OperationStep:
         self.undo_info: dict[str, Any] | None = None
         self.pending_review_count_unchanged = False
 
-    def _step(self, *, expected_op_id: int | None) -> OperationTransition:
+    def _step(
+        self, *, expected_op_id: int | None = None, op_id: int | None = None
+    ) -> OperationTransition:
         if self._called:
             raise RuntimeError("operation capability may be called only once")
         self._called = True
@@ -109,6 +113,7 @@ class _OperationStep:
                 self._project,
                 self.direction,
                 expected_op_id=expected_op_id,
+                op_id=op_id,
             )
         except OperationUnavailable:
             _refuse(
@@ -142,6 +147,13 @@ class _OperationStep:
                     "op_id": int(target["id"]),
                     "operation_kind": target["kind"],
                 },
+            )
+        except RestorationUnavailable as exc:
+            _refuse(
+                "restoration_conflict",
+                str(exc),
+                action_kind=self._action.kind,
+                details={"direction": self.direction},
             )
         except CorruptOperation as exc:
             details: dict[str, Any] = {"op_id": exc.op_id}
@@ -196,12 +208,20 @@ class _Undoer(_OperationStep):
     def undo(self, *, expected_op_id: int | None) -> OperationTransition:
         return self._step(expected_op_id=expected_op_id)
 
+    def revert(self, *, op_id: int) -> OperationTransition:
+        self.direction = "revert"
+        return self._step(op_id=op_id)
+
 
 class _Redoer(_OperationStep):
     direction = "redo"
 
     def redo(self, *, expected_op_id: int | None) -> OperationTransition:
         return self._step(expected_op_id=expected_op_id)
+
+    def restore(self, *, op_id: int) -> OperationTransition:
+        self.direction = "restore"
+        return self._step(op_id=op_id)
 
 
 _CAPABILITY_IMPL = {OperationUndoer: _Undoer, OperationRedoer: _Redoer}
@@ -361,18 +381,10 @@ def run_typed_operation_action(
     terminal = bound.action.definition.run
     if not supports_typed_operation_action(terminal):
         raise TypeError("typed operation executor requires undo or redo")
-    cursor = project.op_cursor
-    if bound.action.action_id == "operation.undo":
-        target = project.db.execute(
-            "SELECT id FROM ops WHERE id<=? AND status='applied' "
-            "ORDER BY id DESC LIMIT 1",
-            (cursor,),
-        ).fetchone()
-    else:
-        target = project.db.execute(
-            "SELECT id FROM ops WHERE id>? AND status='undone' ORDER BY id LIMIT 1",
-            (cursor,),
-        ).fetchone()
+    direction = bound.action.action_id.removeprefix("operation.")
+    target = operation_target(
+        project, direction, op_id=getattr(bound.params, "op_id", None)
+    )
     expected = getattr(bound.params, "expected_op_id", None)
     if target is not None and (expected is None or int(target["id"]) == expected):
         row = project.db.execute(

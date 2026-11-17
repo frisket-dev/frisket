@@ -1,6 +1,7 @@
 """Explain captures the same prepared request used by cache and transport."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import base64
 import json
@@ -8,6 +9,8 @@ from dataclasses import replace
 
 import pytest
 
+from frisket.execution.purchases import PurchaseAdmission
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter, ResponseCache
 from frisket.ai.llm.cache import request_key
 from frisket.ai.llm.structured import StructuredCompleter, StructuredRequest
@@ -55,12 +58,13 @@ class _Policy:
             ],
         )
 
-    def before_live(self, request: LLMRequest, credential_source: str) -> None:
+    def admit_purchase(self, request):
+        return PurchaseAdmission("metered", "effective-request")
+
+    def fail_purchase(self, request, admission, error):
         pass
 
-    def after_live(
-        self, request: LLMRequest, response: LLMResponse, credential_source: str
-    ) -> None:
+    def record_purchase(self, request, admission, observation):
         pass
 
 
@@ -101,7 +105,7 @@ async def test_trace_records_prepared_request_on_every_completion_path(
     )
     inner._adapters["openai"] = adapter  # noqa: SLF001 - external transport only
     row = RowTrace(row_id=1, trace_id="prepared")
-    router = TracingRouter(inner, row)
+    router = TracingRouter(inner.for_execution(STANDALONE), row)
     request = LLMRequest(
         model="openai/test",
         messages=[{"role": "user", "content": "original"}],
@@ -183,7 +187,9 @@ async def test_structured_repair_captures_each_prepared_request() -> None:
     inner._adapters["openai"] = adapter  # noqa: SLF001 - external transport only
     row = RowTrace(row_id=1, trace_id="repair")
     try:
-        result = await StructuredCompleter(TracingRouter(inner, row)).complete(
+        result = await StructuredCompleter(
+            TracingRouter(inner.for_execution(STANDALONE), row)
+        ).complete(
             StructuredRequest(
                 model="openai/test",
                 messages=[{"role": "user", "content": "original"}],
@@ -203,7 +209,12 @@ async def test_structured_repair_captures_each_prepared_request() -> None:
 
 @pytest.mark.asyncio
 async def test_request_observer_failure_does_not_change_provider_result() -> None:
-    inner = ModelRouter(keys={}, use_env_keys=False, cache_mode="off")
+    inner = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={},
+        use_env_keys=False,
+        cache_mode="off",
+    )
     adapter = _Adapter("live")
     inner._adapters["openai"] = adapter  # noqa: SLF001 - external transport only
 
@@ -211,7 +222,7 @@ async def test_request_observer_failure_does_not_change_provider_result() -> Non
         raise RuntimeError("diagnostics unavailable")
 
     try:
-        response = await inner.complete_transport(
+        response = await inner.for_execution(STANDALONE).complete_transport(
             LLMRequest(model="openai/test", messages=[]), on_request=refuse_capture
         )
     finally:
@@ -233,10 +244,15 @@ async def test_prepared_capture_redaction_failure_drops_call_without_losing_resp
                 raise RuntimeError("selected credential lookup unavailable")
             return super().secret_values_for_model(model)
 
-    inner = FailingRedactionRouter(keys={}, use_env_keys=False, cache_mode="off")
+    inner = FailingRedactionRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={},
+        use_env_keys=False,
+        cache_mode="off",
+    )
     inner._adapters["openai"] = _Adapter("live")  # noqa: SLF001
     row = RowTrace(row_id=1, trace_id="capture-failed")
-    router = TracingRouter(inner, row)
+    router = TracingRouter(inner.for_execution(STANDALONE), row)
     try:
         response = await router.complete_transport(
             LLMRequest(model="openai/test", messages=[])

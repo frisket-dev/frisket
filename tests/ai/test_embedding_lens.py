@@ -1,12 +1,7 @@
-"""saved similarity lens.
-
-A row-anchor embedding_similarity query persisted as a LensSpec and resolved through
-the query-preview spine into a current row-set WITH per-row distance/score (the numeric
-fields the watch path drops). Row anchors make no provider call; a stale anchor fails
-loud.
-"""
+"""Saved similarity Views share selection, ranking and prepared-vector reuse."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 
 from fastapi.testclient import TestClient
@@ -15,10 +10,10 @@ from frisket.ai.embeddings import build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.ai.llm import ModelRouter
 from frisket.server.app import create_app
-from helpers import replace_test_source_cell
 
 _VECTORS = {
     "cat": [1.0, 0.0, 0.0],
+    "feline": [1.0, 0.0, 0.0],
     "kitten": [0.8, 0.6, 0.0],
     "airplane": [0.0, 0.0, 1.0],
 }
@@ -37,7 +32,12 @@ class _Gateway:
 
 
 def _client(tmp_path):
-    return TestClient(create_app(tmp_path / "ws", router=ModelRouter(keys={})))
+    return TestClient(
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        )
+    )
 
 
 def _seed(client):
@@ -92,34 +92,6 @@ def _row(project, sheet, col, text):
     return next(r for r, v in project.get_values(sheet, col).items() if v == text)
 
 
-def _lens_body(index_id, sheet, row_id, name="Similar to cat"):
-    return {
-        "name": name,
-        "query": {
-            "kind": "embedding_similarity",
-            "embedding_index_id": index_id,
-            "sheet_id": sheet,
-            "anchor": {"kind": "row", "row_id": row_id},
-            "limit": 5,
-        },
-    }
-
-
-def _row_cell_lens_body(index_id, sheet, row_id, name="Similar to cat (cell)"):
-    return {
-        "name": name,
-        "query": {
-            "kind": "embedding_similarity",
-            "embedding_index_id": index_id,
-            "sheet_id": sheet,
-            # a row_cell anchor: column-scoped provenance, but the resolver reads
-            # the stored WHOLE-ROW vector (no provider call), so a lens may carry it.
-            "anchor": {"kind": "row_cell", "row_id": row_id, "column": "headline"},
-            "limit": 5,
-        },
-    }
-
-
 def _setup(client):
     pid, project, sheet, col = _seed(client)
     index_id = _create(project, pid, sheet)
@@ -127,290 +99,179 @@ def _setup(client):
     return pid, project, sheet, col, index_id
 
 
-def test_save_row_similarity_lens_persists_and_lists(tmp_path):
-    client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
-    cat = _row(project, sheet, col, "cat")
-
-    resp = client.post(
-        f"/api/projects/{pid}/lenses", json=_lens_body(index_id, sheet, cat)
-    )
-    assert resp.status_code == 200, resp.text
-    lens = resp.json()
-    assert lens["spec"]["query"]["kind"] == "embedding_similarity"
-    assert lens["sheet_id"] == sheet
-
-    listed = client.get(f"/api/projects/{pid}/lenses").json()
-    assert any(line["id"] == lens["id"] for line in listed)
-    # provenance: an ops row records the lens
-    kinds = [r["kind"] for r in project.db.execute("SELECT kind FROM ops").fetchall()]
-    assert "lens" in kinds
-
-
-def test_open_lens_resolves_to_rowset_with_distance_and_score(tmp_path):
-    client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
-    cat = _row(project, sheet, col, "cat")
-    lens_id = client.post(
-        f"/api/projects/{pid}/lenses", json=_lens_body(index_id, sheet, cat)
-    ).json()["id"]
-
-    kitten = _row(project, sheet, col, "kitten")
-    airplane = _row(project, sheet, col, "airplane")
-    resolved = client.get(f"/api/projects/{pid}/lenses/{lens_id}/resolve")
-    assert resolved.status_code == 200, resolved.text
-    body = resolved.json()
-    assert body["row_ids"]  # ranked similar rows
-    assert cat not in body["row_ids"]  # the anchor excludes itself
-    scores = body["scores"]
-    # the numeric fields the watch path drops are preserved
-    for rid in body["row_ids"]:
-        entry = scores[str(rid)]
-        assert "distance" in entry and "score" in entry
-    # kitten (cos 0.8 to cat) ranks ahead of airplane (cos 0)
-    assert body["row_ids"][0] == kitten
-    assert scores[str(kitten)]["distance"] < scores[str(airplane)]["distance"]
-
-
-def test_lens_row_anchor_makes_no_provider_call(tmp_path):
-    # FRISKET_DISABLE_LOCAL_EMBED=1 + an empty router => no embedding backend at all.
-    # A row anchor must still resolve (it reads the stored vector, never embeds).
-    client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
-    cat = _row(project, sheet, col, "cat")
-    lens_id = client.post(
-        f"/api/projects/{pid}/lenses", json=_lens_body(index_id, sheet, cat)
-    ).json()["id"]
-    assert (
-        client.get(f"/api/projects/{pid}/lenses/{lens_id}/resolve").status_code == 200
-    )
-
-
-def test_open_lens_with_stale_anchor_returns_typed_400(tmp_path):
-    client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
-    cat = _row(project, sheet, col, "cat")
-    lens_id = client.post(
-        f"/api/projects/{pid}/lenses", json=_lens_body(index_id, sheet, cat)
-    ).json()["id"]
-
-    # edit the anchor row's source -> its stored vector is now stale
-    replace_test_source_cell(
-        project,
-        row_id=cat,
-        column_id=col,
-        value="panther",
-    )
-    resolved = client.get(f"/api/projects/{pid}/lenses/{lens_id}/resolve")
-    assert resolved.status_code == 400
-    # a stale anchor fails loud (the resolver's typed staleness code)
-    assert resolved.json()["detail"]["code"] in (
-        "embedding_anchor_stale",
-        "embedding_source_stale",
-    )
-
-
-def test_lens_accepts_manual_text_query_anchor_and_stores_canonical_terms(tmp_path):
-    # (CONTRACT CHANGE): a composed/text "Similar to phrase" search is
-    # now SAVEABLE as a lens (it re-embeds its terms on each open, egress-gated like
-    # Show-Similar). The single `text` form canonicalizes to terms:[{text,weight:1.0}]
-    # so the raw string never leaks into the stored spec. (Watches still reject it —
-    # see tests/test_watchlists_embedding_similarity.py::test_manual_text_query_anchor_is_rejected.)
-    client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
-    body = {
-        "name": "rows like 'kitty'",
-        "query": {
+def save_view(client, pid, sheet, index_id, anchor, *, limit=None, search=None):
+    selection = {
+        "scope": {"kind": "sheet", "sheet_id": sheet},
+        "similarity": {
             "kind": "embedding_similarity",
-            "embedding_index_id": index_id,
-            "sheet_id": sheet,
-            "anchor": {"kind": "manual_text_query", "text": "kitty"},
-        },
-    }
-    resp = client.post(f"/api/projects/{pid}/lenses", json=body)
-    assert resp.status_code == 200, resp.text
-    anchor = resp.json()["spec"]["query"]["anchor"]
-    assert anchor["kind"] == "manual_text_query"
-    assert anchor["terms"] == [{"text": "kitty", "weight": 1.0}]
-    assert "text" not in anchor  # canonicalized to terms, no raw string left
-
-
-def test_lens_accepts_composed_weighted_terms(tmp_path):
-    client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
-    body = {
-        "name": "drone -defense",
-        "query": {
-            "kind": "embedding_similarity",
-            "embedding_index_id": index_id,
-            "sheet_id": sheet,
-            "anchor": {
-                "kind": "manual_text_query",
-                "terms": [
-                    {"text": "drone", "weight": 1.0},
-                    {"text": "defense", "weight": -0.4},
-                ],
-            },
-        },
-    }
-    resp = client.post(f"/api/projects/{pid}/lenses", json=body)
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["spec"]["query"]["anchor"]["terms"] == [
-        {"text": "drone", "weight": 1.0},
-        {"text": "defense", "weight": -0.4},
-    ]
-
-
-def test_row_cell_lens_resolves_with_no_provider_call_and_ranks_rows(tmp_path):
-    # a lens whose query anchor.kind is "row_cell" must be
-    # ACCEPTED at save (resolver-safe) and resolve to a ranked row-set making NO
-    # provider call. FRISKET_DISABLE_LOCAL_EMBED=1 + an empty router => no
-    # embedding backend; a row_cell anchor reads the stored whole-row vector, so
-    # it resolves anyway (a manual_text anchor would fail with no embedder).
-    client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
-    cat = _row(project, sheet, col, "cat")
-
-    save = client.post(
-        f"/api/projects/{pid}/lenses",
-        json=_row_cell_lens_body(index_id, sheet, cat),
-    )
-    assert save.status_code == 200, save.text
-    saved_anchor = save.json()["spec"]["query"]["anchor"]
-    assert saved_anchor["kind"] == "row_cell"
-    assert saved_anchor["row_id"] == cat
-    assert saved_anchor["column"] == "headline"  # provenance preserved
-    lens_id = save.json()["id"]
-
-    kitten = _row(project, sheet, col, "kitten")
-    airplane = _row(project, sheet, col, "airplane")
-    resolved = client.get(f"/api/projects/{pid}/lenses/{lens_id}/resolve")
-    assert resolved.status_code == 200, resolved.text  # NO provider call needed
-    body = resolved.json()
-    assert body["row_ids"]
-    assert cat not in body["row_ids"]  # the anchor excludes itself
-    scores = body["scores"]
-    for rid in body["row_ids"]:
-        assert "distance" in scores[str(rid)] and "score" in scores[str(rid)]
-    # kitten (cos 0.8 to cat) ranks ahead of airplane (cos 0) — same ranking the
-    # whole-row anchor gives, confirming row_cell reuses the row vector.
-    assert body["row_ids"][0] == kitten
-    assert scores[str(kitten)]["distance"] < scores[str(airplane)]["distance"]
-
-
-def test_row_cell_anchor_rejected_for_watches(tmp_path):
-    # The widened anchor set is LENS-only: a watch with a row_cell anchor still
-    # fails (it is not column-specific yet, so re-evaluating it as a watch would
-    # be a misleading contract).
-    client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
-    cat = _row(project, sheet, col, "cat")
-    resp = client.post(
-        f"/api/projects/{pid}/watches",
-        json={
-            "name": "bad watch",
             "scope": {"kind": "sheet", "sheet_id": sheet},
-            "query": {
-                "kind": "embedding_similarity",
-                "embedding_index_id": index_id,
-                "anchor": {"kind": "row_cell", "row_id": cat},
-            },
+            "embedding_index_id": index_id,
+            "anchor": anchor,
         },
+        "limit": limit,
+    }
+    if search:
+        selection.update(search={"text": search}, ranking="hybrid")
+    return client.post(
+        f"/api/projects/{pid}/views",
+        json={"name": "Similar stories", "selection": selection},
     )
-    assert resp.status_code == 400, resp.text
 
 
-def test_lens_resolve_after_append_blocks_incomplete(tmp_path):
-    # A saved lens must NOT silently resolve against a partial index (coordinator
-    # review): an appended, unembedded row -> typed 400 embedding_index_incomplete.
+def test_saved_similarity_view_preserves_ranking_and_uses_no_provider(tmp_path):
     client = _client(tmp_path)
-    pid, project, sheet, col, index_id = _setup(client)
+    pid, project, sheet, col, index = _setup(client)
     cat = _row(project, sheet, col, "cat")
-    lens_id = client.post(
-        f"/api/projects/{pid}/lenses", json=_lens_body(index_id, sheet, cat)
-    ).json()["id"]
-    project.add_rows(sheet, [{"headline": "lion"}], {"headline": col})  # unembedded
-    resolved = client.get(f"/api/projects/{pid}/lenses/{lens_id}/resolve")
-    assert resolved.status_code == 400
-    assert resolved.json()["detail"]["code"] == "embedding_index_incomplete"
+    for anchor in (
+        {"kind": "row", "row_id": cat},
+        {"kind": "row_cell", "row_id": cat, "column_id": col},
+    ):
+        saved = save_view(client, pid, sheet, index, anchor)
+        assert saved.status_code == 200, saved.text
+        view = saved.json()
+        assert view["spec"]["selection"]["similarity"]["anchor"]["row_id"] == cat
+        opened = client.get(f"/api/projects/{pid}/views/{view['id']}/resolve")
+        assert opened.status_code == 200, opened.text
+        refs = opened.json()["refs"]
+        assert [ref["row_id"] for ref in refs] == [
+            _row(project, sheet, col, "kitten"),
+            _row(project, sheet, col, "airplane"),
+        ]
+        assert refs[0]["similarity_score"] > refs[1]["similarity_score"]
+    assert all(
+        row["kind"] != "lens" for row in project.db.execute("SELECT kind FROM ops")
+    )
 
 
-class _ManyGateway:
-    """61 rows all near the cat anchor (distinct perturbations) so they all rank as
-    'similar' and the lens can return more than the default-50 candidate cap."""
-
-    def embed(self, texts, *, provider, model, modality):
-        out = []
-        for t in texts:
-            if t == "cat":
-                v = [1.0, 0.0, 0.0]
-            else:
-                i = int(t[3:]) if t.startswith("row") else 0
-                v = [1.0, 0.0001 * (i + 1), 0.0]
-            out.append(v + [0.0] * 381)
-        return build_batch_result(
-            out,
-            provider_id=provider or "fastembed",
-            provider_kind="local_process",
-            actual_model_id=model or "fake",
-            modality=modality,
-        )
-
-
-def test_ui_saved_lens_opens_more_than_50_rows_with_explicit_limit(tmp_path):
-    # A "Similar to row" lens saved by the UI must open more
-    # than 50 ranked rows. The UI now saves an EXPLICIT QuerySpec limit (the web
-    # MAX_LENS_VIEW_ROWS = 500); without it the embedding_similarity default (50)
-    # silently caps the grid at 50 while the grid-open path claims a 500 window.
+def test_stale_and_incomplete_view_is_unavailable_until_refresh(tmp_path):
     client = _client(tmp_path)
-    pid = client.post("/api/projects", json={"name": "many"}).json()["id"]
-    project = client.app.state.workspace.get(pid)
-    sheet = project.add_sheet("s")
-    col = project.add_column(sheet, "headline")
-    project.add_rows(
-        sheet,
-        [{"headline": "cat"}] + [{"headline": f"row{i}"} for i in range(60)],
-        {"headline": col},
-    )
-    index_id = _create(project, pid, sheet)
-    run_action_spec(
-        project,
-        {
-            "action_id": "embedding.index_refresh",
-            "scope": {"kind": "project"},
-            "params": {"index_id": index_id, "mode": "full"},
-            "idempotency_key": "many@1",
-        },
-        project_id=pid,
-        deps=ExecutorDeps(embedding_gateway=_ManyGateway()),
-    )
+    pid, project, sheet, col, index = _setup(client)
     cat = _row(project, sheet, col, "cat")
+    view = save_view(client, pid, sheet, index, {"kind": "row", "row_id": cat}).json()
+    project.add_rows(sheet, [{"headline": "new"}], {"headline": col})
+    response = client.get(f"/api/projects/{pid}/views/{view['id']}/resolve")
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "embedding_index_incomplete"
 
-    def _save(name, query_extra):
-        return client.post(
-            f"/api/projects/{pid}/lenses",
-            json={
-                "name": name,
-                "query": {
-                    "kind": "embedding_similarity",
-                    "embedding_index_id": index_id,
-                    "sheet_id": sheet,
-                    "anchor": {"kind": "row", "row_id": cat},
-                    **query_extra,
-                },
-            },
-        ).json()["id"]
 
-    # UI-equivalent save (explicit limit = the 500 grid window) opens > 50 ranked rows
-    big = _save("Similar to cat (windowed)", {"limit": 500})
-    opened = client.get(f"/api/projects/{pid}/lenses/{big}/resolve?limit=500").json()
-    assert opened["total"] > 50, opened["total"]
-    assert len(opened["row_ids"]) > 50
+def test_manual_query_preparation_is_explicit_then_reused_for_view_and_alert(tmp_path):
+    from frisket.ai.embeddings.similarity import resolve_embedding_similarity
 
-    # the bare default (no QuerySpec limit) is capped at 50 — the silent cap the fix
-    # avoids (and the watch path still relies on this default unchanged)
-    default = _save("Similar to cat (default)", {})
-    capped = client.get(
-        f"/api/projects/{pid}/lenses/{default}/resolve?limit=500"
+    client = _client(tmp_path)
+    pid, project, sheet, col, index = _setup(client)
+    anchor = {"kind": "manual_text_query", "text": "feline"}
+    saved = save_view(client, pid, sheet, index, anchor)
+    assert saved.status_code == 200, saved.text
+    view = saved.json()
+    canonical = view["spec"]["selection"]["similarity"]
+    assert canonical["anchor"]["terms"] == [{"text": "feline", "weight": 1.0}]
+    path = f"/api/projects/{pid}/views/{view['id']}/resolve"
+    assert client.get(path).json()["detail"]["code"] == "selection_needs_preparation"
+
+    class Gateway(_Gateway):
+        calls = 0
+
+        def embed(self, *args, **kwargs):
+            self.calls += 1
+            return super().embed(*args, **kwargs)
+
+    gateway = Gateway()
+    resolve_embedding_similarity(project, canonical, gateway=gateway)
+    assert gateway.calls == 1
+    assert client.get(path).status_code == 200
+    watch = client.post(
+        f"/api/projects/{pid}/watches",
+        json={"name": "Prepared query", "view_id": view["id"]},
     ).json()
-    assert capped["total"] == 50
+    check = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
+    assert check.status_code == 200, check.text
+    assert check.json()["run"]["status"] == "ok"
+    assert gateway.calls == 1
+
+
+def test_hybrid_saved_view_reuses_prepared_vector_and_preserves_union(tmp_path):
+    from frisket.ai.embeddings.similarity import resolve_embedding_similarity
+    from frisket.search_index import drain_index
+
+    client = _client(tmp_path)
+    pid, project, sheet, col, index = _setup(client)
+    drain_index(project)
+    anchor = {"kind": "manual_text_query", "text": "cat"}
+    view = save_view(client, pid, sheet, index, anchor, search="cat").json()
+    resolve_embedding_similarity(
+        project, view["spec"]["selection"]["similarity"], gateway=_Gateway()
+    )
+    opened = client.get(f"/api/projects/{pid}/views/{view['id']}/resolve")
+    assert opened.status_code == 200, opened.text
+    assert (
+        opened.json()["total"] == 3
+    )  # semantic matches are not limited to lexical matches
+    assert opened.json()["refs"][0]["row_id"] == _row(project, sheet, col, "cat")
+
+
+def test_cell_anchor_cannot_claim_multi_column_representation(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet, col, index = _setup(client)
+    # Metadata corruption models an old saved whole-row alias, without buying model work.
+    import json
+
+    project.add_column(sheet, "other")
+    project.db.execute(
+        "UPDATE embedding_indexes SET source_columns_json=? WHERE id=?",
+        (json.dumps(["headline", "other"]), index),
+    )
+    project.db.commit()
+    response = save_view(
+        client,
+        pid,
+        sheet,
+        index,
+        {
+            "kind": "row_cell",
+            "row_id": _row(project, sheet, col, "cat"),
+            "column_id": col,
+        },
+    )
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "embedding_cell_anchor_unavailable"
+
+
+def test_similarity_view_does_not_inherit_preview_fifty_row_cap(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet, col = _seed(client)
+    cat = _row(project, sheet, col, "cat")
+    project.add_rows(
+        sheet, [{"headline": "kitten"} for _ in range(61)], {"headline": col}
+    )
+    index = _create(project, pid, sheet)
+    _refresh(project, pid, index)
+    view = save_view(
+        client, pid, sheet, index, {"kind": "row", "row_id": cat}, limit=60
+    ).json()
+    opened = client.get(
+        f"/api/projects/{pid}/views/{view['id']}/resolve", params={"limit": 100}
+    )
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["total"] == 60
+    assert len(opened.json()["refs"]) == 60
+
+
+def test_saved_weighted_query_preserves_terms_and_reuses_cached_vectors(tmp_path):
+    client = _client(tmp_path)
+    pid, project, sheet, col, index = _setup(client)
+    anchor = {
+        "kind": "manual_text_query",
+        "terms": [{"text": "cat", "weight": 2.0}, {"text": "kitten", "weight": 1.0}],
+    }
+    saved = save_view(client, pid, sheet, index, anchor)
+    assert saved.status_code == 200, saved.text
+    assert (
+        saved.json()["spec"]["selection"]["similarity"]["anchor"]["terms"]
+        == anchor["terms"]
+    )
+    assert (
+        client.get(
+            f"/api/projects/{pid}/views/{saved.json()['id']}/resolve"
+        ).status_code
+        == 200
+    )

@@ -13,6 +13,7 @@ from frisket.engine.runner.review import (
     set_review_run_status,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.cell_reference import evidence_subject_ref
 from frisket.engine.store.evidence import (
     list_cell_evidence,
     list_row_evidence,
@@ -171,6 +172,7 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
                     "row_id": row_id,
                     "column_id": column_id,
                     "run_id": run_id,
+                    "outcome": "completed",
                 }
                 for row_id in row_ids
             ]
@@ -223,8 +225,8 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
                     project, cell_evidence["links"][0]["stable_id"]
                 )
                 assert viewer["link"]["role"] == "primary_support"
-                assert (
-                    viewer["link"]["subject_ref"] == cell_evidence["current_value_ref"]
+                assert viewer["link"]["subject_ref"] == evidence_subject_ref(
+                    cell_evidence["current_value_ref"]
                 )
                 assert (
                     expected_values["Match"][row_ids.index(row_id)]
@@ -245,14 +247,20 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
         assert accepted.status == "completed", accepted.errors
         edited = run_action_spec(
             project,
-            _decision(
-                run_id=run_id,
-                row_id=row_ids[0],
-                column_id=columns["Match"],
-                decision="edit",
-                value="Corrected policy finding",
-                key="find-review@sha256:edit",
-            ),
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [
+                        {
+                            "row_id": row_ids[0],
+                            "column_id": columns["Match"],
+                            "value": "Corrected policy finding",
+                        }
+                    ]
+                },
+                "idempotency_key": "find-review@sha256:edit",
+            },
             project_id="project-find-review",
         )
         assert edited.status == "completed", edited.errors
@@ -268,14 +276,14 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
             project_id="project-find-review",
         )
         assert rejected.status == "completed", rejected.errors
-        assert queue_count(project, run_id=run_id) == 3
+        assert queue_count(project, run_id=run_id) == 4
         [review_run] = review_runs_page(project, run_id=run_id)["runs"]
         assert review_run["total"] == {
             "eligible_count": 6,
-            "reviewed_count": 3,
+            "reviewed_count": 2,
             "accepted_count": 1,
-            "incorrect_count": 2,
-            "unreviewed_count": 3,
+            "incorrect_count": 1,
+            "unreviewed_count": 4,
             "confidence_count": 0,
         }
         assert set_review_run_status(project, run_id=run_id, status="complete") == {
@@ -315,13 +323,13 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
             ],
         )
         assert second_sheet_id != findings_sheet_id
-        # Publishing another findings sheet removes the first run from the
-        # current-run picker, while an already selected run keeps its stable
-        # review task and may still be graded.
+        # Both executions remain independently reviewable after replacement.
         assert review_bundle_page(project, run_id=run_id)["total"] == 2
-        assert queue_count(project, run_id=run_id) == 3
-        [current_run] = review_runs_page(project)["runs"]
-        assert current_run["run_id"] == second.run_id
+        assert queue_count(project, run_id=run_id) == 4
+        assert {row["run_id"] for row in review_runs_page(project)["runs"]} == {
+            run_id,
+            second.run_id,
+        }
         [historical_run] = review_runs_page(project, run_id=run_id)["runs"]
         assert historical_run["run_id"] == run_id
         regraded = run_action_spec(
@@ -338,6 +346,6 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
         assert regraded.status == "completed", regraded.errors
         # Regrading an already resolved field changes the decision, not the
         # number of pending fields.
-        assert queue_count(project, run_id=run_id) == 3
+        assert queue_count(project, run_id=run_id) == 4
     finally:
         project.close()

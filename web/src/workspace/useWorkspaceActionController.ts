@@ -1,21 +1,18 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import {
-  ApiError, MAX_LENS_VIEW_ROWS, freshActionRequestKey,
-  type ActionExecutionRequest, type GridFilterSpec, type LensResolved,
+  freshActionRequestKey,
+  type ActionExecutionRequest,
   type PreviewSampleResult, type RegisteredActionRequest, type SheetMeta,
 } from '../api/open';
 import { backfillWithConfirmation } from '../api/backfillWithConfirmation';
+import { retryWithConfirmation, retryFailedRowsWithConfirmation } from '../api/retryWithConfirmation';
 import { useDetailHandle } from '../bind/useDetailHandle';
-import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
-import { useLensViewHandle } from '../bind/useLensViewHandle';
 import { usePreviewViewHandle } from '../bind/usePreviewViewHandle';
 import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
 import { useSelector } from '../bind/useSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { previewViewForSheet } from '../state/previewViewStore';
-import { applyLensTransition } from '../state/workspaceTransitions';
-import { LENS_REFRESH_NEEDED_CODES } from './gridColumnState';
 
 /** Launches through the existing jobs and preview resources, including their consent and generation fences. */
 export function useWorkspaceActionController({
@@ -29,16 +26,10 @@ export function useWorkspaceActionController({
   const { projectApi } = useWorkspaceStores();
   const projectData = useProjectDataResource();
   const detail = useDetailHandle();
-  const gridView = useGridViewHandle();
   const route = useRouteHandle();
-  const lensViewHandle = useLensViewHandle();
   const previewViewHandle = usePreviewViewHandle();
   const { afterBackfill, requestCostConfirmation } = useJobsHandle();
-  const lensView = useSelector(lensViewHandle.store, (s) => s.lensView);
-  const lensOpenError = useSelector(lensViewHandle.store, (s) => s.lensOpenError);
   const previewView = useSelector(previewViewHandle.store, (s) => s.previewView);
-  const activeLensView =
-    lensView && sheet?.id === lensView.sheetId ? lensView : null;
   const activePreviewView = previewViewForSheet(previewView, sheet?.id);
   const teardownPreviewJob = useCallback(
     () => previewViewHandle.teardownPreviewJob(),
@@ -49,52 +40,6 @@ export function useWorkspaceActionController({
     () => route.registerSheetChangeTeardown(teardownPreviewJob),
     [route, teardownPreviewJob],
   );
-
-  const applyLens = useCallback(
-    async (lensId: number, name: string) => {
-      if (!sheet) return;
-      const resolveGeneration = lensViewHandle.beginLensResolve();
-      lensViewHandle.setLensOpenError(null);
-      let resolved: LensResolved;
-      try {
-        resolved = await projectApi.resolveLens(lensId, { limit: MAX_LENS_VIEW_ROWS });
-      } catch (e) {
-        if (!lensViewHandle.isCurrentLensResolve(resolveGeneration)) return;
-        if (e instanceof ApiError && LENS_REFRESH_NEEDED_CODES.has(e.code ?? '')) {
-          lensViewHandle.setLensView(null);
-          lensViewHandle.setLensOpenError('This view is out of date — refresh the index before opening it.');
-        } else {
-          const message = e instanceof Error ? e.message : String(e);
-          lensViewHandle.setLensView(null);
-          lensViewHandle.setLensOpenError(message);
-          showError(message);
-        }
-        return;
-      }
-      if (!lensViewHandle.isCurrentLensResolve(resolveGeneration)) return;
-
-      applyLensTransition(
-        { gridView, detail, lensView: lensViewHandle },
-        {
-          lensId,
-          name,
-          sheetId: sheet.id,
-          rowIds: resolved.rowIds,
-          scores: resolved.scores,
-          total: resolved.total,
-        },
-      );
-      projectData.invalidate();
-    },
-    [detail, gridView, lensViewHandle, projectApi, projectData, sheet, showError],
-  );
-
-  const exitLensView = useCallback(() => {
-    lensViewHandle.beginLensResolve();
-    lensViewHandle.setLensView(null);
-    lensViewHandle.setLensOpenError(null);
-    projectData.invalidate();
-  }, [lensViewHandle, projectData]);
 
   // Drop stale preview results by generation.
   const openPreviewView = useCallback(
@@ -183,43 +128,41 @@ export function useWorkspaceActionController({
     [runColumnBackfill, sheet],
   );
 
-  const resumeHaltedRun = runColumnBackfill;
+  const resumeHaltedRun = useCallback(async (sheetId: string, sourceRunId: string) => {
+    try {
+      const result = await retryWithConfirmation(projectApi, requestCostConfirmation, sheetId, sourceRunId);
+      if (result?.runId) afterBackfill(result.runId);
+    } catch (error) { showError(error instanceof Error ? error.message : String(error)); }
+  }, [afterBackfill, projectApi, requestCostConfirmation, showError]);
 
   const retryFailedRows = useCallback(
-    async (targetColumnName: string, outcome: string): Promise<void> => {
-      if (!sheet) return;
+    async (sheetId: string, targetColumnId: string, outcome: string): Promise<boolean> => {
+      const sourceSheet = projectData.store.get().sheets.find((candidate) => candidate.id === sheetId);
+      if (!sourceSheet) return false;
+      let accepted = false;
       try {
-        const filter: GridFilterSpec = { [targetColumnName]: { failed: outcome } };
-        const pageSize = 1000;
-        const rowIds: number[] = [];
-        for (let offset = 0; ; ) {
-          const page = await projectApi.getSheetData(sheet.id, offset, pageSize, { filter, columnIds: [], valueMode: 'bounded' });
-          for (const row of page.rows) rowIds.push(Number(row.id));
-          offset += page.rows.length;
-          if (page.rows.length === 0 || offset >= page.total) break;
-        }
-        if (rowIds.length === 0) return;
-        const result = await backfillWithConfirmation(
-          projectApi,
-          requestCostConfirmation,
-          sheet.id,
-          targetColumnName,
-          rowIds,
+        const column = sourceSheet.columns.find((candidate) => candidate.id === targetColumnId);
+        if (!column) return false;
+        return await retryFailedRowsWithConfirmation(
+          projectApi, requestCostConfirmation, sourceSheet.id, column, outcome, (runId) => {
+            accepted = true;
+            afterBackfill(runId);
+          },
         );
-        if (result) afterBackfill(result.runId);
       } catch (e: unknown) {
         showError(e instanceof Error ? e.message : String(e));
+        return accepted;
       }
     },
-    [afterBackfill, projectApi, requestCostConfirmation, sheet, showError],
+    [afterBackfill, projectApi, projectData, requestCostConfirmation, showError],
   );
 
   return useMemo(() => ({
-    activeLensView, lensOpenError, activePreviewView, applyLens, exitLensView, closePreviewView,
+    activePreviewView, closePreviewView,
     runPreviewForReal, runWithPreview, executeRegisteredAction, runActionBackfill, resumeHaltedRun,
     retryFailedRows,
   }), [
-    activeLensView, lensOpenError, activePreviewView, applyLens, exitLensView, closePreviewView,
+    activePreviewView, closePreviewView,
     runPreviewForReal, runWithPreview, executeRegisteredAction, runActionBackfill, resumeHaltedRun,
     retryFailedRows,
   ]);

@@ -12,6 +12,7 @@ Two fixes ship ahead of the 2.4 migration onto the shared store:
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
@@ -157,7 +158,11 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
             asyncio.run(
                 MapRunner(
                     project,
-                    ModelRouter(cache=None, cache_mode="off"),
+                    ModelRouter(
+                        model_call_policy=LOCAL_PURCHASE_POLICY,
+                        cache=None,
+                        cache_mode="off",
+                    ),
                     concurrency=1,
                     authority=open_attempt_authority(project),
                     on_progress=bind_claim,
@@ -191,7 +196,11 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
         resumed = asyncio.run(
             MapRunner(
                 project,
-                ModelRouter(cache=None, cache_mode="off"),
+                ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                ),
                 concurrency=1,
                 authority=open_attempt_authority(project),
                 on_progress=bind_claim,

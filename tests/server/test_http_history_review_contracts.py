@@ -123,6 +123,7 @@ class _ReviewService:
         offset: int,
         limit: int,
         run_id: int | None,
+        copied_op_id: int | None = None,
         include_reviewed: bool,
         field_id: int | None,
         order: str,
@@ -194,6 +195,7 @@ class _ReviewService:
         *,
         sheet_id: int | None,
         run_id: int | None,
+        copied_op_id: int | None = None,
         offset: int,
         limit: int,
     ) -> dict[str, Any]:
@@ -347,6 +349,12 @@ def test_history_contract_preserves_an_ordinary_unlabeled_persisted_operation(
     ).json()["id"]
     project = client.app.state.workspace.get(project_id)
     op_id = project.append_op("edit", {"cell": "unchanged"})
+    # Admission alone is not a Change; this fixture represents a committed edit.
+    from frisket.engine.store.changes import start_change
+
+    with project.db:
+        project.db.execute("UPDATE ops SET label=label WHERE id=?", (op_id,))
+        start_change(project.db, op_id)
 
     response = client.get(f"/api/projects/{project_id}/history")
 
@@ -358,6 +366,7 @@ def test_history_contract_preserves_an_ordinary_unlabeled_persisted_operation(
             "kind": "edit",
             "label": None,
             "status": "applied",
+            "executable": True,
             "barrier": False,
             "at_cursor": True,
             "created_at": response.json()["ops"][0]["created_at"],

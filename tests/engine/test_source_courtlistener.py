@@ -575,7 +575,7 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
         assert document["recap_available"] is True
         assert document["matched_keywords"] == ["injunction"]
         assert "media" not in document
-        assert _table_count(project, "source_items") == 6
+        assert _table_count(project, "keyed_observations") == 6
         assert _table_count(project, "blobs") == 0
         assert "agency" not in _columns(project, sheet_id)
 
@@ -630,9 +630,15 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
             f"courtlistener:recap_document:{DOCKET_ID}:7002",
         ]
         assert rows[-2]["matched_keywords"] == ["settlement"]
-        assert _table_count(project, "source_items") == 8
+        assert _table_count(project, "keyed_observations") == 8
         assert _table_count(project, "blobs") == 0
 
+        stable_rows = dict(
+            project.db.execute(
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+                (source_id,),
+            )
+        )
         third = run_action_spec(
             project,
             _source_poll_action(
@@ -654,17 +660,27 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
         assert third_run["new_rows"] == 0
         assert third_run["skipped_rows"] == 7
         assert third_run["changed_rows"] == 1
-        assert third_run["revisions"] == 1
+        assert third_run["revisions"] == 0
+        after_rows = dict(
+            project.db.execute(
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+                (source_id,),
+            )
+        )
+        assert {key: after_rows[key] for key in stable_rows} == stable_rows
         third_receipt = _receipt(project, third.receipt_id)
         assert third_receipt["warnings"] == [
             "courtlistener_docket existing item changed: "
             "courtlistener:docket_entry:9002"
         ]
         rows = _rows(project, sheet_id)
-        assert rows[-1]["source_item_id"] == "courtlistener:docket_entry:9002"
-        assert rows[-1]["_revises"] == "courtlistener:docket_entry:9002"
-        assert rows[-1]["_revision"] == 1
-        assert rows[-1]["description"] == "Notice of appearance corrected"
+        corrected = next(
+            row
+            for row in rows
+            if row["source_item_id"] == "courtlistener:docket_entry:9002"
+        )
+        assert len(rows) == len(stable_rows)
+        assert corrected["description"] == "Notice of appearance corrected"
     finally:
         project.close()
 

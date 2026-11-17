@@ -1,3 +1,4 @@
+import type { ViewSelection } from '../api/types';
 import '../workbench/ActionDrawer.css';
 import './ActionPanel.css';
 import { Button } from './Button';
@@ -87,8 +88,10 @@ export interface ActionPanelProps {
    *  degrades to no context write, never blocks Diagnose. */
   project?: ProjectInfo | null;
   running: boolean;
+  launchPending?: boolean;
   runningLabel?: string;
   selectedRowIds?: string[];
+  viewSelection?: ViewSelection | null;
   hasExactRowScopeInitializer?: boolean;
   rowScopeInitializerKey?: string;
   /** Active Detail row used by literal temporal drafts when row markers are
@@ -147,8 +150,10 @@ export function ActionPanel({
   sheet,
   project,
   running,
+  launchPending = false,
   runningLabel = 'Running…',
   selectedRowIds = EMPTY_SELECTED_ROW_IDS,
+  viewSelection = null,
   hasExactRowScopeInitializer = false,
   rowScopeInitializerKey = 'all',
   activeRowId,
@@ -604,6 +609,7 @@ export function ActionPanel({
             title={openAction.title}
             sheet={sheet}
             selectedRowIds={generatedSelectedRowIds}
+            viewSelection={openAction.generatedDraft?.scope.kind === 'sheet_rows' ? openAction.generatedDraft.scope.selection ?? null : viewSelection}
             hasExactRowScopeInitializer={hasExactRowScopeInitializer
               || (savedScope?.kind === 'sheet_rows' && savedScope.row_ids !== undefined)}
             initialSourceColumn={openAction.initial?.sourceColumn}
@@ -618,6 +624,7 @@ export function ActionPanel({
             contextLabel={actionCompareContextLabel}
             catalogAccepted={catalogLoaded && currentGeneratedCatalogEntry !== undefined}
             running={running}
+            launchPending={launchPending}
             runningLabel={runningLabel}
             resolveParams={resolveGeneratedActionParams}
             estimateAction={estimateGeneratedAction}

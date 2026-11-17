@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from frisket.features.watchlists.specs import canonical_json, normalize_query_spec
+from frisket.contracts.query_spec import canonical_json, normalize_query_spec
 from frisket.querysets import (
     BUILTIN_FILTER_OPERATORS,
     SheetRowSetError,

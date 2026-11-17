@@ -96,6 +96,7 @@ from .types import (
     SchemaViolation,
     provider_from_model_id,
     has_document_content,
+    wire_responses,
 )
 
 # Mechanism ids — the closed vocabulary (NOT a registry). Re-exported from
@@ -457,10 +458,12 @@ class FrisketRouterModel(Model):
             if self.wire_calls:
                 error.wire_calls = list(self.wire_calls)
             raise
-        self.wire_calls.append(resp)
-        self.attempts += 1
+        returned = wire_responses([resp])
+        self.wire_calls.extend(returned)
+        self.attempts += len(returned)
         if self._on_response is not None:
-            await self._on_response(resp)
+            for response in returned:
+                await self._on_response(response)
         if resp.output_limited:
             raise OutputLimitReached(
                 "model output stopped at the provider output limit",
@@ -973,12 +976,12 @@ class StructuredCompleter:
                 raw_text=last_raw,
                 wire_calls=list(model.wire_calls),
             ) from e
-        except Exception as e:
-            # A corrective request can fail at the transport after an earlier
-            # schema-invalid response already returned (and was billed).  The
-            # transport exception remains the row's real failure, but it must
-            # carry the successful wire history so the outer runner can write
-            # those provider facts instead of erasing them with the repair.
+        except BaseException as e:
+            # A corrective request can fail or be cancelled after an earlier
+            # schema-invalid response already returned (and was billed).
+            # Preserve that history on the original exception, including
+            # cancellation; the outer owner must retain the paid facts without
+            # converting cancellation into an ordinary error or retry.
             prior = list(getattr(e, "wire_calls", []) or [])
             seen = {id(call) for call in model.wire_calls}
             e.wire_calls = [
@@ -1012,6 +1015,7 @@ def _sum_response(
     the completer's FINAL unwrapped value — the receipt's ``.data`` always
     matches ``StructuredResult.data``, never the raw (possibly wrapped) last
     wire call's payload."""
+    wire_calls = wire_responses(wire_calls)
     if not wire_calls:
         return LLMResponse(
             content=None,
@@ -1033,6 +1037,8 @@ def _sum_response(
             response.actual_accounting.cost
             if response.actual_accounting is not None
             else response.cost
+            if response.usage_available
+            else None
         )
         for response in live_calls
     ]
@@ -1084,6 +1090,7 @@ def _sum_response(
         data=data,
         tokens_in=sum(r.tokens_in for r in wire_calls),
         tokens_out=sum(r.tokens_out for r in wire_calls),
+        usage_available=all(r.usage_available for r in wire_calls),
         cost=total_cost,
         model=model_id,
         cached=all(response.cached for response in wire_calls),

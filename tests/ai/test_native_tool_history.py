@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import hashlib
@@ -14,6 +15,7 @@ from frisket.ai.llm.cache import request_key
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.structured import FrisketRouterModel
 from frisket.ai.llm.types import LLMRequest, LLMResponse
+from frisket.execution.dispatch_control import STANDALONE
 
 
 def _openai_tool_call(
@@ -136,7 +138,11 @@ async def _run_tool_rounds(
         requests.append(json.loads(request.content))
         return httpx.Response(200, json=responses[len(requests) - 1])
 
-    router = ModelRouter(keys={provider: "test-key"}, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={provider: "test-key"},
+        max_retries=0,
+    )
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     router._client = client  # noqa: SLF001
     try:
@@ -145,7 +151,10 @@ async def _run_tool_rounds(
             if provider == "gemini"
             else "anthropic/claude-sonnet-4-5"
         )
-        agent = Agent(FrisketRouterModel(router, model_id), output_type=str)
+        agent = Agent(
+            FrisketRouterModel(router.for_execution(STANDALONE), model_id),
+            output_type=str,
+        )
 
         @agent.tool_plain
         def read_rows(sheet_id: int, limit: int = 2) -> dict[str, Any]:
@@ -173,7 +182,11 @@ async def _run_schema_repair(
         requests.append(json.loads(request.content))
         return httpx.Response(200, json=responses[len(requests) - 1])
 
-    router = ModelRouter(keys={provider: "test-key"}, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={provider: "test-key"},
+        max_retries=0,
+    )
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     router._client = client  # noqa: SLF001
     try:
@@ -181,7 +194,7 @@ async def _run_schema_repair(
             "openai/gpt-5" if provider == "openai" else "anthropic/claude-sonnet-4-0"
         )
         agent = Agent(
-            FrisketRouterModel(router, model_id),
+            FrisketRouterModel(router.for_execution(STANDALONE), model_id),
             output_type=_CountAnswer,
             retries=1,
         )
@@ -496,7 +509,9 @@ def test_provider_metadata_is_read_only_by_the_provider_that_minted_it() -> None
         model_name="gemini-3-flash-preview",
         provider_name="gemini",
     )
-    router = ModelRouter(keys={}, use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, use_env_keys=False
+    )
     gemini = FrisketRouterModel(router, "gemini/gemini-3-flash-preview")
     anthropic = FrisketRouterModel(router, "anthropic/claude-sonnet-4-5")
 

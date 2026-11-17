@@ -1,13 +1,11 @@
 """Transactional maintenance of the rebuildable visible-cell projection.
 
-The authoritative layers remain ``cells``, generation-managed result heads,
-and operation-owned ``edits``.  This module contains their one precedence
-query so incremental refresh and full repair cannot drift apart.
+All current writers use one ordered authority. Historical schema migrations
+use the isolated upgrades.project package.
 """
 
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 from collections.abc import Collection, Iterator
@@ -21,6 +19,11 @@ _MAX_SEARCH_ROW_RANGES = 128
 INLINE_TEXT_BYTE_LIMIT = 512
 
 
+def register_current_cell_functions(db: sqlite3.Connection) -> None:
+    """Register descriptor validation on every project-reading connection."""
+    db.create_function("frisket_cell_validity", 3, cell_validity, deterministic=True)
+
+
 def stamp_retrieval_revision(
     db: sqlite3.Connection,
     revision: int,
@@ -30,6 +33,17 @@ def stamp_retrieval_revision(
     """Stamp source changes on exact live cells, or all cells during migration."""
 
     _require_transaction(db)
+
+    columns = (
+        [int(row[0]) for row in db.execute("SELECT id FROM columns")]
+        if pairs is None
+        else sorted({int(column_id) for _, column_id in pairs})
+    )
+    db.executemany(
+        "INSERT INTO cell_authority_revisions(column_id,revision) VALUES (?,?) "
+        "ON CONFLICT(column_id) DO UPDATE SET revision=excluded.revision",
+        [(column_id, revision) for column_id in columns],
+    )
     if pairs is None:
         db.execute("UPDATE current_cells SET retrieval_revision=?", (revision,))
         return
@@ -69,50 +83,6 @@ def inline_scalar_eligibility_sql(
     )
 
 
-def backfill_inline_scalar_values(db: sqlite3.Connection) -> None:
-    """Fill bounded scalar copies after the additive schema migration."""
-
-    _require_transaction(db)
-    eligible = inline_scalar_eligibility_sql(
-        descriptor_alias="descriptor",
-        value_kind_sql="live.value_kind",
-        value_sql="live.value",
-    )
-    db.execute(
-        "WITH eligible AS ("
-        "SELECT live.column_id,live.row_id,live.value_kind,live.value "
-        "FROM current_cell_values live "
-        "JOIN columns descriptor ON descriptor.id=live.column_id "
-        f"WHERE {eligible}"
-        ") UPDATE current_cells AS head SET "
-        "inline_value_kind=eligible.value_kind,inline_value=eligible.value "
-        "FROM eligible WHERE head.column_id=eligible.column_id "
-        "AND head.row_id=eligible.row_id"
-    )
-
-
-def backfill_short_text_values(db: sqlite3.Connection) -> None:
-    """Backfill the 512-byte text cache during its data-preserving migration."""
-
-    from .schema import SCALAR_CURRENT_CELL_VALUES_SQL
-
-    _require_transaction(db)
-    # This pinned scalar view returns raw refs, not expanded document
-    # text. Prepared documents must keep both their locator and citation.
-    raw_values = "SELECT" + SCALAR_CURRENT_CELL_VALUES_SQL.split("SELECT", 1)[1]
-    db.execute(
-        f"WITH raw_values AS ({raw_values}), eligible AS ("
-        "SELECT live.column_id,live.row_id,live.value_kind,live.value "
-        "FROM raw_values live JOIN columns descriptor ON descriptor.id=live.column_id "
-        "WHERE live.value_kind='text' AND descriptor.type IN ('text','category','date') "
-        "AND length(CAST(live.value AS BLOB))<=512) "
-        "UPDATE current_cells AS head SET inline_value_kind=eligible.value_kind,"
-        "inline_value=eligible.value FROM eligible "
-        "WHERE head.column_id=eligible.column_id AND head.row_id=eligible.row_id "
-        "AND head.inline_value_kind IS NULL"
-    )
-
-
 def decoded_cell_validity(column_type: str, value: object) -> str:
     """Classify one decoded value against its column descriptor."""
 
@@ -144,65 +114,6 @@ def cell_validity(
     except (TypeError, ValueError, RecursionError):
         return "invalid"
     return decoded_cell_validity(column_type, value)
-
-
-def legacy_cell_validity(column_type: str, encoded_value: str | None) -> str:
-    """Historical JSON-layout validity used while older migrations advance."""
-
-    if encoded_value is None:
-        return "missing"
-    try:
-        value = json.loads(encoded_value)
-    except (TypeError, ValueError, RecursionError):
-        return "invalid"
-    return decoded_cell_validity(column_type, value)
-
-
-def live_edit_precedence_predicate(*, edit_alias: str, op_alias: str) -> str:
-    """Keep edits except reject-clear overlays superseded by a replacement."""
-
-    return (
-        f"({op_alias}.kind<>'review.decision' "
-        f"OR COALESCE(json_extract({op_alias}.spec,'$.action_id'),'')<>"
-        "'review.decision' "
-        f"OR COALESCE(json_extract({op_alias}.spec,'$.params.decision'),'')<>"
-        "'reject_clear' OR NOT EXISTS ("
-        "SELECT 1 FROM cell_result_heads replacement_head "
-        "JOIN runs replacement_run ON replacement_run.id=replacement_head.run_id "
-        "JOIN ops replacement_op ON replacement_op.id=replacement_run.op_id "
-        f"WHERE replacement_head.column_id={edit_alias}.column_id "
-        f"AND replacement_head.row_id={edit_alias}.row_id "
-        f"AND replacement_run.op_id>{edit_alias}.op_id "
-        "AND replacement_op.status='applied' "
-        "AND COALESCE(json_extract(replacement_op.spec,"
-        "'$.replace_existing'),0)=1))"
-    )
-
-
-def _descriptor_boundary_predicate(*, edit_alias: str) -> str:
-    """Exclude edits at or before the latest applied descriptor replacement."""
-
-    return (
-        "NOT EXISTS ("
-        "SELECT 1 FROM run_output_generations boundary_generation "
-        "JOIN runs boundary_run ON boundary_run.id=boundary_generation.run_id "
-        "JOIN ops boundary_op ON boundary_op.id=boundary_run.op_id "
-        f"WHERE boundary_generation.column_id={edit_alias}.column_id "
-        "AND boundary_generation.state='sealed' "
-        "AND boundary_op.status='applied' "
-        f"AND boundary_op.id>={edit_alias}.op_id "
-        "AND ("
-        "EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract("
-        "boundary_op.undo_info,'$.column_types_after'),'{}')) item "
-        f"WHERE item.key=CAST({edit_alias}.column_id AS TEXT)) "
-        "OR EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract("
-        "boundary_op.undo_info,'$.column_formats_after'),'{}')) item "
-        f"WHERE item.key=CAST({edit_alias}.column_id AS TEXT)) "
-        "OR EXISTS (SELECT 1 FROM json_each(COALESCE(json_extract("
-        "boundary_op.undo_info,'$.column_semantic_types_after'),'{}')) item "
-        f"WHERE item.key=CAST({edit_alias}.column_id AS TEXT))"
-        "))"
-    )
 
 
 def _chunks(values: list[int], size: int) -> Iterator[list[int]]:
@@ -240,294 +151,10 @@ def _require_transaction(db: sqlite3.Connection) -> None:
         )
 
 
-def _target_cte(name: str, values: list[int]) -> str:
-    return f"{name}(id) AS (VALUES {','.join('(?)' for _ in values)})"
-
-
 def _temp_key_table(name: str) -> str:
     if re.fullmatch(r"temp_result_keys_[0-9a-f]+", name) is None:
         raise ValueError("invalid temporary result-key table name")
     return name
-
-
-def _delete_obsolete_heads(
-    db: sqlite3.Connection, *, target_sql: str, params: list[int]
-) -> None:
-    """Delete targeted projection rows whose exact authority no longer exists."""
-
-    edit_precedence = live_edit_precedence_predicate(
-        edit_alias="source", op_alias="source_op"
-    )
-    descriptor_precedence = _descriptor_boundary_predicate(edit_alias="source")
-    db.execute(
-        "DELETE FROM current_cells AS head WHERE "
-        + target_sql
-        + " AND NOT ((head.origin_kind='source_cell' AND EXISTS ("
-        "SELECT 1 FROM cells source "
-        "JOIN rows source_row ON source_row.id=source.row_id "
-        "JOIN columns source_column ON source_column.id=source.column_id "
-        "AND source_column.sheet_id=source_row.sheet_id "
-        "WHERE source.column_id=head.column_id AND source.row_id=head.row_id "
-        "AND source.producer_id IS head.base_producer_id)) OR "
-        "(head.origin_kind='run_result' AND EXISTS ("
-        "SELECT 1 FROM cell_result_heads winner "
-        "JOIN results result ON result.run_id=winner.run_id "
-        "AND result.row_id=winner.row_id AND result.column_id=winner.column_id "
-        "JOIN runs run ON run.id=result.run_id "
-        "JOIN rows result_row ON result_row.id=result.row_id "
-        "JOIN columns result_column ON result_column.id=result.column_id "
-        "AND result_column.sheet_id=result_row.sheet_id "
-        "WHERE winner.column_id=head.column_id AND winner.row_id=head.row_id "
-        "AND winner.run_id=head.origin_run_id)) OR "
-        "(head.origin_kind='manual_edit' AND EXISTS ("
-        "SELECT 1 FROM edits source "
-        "JOIN ops source_op ON source_op.id=source.op_id "
-        "JOIN rows edit_row ON edit_row.id=source.row_id "
-        "JOIN columns edit_column ON edit_column.id=source.column_id "
-        "AND edit_column.sheet_id=edit_row.sheet_id "
-        "WHERE source.column_id=head.column_id AND source.row_id=head.row_id "
-        "AND source.op_id=head.origin_op_id AND source_op.status='applied' AND "
-        + descriptor_precedence
-        + " AND "
-        + edit_precedence
-        + ")))",
-        params,
-    )
-
-
-def _insert_candidates(
-    db: sqlite3.Connection,
-    *,
-    ctes: list[str],
-    params: list[int],
-    source_from: str,
-    result_from: str,
-    edit_from: str,
-    retrieval_revision: int | None,
-    source_values_changed: bool = False,
-) -> int:
-    typed_authorities = any(
-        str(row[1]) == "value_kind" for row in db.execute("PRAGMA table_info(cells)")
-    )
-    projection_columns = {
-        str(row[1]) for row in db.execute("PRAGMA table_info(current_cells)")
-    }
-    has_validity = "validity" in projection_columns
-    has_inline_scalars = {
-        "inline_value_kind",
-        "inline_value",
-    } <= projection_columns
-    has_retrieval_revision = "retrieval_revision" in projection_columns
-    if has_retrieval_revision and (
-        retrieval_revision is None or retrieval_revision <= 0
-    ):
-        raise RuntimeError("retrieval-aware current-cell writes require a revision")
-    if has_validity:
-        if typed_authorities:
-            db.create_function(
-                "frisket_cell_validity", 3, cell_validity, deterministic=True
-            )
-        else:
-            db.create_function(
-                "frisket_cell_validity", 2, legacy_cell_validity, deterministic=True
-            )
-    validity_column = ",validity" if has_validity else ""
-    validity_value = (
-        (
-            ",frisket_cell_validity(descriptor.type,value_kind,value)"
-            if typed_authorities
-            else ",frisket_cell_validity(descriptor.type,value)"
-        )
-        if has_validity
-        else ""
-    )
-    source_payload = (
-        "source.value_kind,source.value," if typed_authorities else "source.value,"
-    )
-    result_payload = (
-        "CASE result.publication_effect "
-        "WHEN 'publish_value' THEN result.value_kind "
-        "WHEN 'publish_null' THEN 'null' END,"
-        "CASE WHEN result.publication_effect='publish_value' "
-        "THEN result.value ELSE NULL END,"
-    )
-    if not typed_authorities:
-        result_payload = (
-            "CASE WHEN result.publication_effect='publish_value' "
-            "THEN result.value ELSE NULL END,",
-        )
-    result_payload_sql = "".join(result_payload)
-    edit_payload = (
-        "source.value_kind,source.value," if typed_authorities else "source.value,"
-    )
-    insert_payload_column = "" if typed_authorities else "value,"
-    select_payload_column = "" if typed_authorities else "value,"
-    inline_columns = ",inline_value_kind,inline_value" if has_inline_scalars else ""
-    inline_values = ""
-    if has_inline_scalars:
-        eligible = inline_scalar_eligibility_sql(
-            descriptor_alias="descriptor",
-            value_kind_sql="ranked.value_kind",
-            value_sql="ranked.value",
-        )
-        inline_values = (
-            f",CASE WHEN {eligible} THEN ranked.value_kind END"
-            f",CASE WHEN {eligible} THEN ranked.value END"
-        )
-    retrieval_column = ",retrieval_revision" if has_retrieval_revision else ""
-    retrieval_value = f",{int(retrieval_revision)}" if has_retrieval_revision else ""
-    update_columns = [
-        "origin_kind",
-        "origin_op_id",
-        "origin_run_id",
-        "base_producer_id",
-    ]
-    if not typed_authorities:
-        update_columns.insert(0, "value")
-    if has_validity:
-        update_columns.append("validity")
-    if has_inline_scalars:
-        update_columns.extend(("inline_value_kind", "inline_value"))
-    update_values = ",".join(f"{column}=excluded.{column}" for column in update_columns)
-    if has_retrieval_revision:
-        same_head = (
-            "current_cells.origin_kind=excluded.origin_kind "
-            "AND current_cells.origin_op_id IS excluded.origin_op_id "
-            "AND current_cells.origin_run_id IS excluded.origin_run_id "
-            "AND current_cells.base_producer_id IS excluded.base_producer_id"
-        )
-        if has_validity:
-            same_head += " AND current_cells.validity IS excluded.validity"
-        if has_inline_scalars:
-            same_head += (
-                " AND current_cells.inline_value_kind IS excluded.inline_value_kind"
-                " AND current_cells.inline_value IS excluded.inline_value"
-            )
-        if source_values_changed:
-            same_head += " AND excluded.origin_kind<>'source_cell'"
-        update_values += (
-            ",retrieval_revision=CASE WHEN "
-            + same_head
-            + " THEN current_cells.retrieval_revision "
-            "ELSE excluded.retrieval_revision END"
-        )
-    edit_precedence = live_edit_precedence_predicate(
-        edit_alias="source", op_alias="source_op"
-    )
-    descriptor_precedence = _descriptor_boundary_predicate(edit_alias="source")
-    # SQLite's ``CROSS JOIN ... ON`` is an intentional join-order fence, not
-    # a Cartesian product: it keeps the bounded target relation outermost
-    # while the ON clauses perform indexed lookups into the large tables.
-    db.execute(
-        "WITH " + ",".join(ctes) + ", candidates AS ("
-        f"SELECT source.column_id,source.row_id,{source_payload}"
-        "'source_cell' AS origin_kind,NULL AS origin_op_id,"
-        "NULL AS origin_run_id,source.producer_id AS base_producer_id,"
-        "0 AS layer_precedence,0 AS origin_precedence "
-        + source_from
-        + " CROSS JOIN rows source_row ON source_row.id=source.row_id "
-        "CROSS JOIN columns source_column ON source_column.id=source.column_id "
-        "AND source_column.sheet_id=source_row.sheet_id "
-        "UNION ALL "
-        f"SELECT result.column_id,result.row_id,{result_payload_sql}"
-        "'run_result',run.op_id,result.run_id,NULL,1,result.run_id "
-        + result_from
-        + " CROSS JOIN results result ON result.run_id=head.run_id "
-        "AND result.row_id=head.row_id AND result.column_id=head.column_id "
-        "CROSS JOIN runs run ON run.id=result.run_id "
-        "CROSS JOIN rows result_row ON result_row.id=result.row_id "
-        "CROSS JOIN columns result_column ON result_column.id=result.column_id "
-        "AND result_column.sheet_id=result_row.sheet_id "
-        "UNION ALL "
-        f"SELECT source.column_id,source.row_id,{edit_payload}"
-        "'manual_edit',source.op_id,NULL,NULL,2,source.op_id "
-        + edit_from
-        + " CROSS JOIN ops source_op ON source_op.id=source.op_id "
-        "CROSS JOIN rows edit_row ON edit_row.id=source.row_id "
-        "CROSS JOIN columns edit_column ON edit_column.id=source.column_id "
-        "AND edit_column.sheet_id=edit_row.sheet_id "
-        "WHERE source_op.status='applied' AND "
-        + descriptor_precedence
-        + " AND "
-        + edit_precedence
-        + "), ranked AS ("
-        "SELECT *,ROW_NUMBER() OVER ("
-        "PARTITION BY column_id,row_id "
-        "ORDER BY layer_precedence DESC,origin_precedence DESC"
-        ") AS rank FROM candidates) "
-        "INSERT INTO current_cells "
-        f"(column_id,row_id,{insert_payload_column}"
-        "origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id" + validity_column + inline_columns + retrieval_column + ") "
-        f"SELECT column_id,row_id,{select_payload_column}"
-        "origin_kind,origin_op_id,origin_run_id,"
-        "base_producer_id" + validity_value + inline_values + retrieval_value + " "
-        "FROM ranked CROSS JOIN columns descriptor "
-        "ON descriptor.id=ranked.column_id "
-        "WHERE rank=1 ON CONFLICT(column_id,row_id) DO UPDATE SET " + update_values,
-        params,
-    )
-    return int(db.execute("SELECT changes()").fetchone()[0])
-
-
-def _insert_region(
-    db: sqlite3.Connection,
-    *,
-    column_ids: list[int],
-    row_ids: list[int] | None,
-    retrieval_revision: int | None,
-    source_values_changed: bool = False,
-) -> int:
-    ctes = [_target_cte("target_columns", column_ids)]
-    params: list[int] = list(column_ids)
-    if row_ids is not None:
-        ctes.append(_target_cte("target_rows", row_ids))
-        params.extend(row_ids)
-        # CROSS JOIN fixes the small target sets as the outer loops. Without
-        # it SQLite can drive from the large value tables, turning a 100-cell
-        # refresh into a full-column scan despite the exact composite keys.
-        source_from = (
-            "FROM target_rows target_row "
-            "CROSS JOIN target_columns target_column "
-            "JOIN cells source ON source.row_id=target_row.id "
-            "AND source.column_id=target_column.id "
-        )
-        result_from = (
-            "FROM target_columns target_column "
-            "CROSS JOIN target_rows target_row "
-            "CROSS JOIN cell_result_heads head ON head.column_id=target_column.id "
-            "AND head.row_id=target_row.id "
-        )
-        edit_from = (
-            "FROM target_columns target_column "
-            "CROSS JOIN target_rows target_row "
-            "CROSS JOIN edits source ON source.column_id=target_column.id "
-            "AND source.row_id=target_row.id "
-        )
-    else:
-        source_from = (
-            "FROM target_columns target_column "
-            "JOIN cells source ON source.column_id=target_column.id "
-        )
-        result_from = (
-            "FROM target_columns target_column "
-            "JOIN cell_result_heads head ON head.column_id=target_column.id "
-        )
-        edit_from = (
-            "FROM target_columns target_column "
-            "JOIN edits source ON source.column_id=target_column.id "
-        )
-
-    return _insert_candidates(
-        db,
-        ctes=ctes,
-        params=params,
-        source_from=source_from,
-        result_from=result_from,
-        edit_from=edit_from,
-        retrieval_revision=retrieval_revision,
-        source_values_changed=source_values_changed,
-    )
 
 
 def _enqueue_column_work(
@@ -568,117 +195,39 @@ def _enqueue_region(
     return latest_revision(db)
 
 
-def _replace_region(
-    db: sqlite3.Connection,
-    *,
-    column_ids: list[int],
-    row_ids: list[int] | None,
-    retrieval_revision: int,
-    source_values_changed: bool,
-) -> int:
-    total = 0
-    if row_ids is None:
-        for column_chunk in _chunks(column_ids, _SQLITE_BIND_LIMIT):
-            total += _insert_region(
-                db,
-                column_ids=column_chunk,
-                row_ids=None,
-                retrieval_revision=retrieval_revision,
-                source_values_changed=source_values_changed,
-            )
-            placeholders = ",".join("?" for _ in column_chunk)
-            _delete_obsolete_heads(
-                db,
-                target_sql=f"head.column_id IN ({placeholders})",
-                params=list(column_chunk),
-            )
-        return total
-
-    column_chunk_size = min(len(column_ids), _SQLITE_BIND_LIMIT // 2)
-    for column_chunk in _chunks(column_ids, column_chunk_size):
-        row_chunk_size = _SQLITE_BIND_LIMIT - len(column_chunk)
-        for row_chunk in _chunks(row_ids, row_chunk_size):
-            total += _insert_region(
-                db,
-                column_ids=column_chunk,
-                row_ids=row_chunk,
-                retrieval_revision=retrieval_revision,
-                source_values_changed=source_values_changed,
-            )
-            column_marks = ",".join("?" for _ in column_chunk)
-            row_marks = ",".join("?" for _ in row_chunk)
-            _delete_obsolete_heads(
-                db,
-                target_sql=(
-                    f"head.column_id IN ({column_marks}) "
-                    f"AND head.row_id IN ({row_marks})"
-                ),
-                params=[*column_chunk, *row_chunk],
-            )
-    return total
-
-
 def refresh_current_cells_from_key_table(db: sqlite3.Connection, key_table: str) -> int:
-    """Refresh exact keys from a caller-owned temporary SQL relation."""
+    """Refresh exact keys from a caller-owned temporary SQL relation.
+
+    Dirty scopes retain the key table's row ranges, and one shared eager budget
+    bounds projection work for the entire output family.
+    """
 
     _require_transaction(db)
     table = _temp_key_table(key_table)
-    columns = db.execute(
-        f"SELECT DISTINCT target.column_id,column_meta.sheet_id FROM {table} target "
-        "JOIN columns column_meta ON column_meta.id=target.column_id"
-    ).fetchall()
-    for column in columns:
-        column_id = int(column["column_id"])
-        ranges = db.execute(
-            "WITH ordered AS ("
-            "SELECT row_id,row_id-ROW_NUMBER() OVER (ORDER BY row_id) AS island "
-            f"FROM {table} WHERE column_id=?), grouped AS ("
-            "SELECT MIN(row_id) AS row_start,MAX(row_id) AS row_end "
-            "FROM ordered GROUP BY island ORDER BY row_start LIMIT ?) "
-            "SELECT row_start,row_end FROM grouped",
-            (column_id, _MAX_SEARCH_ROW_RANGES + 1),
-        ).fetchall()
-        _enqueue_column_work(
+    from .cell_projection import SMALL_WRITE_LIMIT, refresh_ordered_cells
+
+    total = 0
+    remaining = SMALL_WRITE_LIMIT
+    for column in db.execute(f"SELECT DISTINCT column_id FROM {table}").fetchall():
+        column_id = int(column[0])
+        rows = [
+            int(row[0])
+            for row in db.execute(
+                f"SELECT row_id FROM {table} WHERE column_id=? ORDER BY row_id",
+                (column_id,),
+            )
+        ]
+        if not rows:
+            continue
+        revision = _enqueue_region(db, column_ids=[column_id], row_ids=rows)
+        total += refresh_ordered_cells(
             db,
-            sheet_id=int(column["sheet_id"]),
-            column_id=column_id,
-            ranges=(
-                None
-                if len(ranges) > _MAX_SEARCH_ROW_RANGES
-                else [(int(row["row_start"]), int(row["row_end"])) for row in ranges]
-            ),
+            [column_id],
+            rows,
+            retrieval_revision=revision,
+            eager_limit=remaining,
         )
-    retrieval_revision = latest_revision(db)
-    total = _insert_candidates(
-        db,
-        ctes=[
-            f"target_cells(row_id,column_id) AS (SELECT row_id,column_id FROM {table})"
-        ],
-        params=[],
-        source_from=(
-            "FROM target_cells target "
-            "CROSS JOIN cells source ON source.row_id=target.row_id "
-            "AND source.column_id=target.column_id "
-        ),
-        result_from=(
-            "FROM target_cells target "
-            "CROSS JOIN cell_result_heads head ON head.row_id=target.row_id "
-            "AND head.column_id=target.column_id "
-        ),
-        edit_from=(
-            "FROM target_cells target "
-            "CROSS JOIN edits source ON source.row_id=target.row_id "
-            "AND source.column_id=target.column_id "
-        ),
-        retrieval_revision=retrieval_revision,
-    )
-    _delete_obsolete_heads(
-        db,
-        target_sql=(
-            f"(head.column_id,head.row_id) IN (SELECT column_id,row_id FROM {table})"
-        ),
-        params=[],
-    )
+        remaining = max(0, remaining - len(rows))
     return total
 
 
@@ -687,14 +236,14 @@ def refresh_current_cells(
     *,
     column_ids: Collection[int],
     row_ids: Collection[int] | None = None,
-    source_values_changed: bool = False,
+    eager_limit: int = 512,
 ) -> int:
     """Refresh one column/row region inside the caller's transaction.
 
     ``row_ids=None`` means every row in the selected columns. Empty explicit
-    collections are no-ops. ``source_values_changed`` is the narrow signal for
-    a canonical writer that replaced base-cell values under the same producer;
-    it forces revisions only where the final visible head is that source cell.
+    collections are no-ops. This is the mutation notification boundary: it
+    advances authority revisions even when the winning pointer is unchanged.
+    Cache-only maintenance uses ``cell_projection.repair_current_cells``.
     The return value is the number of projected rows now present in the region.
     """
 
@@ -707,13 +256,14 @@ def refresh_current_cells(
         return 0
 
     retrieval_revision = _enqueue_region(db, column_ids=columns, row_ids=rows)
+    from .cell_projection import refresh_ordered_cells
 
-    return _replace_region(
+    return refresh_ordered_cells(
         db,
-        column_ids=columns,
-        row_ids=rows,
+        columns,
+        rows,
         retrieval_revision=retrieval_revision,
-        source_values_changed=source_values_changed,
+        eager_limit=eager_limit,
     )
 
 
@@ -738,9 +288,52 @@ def refresh_current_cell_pairs(
         for row_ids, column_ids in sorted(columns_by_rows.items())
     ]
     total = sum(
-        refresh_current_cells(db, column_ids=column_ids, row_ids=row_ids)
+        refresh_current_cells(
+            db,
+            column_ids=column_ids,
+            row_ids=row_ids,
+            eager_limit=512 if len(pairs) <= 512 else 0,
+        )
         for row_ids, column_ids in groups
     )
+    return total
+
+
+def initialize_current_cell_pairs(
+    db: sqlite3.Connection, pairs: Collection[tuple[int, int]]
+) -> int:
+    """Project newly initialized base payloads in exact, set-wise row ranges.
+
+    Initial imports already pay for writing these cells. Deferring all their
+    heads makes the first ordinary read rebuild the entire import. Keep that
+    linear work in the writer instead, using the canonical winner definition
+    (an absent base cell can still have an edit or generated contribution).
+    Historical replacement and Undo continue to use bounded dirty scopes.
+    """
+    _require_transaction(db)
+    from .cell_projection import project_region
+
+    rows_by_column: dict[int, set[int]] = {}
+    for row_id, column_id in pairs:
+        rows_by_column.setdefault(int(column_id), set()).add(int(row_id))
+    total = 0
+    for column_id, row_ids in rows_by_column.items():
+        rows = sorted(row_ids)
+        revision = _enqueue_region(db, column_ids=[column_id], row_ids=rows)
+        db.execute(
+            "INSERT INTO cell_authority_revisions(column_id,revision) VALUES (?,?) "
+            "ON CONFLICT(column_id) DO UPDATE SET revision=excluded.revision",
+            (column_id, revision),
+        )
+        # Never turn sparse coordinates into a broad history scan. Bound each
+        # statement to a small consecutive window, even for a large API import.
+        start = end = rows[0]
+        for row_id in rows[1:]:
+            if row_id != end + 1 or row_id - start >= 512:
+                total += project_region(db, column_id, start, end)
+                start = row_id
+            end = row_id
+        total += project_region(db, column_id, start, end)
     return total
 
 
@@ -754,22 +347,7 @@ def rebuild_current_cells(
     """
 
     _require_transaction(db)
-    retrieval_revision = None
-    if invalidate_search:
-        retrieval_revision = enqueue_dirty_scope(db)
-    elif any(
-        str(row[1]) == "retrieval_revision"
-        for row in db.execute("PRAGMA table_info(current_cells)")
-    ):
-        raise RuntimeError("retrieval-aware rebuilds must invalidate search")
-    total = 0
-    columns = db.execute("SELECT id FROM columns ORDER BY id")
-    while batch := columns.fetchmany(_SQLITE_BIND_LIMIT):
-        total += _insert_region(
-            db,
-            column_ids=[int(row[0]) for row in batch],
-            row_ids=None,
-            retrieval_revision=retrieval_revision,
-        )
-    _delete_obsolete_heads(db, target_sql="1", params=[])
-    return total
+
+    return refresh_current_cells(
+        db, column_ids=[int(row[0]) for row in db.execute("SELECT id FROM columns")]
+    )

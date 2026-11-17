@@ -7,7 +7,7 @@ handling for atomic-output-column recipes)."""
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,6 +46,8 @@ class PreparedRun:
     row_count: int
     resolution_bound: bool = False
     run_scope_run_id: int | None = None
+    # A derived row may consume a bounded group instead of cells on itself.
+    read_inputs: Callable[[int], dict[str, Any]] | None = None
 
 
 def _created_output_column_ids(project: Project, op_id: int) -> frozenset[int]:
@@ -716,9 +718,24 @@ def prepare_validated(
                 run_store.increment_total_rows(run_id, len(row_ids))
     else:
         persisted_spec = persistable_spec(spec)
+        from frisket.engine.store.source_dependencies import (
+            SOURCE_BINDING,
+            execution_source_binding,
+        )
+
+        bind_sources = getattr(recipe, "execution_source_binding", None)
+        operation_spec = dict(persisted_spec)
+        operation_spec[SOURCE_BINDING] = (
+            bind_sources(spec)
+            if callable(bind_sources)
+            else execution_source_binding(
+                sheet_ids=[sheet_id],
+                column_ids=[col_map[name] for name in recipe.source_columns(spec)],
+            )
+        )
         op_id = project.append_op(
             "map",
-            persisted_spec,
+            operation_spec,
             label=f"{recipe.name}: {', '.join(out_cols)}",
             commit=not defer_commits,
         )
@@ -742,6 +759,7 @@ def prepare_validated(
             model=recipe.run_provenance_model(spec),
             prompt_hash=prompt_hash_of(recipe, persisted_spec),
             params=persisted_spec,
+            execution_root_run_id=spec.get("execution_root_run_id"),
             total_rows=len(row_ids),
             cost_estimate=est["cost"] if est is not None else None,
             row_ids=row_ids,

@@ -15,7 +15,13 @@ import pytest
 from frisket.ops.integrations import opus_mt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 from frisket.ops.base import OpContext
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.integrations.translation_engine import TranslationEngine
+
+
+def _local_context(**kwargs):
+    extras = kwargs.pop("extras", {})
+    return OpContext(extras={"standalone_dispatch": STANDALONE, **extras}, **kwargs)
 
 
 def _hold_file_lock(lock_path: str, acquired, release) -> None:
@@ -119,7 +125,7 @@ async def test_recipe_opus_mt_translates_in_process_and_records_provenance(
 
     monkeypatch.setattr(opus_mt, "translate_texts", fake_translate)
 
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     out = await TranslationEngine().execute(
         {"statement": "Hello World."},
         {
@@ -144,7 +150,7 @@ async def test_recipe_opus_mt_translates_in_process_and_records_provenance(
 @pytest.mark.asyncio
 async def test_recipe_opus_mt_empty_source_rejected(monkeypatch):
     monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     with pytest.raises(TranslateEngineError) as excinfo:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -168,7 +174,7 @@ async def test_recipe_opus_mt_uninstalled_pair_does_not_silently_fall_back(
 
     monkeypatch.setattr(opus_mt, "translate_texts", not_installed)
     monkeypatch.setattr(opus_mt, "ensure_pair_installed", cannot_provision)
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     with pytest.raises(TranslateEngineError) as excinfo:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -185,7 +191,7 @@ async def test_recipe_opus_mt_uninstalled_pair_does_not_silently_fall_back(
 @pytest.mark.asyncio
 async def test_recipe_opus_mt_runtime_absent_reports_remediation(monkeypatch):
     monkeypatch.setattr(opus_mt, "runtime_available", lambda: False)
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     with pytest.raises(TranslateEngineError) as excinfo:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -393,7 +399,7 @@ async def test_recipe_opus_mt_provisions_on_miss_then_translates(monkeypatch):
     monkeypatch.setattr(opus_mt, "translate_texts", fake_translate)
     monkeypatch.setattr(opus_mt, "ensure_pair_installed", fake_ensure)
 
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     out = await TranslationEngine().execute(
         {"statement": "Hello"},
         {
@@ -755,7 +761,7 @@ async def test_recipe_maps_checksum_mismatch_to_pair_tampered(monkeypatch):
     monkeypatch.setattr(opus_mt, "translate_texts", miss)
     monkeypatch.setattr(opus_mt, "ensure_pair_installed", bad_checksum)
 
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     with pytest.raises(TranslateEngineError) as exc:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -788,7 +794,7 @@ async def test_recipe_maps_transport_failure_to_pair_unreachable(monkeypatch):
     monkeypatch.setattr(opus_mt, "translate_texts", miss)
     monkeypatch.setattr(opus_mt, "ensure_pair_installed", unreachable)
 
-    ctx = OpContext(project=None, http=None)
+    ctx = _local_context(project=None, http=None)
     with pytest.raises(TranslateEngineError) as exc:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -823,7 +829,7 @@ async def test_recipe_provision_cancel_is_a_retryable_cancelled_row(monkeypatch)
     monkeypatch.setattr(opus_mt, "translate_texts", miss)
     monkeypatch.setattr(opus_mt, "ensure_pair_installed", cancelled)
 
-    ctx = OpContext(project=None, http=None, extras={"cancelled": lambda: True})
+    ctx = _local_context(project=None, http=None, extras={"cancelled": lambda: True})
     with pytest.raises(TranslateEngineError) as exc:
         await TranslationEngine().execute(
             {"statement": "Hello"},
@@ -902,7 +908,7 @@ async def test_artifact_evidence_carries_the_executed_pinned_tuple(monkeypatch):
     rs = {"engine": "opus_mt", "target_language": "Spanish", "language": ["en"]}
     monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
     monkeypatch.setattr(opus_mt, "translate_texts", lambda *args: ["Hola"])
-    ctx = OpContext(project=None)
+    ctx = _local_context(project=None)
     await TranslationEngine().execute({"text": "Hello"}, rs, ctx)
     [ev] = ctx.extras["artifact_provenance"]
     assert ev["ref"] == "opus-mt:en-es"
@@ -917,7 +923,7 @@ async def test_artifact_evidence_is_absent_without_execution_or_pin(monkeypatch)
     monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
     monkeypatch.setattr(opus_mt, "translate_texts", lambda *args: ["Hallo"])
     for text, target in (("", "Spanish"), ("Hello", "German")):
-        ctx = OpContext(project=None)
+        ctx = _local_context(project=None)
         await TranslationEngine().execute(
             {"text": text},
             {"engine": "opus_mt", "target_language": target, "language": ["en"]},
@@ -949,7 +955,7 @@ async def test_admitted_translation_carries_artifact_evidence_by_value(monkeypat
     )
     monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
     monkeypatch.setattr(opus_mt, "translate_texts", lambda *args: ["Hola"])
-    ctx = OpContext(project=None)
+    ctx = _local_context(project=None)
     owner = AdmittedTranslator(ctx, engine="opus_mt", options=options.model_dump())
     row = Row({"text": "Hello"})
     bound = owner.bind_row(row, sheet_id=1, row_id=1, sources={}, ctx=ctx)

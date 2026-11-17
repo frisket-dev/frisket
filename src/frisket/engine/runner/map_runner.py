@@ -87,7 +87,10 @@ from frisket.engine.runner.validation import (
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
+from frisket.engine.store.output_claims import (
+    ClaimLeaseRenewalFailed,
+    OutputColumnClaimStore,
+)
 from frisket.engine.store.result_generations import (
     GenerationSealedError,
     ResultGenerationStore,
@@ -236,6 +239,12 @@ def _row_effect_identity(
             "values": values,
             "cloud_payer": dict(cloud_payer),
         }
+    # Equal decoded values are not the same executable input when a source
+    # becomes pending, invalid, or failed. Never complete an uncertain paid
+    # checkpoint as a zero-cost availability short-circuit.
+    identity_payload["unavailable_inputs"] = list(
+        getattr(values, "unavailable_inputs", ())
+    )
     encoded = json.dumps(
         identity_payload,
         sort_keys=True,
@@ -749,6 +758,8 @@ class MapRunner:
         precomputed_output_fields: list[dict[str, Any]] | None = None,
         defer_attempt_close: bool = False,
         defer_generation_seal: bool = False,
+        dispatch_claimed: bool = False,
+        defer_output_publication: bool | None = None,
     ) -> RunProgress:
         if admitted_attempt is not None and admitted_attempt_id is not None:
             raise ValueError(
@@ -773,10 +784,9 @@ class MapRunner:
         admission: RunResumeAdmission | None = None
         if resume_run_id is not None and prepared.row_count > 0:
             # A resume begins only after validation/cost gates have passed. A
-            # direct backfill may intentionally reopen an operator-cancelled
-            # run. Queue workers pass False, but an allowlisted internal halt
-            # remains resumable. Admission reads current durable state under
-            # the store transaction, never callback presence.
+            # closed Change requires explicit Retry with a new Change; only
+            # still-open interrupted work can resume. Admission reads current
+            # durable state under the store transaction, never callback presence.
             admission = self.run_store.begin_run_resume(
                 prepared.run_id,
                 reopen_operator_cancelled=reopen_operator_cancelled,
@@ -796,6 +806,18 @@ class MapRunner:
         output_column_ids = sorted(out_cols.values())
         op_id = prepared.op_id
         run_id = prepared.run_id
+        if dispatch_claimed:
+            if admitted_attempt is None:
+                raise ValueError(
+                    "a claimed dispatch requires its exact admitted attempt"
+                )
+            OutputColumnClaimStore.require_current_writer(
+                self.project.db,
+                run_id=run_id,
+                writer_attempt_id=admitted_attempt.attempt_id,
+                claim_token=claim_token,
+                output_column_ids=frozenset(output_column_ids),
+            )
         # The lazy writer creates one sidecar only if a row actually reaches a
         # model. Trace failures are diagnostic and never own action outcomes.
         try:
@@ -821,7 +843,16 @@ class MapRunner:
         def cancelled() -> bool:
             if progress.cancelled:
                 return True
+            if self.run_store.cancellation_requested(run_id):
+                progress.cancel_requested = True
+                progress.cancel()
+                return True
             if self.should_cancel is not None and self.should_cancel(run_id):
+                # A positive stop poll is durable user intent. Close this
+                # Change before any already-returned effect is published; its
+                # accounting remains owned by the exact attempt and can still
+                # drain through the terminal writer.
+                self.run_store.request_cancel(run_id)
                 progress.cancel_requested = True
                 progress.cancel()
             return progress.cancelled
@@ -848,29 +879,49 @@ class MapRunner:
             if name in col_map
         )
 
+        publication_cancelled = False
+
         def persist_result_batch(
             batch: list[dict[str, Any]],
             *,
             checkpoint: tuple[str, int, str] | None = None,
         ) -> None:
+            nonlocal publication_cancelled
             writer_attempt_id = attempt.attempt_id if attempt is not None else None
 
             evidence_writer = None
-            if callable(write_result_evidence):
+            consumed = {
+                int(item["row_id"]): item["__consumed_sources"]
+                for item in batch
+                if isinstance(item.get("__consumed_sources"), dict)
+            }
+            if callable(write_result_evidence) or consumed:
 
                 def evidence_writer() -> None:
                     try:
-                        write_result_evidence(
-                            self.project,
-                            spec,
-                            batch=batch,
-                            sheet_id=prepared.sheet_id,
-                            run_id=run_id,
-                            op_id=op_id,
-                            output_columns=out_cols,
-                            input_column_ids=col_map,
-                            claim_token=claim_token,
-                        )
+                        from frisket.engine.store.consumed_sources import store_capture
+
+                        for input_row_id, capture in consumed.items():
+                            store_capture(
+                                self.project,
+                                capture,
+                                owner_op_id=op_id,
+                                output_sheet_id=prepared.sheet_id,
+                                run_id=run_id,
+                                row_id=input_row_id,
+                            )
+                        if callable(write_result_evidence):
+                            write_result_evidence(
+                                self.project,
+                                spec,
+                                batch=batch,
+                                sheet_id=prepared.sheet_id,
+                                run_id=run_id,
+                                op_id=op_id,
+                                output_columns=out_cols,
+                                input_column_ids=col_map,
+                                claim_token=claim_token,
+                            )
                     except (StaleAttemptWriter, ClaimLeaseRenewalFailed):
                         raise
                     except Exception as exc:
@@ -878,18 +929,53 @@ class MapRunner:
                             run_id, writer_attempt_id
                         ) from exc
 
-            self.run_store.publish_result_batch(
-                run_id,
-                batch,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                authorized_attempt_id=writer_attempt_id,
-                claimless_direct_effect=self.claimless_direct_effect,
-                checkpoint=checkpoint,
-                checkpoint_action_kind=(spec["action_kind"] if checkpoint else None),
-                defer_generation_seal=defer_generation_seal,
-                evidence_writer=evidence_writer,
-            )
+            from frisket.engine.store.changes import ChangePublicationClosed
+            from frisket.engine.store.result_generations import GenerationStateError
+
+            try:
+                self.run_store.publish_result_batch(
+                    run_id,
+                    batch,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    authorized_attempt_id=writer_attempt_id,
+                    claimless_direct_effect=self.claimless_direct_effect,
+                    checkpoint=checkpoint,
+                    checkpoint_action_kind=(
+                        spec["action_kind"] if checkpoint else None
+                    ),
+                    defer_generation_seal=defer_generation_seal,
+                    evidence_writer=evidence_writer,
+                )
+            except (
+                ChangePublicationClosed,
+                GenerationStateError,
+                StaleAttemptWriter,
+            ) as exc:
+                # Source deletion closes publication while requests already in
+                # flight still return. Accounting/checkpoints were committed
+                # before this publication attempt; drain siblings normally.
+                closed = isinstance(
+                    exc, (ChangePublicationClosed, StaleAttemptWriter)
+                ) or isinstance(exc.__cause__, ChangePublicationClosed)
+                if not closed:
+                    raise
+                from frisket.engine.store.run_lifecycle import require_terminal_writer
+
+                closed_publication = require_terminal_writer(
+                    self.project,
+                    run_id=run_id,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    terminal_status="cancelled",
+                    claimless_direct_effect=self.claimless_direct_effect,
+                    output_column_ids=output_column_ids,
+                )
+                if not closed_publication:
+                    raise
+                publication_cancelled = True
+                progress.cancel_requested = True
+                progress.cancel()
 
         # Route-binding extras are
         # merged HERE, on the one execution path every routed run shares
@@ -930,10 +1016,25 @@ class MapRunner:
             resumable cancelled) are deliberately NOT routed through here —
             they terminalize the run on purpose, with their own markers.
             """
+            if dispatch_claimed:
+                # A coupled publisher already owns deterministic work under
+                # this writer. It retains recovery and terminalization.
+                return
             if admission is not None:
                 self.run_store.revert_run_resume(run_id, admission)
                 return
             code, reason = pre_dispatch_refusal_markers(exc)
+            terminal_attempt_id = (
+                attempt.attempt_id if attempt is not None else admitted_attempt_id
+            )
+            if terminal_attempt_id is None:
+                prepared_attempts = self.project.db.execute(
+                    "SELECT id FROM execution_attempts WHERE run_id=? "
+                    "AND state IN ('created','admitted') ORDER BY seq",
+                    (run_id,),
+                ).fetchall()
+                if len(prepared_attempts) == 1:
+                    terminal_attempt_id = str(prepared_attempts[0]["id"])
             finalize_pre_dispatch_run(
                 self.project,
                 self.run_store,
@@ -944,16 +1045,15 @@ class MapRunner:
                     out_cols if finalization_out_cols is None else finalization_out_cols
                 ),
                 generation_claim_token=claim_token,
-                carry_forward_atomic_family=recipe.atomic_output_columns,
                 keep_zero_success_output_columns=(
                     recipe.keep_zero_success_output_columns
                 ),
                 halted_code=code,
                 halted_reason=reason,
-                terminal_attempt_id=(
-                    attempt.attempt_id if attempt is not None else None
+                terminal_attempt_id=terminal_attempt_id,
+                terminal_attempt_state=(
+                    "halted" if terminal_attempt_id is not None else None
                 ),
-                terminal_attempt_state=("halted" if attempt is not None else None),
                 never_point_column_ids=never_point_column_ids,
             )
 
@@ -975,7 +1075,6 @@ class MapRunner:
                 status="cancelled",
                 out_cols=out_cols,
                 generation_claim_token=claim_token,
-                carry_forward_atomic_family=recipe.atomic_output_columns,
                 keep_zero_success_output_columns=(
                     recipe.keep_zero_success_output_columns
                 ),
@@ -999,7 +1098,11 @@ class MapRunner:
                 self.run_store,
                 prepared,
                 claim_token=claim_token,
-                defer_publication=defer_generation_seal,
+                defer_publication=(
+                    defer_generation_seal
+                    if defer_output_publication is None
+                    else defer_output_publication
+                ),
             )
         except BaseException as exc:
             close_out_pre_dispatch_failure(
@@ -1013,7 +1116,7 @@ class MapRunner:
                     int(column_id) for column_id in prepared.out_cols.values()
                 ),
             )
-            if admission is None:
+            if admission is None and not dispatch_claimed:
                 from frisket.engine.runner.column_retirement import (
                     retire_unbound_created_columns,
                 )
@@ -1056,8 +1159,23 @@ class MapRunner:
             except BaseException as exc:
                 close_out_pre_dispatch_failure(exc)
                 raise
+        # A pre-admitted attempt remains part of the owned context even when
+        # Stop arrives before its dispatch claim. Domain scopes may ask for
+        # dispatch permission during setup; they must see that attempt and let
+        # RunDispatch reject it, rather than treating managed work as unowned.
+        if attempt is not None:
             run_extras[ATTEMPT_EXTRA] = attempt
             progress.writer_attempt_id = attempt.attempt_id
+
+        admitted_work_scope = None
+        if attempt is not None and attempt.routed is not None:
+            snapshot = attempt.routed.work_scope_snapshot
+            if snapshot is not None:
+                # Membership is checked for every dispatched row; normalize once.
+                admitted_work_scope = {
+                    **snapshot,
+                    "row_ids": frozenset(snapshot.get("row_ids", ())),
+                }
 
         batch_local_results = bool(
             recipe.batch_local_results
@@ -1066,7 +1184,8 @@ class MapRunner:
             and not recipe.is_llm(spec)
             and not row_effect_spends_or_meters(recipe, spec, self.router)
         )
-        claimed = [False]
+        progress.writer_attempt_claimed = dispatch_claimed
+        claimed = [dispatch_claimed]
 
         def claim_the_attempt() -> None:
             """The compare-and-swap of §1.3, taken exactly once before the
@@ -1179,6 +1298,10 @@ class MapRunner:
                 "run_state": {},
             },
         )
+        if attempt is not None:
+            from frisket.execution.dispatch_control import dispatch_for_context
+
+            ctx.extras["router"] = self.router.for_execution(dispatch_for_context(ctx))
         if not recipe.is_llm(spec) and hasattr(recipe, "execute_batch"):
             # Batch recipes intentionally keep whole-run semantics here rather
             # than any page-local execution shape: clean_column needs global
@@ -1205,17 +1328,14 @@ class MapRunner:
                         persist_result_batch=persist_result_batch,
                         progress=progress,
                         required_field_names=required_output_field_names,
-                        admitted_work_scope=(
-                            attempt.routed.work_scope_snapshot
-                            if attempt is not None and attempt.routed is not None
-                            else None
-                        ),
+                        admitted_work_scope=admitted_work_scope,
                         cancelled=cancelled,
                     )
                 )
                 try:
                     batch_progress = await asyncio.shield(batch_task)
                 except asyncio.CancelledError:
+                    cancelled()
                     cooperative_stop = progress.cancelled
                     await _cancel_and_join_owned_task(batch_task)
                     if not cooperative_stop or asyncio.current_task().cancelling():
@@ -1242,7 +1362,6 @@ class MapRunner:
                             else "completed"
                         ),
                         out_cols=out_cols,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1272,7 +1391,6 @@ class MapRunner:
                         ),
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1303,7 +1421,6 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1321,7 +1438,6 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1353,7 +1469,6 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1376,7 +1491,6 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1416,7 +1530,6 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1436,7 +1549,6 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        carry_forward_atomic_family=recipe.atomic_output_columns,
                         keep_zero_success_output_columns=(
                             recipe.keep_zero_success_output_columns
                         ),
@@ -1491,30 +1603,30 @@ class MapRunner:
             input_capture: dict[str, dict[str, Any]] | None = (
                 {} if callable(capture_result_evidence) else None
             )
-            values = row_values(
-                self.project,
-                recipe,
-                spec,
-                col_map,
-                row_id,
-                for_model=recipe.is_llm(spec),
-                column_types=source_column_types,
-                capture=input_capture,
-                admitted_work_scope=(
-                    attempt.routed.work_scope_snapshot
-                    if attempt is not None and attempt.routed is not None
-                    else None
-                ),
-                source_page=source_page,
+            values = (
+                prepared.read_inputs(row_id)
+                if prepared.read_inputs
+                else row_values(
+                    self.project,
+                    recipe,
+                    spec,
+                    col_map,
+                    row_id,
+                    for_model=recipe.is_llm(spec),
+                    column_types=source_column_types,
+                    capture=input_capture,
+                    admitted_work_scope=admitted_work_scope,
+                    source_page=source_page,
+                )
             )
+            consumed_capture = getattr(values, "consumed_capture", None)
             checkpoint_id: str | None = None
             checkpoint_identity: str | None = None
             checkpoint_created = False
             checkpoint_should_complete = False
-            recovered_response = False
             cloud_request_id: str | None = None
             cloud_llm_coordinator: CloudLLMCheckpointCoordinator | None = None
-            results: dict[str, dict[str, Any]]
+            results: dict[str, dict[str, Any]] | None = None
             cloud_payer = (
                 attempt.routed.binding.facts.cloud_payer
                 if attempt is not None and attempt.routed is not None
@@ -1526,6 +1638,10 @@ class MapRunner:
                 raise TypeError("admitted Cloud payer has an invalid type")
             if (
                 row_effect_spends_or_meters(recipe, spec, self.router)
+                and (
+                    not getattr(values, "unavailable_inputs", ())
+                    or self.run_store.row_effect_checkpoint(run_id, row_id) is not None
+                )
                 and getattr(recipe, "row_effect_checkpoint_owner", "runner") == "runner"
             ):
                 checkpoint_id, checkpoint_identity = _row_effect_identity(
@@ -1551,6 +1667,7 @@ class MapRunner:
                         authorized_attempt_id=(
                             attempt.attempt_id if attempt is not None else None
                         ),
+                        consumed_capture=consumed_capture,
                         writer_attempt_id=(
                             attempt.attempt_id if attempt is not None else None
                         ),
@@ -1581,6 +1698,12 @@ class MapRunner:
                             "current row or call the provider again.",
                         )
                     if checkpoint.get("state") == "reserved":
+                        reserved = checkpoint.get("response")
+                        consumed_capture = (
+                            reserved.get("__consumed_sources")
+                            if isinstance(reserved, dict)
+                            else None
+                        )
                         if cloud_payer is None:
                             raise RecipeInvocationHalt(
                                 "external_effect_reconciliation_required",
@@ -1616,9 +1739,21 @@ class MapRunner:
                                 row_id=row_id,
                                 output_columns=out_cols,
                             )
-                        recovered_response = True
+            unavailable = getattr(values, "unavailable_inputs", ())
+            if results is None and unavailable and checkpoint_id is None:
+                from frisket.engine.store.input_availability import not_completed_result
 
-            if not recovered_response:
+                # Availability is decided before either local or Cloud dispatch.
+                # An existing paid checkpoint must still take its recovery path.
+                results = {
+                    name: not_completed_result(unavailable[0]) for name in out_cols
+                }
+                if consumed_capture is not None:
+                    next(iter(results.values()))["__consumed_sources"] = (
+                        consumed_capture
+                    )
+
+            if results is None:
                 if cloud_payer is not None:
                     if checkpoint_id is None or checkpoint_identity is None:
                         raise RecipeInvocationHalt(
@@ -1793,6 +1928,14 @@ class MapRunner:
                         row_id=row_id,
                         output_columns=out_cols,
                     )
+                if consumed_capture is not None:
+                    # This rides the returned-response checkpoint, so recovery
+                    # publishes the inputs that actually produced that response.
+                    # One input bundle is shared by every output in this row.
+                    for name, payload in results.items():
+                        if name in out_cols:
+                            payload["__consumed_sources"] = consumed_capture
+                            break
                 if checkpoint_should_complete:
                     assert checkpoint_id is not None
                     assert checkpoint_identity is not None
@@ -1874,6 +2017,13 @@ class MapRunner:
                         claimless_direct_effect=self.claimless_direct_effect,
                     )
                     results = replay_response
+                    # A cancellation during provider retry may carry paid usage.
+                    # Save it first, then propagate task cancellation before
+                    # publication or another dispatch (including synchronous
+                    # test/local adapters that have not yielded yet).
+                    await asyncio.sleep(0)
+                    if asyncio.current_task().cancelling():
+                        raise asyncio.CancelledError
             async with lock:
                 returned_batch = [
                     {
@@ -1884,41 +2034,9 @@ class MapRunner:
                     for fname, payload in results.items()
                     if fname in out_cols
                 ]
-                # Preserve returned provider accounting even when cancellation
-                # seals the generation without publishing this result cell.
-                if cancelled():
-                    if checkpoint_id is None:
-                        progress.cost += self.run_store.write_returned_call_accounting(
-                            run_id,
-                            returned_batch,
-                            writer_attempt_id=(
-                                attempt.attempt_id if attempt is not None else None
-                            ),
-                            claim_token=claim_token,
-                            authorized_attempt_id=(
-                                attempt.attempt_id if attempt is not None else None
-                            ),
-                            claimless_direct_effect=self.claimless_direct_effect,
-                        )
-                    else:
-                        assert checkpoint_identity is not None
-                        progress.cost += (
-                            self.run_store.account_returned_row_effect_checkpoint(
-                                checkpoint_id,
-                                run_id=run_id,
-                                row_id=row_id,
-                                action_kind=spec["action_kind"],
-                                identity=checkpoint_identity,
-                                batch=returned_batch,
-                                replay_response=_accounted_replay_response(results),
-                                writer_attempt_id=(
-                                    attempt.attempt_id if attempt is not None else None
-                                ),
-                                claim_token=claim_token,
-                                claimless_direct_effect=self.claimless_direct_effect,
-                            )
-                        )
-                    return
+                # Stop future dispatch, but retain this already-submitted work.
+                # The ordinary result writer still checks the attempt/claim owner.
+                cancelled()
                 if checkpoint_id is None:
                     pending.extend(returned_batch)
                     pending_row_count += 1
@@ -1948,7 +2066,8 @@ class MapRunner:
                 )
                 if threshold is not None:
                     streak_outcomes[seq] = any(
-                        p.get("outcome") != EXPECTED_ROW_ERROR for p in failed_results
+                        p.get("outcome") not in {EXPECTED_ROW_ERROR, "not_completed"}
+                        for p in failed_results
                     )
                     while streak_next[0] in streak_outcomes:
                         failed_here = streak_outcomes.pop(streak_next[0])
@@ -2165,6 +2284,7 @@ class MapRunner:
                 # under the shield above. A cooperative stop returns through
                 # the ordinary finalizer; actual owner-task cancellation must
                 # still propagate even when durable intent is also present.
+                cancelled()
                 cooperative_stop = progress.cancelled
                 progress.cancel()
                 if not cooperative_stop or asyncio.current_task().cancelling():
@@ -2193,13 +2313,13 @@ class MapRunner:
         # sandbox teardown.
         # a cancelled run keeps its partial results and lands in
         # status='cancelled' (resumable later via backfill, which re-runs
-        # only the rows without results). A cancel that lands AFTER every row
-        # already ran is a no-op: the run completed.
-        # progress.completed counts every finished row (failures included —
-        # failed is a subset), so it alone says whether work remained
+        # only the rows without results). Cancellation remains authoritative
+        # until the terminal transaction, including after the final row.
         cancelled()
-        truly_cancelled = progress.halted_code is not None or (
-            progress.cancelled and progress.completed < prepared.row_count
+        truly_cancelled = (
+            publication_cancelled
+            or progress.halted_code is not None
+            or progress.cancelled
         )
         cooperative_cancel = bool(
             self.defer_cancel_terminal_close
@@ -2214,7 +2334,6 @@ class MapRunner:
                 run_id=run_id,
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
-                carry_forward_atomic_family=recipe.atomic_output_columns,
                 keep_zero_success_output_columns=(
                     recipe.keep_zero_success_output_columns
                 ),
@@ -2247,7 +2366,6 @@ class MapRunner:
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
                 generation_claim_token=claim_token,
-                carry_forward_atomic_family=recipe.atomic_output_columns,
                 keep_zero_success_output_columns=(
                     recipe.keep_zero_success_output_columns
                 ),
@@ -2449,27 +2567,70 @@ class MapRunner:
                 )
             return progress
         field_names = list(out_cols)
-        values_by_row = {
-            row_id: row_values(
+        from frisket.engine.store.consumed_sources import read_consumed_source
+        from frisket.engine.runner.row_inputs import RowSourcePage
+
+        staged_capture = getattr(recipe, "staged_input_capture", None)
+        if staged_capture is not None:
+            # The existing inferred-batch spool owns both classifications and
+            # the source capture that produced its saved results.
+            batch_capture = staged_capture
+            values_by_row = {row_id: {} for row_id in row_ids}
+        else:
+            source_ids = [
+                col_map[name] for name in recipe.source_columns(spec) if name in col_map
+            ]
+            refs: dict[int, dict[int, dict[str, Any]]] = {}
+            _, captured_values, batch_capture = read_consumed_source(
                 self.project,
-                recipe,
-                spec,
-                col_map,
-                row_id,
-                for_model=False,
-                column_types=column_types,
-                admitted_work_scope=admitted_work_scope,
+                spec["sheet_id"],
+                source_ids,
+                row_ids=row_ids,
+                scope_intent="selected",
+                refs_out=refs,
+                preserve_invalid_column_ids=[
+                    col_map[name]
+                    for name in getattr(recipe, "preserve_invalid_source_columns", ())
+                    if name in col_map
+                ],
             )
-            for row_id in row_ids
-        }
+            source_page = RowSourcePage(
+                spec["sheet_id"],
+                frozenset(row_ids),
+                {cid: (captured_values[cid], refs[cid]) for cid in source_ids},
+            )
+            values_by_row = {
+                row_id: row_values(
+                    self.project,
+                    recipe,
+                    spec,
+                    col_map,
+                    row_id,
+                    for_model=False,
+                    column_types=column_types,
+                    admitted_work_scope=admitted_work_scope,
+                    source_page=source_page,
+                )
+                for row_id in row_ids
+            }
         if cancelled and cancelled():
             raw_results: dict[int, Any] = {}
         else:
             try:
-                async with recipe.execution_scope(
-                    spec, ctx, expected_rows=len(row_ids)
-                ):
-                    raw_results = await recipe.execute_batch(values_by_row, spec, ctx)  # type: ignore[attr-defined]
+                ready = {
+                    row: values
+                    for row, values in values_by_row.items()
+                    if not getattr(values, "unavailable_inputs", ())
+                }
+                raw_results = {}
+                # An empty admitted batch is still a valid whole-column operation
+                # (for example, clustering records an empty result). Do not confuse
+                # it with a nonempty batch whose inputs are all unavailable.
+                if ready or not values_by_row:
+                    async with recipe.execution_scope(
+                        spec, ctx, expected_rows=len(ready)
+                    ):
+                        raw_results = await recipe.execute_batch(ready, spec, ctx)  # type: ignore[attr-defined]
             except SandboxTeardownError:
                 raise
             except StaleAttemptWriter:
@@ -2494,15 +2655,30 @@ class MapRunner:
             if cancelled and cancelled() and row_id not in raw_results:
                 continue
             missing_is_error = not (bool(cancelled) and progress.cancelled)
-            cells, failed, cost = normalize_batch_row(
-                raw_results.get(row_id),
-                field_names,
-                missing_is_error=missing_is_error,
-                required_field_names=required_field_names,
-                managed_publication=True,
-            )
+            unavailable = getattr(values_by_row[row_id], "unavailable_inputs", ())
+            if unavailable:
+                from frisket.engine.store.input_availability import not_completed_result
+
+                cells = {
+                    name: not_completed_result(unavailable[0]) for name in field_names
+                }
+                failed, cost = True, 0.0
+            else:
+                cells, failed, cost = normalize_batch_row(
+                    raw_results.get(row_id),
+                    field_names,
+                    missing_is_error=missing_is_error,
+                    required_field_names=required_field_names,
+                    managed_publication=True,
+                )
             for name, cell in cells.items():
-                pending.append({"row_id": row_id, "column_id": out_cols[name], **cell})
+                payload = {"row_id": row_id, "column_id": out_cols[name], **cell}
+                # One shared fingerprint for all outputs of this batch. Rows
+                # depend on the whole batch, not just their own source cells.
+                capture_row = getattr(recipe, "staged_input_first_row_id", row_ids[0])
+                if row_id == capture_row and name == field_names[0]:
+                    payload["__consumed_sources"] = batch_capture
+                pending.append(payload)
             if failed:
                 progress.failed += 1
             progress.completed += 1

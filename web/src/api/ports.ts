@@ -65,9 +65,9 @@ export interface EmbeddingApiPort {
   runEmbeddingIndexAnalysis: FrisketApi['runEmbeddingIndexAnalysis'];
   embeddingHybridPreview: FrisketApi['embeddingHybridPreview'];
   embeddingSimilarityPreview: FrisketApi['embeddingSimilarityPreview'];
-  saveLens: FrisketApi['saveLens'];
-  listLenses: FrisketApi['listLenses'];
-  resolveLens: FrisketApi['resolveLens'];
+  saveView: FrisketApi['saveView'];
+  listViews: FrisketApi['listViews'];
+  resolveView: FrisketApi['resolveView'];
   createWatch: FrisketApi['createWatch'];
 }
 
@@ -135,7 +135,8 @@ export interface ProjectApiPort extends
   setReviewRunStatus: FrisketApi['setReviewRunStatus'];
   undo: FrisketApi['undo'];
   redo: FrisketApi['redo'];
-  stepTo: FrisketApi['stepTo'];
+  revertOperation: FrisketApi['revertOperation'];
+  restoreOperation: FrisketApi['restoreOperation'];
   deleteProject: FrisketApi['deleteProject'];
   projectExportUrl: FrisketApi['projectExportUrl'];
   sheetDatasetExportUrl: FrisketApi['sheetDatasetExportUrl'];

@@ -3,6 +3,7 @@
 from typing import Literal
 
 from pydantic import Field
+from frisket.contracts.view import ViewSelection
 
 from frisket.actions.document_extraction_types import (
     DocumentExtraction,
@@ -105,6 +106,7 @@ class ExtractionLayoutSelection(WireModel):
 
 
 class ExtractionScopeCountsRequest(WireModel):
+    selection: ViewSelection | None = None
     sheet_id: int = Field(gt=0)
     source: str = Field(min_length=1)
     layout_id: int | None = Field(default=None, gt=0)

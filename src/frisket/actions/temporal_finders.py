@@ -10,7 +10,7 @@ from frisket.actions.core import ActionCategory, action, map_rows
 from frisket.actions.temporal_types import TopicSectionsReader, VisualCutsReader
 from frisket.actions.transcript_types import TranscriptColumn
 from frisket.actions.types import ActionParams, ColumnRef, EngineRef, Row, RowResult
-from frisket.features.temporal_values import TimelinePointsValue, TimelineRangesValue
+from frisket.contracts.temporal_values import TimelinePointsValue, TimelineRangesValue
 
 
 class VideoColumn(ColumnRef[Any]):

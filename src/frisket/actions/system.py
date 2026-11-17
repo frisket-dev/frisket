@@ -1,6 +1,8 @@
 """Root validation and catalog projection for native typed actions."""
 
 from dataclasses import dataclass
+from functools import cache, lru_cache
+import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Self
 
@@ -9,9 +11,9 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
-from frisket.actions.core import OutputField, RegisteredAction
+from frisket.actions.core import ActionRegistry, OutputField, RegisteredAction
 from frisket.actions.registry import ACTION_REGISTRY
-from frisket.actions.types import ActionRequest
+from frisket.actions.types import ActionRequest, SheetRows
 from frisket.contracts.action import (
     ActionCatalog,
     ActionCatalogEntry,
@@ -35,6 +37,7 @@ class BoundTypedActionRequest:
     output_fields: tuple[OutputField, ...] | None
     implementation_identity: Mapping[str, Any] | None = None
     runtime_binding: "RuntimeBindingSpec | None" = None
+    authored_scope: SheetRows | None = None
 
     @classmethod
     def bind(cls, action: RegisteredAction, request: ActionRequest) -> Self:
@@ -89,25 +92,47 @@ def validate_root_action(data: Any) -> RootActionValidationResult:
     )
 
 
-def root_action_catalog() -> ActionCatalog:
+@lru_cache(maxsize=256)
+def _declared_catalog_entry_json(registry: ActionRegistry, action_id: str) -> str:
+    # Registries bind immutable declarations. JSON keeps later host/project
+    # enrichment from mutating a cached schema shared by other requests.
+    return json.dumps(registry.get(action_id).catalog_entry())
+
+
+@cache
+def _catalog_envelope_schemas_json() -> str:
+    return json.dumps(
+        {
+            "action_schema": TypeAdapter(ActionRequest).json_schema(),
+            "error_schema": ActionError.model_json_schema(),
+            "result_schema": ActionResult.model_json_schema(),
+            "receipt_schema": Receipt.model_json_schema(),
+            "validation_result_schema": RootActionValidationResult.model_json_schema(),
+        }
+    )
+
+
+def root_action_catalog(*, action_kinds: frozenset[str] | None = None) -> ActionCatalog:
     from frisket.engine.executor.action_dispatch import is_queued
 
     new_entries = []
     for action in ACTION_REGISTRY.actions:
-        entry = action.catalog_entry()
+        if action_kinds is not None and action.action_id not in action_kinds:
+            continue
+        entry = json.loads(
+            _declared_catalog_entry_json(ACTION_REGISTRY, action.action_id)
+        )
         # Placement belongs to the host execution registry, not the portable
         # authoring declaration. Project it only at the root catalog boundary.
         entry["async_mode"] = "queued" if is_queued(action.action_id) else "sync"
         new_entries.append(ActionCatalogEntry.model_validate(entry))
     return ActionCatalog(
-        action_schema=TypeAdapter(ActionRequest).json_schema(),
-        error_schema=ActionError.model_json_schema(),
-        result_schema=ActionResult.model_json_schema(),
-        receipt_schema=Receipt.model_json_schema(),
-        validation_result_schema=RootActionValidationResult.model_json_schema(),
+        **json.loads(_catalog_envelope_schemas_json()),
         actions=new_entries,
     )
 
 
-def root_action_catalog_payload() -> dict[str, Any]:
-    return root_action_catalog().model_dump(mode="json")
+def root_action_catalog_payload(
+    *, action_kinds: frozenset[str] | None = None
+) -> dict[str, Any]:
+    return root_action_catalog(action_kinds=action_kinds).model_dump(mode="json")

@@ -3,8 +3,8 @@ import { createWatchRunLinkStore } from './watchRunLinkStore';
 
 const draft = {
   name: 'Open rows watch',
-  query: { kind: 'filter', sheet_id: 17, filter: { status: { eq: 'open' } } },
-  scope: { kind: 'sheet' as const, sheet_id: 17 },
+  view_id: 9,
+  sheet_id: 17,
 };
 
 describe('watch intent store', () => {

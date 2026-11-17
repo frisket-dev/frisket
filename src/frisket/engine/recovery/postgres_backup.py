@@ -26,7 +26,7 @@ is the separate live-proof composite ``prod-postgres-current-topology-live-proof
 
 The disposable cluster is modelled with stdlib ``sqlite3`` files so the drill
 runs hermetically with no live Postgres and no downloads; the run-queue ledger
-name/version are read from the already-shipped ``frisket.jobs.queue_migrations``
+name/version are read from the already-shipped ``frisket.engine.jobs.queue_schema``
 so the contract is grounded in the current single-``SqlAlchemyJobQueue``
 architecture.
 """
@@ -41,7 +41,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from frisket.engine.jobs.queue_migrations import (
+from frisket.engine.jobs.queue_schema import (
     QUEUE_SCHEMA_LEDGER,
     QUEUE_SCHEMA_VERSION,
 )

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -95,7 +96,12 @@ class _PricedSummaryAdapter(OpenAICompatAdapter):
 
 
 def _summary_router() -> tuple[ModelRouter, _SummaryAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _SummaryAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -103,7 +109,11 @@ def _summary_router() -> tuple[ModelRouter, _SummaryAdapter]:
 
 def _failing_router() -> tuple[ModelRouter, _FailingAdapter]:
     router = ModelRouter(
-        keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     adapter = _FailingAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
@@ -336,6 +346,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         ).fetchall()
     ]
     assert len(summary_rows) == 2
+    assert RunResultStore(project).run_row_scope(result.run_id) == summary_rows
     assert project.get_values(summary_sheet_id, int(columns["group"]["id"])) == {
         summary_rows[0]: "accountability",
         summary_rows[1]: "infrastructure",
@@ -805,6 +816,7 @@ def test_reduce_group_summary_refuses_an_exhausted_project_key_before_provider_c
             spend_cap_micro=0,
         )
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             key_sources={"anthropic": "project_key"},
             cache=None,
@@ -838,7 +850,12 @@ def test_unknown_live_call_cost_never_becomes_exact_zero_in_receipt(
     from frisket.contracts.action import Receipt
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         adapter = _UnknownCostSummaryAdapter()
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         env.run_kwargs["router"] = router
@@ -912,6 +929,7 @@ def test_reduce_group_summary_persists_pricing_source_by_value(
     adapter = _PricedSummaryAdapter()
     if model.startswith("ollama/"):
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=None,
             cache_mode="off",
             use_env_keys=False,
@@ -927,6 +945,7 @@ def test_reduce_group_summary_persists_pricing_source_by_value(
         router._adapters["ollama"]._adapters["test-local"] = adapter  # type: ignore[attr-defined]  # noqa: SLF001
     else:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             cache=None,
             cache_mode="off",
@@ -961,15 +980,18 @@ def test_reduce_group_summary_persists_pricing_source_by_value(
         ("anthropic/claude-haiku-4-5", "checkpointed"),
     ],
 )
+@pytest.mark.parametrize("usage_known", [True, False])
 def test_reduce_group_summary_traces_free_and_checkpointed_calls(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     model: str,
     execution_path: str,
+    usage_known: bool,
 ) -> None:
     if model.startswith("ollama/"):
         adapter: Any = _PricedSummaryAdapter()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=None,
             cache_mode="off",
             use_env_keys=False,
@@ -985,6 +1007,18 @@ def test_reduce_group_summary_traces_free_and_checkpointed_calls(
         router._adapters["ollama"]._adapters["test-local"] = adapter  # type: ignore[attr-defined]  # noqa: SLF001
     else:
         router, adapter = _summary_router()
+
+    if not usage_known:
+        complete = adapter.complete
+
+        async def without_usage(*args, **kwargs):
+            response = await complete(*args, **kwargs)
+            response.usage_available = False
+            response.tokens_in = response.tokens_out = 0
+            response.cost = None
+            return response
+
+        monkeypatch.setattr(adapter, "complete", without_usage)
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         env.run_kwargs["router"] = router
@@ -1005,6 +1039,11 @@ def test_reduce_group_summary_traces_free_and_checkpointed_calls(
         assert trace is not None
         assert trace["action_kind"] == "reduce.group_summary"
         assert len(trace["rows"]) == 2
+        if not usage_known:
+            assert all(
+                row["tokens_in"] is None and row["tokens_out"] is None
+                for row in trace["rows"]
+            )
         summary_rows = next(
             output.row_ids for output in result.outputs if output.kind == "rows"
         )
@@ -1068,7 +1107,7 @@ def test_model_failure_writes_failed_receipt_and_replays_it(
         assert trace is not None
         assert len(trace["rows"]) == 2
         assert {row["error"] for row in trace["rows"]} == {
-            "summary provider unavailable"
+            "model_error: summary provider unavailable"
         }
         assert all(
             "summary provider unavailable" in row["calls"][0]["error"]
@@ -1107,10 +1146,9 @@ def test_model_failure_writes_failed_receipt_and_replays_it(
         assert len(failing_adapter.requests) == 2
 
 
-def test_provider_error_trace_survives_without_a_materialized_summary_row(
+def test_materialization_failure_prevents_provider_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from frisket.engine.executor import group_summary_runtime
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         failing_router, failing_adapter = _failing_router()
@@ -1119,8 +1157,10 @@ def test_provider_error_trace_survives_without_a_materialized_summary_row(
         def refuse_materialization(*_args: Any, **_kwargs: Any) -> None:
             raise RuntimeError("summary materialization unavailable")
 
+        from frisket.engine.executor import group_summary_publication
+
         monkeypatch.setattr(
-            group_summary_runtime, "write_aggregate_sheet", refuse_materialization
+            group_summary_publication, "write_aggregate_sheet", refuse_materialization
         )
         result = env.run(
             _reduce_action(
@@ -1131,7 +1171,7 @@ def test_provider_error_trace_survives_without_a_materialized_summary_row(
 
         assert result.status == "failed"
         assert result.errors[0].code == "project_write_failed"
-        assert len(failing_adapter.requests) == 2
+        assert len(failing_adapter.requests) == 0
         run_id = int(
             env.project.db.execute(
                 "SELECT id FROM runs WHERE action_kind='reduce.group_summary'"
@@ -1143,13 +1183,7 @@ def test_provider_error_trace_survives_without_a_materialized_summary_row(
             ).fetchone()[0]
             == 0
         )
-        trace = read_trace(env.project.path, run_id)
-        assert trace is not None
-        assert len(trace["rows"]) == 2
-        assert {row["row_id"] for row in trace["rows"]} == {None}
-        assert {row["error"] for row in trace["rows"]} == {
-            "summary provider unavailable"
-        }
+        assert read_trace(env.project.path, run_id) is None
 
 
 def _insert_running_reservation(
@@ -1243,3 +1277,75 @@ def test_stale_running_reservation_returns_recovery_without_model_work(
         # the stale reservation row itself is deleted; nothing else moves
         assert env.counts() == {**before, "receipts": before["receipts"] - 1}
         assert _ADAPTERS[0].requests == []
+
+
+def test_grouped_action_preserves_injected_composition_through_model_rows(
+    tmp_path, monkeypatch
+):
+    from contextlib import closing
+    from dataclasses import replace
+
+    from executor_harness import run_action_with_confirmation
+    from frisket.engine.executor.action_inventory import ExecutorDeps
+    from frisket.engine.runner.map_runner import MapRunner
+    from frisket.execution.credential_use import CredentialOwner, CredentialUseContext
+    from frisket.execution.price_book import ByokZero
+    from frisket.execution.provider import (
+        CompositionFacts,
+        ExecutionCompositionContext,
+        ExecutionLimits,
+        open_execution_composition,
+    )
+    from frisket.engine.runner import map_runner
+
+    contexts, runners = [], []
+
+    context_type = map_runner.OpContext
+
+    def observe_context(*args, **kwargs):
+        context = context_type(*args, **kwargs)
+        contexts.append(context)
+        return context
+
+    monkeypatch.setattr(map_runner, "OpContext", observe_context)
+    router, adapter = _summary_router()
+    with closing(Project.create(tmp_path / "funded-groups.frisket")) as project:
+        seeded = _seed(project, tmp_path)
+        owner = CredentialOwner.organization("funding-org")
+        credentials = CredentialUseContext(
+            cost_posture="org_key", consented_owner=owner, selected_owner=owner
+        )
+        limits = ExecutionLimits(max_media_seconds=17)
+        composition = replace(
+            open_execution_composition(
+                project, router, ExecutionCompositionContext.direct()
+            ),
+            facts=CompositionFacts(
+                edition="hosted", org_id="funding-org", funding=ByokZero()
+            ),
+            credential_use_context=credentials,
+            limits=limits,
+        )
+        run = MapRunner.run
+
+        async def observe(runner, *args, **kwargs):
+            runners.append((runner.execution_composition, runner.authority.composition))
+            return await run(runner, *args, **kwargs)
+
+        monkeypatch.setattr(MapRunner, "run", observe)
+        result = run_action_with_confirmation(
+            project,
+            _reduce_action(seeded["sheet_id"]),
+            project_id="funded-groups",
+            router=router,
+            deps=ExecutorDeps(execution_composition=composition),
+        )
+        assert result.status == "completed", result.errors
+        assert len(adapter.requests) == 2
+        assert runners and all(
+            runner is composition and authority is composition
+            for runner, authority in runners
+        )
+        assert contexts
+        assert all(ctx.credential_use_context is credentials for ctx in contexts)
+        assert all(ctx.execution_limits is limits for ctx in contexts)

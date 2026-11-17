@@ -1,5 +1,7 @@
 """Public action execution: admission, actual HTTP adapter, evidence and cost."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from contextlib import closing
 import asyncio
 import io
@@ -12,12 +14,18 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import run_attempt_receipts
 from tests.ops.test_opendocrouter import ENGINE, response
+
+
+class HttpRouter(SimpleNamespace):
+    def for_execution(self, execution):
+        return ExecutionModelRouter(self, execution)
 
 
 @pytest.mark.parametrize("pages", [1, 51])
@@ -43,7 +51,7 @@ def test_paid_remote_job_result_failure_halts_and_keeps_charge(
         return httpx.Response(200, json=body)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    router = SimpleNamespace(client=client)
+    router = HttpRouter(client=client)
     with closing(Project.create(tmp_path / "async.frisket", name="Async")) as project:
         sheet = project.add_sheet("Sources")
         column = project.add_column(sheet, "doc", type="file")
@@ -126,12 +134,18 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         )
         engine = model.engine
     if scenario == "ledger_failure":
+        write_accounting = RunResultStore.write_returned_call_accounting
+        failed_write = False
 
-        def fail_persist(*args):
-            raise RuntimeError("ledger unavailable")
+        def fail_persist(self, *args, **kwargs):
+            nonlocal failed_write
+            if not failed_write:
+                failed_write = True
+                raise RuntimeError("ledger temporarily unavailable")
+            return write_accounting(self, *args, **kwargs)
 
         monkeypatch.setattr(
-            "frisket.ops.opendocrouter.persist_hosted_accepted_accounting", fail_persist
+            RunResultStore, "write_returned_call_accounting", fail_persist
         )
 
     def handler(request):
@@ -176,7 +190,7 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         return httpx.Response(200, json=result)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    router = SimpleNamespace(client=client)
+    router = HttpRouter(client=client)
     with closing(
         Project.create(tmp_path / "test.frisket", name="Documents")
     ) as project:
@@ -249,6 +263,9 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         assert len(calls) == 1
         if scenario == "ledger_failure":
             assert result.errors[0].code == "external_effect_reconciliation_required"
+            [fact] = RunResultStore(project).model_calls(result.run_id)
+            assert fact["provider_cost_usd"] == 0.00397
+            assert fact["epoch_id"] is not None
             asyncio.run(client.aclose())
             return
         [fact] = RunResultStore(project).model_calls(result.run_id)
@@ -332,7 +349,7 @@ def test_paid_ocr_compare_uses_same_adapter(tmp_path, monkeypatch):
         calls.append(request)
         return httpx.Response(200, json=response())
 
-    router = ModelRouter(use_env_keys=False)
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False)
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     router._client = client
     with closing(
@@ -376,7 +393,7 @@ def test_searchable_pdf_from_live_layout_response(
         return httpx.Response(200, json=captured)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    router = SimpleNamespace(client=client)
+    router = HttpRouter(client=client)
     source = io.BytesIO()
     Image.new("RGB", (1200, 650), "white").save(source, format="PDF", resolution=200)
     assert not PdfReader(io.BytesIO(source.getvalue())).pages[0].extract_text()

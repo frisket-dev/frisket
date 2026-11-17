@@ -148,6 +148,9 @@ def _start_run(
 
 def _release(project: Project, authority: RunWriterAuthorityFixture) -> None:
     assert authority.claim_token is not None
+    from frisket.execution.attempt import set_attempt_state
+
+    set_attempt_state(project, authority.writer_attempt_id, "effected")
     assert (
         OutputColumnClaimStore(project).release(claim_token=authority.claim_token) >= 1
     )
@@ -201,7 +204,7 @@ def _publish_managed(
         claim_token=authority.claim_token,
         terminal_disposition="completed",
     )
-    RunResultStore(project).finish_run(run_id)
+    RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
     RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
     _release(project, authority)
     return _PublishedRun(op_id=op_id, run_id=run_id)
@@ -231,7 +234,7 @@ def _publish_legacy(
         ],
         **authority.kwargs(),
     )
-    RunResultStore(project).finish_run(run_id)
+    RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
     RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
     _release(project, authority)
     return _PublishedRun(op_id=op_id, run_id=run_id)
@@ -389,7 +392,7 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
         claim_token=authority.claim_token,
         terminal_disposition="completed",
     )
-    RunResultStore(project).finish_run(run_id)
+    RunResultStore(project).finish_run(run_id, **authority.terminal_kwargs())
 
     with pytest.raises(GenerationStateError, match="unexpected=.*generated_optional"):
         capture_maprunner_facts(
@@ -415,7 +418,7 @@ def test_managed_hash_uses_heads_and_preserves_edit_surface_policy(sheet) -> Non
     output_column_id = project.add_column(
         sheet_id, "generated", type="text", ai_generated=True
     )
-    _publish_managed(
+    published = _publish_managed(
         project,
         sheet_id=sheet_id,
         column_id=output_column_id,
@@ -427,6 +430,7 @@ def test_managed_hash_uses_heads_and_preserves_edit_surface_policy(sheet) -> Non
     assert (
         output_column_result_value_hash(
             project,
+            run_id=published.run_id,
             sheet_id=sheet_id,
             column_id=output_column_id,
             row_ids=row_ids[:2],
@@ -447,6 +451,7 @@ def test_managed_hash_uses_heads_and_preserves_edit_surface_policy(sheet) -> Non
     assert (
         output_column_result_value_hash(
             project,
+            run_id=published.run_id,
             sheet_id=sheet_id,
             column_id=output_column_id,
             row_ids=row_ids[:2],
@@ -476,6 +481,7 @@ def test_replay_checks_receipt_rows_against_exact_active_heads(sheet) -> None:
         row_ids=receipt_rows,
         value_hash=output_column_result_value_hash(
             project,
+            run_id=first.run_id,
             sheet_id=sheet_id,
             column_id=output_column_id,
             row_ids=receipt_rows,
@@ -1114,3 +1120,87 @@ def test_paid_scalar_bypasses_use_exact_scoped_head_instead_of_column_scalar(
     )
     assert research_plan.spec["row_ids"] == [row_ids[0]]
     assert research_plan.source_columns == ("generated",)
+
+
+def test_saved_hash_keeps_frozen_null_invalid_and_failure_encoding(sheet, tmp_path):
+    from frisket.engine.store.current_cells import refresh_current_cells
+    from frisket.server.services.sheet_grid import _result_metadata
+
+    project, sheet_id, _, row_ids = sheet
+    column = project.add_column(sheet_id, "generated", type="text", ai_generated=True)
+    first = _publish_managed(
+        project,
+        sheet_id=sheet_id,
+        column_id=column,
+        output_role="generated",
+        values={row_ids[0]: "invalid integer", row_ids[1]: None, row_ids[2]: None},
+        effects={row_ids[1]: "publish_null", row_ids[2]: "publish_error"},
+        write_mode="create",
+    )
+    # A descriptor change masks invalid saved bytes in the old receipt format.
+    project.db.execute("UPDATE columns SET type='integer' WHERE id=?", (column,))
+    refresh_current_cells(project.db, column_ids=[column])
+    project.db.commit()
+    expected = _value_hash(row_ids, {row_id: None for row_id in row_ids})
+    assert (
+        output_column_result_value_hash(
+            project,
+            run_id=first.run_id,
+            sheet_id=sheet_id,
+            column_id=column,
+            row_ids=row_ids,
+        )
+        == expected
+    )
+    receipt = _receipt(
+        run_id=first.run_id,
+        sheet_id=sheet_id,
+        column_id=column,
+        row_ids=row_ids,
+        value_hash=expected,
+    )
+    receipt.outputs[0].ref["type"] = "integer"
+    saved_receipt = tmp_path / "frozen-receipt.json"
+    saved_receipt.write_text(receipt.model_dump_json())
+    receipt = Receipt.model_validate_json(saved_receipt.read_text())
+    project.apply_edits(
+        [{"row_id": row, "column_id": column, "value": 4} for row in row_ids]
+    )
+    assert _result_metadata(project, column, row_ids) == {}
+    assert (
+        output_columns_replay_error(
+            project,
+            receipt,
+            output_kind="test_generation_output_column",
+            action_kind="map.regex_extract",
+            scope="receipt",
+        )
+        is None
+    )
+    _publish_managed(
+        project,
+        sheet_id=sheet_id,
+        column_id=column,
+        output_role="generated",
+        values={row_ids[0]: 9},
+        write_mode="replace_scope",
+    )
+    # Saved bytes are unchanged; the separate non-edit identity check rejects drift.
+    assert (
+        output_column_result_value_hash(
+            project,
+            run_id=first.run_id,
+            sheet_id=sheet_id,
+            column_id=column,
+            row_ids=row_ids,
+        )
+        == expected
+    )
+    error = output_columns_replay_error(
+        project,
+        receipt,
+        output_kind="test_generation_output_column",
+        action_kind="map.regex_extract",
+        scope="receipt",
+    )
+    assert error is not None and error.code == "stale_replay"

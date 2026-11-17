@@ -345,11 +345,11 @@ def _resolve_run_draft(project, *, run_id: int, column_id: int):
     if not isinstance(stored_names, dict):
         raise ActionCompareRouteError(409, "Stored output names are unavailable.")
     by_role = {binding.output_role: binding for binding in bindings}
-    if set(by_role) != {str(role) for role in stored_names.values()}:
+    if set(by_role) != {str(role) for role in stored_names}:
         raise ActionCompareRouteError(409, "Stored output bindings are incoherent.")
     current_names = {
-        str(logical): str(columns[by_role[str(role)].column_id]["name"])
-        for logical, role in stored_names.items()
+        str(logical): str(columns[by_role[str(logical)].column_id]["name"])
+        for logical in stored_names
     }
     canonical = reconstructed.draft
     canonical.pop("replace_existing", None)
@@ -376,7 +376,7 @@ def _resolve_run_draft(project, *, run_id: int, column_id: int):
                 409, "The current output descriptors no longer match this run."
             )
     bindings_by_logical = {
-        str(logical): by_role[str(role)] for logical, role in stored_names.items()
+        str(logical): by_role[str(logical)] for logical in stored_names
     }
     return rebound, canonical, plan, bindings_by_logical
 

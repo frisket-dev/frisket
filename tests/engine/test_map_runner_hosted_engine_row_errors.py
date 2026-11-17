@@ -8,6 +8,7 @@ eligible for automatic backfill.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from pathlib import Path
@@ -102,7 +103,12 @@ def _spec(sheet: int) -> dict[str, Any]:
 def _runner(project: Project) -> MapRunner:
     return MapRunner(
         project,
-        ModelRouter(keys={}, cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={},
+            cache=None,
+            cache_mode="off",
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 

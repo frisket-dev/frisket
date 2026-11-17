@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import httpx
 import pytest
@@ -81,7 +82,9 @@ def env(tmp_path, monkeypatch):
             200, json=[{"lat": "51.75", "lon": "-1.25", "display_name": "Oxford"}]
         )
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     deps = ExecutorDeps(
         execution_composition=open_execution_composition(

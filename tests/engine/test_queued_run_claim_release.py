@@ -4,11 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-import pytest
 
 from action_test_helpers import run_typed_map_request, typed_map_request
 from frisket.contracts.action import Receipt
-from frisket.engine.executor import queued_actions as queued_actions_module
 from frisket.engine.executor.actions import run_action_spec as run_legacy_action_spec
 from frisket.engine.executor.queued_actions import (
     queued_v1_finalize_action_result,
@@ -18,7 +16,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
-from frisket.execution.attempt import StaleAttemptWriter
 
 
 def _seed_queued_receipt(
@@ -102,7 +99,7 @@ def _claim_status(project: Project, claim_token: str) -> tuple[str, str]:
 # --- 2 & 3. claim-conflict-time recovery ------------------------------------
 
 
-def _prepare_undo_with_synthetic_claim(
+def _prepare_with_synthetic_claim(
     tmp_path: Path,
 ) -> tuple[Project, int, str, SqliteJobQueue]:
     project, sheet_id, _columns = _seed_project(tmp_path)
@@ -138,9 +135,7 @@ def _prepare_undo_with_synthetic_claim(
 
 
 def test_stale_active_claim_with_terminal_job_is_recovered(tmp_path: Path) -> None:
-    project, map_op_id, claim_token, queue = _prepare_undo_with_synthetic_claim(
-        tmp_path
-    )
+    project, map_op_id, claim_token, queue = _prepare_with_synthetic_claim(tmp_path)
     try:
         job_id_row = project.db.execute(
             "SELECT job_id FROM output_column_claims WHERE claim_token=?",
@@ -150,12 +145,29 @@ def test_stale_active_claim_with_terminal_job_is_recovered(tmp_path: Path) -> No
         assert queue.complete(job_id, "recovery-test-worker", result={"ok": True})
         assert queue.get(job_id).status == "done"
 
-        undo = run_action_spec(
+        sheet_id = int(
+            project.db.execute(
+                "SELECT sheet_id FROM runs WHERE op_id=?", (map_op_id,)
+            ).fetchone()[0]
+        )
+        column = project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='rendered_note'",
+            (sheet_id,),
+        ).fetchone()[0]
+        row = project.visible_row_ids(sheet_id)[0]
+        result = run_action_spec(
             project,
-            _undo_action(expected_op_id=map_op_id, key="undo_recovers_stale@sha256:v1"),
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [{"row_id": row, "column_id": column, "value": "manual"}]
+                },
+                "idempotency_key": "replace_recovers_stale",
+            },
             project_id=PROJECT_ID,
         )
-        assert undo.status == "completed", undo.errors
+        assert result.status == "completed", result.errors
 
         status, details_json = _claim_status(project, claim_token)
         assert status == "released"
@@ -168,28 +180,41 @@ def test_stale_active_claim_with_terminal_job_is_recovered(tmp_path: Path) -> No
             "SELECT status FROM ops WHERE id=?", (map_op_id,)
         ).fetchone()
         assert op is not None
-        assert op["status"] == "undone"
+        assert op["status"] == "applied"
     finally:
         project.close()
         queue.close()
 
 
 def test_running_job_claim_still_blocks(tmp_path: Path) -> None:
-    project, map_op_id, claim_token, queue = _prepare_undo_with_synthetic_claim(
-        tmp_path
-    )
+    project, map_op_id, claim_token, queue = _prepare_with_synthetic_claim(tmp_path)
     try:
         # The job stays claimed ("running") -- never completed/failed/cancelled.
-        undo = run_action_spec(
+        sheet_id = int(
+            project.db.execute(
+                "SELECT sheet_id FROM runs WHERE op_id=?", (map_op_id,)
+            ).fetchone()[0]
+        )
+        column = project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='rendered_note'",
+            (sheet_id,),
+        ).fetchone()[0]
+        row = project.visible_row_ids(sheet_id)[0]
+        result = run_action_spec(
             project,
-            _undo_action(
-                expected_op_id=map_op_id, key="undo_blocked_by_running@sha256:v1"
-            ),
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [{"row_id": row, "column_id": column, "value": "manual"}]
+                },
+                "idempotency_key": "replace_blocked_by_running",
+            },
             project_id=PROJECT_ID,
         )
-        assert undo.status == "failed"
-        assert undo.errors[0].code == "output_column_busy"
-        assert undo.errors[0].details["requires_recovery"] is True
+        assert result.status == "failed"
+        assert result.errors[0].code == "output_column_busy"
+        assert result.errors[0].details["requires_recovery"] is True
 
         status, _details = _claim_status(project, claim_token)
         assert status == "active"
@@ -284,53 +309,23 @@ def test_finalize_fallback_closes_run_bound_tuple_when_envelope_is_unreconstruct
         project.close()
 
 
-def test_finalize_fallback_refuses_run_reopened_before_terminal_fence(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_terminal_repair_cannot_reopen_completed_change(tmp_path: Path) -> None:
     project, run_id, receipt_id, claim_token = _seed_terminal_fallback_tuple(
-        tmp_path,
-        suffix="reopen_race",
+        tmp_path, suffix="closed_change"
     )
     try:
-        terminalize = queued_actions_module.queued_v1_terminal_receipt_result
-
-        def reopen_then_terminalize(*args: Any, **kwargs: Any) -> Any:
-            admission = RunResultStore(project).begin_run_resume(run_id)
-            assert admission.admitted
-            return terminalize(*args, **kwargs)
-
-        monkeypatch.setattr(
-            queued_actions_module,
-            "queued_v1_terminal_receipt_result",
-            reopen_then_terminalize,
+        # Explicit Retry is a new Change; this old completed owner cannot reopen.
+        assert not RunResultStore(project).begin_run_resume(run_id).admitted
+        result = queued_v1_finalize_action_result(
+            project,
+            {"action_kind": "map.extract", "v1_receipt_id": receipt_id},
+            project_id=PROJECT_ID,
+            run_id=run_id,
         )
-
-        with pytest.raises(
-            StaleAttemptWriter,
-            match="terminal_run_receipt_repair_has_writer",
-        ):
-            queued_v1_finalize_action_result(
-                project,
-                {
-                    "action_kind": "map.extract",
-                    "v1_receipt_id": receipt_id,
-                },
-                project_id=PROJECT_ID,
-                run_id=run_id,
-            )
-
-        reopened = project.db.execute(
-            "SELECT status, finished_at FROM runs WHERE id=?",
-            (run_id,),
-        ).fetchone()
-        assert reopened is not None
-        assert tuple(reopened) == ("running", None)
-        receipt = ReceiptStore(project).find_by_id(receipt_id)
-        assert receipt is not None
-        assert receipt.status == "queued"
-        status, _details = _claim_status(project, claim_token)
-        assert status == "active"
+        assert result.status == "failed"
+        assert RunResultStore(project).get_run(run_id)["status"] == "completed"
+        assert ReceiptStore(project).find_by_id(receipt_id).status == "failed"
+        assert _claim_status(project, claim_token)[0] == "failed"
     finally:
         project.close()
 

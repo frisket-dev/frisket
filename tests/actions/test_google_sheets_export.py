@@ -143,8 +143,8 @@ def test_renamed_derived_params_are_admitted_once_and_pinned_for_worker(export_c
         project,
         {"action_job": envelope.to_json()},
         executor_lookup=lambda _kind: (
-            lambda project_, envelope_: run_google_sheets_action_job(
-                project_, envelope_, deps=deps
+            lambda project_, envelope_, *, execution: run_google_sheets_action_job(
+                project_, envelope_, execution=execution, deps=deps
             )
         ),
     )
@@ -186,7 +186,11 @@ def test_worker_refuses_tampered_queue_authority_before_provider(export_case, ta
         )
     else:
         envelope = replace(envelope, receipt_id="unrelated")
-    result = run_google_sheets_action_job(project, envelope, deps=deps)
+    from frisket.execution.dispatch_control import STANDALONE
+
+    result = run_google_sheets_action_job(
+        project, envelope, execution=STANDALONE, deps=deps
+    )
     assert result.status == "failed"
     assert result.errors[0].code == (
         "irreversible_external_requires_confirmation"
@@ -304,3 +308,34 @@ def test_interrupted_intent_reservation_rolls_back_before_reraise(
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
     assert calls == []
     assert EffectCheckpointStore(project.db).list_all() == []
+
+
+def test_worker_rechecks_network_and_terminal_replay_skips_fresh_admission(export_case):
+    project, bound, deps, prepared, calls = export_case
+    bound = _confirmed(project, bound, deps)
+    envelope = prepare_google_sheets_action_job(project, "project", bound, deps=deps)
+    project.set_network_policy(mode="off")
+
+    def execute(current, intent, *, execution):
+        return run_google_sheets_action_job(
+            current, intent, execution=execution, deps=deps
+        )
+
+    refused = run_action_run_job(
+        project,
+        {"action_job": envelope.to_json()},
+        executor_lookup=lambda kind: execute,
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "network_disabled"
+    assert not calls
+    # A terminal receipt is returned without admitting any new external effect.
+    project.set_network_policy(mode="on")
+    replay = run_action_run_job(
+        project,
+        {"action_job": envelope.to_json()},
+        executor_lookup=lambda kind: execute,
+    )
+    assert replay.receipt_id == refused.receipt_id
+    assert replay.errors == refused.errors
+    assert not calls

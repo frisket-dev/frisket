@@ -162,7 +162,7 @@ def test_review_get_and_post_bound_large_values_before_full_decode(
     assert historical_field["can_edit"] is False
 
 
-def test_exact_correction_stays_displayed_when_later_run_skips_row(
+def test_manual_edit_does_not_replace_review_saved_answer_when_later_run_skips_row(
     tmp_path: Path,
 ) -> None:
     client, project_id, project, ids = _seed_large_review(tmp_path)
@@ -226,7 +226,7 @@ def test_exact_correction_stays_displayed_when_later_run_skips_row(
 
     assert response.status_code == 200, response.text
     [field] = response.json()["bundles"][0]["fields"]
-    assert field["changed"] is True
-    assert field["value"] == "human correction"
-    assert field["bounded_value"] is None
+    assert field["changed"] is False
+    assert field["value"] is None
+    assert field["bounded_value"]["preview"] == "z" * 2_048
     assert field["can_edit"] is False

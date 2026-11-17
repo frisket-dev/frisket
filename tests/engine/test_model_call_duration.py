@@ -19,6 +19,7 @@ for their perf_counter-derived fields.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -36,6 +37,7 @@ from frisket.ai.models.metadata import (
     duration_ms_value,
 )
 from frisket.engine.store import Project
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.engine.store.runs import RunResultStore
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 
@@ -389,10 +391,14 @@ def _request() -> LLMRequest:
 
 
 def test_router_stamps_the_attempt_it_already_measured() -> None:
-    router = ModelRouter(keys={}, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=0
+    )
     router._adapters["mock"] = _ScriptedAdapter()
     trace: list[dict] = []
-    resp = asyncio.run(router._complete_transport(_request(), trace=trace))
+    resp = asyncio.run(
+        router.for_execution(STANDALONE).complete_transport(_request(), trace=trace)
+    )
     assert resp.duration_ms is not None
     assert isinstance(resp.duration_ms, int)
     assert resp.duration_ms >= 0
@@ -512,9 +518,7 @@ def test_structured_sum_preserves_each_authoritative_execution_receipt() -> None
 
 def test_group_summary_uses_authoritative_cloud_execution_identity() -> None:
     from frisket.ai.llm.types import LLMActualAccounting
-    from frisket.engine.executor.group_summary_runtime import (
-        _reduce_group_summary_model_call,
-    )
+    from frisket.ai.models.accounting import wire_accounting_meta
 
     fact = {
         "id": "cloud-execution-1",
@@ -543,7 +547,10 @@ def test_group_summary_uses_authoritative_cloud_execution_identity() -> None:
         ),
     )
 
-    assert _reduce_group_summary_model_call("anthropic/model-a", response) == fact
+    accounting = wire_accounting_meta("anthropic/model-a", [response])
+    assert accounting["model_calls"] == [fact]
+    assert accounting["cost"] == 0.025
+    assert accounting["execution_receipts"] == [{"charge_micro": 25_000}]
 
 
 def test_replayed_response_reports_no_duration(tmp_path) -> None:
@@ -575,8 +582,16 @@ def test_replayed_response_reports_no_duration(tmp_path) -> None:
         == 987
     )
 
-    router = ModelRouter(keys={}, max_retries=0, cache=cache, cache_mode="replay")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={},
+        max_retries=0,
+        cache=cache,
+        cache_mode="replay",
+    )
     router._adapters["mock"] = _ScriptedAdapter()
-    resp = asyncio.run(router._complete_transport(req, recipe_version="1"))
+    resp = asyncio.run(
+        router.for_execution(STANDALONE).complete_transport(req, recipe_version="1")
+    )
     assert resp.cached is True
     assert resp.duration_ms is None

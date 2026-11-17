@@ -72,6 +72,24 @@ def latest_revision(db: sqlite3.Connection) -> int:
     return 0 if row is None else int(row[0])
 
 
+def reserve_revision(db: sqlite3.Connection) -> int:
+    """Advance the shared authority clock without scheduling content indexing.
+
+    Cell revisions already use this AUTOINCREMENT high-water mark. Judgments
+    change input-selection guards but not searchable values. Reserving a gap
+    keeps subsequent value writes strictly newer without a fake dirty scope.
+    SQLite retains this sequence across acknowledged/deleted work rows.
+    """
+    _require_transaction(db)
+    row = db.execute(
+        "UPDATE sqlite_sequence SET seq=seq+1 WHERE name='search_dirty_scopes' RETURNING seq"
+    ).fetchone()
+    if row is not None:
+        return int(row[0])
+    db.execute("INSERT INTO sqlite_sequence(name,seq) VALUES('search_dirty_scopes',1)")
+    return 1
+
+
 def read_dirty_scopes(db: sqlite3.Connection, *, limit: int) -> list[SearchDirtyScope]:
     if limit <= 0:
         raise ValueError("limit must be positive")

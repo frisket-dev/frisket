@@ -121,12 +121,13 @@ class ResponseCache:
         # content. A replay is accounted as a cache hit and must not repeat a
         # prior user's payer/charge evidence.
         payload["actual_accounting"] = None
-        self.db.execute(
-            "INSERT INTO llm_cache (key, model, response) VALUES (?,?,?) "
-            "ON CONFLICT(key) DO UPDATE SET response=excluded.response",
-            (key, resp.model, json.dumps(payload)),
-        )
-        self.db.commit()
+        payload.pop("prior_wire_calls", None)
+        with self.db:
+            self.db.execute(
+                "INSERT INTO llm_cache (key, model, response) VALUES (?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET response=excluded.response",
+                (key, resp.model, json.dumps(payload)),
+            )
 
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM llm_cache").fetchone()[0]

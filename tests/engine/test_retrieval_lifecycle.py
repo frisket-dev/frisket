@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.engine.historical_schema import restore_pre_domain_schema
+
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cells
 from frisket.engine.store.evidence import (
@@ -17,12 +19,12 @@ from frisket.engine.store.retrieval_lifecycle import (
     read_binding_revisions,
     touch_binding_revisions,
 )
-from frisket.engine.store.retrieval_lifecycle_migration import (
+from frisket.upgrades.project.retrieval_lifecycle_migration import (
     RETRIEVAL_LIFECYCLE_FROM_DIGEST,
     RETRIEVAL_LIFECYCLE_TO_DIGEST,
     migrate_retrieval_lifecycle,
 )
-from frisket.engine.store.execution_metadata_migration import (
+from frisket.upgrades.project.execution_metadata_migration import (
     EXECUTION_METADATA_FROM_DIGEST,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
@@ -39,44 +41,49 @@ def _current_cell_project(tmp_path: Path) -> tuple[Project, int, int, int]:
     return project, sheet_id, row_id, column_id
 
 
-def test_refresh_preserves_revision_until_source_writer_reports_changed_value(
+def test_projection_repair_preserves_revision_until_source_writer_changes_value(
     tmp_path,
 ) -> None:
     project, _sheet_id, row_id, column_id = _current_cell_project(tmp_path)
     before = project.db.execute(
-        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision "
+        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision,base_producer_id "
         "FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
     assert before[0] == "source_cell"
 
+    from frisket.engine.store.cell_projection import (
+        invalidate_region,
+        repair_current_cells,
+    )
+    from helpers import replace_test_source_cell
+
     with project.transaction_scope():
-        refresh_current_cells(project.db, column_ids=[column_id], row_ids=[row_id])
+        invalidate_region(project.db, column_id, row_id, row_id)
+    assert repair_current_cells(project, limit=1) == 1
     unchanged = project.db.execute(
         "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
     assert int(unchanged[0]) == int(before[3])
 
-    with project.db:
-        kind, value = encode_stored_value("second")
-        project.db.execute(
-            "UPDATE cells SET value_kind=?,value=? WHERE row_id=? AND column_id=?",
-            (kind, value, row_id, column_id),
-        )
-        refresh_current_cells(
-            project.db,
-            column_ids=[column_id],
-            row_ids=[row_id],
-            source_values_changed=True,
-        )
-
+    replace_test_source_cell(
+        project, row_id=row_id, column_id=column_id, value="second"
+    )
     after = project.db.execute(
-        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision "
+        "SELECT origin_kind,origin_op_id,origin_run_id,retrieval_revision,base_producer_id "
         "FROM current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
-    assert tuple(after[:3]) == tuple(before[:3])
+    assert after[0] == "source_cell" and after[4] != before[4]
+    assert project.get_values(_sheet_id, column_id)[row_id] == "second"
+    assert [
+        row[0]
+        for row in project.db.execute(
+            "SELECT value FROM cells WHERE row_id=? AND column_id=? ORDER BY producer_id",
+            (row_id, column_id),
+        )
+    ] == ["first", "second"]
     assert int(after[3]) > int(before[3])
     assert int(after[3]) == latest_revision(project.db)
 
@@ -98,7 +105,6 @@ def test_revision_allocation_and_projection_roll_back_together(tmp_path) -> None
         project.db,
         column_ids=[column_id],
         row_ids=[row_id],
-        source_values_changed=True,
     )
     assert (
         read_binding_revision(project.db, row_id=row_id, column_id=column_id)
@@ -194,6 +200,7 @@ def test_exact_prior_bundle_migrates_without_rewriting_history(tmp_path) -> None
     project, _sheet_id, row_id, column_id = _current_cell_project(path)
     # _current_cell_project nests its conventional project directory.
     bundle_path = project.path
+    restore_pre_domain_schema(project.db)
     history_before = [
         tuple(row)
         for row in project.db.execute(
@@ -247,6 +254,7 @@ def test_migration_rolls_back_column_revision_and_work_on_failed_stamp(
 ) -> None:
     project, _sheet_id, _row_id, _column_id = _current_cell_project(tmp_path)
     db = project.db
+    restore_pre_domain_schema(db)
     _remove_document_text_authority(db)
     db.execute("ALTER TABLE current_cells DROP COLUMN retrieval_revision")
     db.execute(

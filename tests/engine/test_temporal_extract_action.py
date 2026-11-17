@@ -318,6 +318,15 @@ def test_extract_projects_compatible_typed_annotations_only(tmp_path: Path) -> N
             item.ref.get("kind") == "temporal_annotation_projection"
             for item in receipt.evidence
         )
+        output_columns = {output.column_id for output in result.outputs}
+        assert project.undo() == result.op_ids[0]
+        assert all(
+            project.get_column(column)["active"] == 0 for column in output_columns
+        )
+        assert project.redo() == result.op_ids[0]
+        assert all(
+            project.get_column(column)["active"] == 1 for column in output_columns
+        )
     finally:
         project.close()
 

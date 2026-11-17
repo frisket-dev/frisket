@@ -57,7 +57,10 @@ def search_with_encoding(
         raise InterruptedError("retrieval search was stopped")
     if request.scope.is_empty or (
         not (project.path / RETRIEVAL_DB_NAME).is_file()
-        and project.db.execute("SELECT 1 FROM current_cells LIMIT 1").fetchone() is None
+        and project.db.execute(
+            "SELECT 1 FROM effective_current_cells LIMIT 1"
+        ).fetchone()
+        is None
     ):
         return empty_search_response(request)
     if reranker is None and request.ranking.rerank != "off":

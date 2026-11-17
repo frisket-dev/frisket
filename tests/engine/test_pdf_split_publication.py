@@ -8,7 +8,11 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store import op_log
-from frisket.engine.store.import_sessions import ImportInProgress, ImportSessionConflict
+from frisket.engine.store.import_sessions import (
+    ImportInProgress,
+    ImportSessionConflict,
+    ImportSessionStore,
+)
 from frisket.engine.store.pdf_split import PdfSplitSource, PdfSplitWriter
 from frisket.engine.executor.import_read_guard import require_action_sheet_readable
 from frisket.actions.types import TableError
@@ -56,6 +60,51 @@ def _children(count):
     return [{"file": {"blob": f"{index + 10:064x}"}} for index in range(count)]
 
 
+def test_null_split_membership_projects_selective_restore_after_later_deletion(
+    tmp_path,
+):
+    from frisket.engine.executor.actions import run_action_spec
+
+    project = Project.create(tmp_path / "split-membership.frisket")
+    try:
+        sheet, column, rows, values = _seed(project)
+        writer = _start(project, sheet, column, rows, values)
+        children = writer.publish_source([{"file": None}] * 2, expected_cursor=0)
+        publication = writer.finalize(expected_cursor=1, stopped=True)
+        assert {
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT object_id,before_visible,after_visible FROM structural_changes "
+                "WHERE op_id=? AND kind='row'",
+                (publication.op_id,),
+            )
+        } == {(rows[0], 1, 0), *((child, 0, 1) for child in children)}
+        assert project.undo() == publication.op_id
+        assert project.visible_row_ids(sheet) == rows
+        assert project.redo() == publication.op_id
+        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+        deleted = run_action_spec(
+            project,
+            {
+                "action_id": "row.delete",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet, "row_ids": [children[0]]},
+                "idempotency_key": "delete-split-child",
+            },
+            project_id="project",
+        )
+        assert deleted.status == "completed", deleted.errors
+        for direction in ("revert", "restore"):
+            with project.transaction_scope():
+                op_log.step_operation(project, direction, op_id=publication.op_id)
+        # Restoring the split must respect the independent later deletion.
+        assert project.visible_row_ids(sheet) == [children[1], *rows[1:]]
+        assert project.undo() == deleted.op_ids[0]
+        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+    finally:
+        project.close()
+
+
 def test_partial_split_is_one_fenced_operation_and_one_undo(tmp_path: Path):
     project = Project.create(tmp_path / "partial.frisket", name="partial")
     try:
@@ -64,8 +113,6 @@ def test_partial_split_is_one_fenced_operation_and_one_undo(tmp_path: Path):
         writer = _start(project, sheet, column, rows, values)
         with pytest.raises(ImportInProgress):
             project.add_rows(sheet, [{"file": values[2]}], {"file": column})
-        with pytest.raises(ImportInProgress):
-            project.undo()
         with pytest.raises(TableError, match="unavailable"):
             require_action_sheet_readable(project, sheet)
         children = writer.publish_source(_children(2), expected_cursor=0)
@@ -227,6 +274,9 @@ def test_split_membership_survives_bundle_export_and_schema_upgrade(tmp_path: Pa
         sheet, column, rows, values = _seed(project)
         # The exact preceding release had all the current data and no split
         # ledger; reopening must add it without replacing any authority.
+        from tests.engine.historical_schema import restore_pre_domain_schema
+
+        restore_pre_domain_schema(project.db)
         project.db.execute("DROP TABLE import_session_pdf_sources")
         project.db.execute(
             "UPDATE meta SET value=? WHERE key='schema_digest'",
@@ -574,7 +624,9 @@ def test_split_refuses_ordinary_import_finalize_and_removal(tmp_path: Path):
         project.close()
 
 
-def test_active_new_sheet_split_survives_source_sheet_deletion(tmp_path: Path):
+def test_completed_split_pages_survive_source_deletion_while_remaining_work_stops(
+    tmp_path: Path,
+):
     project = Project.create(tmp_path / "deleted-source.frisket", name="deleted-source")
     try:
         sheet, column, rows, values = _seed(project)
@@ -582,10 +634,10 @@ def test_active_new_sheet_split_survives_source_sheet_deletion(tmp_path: Path):
         destination = writer.sheet_id
         children = writer.publish_source(_children(2), expected_cursor=0)
         project.delete_sheet(sheet)
-        with pytest.raises(ImportSessionConflict, match="source"):
+        with pytest.raises(ImportSessionConflict, match="stale"):
             writer.publish_source(_children(3), expected_cursor=1)
-        writer.fail_source(expected_cursor=1, error="The source sheet was deleted.")
-        publication = writer.finalize(expected_cursor=2)
+        assert ImportSessionStore(project).get("split:one").state == "cancelled"
+        publication = writer.finalize(expected_cursor=1, stopped=True)
         assert publication.receipt.status == "partial"
         assert publication.row_count == 2
         assert project.visible_row_ids(destination) == children
@@ -594,20 +646,40 @@ def test_active_new_sheet_split_survives_source_sheet_deletion(tmp_path: Path):
         ).fetchall()
         assert [tuple(row) for row in facts] == [
             (sheet, rows[0], column, "published"),
-            (sheet, rows[1], column, "failed"),
+            (sheet, rows[1], column, "pending"),
         ]
-        # sheet.delete is a newer irreversible history barrier. Its existence
-        # does not change the split primitive's durable saved-output behavior.
-        operation = project.db.execute(
-            "SELECT * FROM ops WHERE id=?", (publication.op_id,)
-        ).fetchone()
+        # Selective reversion changes application authority, not saved payloads.
+        from frisket.engine.store.op_log import step_operation
+
         project.db.execute("BEGIN IMMEDIATE")
-        project._unapply(operation)
+        step_operation(project, "revert", op_id=publication.op_id)
         project.db.commit()
         assert destination not in [row["id"] for row in project.sheets()]
         project.db.execute("BEGIN IMMEDIATE")
-        project._reapply(operation)
+        step_operation(project, "restore", op_id=publication.op_id)
         project.db.commit()
         assert project.visible_row_ids(destination) == children
+    finally:
+        project.close()
+
+
+def test_undo_active_split_stops_acquisition_and_redo_only_restores_saved_children(
+    tmp_path,
+):
+    project = Project.create(tmp_path / "undo-live-split.frisket")
+    try:
+        sheet, column, rows, values = _seed(project)
+        writer = _start(project, sheet, column, rows, values)
+        children = writer.publish_source(_children(2), expected_cursor=0)
+        project.undo()
+        assert project.visible_row_ids(sheet) == rows
+        assert ImportSessionStore(project).get("split:one").state == "removed"
+        with pytest.raises(ImportSessionConflict):
+            writer.publish_source(_children(3), expected_cursor=1)
+        project.redo()
+        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+        assert ImportSessionStore(project).get("split:one").state == "removed"
+        with pytest.raises(ImportSessionConflict):
+            writer.publish_source(_children(3), expected_cursor=1)
     finally:
         project.close()

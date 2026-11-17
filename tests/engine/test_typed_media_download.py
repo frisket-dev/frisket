@@ -1,3 +1,4 @@
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 from dataclasses import replace
 import threading
@@ -77,10 +78,7 @@ def test_unaccepted_download_never_backfills_channels(tmp_path, monkeypatch, dis
             "params": {"source": "url"},
             "idempotency_key": "unaccepted",
         }
-        router = ModelRouter()
-        quote = run_action_spec(project, body, project_id="unaccepted", router=router)
-        assert quote.status == "needs_confirmation", quote.errors
-        body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         if not discard:
             from frisket.engine.executor import actions
             from frisket.engine.store.runs import RunResultStore
@@ -202,11 +200,7 @@ def test_typed_download_publication_and_replay(
             "output_names": {media_type: "media"},
             "idempotency_key": "download-proof",
         }
-        router = ModelRouter()
-        quote = run_action_spec(project, body, project_id="download", router=router)
-        assert quote.status == "needs_confirmation", quote.errors
-        assert not calls
-        body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         result = run_action_spec(project, body, project_id="download", router=router)
         expected_status = "completed" if sidecars else "partial"
         assert result.status == expected_status, result.model_dump(mode="json")
@@ -276,10 +270,7 @@ def test_downloader_is_reusable_with_renamed_params_and_derived_url(
             "params": {"address": "url"},
             "idempotency_key": "derived",
         }
-        router = ModelRouter()
-        quote = run_action_spec(project, body, project_id="derived", router=router)
-        assert quote.status == "needs_confirmation", quote.errors
-        body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         result = run_action_spec(project, body, project_id="derived", router=router)
         assert result.status == "completed", result.model_dump(mode="json")
         assert calls == ["https://example.test/media?derived=1"]
@@ -306,23 +297,36 @@ def test_cannot_forge_download_with_serialized_blob():
         )
 
 
-def test_preview_requires_consent_before_downloading(tmp_path, monkeypatch):
+def test_known_free_preview_admits_a_job_without_downloading_before_start(
+    tmp_path, monkeypatch, request
+):
+    from types import SimpleNamespace
+
     from frisket.server.workspace import Workspace
     from frisket.server.services.action_preview_runs import ActionPreviewRunService
 
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     workspace.create("Preview", project_id="preview")
     project = workspace.get("preview")
+    request.addfinalizer(project.close)
     sheet = project.add_sheet("Data")
     col = project.add_column(sheet, "url", type="text")
     project.add_rows(sheet, [{"url": "https://example.test/media"}], {"url": col})
     service = ActionPreviewRunService(workspace)
 
     def unexpected(*_args, **_kwargs):
-        raise AssertionError("preview must not download or start a job")
+        raise AssertionError(
+            "preview admission must not download before its job starts"
+        )
 
     monkeypatch.setattr("frisket.ops.ytdlp.download_media", unexpected)
-    monkeypatch.setattr(service._registry, "start", unexpected)
+    starts = []
+
+    def start(project_id, total, run, **kwargs):
+        starts.append((project_id, total, run))
+        return SimpleNamespace(id="known-free-preview")
+
+    monkeypatch.setattr(service._registry, "start", start)
     response = service.start_preview(
         "preview",
         {
@@ -332,10 +336,11 @@ def test_preview_requires_consent_before_downloading(tmp_path, monkeypatch):
             "idempotency_key": "preview",
         },
     )
-    assert response.status_code == 402, response.payload
-    assert response.payload["error"]["code"] == "cost_gate"
-    assert response.payload["error"]["needs_confirmation"] is True
-    assert response.payload["error"]["details"]["promise_set_hash"]
+    assert response.status_code == 202, response.payload
+    assert response.payload["preview_id"] == "known-free-preview"
+    assert len(starts) == 1
+    assert starts[0][:2] == ("preview", 1)
+    assert callable(starts[0][2])
 
 
 def test_channel_backfill_rechecks_current_source(tmp_path):
@@ -468,12 +473,7 @@ def test_download_batch_uses_two_row_slots(tmp_path, monkeypatch):
             "params": {"source": "url", "media_type": "video"},
             "idempotency_key": "bounded-downloads",
         }
-        router = ModelRouter()
-        quote = run_action_spec(
-            project, body, project_id="bounded", router=router, deps=deps
-        )
-        assert quote.status == "needs_confirmation"
-        body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
         result = run_action_spec(
             project, body, project_id="bounded", router=router, deps=deps
         )

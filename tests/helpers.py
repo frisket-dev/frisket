@@ -8,9 +8,11 @@ one `sys.modules["conftest"]` slot.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import importlib.util
 import io
+import json
 import logging
 import os
 import sys
@@ -28,6 +30,24 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter, ResponseCache
 from frisket.server.app import create_app
 from frisket.testing import llm_cache_path
+
+
+def stored_output_descriptor(db: Any, column_id: int) -> str:
+    """Freeze the real column descriptor for raw generation-storage fixtures."""
+    row = db.execute(
+        "SELECT type,format,semantic_type FROM columns WHERE id=?", (column_id,)
+    ).fetchone()
+    if row is None:
+        raise AssertionError(f"missing output descriptor column {column_id}")
+    return json.dumps(
+        {
+            "column_type": row[0],
+            "schema": {},
+            "format": row[1],
+            "semantic_type": row[2],
+        },
+        sort_keys=True,
+    )
 
 
 def replace_test_source_cell(
@@ -48,6 +68,10 @@ def replace_test_source_cell(
     )
 
     target_db = project.db if db is None else db
+    if db is not None:
+        from frisket.engine.store.current_cells import register_current_cell_functions
+
+        register_current_cell_functions(target_db)
 
     def write() -> int:
         if target_db is project.db:
@@ -181,6 +205,13 @@ class RunWriterAuthorityFixture:
             "authorized_attempt_id": self.writer_attempt_id,
         }
 
+    def terminal_kwargs(self) -> dict[str, Any]:
+        return {
+            "writer_attempt_id": self.writer_attempt_id,
+            "claim_token": self.claim_token,
+            "claimless_direct_effect": self.claimless_direct_effect,
+        }
+
 
 def run_writer_authority_fixture(
     project: Any,
@@ -309,6 +340,8 @@ def write_claimed_test_results(
     project: Any,
     run_id: int,
     batch: list[dict[str, Any]],
+    *,
+    output_roles: dict[int, str] | None = None,
     **kwargs: Any,
 ) -> None:
     """Publish a fixture batch through the universal generation protocol.
@@ -324,7 +357,8 @@ def write_claimed_test_results(
     This helper intentionally seals on each call.  Tests for open-generation
     recovery use the lower-level generation helpers directly; silently
     reopening a sealed fixture run here would recreate the retired in-place
-    resume contract.
+    resume contract. Explicit ``output_roles`` names logical outputs when they
+    differ from the physical column labels.
     """
 
     from frisket.engine.runner.result_generations import _compatibility_key
@@ -334,6 +368,13 @@ def write_claimed_test_results(
     output_column_ids = {
         int(item["column_id"]) for item in batch if item.get("column_id") is not None
     }
+    runs = RunResultStore(project)
+    if runs.run_row_scope_if_present(run_id) is None:
+        # This fixture publishes one complete batch, so that batch is its
+        # declared cohort. Never replace a scope the caller already froze.
+        runs.record_run_row_scope(
+            run_id, list(dict.fromkeys(int(item["row_id"]) for item in batch))
+        )
     authority = run_writer_authority_fixture(
         project,
         run_id,
@@ -379,7 +420,7 @@ def write_claimed_test_results(
                 output_role=(
                     base_binding.output_role
                     if base_binding is not None
-                    else str(column["name"])
+                    else (output_roles or {}).get(column_id, str(column["name"]))
                 ),
                 compatibility_key=(
                     base_binding.compatibility_key
@@ -543,6 +584,7 @@ def make_client(
 def replay_router() -> ModelRouter:
     """The canonical replay-strict router over the committed LLM cache."""
     return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "k", "gemini": "k", "openai": "k"},
         cache=ResponseCache(llm_cache_path()),
         cache_mode="replay_strict",

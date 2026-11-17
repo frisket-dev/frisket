@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import json
 import logging
 import os
@@ -98,22 +100,19 @@ class _SnapshotCloudConnectionStore:
 
 
 @runtime_checkable
-class DirectActionReceiptSettlementPort(Protocol):
-    """Edition-owned settlement after a direct receipt is durable and terminal.
+class ImportChildAdmissionPort(Protocol):
+    """Edition-owned admission for an already-consented deferred import child."""
 
-    Unlike the worker ``SettlementPort``, this boundary has no queue row and
-    therefore no ``job.org_id`` authority.  The composing edition validates
-    its own opaque context from the receipt sidecar; public code supplies only
-    the already-open project and the durable receipt identity.
-    """
-
-    def settle_action_receipt(
+    def admit_import_child(
         self,
         *,
         project: Any,
         project_id: str,
-        receipt_id: str,
-    ) -> None: ...
+        parent_receipt_id: str,
+        child_key: str,
+        quote: Mapping[str, Any],
+        receipt_id: str | None = None,
+    ) -> Any: ...
 
 
 class DataRootUnwritable(RuntimeError):
@@ -185,8 +184,7 @@ class Workspace:
         models_gateway_connection_resolver: Callable[[], ModelsGatewayConnection | None]
         | None = None,
         action_observer: ActionObserver | None = None,
-        direct_action_receipt_settlement_port: DirectActionReceiptSettlementPort
-        | None = None,
+        import_child_admission_port: ImportChildAdmissionPort | None = None,
         project_qa_runtime_port: ProjectQARuntimePort | None = None,
         plugin_composition_policy: PluginCompositionPolicy | None = None,
         edition: str = "solo",
@@ -252,17 +250,14 @@ class Workspace:
         self.action_observer = action_observer
         self.search_preparation_import_completed = None
         self.search_preparation_enclosure_downloaded = None
-        if direct_action_receipt_settlement_port is not None and not isinstance(
-            direct_action_receipt_settlement_port,
-            DirectActionReceiptSettlementPort,
+        if import_child_admission_port is not None and not isinstance(
+            import_child_admission_port,
+            ImportChildAdmissionPort,
         ):
             raise TypeError(
-                "direct action receipt settlement port must satisfy "
-                "DirectActionReceiptSettlementPort"
+                "import child admission port must satisfy ImportChildAdmissionPort"
             )
-        self.direct_action_receipt_settlement_port = (
-            direct_action_receipt_settlement_port
-        )
+        self.import_child_admission_port = import_child_admission_port
         self.project_secret_fallback_resolver = project_secret_fallback_resolver
         self.project_blob_store_factory = project_blob_store_factory
         self.project_opener = project_opener or self._derived_project_opener()
@@ -280,12 +275,7 @@ class Workspace:
             control_database_url=control_database_url,
             executor_deps_factory=self.executor_deps_factory,
             notification_delivery_runtime=self.notification_delivery_runtime,
-            # Edition ports for this workspace's in-process worker. None for the
-            # open/local server (open defaults: no settlement, no admission).
-            # An external managed composition injects its settlement +
-            # spend-capped credential ports here — the funding
-            # reconcile used to be hardwired into the shared handler, so this is
-            # where it stays wired for that composition.
+            # Edition credentials and admission for this in-process worker.
             worker_ports=worker_ports,
             require_storage_identity=require_storage_identity,
             # Declared storage posture, not path inference: an external managed
@@ -507,7 +497,9 @@ class Workspace:
             return local_search_service(self.root)
         else:
             keys = {}
-        return configured_search_service(self.root, effective_keys=keys)
+        return configured_search_service(
+            self.root, effective_keys=keys, credential_source="org_byok"
+        )
 
     def router_for(self, project: Project) -> ModelRouter:
         """Return the ordinary workspace router for non-action consumers."""
@@ -605,9 +597,9 @@ class Workspace:
                     if base_router is not None
                     else self._local_endpoints()
                 ),
-                model_call_policy=(
-                    base_router.model_call_policy if base_router is not None else None
-                ),
+                model_call_policy=base_router.model_call_policy
+                if base_router is not None
+                else LOCAL_PURCHASE_POLICY,
             )
         # Pure local tier: workspace file keys underneath any per-project keys,
         # plus the resolved atomic local-model endpoint bundle (origin/tokens/
@@ -618,6 +610,7 @@ class Workspace:
         local_endpoints = self._local_endpoints()
         if keys:
             return ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys=keys,
                 key_sources={
                     **dict.fromkeys(self._local_provider_keys(), "local"),
@@ -629,6 +622,7 @@ class Workspace:
                 local_endpoints=local_endpoints,
             )
         return ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=cache,
             cache_mode=self._local_cache_mode,
             env_key_source="local",
@@ -837,7 +831,7 @@ class Workspace:
         ``.frisket/provider_keys.json`` file keys (same precedence as
         ``router_for``'s pure-local branch: env wins per
         ``resolve_effective_keys``) instead of a bare env-only
-        ``ModelRouter()``.
+        ``ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)``.
 
         CACHE POSTURE (deliberate, and what ``/api/diagnose``'s replay-mode
         probe reports): every reconstructed branch below carries the SAME
@@ -864,6 +858,7 @@ class Workspace:
         if self._provider_keys_resolver is not None:
             keys = dict(self._provider_keys_resolver())
             return ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys=keys,
                 key_sources=dict.fromkeys(keys, "org_byok"),
                 use_env_keys=False,
@@ -884,6 +879,7 @@ class Workspace:
         keys = self._local_provider_keys()
         local_endpoints = self._local_endpoints()
         return ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys=keys,
             key_sources=dict.fromkeys(keys, "local"),
             env_key_source="local",
@@ -1017,19 +1013,12 @@ class Workspace:
                 raise HTTPException(404, f"no project '{project_id}'")
             project = self._open_project(project_id, path)
             try:
-                from frisket.server.extraction_layouts_upgrade import (
-                    LEGACY_EXTRACTION_LAYOUTS_META_KEY,
-                    LEGACY_EXTRACTION_LAYOUTS_VERSION,
-                    upgrade_legacy_extraction_layouts,
-                )
+                from frisket.upgrades.project import upgrade_project
 
-                if (
-                    project.get_meta(LEGACY_EXTRACTION_LAYOUTS_META_KEY)
-                    != LEGACY_EXTRACTION_LAYOUTS_VERSION
-                ):
-                    with self._saved_recipes_lock:
-                        recipes = self._read_saved_recipes()
-                    upgrade_legacy_extraction_layouts(project, project_id, recipes)
+                with self._saved_recipes_lock:
+                    upgrade_project(
+                        project, project_id=project_id, recipes=self._read_saved_recipes
+                    )
                 self._attach_project_jobs(project_id, project)
             except BaseException:
                 project.close()
@@ -1064,6 +1053,32 @@ class Workspace:
                 return None
 
         setattr(project, "_frisket_schedule_search_index", schedule_search)
+
+        def request_source_verification(bundle_id: int) -> int | None:
+            from frisket.engine.jobs.source_verification import (
+                enqueue_source_verification,
+            )
+
+            try:
+                return enqueue_source_verification(
+                    project,
+                    self.queue,
+                    {
+                        **self.queue_payload_extra,
+                        "project_id": project_id,
+                        "workspace_root": str(self.root),
+                    },
+                    bundle_id,
+                )
+            except Exception:
+                # No source mutation schedules a scan. A later explicit read
+                # can retry this enqueue without claiming an unknown result is fresh.
+                _log.warning("source_verification_enqueue_failed", exc_info=True)
+                return None
+
+        setattr(
+            project, "_frisket_request_source_verification", request_source_verification
+        )
 
         def retry_retrieval_encoder() -> int:
             from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE

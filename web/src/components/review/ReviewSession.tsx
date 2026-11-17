@@ -56,9 +56,9 @@ function FieldDecision({ field, controller: c, onSelectItem, selectableItemIndic
       rejectLabel={`Reject ${field.columnName}`} acceptPressed={field.reviewDecision === 'accept'}
       rejectPressed={field.reviewState === 'rejected'} acceptDisabled={c.busy || c.readOnly} rejectDisabled={c.busy || c.readOnly}
       onAccept={() => c.toggle(field, 'accept')} onReject={() => c.toggle(field, 'reject')}
-      edit={{ label: `Edit ${field.columnName}`, pressed: editing || field.reviewDecision === 'edit',
+      edit={{ label: `Edit ${field.columnName}`, pressed: editing,
         disabled: c.busy || c.readOnly || !editable || editUnavailable,
-        title: editUnavailable ? editUnavailableMessage : 'Edit (E) — counts as incorrect', onClick: () => c.startEdit(field) }} />
+        title: editUnavailable ? editUnavailableMessage : 'Edit cell (E)', onClick: () => c.startEdit(field) }} />
     <div className={styles.value} onClick={(event) => {
       const target = event.target;
       if (!c.busy && (!(target instanceof Element) || !target.closest('a, button, input, select, textarea, [role="button"]'))) c.selectField(field.id);

@@ -25,7 +25,24 @@ def cleanup(argv: list[str]) -> int:
         action="store_true",
         help="delete unused files (confirms all workspace users have been stopped)",
     )
+    for kind in ("sheet", "column", "row"):
+        parser.add_argument(
+            f"--purge-{kind}",
+            type=int,
+            action="append",
+            default=[],
+            help=f"permanently remove this {kind} ID and its recovery content (repeatable; requires --apply)",
+        )
     args = parser.parse_args(argv)
+    selected = {
+        "sheet_ids": args.purge_sheet,
+        "column_ids": args.purge_column,
+        "row_ids": args.purge_row,
+    }
+    if any(selected.values()) and not args.apply:
+        parser.error(
+            "permanent removal requires --apply; ordinary cleanup defaults to a dry run"
+        )
     path = Path(args.project).expanduser().resolve()
     if not path.is_dir() or not (path / "project.db").is_file():
         print(f"frisket cleanup: not a project bundle: {path}", file=sys.stderr)
@@ -42,9 +59,29 @@ def cleanup(argv: list[str]) -> int:
         # Same root as the local launcher/Desktop/standalone server. Independent
         # library clients remain the operator's offline-maintenance responsibility.
         with StandaloneLifetimeLock(path.parent):
-            project = Project(path)
+            project = Project(path, maintenance=True)
             try:
-                summary = reclaim_local_blobs(project, dry_run=not args.apply)
+                from frisket.engine.store.purge import begin_purge, finish_purge
+
+                pending = [
+                    row[0]
+                    for row in project.db.execute(
+                        "SELECT id FROM project_purges WHERE phase!='complete' ORDER BY id"
+                    )
+                ]
+                if pending and not args.apply:
+                    raise ValueError(
+                        "Permanent cleanup is unfinished; resume with --apply"
+                    )
+                completed = [finish_purge(project, identity) for identity in pending]
+                if any(selected.values()):
+                    identity = begin_purge(project, **selected)
+                    completed.append(finish_purge(project, identity))
+                summary = (
+                    completed[-1]
+                    if completed
+                    else reclaim_local_blobs(project, dry_run=not args.apply)
+                )
             finally:
                 project.close()
     except StandaloneAlreadyRunning:

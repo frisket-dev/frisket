@@ -192,6 +192,51 @@ class ActionPreviewService:
                 )
 
                 capabilities = getattr(typed.action.definition.run, "capabilities", ())
+                from frisket.actions.types import SheetRefresher
+
+                if capabilities == (SheetRefresher,):
+                    from frisket.engine.executor.sheet_refresh_action import (
+                        prepare_sheet_refresh_action,
+                        _RefreshRefused,
+                    )
+                    from frisket.engine.executor.embedding_read import TableReadRefused
+
+                    try:
+                        refresh = prepare_sheet_refresh_action(
+                            get_project(),
+                            project_id,
+                            typed,
+                            edition=self._workspace.edition,
+                        )
+                    except (
+                        _RefreshRefused,
+                        TableReadRefused,
+                        GroupSummaryRefused,
+                    ) as exc:
+                        raise ActionPreviewRouteError(
+                            400, exc.error.model_dump(mode="json"), bare_json=True
+                        ) from exc
+                    estimate = (
+                        _prepared_model_estimate(
+                            typed, refresh.prepared_group, consent_coverage=coverage
+                        )
+                        if refresh.prepared_group is not None
+                        else {
+                            "rows": refresh.prepared.row_count,
+                            "cost": 0.0,
+                            "cost_source": "free_local",
+                            "billed_cost": 0.0,
+                            "policy_id": default_pricing_policy().policy_id,
+                            "requires_confirmation": False,
+                        }
+                    )
+                    return {
+                        "schema_version": ACTION_ESTIMATE_RESULT_SCHEMA_VERSION,
+                        "action": {"kind": typed.action.action_id},
+                        "project_id": project_id,
+                        "estimate": estimate,
+                    }
+
                 if capabilities in ((FindScanner,), (GroupSummarizer,)):
                     prepare = (
                         prepare_find_action
@@ -227,7 +272,9 @@ class ActionPreviewService:
                         admission=False,
                     )
                 elif supports_typed_backfill_action(typed.action.definition.run):
-                    backfill_plan = prepare_backfill_action(get_project(), typed)
+                    backfill_plan = prepare_backfill_action(
+                        get_project(), typed, edition=self._workspace.edition
+                    )
                 else:
                     from frisket.actions.core import MapRows, ModelRows
 
@@ -317,13 +364,13 @@ class ActionPreviewService:
                     estimate,
                     policy=runner.pricing_policy,
                 )
-            if not recipe.consumes_resolution:
-                from frisket.engine.runner.confirmation_context import quoted_usd
+                if not recipe.consumes_resolution:
+                    from frisket.engine.runner.confirmation_context import quoted_usd
 
-                price = quoted_usd(estimate)
-                estimate["requires_confirmation"] = price is None or price > float(
-                    coverage.threshold_usd
-                )
+                    price = quoted_usd(estimate)
+                    estimate["requires_confirmation"] = price is None or price > float(
+                        coverage.threshold_usd
+                    )
         except RowError as exc:
             raise ActionPreviewRouteError(
                 400, _row_input_action_error(action_kind, exc).model_dump(mode="json")

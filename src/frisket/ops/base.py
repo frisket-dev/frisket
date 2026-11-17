@@ -46,8 +46,8 @@ if TYPE_CHECKING:
 # - "metered"     — a priced meter exists (model tokens, per-page, per-call), so
 #                   an absent estimate is a MISSING number, never a free run.
 # - "unpriceable" — the meter itself is unknowable before the run (an arbitrary
-#                   URL has no published price: api_call, fetch_url,
-#                   ytdlp_download). Never free, never guessable — routed through
+#                   API request has no published price: api_call).
+#                   Never free, never guessable — routed through
 #                   an explicit UNKNOWN-cost consent instead.
 #
 # "metered" and "unpriceable" differ in remedy, not in gate: both estimate
@@ -455,6 +455,10 @@ class Recipe:
         canonicalizing entity types the same way the spacy/gliner engines
         do, entities-llm-dispatch-v1). No-op by default."""
         return value
+
+    def model_response_data(self, response: Any, spec: dict) -> Any:
+        """Extract the payload of an unstructured provider response."""
+        return response.data
 
     def normalize_model_output(
         self, data: dict[str, Any], spec: dict, *, row_values: dict[str, Any]

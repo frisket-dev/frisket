@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 from typing import Any
@@ -120,7 +121,12 @@ def test_sheet_list_exposes_cited_column_ids_for_active_evidence_only(
     ws.mkdir()
     ids = _seed(ws)
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     by_id = _list_sheets(client)
 
@@ -136,7 +142,12 @@ def test_sheet_with_zero_evidence_links_reports_empty_list_not_absent_key(
     ws.mkdir()
     ids = _seed(ws)
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     by_id = _list_sheets(client)
 

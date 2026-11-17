@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from frisket.ai.llm import ModelRouter
+from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.cloud_execution import cloud_llm_execution_scope
 from frisket.cloud_runtime_binding import CloudRuntimeBinding, cloud_runtime_binding
 from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
@@ -440,6 +441,10 @@ async def run_preview(
         },
     )
 
+    from frisket.execution.dispatch_control import dispatch_for_context
+
+    router = router.for_execution(dispatch_for_context(ctx))
+    ctx.extras["router"] = router
     values: dict[int, dict[str, dict[str, Any]]] = {}
     total_sample = len(row_ids)
     done = 0
@@ -528,7 +533,9 @@ async def run_preview(
             # Batch recipes compute the whole sample at once; cancel is checked
             # before dispatch and while collecting per-row results.
             values_by_row = {
-                row_id: row_values(
+                row_id: {}
+                if getattr(recipe, "staged_input_capture", None) is not None
+                else row_values(
                     project,
                     recipe,
                     spec,
@@ -543,12 +550,17 @@ async def run_preview(
                 raw_results: dict[int, Any] = {}
             else:
                 try:
-                    async with recipe.execution_scope(
-                        spec, ctx, expected_rows=len(row_ids)
-                    ):
-                        raw_results = await recipe.execute_batch(
-                            values_by_row, spec, ctx
-                        )  # type: ignore[attr-defined]
+                    ready = {
+                        row: values
+                        for row, values in values_by_row.items()
+                        if not getattr(values, "unavailable_inputs", ())
+                    }
+                    raw_results = {}
+                    if ready:
+                        async with recipe.execution_scope(
+                            spec, ctx, expected_rows=len(ready)
+                        ):
+                            raw_results = await recipe.execute_batch(ready, spec, ctx)  # type: ignore[attr-defined]
                 except (SandboxTeardownError, StaleAttemptWriter):
                     raise
                 except (ValueError, RuntimeError) as e:
@@ -563,12 +575,23 @@ async def run_preview(
             for row_id in row_ids:
                 if is_cancelled() and row_id not in raw_results:
                     break
-                cells, _failed, _cost = normalize_batch_row(
-                    raw_results.get(row_id),
-                    field_names,
-                    required_field_names=required_field_names,
-                    managed_publication=managed_publication,
-                )
+                unavailable = getattr(values_by_row[row_id], "unavailable_inputs", ())
+                if unavailable:
+                    from frisket.engine.store.input_availability import (
+                        not_completed_result,
+                    )
+
+                    cells = {
+                        name: not_completed_result(unavailable[0])
+                        for name in field_names
+                    }
+                else:
+                    cells, _failed, _cost = normalize_batch_row(
+                        raw_results.get(row_id),
+                        field_names,
+                        required_field_names=required_field_names,
+                        managed_publication=managed_publication,
+                    )
                 record_row(row_id, cells)
                 values[row_id] = {
                     name: {
@@ -585,9 +608,10 @@ async def run_preview(
             lock = asyncio.Lock()
             worker_count = row_worker_count(recipe, spec)
             semaphore = asyncio.Semaphore(worker_count)
+            stopped: asyncio.CancelledError | None = None
 
             async def one_row(row_id: int) -> None:
-                nonlocal done
+                nonlocal done, stopped
                 async with semaphore:
                     if is_cancelled():
                         return
@@ -625,24 +649,51 @@ async def run_preview(
                     llm_binding = (
                         cloud_binding.llm_binding if cloud_binding is not None else None
                     )
-                    with (
-                        cloud_llm_execution_scope(llm_binding)
-                        if llm_binding is not None
-                        else nullcontext()
-                    ):
-                        cells = await execute_row(
-                            project,
-                            router,
-                            throttle,
-                            recipe,
-                            row_input_values,
-                            spec,
-                            row_ctx,
-                            row_id=row_id,
-                            recorder=None,
-                            required_output_field_names=required_field_names,
-                            managed_publication=managed_publication,
-                        )
+                    try:
+                        with (
+                            cloud_llm_execution_scope(llm_binding)
+                            if llm_binding is not None
+                            else nullcontext()
+                        ):
+                            cells = await execute_row(
+                                project,
+                                router,
+                                throttle,
+                                recipe,
+                                row_input_values,
+                                spec,
+                                row_ctx,
+                                row_id=row_id,
+                                recorder=None,
+                                required_output_field_names=required_field_names,
+                                managed_publication=managed_publication,
+                            )
+                    except asyncio.CancelledError as exc:
+                        cells = {}
+                        calls = list(getattr(exc, "wire_calls", ()) or ())
+                        if field_names:
+                            cells[field_names[0]] = {
+                                "value": None,
+                                "outcome": "cancelled",
+                                **(
+                                    getattr(exc, "accounting", None)
+                                    or (
+                                        wire_accounting_meta(spec["model"], calls)
+                                        if calls
+                                        else {}
+                                    )
+                                ),
+                            }
+                        task = asyncio.current_task()
+                        if not is_cancelled() or (
+                            task is not None and task.cancelling()
+                        ):
+                            record_row(row_id, cells, cloud_binding)
+                            raise
+                        # Stop refuses a new purchase; it must not cancel a sibling
+                        # already waiting for paid work. Retain any earlier repair
+                        # calls attached to this row before joining those siblings.
+                        stopped = stopped or exc
                     async with lock:
                         record_row(row_id, cells, cloud_binding)
                         # Cancellation fence: mirror the durable path — a
@@ -669,6 +720,8 @@ async def run_preview(
                     spec, ctx, expected_rows=total_sample
                 ):
                     await _await_owned_tasks(*(one_row(row_id) for row_id in row_ids))
+                    if stopped is not None:
+                        raise stopped
 
     except BaseException as exc:
         primary = exc

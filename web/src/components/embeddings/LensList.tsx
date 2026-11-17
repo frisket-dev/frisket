@@ -2,7 +2,7 @@ import '../PanelPrimitives.css';
 import '../FormControls.css';
 import { Button } from '../Button';
 import { useCallback, useEffect, useReducer } from 'react';
-import { ApiError, type EmbeddingIndexSummary, type Lens, type LensResolved } from '../../api/open';
+import { ApiError, type EmbeddingIndexSummary, type SavedView, type ViewResolved } from '../../api/open';
 import type { EmbeddingApiPort } from '../../api/ports';
 import { useOpenLens } from './openLensContext';
 import { REFRESH_NEEDED_CODES } from './constants';
@@ -14,19 +14,19 @@ interface LensListProps {
 }
 
 interface LensListState {
-  lenses: Lens[] | null;
+  lenses: SavedView[] | null;
   error: string | null;
   openId: number | null;
-  resolved: LensResolved | null;
+  resolved: ViewResolved | null;
   resolveError: string | null;
   resolving: boolean;
 }
 
 type LensListAction =
-  | { type: 'load_success'; lenses: Lens[] }
+  | { type: 'load_success'; lenses: SavedView[] }
   | { type: 'load_error'; message: string }
   | { type: 'open_start'; lensId: number }
-  | { type: 'resolve_success'; resolved: LensResolved }
+  | { type: 'resolve_success'; resolved: ViewResolved }
   | { type: 'resolve_error'; message: string }
   | { type: 'resolve_done' };
 
@@ -72,11 +72,11 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
   const load = useCallback(async () => {
     if (sheetId == null) return;
     try {
-      const all = await apiPort.listLenses(sheetId);
+      const all = await apiPort.listViews(String(sheetId));
       dispatch({
         type: 'load_success',
         lenses: all.filter((lens) => {
-          const query = (lens.spec?.query ?? {}) as Record<string, unknown>;
+          const query = lens.spec?.selection.similarity ?? {};
           return query.embedding_index_id === index.indexId;
         }),
       });
@@ -102,7 +102,7 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
       try {
         dispatch({
           type: 'resolve_success',
-          resolved: await apiPort.resolveLens(lensId, { limit: 20 }),
+          resolved: await apiPort.resolveView(lensId, { limit: 20 }),
         });
       } catch (error) {
         if (
@@ -165,20 +165,20 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
                 className="embedding-lens-results"
                 data-testid={`embedding-lens-results-${lens.id}`}
               >
-                {state.resolved.rows.length === 0 && (
+                {state.resolved.refs.length === 0 && (
                   <li className="form-hint">No matching rows.</li>
                 )}
-                {state.resolved.rows.map((row) => (
+                {state.resolved.refs.map((row) => (
                   <li
-                    key={row.rowId}
+                    key={row.row_id}
                     className="embedding-lens-result-row"
-                    data-testid={`embedding-lens-result-row-${row.rowId}`}
+                    data-testid={`embedding-lens-result-row-${row.row_id}`}
                   >
-                    <span className="embedding-lens-result-rowid">row {row.rowId}</span>
+                    <span className="embedding-lens-result-rowid">row {row.row_id}</span>
                     <span className="embedding-lens-result-score">
-                      {row.distance != null ? `d ${row.distance.toFixed(3)}` : 'd —'}
+                      {row.search_score != null ? `d ${row.search_score.toFixed(3)}` : 'd —'}
                       {' · '}
-                      {row.score != null ? `score ${row.score.toFixed(3)}` : 'score —'}
+                      {row.similarity_score != null ? `score ${row.similarity_score.toFixed(3)}` : 'score —'}
                     </span>
                   </li>
                 ))}

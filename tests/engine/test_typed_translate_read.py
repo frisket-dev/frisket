@@ -1,3 +1,5 @@
+from frisket.execution.dispatch_control import STANDALONE
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from types import SimpleNamespace
 
 import httpx
@@ -61,7 +63,13 @@ def test_local_translation_receipt_keeps_actual_pinned_artifact_without_rereadin
         sheet = project.add_sheet("Text")
         column = project.add_column(sheet, "text")
         project.add_rows(sheet, [{"text": "Hello"}], {"text": column})
-        router = ModelRouter(keys={}, use_env_keys=False, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={},
+            use_env_keys=False,
+            cache=None,
+            cache_mode="off",
+        )
         deps = ExecutorDeps(
             execution_composition=open_execution_composition(
                 project, router, ExecutionCompositionContext.direct()
@@ -176,7 +184,10 @@ async def test_hosted_actual_response_and_empty_failure_retain_accounting(
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
         ctx = OpContext(
-            project=None, http=http, credential_use_context=CredentialUseContext.open()
+            project=None,
+            http=http,
+            credential_use_context=CredentialUseContext.open(),
+            extras={"standalone_dispatch": STANDALONE},
         )
         spec = {
             "engine": engine,
@@ -331,7 +342,10 @@ async def test_local_provisioning_integrity_cancellation_and_artifact_facts(
     def signal():
         return False
 
-    ctx = OpContext(project=None, extras={"cancelled": signal})
+    ctx = OpContext(
+        project=None,
+        extras={"cancelled": signal, "standalone_dispatch": STANDALONE},
+    )
     spec = {
         "engine": engine,
         "target_language": "Spanish",

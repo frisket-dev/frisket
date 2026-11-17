@@ -104,6 +104,36 @@ def test_scope_obeys_grid_filter_sort_and_ranked_lens_order(tmp_path):
         rows[2],
         rows[1],
     ]
+    from frisket.contracts.http.pdf_packet_splits import PdfPacketSheetScopeRequest
+
+    definition = {
+        "scope": {"kind": "sheet", "sheet_id": sheet},
+        "filters": [{"column_id": rank_column, "condition": {"gte": 2}}],
+        "order": [{"column_id": rank_column, "dir": "desc"}],
+        "limit": 1,
+    }
+    canonical = PdfPacketSheetCreateRequest(
+        sheet_id=sheet,
+        file_column_id=file_column,
+        organization="pages",
+        scope="filtered",
+        selection=definition,
+    )
+    inventory = service.admit(project_id, canonical)
+    assert [source.source_row_id for source in inventory.sources] == [rows[2]]
+    assert (
+        service.order_token(
+            project_id,
+            PdfPacketSheetScopeRequest(
+                sheet_id=sheet,
+                scope="filtered",
+                selection=definition,
+            ),
+        )["order_hash"]
+        == inventory.order_hash
+    )
+    with pytest.raises(ValueError, match="without legacy"):
+        PdfPacketSheetCreateRequest(**{**canonical.model_dump(), "filter_": "{}"})
     ranked = body.model_copy(
         update={
             "ranked_row_ids": [rows[0], rows[2]],

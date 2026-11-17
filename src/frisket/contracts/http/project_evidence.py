@@ -70,6 +70,7 @@ class RowSourceDocumentsResponse(WireModel):
     row_id: int
     ancestry_found: bool
     lineage_stale: bool
+    lineage_freshness: Literal["synced", "stale", "unknown", "checking"] | None = None
     unavailable_source_count: int = Field(ge=0)
     truncated: bool
     evidence_links: list[EvidenceLinkSummary]

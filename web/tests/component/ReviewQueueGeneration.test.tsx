@@ -7,6 +7,7 @@ import type { ReviewBundlePage } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ReviewSession } from '../../src/components/review/ReviewSession';
+import { ReviewQueue } from '../../src/components/ReviewQueue';
 import { ReviewShell } from '../../src/components/review/ReviewPresentation';
 import { installDialogPolyfill } from '../support/domPolyfills';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
@@ -26,7 +27,7 @@ function page(name: string): ReviewBundlePage {
     nextCursor: null,
     bundles: [{
       id: `bundle-${name}`,
-      runId: '9',
+      runId: '9', sourceId: '9', copiedOpId: null,
       sheetId: '2',
       sheetName: 'Stories',
       rowId: '3',
@@ -38,7 +39,7 @@ function page(name: string): ReviewBundlePage {
       source: { story: 'Example' },
       context: 'story: Example',
       fields: [{
-        id: '9:3:4', runId: '9', sheetId: '2', rowId: '3', columnId: '4',
+        id: '9:3:4', runId: '9', sourceId: '9', copiedOpId: null, sheetId: '2', rowId: '3', columnId: '4',
         columnName: name, columnType: 'text', value: 'result', confidence: 0.4,
         justification: '', reviewDecision: name === 'reviewed' ? 'accept' : null,
         note: null, reviewState: name === 'reviewed' ? 'verified' : 'unreviewed',
@@ -65,6 +66,43 @@ afterEach(() => {
 });
 
 const options = { order: 'shuffle' as const };
+
+it.each([true, false])('reapplies saved results into new columns with retry capability %s', async (retrySupported) => {
+  const counts = { eligibleCount: 1, reviewedCount: 0, acceptedCount: 0,
+    incorrectCount: 0, unreviewedCount: 1, confidenceCount: 1 };
+  vi.spyOn(stores.projectApi, 'listReviewRuns').mockResolvedValue({
+    schemaVersion: 'frisket.review_runs_page.v1', offset: 0, limit: 50, total: 1,
+    hasMore: false, nextOffset: null,
+    runs: [{ runId: '9', sourceId: '9', copiedOpId: null, sheetId: '2', sheetName: 'Stories', actionKind: 'map.ask',
+      actionName: 'Ask', model: null, retrySupported, startedAt: '2026-11-14T00:00:00Z',
+      reviewStatus: 'open', reviewCompletedAt: null, total: counts,
+      outputs: [{ key: 'answer', columnId: '4', columnName: 'Answer', columnType: 'text' }],
+      fields: [{ columnId: '4', columnName: 'Answer', columnType: 'text', ...counts }] }],
+  });
+  vi.spyOn(stores.projectApi, 'listSheets').mockResolvedValue([{ id: '2', name: 'Stories', rowCount: 1, columns: [{ id: '4', name: 'Answer', type: 'text' }] }]);
+  vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(page('first'));
+  const submit = vi.spyOn(stores.projectApi, 'runAction').mockResolvedValue({
+    runId: null, jobId: null, receiptId: 'saved', status: 'completed', outputSheetId: '2',
+  });
+  const changed = vi.fn();
+  render(<WorkspaceStoresContext.Provider value={stores}>
+    <ReviewQueue onClose={vi.fn()} onChanged={changed} runId="9" />
+  </WorkspaceStoresContext.Provider>);
+  await screen.findByTestId('review-card');
+  fireEvent.click(await screen.findByRole('button', { name: 'Results', exact: true }));
+  expect(screen.queryByRole('button', { name: 'Retry unfinished' }) !== null).toBe(retrySupported);
+  fireEvent.click(await screen.findByRole('button', { name: 'Reapply saved results' }));
+  expect(submit).not.toHaveBeenCalled();
+  expect(await screen.findByRole('dialog', { name: 'Reapply saved results?' })).toHaveTextContent('does not call a provider');
+  await waitFor(() => expect(screen.getByTestId('reapply-output-answer')).toHaveValue('Answer_2'));
+  fireEvent.click(screen.getByRole('button', { name: 'Reapply results', exact: true }));
+  await waitFor(() => expect(submit).toHaveBeenCalledWith(expect.objectContaining({
+    action_id: 'run.reapply', params: { source_run_id: 9 }, replace_existing: false,
+    output_names: { answer: 'Answer_2' }, expected_output_columns: { Answer_2: null },
+  })));
+  await waitFor(() => expect(changed).toHaveBeenCalled());
+});
+
 function mount(onClose = vi.fn(), reviewOptions = options) {
   return render(<WorkspaceStoresContext.Provider value={stores}>
     <ReviewSession runId="9" options={reviewOptions} onChanged={vi.fn()} onClose={onClose}
@@ -235,19 +273,21 @@ it.each([['ArrowLeft', 'accept'], ['a', 'accept'], ['ArrowRight', 'reject'], ['d
   await waitFor(() => expect(decide).toHaveBeenCalledWith('9:3:4', decision, undefined));
 });
 
-it('edits the field whose pencil was clicked and records a correction', async () => {
+it('edits the field whose pencil was clicked without judging or replacing the saved answer', async () => {
   vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(multiPage());
   const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
   vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
+  const edit = vi.spyOn(stores.projectApi, 'editCells').mockResolvedValue();
   mount();
   fireEvent.click(await screen.findByRole('button', { name: 'Edit second', exact: true }));
   fireEvent.change(screen.getByRole('textbox', { name: 'Edit proposed second value' }), { target: { value: 'Fixed' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
-  await waitFor(() => expect(screen.getByTestId('review-field-second')).toHaveTextContent('Fixed'));
-  expect(decide).toHaveBeenCalledWith('9:3:5', 'edit', 'Fixed');
-  expect(screen.getByRole('button', { name: 'Edit second', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await waitFor(() => expect(edit).toHaveBeenCalledWith([{ rowId: '3', columnId: '5', value: 'Fixed' }]));
+  expect(screen.getByTestId('review-field-second')).not.toHaveTextContent('Fixed');
+  expect(decide).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Edit second', exact: true })).toHaveAttribute('aria-pressed', 'false');
   expect(screen.getByRole('button', { name: 'Accept second' })).toHaveAttribute('aria-pressed', 'false');
-  expect(screen.getByTestId('review-field-second')).toHaveAttribute('data-review-decision', 'edit');
+  expect(screen.getByTestId('review-field-second')).not.toHaveAttribute('data-review-decision', 'edit');
   expect(screen.queryByRole('button', { name: 'Reject and clear' })).not.toBeInTheDocument();
 });
 

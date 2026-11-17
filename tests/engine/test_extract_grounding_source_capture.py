@@ -1,6 +1,7 @@
 """Grounding-only files are admitted inputs, never model prompt values."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
@@ -49,7 +50,12 @@ class _Adapter:
 
 def _router(before_reply=None):
     adapter = _Adapter(before_reply)
-    router = ModelRouter(keys={"anthropic": "stub"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "stub"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
     return router, adapter
 
@@ -202,7 +208,9 @@ def test_custom_model_rows_keeps_auxiliary_references_out_of_provider(
         project.close()
 
 
-def _assert_original_artifact(project, result, seeded, adapter):
+def _assert_captured_artifact(
+    project, result, seeded, adapter, *, expected_file=0, expected_ref=None
+):
     sheet, columns, row, files = seeded
     assert result.status == "completed", result.errors
     assert len(adapter.requests) == 1
@@ -220,7 +228,20 @@ def _assert_original_artifact(project, result, seeded, adapter):
         (result.run_id,),
     ).fetchone()
     assert artifact is not None
-    assert tuple(artifact) == (files[0]["blob"], columns["document"], sheet, row, 1)
+    assert tuple(artifact) == (
+        files[expected_file]["blob"],
+        columns["document"],
+        sheet,
+        row,
+        1,
+    )
+    if expected_ref is not None:
+        bundle = project.db.execute(
+            "SELECT capture_json FROM consumed_source_bundles WHERE run_id=? AND row_id=? AND kind='row'",
+            (result.run_id, row),
+        ).fetchone()
+        inputs = {item["role"]: item for item in json.loads(bundle[0])["inputs"]}
+        assert inputs["document"]["ref"] == expected_ref
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     inputs = {item.ref["name"]: item.ref for item in receipt.inputs}
     assert set(inputs) == {"body", "document"}
@@ -244,12 +265,14 @@ def test_grounding_file_is_captured_but_never_rendered(
             project_id="p",
             router=router,
         )
-        _assert_original_artifact(project, result, seeded, adapter)
+        _assert_captured_artifact(project, result, seeded, adapter)
     finally:
         project.close()
 
 
-def test_grounding_file_change_invalidates_exact_confirmation(tmp_path):
+def test_grounding_file_edit_before_execution_uses_current_file_without_reapproval(
+    tmp_path,
+):
     project = Project.create(tmp_path / "documents.frisket")
     try:
         seeded = _seed(project)
@@ -262,21 +285,33 @@ def test_grounding_file_change_invalidates_exact_confirmation(tmp_path):
             project, request, project_id="p", router=router, deps=deps
         )
         assert gate.status == "needs_confirmation"
+        assert adapter.requests == []
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
         request["confirmation"] = gate.errors[0].details["promise_set_hash"]
         _replace(project, seeded)
+        _, refs = project.get_values_with_refs(
+            seeded[0], seeded[1]["document"], row_ids=[seeded[2]]
+        )
         retry = run_action_spec(
             project, request, project_id="p", router=router, deps=deps
         )
-        assert retry.status == "needs_confirmation", retry.errors
-        assert retry.errors[0].details["promise_set_hash"] != request["confirmation"]
-        assert adapter.requests == []
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+        _assert_captured_artifact(
+            project,
+            retry,
+            seeded,
+            adapter,
+            expected_file=1,
+            expected_ref=refs[seeded[2]],
+        )
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
     finally:
         project.close()
 
 
 @pytest.mark.parametrize("change_after_queue", [False, True])
-def test_queued_grounding_keeps_admitted_file_identity(tmp_path, change_after_queue):
+def test_queued_grounding_captures_file_identity_at_execution(
+    tmp_path, change_after_queue
+):
     router, adapter = _router()
     with TestClient(create_app(tmp_path / "workspace", router=router)) as client:
         pid = client.post("/api/projects", json={"name": "Documents"}).json()["id"]
@@ -290,23 +325,22 @@ def test_queued_grounding_keeps_admitted_file_identity(tmp_path, change_after_qu
         assert queued["status"] == "queued"
         if change_after_queue:
             _replace(project, seeded)
+        _, refs = project.get_values_with_refs(
+            seeded[0], seeded[1]["document"], row_ids=[seeded[2]]
+        )
         drain_queue(client)
         receipt = ReceiptStore(project).parsed_by_id(queued["receipt_id"])
         assert receipt.status != "queued", client.app.state.workspace.queue.get(
             queued["job_id"]
         ).error
-        if change_after_queue:
-            assert receipt.status == "failed", receipt.errors
-            assert adapter.requests == []
-            assert (
-                project.db.execute(
-                    "SELECT COUNT(*) FROM evidence_links WHERE run_id=?",
-                    (queued["run_id"],),
-                ).fetchone()[0]
-                == 0
-            )
-        else:
-            _assert_original_artifact(project, receipt, seeded, adapter)
+        _assert_captured_artifact(
+            project,
+            receipt,
+            seeded,
+            adapter,
+            expected_file=int(change_after_queue),
+            expected_ref=refs[seeded[2]],
+        )
 
 
 @pytest.mark.parametrize(

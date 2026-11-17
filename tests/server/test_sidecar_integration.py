@@ -37,6 +37,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
+
 from frisket.ops import _sidecar
 from frisket.ops.base import OpContext
 from frisket.contracts.transcription_sidecar import (
@@ -89,7 +91,10 @@ def _wav(path, seconds=0.3, freq=220.0):
 
 
 def _ctx(handler) -> OpContext:
-    return OpContext(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    return OpContext(
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        extras={"preview": True, "cancelled": lambda: False},
+    )
 
 
 def _transcribe_action(
@@ -216,7 +221,7 @@ def _routed_gateway_ctx(handler) -> OpContext:
     )
     return OpContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-        extras={ATTEMPT_EXTRA: attempt},
+        extras={ATTEMPT_EXTRA: attempt, "preview": True, "cancelled": lambda: False},
     )
 
 
@@ -508,7 +513,7 @@ def test_transcribe_sidecar_v1_sends_canonical_options_and_preserves_result(
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
     audio = _wav(tmp_path / "a.wav")
-    ctx = OpContext(http=None)
+    ctx = OpContext(http=None, extras={"preview": True, "cancelled": lambda: False})
     result = asyncio.run(
         transcribe_engines.TranscriptionV1Adapter().transcribe(
             synthetic_v1_engine,
@@ -651,7 +656,7 @@ def test_transcribe_sidecar_v1_forwards_declared_context(tmp_path, monkeypatch):
             engine,
             str(audio),
             {"context": "Frisket, Sortformer"},
-            OpContext(http=None),
+            OpContext(http=None, extras={"preview": True, "cancelled": lambda: False}),
         )
     )
 
@@ -739,7 +744,9 @@ def test_transcribe_sidecar_v1_continuous_asgi_chain(tmp_path, monkeypatch):
                     "diarize": True,
                     "num_speakers": 2,
                 },
-                OpContext(http=client),
+                OpContext(
+                    http=client, extras={"preview": True, "cancelled": lambda: False}
+                ),
             )
 
     result = asyncio.run(invoke())
@@ -800,7 +807,9 @@ def test_transcribe_sidecar_v1_rejects_malformed_or_wrong_version(
                 synthetic_v1_engine,
                 str(audio),
                 {},
-                OpContext(http=None),
+                OpContext(
+                    http=None, extras={"preview": True, "cancelled": lambda: False}
+                ),
             )
         )
 
@@ -895,7 +904,12 @@ def test_sidecar_post_retries_on_429(monkeypatch):
 
     body = asyncio.run(
         _sidecar.sidecar_post(
-            _ctx(handler), "/ocr", files=[], data={"engine": "dots.mocr"}, op="ocr"
+            _ctx(handler),
+            "/ocr",
+            files=[],
+            data={"engine": "dots.mocr"},
+            op="ocr",
+            dispatch=STANDALONE,
         )
     )
     assert body == {"ok": True}
@@ -921,7 +935,12 @@ def test_sidecar_post_raises_after_persistent_429(monkeypatch):
     with pytest.raises(RuntimeError, match="sidecar ocr failed .429."):
         asyncio.run(
             _sidecar.sidecar_post(
-                _ctx(handler), "/ocr", files=[], data={"engine": "dots.mocr"}, op="ocr"
+                _ctx(handler),
+                "/ocr",
+                files=[],
+                data={"engine": "dots.mocr"},
+                op="ocr",
+                dispatch=STANDALONE,
             )
         )
     # Four attempts have only three gaps; never sleep after the terminal 429.
@@ -951,7 +970,12 @@ def test_sidecar_post_invalid_retry_after_uses_bounded_fallback(
 
     body = asyncio.run(
         _sidecar.sidecar_post(
-            _ctx(handler), "/ocr", files=[], data={"engine": "dots.mocr"}, op="ocr"
+            _ctx(handler),
+            "/ocr",
+            files=[],
+            data={"engine": "dots.mocr"},
+            op="ocr",
+            dispatch=STANDALONE,
         )
     )
 
@@ -976,7 +1000,12 @@ def test_sidecar_post_requires_token_when_url_configured(monkeypatch):
     ):
         asyncio.run(
             _sidecar.sidecar_post(
-                _ctx(handler), "/ocr", files=[], data={"engine": "dots.mocr"}, op="ocr"
+                _ctx(handler),
+                "/ocr",
+                files=[],
+                data={"engine": "dots.mocr"},
+                op="ocr",
+                dispatch=STANDALONE,
             )
         )
     assert called["http"] is False
@@ -1048,7 +1077,7 @@ def test_all_three_ops_call_sidecar_post(tmp_path, monkeypatch):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
 
-    ctx = OpContext(http=None)
+    ctx = OpContext(http=None, extras={"preview": True, "cancelled": lambda: False})
     page = tmp_path / "page.png"
     page.write_bytes(b"png")
     doc = tmp_path / "doc.pdf"

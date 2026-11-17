@@ -216,7 +216,7 @@ def _binding_dependencies_current(project: Project, dependencies: object) -> boo
             return False
         if (
             project.db.execute(
-                "SELECT 1 FROM current_cells WHERE row_id=? AND column_id=? "
+                "SELECT 1 FROM effective_current_cells WHERE row_id=? AND column_id=? "
                 "AND retrieval_revision=?",
                 (row_id, column_id, revision),
             ).fetchone()

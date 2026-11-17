@@ -129,7 +129,12 @@ def test_replay_survives_deleted_source_and_refuses_retired_envelope(
         artifact = _artifact_path(project, first.outputs[0].ref)
         original_bytes = artifact.read_bytes()
         project.delete_sheet(request["params"]["sheet_id"])
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=0").fetchone()[
+                0
+            ]
+            == 0
+        )
         before = _counts(project)
 
         def refuse_read(*args, **kwargs):

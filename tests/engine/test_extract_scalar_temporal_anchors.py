@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
@@ -44,7 +45,12 @@ class _StubAdapter:
 
 
 def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _StubAdapter(reply)
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -211,6 +217,171 @@ def _transcript_scalar_extract_action(sheet_id: int) -> dict[str, Any]:
         evidence_policy={"citation_required": False},
         idempotency_key="map_extract@sha256:scalar-transcript",
     )
+
+
+@pytest.mark.parametrize(
+    "sources", [["transcript"], ["transcript", "transcript_segments"]]
+)
+def test_grounded_extract_ignores_unselected_later_row_artifact(
+    tmp_path, monkeypatch, sources
+):
+    from frisket.engine.store.evidence import record_source_artifact, record_source_span
+
+    seeded = _seed_transcript_project(tmp_path)
+    project = seeded["project"]
+    try:
+        monkeypatch.setitem(_TRANSCRIPT_SEGMENTS[0], "speaker", "S1")
+        _run_transcribe(seeded, monkeypatch)
+        row_id = seeded["row_ids"][0]
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            blob_hash=seeded["blob"],
+            source_sheet_id=seeded["sheet_id"],
+            source_row_id=row_id,
+        )
+        unrelated = "UNSELECTED LATER ARTIFACT MUST NOT ENTER THE MODEL"
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=0,
+            end_ms=1000,
+            quote=unrelated,
+            selector={"segment_index": 0},
+        )
+        router, adapter = _stub_router({"verdict": {"value": "claim", "evidence": []}})
+        action = _transcript_scalar_extract_action(seeded["sheet_id"])
+        action["params"]["source"] = sources
+        result = run_action_with_exact_confirmation(
+            project,
+            action,
+            project_id=PROJECT_ID,
+            router=router,
+        )
+        assert result.status == "completed", result.errors
+        assert len(adapter.requests) == 1
+        prompt = json.dumps(adapter.requests[0].messages)
+        assert unrelated not in prompt
+        assert "some say the vote was rigged" in prompt
+        assert "[S1]" in prompt
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "undo_original,edit_during_call,include_segments",
+    [
+        (False, False, False),
+        (True, False, False),
+        (False, True, False),
+        (False, True, True),
+    ],
+)
+def test_reapplied_transcript_keeps_numbered_extract_anchors(
+    tmp_path, monkeypatch, undo_original, edit_during_call, include_segments
+):
+    from frisket.engine.executor.actions import run_action_spec
+    from frisket.engine.store.op_log import step_operation
+
+    seeded = _seed_transcript_project(tmp_path)
+    project = seeded["project"]
+    try:
+        _run_transcribe(seeded, monkeypatch)
+        run = project.db.execute(
+            "SELECT id,op_id FROM runs WHERE action_kind='media.transcribe'"
+        ).fetchone()
+        names = {
+            row[0]: "Copied transcript" if row[0] == "text" else f"Copied {row[0]}"
+            for row in project.db.execute(
+                "SELECT output_role FROM run_output_generations WHERE run_id=?",
+                (run["id"],),
+            )
+        }
+        copied = run_action_spec(
+            project,
+            {
+                "action_id": "run.reapply",
+                "idempotency_key": "copy-transcript-for-extract",
+                "scope": {"kind": "sheet_rows", "sheet_id": seeded["sheet_id"]},
+                "params": {"source_run_id": run["id"]},
+                "output_names": names,
+            },
+            project_id=PROJECT_ID,
+        )
+        assert copied.status == "completed", copied.errors
+        if undo_original:
+            with project.transaction_scope():
+                step_operation(project, "revert", op_id=run["op_id"])
+        action = _transcript_scalar_extract_action(seeded["sheet_id"])
+        action["params"]["source"] = ["Copied transcript"]
+        if include_segments:
+            action["params"]["source"].append("Copied segments")
+        action["params"]["source_document_columns"] = ["Copied transcript"]
+        router, adapter = _stub_router(
+            {
+                "verdict": {
+                    "value": "some say the vote was rigged",
+                    "evidence": [
+                        {"segment_indices": [2], "source": "Copied transcript"}
+                    ],
+                },
+            }
+        )
+        edits = []
+        if edit_during_call:
+            complete = adapter.complete
+            copied_column = next(
+                c
+                for c in project.columns(seeded["sheet_id"])
+                if c["name"] == "Copied transcript"
+            )
+
+            async def edit_after_dispatch(request, client):
+                response = await complete(request, client)
+                value = project.get_values(seeded["sheet_id"], copied_column["id"])[
+                    seeded["row_ids"][0]
+                ]
+                edits.append(
+                    project.apply_edits(
+                        [
+                            {
+                                "row_id": seeded["row_ids"][0],
+                                "column_id": copied_column["id"],
+                                "value": value,
+                            }
+                        ]
+                    )
+                )
+                return response
+
+            monkeypatch.setattr(adapter, "complete", edit_after_dispatch)
+        result = run_action_with_exact_confirmation(
+            project,
+            action,
+            project_id=PROJECT_ID,
+            router=router,
+        )
+        assert result.status == "completed", result.errors
+        assert len(adapter.requests) == 1
+        prompt = json.dumps(adapter.requests[0].messages)
+        assert "[2] (4.0s-6.0s) some say the vote was rigged" in prompt
+        spans = _verdict_link_spans(
+            project, sheet_id=seeded["sheet_id"], row_id=seeded["row_ids"][0]
+        )
+        assert len(spans) == 1 and spans[0]["span_kind"] == "temporal"
+        assert spans[0]["quote"] == "some say the vote was rigged"
+        if edit_during_call:
+            from frisket.engine.store.consumed_sources import row_input_state
+
+            row_id = seeded["row_ids"][0]
+            assert row_input_state(project, result.run_id, row_id) == "stale"
+            with project.transaction_scope():
+                step_operation(project, "revert", op_id=edits[0])
+            assert row_input_state(project, result.run_id, row_id) == "fresh"
+    finally:
+        project.close()
 
 
 def test_scalar_on_transcript_row_with_segment_index_gets_temporal_span(

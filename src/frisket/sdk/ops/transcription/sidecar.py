@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 
+from frisket.execution.dispatch_control import dispatch_for_context
+
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.contracts.transcription_sidecar import (
     TRANSCRIPTION_CONTRACT_VERSION,
@@ -83,15 +85,17 @@ class TranscriptionV1Adapter:
             sort_keys=True,
         )
         connection = route_gateway_connection(ctx, engine, light_engine=light_engine)
+        payload = p.read_bytes()
+        import hashlib
+        from frisket.ops.media_probe import probe_for_ingest
+
+        digest = hashlib.sha256(payload).hexdigest()
+        duration = probe_for_ingest(p, digest=digest).get("duration_seconds")
         body = await sidecar_post(
             ctx,
             TRANSCRIPTION_ENDPOINT,
-            files=[
-                (
-                    "files",
-                    (p.name or "audio", p.read_bytes(), "application/octet-stream"),
-                )
-            ],
+            dispatch=dispatch_for_context(ctx),
+            files=[("files", (p.name or "audio", payload, "application/octet-stream"))],
             data={
                 "contract_version": TRANSCRIPTION_CONTRACT_VERSION,
                 "engine": engine,
@@ -102,6 +106,7 @@ class TranscriptionV1Adapter:
             structured_errors=True,
             timeout=sidecar_transcribe_timeout(connection),
             connection=connection,
+            quantity={"audio_seconds": duration},
         )
         return transcription_v1_result(
             body,

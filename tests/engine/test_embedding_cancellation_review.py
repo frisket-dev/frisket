@@ -167,3 +167,108 @@ def test_network_off_still_allows_metadata_only_remote_creation(project):
     index_id = _create_remote_index(project, gateway=gateway)
     assert EmbeddingStore(project).get_index(index_id) is not None
     assert gateway.calls == []
+
+
+def test_refresh_cancel_after_return_keeps_paid_fact_without_publication(project):
+    from frisket.engine.store.runs import RunResultStore
+    from unified_embedding_probe import UnifiedEmbeddingProbe
+
+    class CancelAfterReturn(PaidRemoteGateway):
+        def embed(self, *args, **kwargs):
+            result = super().embed(*args, **kwargs)
+            [run] = project.db.execute(
+                "SELECT id FROM runs WHERE status='running'"
+            ).fetchall()
+            RunResultStore(project).request_cancel(run["id"])
+            return result
+
+    gateway = CancelAfterReturn()
+    index_id = _create_remote_index(project, gateway=gateway)
+    with pytest.raises(asyncio.CancelledError):
+        _run(
+            project,
+            _refresh_action(index_id, key="cancel-after-return"),
+            gateway=gateway,
+        )
+    assert len(gateway.calls) == 1
+    [run] = project.db.execute("SELECT status,cost_actual FROM runs").fetchall()
+    assert run["status"] == "cancelled"
+    assert run["cost_actual"] == pytest.approx(0.001)
+    assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
+    [attempt] = project.db.execute("SELECT state FROM execution_attempts").fetchall()
+    assert attempt["state"] == "halted"
+    backend = UnifiedEmbeddingProbe(project)
+    backend.ensure_schema()
+    assert backend.item_counts(index_id) == {}
+    backend.close()
+    assert not project.db.in_transaction
+
+
+def test_probe_cancel_after_return_keeps_fact_and_closes_without_index(project):
+    from frisket.engine.store.runs import RunResultStore
+
+    class CancelAfterProbe(FakeProbeGateway):
+        def embed(self, *args, **kwargs):
+            result = super().embed(*args, **kwargs)
+            [run] = project.db.execute(
+                "SELECT id FROM runs WHERE status='running'"
+            ).fetchall()
+            RunResultStore(project).request_cancel(run["id"])
+            return result
+
+    gateway = CancelAfterProbe(dim=1024)
+    request = _create_action(
+        project._sheet_id,
+        key="cancel-probe-return",
+        provider="openrouter",
+        model="openai/text-embedding-3-large",
+        provider_policy={"allow_remote": True},
+    )
+    with pytest.raises(asyncio.CancelledError):
+        run_action_spec(
+            project,
+            request,
+            project_id="p",
+            deps=ExecutorDeps(embedding_gateway=gateway, router=_OpenRouterRouter()),
+        )
+    assert len(gateway.calls) == 1
+    assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
+    [run] = project.db.execute("SELECT status FROM runs").fetchall()
+    assert run["status"] == "cancelled"
+    assert not project.db.execute("SELECT 1 FROM embedding_indexes").fetchall()
+    assert not project.db.in_transaction
+
+
+def test_probe_cancel_before_dispatch_closes_current_attempt(project, monkeypatch):
+    from frisket.engine.executor.action_families import embeddings
+    from frisket.engine.store.runs import RunResultStore
+
+    mint = embeddings.mint_direct_effect_attempt
+
+    def cancel_after_mint(current, **kwargs):
+        attempt = mint(current, **kwargs)
+        RunResultStore(current).request_cancel(kwargs["run_id"])
+        return attempt
+
+    monkeypatch.setattr(embeddings, "mint_direct_effect_attempt", cancel_after_mint)
+    gateway = FakeProbeGateway(dim=1024)
+    request = _create_action(
+        project._sheet_id,
+        key="cancel-probe-dispatch",
+        provider="openrouter",
+        model="openai/text-embedding-3-large",
+        provider_policy={"allow_remote": True},
+    )
+    with pytest.raises(asyncio.CancelledError):
+        run_action_spec(
+            project,
+            request,
+            project_id="p",
+            deps=ExecutorDeps(embedding_gateway=gateway, router=_OpenRouterRouter()),
+        )
+    assert gateway.calls == []
+    [run] = project.db.execute("SELECT status FROM runs").fetchall()
+    assert run["status"] == "cancelled"
+    [attempt] = project.db.execute("SELECT state FROM execution_attempts").fetchall()
+    assert attempt["state"] == "halted"
+    assert not project.db.in_transaction

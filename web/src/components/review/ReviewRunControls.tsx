@@ -33,7 +33,7 @@ function selectedCounts(run: ReviewRun, fieldId?: string | null): ReviewRunCount
 
 function runLabel(run: ReviewRun): string {
   const action = run.actionName || run.actionKind || 'AI run';
-  return `${action} · ${run.sheetName} · run #${run.runId}`;
+  return `${action} · ${run.sheetName} · ${run.copiedOpId ? `saved #${run.copiedOpId}` : `run #${run.runId}`}`;
 }
 
 function countDescription(counts: ReviewRunCounts): string {
@@ -83,6 +83,7 @@ export interface ReviewRunControlsProps {
   disabled?: boolean;
   /** Row navigation supplied by ReviewQueue, kept beside completion controls. */
   children?: ReactNode;
+  resultActions?(close: () => void): ReactNode;
   /** Paging stays with the queue owner; the toolbar only offers the next page. */
   onLoadMore?(): void;
   hasMore?: boolean;
@@ -104,12 +105,13 @@ export function ReviewRunControls({
   statusBusy = false,
   disabled = false,
   children,
+  resultActions,
   onLoadMore,
   hasMore = false,
   loadingMore = false,
   reviewExportUrl,
 }: ReviewRunControlsProps) {
-  const run = runs.find((candidate) => candidate.runId === selectedRunId);
+  const run = runs.find((candidate) => candidate.sourceId === selectedRunId);
   const counts = run ? selectedCounts(run, selectedFieldId) : null;
   const confidenceAvailable = (counts?.confidenceCount ?? 0) > 0;
   const [orderOpen, setOrderOpen] = useState(false);
@@ -129,7 +131,7 @@ export function ReviewRunControls({
     focusRestore: true,
   });
   const runOptions: PanelSelectOption[] = runs.map((candidate) => ({
-    value: candidate.runId,
+    value: candidate.sourceId,
     label: runLabel(candidate),
     description: `${reviewProgress(candidate).label} · ${countDescription(candidate.total)}`,
     leadingIcon: <ReviewProgressDot run={candidate} />,
@@ -153,9 +155,9 @@ export function ReviewRunControls({
         value={selectedRunId ?? ''}
         onValueChange={onSelectedRunChange}
         options={runOptions}
-        ariaLabel={run ? `Run: ${reviewProgress(run).label}` : 'Run'}
+        ariaLabel={run ? `Review source: ${reviewProgress(run).label}` : 'Review source'}
         disabled={disabled || runOptions.length === 0}
-        emptyMessage="No reviewable runs"
+        emptyMessage="No results to review"
         testId="review-run-select"
       />
       {hasMore && onLoadMore && (
@@ -165,7 +167,7 @@ export function ReviewRunControls({
           disabled={disabled || loadingMore}
           onClick={onLoadMore}
         >
-          {loadingMore ? 'Loading…' : 'Older runs'}
+          {loadingMore ? 'Loading…' : 'Older results'}
         </button>
       )}
       <PanelSelect
@@ -209,11 +211,11 @@ export function ReviewRunControls({
       <span className={styles.spacer} />
       {children && <span className={styles.children}>{children}</span>}
       {run && status === 'complete' && <span className={styles.status}>Complete</span>}
-      {run && onRunStatusChange && nextStatus && (
+      {run && run.runId && onRunStatusChange && nextStatus && (
         <Button
           type="button"
           className={`btn ${styles.statusButton}`}
-          disabled={disabled || statusBusy}
+          disabled={disabled || statusBusy || run.running}
           onClick={() => onRunStatusChange(run, nextStatus)}
         >
           {statusBusy ? 'Saving…' : nextStatus === 'complete' ? 'Mark review complete' : 'Reopen review'}
@@ -268,7 +270,7 @@ export function ReviewRunControls({
           {!confidenceAvailable && <p className={styles.noConfidence}>No confidence values in this scope.</p>}
         </MenuPop>
       )}
-      {resultsOpen && run && <ReviewResultsPanel run={run} exportUrl={reviewExportUrl?.(run.runId)} onClose={() => setResultsOpen(false)} />}
+      {resultsOpen && run && <ReviewResultsPanel run={run} exportUrl={run.runId ? reviewExportUrl?.(run.runId) : undefined} onClose={() => setResultsOpen(false)}>{resultActions?.(() => setResultsOpen(false))}</ReviewResultsPanel>}
       {counts && (
         <div
           className={styles.progressBar}

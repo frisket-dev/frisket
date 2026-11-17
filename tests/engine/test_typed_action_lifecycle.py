@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ from frisket.engine.runner import MapRunner, NetworkDisabled, validation
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.ops.base import Recipe
@@ -134,7 +136,10 @@ def _request(
 def _runner(project: Project, router: Any | None) -> MapRunner:
     return MapRunner(
         project,
-        router or ModelRouter(cache=None, cache_mode="off"),
+        router
+        or ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 
@@ -185,7 +190,9 @@ def test_typed_action_reserves_runs_and_finalizes_generic_receipt_refs(
         "project-1",
         REGISTRY.get(request.action_id),
         request,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         factory,
     )
 
@@ -693,6 +700,68 @@ def test_typed_action_clears_stale_running_reservation_before_retry(
     assert retried.status == "completed", retried.errors
 
 
+def test_stale_running_receipt_is_retained_for_live_writer(
+    project: tuple[Project, int, int, list[int]],
+) -> None:
+    from helpers import run_writer_authority_fixture
+
+    store, sheet_id, _source_id, row_ids = project
+    request = _request(sheet_id, row_ids, key="upper@live-writer")
+    action = REGISTRY.get(request.action_id)
+    params_hash = typed_request_hash(BoundTypedActionRequest.bind(action, request))
+    output = store.add_column(sheet_id, "upper")
+    op_id = store.append_op("map.upper_test", {}, label="live map run")
+    run_id = RunResultStore(store).start_run(
+        op_id, sheet_id, action.action_id, row_ids=row_ids, total_rows=len(row_ids)
+    )
+    receipt = Receipt(
+        receipt_id="receipt_live_typed_map",
+        project_id="project-1",
+        action_id="act_live_typed_map",
+        action_kind=action.action_id,
+        idempotency_key=request.idempotency_key,
+        params_hash=params_hash,
+        status="running",
+        run_id=run_id,
+        inputs=[
+            ReceiptIO(
+                name="idempotency",
+                ref={"kind": "typed_map_rows_idempotency_reservation"},
+            )
+        ],
+    )
+    ReceiptStore(store).insert_running(receipt)
+    authority = run_writer_authority_fixture(store, run_id, output_column_ids={output})
+    claims = store.db.execute(
+        "SELECT status FROM output_column_claims WHERE claim_token=?",
+        (authority.claim_token,),
+    ).fetchall()
+    assert claims and all(row["status"] == "active" for row in claims)
+    store.db.execute(
+        "UPDATE receipts SET created_at='2000-01-01 00:00:00' WHERE id=?",
+        (receipt.receipt_id,),
+    )
+    store.db.commit()
+
+    def forbidden_factory(_project: Any, _router: Any | None) -> MapRunner:
+        raise AssertionError("a live writer must retain its reservation")
+
+    result = run_typed_map_rows_action(
+        store, "project-1", action, request, None, forbidden_factory
+    )
+
+    assert result.status == "failed"
+    assert result.errors[0].code == "idempotency_in_progress"
+    assert ReceiptStore(store).find_by_id(receipt.receipt_id) is not None
+    run = RunResultStore(store).get_run(run_id)
+    assert run is not None and run["status"] == "running"
+    attempt = store.db.execute(
+        "SELECT state FROM execution_attempts WHERE id=?",
+        (authority.writer_attempt_id,),
+    ).fetchone()
+    assert attempt["state"] == "dispatching"
+
+
 def test_typed_action_replay_rejects_renamed_output(
     project: tuple[Project, int, int, list[int]],
 ) -> None:
@@ -832,7 +901,10 @@ def test_typed_action_terminalizes_failed_run_and_retries_cleanly(
 
     assert failed.status == "failed"
     assert failed.errors[0].code == "map_rows_failed"
-    assert ReceiptStore(store).count() == 0
+    assert failed.receipt_id is not None
+    failed_receipt = ReceiptStore(store).parsed_by_id(failed.receipt_id)
+    assert failed_receipt is not None
+    assert failed_receipt.status == "failed"
     run = store.db.execute("SELECT status, finished_at FROM runs").fetchone()
     assert run is not None
     assert run["status"] == "failed"
@@ -850,7 +922,10 @@ def test_typed_action_terminalizes_failed_run_and_retries_cleanly(
     assert hidden["hidden"] == 1
 
     monkeypatch.setattr(MapRunner, "run", original_run)
+    retry_request = request.model_copy(
+        update={"idempotency_key": f"{request.idempotency_key}:retry"}
+    )
     retried = run_typed_map_rows_action(
-        store, "project-1", action, request, None, _runner
+        store, "project-1", action, retry_request, None, _runner
     )
     assert retried.status == "completed", retried.errors

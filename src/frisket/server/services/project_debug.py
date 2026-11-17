@@ -12,6 +12,7 @@ from frisket.authoring.action_metadata import (
 from frisket.ai.llm import ResponseCache
 from frisket.engine.store.runs import FAILURE_OUTCOMES, outcome_sql_list
 from frisket.server.workspace import Workspace
+from frisket.server.run_payloads import run_token_totals
 
 
 def _spec(raw: str | None) -> Any:
@@ -46,22 +47,28 @@ class ProjectDebugService:
         run_rows = p.db.execute("SELECT * FROM runs ORDER BY id").fetchall()
         runs = [self._debug_run(project_id, row) for row in run_rows]
 
+        token_totals = run_token_totals(p)
         results_summary = [
             {
                 "run_id": r["run_id"],
                 "cells": r["cells"],
                 "errors": r["errors"],
                 "columns": r["columns"],
-                "tokens_in": r["tokens_in"],
-                "tokens_out": r["tokens_out"],
+                **token_totals.get(
+                    r["run_id"],
+                    {
+                        "tokens_in": r["tokens_in"],
+                        "tokens_out": r["tokens_out"],
+                    },
+                ),
             }
             for r in p.db.execute(
                 "SELECT run_id, COUNT(*) AS cells, "
                 f"SUM(CASE WHEN outcome IN ({outcome_sql_list(FAILURE_OUTCOMES)}) "
                 "THEN 1 ELSE 0 END) AS errors, "
                 "COUNT(DISTINCT column_id) AS columns, "
-                "COALESCE(SUM(tokens_in), 0) AS tokens_in, "
-                "COALESCE(SUM(tokens_out), 0) AS tokens_out "
+                "SUM(tokens_in) AS tokens_in, "
+                "SUM(tokens_out) AS tokens_out "
                 "FROM results GROUP BY run_id ORDER BY run_id"
             )
         ]

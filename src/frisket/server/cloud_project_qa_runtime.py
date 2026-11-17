@@ -17,7 +17,6 @@ from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.cloud_targets import CLOUD_LLM_TRANSPORT, cloud_fallback_is_blocked
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.runner.validation import assert_selected_egress_policy
-from frisket.execution.pricing_policy import usd_to_micros
 from frisket.execution.resolver import Refusal, resolve
 from frisket.execution.targets import CAPABILITY_LLM
 from frisket.server.thread_worker import await_thread_worker
@@ -143,7 +142,7 @@ class SoloCloudProjectQARuntimePort:
             research["budget_micros"]
             if isinstance(research, dict)
             and isinstance(research.get("budget_micros"), int)
-            else usd_to_micros(self._workspace.cost_preapproval_usd)
+            else None
         )
         coordinator = CloudLLMCheckpointCoordinator(
             project,

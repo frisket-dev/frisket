@@ -10,6 +10,7 @@ ambiguous reservation refuses by name, and free/local work writes nothing.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from typing import Any
@@ -23,15 +24,10 @@ from frisket.ai.llm.adapters import OpenAICompatAdapter
 from frisket.contracts.action import Receipt
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor import group_summary_runtime as reduces
-from frisket.engine.executor.group_summary_action import prepare_group_summary_action
 from frisket.engine.store import Project
-from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
-from frisket.execution.attempt import (
-    StaleAttemptWriter,
-    abandon_stale_dispatching_attempts,
-)
+from frisket.execution.attempt import StaleAttemptWriter
 from frisket.team.security.secrets import encrypt_secret, key_hint
 
 PROJECT_ID = "project-reduce-effects"
@@ -115,6 +111,7 @@ def _action(
 
 def _project_key_router(provider: _CountingSummaryAdapter) -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "sk-ant-test"},
         key_sources={"anthropic": "project_key"},
         cache=None,
@@ -170,7 +167,7 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
 
     # Both per-group provider invoices are durable truth already: facts under
     # the authorizing attempt, project-key cap spend, run cost — even though
-    # no summary sheet, result cell, or receipt committed.
+    # the terminal receipt transaction has not committed.
     assert len(provider.requests) == 2
     run_id = int(project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0])
     # A crash leaves the pre-egress op visible. It must retain the same public
@@ -183,8 +180,16 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
         ).fetchone()[0]
     )
     bound = typed_action_for_request(action)
-    assert op_spec == bound.request.model_dump(mode="json", exclude={"confirmation"})
-    assert typed_action_for_request(op_spec).params == bound.params
+    assert op_spec.pop("execution_sources") == {
+        "sheet_ids": [project._sheet_id],
+        "column_ids": [column["id"] for column in project.columns(project._sheet_id)],
+    }
+    request = bound.request.model_dump(mode="json", exclude={"confirmation"})
+    assert {key: op_spec[key] for key in request} == request
+    assert (
+        typed_action_for_request({key: op_spec[key] for key in request}).params
+        == bound.params
+    )
     attempt = project.db.execute(
         "SELECT id, state FROM execution_attempts WHERE run_id=?", (run_id,)
     ).fetchone()
@@ -206,24 +211,28 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
     ).fetchone()
     assert run["cost_actual"] == pytest.approx(0.012)
     checkpoints = project.db.execute("SELECT state FROM effect_checkpoints").fetchall()
-    assert [row["state"] for row in checkpoints] == ["returned", "returned"]
+    assert checkpoints == []  # Each result retired its checkpoint atomically.
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM sheets WHERE name='Beat Summaries'"
         ).fetchone()[0]
-        == 0
+        == 1
     )
-    # The writer stays live through the result/checkpoint transaction. This
-    # assertion is the regression fence for the old pre-commit `effected`
-    # transition.
-    assert attempt["state"] == "dispatching"
-    project.db.execute(
-        "UPDATE execution_attempts SET created_at=datetime('now', '-7 hours') "
-        "WHERE id=?",
-        (attempt["id"],),
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        == 2
     )
-    project.db.commit()
-    assert abandon_stale_dispatching_attempts(project, run_id) == 1
+    # Returning from the interrupted invocation releases its dispatch owner,
+    # while the run and paid facts remain recoverable immediately.
+    assert attempt["state"] == "halted"
+    assert (
+        project.db.execute(
+            "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
+        ).fetchone()[0]
+        is None
+    )
 
     # Retry the same logical action: the durable responses replay, the sheet
     # materializes, and the provider is NOT called again.
@@ -261,7 +270,7 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
     closed = project.db.execute(
         "SELECT state FROM execution_attempts WHERE id=?", (attempt["id"],)
     ).fetchone()
-    assert closed["state"] == "abandoned"
+    assert closed["state"] == "halted"
     replacement = project.db.execute(
         "SELECT id, state FROM execution_attempts WHERE run_id=? "
         "ORDER BY seq DESC LIMIT 1",
@@ -350,20 +359,17 @@ def test_reduce_terminalizer_joins_materialization_transaction(
     assert run is not None
     assert run["status"] == "running"
     assert run["finished_at"] is None
-    attempt_id = str(run["current_attempt_id"])
+    assert run["current_attempt_id"] is None
     attempt = project.db.execute(
-        "SELECT state FROM execution_attempts WHERE id=?",
-        (attempt_id,),
+        "SELECT state FROM execution_attempts WHERE run_id=?",
+        (run_id,),
     ).fetchone()
-    assert attempt is not None and attempt["state"] == "dispatching"
+    assert attempt is not None and attempt["state"] == "halted"
 
     checkpoints = project.db.execute(
         "SELECT state, authorized_attempt_id FROM effect_checkpoints ORDER BY id"
     ).fetchall()
-    assert [(row["state"], row["authorized_attempt_id"]) for row in checkpoints] == [
-        ("returned", attempt_id),
-        ("returned", attempt_id),
-    ]
+    assert checkpoints == []
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (run_id,)
@@ -376,64 +382,60 @@ def test_reduce_terminalizer_joins_materialization_transaction(
         (action["idempotency_key"],),
     ).fetchone()
     assert reservation is not None
-    assert reservation["run_id"] is None
+    assert reservation["run_id"] == run_id
     assert reservation["status"] == "running"
     reservation_body = Receipt.model_validate_json(str(reservation["body"]))
-    assert reservation_body.run_id is None
+    assert reservation_body.run_id == run_id
     assert reservation_body.status == "running"
 
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM sheets WHERE name='Beat Summaries'"
         ).fetchone()[0]
-        == 0
+        == 1
     )
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
         ).fetchone()[0]
-        == 0
+        == 2
     )
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM output_column_claims WHERE run_id=?", (run_id,)
         ).fetchone()[0]
-        == 0
+        == 1
     )
 
 
-def test_reserved_reduce_checkpoint_refuses_resume(project) -> None:
-    """A ``reserved`` unit means a provider may have been reached with no
-    durable response: resume refuses by name and never calls out."""
+def test_reserved_reduce_checkpoint_refuses_resume(project, monkeypatch) -> None:
+    """An interrupted provider request uses the ordinary row reservation."""
+    from frisket.ai.llm import LLMError
 
-    provider = _CountingSummaryAdapter()
+    class Ambiguous(_CountingSummaryAdapter):
+        async def complete(self, req, client, **kwargs):
+            self.requests.append(req)
+            raise LLMError("response lost", post_egress_ambiguous=True, retryable=False)
+
+    provider = Ambiguous()
     router = _project_key_router(provider)
     action = _action(project._sheet_id, key="reduce_effects@sha256:reserved")
-
-    prepared = prepare_group_summary_action(project, typed_action_for_request(action))
-    params = prepared.operation
-    resolved = prepared.resolved
-    assert isinstance(resolved, dict)
-    plans = reduces._reduce_group_summary_unit_plans(params, resolved)
-    group_key = reduces._reduce_group_summary_effect_group_key(params)
-    store = EffectCheckpointStore(project.db)
-    assert store.reserve(
-        "cp-ambiguous-reduce-unit",
-        family="reduce_group_summary",
-        group_key=group_key,
-        unit_key=plans[0]["unit_key"],
-        action_kind="reduce.group_summary",
-        identity=plans[0]["identity"],
-    )
-
-    result = _run(project, action, router)
-    assert result.status == "failed"
-    assert result.errors[0].code == "external_effect_reconciliation_required"
-    assert provider.requests == []
-    # The ambiguous reservation is untouched: still an explicit
-    # possible-effect reconciliation record.
-    ambiguous = store.get("cp-ambiguous-reduce-unit")
-    assert ambiguous is not None and ambiguous["state"] == "reserved"
+    first = _run(project, action, router)
+    assert first.status == "failed"
+    assert first.errors[0].code == "external_effect_reconciliation_required"
+    reserved = [
+        dict(row) for row in project.db.execute("SELECT * FROM effect_checkpoints")
+    ]
+    assert len(reserved) == 1
+    assert reserved[0]["family"] == "row_effect"
+    assert reserved[0]["state"] == "reserved"
+    second = _run(project, action, router)
+    assert second.status == "failed"
+    assert second.errors[0].code == "external_effect_reconciliation_required"
+    assert len(provider.requests) == 1
+    assert [
+        dict(row) for row in project.db.execute("SELECT * FROM effect_checkpoints")
+    ] == reserved
 
 
 def test_free_local_reduce_effect_makes_no_checkpoints(project) -> None:
@@ -443,6 +445,7 @@ def test_free_local_reduce_effect_makes_no_checkpoints(project) -> None:
 
     provider = _CountingSummaryAdapter()
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={},
         cache=None,
         cache_mode="off",
@@ -476,3 +479,232 @@ def test_free_local_reduce_effect_makes_no_checkpoints(project) -> None:
     assert attempt["run_id"] == run_id
     assert attempt["state"] == "effected"
     assert RunResultStore(project).model_calls(run_id)
+
+
+@pytest.mark.skipif(
+    __import__("os").name != "posix", reason="SIGKILL process-death contract"
+)
+def test_group_refresh_recovers_committed_state_after_sigkill(project, tmp_path):
+    import signal
+    import subprocess
+    import sys
+    from pathlib import Path
+    from contextlib import closing
+
+    project.set_provider_key(
+        provider="anthropic",
+        encrypted=encrypt_secret("sk-ant-test"),
+        hint=key_hint("sk-ant-test"),
+        spend_cap_micro=100_000,
+    )
+    router = _project_key_router(_CountingSummaryAdapter())
+    original = _run(project, _action(project._sheet_id, key="before-kill"), router)
+    assert original.status == "completed", original.errors
+    sheet_id = original.outputs[0].sheet_id
+    path = project.path
+    project.close()
+    child = tmp_path / "kill-group.py"
+    child.write_text("""
+import os,signal,sys
+from pathlib import Path
+sys.path[:0]=[sys.argv[3],str(Path(sys.argv[3]).parent)]
+from test_reduce_effect_checkpoint import _CountingSummaryAdapter,_project_key_router,_run
+from frisket.engine.store import Project
+from frisket.engine.store.runs import RunResultStore
+p=Project(Path(sys.argv[1]))
+original=RunResultStore.publish_result_batch
+count=0
+def publish(self,*args,**kwargs):
+ global count
+ count+=1
+ if count == 2:
+  os.kill(os.getpid(),signal.SIGKILL)
+ return original(self,*args,**kwargs)
+RunResultStore.publish_result_batch=publish
+_run(p,{'action_id':'sheet.refresh','scope':{'kind':'project'},'params':{'sheet_id':int(sys.argv[2])},'idempotency_key':'killed-refresh'},_project_key_router(_CountingSummaryAdapter()))
+raise RuntimeError('death hook was not reached')
+""")
+    child_run = subprocess.run(
+        [
+            sys.executable,  # subprocess-boundary: real SIGKILL after a committed batch
+            str(child),
+            str(path),
+            str(sheet_id),
+            str(Path(__file__).resolve().parent),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    assert child_run.returncode == -signal.SIGKILL, child_run.stdout + child_run.stderr
+    with closing(Project(path)) as reopened:
+        receipt = reopened.db.execute(
+            "SELECT * FROM receipts WHERE idempotency_key='killed-refresh'"
+        ).fetchone()
+        run_id = receipt["run_id"]
+        assert receipt["status"] == "running"
+        assert (
+            reopened.db.execute(
+                "SELECT state FROM execution_attempts WHERE run_id=? ORDER BY seq DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()[0]
+            == "dispatching"
+        )
+        assert (
+            reopened.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            reopened.db.execute(
+                "SELECT COUNT(*) FROM effect_checkpoints c JOIN execution_attempts a ON a.id=c.authorized_attempt_id WHERE a.run_id=? AND c.state='returned'",
+                (run_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        reopened.db.execute(
+            "UPDATE execution_attempts SET created_at='2000-01-01' WHERE run_id=?",
+            (run_id,),
+        )
+        reopened.db.execute(
+            "UPDATE output_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
+            (run_id,),
+        )
+        reopened.db.execute(
+            "UPDATE sheets SET refresh_lease_expires_at='2000-01-01' WHERE id=?",
+            (sheet_id,),
+        )
+        reopened.db.commit()
+        # Read-only ownership inspection does not mutate or abandon an attempt.
+        assert (
+            reduces._recoverable_group_run(reopened, receipt, receipt["params_hash"])
+            is None
+        )
+        assert (
+            reopened.db.execute(
+                "SELECT state FROM execution_attempts WHERE run_id=? ORDER BY seq DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()[0]
+            == "dispatching"
+        )
+        provider = _CountingSummaryAdapter()
+        recovered = _run(
+            reopened,
+            {
+                "action_id": "sheet.refresh",
+                "scope": {"kind": "project"},
+                "params": {"sheet_id": sheet_id},
+                "idempotency_key": "killed-refresh",
+            },
+            _project_key_router(provider),
+        )
+        assert recovered.status == "completed", recovered.errors
+        assert recovered.run_id == run_id
+        assert recovered.outputs[0].sheet_id == sheet_id
+        assert provider.requests == []
+        assert (
+            reopened.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 2
+        )
+        assert reopened.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("terminal_error", [False, True])
+def test_group_retry_keeps_every_paid_wire_in_checkpoint_and_replays_once(
+    project, monkeypatch, terminal_error
+):
+    from frisket.ai.llm import LLMError
+
+    project.set_provider_key(
+        provider="anthropic",
+        encrypted=encrypt_secret("sk-ant-test"),
+        hint=key_hint("sk-ant-test"),
+        spend_cap_micro=500_000,
+    )
+
+    class RetryAdapter(_CountingSummaryAdapter):
+        async def complete(self, req, client, **kwargs):
+            response = await super().complete(req, client, **kwargs)
+            odd = len(self.requests) % 2 == 1
+            if odd or terminal_error:
+                response.tokens_in, response.tokens_out = (11, 3) if odd else (19, 5)
+                response.cost = 0.002 if odd else 0.004
+                error = LLMError("returned malformed output", retryable=odd)
+                error.wire_calls = [response]
+                raise error
+            return response
+
+    adapter = RetryAdapter()
+    router = _project_key_router(adapter)
+    router.max_retries = 1
+    action = _action(project._sheet_id, key=f"retry-paid-{terminal_error}")
+    original = reduces._write_reduce_group_summary_result
+    crashes = [True]
+
+    def crash_once(*args, **kwargs):
+        if crashes.pop() if crashes else False:
+            raise RuntimeError("after retry checkpoints")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(reduces, "_write_reduce_group_summary_result", crash_once)
+    first = _run(project, action, router)
+    assert first.status == "failed"
+    assert len(adapter.requests) == 4
+    run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+    calls = RunResultStore(project).model_calls(run_id)
+    assert len(calls) == len({call["id"] for call in calls}) == 4
+    expected = 0.012 if terminal_error else 0.016
+    assert sum(call["provider_cost_usd"] for call in calls) == pytest.approx(expected)
+    # Incremental publication has already retired each returned checkpoint;
+    # the injected failure happened before the final receipt, not row writes.
+    assert project.db.execute("SELECT state FROM effect_checkpoints").fetchall() == []
+    recovered = _run(project, action, router)
+    assert recovered.status == ("failed" if terminal_error else "completed"), (
+        recovered.errors
+    )
+    assert len(adapter.requests) == 4
+    assert len(RunResultStore(project).model_calls(run_id)) == 4
+    assert project.db.execute(
+        "SELECT cost_actual FROM runs WHERE id=?", (run_id,)
+    ).fetchone()[0] == pytest.approx(expected)
+
+
+def test_group_known_retry_usage_survives_unknown_final_request_without_rebuy(project):
+    from frisket.ai.llm import LLMError
+
+    class Adapter(_CountingSummaryAdapter):
+        async def complete(self, req, client, **kwargs):
+            response = await super().complete(req, client, **kwargs)
+            error = LLMError(
+                "unresolved response",
+                retryable=len(self.requests) == 1,
+                post_egress_ambiguous=len(self.requests) > 1,
+            )
+            if len(self.requests) == 1:
+                response.cost = 0.002
+                error.wire_calls = [response]
+            raise error
+
+    provider = Adapter()
+    router = _project_key_router(provider)
+    router.max_retries = 1
+    action = _action(project._sheet_id, key="known-then-unknown")
+    first = _run(project, action, router)
+    assert first.status == "failed"
+    assert any(
+        error.code == "external_effect_reconciliation_required"
+        for error in first.errors
+    ), first.errors
+    run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+    calls = RunResultStore(project).model_calls(run_id)
+    assert len(calls) == 1 and calls[0]["provider_cost_usd"] == pytest.approx(0.002)
+    assert [
+        row[0] for row in project.db.execute("SELECT state FROM effect_checkpoints")
+    ] == ["reserved"]
+    again = _run(project, action, router)
+    assert again.status == "failed"
+    assert len(provider.requests) == 2
+    assert len(RunResultStore(project).model_calls(run_id)) == 1

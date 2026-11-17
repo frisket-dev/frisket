@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from contextlib import contextmanager
@@ -34,7 +35,6 @@ from frisket.contracts.http.project_qa import AskThreadCreate, AskTurnRequest
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.runner.validation import NetworkDisabled
-from frisket.execution.pricing_policy import usd_to_micros
 from frisket.execution.resolver import Refusal
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.services.project_qa import ProjectQAService
@@ -103,6 +103,7 @@ def test_cloud_first_signed_out_ask_refuses_instead_of_using_local_key(tmp_path)
     workspace = Workspace(
         tmp_path / "workspace",
         router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "must-not-be-used"},
             use_env_keys=False,
             cache_mode="off",
@@ -139,6 +140,7 @@ def test_ask_does_not_bypass_a_selected_own_route_refusal(tmp_path, monkeypatch)
     workspace = Workspace(
         tmp_path / "workspace",
         router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "configured-but-unavailable"},
             use_env_keys=False,
             cache_mode="off",
@@ -186,7 +188,11 @@ def test_project_ask_default_uses_the_only_cloud_catalog_model(tmp_path):
     store.save_capabilities(_capabilities(model=FLASH_LITE), expected_user_id=7)
     workspace = Workspace(
         tmp_path / "workspace",
-        router=ModelRouter(use_env_keys=False, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+        ),
         cloud_connection_store=store,
         cloud_connection_client=SnapshotOnlyClient(),
     )
@@ -228,7 +234,11 @@ def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
     store.save_capabilities(_capabilities(), expected_user_id=7)
     cloud_workspace = Workspace(
         tmp_path / "cloud-workspace",
-        router=ModelRouter(use_env_keys=False, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+        ),
         cloud_connection_store=store,
         cloud_connection_client=SnapshotOnlyClient(),
     )
@@ -254,6 +264,7 @@ def test_ask_blocks_selected_cloud_and_own_key_routes_when_network_is_off(
     own_workspace = Workspace(
         tmp_path / "own-workspace",
         router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "configured"},
             use_env_keys=False,
             cache_mode="off",
@@ -294,6 +305,7 @@ def test_ask_allows_a_configured_local_endpoint_when_network_is_off(tmp_path):
     workspace = Workspace(
         tmp_path / "workspace",
         router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             use_env_keys=False,
             cache_mode="off",
             local_endpoints=(endpoint,),
@@ -337,6 +349,7 @@ def test_ask_does_not_use_local_endpoint_for_saved_cloud_route(tmp_path):
     workspace = Workspace(
         tmp_path / "workspace",
         router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             use_env_keys=False,
             cache_mode="off",
             local_endpoints=(endpoint,),
@@ -446,6 +459,7 @@ class CloudTransport:
 def test_ask_uses_cloud_coordinator_and_retires_after_usage_commit(tmp_path):
     async def scenario() -> None:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             use_env_keys=False,
             cache_mode="off",
             max_retries=0,
@@ -542,7 +556,12 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(
     tmp_path, disable_network_after_first_call
 ):
     async def scenario() -> None:
-        router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+            max_retries=0,
+        )
         transport = CloudTransport()
         store = CloudConnectionStore(tmp_path / "profile")
         store.save_connection(
@@ -617,13 +636,9 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(
         else:
             assert saved["status"] == "completed", saved["error_summary"]
             assert len(transport.calls) == 2
-        allowance = usd_to_micros(workspace.cost_preapproval_usd)
-        assert transport.calls[0][0].quote_authority.maximum_charge_micro == allowance
+        assert transport.calls[0][0].quote_authority.maximum_charge_micro is None
         if not disable_network_after_first_call:
-            assert (
-                transport.calls[1][0].quote_authority.maximum_charge_micro
-                == allowance - 25
-            )
+            assert transport.calls[1][0].quote_authority.maximum_charge_micro is None
         assert transport.calls[0][0].payer.account_id == 41
         assert transport.calls[0][0].payer.user_id == 7
         if not disable_network_after_first_call:
@@ -667,6 +682,7 @@ def test_own_key_ask_rechecks_network_policy_before_each_model_call(tmp_path):
 
         adapter = Adapter()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "configured"},
             use_env_keys=False,
             cache_mode="off",

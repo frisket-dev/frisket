@@ -874,13 +874,20 @@ def resolve_search_credentials(
     }
 
 
-def configured_search_service(root: str | Path, *, effective_keys: Mapping[str, str]):
+def configured_search_service(
+    root: str | Path,
+    *,
+    effective_keys: Mapping[str, str],
+    credential_source: str = "local",
+):
     """Build search from caller-authorized keys and persisted preference."""
 
     from frisket.ai.research.search import SearchService
 
     return SearchService(
-        preference=load_search_provider(root), effective_keys=effective_keys
+        preference=load_search_provider(root),
+        effective_keys=effective_keys,
+        credential_source=credential_source,
     )
 
 

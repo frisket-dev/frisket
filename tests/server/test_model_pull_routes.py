@@ -534,7 +534,7 @@ def test_indra_ocr_engine_setup_is_allowlisted_for_solo(tmp_path) -> None:
     assert pull["operation_kind"] == "engine_setup"
 
 
-def test_embeddinggemma_engine_setup_is_allowlisted_without_widening_solo(
+def test_embeddinggemma_setup_preserves_the_finite_setup_allowlist(
     tmp_path,
 ) -> None:
     from frisket.engine.jobs.engine_setup import EMBEDDINGGEMMA_SETUP_REF
@@ -549,7 +549,7 @@ def test_embeddinggemma_engine_setup_is_allowlisted_without_widening_solo(
 
     unrelated = client.post(
         "/api/providers/models/setup",
-        json={"setup_ref": "engine-setup:gliclass.local@1"},
+        json={"setup_ref": "engine-setup:future.local@1"},
     )
     assert unrelated.status_code == 400
     assert unrelated.json()["detail"]["code"] == "unknown_engine_setup"
@@ -695,3 +695,112 @@ def test_language_engine_setup_is_allowlisted(tmp_path, setup_ref):
     pull = response.json()["pull"]
     assert pull["model"] == setup_ref
     assert pull["operation_kind"] == "engine_setup"
+
+
+def test_uninstall_cannot_cross_a_provisioning_operation(tmp_path, monkeypatch):
+    """The user-wide artifact lock also fences installers in other workspaces."""
+    from filelock import FileLock
+    from frisket.ai.models import model_cache
+    from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+
+    monkeypatch.setenv("FRISKET_MODEL_CACHE_DIR", str(tmp_path / "cache"))
+    client = _client(tmp_path)
+    workspace = client.app.state.workspace
+    engine = workspace.queue.engine
+    art = normalize_artifact_ref("opus-mt:en-es")
+    row, _ = store.create_or_get_active(
+        engine, workspace_root=str(workspace.root), model_ref=art.canonical
+    )
+    store.mark_running(engine, row.id, job_id=1)
+    store.mark_done(engine, row.id)
+    installed = model_cache.artifact_install_dir(art)
+    installed.mkdir(parents=True)
+    (installed / "model.bin").write_bytes(b"new installation")
+    with FileLock(model_cache.artifact_lock_path(art)):
+        response = client.post(
+            "/api/providers/models/uninstall", json={"ref": art.canonical}
+        )
+    assert response.status_code == 409
+    assert store.get(engine, row.id).status == store.STATUS_DONE
+    assert (installed / "model.bin").read_bytes() == b"new installation"
+
+
+def test_uninstall_failure_keeps_record_retryable(tmp_path, monkeypatch):
+    from frisket.ai.models import model_cache
+    from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
+
+    monkeypatch.setenv("FRISKET_MODEL_CACHE_DIR", str(tmp_path / "cache"))
+    client = _client(tmp_path)
+    engine = client.app.state.workspace.queue.engine
+    art = normalize_artifact_ref("opus-mt:en-es")
+    row, _ = store.create_or_get_active(
+        engine,
+        workspace_root=str(client.app.state.workspace.root),
+        model_ref=art.canonical,
+    )
+    store.mark_running(engine, row.id, job_id=1)
+    store.mark_done(engine, row.id)
+    installed = model_cache.artifact_install_dir(art)
+    installed.mkdir(parents=True)
+    (installed / "model.bin").write_bytes(b"in use")
+    original = model_cache.shutil.rmtree
+
+    def busy(path, *args, **kwargs):
+        if path == installed:
+            if kwargs.get("ignore_errors"):
+                return
+            raise PermissionError("file in use")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(model_cache.shutil, "rmtree", busy)
+    response = client.post(
+        "/api/providers/models/uninstall", json={"ref": art.canonical}
+    )
+    assert response.status_code == 409
+    assert store.get(engine, row.id).status == store.STATUS_DONE
+    monkeypatch.setattr(model_cache.shutil, "rmtree", original)
+    response = client.post(
+        "/api/providers/models/uninstall", json={"ref": art.canonical}
+    )
+    assert response.status_code == 200
+    assert store.get(engine, row.id).status == store.STATUS_UNINSTALLED
+    assert not installed.exists()
+
+
+@pytest.mark.parametrize("engine_id", ["gliclass", "jeff"])
+def test_advertised_local_classifier_setup_reaches_existing_setup_worker(
+    tmp_path, engine_id
+):
+    from frisket.contracts.classification import LOCAL_CLASSIFIERS
+
+    client = _client(tmp_path)
+    workspace = client.app.state.workspace
+    project = workspace.create("Classifiers", project_id="classifiers")
+    response = client.post(
+        f"/api/projects/{project['id']}/selector-choices",
+        json={
+            "schema_version": "frisket.selector_choices_query.v1",
+            "subject": {
+                "kind": "action",
+                "action_id": "map.classify",
+                "field": "engine",
+                "params": {},
+            },
+        },
+    )
+    assert response.status_code == 200, response.text
+    setup_ref = LOCAL_CLASSIFIERS[engine_id].setup_ref
+    choices = [
+        choice for group in response.json()["groups"] for choice in group["choices"]
+    ]
+    advertised = [
+        choice
+        for choice in choices
+        if (choice.get("setup") or {}).get("setup_ref") == setup_ref
+    ]
+    assert advertised, choices
+    assert advertised[0]["setup"]["can_start"]
+    started = client.post("/api/providers/models/setup", json={"setup_ref": setup_ref})
+    assert started.status_code == 202, started.text
+    assert started.json()["pull"]["model"] == setup_ref
+    assert started.json()["pull"]["operation_kind"] == "engine_setup"

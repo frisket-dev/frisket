@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -110,6 +111,7 @@ def _assert_run_result_ref(
     op_id: int,
     row_id: int,
     column_id: int,
+    outcome: str = "completed",
 ) -> None:
     assert ref == {
         "kind": "run_result",
@@ -117,6 +119,7 @@ def _assert_run_result_ref(
         "row_id": row_id,
         "column_id": column_id,
         "run_id": run_id,
+        "outcome": outcome,
     }
 
 
@@ -144,7 +147,7 @@ def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
         )
 
         observed_flushes: list[tuple[int, tuple[int, ...]]] = []
-        original_write_results = RunResultStore.write_results
+        original_write_results = RunResultStore.publish_result_batch
 
         def observe_fresh_flush(
             store: RunResultStore,
@@ -177,7 +180,7 @@ def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
                 (run_id, tuple(sorted(int(item["row_id"]) for item in batch)))
             )
 
-        monkeypatch.setattr(RunResultStore, "write_results", observe_fresh_flush)
+        monkeypatch.setattr(RunResultStore, "publish_result_batch", observe_fresh_flush)
         result = _run_deterministic_extract(
             project,
             _deterministic_extract_spec(
@@ -218,10 +221,11 @@ def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
                 column_id=output_id,
             )
 
-        # Existing-output replacement keeps its characterized terminal
-        # visibility, so the fresh-flush observer above deliberately applies
-        # only to the first run.
-        monkeypatch.setattr(RunResultStore, "write_results", original_write_results)
+        # This observer checked fresh-column row-family publication. The
+        # replacement contract is exercised separately below.
+        monkeypatch.setattr(
+            RunResultStore, "publish_result_batch", original_write_results
+        )
         project.apply_edits(
             [
                 {
@@ -564,7 +568,7 @@ def _run_fixture(
         run_with_output_claim(
             MapRunner(
                 project,
-                ModelRouter(keys={}),
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                 authority=UnroutedOnlyAuthority(project),
             ),
             spec,
@@ -712,13 +716,12 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             op_id=first_op_id,
         )
 
-        # Existing-output replacement remains staged: durable result rows do
-        # not move a head until terminal publication seals the coherent batch.
-        original_write_results = RunResultStore.write_results
-        staged_writes: set[tuple[int, int]] = set()
-        names_by_column = {column_id: name for name, column_id in columns.items()}
+        # Same-descriptor replacements publish each completed row family.
+        # The publication boundary includes evidence, not just result storage.
+        original_write_results = RunResultStore.publish_result_batch
+        published_writes: set[tuple[int, int]] = set()
 
-        def observe_staged_replacement(
+        def observe_replacement_publication(
             store: RunResultStore,
             run_id: int,
             batch: list[dict[str, Any]],
@@ -728,18 +731,26 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             for result in batch:
                 row_id = int(result["row_id"])
                 column_id = int(result["column_id"])
-                name = names_by_column[column_id]
                 staged = _column_snapshot(
                     project,
                     sheet_id=sheet_id,
                     column_id=column_id,
                     row_ids=[row_id],
                 )
-                assert staged[0][row_id] == before[name][0][row_id]
-                assert staged[1][row_id] == before[name][1][row_id]
-                staged_writes.add((row_id, column_id))
+                assert staged[0][row_id] == result["value"]
+                _assert_run_result_ref(
+                    staged[1][row_id],
+                    run_id=run_id,
+                    op_id=_run_op_id(project, run_id),
+                    row_id=row_id,
+                    column_id=column_id,
+                    outcome="failed" if result.get("error") else "completed",
+                )
+                published_writes.add((row_id, column_id))
 
-        monkeypatch.setattr(RunResultStore, "write_results", observe_staged_replacement)
+        monkeypatch.setattr(
+            RunResultStore, "publish_result_batch", observe_replacement_publication
+        )
         second = _run_fixture(
             project,
             recipe,
@@ -750,10 +761,12 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             null_row_id=null_row,
             error_row_id=error_row,
         )
-        monkeypatch.setattr(RunResultStore, "write_results", original_write_results)
+        monkeypatch.setattr(
+            RunResultStore, "publish_result_batch", original_write_results
+        )
         assert second.done and second.failed == 1
         second_op_id = _run_op_id(project, second.run_id)
-        assert staged_writes == {
+        assert published_writes == {
             (row_id, column_id)
             for row_id in target_rows
             for column_id in columns.values()
@@ -831,6 +844,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             op_id=second_op_id,
             row_id=error_row,
             column_id=columns["generated_text"],
+            outcome="failed",
         )
 
         grid = _sheet_data_payload(
@@ -851,6 +865,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             op_id=second_op_id,
             row_id=error_row,
             column_id=columns["generated_text"],
+            outcome="failed",
         )
 
         while_error_active = list_cell_evidence(

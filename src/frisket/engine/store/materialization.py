@@ -8,6 +8,8 @@ validators decide whether an empty result is semantically valid.
 
 from __future__ import annotations
 
+from .derived_updates import MaterializedIdentity, establish_identity
+
 import json
 import hashlib
 import sqlite3
@@ -81,6 +83,7 @@ class ContributorTablePlan:
     op_spec: Mapping[str, Any]
     columns: Sequence[MaterializedColumnSpec]
     rows: Sequence[ContributorMaterializedRow]
+    refresh_identity: MaterializedIdentity | None = None
 
 
 @dataclass(frozen=True)
@@ -208,6 +211,7 @@ class AggregateSheetPlan:
     # SAME op row here (kind/label/spec rewritten in the write transaction)
     # instead of inserting a second one.  None keeps today's insert.
     reuse_op_id: int | None = None
+    refresh_identity: MaterializedIdentity | None = None
 
 
 @dataclass(frozen=True)
@@ -242,7 +246,9 @@ def _append_new_materialization_op(
         ),
     )
     op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+    from .changes import start_change
+
+    start_change(cur.connection, op_id, writing=True)
     return op_id
 
 
@@ -306,7 +312,17 @@ def _write_undo_info(
         "UPDATE ops SET undo_info=? WHERE id=?",
         (json.dumps(undo_info, sort_keys=True), op_id),
     )
+    from .structural_changes import record_structural_changes
+
+    record_structural_changes(cur.connection, op_id, undo_info)
     return undo_info
+
+
+def _close_atomic_materialization(cur, op_id):
+    from types import SimpleNamespace
+    from .changes import ChangeStore
+
+    ChangeStore(SimpleNamespace(db=cur.connection)).close(op_id)
 
 
 def write_single_parent_child_sheet(
@@ -346,7 +362,10 @@ def write_single_parent_child_sheet(
 
 
 def write_contributor_table(
-    cur: sqlite3.Cursor, plan: ContributorTablePlan
+    cur: sqlite3.Cursor,
+    plan: ContributorTablePlan,
+    *,
+    defer_publication_close: bool = False,
 ) -> ContributorTableWrite:
     """Publish rows with independently declared navigation and contributors."""
     if not plan.columns or len({column.name for column in plan.columns}) != len(
@@ -363,7 +382,6 @@ def write_contributor_table(
             not _is_positive_int(source) for source, _role in row.sources
         ):
             raise ValueError("invalid or duplicate source membership")
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_id = _append_new_materialization_op(cur, plan)
     producer_id = create_base_cell_producer(
         cur.connection, stage_id=f"op:{op_id}", op_id=op_id
@@ -398,6 +416,17 @@ def write_contributor_table(
 
     initialize_base_cells(cur.connection, producer_id=producer_id, cells=cell_writes)
     undo_info = _write_undo_info(cur, op_id, sheet_id, column_ids, row_ids=row_ids)
+    if plan.refresh_identity is not None:
+        establish_identity(
+            cur.connection,
+            sheet_id=sheet_id,
+            op_id=op_id,
+            column_ids=column_ids,
+            rows=[row.values for row in plan.rows],
+            row_ids=row_ids,
+            identity=plan.refresh_identity,
+        )
+
     materialized_column_refs = {
         name: {
             "kind": "materialized_column",
@@ -424,6 +453,8 @@ def write_contributor_table(
         ],
         "op_id": op_id,
     }
+    if not defer_publication_close:
+        _close_atomic_materialization(cur, op_id)
     return ContributorTableWrite(
         op_id=op_id,
         sheet_id=sheet_id,
@@ -453,15 +484,13 @@ def write_aggregate_sheet(
     """Write a materialized aggregate sheet with canonical source membership."""
 
     _validate_aggregate_sheet_plan(plan)
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     if plan.reuse_op_id is not None:
         # The family already appended this op (its pre-egress accounting
         # envelope); finalize it in place.  The cursor already advanced when
         # the op was appended, so it is not rewound here — rewinding could
         # discard redo state appended since.
         updated = cur.execute(
-            "UPDATE ops SET kind=?, label=?, spec=?, undo_info=?, barrier=0, "
-            "status='applied' WHERE id=?",
+            "UPDATE ops SET kind=?, label=?, spec=?, undo_info=?, barrier=0 WHERE id=?",
             (
                 plan.action_kind,
                 plan.label,
@@ -476,6 +505,9 @@ def write_aggregate_sheet(
                 "the op row is missing"
             )
         op_id = int(plan.reuse_op_id)
+        from .changes import start_change
+
+        start_change(cur.connection, op_id, writing=True)
     else:
         op_id = _append_new_materialization_op(cur, plan)
     producer_id = create_base_cell_producer(
@@ -514,6 +546,17 @@ def write_aggregate_sheet(
 
     initialize_base_cells(cur.connection, producer_id=producer_id, cells=cell_writes)
     undo_info = _write_undo_info(cur, op_id, sheet_id, column_ids, row_ids=row_ids)
+    if plan.refresh_identity is not None:
+        establish_identity(
+            cur.connection,
+            sheet_id=sheet_id,
+            op_id=op_id,
+            column_ids=column_ids,
+            rows=[row.values for row in plan.rows],
+            row_ids=row_ids,
+            identity=plan.refresh_identity,
+        )
+
     materialized_column_refs = {
         name: {
             "kind": "materialized_column",
@@ -565,7 +608,6 @@ def write_edge_table(
     """
 
     _validate_edge_table_plan(plan)
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_id = _append_new_materialization_op(cur, plan)
     producer_id = create_base_cell_producer(
         cur.connection, stage_id=f"op:{op_id}", op_id=op_id
@@ -622,6 +664,7 @@ def write_edge_table(
         "target_row_ids": target_row_ids,
         "op_id": op_id,
     }
+    _close_atomic_materialization(cur, op_id)
     return EdgeTableWrite(
         op_id=op_id,
         sheet_id=sheet_id,
@@ -662,7 +705,6 @@ def write_join_table(
     """
 
     _validate_join_table_plan(plan)
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_id = _append_new_materialization_op(cur, plan)
     producer_id = create_base_cell_producer(
         cur.connection, stage_id=f"op:{op_id}", op_id=op_id
@@ -728,6 +770,7 @@ def write_join_table(
         "right_row_ids": right_row_ids,
         "op_id": op_id,
     }
+    _close_atomic_materialization(cur, op_id)
     return JoinTableWrite(
         op_id=op_id,
         sheet_id=sheet_id,
@@ -899,7 +942,7 @@ def _active_materialized_row_sources_query(
     where_sql = " WHERE " + " AND ".join(where) if where else ""
     rows = cur.execute(
         "SELECT m.materialized_row_id, m.source_row_id, m.source_sheet_id, "
-        "m.op_id, m.role FROM materialized_row_sources AS m "
+        f"m.op_id, m.role FROM {'materialized_row_sources' if include_historical else 'current_materialized_row_sources'} AS m "
         f"{joins}{where_sql} "
         "ORDER BY m.materialized_row_id, m.role, m.source_row_id",
         params,

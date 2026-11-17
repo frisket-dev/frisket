@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 import csv
 import io
 import json
@@ -63,6 +64,30 @@ class SheetDatasetExportError(Exception):
         self.code = code
 
 
+def _export_read(stack, project, sheet_ids, selection, view_id, *, legacy_scope):
+    if selection is None and view_id is None:
+        return stack.enter_context(project.read_snapshot()), None
+    if len(sheet_ids) != 1:
+        raise SheetDatasetExportError(
+            400,
+            "current-view export requires exactly one selected sheet",
+            code="invalid_current_view_selection",
+        )
+    from frisket.server.services.view_selection import open_sheet_selection
+
+    try:
+        selected = stack.enter_context(
+            open_sheet_selection(
+                project, sheet_ids[0], selection, view_id, legacy_scope=legacy_scope
+            )
+        )
+    except ValueError as exc:
+        raise SheetDatasetExportError(
+            400, str(exc), code="invalid_current_view_selection"
+        ) from exc
+    return selected.snapshot, selected
+
+
 class SheetDatasetExportService:
     def __init__(
         self, workspace: Workspace, *, limits: SheetExportLimits | None = None
@@ -80,6 +105,8 @@ class SheetDatasetExportService:
         sort: str | None,
         formula_policy: str,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: int | None = None,
         include_attachments: bool = False,
     ) -> SheetDatasetArtifact | SheetDatasetFile:
         project = self._workspace.get(project_id)
@@ -101,7 +128,15 @@ class SheetDatasetExportService:
                 code="invalid_current_view_selection",
             )
         project_name = self._project_name(project, project_id)
-        with project.read_snapshot() as snapshot:
+        with ExitStack() as stack:
+            snapshot, selected_view = _export_read(
+                stack,
+                project,
+                selected,
+                selection,
+                view_id,
+                legacy_scope=(filter_, sort, scope_row_ids),
+            )
             plans = [
                 self._build_plan(
                     snapshot,
@@ -111,6 +146,7 @@ class SheetDatasetExportService:
                     scope_row_ids=scope,
                     streaming_rowset=True,
                     include_attachment_paths=include_attachments,
+                    selection_read=selected_view,
                 )
                 for sheet_id in selected
             ]
@@ -148,6 +184,8 @@ class SheetDatasetExportService:
         sort: str | None,
         formula_policy: str,
         scope_row_ids: str | None = None,
+        selection: str | None = None,
+        view_id: int | None = None,
     ) -> SheetDatasetStream:
         """Plan a single CSV eagerly, but defer every row read to iteration."""
         project = self._workspace.get(project_id)
@@ -160,8 +198,16 @@ class SheetDatasetExportService:
                 "streaming CSV needs one selected sheet",
                 code="invalid_sheet_selection",
             )
-        snapshot = project.read_snapshot()
+        stack = ExitStack()
         try:
+            snapshot, selected_view = _export_read(
+                stack,
+                project,
+                selected,
+                selection,
+                view_id,
+                legacy_scope=(filter_, sort, scope_row_ids),
+            )
             plan = self._build_plan(
                 snapshot,
                 selected[0],
@@ -169,19 +215,20 @@ class SheetDatasetExportService:
                 sort=sort,
                 scope_row_ids=scope,
                 streaming_rowset=True,
+                selection_read=selected_view,
             )
             filename = download_filename(plan.sheet_name, ".csv")
             chunks = _iter_snapshot_csv_bytes(
-                snapshot, plan, formula_policy=formula_policy
+                snapshot, plan, formula_policy=formula_policy, close=stack.close
             )
         except BaseException:
-            snapshot.close()
+            stack.close()
             raise
         return SheetDatasetStream(
             filename=filename,
             chunks=chunks,
             media_type="text/csv; charset=utf-8-sig",
-            close=snapshot.close,
+            close=stack.close,
         )
 
     def _render_archive(
@@ -255,6 +302,7 @@ class SheetDatasetExportService:
         scope_row_ids: list[int] | None = None,
         streaming_rowset: bool = False,
         include_attachment_paths: bool = False,
+        selection_read: Any | None = None,
     ) -> SheetExportPlan:
         query: dict[str, Any] | None = None
         if filter_ is not None or sort is not None:
@@ -286,6 +334,7 @@ class SheetDatasetExportService:
                 streaming_rowset=streaming_rowset,
                 scope_row_ids=scope_row_ids,
                 include_attachment_paths=include_attachment_paths,
+                selection_read=selection_read,
             )
         except ExportError as exc:
             if exc.code == "invalid_sheet_ref":
@@ -409,11 +458,12 @@ def _iter_snapshot_csv_bytes(
     plan: SheetExportPlan,
     *,
     formula_policy: str,
+    close: Callable[[], None] | None = None,
 ) -> Iterator[bytes]:
     try:
         yield from iter_export_csv_bytes(snapshot, plan, formula_policy=formula_policy)
     finally:
-        snapshot.close()
+        (close or snapshot.close)()
 
 
 def _unique_filename(filename: str, used_names: set[str]) -> str:

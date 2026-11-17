@@ -180,8 +180,8 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
     // catalog availability gate survives successful parameter resolution.
     await screen.findByTestId('field-output-geo_point');
     expect(selectorTrigger()).toHaveTextContent(/opencage/i);
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      availability === 'unavailable' ? 'OPENCAGE_API_KEY' : 'Saved choice is not offered',
+    expect(screen.getByTestId('generated-action-run')).toHaveAttribute('title',
+      expect.stringContaining(availability === 'unavailable' ? 'OPENCAGE_API_KEY' : 'Saved choice is not offered'),
     );
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(screen.getByTestId('generated-action-preview')).toBeDisabled();
@@ -189,6 +189,7 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
     await chooseEngine('nominatim');
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(1));
     expect(execute.mock.calls[0][0].params).toEqual({ source: 'address', engine: 'nominatim', include_lat_lon: false });
   });
 
@@ -213,7 +214,7 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
     ] });
     await screen.findByTestId('field-output-geo_point');
     expect(selectorTrigger()).toHaveTextContent('Auto');
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('No execution engines are available.'));
+    await waitFor(() => expect(screen.getByTestId('generated-action-run')).toHaveAttribute('title','No execution engines are available.'));
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(execute).not.toHaveBeenCalled();
   });
@@ -227,7 +228,7 @@ describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geosp
     const { execute } = renderForm('enrich.geocode', {}, [], { engines });
     await screen.findByTestId('field-output-geo_point');
     expect(selectorTrigger()).toHaveTextContent('Auto');
-    expect(screen.getByRole('alert')).toHaveTextContent('No execution engines are available.');
+    expect(screen.getByTestId('generated-action-run')).toHaveAttribute('title','No execution engines are available.');
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     expect(screen.getByTestId('generated-action-preview')).toBeDisabled();
     expect(execute).not.toHaveBeenCalled();

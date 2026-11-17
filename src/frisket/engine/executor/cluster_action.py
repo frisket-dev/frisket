@@ -6,6 +6,7 @@ import copy
 import json
 from functools import partial
 from types import MappingProxyType
+from typing import Any
 
 from frisket.actions.cluster_types import (
     ClusterColumn,
@@ -39,13 +40,12 @@ from frisket.engine.executor.value_cluster import (
 from frisket.contracts.action import ActionError, ReceiptEvidence
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
-    _finalize_reserved_action_receipt,
     _output_claim_token,
     _receipt_for_idempotency,
 )
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
+from frisket.execution.attempt import StaleAttemptWriter
 
 
 class AdmittedValueClusterer:
@@ -79,6 +79,9 @@ def prepare_cluster_action(project, bound, *, router=None, admission=True):
     from frisket.ai.embeddings.backends import embedder_is_remote, resolve_embedder
     from frisket.engine.runner.validation import NetworkDisabled
 
+    from .selection_scope import resolve_action_selection
+
+    bound = resolve_action_selection(project, bound)
     terminal = bound.action.definition.run
     if not isinstance(terminal, _ProjectAction) or terminal.capabilities != (
         ValueClusterer,
@@ -195,11 +198,13 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     state = kwargs["resolved"].facts["cluster_values"]
     run_id, receipt_id = kwargs["run_id"], kwargs["receipt_id"]
     writer, claim = kwargs.get("writer_attempt_id"), kwargs.get("claim_token")
+    terminal_status = kwargs.get("terminal_status", "completed")
     if writer is None or claim != _output_claim_token(receipt_id):
         raise StaleAttemptWriter("Cluster publication needs its exact writer claim")
 
-    def abort(code, message, *, status="failed"):
-        project.db.execute("BEGIN IMMEDIATE")
+    def abort(code, message, *, status="failed", commit=True):
+        if commit:
+            project.db.execute("BEGIN IMMEDIATE")
         try:
             prior = ReceiptStore(project).parsed_by_id(receipt_id)
             terminal = prior.model_copy(
@@ -245,13 +250,16 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                         }
                     )
                 raise StaleAttemptWriter(f"Cluster abort refused: {outcome.reason}")
-            project.db.commit()
+            if commit:
+                project.db.commit()
         except BaseException:
             project.db.rollback()
             raise
         return _result_from_receipt(ReceiptStore(project).parsed_by_id(receipt_id))
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    if run["cancel_requested_at"] is not None:
+        return abort("cancelled", "Clustering was stopped", status="cancelled")
     from frisket.engine.store.effect_checkpoints import (
         EffectCheckpointStore,
         is_operator_attestation,
@@ -276,15 +284,22 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         ):
             code = "embedding_backend_unavailable"
         return abort(code, detail)
-    if run["status"] != "completed":
+    if terminal_status != "completed":
         return abort(
             "cluster_failed",
             "Clustering did not complete the whole column",
-            status="cancelled" if run["status"] == "cancelled" else "failed",
+            status="cancelled" if terminal_status == "cancelled" else "failed",
         )
     plan = cluster_plan_from_state(bound, state)
     try:
         project.db.execute("BEGIN IMMEDIATE")
+        run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        if run["cancel_requested_at"] is not None:
+            result = abort(
+                "cancelled", "Clustering was stopped", status="cancelled", commit=False
+            )
+            project.db.commit()
+            return result
         claims = OutputColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
         claims.require_current_writer(
@@ -312,7 +327,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             run_id,
             column_ids,
             claim_token=claim,
-            terminal_disposition="completed",
+            terminal_disposition=terminal_status,
             publish=True,
             commit=False,
         )
@@ -340,6 +355,9 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             plan=plan,
             params_hash=kwargs["params_hash"],
         )
+        receipt_status = kwargs.get("receipt_status")
+        if receipt_status is not None:
+            receipt = receipt.model_copy(update={"status": receipt_status})
         provider_use = _cluster_provider_use(project, run_id)
         if not provider_use and state["embedding_model"] is not None:
             from frisket.ai.embeddings.backends import embedder_is_remote
@@ -387,30 +405,26 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                 "provider_use": provider_use or receipt.provider_use,
             }
         )
-        result = _finalize_reserved_action_receipt(
-            project,
-            action,
-            params_hash=kwargs["params_hash"],
-            project_id=kwargs["project_id"],
-            receipt=receipt,
-            reservation_lost_message="Cluster reservation was lost",
-            update_failed_message="Cluster receipt update failed",
-            require_running_status=False,
-            replay_error_fn=lambda prior: _replay_error(project, prior),
-            commit=False,
-        )
-        if result is not None:
-            project.db.rollback()
-            return result
         del op_spec[CLUSTER_RESULT_SPEC_KEY]
         op_spec[CLUSTER_RESULT_STORAGE_SPEC_KEY] = CLUSTER_RESULT_RECEIPT_STORAGE
         project.db.execute(
             "UPDATE ops SET spec=? WHERE id=?",
             (json.dumps(op_spec, sort_keys=True, allow_nan=False), run["op_id"]),
         )
-        set_attempt_state(project, writer, "effected", commit=False)
-        if not claims.release(claim_token=claim, status="released", commit=False):
-            raise StaleAttemptWriter("Cluster publication lost its output claim")
+        outcome = terminalize_project_run(
+            project,
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status=receipt.status,
+            run_status=terminal_status,
+            authority=CurrentWriterTerminalAuthority(
+                writer_attempt_id=writer, claim_token=claim
+            ),
+            terminal_receipt=receipt,
+            commit=False,
+        )
+        if outcome.disposition != "terminalized":
+            raise StaleAttemptWriter(f"Cluster publication refused: {outcome.reason}")
         project.db.commit()
         return _result_from_receipt(receipt)
     except ClusterSourceChanged as exc:
@@ -589,6 +603,10 @@ def run_typed_cluster_action(
     )
 
     envelope, queued, program = typed_cluster_queue_spec(bound)
+    from frisket.execution.handler_lineage import current_handler_lineage
+
+    direct_invocation = current_handler_lineage() is None
+    direct_writer: dict[str, Any] = {}
     try:
         prior_run = _cluster_abandoned_run(project, bound)
     except ValueError:
@@ -615,15 +633,16 @@ def run_typed_cluster_action(
                 "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
                 (receipt.run_id,),
             ).fetchone()
+            from frisket.engine.store.output_claims import OutputColumnClaimStore
+
             if (
                 run is not None
-                and run["status"] in {"completed", "failed", "cancelled"}
+                and run["status"] == "running"
+                and run["total_rows"] is not None
+                and int(run["completed_rows"] or 0) >= int(run["total_rows"])
                 and run["current_attempt_id"] is not None
-                and any(
-                    binding.state != "sealed"
-                    for binding in ResultGenerationStore(project).bindings_for_run(
-                        receipt.run_id
-                    )
+                and OutputColumnClaimStore(project).attempt_handler_execution_stopped(
+                    str(run["current_attempt_id"])
                 )
             ):
                 return finalize_cluster_action(
@@ -652,6 +671,63 @@ def run_typed_cluster_action(
         runner.allow_action_lifecycle_only_recipes = True
         return runner
 
+    finalize = partial(finalize_cluster_action, bound=bound)
+
+    def finalize_owned_direct_writer(project, action, params, **kwargs):
+        if direct_invocation:
+            writer_attempt_id = kwargs.get("writer_attempt_id")
+            claim_token = kwargs.get("claim_token")
+            run_id = kwargs.get("run_id")
+            if (
+                isinstance(writer_attempt_id, str)
+                and writer_attempt_id
+                and isinstance(claim_token, str)
+                and claim_token == _output_claim_token(str(kwargs.get("receipt_id")))
+                and isinstance(run_id, int)
+            ):
+                # Capture authority only from the callback this invocation is
+                # actually executing. A replay that returns idempotency-in-
+                # progress never receives this writer tuple.
+                direct_writer.update(
+                    run_id=run_id,
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    receipt_id=str(kwargs["receipt_id"]),
+                )
+        return finalize(project, action, params, **kwargs)
+
+    def relinquish_direct_writer() -> None:
+        if not direct_invocation or not direct_writer:
+            return
+        row = project.db.execute(
+            "SELECT runs.status,runs.current_attempt_id,receipts.status AS receipt_status "
+            "FROM runs JOIN receipts ON receipts.run_id=runs.id "
+            "WHERE runs.id=? AND receipts.id=?",
+            (direct_writer["run_id"], direct_writer["receipt_id"]),
+        ).fetchone()
+        if (
+            row is None
+            or row["status"] != "running"
+            or row["receipt_status"] != "running"
+            or row["current_attempt_id"] != direct_writer["writer_attempt_id"]
+        ):
+            return
+        from frisket.engine.store.output_claims import OutputColumnClaimStore
+        from frisket.execution.attempt import StaleAttemptWriter
+
+        try:
+            OutputColumnClaimStore(project).finish_current_writer(
+                run_id=direct_writer["run_id"],
+                writer_attempt_id=direct_writer["writer_attempt_id"],
+                claim_token=direct_writer["claim_token"],
+                attempt_state="halted",
+                claim_status="released",
+            )
+        except StaleAttemptWriter:
+            # Another terminal owner or successor may have won after the
+            # observation above. The exact-writer fence leaves it untouched.
+            return
+
     spec = _ReservedMaprunnerActionSpec(
         kind=bound.action.action_id,
         params_model=type(bound.params),
@@ -660,7 +736,7 @@ def run_typed_cluster_action(
             project, params, spec, router
         ),
         precheck_fn=queued.precheck_fn,
-        write_fn=partial(finalize_cluster_action, bound=bound),
+        write_fn=finalize_owned_direct_writer,
         reservation_kind=queued.reservation_kind,
         program_fn=lambda project, spec: program,
         replay_error_fn=lambda project, params, receipt, action: _replay_error(
@@ -672,15 +748,18 @@ def run_typed_cluster_action(
         resume_run_id_fn=lambda _project, _params, resolved: resolved["resume_run_id"],
         map_error_code="cluster_failed",
     )
-    return _run_reserved_maprunner_action_spec(
-        project,
-        envelope,
-        bound.params,
-        spec=spec,
-        ctx=ExecutorContext(
-            project_id=project_id,
-            deps=ExecutorDeps(router=router, map_runner_factory=factory),
-            edition_run_context=edition_run_context,
-        ),
-        map_runner_factory=factory,
-    )
+    try:
+        return _run_reserved_maprunner_action_spec(
+            project,
+            envelope,
+            bound.params,
+            spec=spec,
+            ctx=ExecutorContext(
+                project_id=project_id,
+                deps=ExecutorDeps(router=router, map_runner_factory=factory),
+                edition_run_context=edition_run_context,
+            ),
+            map_runner_factory=factory,
+        )
+    finally:
+        relinquish_direct_writer()

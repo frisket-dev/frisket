@@ -8,6 +8,8 @@ knowing the project-db schema.
 
 from __future__ import annotations
 
+from frisket.engine.store.cell_reference import evidence_subject_ref_json
+
 import hashlib
 import json
 import re
@@ -427,7 +429,7 @@ def record_evidence_link(
             (
                 link_stable_id,
                 subject_kind,
-                _json_dumps(subject_ref),
+                evidence_subject_ref_json(subject_ref),
                 sheet_id,
                 row_id,
                 column_id,
@@ -478,6 +480,68 @@ def record_evidence_link(
     return _link_row(project, link_id)
 
 
+def copy_evidence_links(
+    project: Project,
+    *,
+    op_id: int,
+    sheet_id: int,
+    copies: list[dict[str, Any]],
+) -> None:
+    """Copy a bounded batch of retained links, preserving their evidence state.
+
+    Each copy names source_link_id, target row_id/column_id and subject_ref.
+    The caller owns the publication transaction. Spans remain shared immutable
+    sources; only their associations and the link ownership are copied.
+    """
+    if not project.db.in_transaction:
+        raise RuntimeError("evidence copies require a caller-owned transaction")
+    if not copies:
+        return
+    payload = _json_dumps(
+        [
+            {
+                **copy,
+                "subject_ref": evidence_subject_ref_json(copy["subject_ref"]),
+                "stable_id": _stable_id("evidence_link"),
+            }
+            for copy in copies
+        ]
+    )
+    inserted = project.db.execute(
+        "INSERT INTO evidence_links ("
+        "stable_id,subject_kind,subject_ref_json,sheet_id,row_id,column_id,"
+        "run_id,op_id,link_role,status,confidence,pinned,producer_json,"
+        "layer_family,stale_reason,stale_at,metadata) "
+        "SELECT item.value->>'$.stable_id',source.subject_kind,"
+        "item.value->>'$.subject_ref',?,item.value->>'$.row_id',"
+        "item.value->>'$.column_id',source.run_id,?,source.link_role,"
+        "source.status,source.confidence,source.pinned,source.producer_json,"
+        "source.layer_family,source.stale_reason,source.stale_at,"
+        "json_set(source.metadata,'$.reapplied_from',source.stable_id) "
+        "FROM json_each(?) item JOIN evidence_links source "
+        "ON source.id=item.value->>'$.source_link_id' "
+        "RETURNING row_id,column_id,status,link_role",
+        (sheet_id, op_id, payload),
+    ).fetchall()
+    project.db.execute(
+        "INSERT INTO evidence_link_spans (link_id,span_id,rank,span_role,required,note) "
+        "SELECT target.id,span.span_id,span.rank,span.span_role,span.required,span.note "
+        "FROM json_each(?) item JOIN evidence_links target "
+        "ON target.stable_id=item.value->>'$.stable_id' "
+        "JOIN evidence_link_spans span "
+        "ON span.link_id=item.value->>'$.source_link_id'",
+        (payload,),
+    )
+    touch_binding_revisions(
+        project.db,
+        [
+            (row, column)
+            for row, column, status, role in inserted
+            if status == "active" and role in RETRIEVAL_EVIDENCE_LINK_ROLES
+        ],
+    )
+
+
 def sheet_cited_column_ids(project: Project, sheet_id: int) -> list[int]:
     """The answers-view availability signal (answers-view-cited-columns-
     signal-v1 contract):
@@ -493,6 +557,8 @@ def sheet_cited_column_ids(project: Project, sheet_id: int) -> list[int]:
     rows = project.db.execute(
         "SELECT DISTINCT column_id FROM evidence_links "
         "WHERE sheet_id=? AND status='active' AND column_id IS NOT NULL "
+        "AND (op_id IS NULL OR EXISTS (SELECT 1 FROM ops "
+        "WHERE ops.id=evidence_links.op_id AND ops.status='applied')) "
         "ORDER BY column_id",
         (int(sheet_id),),
     ).fetchall()
@@ -525,7 +591,7 @@ def list_cell_evidence(
                 "WHERE row_id=? AND column_id=? AND status='active' "
                 "AND subject_ref_json=? "
                 "ORDER BY created_at, id",
-                (row_id, column_id, _json_dumps(current_ref)),
+                (row_id, column_id, evidence_subject_ref_json(current_ref)),
             ).fetchall()
         )
     stale_count = int(
@@ -607,7 +673,9 @@ def list_column_evidence(
         # only counts for a row if it was recorded against that row's CURRENT
         # value ref, excluding stale/superseded links left behind by an
         # earlier run/edit that a later run/edit has since replaced.
-        if ref is None or link_row["subject_ref_json"] != _json_dumps(ref):
+        if ref is None or link_row["subject_ref_json"] != evidence_subject_ref_json(
+            ref
+        ):
             continue
         by_row.setdefault(link_row["row_id"], []).append(link_row)
     return {
@@ -704,7 +772,7 @@ def list_row_evidence(
     params: list[Any] = [int(sheet_id), int(row_id)]
     if subject_ref is not None:
         where += " AND subject_ref_json=?"
-        params.append(_json_dumps(subject_ref))
+        params.append(evidence_subject_ref_json(subject_ref))
     sql = f"SELECT * FROM evidence_links {where} ORDER BY created_at, id"
     if limit is not None:
         sql += " LIMIT ?"
@@ -1112,7 +1180,7 @@ def mark_evidence_stale_for_cell_refs(
                 select_params = (
                     row_id,
                     column_id,
-                    _json_dumps(ref),
+                    evidence_subject_ref_json(ref),
                     *(
                         (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                         if preserve_map_extract_item_links
@@ -1129,7 +1197,7 @@ def mark_evidence_stale_for_cell_refs(
                     reason,
                     row_id,
                     column_id,
-                    _json_dumps(ref),
+                    evidence_subject_ref_json(ref),
                     *(
                         (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                         if preserve_map_extract_item_links

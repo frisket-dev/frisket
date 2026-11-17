@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from frisket.ai.embeddings.scope import (
@@ -115,7 +115,9 @@ def _member_status_sql(plan: Any) -> str:
         "AND dependency.retrieval_revision != COALESCE(("
         "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
         "WHERE current_head.column_id=dependency.column_id "
-        "AND current_head.row_id=dependency.row_id),0)) AND NOT EXISTS ("
+        "AND current_head.row_id=dependency.row_id AND NOT EXISTS ("
+        "SELECT 1 FROM main.current_cell_repair dirty WHERE dirty.column_id=dependency.column_id "
+        "AND dependency.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)),0)) AND NOT EXISTS ("
         "SELECT 1 FROM idx.binding_dependencies AS visible_dependency "
         "LEFT JOIN main.columns AS dependency_column "
         "ON dependency_column.id=visible_dependency.column_id "
@@ -213,7 +215,9 @@ def _stale_scope_row_pages(
         "AND dependency.retrieval_revision != COALESCE(("
         "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
         "WHERE current_head.column_id=dependency.column_id "
-        "AND current_head.row_id=dependency.row_id),0)) AND NOT EXISTS ("
+        "AND current_head.row_id=dependency.row_id AND NOT EXISTS ("
+        "SELECT 1 FROM main.current_cell_repair dirty WHERE dirty.column_id=dependency.column_id "
+        "AND dependency.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)),0)) AND NOT EXISTS ("
         "SELECT 1 FROM idx.binding_dependencies AS visible_dependency "
         "LEFT JOIN main.columns AS dependency_column "
         "ON dependency_column.id=visible_dependency.column_id "
@@ -307,7 +311,9 @@ def _missing_scope_row_pages(
         offset += len(rows)
 
 
-def index_freshness(project: Project, index: Any) -> IndexFreshness:
+def index_freshness(
+    project: Project, index: Any, *, scope: Any = None
+) -> IndexFreshness:
     """Read exact counts without reconstructing every ready source payload.
 
     Published members are authoritative when their stored recipe, embedding
@@ -367,6 +373,19 @@ def index_freshness(project: Project, index: Any) -> IndexFreshness:
             plan = index_scope_plan(reader, pinned_index)
             if plan is None:
                 return IndexFreshness(scope_resolved=False)
+            if scope is not None:
+                from frisket.retrieval.scope import compile_scope
+
+                selected = compile_scope(reader, scope)
+                plan = replace(
+                    plan,
+                    where_sql=f"({plan.where_sql}) AND r.id IN (WITH {selected.cte_sql} SELECT row_id FROM scoped_bindings WHERE sheet_id=?)",
+                    where_params=[
+                        *plan.where_params,
+                        *selected.params,
+                        int(pinned_index["sheet_id"]),
+                    ],
+                )
             descriptor, _declared_space = descriptor_space(space)
             recipe = recipe_for_index(reader, pinned_index, descriptor)
             dataset_id = str(pinned_index["id"])

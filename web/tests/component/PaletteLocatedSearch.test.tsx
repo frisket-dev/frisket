@@ -21,9 +21,9 @@ const getSearchPreparation = vi.fn();
 const decideSearchPreparation = vi.fn();
 const getSearchPreparationTextSamples = vi.fn();
 const embeddingIndexes = vi.fn();
-const saveLens = vi.fn();
+const saveView = vi.fn();
 const createWatch = vi.fn();
-const projectApi = { embeddingIndexes, saveLens, createWatch };
+const projectApi = { embeddingIndexes, saveView, createWatch };
 let workspaceProjectId = 'project-1';
 
 vi.mock('../../src/api/open', async (importOriginal) => ({
@@ -242,14 +242,14 @@ beforeEach(() => {
   getSearchPreparationTextSamples.mockReset();
   getSearchPreparationTextSamples.mockResolvedValue({ samples: [] });
   embeddingIndexes.mockReset();
-  saveLens.mockReset();
+  saveView.mockReset();
   createWatch.mockReset();
   embeddingIndexes.mockResolvedValue([{
     indexId: 'index-1',
     name: 'Research passages',
     sheetId: 1,
   }]);
-  saveLens.mockResolvedValue({});
+  saveView.mockResolvedValue({ id: 4 });
   createWatch.mockResolvedValue({});
   listModelPulls.mockResolvedValue({ pulls: [] });
   orgListModelPulls.mockResolvedValue({ pulls: [] });
@@ -854,9 +854,9 @@ describe('located palette search', () => {
     }));
     fireEvent.click(screen.getByTestId('save-search-lens-button'));
 
-    await waitFor(() => expect(saveLens).toHaveBeenCalledWith({
+    await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Search: budget',
-      query: {
+      selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: 500, similarity: {
         kind: 'embedding_similarity',
         embedding_index_id: 'index-1',
         sheet_id: 1,
@@ -864,9 +864,27 @@ describe('located palette search', () => {
           kind: 'manual_text_query',
           terms: [{ text: 'budget', weight: 1 }],
         },
-      },
+      } }, presentation: {},
     }));
     expect(await screen.findByTestId('save-search-lens-status')).toHaveTextContent('Saved view');
+  });
+
+  it('saves hybrid search with bounded membership and fused relevance order', async () => {
+    searchProject.mockResolvedValue(completeResponse);
+    render(<PaletteHarness />);
+    const index = await screen.findByTestId('search-index-select');
+    await waitFor(() => expect(index).toHaveTextContent('Research passages'));
+    fireEvent.change(index, { target: { value: 'index-1' } });
+    fireEvent.change(screen.getByTestId('search-mode-select'), { target: { value: 'hybrid' } });
+    fireEvent.click(screen.getByTestId('save-search-lens-button'));
+    await waitFor(() => expect(saveView).toHaveBeenCalledWith({
+      name: 'Search: budget', presentation: {}, selection: {
+        scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [], limit: 500,
+        search: { text: 'budget' }, ranking: 'hybrid',
+        similarity: { kind: 'embedding_similarity', sheet_id: 1, embedding_index_id: 'index-1',
+          anchor: { kind: 'manual_text_query', text: 'budget' } },
+      },
+    }));
   });
 
   it('creates a persisted row-similarity watch from a named-index anchor', async () => {
@@ -879,24 +897,27 @@ describe('located palette search', () => {
 
     await waitFor(() => expect(createWatch).toHaveBeenCalledWith({
       name: 'Similar to page 2',
-      scope: { kind: 'sheet', sheet_id: 1 },
-      query: {
-        kind: 'embedding_similarity',
-        embedding_index_id: 'index-1',
-        anchor: { kind: 'row', row_id: 2 },
-      },
+      view_id: 4,
     }));
 
+    expect(saveView).toHaveBeenCalledWith({
+      name: 'Similar to page 2', presentation: {}, selection: {
+        scope: { kind: 'sheet', sheet_id: 1 }, filters: [],
+        order: [{ score: 'similarity', dir: 'desc' }], limit: 500,
+        similarity: { kind: 'embedding_similarity', sheet_id: 1,
+          embedding_index_id: 'index-1', anchor: { kind: 'row', row_id: 2 } },
+      },
+    });
+
     fireEvent.click(screen.getByTestId('save-search-lens-button'));
-    await waitFor(() => expect(saveLens).toHaveBeenCalledWith({
+    await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Similar to page 2',
-      query: {
+      selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: 500, similarity: {
         kind: 'embedding_similarity',
         embedding_index_id: 'index-1',
         sheet_id: 1,
         anchor: { kind: 'row', row_id: 2 },
-        limit: 500,
-      },
+      } }, presentation: {},
     }));
   });
 
@@ -911,10 +932,15 @@ describe('located palette search', () => {
     await waitFor(() => expect(watch).toBeEnabled());
     fireEvent.click(watch);
 
+    await waitFor(() => expect(saveView).toHaveBeenCalledWith({
+      name: 'Search: budget', presentation: {}, selection: {
+        scope: { kind: 'project' }, filters: [], order: [{ score: 'search', dir: 'desc' }],
+        limit: null, search: { text: 'budget' },
+      },
+    }));
     await waitFor(() => expect(createWatch).toHaveBeenCalledWith({
       name: 'Search: budget',
-      scope: { kind: 'project' },
-      query: { kind: 'fts', q: 'budget', mode: 'keyword', rerank: 'off' },
+      view_id: 4,
     }));
   });
 });

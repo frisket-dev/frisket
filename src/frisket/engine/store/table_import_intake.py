@@ -20,6 +20,7 @@ from frisket.engine.store.import_intake import (
     read_import_header,
     write_import_header,
 )
+from frisket.authoring import column_types
 from frisket.table_import import DateOrder, SourceKind, TableReadSettings, TargetType
 
 
@@ -158,7 +159,9 @@ class TableImportColumn:
             raise ValueError(
                 "table import columns require stable source and target names"
             )
-        if self.target_type not in _TARGET_TYPES:
+        if self.target_type not in _TARGET_TYPES and not column_types.is_registered(
+            self.target_type
+        ):
             raise ValueError("unsupported frozen table target type")
         if self.target_column_id is not None and self.target_column_id < 1:
             raise ValueError("target column ids must be positive")
@@ -213,6 +216,22 @@ class TableImportDedup:
 
 
 @dataclass(frozen=True)
+class TableImportUpdate:
+    key_source_indices: tuple[int, ...]
+    policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = None
+    keep_existing_on_blank: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.key_source_indices or len(set(self.key_source_indices)) != len(
+            self.key_source_indices
+        ):
+            raise ValueError("keyed update requires unique source key columns")
+        if self.policy not in {"keep_changes", "incoming_wins"}:
+            raise ValueError("invalid keyed update policy")
+
+
+@dataclass(frozen=True)
 class TableImportPlan:
     settings_revision: int
     settings: TableReadSettings
@@ -221,8 +240,18 @@ class TableImportPlan:
     columns: tuple[TableImportColumn, ...]
     extra_values_target_name: str | None = None
     dedup: TableImportDedup | None = None
+    update: TableImportUpdate | None = None
+    record_encoding: Literal["table", "stored_values"] = "table"
+    action_kind: str | None = None
+    request_hash: str | None = None
 
     def __post_init__(self) -> None:
+        if self.record_encoding not in {"table", "stored_values"}:
+            raise ValueError("unknown table record encoding")
+        if self.record_encoding == "table" and any(
+            column.target_type not in _TARGET_TYPES for column in self.columns
+        ):
+            raise ValueError("unsupported table reader type")
         if self.settings_revision < 0 or not self.sheet_name or not self.columns:
             raise ValueError("frozen table plan is incomplete")
         indices = [column.source_index for column in self.columns]
@@ -231,6 +260,15 @@ class TableImportPlan:
             raise ValueError("frozen table mapping must be one-to-one")
         if self.destination_sheet_id is not None and self.destination_sheet_id < 1:
             raise ValueError("destination sheet id must be positive")
+        if self.update is not None:
+            if self.destination_sheet_id is None or self.dedup is not None:
+                raise ValueError(
+                    "keyed update requires an existing destination without skip-duplicates"
+                )
+            if not set(self.update.key_source_indices).issubset(indices):
+                raise ValueError("key columns must be part of the imported mapping")
+            if set(self.update.key_source_indices) == set(indices):
+                raise ValueError("keyed update requires a non-key field")
         if self.dedup is not None and self.destination_sheet_id is None:
             raise ValueError("dedup requires an existing destination sheet")
         if self.dedup is not None and self.dedup.source_index not in indices:
@@ -239,6 +277,9 @@ class TableImportPlan:
     def to_json(self) -> dict[str, Any]:
         return {
             "schema_version": TABLE_PLAN_SCHEMA,
+            "record_encoding": self.record_encoding,
+            "action_kind": self.action_kind,
+            "request_hash": self.request_hash,
             "settings_revision": self.settings_revision,
             "settings": asdict(self.settings),
             "sheet_name": self.sheet_name,
@@ -246,6 +287,7 @@ class TableImportPlan:
             "columns": [column.to_json() for column in self.columns],
             "extra_values_target_name": self.extra_values_target_name,
             "dedup": None if self.dedup is None else asdict(self.dedup),
+            "update": None if self.update is None else asdict(self.update),
         }
 
     @classmethod
@@ -253,7 +295,11 @@ class TableImportPlan:
         if value.get("schema_version") != TABLE_PLAN_SCHEMA:
             raise ValueError("unsupported table import plan schema")
         dedup = value.get("dedup")
+        update = value.get("update")
         return cls(
+            record_encoding=value.get("record_encoding", "table"),
+            action_kind=value.get("action_kind"),
+            request_hash=value.get("request_hash"),
             settings_revision=int(value["settings_revision"]),
             settings=TableReadSettings(**dict(value["settings"])),
             sheet_name=str(value["sheet_name"]),
@@ -269,6 +315,16 @@ class TableImportPlan:
                 None
                 if value.get("extra_values_target_name") is None
                 else str(value["extra_values_target_name"])
+            ),
+            update=None
+            if update is None
+            else TableImportUpdate(
+                key_source_indices=tuple(update["key_source_indices"]),
+                policy=update.get("policy", "keep_changes"),
+                relationship_id=update.get("relationship_id"),
+                keep_existing_on_blank=bool(
+                    update.get("keep_existing_on_blank", False)
+                ),
             ),
             dedup=(
                 None

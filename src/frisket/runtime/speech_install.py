@@ -33,7 +33,7 @@ def is_installed() -> bool:
     return model_install._is_installed(runtime_dir())
 
 
-def _host_present(engine: str) -> bool:
+def host_present(engine: str) -> bool:
     modules = _ENGINE_MODULES[engine]
     try:
         return all(find_spec(module) is not None for module in modules)
@@ -43,13 +43,13 @@ def _host_present(engine: str) -> bool:
 
 def runtime_present(engine: str) -> bool:
     """Probe without launching children, importing native libraries, or installing."""
-    return _host_present(engine) or is_installed()
+    return host_present(engine) or is_installed()
 
 
 def runtime_for_worker(kind: str) -> PythonRuntime:
     """Preserve ordinary CLI installs; use the owned environment when needed."""
     current = PythonRuntime.current()
-    if _host_present(_WORKER_ENGINES[kind]):
+    if host_present(_WORKER_ENGINES[kind]):
         return current
     return PythonRuntime(runtime_python(), current.app_code_root)
 

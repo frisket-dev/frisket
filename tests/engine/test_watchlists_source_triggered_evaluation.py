@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import add_watch
+
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +27,14 @@ def test_standalone_index_race_retries_only_failed_keyword_watch(monkeypatch):
     import frisket.search
 
     watches = [
-        {"id": 1, "query": '{"kind":"fts","q":"one"}'},
-        {"id": 2, "query": '{"kind":"fts","q":"two"}'},
+        {
+            "id": 1,
+            "view_spec": '{"selection":{"scope":{"kind":"project"},"search":{"text":"one"}}}',
+        },
+        {
+            "id": 2,
+            "view_spec": '{"selection":{"scope":{"kind":"project"},"search":{"text":"two"}}}',
+        },
     ]
     calls = {1: 0, 2: 0}
     drains = []
@@ -149,25 +157,29 @@ def test_completed_source_poll_evaluates_affected_enabled_watches(
         assert first_materialized is not None
         sheet_id = first_materialized["sheet_id"]
 
-        project_watch = project.add_watch(
+        project_watch = add_watch(
+            project,
             "Project budget watch",
             scope="project",
             query={"kind": "fts", "q": "budget", "limit": 20},
         )
-        sheet_watch = project.add_watch(
+        sheet_watch = add_watch(
+            project,
             "Sheet budget watch",
             scope="sheet",
             sheet_id=sheet_id,
             query={"kind": "fts", "q": "budget", "limit": 20},
         )
-        disabled_watch = project.add_watch(
+        disabled_watch = add_watch(
+            project,
             "Disabled budget watch",
             scope="project",
             query={"kind": "fts", "q": "budget", "limit": 20},
             enabled=False,
         )
         other_sheet = project.add_sheet("Other source")
-        other_sheet_watch = project.add_watch(
+        other_sheet_watch = add_watch(
+            project,
             "Other sheet watch",
             scope="sheet",
             sheet_id=other_sheet,
@@ -217,14 +229,13 @@ def test_completed_source_poll_evaluates_affected_enabled_watches(
             item["source_run_id"] == materialized["source_run_id"] for item in triggered
         )
         assert all(item["run"]["matched_rows"] == 2 for item in triggered)
-        assert all(item["run"]["new_rows"] == 2 for item in triggered)
+        assert all(item["run"]["new_rows"] == 0 for item in triggered)
 
         for watch_id in (project_watch, sheet_watch):
             latest = project.watch_latest_run(watch_id)
             assert latest is not None
             events = project.watch_run_events(int(latest["id"]), limit=10)
-            assert len(events) == 2
-            assert {event["event_kind"] for event in events} == {"row_entered"}
+            assert events == []
 
         assert project.watch_latest_run(disabled_watch) is None
         assert project.watch_latest_run(other_sheet_watch) is None
@@ -257,13 +268,15 @@ def test_source_poll_selects_sheet_filter_watch_from_owned_query(
         )
         assert initial is not None
         sheet_id = initial["sheet_id"]
-        filter_id = project.add_watch(
+        filter_id = add_watch(
+            project,
             "All source rows",
             scope="sheet",
             sheet_id=sheet_id,
             query={"kind": "filter", "sheet_id": sheet_id, "filter": {}},
         )
-        later_id = project.add_watch(
+        later_id = add_watch(
+            project,
             "Later direct watch",
             scope="sheet",
             sheet_id=sheet_id,
@@ -342,7 +355,8 @@ def test_v1_source_poll_action_triggers_watch_run(
         config={"merge_strategy": "append-new"},
         schedule="@hourly",
     )
-    watch_id = project.add_watch(
+    watch_id = add_watch(
+        project,
         "Budget watch",
         scope="project",
         query={"kind": "fts", "q": "budget", "limit": 20},
@@ -382,9 +396,9 @@ def test_v1_source_poll_action_triggers_watch_run(
     run = project.watch_latest_run(watch_id)
     assert run is not None
     assert run["matched_rows"] == 1
-    assert run["new_rows"] == 1
+    assert run["new_rows"] == 0
     events = project.watch_run_events(int(run["id"]), limit=10)
-    assert [event["event_kind"] for event in events] == ["row_entered"]
+    assert events == []
 
 
 def test_noop_and_failed_source_polls_do_not_trigger_watch_runs(tmp_path: Path) -> None:
@@ -411,7 +425,8 @@ def test_noop_and_failed_source_polls_do_not_trigger_watch_runs(tmp_path: Path) 
             receipt_id=first.receipt_id,
         )
         assert first_materialized is not None
-        watch_id = project.add_watch(
+        watch_id = add_watch(
+            project,
             "Budget watch",
             scope="project",
             query={"kind": "fts", "q": "budget", "limit": 20},

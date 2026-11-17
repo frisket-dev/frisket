@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
+from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 
 
 def _seed_history(
@@ -15,6 +16,11 @@ def _seed_history(
         "/api/projects", json={"name": "Operation history paging"}
     ).json()["id"]
     project = client.app.state.workspace.get(project_id)
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "value")
+    project.db.execute("INSERT INTO rows(sheet_id,position) VALUES (?,1)", (sheet_id,))
+    row_id = project.db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    project.db.commit()
     op_ids: list[int] = []
     for index in range(125):
         op_ids.append(
@@ -24,6 +30,12 @@ def _seed_history(
                 label=f"history op {index + 1}",
             )
         )
+        with project.transaction_scope():
+            insert_edits(
+                project.db,
+                op_id=op_ids[-1],
+                edits=[EditCellWrite(row_id, column_id, str(index))],
+            )
     for _ in range(5):
         assert project.undo() is not None
     return client, project_id, op_ids, project.op_cursor

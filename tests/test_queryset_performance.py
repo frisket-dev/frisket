@@ -314,6 +314,47 @@ def test_correlated_scope_query_binds_date_filter_parameters(tmp_path: Path) -> 
         project.close()
 
 
+def test_filter_total_and_page_share_a_snapshot(tmp_path, monkeypatch):
+    import frisket.querysets as queries
+
+    project, sheet, column, rows = _number_sheet(tmp_path)
+    writer = Project(project.path)
+    original = queries.execute_sheet_row_page_without_total
+
+    def change_after_count(*args, **kwargs):
+        writer.apply_edits([{"row_id": rows[0], "column_id": column, "value": 0}])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        queries, "execute_sheet_row_page_without_total", change_after_count
+    )
+    try:
+        result = resolve_sheet_filter_rows(
+            project, sheet, filter_=json.dumps({"score": {"gte": 2000}})
+        )
+        assert result.total == 3
+        assert result.row_ids == rows[:3]
+        assert not project.db.in_transaction
+        assert project.get_values(sheet, column)[rows[0]] == 0
+    finally:
+        writer.close()
+        project.close()
+
+
+def test_filter_borrows_caller_transaction_without_ending_it(tmp_path):
+    project, sheet, column, rows = _number_sheet(tmp_path)
+    try:
+        project.db.execute("BEGIN")
+        result = resolve_sheet_filter_rows(
+            project, sheet, filter_=json.dumps({"score": {"gte": 2000}})
+        )
+        assert result.row_ids == rows[:3]
+        assert project.db.in_transaction
+        project.db.rollback()
+    finally:
+        project.close()
+
+
 @pytest.mark.parametrize(
     "condition", [{"eq": "x"}, {"in": ["x", "y"]}, {"contains": "x"}]
 )

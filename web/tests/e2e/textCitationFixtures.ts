@@ -14,6 +14,7 @@ import httpx
 from frisket.engine.executor import run_action_spec
 from frisket.actions.types import ActionRequest
 from frisket.ai.llm import ModelRouter
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
 
@@ -24,7 +25,7 @@ try:
     sheet = project.add_sheet('Court filings')
     columns = {name: project.add_column(sheet, name, 'text') for name in record['inputs']}
     row = project.add_rows(sheet, [record['inputs']], columns)[0]
-    router = ModelRouter(keys={'gemini': 'recorded'}, cache=None, cache_mode='off', use_env_keys=False)
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={'gemini': 'recorded'}, cache=None, cache_mode='off', use_env_keys=False)
     # Replay the original live response, including its spurious segment hints.
     # The narrower text-only schema requests repair. Simulate that second
     # response explicitly; never rewrite the recorded evidence fixture.

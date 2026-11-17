@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.watch_helpers import add_watch
+
 from contextlib import closing
 
 import pytest
@@ -342,7 +344,8 @@ def test_dependent_watch_and_index_keep_fifo_while_foreground_passes(
     monkeypatch.setattr(search_index, "INDEX_BATCH_SIZE", 2)
     monkeypatch.setattr(search_index, "BATCHES_PER_CLAIM", 1)
     with closing(Project(tmp_path / "docs.frisket")) as project:
-        watch_id = project.add_watch(
+        watch_id = add_watch(
+            project,
             "needle",
             scope="project",
             query={"kind": "fts", "q": "needle", "limit": 20},
@@ -396,7 +399,8 @@ def test_dependent_watch_and_index_keep_fifo_while_foreground_passes(
 def test_queued_watch_waits_for_complete_unified_index(tmp_path):
     _project(tmp_path)
     with closing(Project(tmp_path / "docs.frisket")) as project:
-        watch_id = project.add_watch(
+        watch_id = add_watch(
+            project,
             "needle",
             scope="project",
             query={"kind": "fts", "q": "needle", "limit": 20},
@@ -438,7 +442,8 @@ def test_keyword_watch_index_drain_does_not_wait_for_embedding_encoder(
 ):
     _project(tmp_path)
     with closing(Project(tmp_path / "docs.frisket")) as project:
-        watch_id = project.add_watch(
+        watch_id = add_watch(
+            project,
             "needle",
             scope="project",
             query={"kind": "fts", "q": "needle", "limit": 20},
@@ -472,7 +477,8 @@ def test_keyword_watch_index_drain_does_not_wait_for_embedding_encoder(
 def test_edit_after_index_quantum_prevents_a_stale_watch_run(tmp_path, monkeypatch):
     _project(tmp_path)
     with closing(Project(tmp_path / "docs.frisket")) as project:
-        watch_id = project.add_watch(
+        watch_id = add_watch(
+            project,
             "needle",
             scope="project",
             query={"kind": "fts", "q": "needle", "limit": 20},

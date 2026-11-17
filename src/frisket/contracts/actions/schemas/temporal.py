@@ -20,7 +20,7 @@ from frisket.contracts.actions.schemas._base import (
 from frisket.contracts.actions.schemas._validators import (
     StrictInputRef,
 )
-from frisket.features.temporal_values import normalize_temporal_value
+from frisket.contracts.temporal_values import normalize_temporal_value
 
 
 _TEMPORAL_TYPE_BY_SCHEMA_VERSION = {

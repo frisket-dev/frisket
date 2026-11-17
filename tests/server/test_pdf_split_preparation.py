@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.server.services.pdf_split_preparation import (
     PdfSplitPageTarget,
@@ -95,7 +96,12 @@ def _runtime(tmp_path, monkeypatch):
             )
 
     provider = Provider()
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = provider
     workspace = Workspace(
         tmp_path / "workspace", router=router, enable_local_model_pull=False
@@ -392,9 +398,9 @@ def test_automatic_page_fanout_is_owned_by_split_without_new_operation(
     )
     try:
         published = []
-        adapter.publish_child_page = lambda binding, ref: (
-            published.append((binding, ref)) or True
-        )
+        adapter.publish_child_pages = lambda bindings, ref: [
+            published.append((binding, ref)) or True for binding in bindings
+        ]
         quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
         writer = _admit_split(adapter, project, read, quoted)
         count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
@@ -444,9 +450,9 @@ def test_undo_redo_while_provider_runs_never_revives_worker_or_refunds_call(
     provider.complete = blocked
     try:
         published = []
-        adapter.publish_child_page = lambda binding, ref: (
-            published.append((binding, ref)) or True
-        )
+        adapter.publish_child_pages = lambda bindings, ref: [
+            published.append((binding, ref)) or True for binding in bindings
+        ]
         quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
         _admit_split(adapter, project, read, quoted)
         jobs = adapter.start_pending(generation="generation-one")
@@ -492,9 +498,9 @@ def test_paid_page_finishing_after_stop_is_cached_without_publishing_or_rebillin
     provider.complete = blocked
     try:
         published = []
-        adapter.publish_child_page = lambda binding, ref: (
-            published.append((binding, ref)) or True
-        )
+        adapter.publish_child_pages = lambda bindings, ref: [
+            published.append((binding, ref)) or True for binding in bindings
+        ]
         quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
         _admit_split(adapter, project, read, quoted)
         operations = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
@@ -853,7 +859,9 @@ def test_background_source_page_carries_the_approved_nondefault_actor(
         assert quoted["authorization"]["actor"] == "user:approved-reader"
         monkeypatch.setattr(preview, "prepare_ocr_scratch_path", original)
         _admit_split(adapter, project, read, quoted)
-        adapter.publish_child_page = lambda binding, ref: True
+        adapter.publish_child_pages = lambda bindings, ref: [
+            True for binding in bindings
+        ]
         jobs = adapter.start_pending(generation="generation-one")
         result = _wait_preview(preview, jobs)
         assert result[0]["status"] == "done", result
@@ -932,5 +940,35 @@ def test_approved_page_quote_ignores_only_confirmation_display(tmp_path, monkeyp
     finally:
         if lease is not None:
             lease.close()
+        preview._registry.shutdown()
+        project.close()
+
+
+def test_split_undo_stops_provider_retry_without_explicit_stop(tmp_path, monkeypatch):
+    from frisket.ai.llm.types import LLMError
+
+    adapter, preview, project, provider, read, _op, _source = _runtime(
+        tmp_path, monkeypatch
+    )
+
+    async def refuse_after_undo(request, client):
+        provider.calls += 1
+        project.undo()
+        project.redo()
+        raise LLMError("rate limited", status=429, retryable=True)
+
+    provider.complete = refuse_after_undo
+    try:
+        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, quoted)
+        jobs = adapter.start_pending(generation="generation-one")
+        results = _wait_preview(preview, jobs)
+        assert provider.calls == 1
+        assert results[0]["status"] == "cancelled", results
+        with PdfSplitPreparationStore(adapter.inventory_path) as store:
+            work = store.db.execute("SELECT status FROM pdf_split_page_work").fetchone()
+            assert work[0] == "cancelled"
+            assert store.cached_ref(read) is None
+    finally:
         preview._registry.shutdown()
         project.close()

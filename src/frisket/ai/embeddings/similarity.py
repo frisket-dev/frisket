@@ -7,6 +7,10 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.contracts.query_spec import (
+    normalize_manual_text_excludes,
+    normalize_manual_text_terms,
+)
 from frisket.engine.store import Project
 from frisket.redaction import redact_text
 from frisket.retrieval.contracts import (
@@ -26,6 +30,7 @@ from frisket.retrieval.query import (
     RetrievalQueryError,
     RetrievalQueryService,
     SemanticQueryVectors,
+    source_anchor_vectors,
 )
 from frisket.retrieval.ranking import RankingError
 from frisket.retrieval.store import RetrievalStore
@@ -50,70 +55,6 @@ EMBEDDING_SIMILARITY_QUERY_KIND = "embedding_similarity"
 DEFAULT_SIMILARITY_LIMIT = 50
 _EMBEDDABLE_MODALITIES = frozenset({"text", "row"})
 _ROW_ANCHOR_KINDS = frozenset({"row", "row_cell", "vector_ref"})
-MAX_QUERY_TERMS = 16
-DEFAULT_EXCLUDE_THRESHOLD = 0.5
-
-
-def normalize_manual_text_excludes(anchor: dict[str, Any]) -> list[dict[str, Any]]:
-    raw = anchor.get("exclude")
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        raise ValueError("manual_text_query exclude must be a list")
-    if len(raw) > MAX_QUERY_TERMS:
-        raise ValueError(
-            f"manual_text_query supports at most {MAX_QUERY_TERMS} exclude terms"
-        )
-    out: list[dict[str, Any]] = []
-    for index, term in enumerate(raw):
-        if not isinstance(term, dict):
-            raise ValueError(f"exclude {index} must be an object {{text, threshold}}")
-        text = term.get("text")
-        if not isinstance(text, str) or not text.strip():
-            raise ValueError(f"exclude {index} needs non-empty text")
-        threshold = term.get("threshold", DEFAULT_EXCLUDE_THRESHOLD)
-        if (
-            isinstance(threshold, bool)
-            or not isinstance(threshold, int | float)
-            or not math.isfinite(threshold)
-        ):
-            raise ValueError(f"exclude {index} threshold must be a finite number")
-        threshold = float(threshold)
-        if not 0.0 < threshold <= 1.0:
-            raise ValueError(f"exclude {index} threshold must be in (0, 1]")
-        out.append({"text": text.strip(), "threshold": threshold})
-    return out
-
-
-def normalize_manual_text_terms(anchor: dict[str, Any]) -> list[dict[str, Any]]:
-    raw_terms = anchor.get("terms")
-    text = anchor.get("text")
-    if raw_terms is not None and text is not None:
-        raise ValueError("manual_text_query takes either text or terms, not both")
-    if raw_terms is None:
-        if not isinstance(text, str) or not text.strip():
-            raise ValueError("manual_text_query requires non-empty text or terms")
-        return [{"text": text.strip(), "weight": 1.0}]
-    if not isinstance(raw_terms, list) or not raw_terms:
-        raise ValueError("manual_text_query terms must be a non-empty list")
-    if len(raw_terms) > MAX_QUERY_TERMS:
-        raise ValueError(f"manual_text_query supports at most {MAX_QUERY_TERMS} terms")
-    out: list[dict[str, Any]] = []
-    for index, term in enumerate(raw_terms):
-        if not isinstance(term, dict):
-            raise ValueError(f"term {index} must be an object {{text, weight}}")
-        value = term.get("text")
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(f"term {index} needs non-empty text")
-        weight = term.get("weight", 1.0)
-        if (
-            isinstance(weight, bool)
-            or not isinstance(weight, int | float)
-            or not math.isfinite(weight)
-        ):
-            raise ValueError(f"term {index} weight must be a finite number")
-        out.append({"text": value.strip(), "weight": float(weight)})
-    return out
 
 
 class SimilarityError(Exception):
@@ -312,6 +253,76 @@ def _load_index(
     return index, space, descriptor, facade_space
 
 
+def prepared_similarity_request(
+    project: Any, query: dict[str, Any], *, scope: RetrievalScope
+) -> tuple[SearchRequest, SemanticQueryVectors | None]:
+    """Bind an existing row or cached query vector; never perform model work."""
+    index, space, descriptor, facade_space = _load_index(project, query)
+    if index["sheet_id"] is None:
+        raise SimilarityError(
+            "embedding_index_scope_invalid", "The similarity index has no sheet."
+        )
+    if scope.sheets is None or any(
+        item.sheet_id != int(index["sheet_id"]) for item in scope.sheets
+    ):
+        raise SimilarityError(
+            "embedding_index_sheet_mismatch",
+            "The view and similarity index must use the same sheet.",
+        )
+    anchor = query.get("anchor", {})
+    vectors = None
+    with RetrievalStore(project) as retrieval:
+        if anchor.get("kind") in _ROW_ANCHOR_KINDS:
+            bound_query = _row_anchor(
+                project, retrieval, index=index, space=space, anchor=anchor
+            )
+            vectors = source_anchor_vectors(
+                project,
+                SearchRequest(
+                    scope=RetrievalScope(
+                        (
+                            SheetScope(
+                                int(index["sheet_id"]), row_ids=(int(anchor["row_id"]),)
+                            ),
+                        )
+                    ),
+                    query=bound_query,
+                    mode="semantic",
+                    group_by="row",
+                    limit=1,
+                    named_index_id=str(index["id"]),
+                    space_id=str(space["id"]),
+                ),
+            )
+        elif anchor.get("kind") == "manual_text_query":
+            bound_query, vectors, _ = _manual_query(
+                project,
+                retrieval,
+                index=index,
+                space=space,
+                descriptor=descriptor,
+                facade_space=facade_space,
+                anchor=anchor,
+                maximum_distance=_threshold(query),
+                gateway=None,
+                effect_project=None,
+                allow_prepare=False,
+            )
+        else:
+            raise SimilarityError(
+                "embedding_source_unsupported", "Unsupported similarity anchor."
+            )
+    return SearchRequest(
+        scope=scope,
+        query=bound_query,
+        mode="semantic",
+        group_by="row",
+        limit=9223372036854775807,
+        named_index_id=str(index["id"]),
+        space_id=str(space["id"]),
+    ), vectors
+
+
 def resolve_embedding_similarity(
     project: Project,
     query: dict[str, Any],
@@ -431,6 +442,34 @@ def resolve_embedding_similarity(
     )
 
 
+def validate_row_cell_anchor(project: Any, index: Any, anchor: dict[str, Any]) -> None:
+    """A prepared row vector is a cell vector only for a single-column index."""
+    if anchor.get("kind") != "row_cell":
+        return
+    source_columns = json.loads(index["source_columns_json"])
+    selected = anchor.get("column_id")
+    columns = project.columns(int(index["sheet_id"]), include_hidden=True)
+    source = next(
+        (
+            col
+            for col in columns
+            if len(source_columns) == 1
+            and col["name"] == source_columns[0]
+            and col["active"]
+        ),
+        None,
+    )
+    if (
+        source is None
+        or (selected is not None and selected != source["id"])
+        or (anchor.get("column") is not None and anchor["column"] != source["name"])
+    ):
+        raise SimilarityError(
+            "embedding_cell_anchor_unavailable",
+            "This index combines columns; use a single-column index for cell similarity.",
+        )
+
+
 def _row_anchor(
     project: Project,
     retrieval: RetrievalStore,
@@ -439,6 +478,7 @@ def _row_anchor(
     space: Any,
     anchor: dict[str, Any],
 ) -> SourceAnchor:
+    validate_row_cell_anchor(project, index, anchor)
     row_id = anchor.get("row_id")
     if not isinstance(row_id, int) or isinstance(row_id, bool) or row_id <= 0:
         raise SimilarityError(
@@ -521,6 +561,7 @@ def _manual_query(
     maximum_distance: float | None,
     gateway: Any,
     effect_project: Project | None,
+    allow_prepare: bool = True,
 ) -> tuple[WeightedSemanticQuery, SemanticQueryVectors, QueryEmbeddingUse | None]:
     if descriptor["modality"] not in _EMBEDDABLE_MODALITIES:
         raise SimilarityError(
@@ -543,6 +584,11 @@ def _manual_query(
     accounting_project = effect_project if effect_project is not None else project
 
     def admit_fresh(_fresh_inputs):
+        if not allow_prepare:
+            raise SimilarityError(
+                "selection_needs_preparation",
+                "Prepare the saved similarity query before using this view or alert.",
+            )
         if provider_kind not in REMOTE_PROVIDER_KINDS:
             return
         if gateway is None:

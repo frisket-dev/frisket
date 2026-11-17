@@ -198,7 +198,9 @@ def test_materialized_publication_failure_rolls_back_all_writes(
 
 
 @pytest.mark.parametrize("kind", ["import.rows", "import.ndjson", "import.csv"])
-def test_whole_sheet_undo_preserves_hidden_columns_and_refuses_claims(tmp_path, kind):
+def test_whole_sheet_undo_redo_preserves_hidden_columns_with_output_claims(
+    tmp_path, kind
+):
     params = {
         "columns": [
             {"name": "number", "type": "integer"},
@@ -230,35 +232,50 @@ def test_whole_sheet_undo_preserves_hidden_columns_and_refuses_claims(tmp_path, 
         )
         assert result.status == "completed", result.errors
         sheet_id = result.outputs[0].ref["sheet_id"]
-        assert json.loads(
-            project.db.execute("SELECT undo_info FROM ops").fetchone()[0]
-        ) == {"created_sheets": [sheet_id]}
+        # Sheet restoration must preserve its original hidden columns. Writers
+        # may record child rows/columns too; those are deactivated during Undo.
         original_columns = [
-            tuple(column) for column in project.db.execute("SELECT * FROM columns")
+            dict(column) for column in project.db.execute("SELECT * FROM columns")
         ]
         claims = OutputColumnClaimStore(project)
+        acquired, conflict = claims.acquire(
+            sheet_id=sheet_id,
+            output_names=["note"],
+            action_kind="map.template",
+            claim_token="claim:sheet-transition",
+        )
+        assert len(acquired) == 1 and conflict is None
         for transition, expected_hidden in ((project.undo, 1), (project.redo, 0)):
-            acquired, conflict = claims.acquire(
-                sheet_id=sheet_id,
-                output_names=["note"],
-                action_kind="map.template",
-                claim_token="claim:sheet-transition",
-            )
-            assert len(acquired) == 1 and conflict is None
-            with pytest.raises(ValueError, match="output_column_busy"):
-                transition()
-            assert project.db.execute("SELECT hidden FROM sheets").fetchone()[0] == (
-                1 - expected_hidden
-            )
-            claims.release(claim_token="claim:sheet-transition")
             assert transition() == result.op_ids[0]
+            if expected_hidden:
+                # Release this writer before restoring the sheet; a fresh name
+                # reservation while it is absent is a real restoration conflict.
+                claims.release(claim_token="claim:sheet-transition")
             assert (
                 project.db.execute("SELECT hidden FROM sheets").fetchone()[0]
                 == expected_hidden
             )
-            assert [
-                tuple(column) for column in project.db.execute("SELECT * FROM columns")
-            ] == original_columns
+            columns = [
+                dict(column) for column in project.db.execute("SELECT * FROM columns")
+            ]
+            if expected_hidden:
+                assert [
+                    {
+                        key: value
+                        for key, value in column.items()
+                        if key not in {"active", "hidden"}
+                    }
+                    for column in columns
+                ] == [
+                    {
+                        key: value
+                        for key, value in column.items()
+                        if key not in {"active", "hidden"}
+                    }
+                    for column in original_columns
+                ]
+            else:
+                assert columns == original_columns
 
 
 @pytest.mark.parametrize("failure", [RuntimeError, KeyboardInterrupt])

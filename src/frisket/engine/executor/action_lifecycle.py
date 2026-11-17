@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sqlite3
+from uuid import uuid4
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
@@ -169,7 +171,7 @@ def _run_action_core_spec(
     if spec.result_from_existing_fn is not None:
         existing = _receipt_for_idempotency(project, action.idempotency_key)
         if existing is not None:
-            return spec.result_from_existing_fn(
+            existing_result = spec.result_from_existing_fn(
                 project,
                 existing,
                 params_hash=params_hash,
@@ -177,6 +179,8 @@ def _run_action_core_spec(
                 action=action,
                 params=params,
             )
+            if existing_result is not None:
+                return existing_result
     if spec.body_kind == "child_sheet_deterministic":
         return _run_child_sheet_deterministic_body(
             project,
@@ -644,8 +648,35 @@ def _run_in_txn_idempotent_perform(
     every existing plain/owned-write op stays byte-equal."""
     cur = project.db.cursor()
     owns_transaction = not project.db.in_transaction
+    if not owns_transaction and post_commit_fn is not None:
+        raise RuntimeError("an action with post-commit work must own its transaction")
+    savepoint = f"plain_action_write_{uuid4().hex}"
+    perform_started = False
+
+    def rollback_write():
+        if owns_transaction:
+            project.db.rollback()
+        else:
+            try:
+                cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            except sqlite3.OperationalError as exc:
+                if "no such savepoint" not in str(exc).lower() or perform_started:
+                    if "no such savepoint" in str(exc).lower():
+                        raise RuntimeError(
+                            "nested action escaped its savepoint by committing the caller transaction"
+                        ) from exc
+                    raise
+            else:
+                cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+
+    def commit_write():
+        if owns_transaction:
+            project.db.commit()
+        else:
+            cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+
     try:
-        cur.execute("BEGIN IMMEDIATE")
+        cur.execute("BEGIN IMMEDIATE" if owns_transaction else f"SAVEPOINT {savepoint}")
         existing = _receipt_for_idempotency(project, action.idempotency_key)
         if existing is not None:
             replay = (
@@ -659,7 +690,7 @@ def _run_in_txn_idempotent_perform(
                 if result_from_existing_fn is not None
                 else None
             )
-            project.db.rollback()
+            rollback_write()
             if cleanup_resolved_fn is not None:
                 cleanup_resolved_fn(resolved)
             if replay is not None:
@@ -684,24 +715,24 @@ def _run_in_txn_idempotent_perform(
         if pre_perform_fn is not None:
             early = pre_perform_fn(cur)
             if early is not None:
-                project.db.rollback()
+                rollback_write()
                 return early
         action_id = _new_id("act")
         receipt_id = _new_id("receipt")
+        perform_started = True
         result = perform_fn(cur, action_id=action_id, receipt_id=receipt_id)
         committed = result.status == "completed" or (
             persist_failure and result.status == "failed"
         )
         if committed:
-            project.db.commit()
+            commit_write()
         else:
-            project.db.rollback()
+            rollback_write()
             if cleanup_resolved_fn is not None:
                 cleanup_resolved_fn(resolved)
     except BaseException as exc:
         try:
-            if owns_transaction:
-                project.db.rollback()
+            rollback_write()
             if cleanup_resolved_fn is not None:
                 cleanup_resolved_fn(resolved)
         finally:
@@ -1200,8 +1231,9 @@ def _terminalize_unclaimed_prepared_run(
     project: Any,
     prepared_run: Any | None,
     *,
-    claim_token: str | None = None,
-) -> None:
+    receipt_id: str,
+    error: ActionError,
+) -> ActionResult | None:
     """Close a prepared run when its runner failed before taking dispatch.
 
     Canonical direct actions publish the run/output family before invoking
@@ -1217,8 +1249,55 @@ def _terminalize_unclaimed_prepared_run(
     """
 
     if prepared_run is None:
-        return
+        return None
     run_id = int(prepared_run.run_id)
+    from frisket.engine.executor.project_run_terminalization import (
+        NeverDispatchedRunTerminalAuthority,
+        terminalize_project_run,
+    )
+    from frisket.engine.store.receipts import ReceiptStore
+
+    receipts = ReceiptStore(project)
+    stored_receipt = receipts.find_by_id(receipt_id)
+    if stored_receipt is None:
+        raise StaleAttemptWriter("prepared run lost its reservation receipt")
+    try:
+        parsed_receipt = stored_receipt.parsed()
+    except Exception as exc:
+        raise RuntimeError(
+            f"prepared run receipt {receipt_id} is not readable"
+        ) from exc
+    if stored_receipt.run_id == run_id and parsed_receipt.run_id == run_id:
+        terminalization = terminalize_project_run(
+            project,
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status="failed",
+            run_status="failed",
+            authority=NeverDispatchedRunTerminalAuthority(),
+            errors=[error],
+        )
+        if terminalization.disposition not in {
+            "terminalized",
+            "already_terminal",
+        }:
+            raise StaleAttemptWriter(
+                "prepared run terminalization refused: "
+                f"{terminalization.reason or terminalization.disposition}"
+            )
+        final_receipt = receipts.find_by_id(receipt_id)
+        if final_receipt is None:
+            raise RuntimeError(
+                f"prepared run receipt {receipt_id} disappeared after close"
+            )
+        project.refresh_pending_review_summary()
+        return _result_from_receipt(final_receipt.parsed())
+    if stored_receipt.run_id is not None or parsed_receipt.run_id is not None:
+        raise StaleAttemptWriter("prepared run reservation belongs to another run")
+
+    # A failed preparation transaction may leave a run row while its receipt
+    # and output claim remain unbound. That distinct shape has no declared
+    # generation or run-bound claim to publish; it uses this narrow cleanup.
     from frisket.engine.runner.finalization import _finalize_run_in_transaction
     from frisket.engine.store.result_generations import ResultGenerationStore
     from frisket.engine.store.runs import RunResultStore
@@ -1230,32 +1309,50 @@ def _terminalize_unclaimed_prepared_run(
         # revoked as "pre-dispatch."
         project.db.execute("BEGIN IMMEDIATE")
         run = project.db.execute(
-            "SELECT status FROM runs WHERE id=?",
+            "SELECT status,current_attempt_id FROM runs WHERE id=?",
             (run_id,),
         ).fetchone()
         if run is None or str(run["status"]) != "running":
             project.db.rollback()
-            return
-        open_attempts = project.db.execute(
-            "SELECT id, state FROM execution_attempts "
-            "WHERE run_id=? AND state IN ('created','admitted','dispatching') "
-            "ORDER BY seq",
+            return None
+        reservation_row = project.db.execute(
+            "SELECT run_id FROM receipts WHERE id=?", (receipt_id,)
+        ).fetchone()
+        if reservation_row is None or reservation_row["run_id"] is not None:
+            raise StaleAttemptWriter("unbound prepared cleanup lost receipt ownership")
+        if ResultGenerationStore(project).bindings_for_run(run_id):
+            raise StaleAttemptWriter(
+                "unbound prepared cleanup cannot close declared result generations"
+            )
+        if project.db.execute(
+            "SELECT 1 FROM output_column_claims WHERE status='active' "
+            "AND run_id=? LIMIT 1",
+            (run_id,),
+        ).fetchone():
+            raise StaleAttemptWriter(
+                "unbound prepared cleanup cannot close run-bound output claims"
+            )
+        attempts = project.db.execute(
+            "SELECT id, state FROM execution_attempts WHERE run_id=? ORDER BY seq",
             (run_id,),
         ).fetchall()
-        if any(str(row["state"]) == "dispatching" for row in open_attempts):
-            project.db.rollback()
-            return
-        if len(open_attempts) > 1:
-            # Ambiguous ownership is not evidence that either attempt is safe
-            # to revoke. Leave the durable state for explicit recovery.
-            project.db.rollback()
-            return
-        terminal_attempt_id = (
-            str(open_attempts[0]["id"]) if len(open_attempts) == 1 else None
-        )
-        unbound_managed_outputs = not ResultGenerationStore(project).bindings_for_run(
-            run_id
-        )
+        if (
+            run["current_attempt_id"] is not None
+            or len(attempts) > 1
+            or any(str(row["state"]) not in {"created", "admitted"} for row in attempts)
+        ):
+            # None permits the caller to remove its reservation. A refusal
+            # must preserve that reservation as well as the run and attempts.
+            raise StaleAttemptWriter("unbound preparation has dispatch history")
+        if project.db.execute(
+            "SELECT 1 FROM effect_checkpoints effect "
+            "JOIN execution_attempts attempt ON attempt.id=effect.authorized_attempt_id "
+            "WHERE attempt.run_id=? UNION ALL "
+            "SELECT 1 FROM model_calls WHERE run_id=? LIMIT 1",
+            (run_id, run_id),
+        ).fetchone():
+            raise StaleAttemptWriter("unbound preparation has provider effects")
+        terminal_attempt_id = str(attempts[0]["id"]) if attempts else None
         _finalize_run_in_transaction(
             project,
             RunResultStore(project),
@@ -1263,8 +1360,12 @@ def _terminalize_unclaimed_prepared_run(
             run_id=run_id,
             status="failed",
             out_cols=dict(prepared_run.out_cols),
-            generation_claim_token=claim_token,
-            carry_forward_atomic_family=bool(prepared_run.recipe.atomic_output_columns),
+            # A failed prepared-output bind leaves the action reservation's
+            # claim attached to the receipt, not to this run. It does not
+            # grant this run terminal write authority; finish the exact
+            # unclaimed prepared run, then let the caller release its receipt
+            # reservation.
+            generation_claim_token=None,
             keep_zero_success_output_columns=bool(
                 prepared_run.recipe.keep_zero_success_output_columns
             ),
@@ -1272,12 +1373,8 @@ def _terminalize_unclaimed_prepared_run(
             terminal_attempt_state=(
                 "halted" if terminal_attempt_id is not None else None
             ),
-            never_point_column_ids=(
-                frozenset(
-                    int(column_id) for column_id in prepared_run.out_cols.values()
-                )
-                if unbound_managed_outputs
-                else frozenset()
+            never_point_column_ids=frozenset(
+                int(column_id) for column_id in prepared_run.out_cols.values()
             ),
         )
         project.db.commit()
@@ -1285,6 +1382,7 @@ def _terminalize_unclaimed_prepared_run(
         project.db.rollback()
         raise
     project.refresh_pending_review_summary()
+    return None
 
 
 def _has_live_managed_writer(project: Any, prepared_run: Any | None) -> bool:
@@ -1345,8 +1443,11 @@ def _run_reserved_maprunner_action(
         if params_hash_fn is not None
         else _params_hash(action)
     )
+    reused_reservation_ids: set[str] = set()
 
     def delete_reservation_fn(current_project: Any, receipt_id: str) -> None:
+        if receipt_id in reused_reservation_ids:
+            return
         if prepared_execution is not None:
             if prepared_execution.queued_reservation_owner:
                 # An action.run worker owns this pre-existing reservation and
@@ -1456,6 +1557,8 @@ def _run_reserved_maprunner_action(
             if atomic_publication:
                 project.db.rollback()
             return reservation
+        if reservation.get("reservation_reused") == "true":
+            reused_reservation_ids.add(reservation["receipt_id"])
 
         claim_token = _output_claim_token(reservation["receipt_id"])
         claim_error = _acquire_output_claims_for_runner(
@@ -1537,11 +1640,14 @@ def _run_reserved_maprunner_action(
     admitted_attempt = None
 
     def fail_unclaimed(error: ActionError) -> ActionResult:
-        _terminalize_unclaimed_prepared_run(
+        terminal_result = _terminalize_unclaimed_prepared_run(
             project,
             prepared_run,
-            claim_token=claim_token,
+            receipt_id=reservation["receipt_id"],
+            error=error,
         )
+        if terminal_result is not None:
+            return terminal_result
         OutputColumnClaimStore(project).release(
             claim_token=claim_token, status="failed"
         )
@@ -1974,10 +2080,20 @@ def _run_reserved_maprunner_action(
     try:
         write_kwargs: dict[str, Any] = {}
         if deferred_terminal_close:
+            terminal_status = "cancelled" if progress.cancelled else "completed"
+            receipt_status = terminal_status
+            if terminal_status == "completed" and progress.failed > 0:
+                receipt_status = (
+                    "failed"
+                    if progress.total > 0 and progress.failed >= progress.total
+                    else "partial"
+                )
             write_kwargs.update(
                 {
                     "writer_attempt_id": progress.writer_attempt_id,
                     "claim_token": claim_token,
+                    "terminal_status": terminal_status,
+                    "receipt_status": receipt_status,
                 }
             )
         if prepared_execution is not None and write_fn is None:

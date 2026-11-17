@@ -8,12 +8,23 @@ records quote-free source links for nonblank text outputs in the same savepoint.
 
 from __future__ import annotations
 
+from frisket.execution.purchases import (
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    execute_purchase_sync,
+    cost_micro,
+    policy_for_context,
+)
+
 import asyncio
 import json
 import mimetypes
 import tempfile
 from pathlib import Path
 from typing import Any
+
+from frisket.execution.dispatch_control import dispatch_for_context
 
 from frisket.actions.document_types import ConvertedDocument
 from frisket.actions.types import ColumnRef, Row, RowError
@@ -91,6 +102,45 @@ _MIME_EXT = {
     "text/html": ".html",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
 }
+
+
+def _office_page_estimate(payload: bytes, suffix: str) -> int:
+    """Cheap admission estimate, never a usage fact or billing cap."""
+    from io import BytesIO
+    from xml.etree import ElementTree
+    from zipfile import BadZipFile, ZipFile
+
+    if suffix in {".docx", ".pptx"}:
+        try:
+            with ZipFile(BytesIO(payload)) as archive:
+                if suffix == ".pptx":
+                    pages = sum(
+                        name.startswith("ppt/slides/slide") and name.endswith(".xml")
+                        for name in archive.namelist()
+                    )
+                else:
+                    # Bound decompression of optional document properties.
+                    with archive.open("docProps/app.xml") as stream:
+                        properties = stream.read(65_537)
+                    if len(properties) > 65_536:
+                        raise ValueError("Oversized Office properties")
+                    pages = int(
+                        ElementTree.fromstring(properties).findtext("{*}Pages") or 0
+                    )
+                if pages > 0:
+                    return pages
+        except (
+            BadZipFile,
+            KeyError,
+            OSError,
+            RuntimeError,
+            ValueError,
+            ElementTree.ParseError,
+        ):
+            pass
+    # Legacy formats and missing metadata: a coarse 32 KiB/page heuristic.
+    # Compression and embedded media vary; returned pages/cost own settlement.
+    return max(1, (len(payload) + 32_767) // 32_768)
 
 
 def _engine_tier(engine: str) -> str:
@@ -228,6 +278,7 @@ class _BoundDocumentConverter:
                 )
             return ConvertedDocument(markdown="", ocr_used=[])
 
+        dispatch_for_context(self._ctx).check()
         engine = self._selected_engine()
         media_typed = _is_media_typed(column_type)
         ocr_used: list[Any] = []
@@ -239,9 +290,41 @@ class _BoundDocumentConverter:
             if self._is_cloud_route():
                 markdown, ocr_used = await self._convert_cloud(engine, path)
             elif engine == LIGHT_ENGINE:
-                markdown = await self._convert_markitdown(path, scratch)
+                markdown = await execute_purchase(
+                    PurchaseRequest(
+                        provider="local",
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        engine=engine,
+                        credential_source="none",
+                        prepared={"format": path.suffix},
+                        context=self._ctx,
+                        quantity={"input_count": 1},
+                    ),
+                    policy=policy_for_context(self._ctx),
+                    dispatch=dispatch_for_context(self._ctx),
+                    invoke=lambda: self._convert_markitdown(path, scratch),
+                    observe=lambda result: PurchaseObservation(
+                        result, {"input_count": 1}, 0
+                    ),
+                )
             elif engine == TRAFILATURA_HTML_ENGINE:
-                markdown = self._convert_trafilatura_html(path)
+                markdown = execute_purchase_sync(
+                    PurchaseRequest(
+                        provider="local",
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        engine=engine,
+                        credential_source="none",
+                        prepared={"format": path.suffix},
+                        context=self._ctx,
+                        quantity={"input_count": 1},
+                    ),
+                    policy=policy_for_context(self._ctx),
+                    dispatch=dispatch_for_context(self._ctx),
+                    invoke=lambda: self._convert_trafilatura_html(path),
+                    observe=lambda result: PurchaseObservation(
+                        result, {"input_count": 1}, 0
+                    ),
+                )
             elif engine in SIDECAR_ENGINES:
                 markdown, ocr_used = await self._convert_sidecar(engine, path)
             elif engine.startswith("opendocrouter/"):
@@ -550,7 +633,20 @@ class _BoundDocumentConverter:
         for a routed call, never a fresh ephemeral dereference."""
         if not path.exists():
             raise RowError("invalid_input_ref", f"convert input not found: {path}")
-        files = [("files", (path.name, path.read_bytes(), "application/octet-stream"))]
+        from hashlib import sha256
+        from frisket.ai.models.metadata import ModelCallMeta
+        from frisket.ops.media_probe import probe_for_ingest
+
+        payload = path.read_bytes()
+        files = [("files", (path.name, payload, "application/octet-stream"))]
+        digest = sha256(payload).hexdigest()
+        pages = (
+            probe_for_ingest(path, digest=digest).get("pages")
+            if payload.startswith(b"%PDF-")
+            else _office_page_estimate(payload, path.suffix.lower())
+            if path.suffix.lower() in {".doc", ".docx", ".ppt", ".pptx"}
+            else 1
+        )
         body = await sidecar_post(
             self._ctx,
             "/to-markdown",
@@ -559,14 +655,33 @@ class _BoundDocumentConverter:
             op="convert",
             light_engine=LIGHT_ENGINE,
             connection=self._route_connection(),
-            should_cancel=self._owner._cancelled,
+            dispatch=dispatch_for_context(self._ctx),
+            quantity={"pages": pages},
         )
-        # HTTP cancellation does not stop the shared server's current conversion.
-        # Do not publish a result returned after this action was cancelled/closed.
-        self._owner._check_active()
         docs = body.get("documents") or body.get("results")
         doc = docs[0] if docs else body
-        return doc.get("markdown", ""), doc.get("ocr_used") or []
+        markdown, ocr_used = doc.get("markdown", ""), doc.get("ocr_used") or []
+        if not isinstance(markdown, str) or not isinstance(ocr_used, list):
+            raise ValueError("document sidecar returned an invalid document")
+        if not all(isinstance(page, bool) for page in ocr_used):
+            raise ValueError("document sidecar returned invalid per-page OCR usage")
+        self._store_hosted_accounting(
+            {
+                "model_calls": [
+                    ModelCallMeta.sidecar(
+                        capability=CAPABILITY_TO_MARKDOWN,
+                        engine=engine,
+                        model_ids=[engine],
+                        units={
+                            "pages": len(ocr_used),
+                            "requests": 1,
+                            "input_bytes": len(payload),
+                        },
+                    ).as_dict()
+                ]
+            }
+        )
+        return markdown, ocr_used
 
     async def _convert_datalab(self, path: Path) -> tuple[str, dict[str, Any]]:
         """Datalab's hosted Marker /convert (pay-per-call).  Credential-gated
@@ -634,41 +749,98 @@ class _BoundDocumentConverter:
             accepted_accounting = accounting
             persist_hosted_accepted_accounting(ctx, accounting)
 
-        body, cost_usd = await datalab_convert(
-            ctx.http,
-            credential.value,
-            path.read_bytes(),
-            path.name,
-            mime,
-            should_cancel=should_cancel,
-            credential_source=credential.source,
-            on_accepted=persist_accepted,
+        payload = path.read_bytes()
+        from hashlib import sha256
+        from frisket.ops.media_probe import probe_for_ingest
+
+        digest = sha256(payload).hexdigest()
+        pages = (
+            probe_for_ingest(path, digest=digest).get("pages")
+            if mime == "application/pdf"
+            else 1
+            if mime.startswith("image/")
+            else _office_page_estimate(payload, suffix)
         )
+        rate = external_unit_price_usd(DATALAB_CONVERT_PAGE)
+
+        async def invoke():
+            try:
+                return await datalab_convert(
+                    ctx.http,
+                    credential.value,
+                    payload,
+                    path.name,
+                    mime,
+                    should_cancel=should_cancel,
+                    credential_source=credential.source,
+                    on_accepted=persist_accepted,
+                )
+            except BaseException as error:
+                if accepted_accounting is not None:
+                    error.accounting = accepted_accounting
+                    error.provider_job_accepted = True
+                raise
+
+        def observe(result):
+            body, cost_usd = result
+            if accepted_accounting is not None:
+                meta = accepted_accounting
+                provider_reported_cost = cost_usd
+                page_count = body.get("page_count")
+                pages = (
+                    page_count if isinstance(page_count, int) and page_count > 0 else 1
+                )
+                if cost_usd is None:
+                    # One /convert call can cover a multi-page document — scale the
+                    # per-page estimate by the response's own page_count.
+                    unit_price = external_unit_price_usd(DATALAB_CONVERT_PAGE)
+                    meta["cost"] = (
+                        unit_price * pages if unit_price is not None else None
+                    )
+                    if meta["cost"] is not None:
+                        meta["cost_source"] = "estimated"
+                else:
+                    meta["cost"] = cost_usd
+                [fact] = meta["model_calls"]
+                fact["provider_reported_cost_usd"] = provider_reported_cost
+                fact["provider_cost_usd"] = meta["cost"]
+                fact["cost_source"] = (
+                    "provider_reported"
+                    if provider_reported_cost is not None
+                    else str(meta.get("cost_source") or "unknown")
+                )
+                fact["units"] = {"pages": pages, "requests": 1}
+            return PurchaseObservation(
+                result=body,
+                usage={"pages": body.get("page_count")},
+                provider_cost_micro=cost_micro(cost_usd),
+            )
+
+        try:
+            body, cost_usd = await execute_purchase(
+                PurchaseRequest(
+                    provider="datalab",
+                    capability=CAPABILITY_TO_MARKDOWN,
+                    engine=DATALAB_ENGINE,
+                    credential_source=credential.source,
+                    prepared={"document_digest": digest, "mime": mime, "pages": pages},
+                    estimated_cost_usd=rate * pages
+                    if rate is not None and pages is not None
+                    else None,
+                    context=ctx,
+                ),
+                policy=policy_for_context(ctx),
+                dispatch=dispatch_for_context(ctx),
+                invoke=invoke,
+                observe=observe,
+            )
+        except BaseException as error:
+            if accepted_accounting is not None:
+                error.accounting = accepted_accounting
+            raise
         if accepted_accounting is None:
             raise RuntimeError("Datalab returned without its accepted-job accounting")
-        meta = accepted_accounting
-        provider_reported_cost = cost_usd
-        page_count = body.get("page_count")
-        pages = page_count if isinstance(page_count, int) and page_count > 0 else 1
-        if cost_usd is None:
-            # One /convert call can cover a multi-page document — scale the
-            # per-page estimate by the response's own page_count.
-            unit_price = external_unit_price_usd(DATALAB_CONVERT_PAGE)
-            meta["cost"] = unit_price * pages if unit_price is not None else None
-            if meta["cost"] is not None:
-                meta["cost_source"] = "estimated"
-        else:
-            meta["cost"] = cost_usd
-        [fact] = meta["model_calls"]
-        fact["provider_reported_cost_usd"] = provider_reported_cost
-        fact["provider_cost_usd"] = meta["cost"]
-        fact["cost_source"] = (
-            "provider_reported"
-            if provider_reported_cost is not None
-            else str(meta.get("cost_source") or "unknown")
-        )
-        fact["units"] = {"pages": pages, "requests": 1}
-        return str(body.get("markdown") or ""), meta
+        return str(body.get("markdown") or ""), accepted_accounting
 
     def _halt_unless_consented_credential(
         self, route: Any, selected_source: Any, effect: str, *, selected_owner: Any

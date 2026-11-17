@@ -1,6 +1,6 @@
 // Bottom-dock history panel: the op log lives solely in the bottom dock as a
 // list + right-hand detail pane (the shared list/detail template). Selecting a
-// step shows its detail on the right; Restore performs the step-to; the
+// step shows its detail on the right; Revert/Restore affects only that Change; the
 // status-bar undo/redo affordances keep working.
 // Deterministic: the only ops are an import and a $0 template run.
 
@@ -16,7 +16,7 @@ import {
   uniqueName,
 } from './helpers';
 
-test('op history is a bottom-dock list/detail panel with working step-to/undo/redo', async ({
+test('op history is a bottom-dock list/detail panel with selective Revert/Restore and ordinary Undo/Redo', async ({
   page,
   request,
 }) => {
@@ -56,7 +56,7 @@ test('op history is a bottom-dock list/detail panel with working step-to/undo/re
   });
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (payload.action_id === 'operation.undo' || payload.action_id === 'operation.redo') {
+    if (String(payload.action_id).startsWith('operation.')) {
       operationActions.push(payload);
     }
     await route.continue();
@@ -90,7 +90,8 @@ test('op history is a bottom-dock list/detail panel with working step-to/undo/re
     ?.split(' ') ?? [];
   expect(historyCapabilities).toEqual(expect.arrayContaining([
     'history.list',
-    'history.stepTo',
+    'operation.revert',
+    'operation.restore',
     'operation.undo',
     'operation.redo',
   ]));
@@ -100,71 +101,47 @@ test('op history is a bottom-dock list/detail panel with working step-to/undo/re
   const step1 = panel.getByTestId(`history-step-op-${templateOpId}`);
   await expect(step0).toContainText(/import/i);
   await expect(step1).toContainText(/template|note/i);
-  await expect(step1).toHaveClass(/history-state-current/);
+  await expect(step1).toHaveClass(/history-state-applied/);
 
   // Status-bar affordances: the map op is undoable, nothing to redo yet.
   await expect(page.getByTestId('undo-button')).toBeEnabled();
   await expect(page.getByTestId('redo-button')).toBeDisabled();
 
-  // The current op is selected by default, so its detail shows on the right with
-  // Restore disabled (already the pointer).
-  const currentDetail = panel.getByTestId(`history-step-detail-op-${templateOpId}`);
-  await expect(currentDetail).toBeVisible();
-  await expect(panel.getByTestId(`history-restore-op-${templateOpId}`)).toBeDisabled();
-
-  // Clicking a step selects it and shows its detail on the right. It does not
-  // move the pointer until Restore is explicitly activated.
+  // Inspecting an old entry does not navigate history or change any data.
+  await expect(panel.getByTestId(`history-revert-op-${templateOpId}`)).toBeEnabled();
   await step0.click();
-  await expect(step0).toHaveClass(/bottom-dock-row-selected/);
-  await expect(step0.locator('.bottom-dock-row-button')).toHaveAttribute('aria-pressed', 'true');
   await expect(panel.getByTestId('history-step-detail-op-1')).toBeVisible();
-  await expect.poll(() => operationActions.length, { timeout: 500 }).toBe(0);
-  await expect(step1).toHaveClass(/history-state-current/);
-  await expect(page.getByTestId('redo-button')).toBeDisabled();
-
-  // Step back to the import via the explicit restore action: the template op
-  // shows as undone (kept, not deleted) and redo lights up.
-  await panel.getByTestId('history-restore-op-1').click();
-  await expect.poll(() => operationActions.filter((a) => a.action_id === 'operation.undo').length).toBe(1);
-  expect(operationActions.find((a) => a.action_id === 'operation.undo')).toMatchObject({
-    action_id: 'operation.undo',
-    scope: { kind: 'project' },
-    params: { expected_op_id: templateOpId },
-    output_names: {},
-  });
-  expect(String(operationActions.find((a) => a.action_id === 'operation.undo')?.idempotency_key))
-    .toMatch(/^web-operation\.undo:/);
+  expect(operationActions).toHaveLength(0);
+  await step1.click();
+  await panel.getByTestId(`history-revert-op-${templateOpId}`).click();
   await expect(step1).toHaveClass(/history-state-undone/);
-  await expect(step0).toHaveClass(/history-state-current/);
+  expect(operationActions[0]).toMatchObject({
+    action_id: 'operation.revert', scope: { kind: 'project' }, params: { op_id: templateOpId },
+  });
+  await expect(page.getByTestId('grid')).toBeVisible();
+  const resize = await page.getByRole('button', { name: 'Resize bottom dock', exact: true }).boundingBox();
+  if (!resize) throw new Error('History dock resize handle is missing');
+  await page.mouse.move(resize.x + resize.width / 2, resize.y + resize.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(resize.x + resize.width / 2, resize.y - 180, { steps: 5 });
+  await page.mouse.up();
+  await page.screenshot({ path: 'test-results/domain-history-restore.png', fullPage: true });
+  // Selective Revert is out of band: it does not create a normal Redo step.
+  await expect(page.getByTestId('redo-button')).toBeDisabled();
+  await panel.getByTestId(`history-restore-op-${templateOpId}`).focus();
+  await page.keyboard.press('Enter');
+  await expect(step1).toHaveClass(/history-state-applied/);
+  expect(operationActions[1]).toMatchObject({
+    action_id: 'operation.restore', params: { op_id: templateOpId },
+  });
+  await page.getByTestId('undo-button').click();
+  await expect(step1).toHaveClass(/history-state-undone/);
   await expect(page.getByTestId('redo-button')).toBeEnabled();
-
-  // Redo from the status bar moves the pointer forward again.
   await page.getByTestId('redo-button').click();
-  await expect.poll(() => operationActions.filter((a) => a.action_id === 'operation.redo').length).toBe(1);
-  expect(operationActions.find((a) => a.action_id === 'operation.redo')).toMatchObject({
-    action_id: 'operation.redo',
-    scope: { kind: 'project' },
-    params: { expected_op_id: templateOpId },
-    output_names: {},
-  });
-  expect(String(operationActions.find((a) => a.action_id === 'operation.redo')?.idempotency_key))
-    .toMatch(/^web-operation\.redo:/);
-  await expect(step1).toHaveClass(/history-state-current/);
-  await expect(page.getByTestId('redo-button')).toBeDisabled();
-
-  // Keyboard activation on a step also selects first; keyboard activation on
-  // Restore performs the step-to operation.
-  await step0.locator('.bottom-dock-row-button').focus();
-  await page.keyboard.press('Enter');
-  await expect(step0).toHaveClass(/bottom-dock-row-selected/);
-  await expect(panel.getByTestId('history-step-detail-op-1')).toBeVisible();
-  await expect.poll(() => operationActions.filter((a) => a.action_id === 'operation.undo').length, {
-    timeout: 500,
-  }).toBe(1);
-  await panel.getByTestId('history-restore-op-1').focus();
-  await page.keyboard.press('Enter');
-  await expect.poll(() => operationActions.filter((a) => a.action_id === 'operation.undo').length).toBe(2);
-  await expect(step1).toHaveClass(/history-state-undone/);
+  await expect(step1).toHaveClass(/history-state-applied/);
+  expect(operationActions.map((action) => action.action_id)).toEqual([
+    'operation.revert', 'operation.restore', 'operation.undo', 'operation.redo',
+  ]);
   expect(legacyOperationCalls).toEqual([]);
 
   // Switching to another dock tab and back preserves the log.

@@ -10,6 +10,7 @@ import base64
 import binascii
 import json
 import re
+from contextlib import contextmanager
 from typing import Any
 
 import httpx
@@ -29,6 +30,35 @@ from .types import (
 )
 
 TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+
+
+@contextmanager
+def _retain_decode_usage(
+    response: LLMResponse, *, known_usage: bool, operation: str, api_key: str
+):
+    """A bad answer does not erase the provider's independently valid usage."""
+    response.usage_available = known_usage
+    if not known_usage:
+        response.cost = None
+        response.cost_source = "unknown"
+    try:
+        yield
+    except (
+        LLMError,
+        TypeError,
+        AttributeError,
+        KeyError,
+        IndexError,
+        ValueError,
+    ) as error:
+        failure = (
+            error
+            if isinstance(error, LLMError)
+            else _malformed_response_error(operation, error, api_key)
+        )
+        if known_usage and not getattr(failure, "wire_calls", ()):
+            failure.wire_calls = [response]
+        raise failure from None
 
 
 def _validate_document_request(req: LLMRequest) -> None:
@@ -298,55 +328,66 @@ class AnthropicAdapter:
         usage = _object_or_empty(out.get("usage"), "completion usage", self.api_key)
         tokens_in = _usage_count(usage, "input_tokens", self.api_key)
         tokens_out = _usage_count(usage, "output_tokens", self.api_key)
-        data = None
-        content = None
-        output_tool_call = None
-        # Named (non-"emit") tool_use blocks round-trip to `tool_calls`
-        # when this request carried `tools` -- collected as a list even though
-        # today's callers dispatch one tool per turn, since Anthropic's wire
-        # protocol allows multiple tool_use blocks in a single response
-        # (parallel tool calls).
-        tool_calls = [] if req.tools else None
-        for block in out["content"]:
-            btype = block["type"]
-            if btype == "tool_use":
-                name = block["name"]
-                if req.schema is not None and name == "emit":
-                    data = block["input"]
-                    if isinstance(block.get("id"), str):
-                        output_tool_call = {
-                            "name": name,
-                            "args": block["input"],
-                            "id": block["id"],
-                        }
-                elif tool_calls is not None:
-                    tool_calls.append(
-                        {
-                            "name": name,
-                            "args": block["input"],
-                            "id": block["id"],
-                        }
-                    )
-            elif btype == "text":
-                content = block["text"]
-        if tool_calls is not None and not tool_calls:
-            tool_calls = None  # "no calls this turn" stays None, not []
         stop_reason = out.get("stop_reason")
         cost, cost_source = cost_of_with_source(req.model, tokens_in, tokens_out)
         response = LLMResponse(
-            content=content,
-            data=data,
+            content=None,
+            data=None,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             cost=cost,
             model=req.model,
             cost_source=cost_source,
             raw={"id": out.get("id"), "stop_reason": stop_reason},
-            tool_calls=tool_calls,
-            output_tool_call=output_tool_call,
+            tool_calls=None,
+            output_tool_call=None,
             output_limited=stop_reason == "max_tokens",
         )
-        return _parse_response(response, req.schema, mechanism)
+        with _retain_decode_usage(
+            response,
+            known_usage="input_tokens" in usage and "output_tokens" in usage,
+            operation="completion",
+            api_key=self.api_key,
+        ):
+            data = None
+            content = None
+            output_tool_call = None
+            # Named (non-"emit") tool_use blocks round-trip to `tool_calls`
+            # when this request carried `tools` -- collected as a list even though
+            # today's callers dispatch one tool per turn, since Anthropic's wire
+            # protocol allows multiple tool_use blocks in a single response
+            # (parallel tool calls).
+            tool_calls = [] if req.tools else None
+            for block in out["content"]:
+                btype = block["type"]
+                if btype == "tool_use":
+                    name = block["name"]
+                    if req.schema is not None and name == "emit":
+                        data = block["input"]
+                        if isinstance(block.get("id"), str):
+                            output_tool_call = {
+                                "name": name,
+                                "args": block["input"],
+                                "id": block["id"],
+                            }
+                    elif tool_calls is not None:
+                        tool_calls.append(
+                            {
+                                "name": name,
+                                "args": block["input"],
+                                "id": block["id"],
+                            }
+                        )
+                elif btype == "text":
+                    content = block["text"]
+            if tool_calls is not None and not tool_calls:
+                tool_calls = None  # "no calls this turn" stays None, not []
+            stop_reason = out.get("stop_reason")
+            response.content = content
+            response.data = data
+            response.tool_calls = tool_calls
+            response.output_tool_call = output_tool_call
+            return _parse_response(response, req.schema, mechanism)
 
     def _messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -567,33 +608,11 @@ class OpenAICompatAdapter:
         usage = _object_or_empty(out.get("usage"), "completion usage", self.api_key)
         tokens_in = _usage_count(usage, "prompt_tokens", self.api_key)
         tokens_out = _usage_count(usage, "completion_tokens", self.api_key)
-        choice = out["choices"][0]
-        message = choice["message"]
-        content = message.get("content")
-        # Named tool_calls round-trip the same way as the Anthropic
-        # tool_use blocks above -- a list of {"name","args","id"}, collected
-        # even though today's callers dispatch one tool per turn (OpenAI's
-        # wire protocol allows several parallel tool_calls in one message).
-        tool_calls: list[dict[str, Any]] | None = None
-        if req.tools:
-            tool_calls = []
-            for tc in message.get("tool_calls") or []:
-                fn = tc["function"]
-                call = {
-                    "name": fn["name"],
-                    "args": fn["arguments"],
-                    "id": tc["id"],
-                }
-                extra_content = tc.get("extra_content")
-                if isinstance(extra_content, dict):
-                    call["provider_details"] = {"extra_content": extra_content}
-                tool_calls.append(call)
-            tool_calls = tool_calls or None
         cost, cost_source = cost_of_with_source(
             cost_model or req.model, tokens_in, tokens_out
         )
         response = LLMResponse(
-            content=content,
+            content=None,
             data=None,
             tokens_in=tokens_in,
             tokens_out=tokens_out,
@@ -602,12 +621,42 @@ class OpenAICompatAdapter:
             cost_source=cost_source,
             raw={
                 "id": out.get("id"),
-                "finish_reason": choice.get("finish_reason"),
             },
-            tool_calls=tool_calls,
-            output_limited=choice.get("finish_reason") == "length",
+            tool_calls=None,
         )
-        return _parse_response(response, req.schema, mechanism)
+        with _retain_decode_usage(
+            response,
+            known_usage="prompt_tokens" in usage and "completion_tokens" in usage,
+            operation="completion",
+            api_key=self.api_key,
+        ):
+            choice = out["choices"][0]
+            message = choice["message"]
+            content = message.get("content")
+            # Named tool_calls round-trip the same way as the Anthropic
+            # tool_use blocks above -- a list of {"name","args","id"}, collected
+            # even though today's callers dispatch one tool per turn (OpenAI's
+            # wire protocol allows several parallel tool_calls in one message).
+            tool_calls: list[dict[str, Any]] | None = None
+            if req.tools:
+                tool_calls = []
+                for tc in message.get("tool_calls") or []:
+                    fn = tc["function"]
+                    call = {
+                        "name": fn["name"],
+                        "args": fn["arguments"],
+                        "id": tc["id"],
+                    }
+                    extra_content = tc.get("extra_content")
+                    if isinstance(extra_content, dict):
+                        call["provider_details"] = {"extra_content": extra_content}
+                    tool_calls.append(call)
+                tool_calls = tool_calls or None
+            response.content = content
+            response.tool_calls = tool_calls
+            response.raw["finish_reason"] = choice.get("finish_reason")
+            response.output_limited = choice.get("finish_reason") == "length"
+            return _parse_response(response, req.schema, mechanism)
 
     async def _complete_responses(
         self, req: LLMRequest, client: httpx.AsyncClient, *, cost_model: str | None
@@ -720,30 +769,27 @@ class OpenAICompatAdapter:
         tokens_in = _usage_count(usage, "input_tokens", self.api_key)
         tokens_out = _usage_count(usage, "output_tokens", self.api_key)
 
-        def account_failure(error: LLMError) -> LLMError:
-            # Only claim a billed call when the provider actually supplied
-            # both usage counts; do not manufacture zero-cost accounting.
-            if "input_tokens" in usage and "output_tokens" in usage:
-                cost, source = cost_of_with_source(
-                    cost_model or req.model, tokens_in, tokens_out
-                )
-                error.wire_calls = [
-                    LLMResponse(
-                        content=None,
-                        data=None,
-                        tokens_in=tokens_in,
-                        tokens_out=tokens_out,
-                        cost=cost,
-                        model=req.model,
-                        cost_source=source,
-                        raw={"id": out.get("id"), "finish_reason": status},
-                    )
-                ]
-            return error
-
-        if status != "completed" and not limited:
-            raise account_failure(LLMError("OpenAI response did not complete"))
-        try:
+        cost, cost_source = cost_of_with_source(
+            cost_model or req.model, tokens_in, tokens_out
+        )
+        response = LLMResponse(
+            content=None,
+            data=None,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost=cost,
+            model=req.model,
+            cost_source=cost_source,
+            raw={"id": out.get("id"), "finish_reason": status},
+        )
+        with _retain_decode_usage(
+            response,
+            known_usage="input_tokens" in usage and "output_tokens" in usage,
+            operation="response output",
+            api_key=self.api_key,
+        ):
+            if status != "completed" and not limited:
+                raise LLMError("OpenAI response did not complete")
             output = out.get("output")
             if not isinstance(output, list):
                 raise TypeError("output is not a list")
@@ -775,29 +821,12 @@ class OpenAICompatAdapter:
                         if part.get("type") == "output_text":
                             text.append(part["text"])
             content = "".join(text) or None
-        except (TypeError, AttributeError, KeyError, ValueError) as error:
-            raise account_failure(
-                _malformed_response_error("response output", error, self.api_key)
-            ) from None
-        if not text and not calls and not limited:
-            raise account_failure(
-                LLMError("OpenAI response contained no usable output")
-            )
-        cost, cost_source = cost_of_with_source(
-            cost_model or req.model, tokens_in, tokens_out
-        )
-        return LLMResponse(
-            content=content,
-            data=None,
-            tokens_in=tokens_in,
-            tokens_out=tokens_out,
-            cost=cost,
-            model=req.model,
-            cost_source=cost_source,
-            raw={"id": out.get("id"), "finish_reason": status},
-            tool_calls=calls or None,
-            output_limited=limited,
-        )
+            if not text and not calls and not limited:
+                raise LLMError("OpenAI response contained no usable output")
+            response.content = content
+            response.tool_calls = calls or None
+            response.output_limited = limited
+            return response
 
     def _messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
@@ -872,24 +901,38 @@ class OpenAICompatAdapter:
         )
         _raise_for_status(resp, secret_values=(self.api_key,))
         out = _response_object(resp, "embeddings", self.api_key)
-        data = out["data"]
-        # OpenAI returns a per-row `index`; Gemini's OpenAI-compat endpoint omits
-        # it. Sort by index when ALL rows carry one, else trust response order.
-        if all("index" in item for item in data):
-            data = sorted(data, key=lambda item: item["index"])
-        vectors = [item["embedding"] for item in data]
+        usage = _object_or_empty(out.get("usage"), "embeddings usage", self.api_key)
+        count_field = "prompt_tokens" if "prompt_tokens" in usage else "total_tokens"
+        tokens_in = _usage_count(usage, count_field, self.api_key)
         meta = {
-            # actual model the provider used, falling back to the request if the
-            # provider does not echo one
             "actual_model_id": out.get("model") or model,
             "requested_model": model,
-            "dimension": len(vectors[0]) if vectors else 0,
-            "usage": _object_or_empty(
-                out.get("usage"), "embeddings usage", self.api_key
-            ),
+            "dimension": 0,
+            "usage": usage,
             "provider_request_id": resp.headers.get("x-request-id") or out.get("id"),
         }
-        return vectors, meta
+        response = LLMResponse(
+            content=None,
+            data=None,
+            tokens_in=tokens_in,
+            tokens_out=0,
+            cost=None,
+            model=model,
+            raw={"embedding_metadata": meta},
+        )
+        with _retain_decode_usage(
+            response,
+            known_usage=count_field in usage,
+            operation="embeddings",
+            api_key=self.api_key,
+        ):
+            data = out["data"]
+            # Gemini's compatible endpoint omits index; otherwise restore order.
+            if all("index" in item for item in data):
+                data = sorted(data, key=lambda item: item["index"])
+            vectors = [item["embedding"] for item in data]
+            meta["dimension"] = len(vectors[0]) if vectors else 0
+            return vectors, meta
 
     def _content(self, content: Any) -> Any:
         if isinstance(content, str):

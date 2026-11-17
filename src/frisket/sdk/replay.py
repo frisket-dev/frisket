@@ -85,76 +85,69 @@ def output_column_value_hash(
     project: Any, *, sheet_id: int, column_id: int, row_ids: list[int]
 ) -> str:
     return _output_column_value_hash_streaming(
-        project,
-        sheet_id=sheet_id,
-        column_id=column_id,
-        row_ids=row_ids,
-        apply_edits=True,
+        row_ids, lambda page: project.get_values(sheet_id, column_id, row_ids=page)
     )
 
 
 def _output_column_value_hash_streaming(
-    project: Any,
-    *,
-    sheet_id: int,
-    column_id: int,
-    row_ids: list[int],
-    apply_edits: bool,
-    page_size: int = 128,
+    row_ids, read_page, *, page_size: int = 128
 ) -> str:
-    """Hash the canonical row array without materializing the full column.
-
-    The emitted bytes are exactly ``json.dumps(ordered, sort_keys=True,
-    separators=(",", ":"), allow_nan=False)`` from the original implementation,
-    but only one bounded page of values and one encoded row exist at a time.
-    This matters for metadata details columns, where 10,000 valid rows can each
-    approach 64 KiB.
-    """
-
+    """Preserve receipt JSON bytes while decoding only one bounded row page."""
     digest = hashlib.sha256()
     digest.update(b"[")
     first = True
     batch_size = max(1, int(page_size))
     for offset in range(0, len(row_ids), batch_size):
         page = [int(row_id) for row_id in row_ids[offset : offset + batch_size]]
-        values = project.get_values(
-            sheet_id,
-            column_id,
-            row_ids=page,
-            apply_edits=apply_edits,
-        )
+        values = read_page(page)
         for row_id in page:
             if not first:
                 digest.update(b",")
             first = False
-            encoded = json.dumps(
-                {"row_id": row_id, "value": values.get(row_id)},
-                sort_keys=True,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode("utf-8")
-            digest.update(encoded)
+            digest.update(
+                json.dumps(
+                    {"row_id": row_id, "value": values.get(row_id)},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            )
     digest.update(b"]")
     return "sha256:" + digest.hexdigest()
 
 
 def output_column_result_value_hash(
-    project: Any, *, sheet_id: int, column_id: int, row_ids: list[int]
+    project: Any, *, run_id: int, sheet_id: int, column_id: int, row_ids: list[int]
 ) -> str:
-    """Value hash of the UNDERLYING current-run result values, with the manual
-    edit overlay stripped (replay-accept-surface-v1). Byte-identical to
-    ``output_column_value_hash`` except it resolves ``apply_edits=False``, so
-    under REPLAY_EDIT_POLICY == "surface" a value mismatch that is purely the
-    result of human edits (this hash still matches the receipt evidence) is
-    surfaced rather than hard-erroring, while structural drift (which moves this
-    hash too) stays a real ``stale_replay``."""
-    return _output_column_value_hash_streaming(
-        project,
-        sheet_id=sheet_id,
-        column_id=column_id,
-        row_ids=row_ids,
-        apply_edits=False,
-    )
+    """Hash an explicit saved output with the persisted receipt value encoding.
+
+    Failed/null/invalid values hash as None. Replay separately verifies that
+    this run remains the top non-edit contribution; hashing saved bytes alone
+    cannot prove that a later action has not replaced its output.
+    """
+    from frisket.engine.store.current_cells import decoded_cell_validity
+    from frisket.engine.store.runs import RunResultStore
+
+    column = project.db.execute(
+        "SELECT type FROM columns WHERE id=? AND sheet_id=?", (column_id, sheet_id)
+    ).fetchone()
+    if column is None:
+        raise ValueError("saved output column is missing")
+    store = RunResultStore(project)
+
+    def read_page(page):
+        saved = store.decoded_result_rows(
+            [(run_id, row_id, column_id) for row_id in page]
+        )
+        return {
+            row_id: result["value"]
+            if result["publication_effect"] == "publish_value"
+            and decoded_cell_validity(str(column["type"]), result["value"]) != "invalid"
+            else None
+            for (_, row_id, _), result in saved.items()
+        }
+
+    return _output_column_value_hash_streaming(row_ids, read_page)
 
 
 def replay_expected_row_ids(
@@ -463,15 +456,16 @@ def output_columns_replay_error(
             project, sheet_id=sheet_id, column_id=column_id, row_ids=row_ids
         )
         if actual_value_hash != expected_value_hash:
-            # REPLAY_EDIT_POLICY == "surface": a value
-            # mismatch caused ONLY by human edits since write is surfaced, not a
-            # hard error. The underlying current-run RESULT (edit overlay
-            # stripped) still hashes to the receipt's evidence iff nothing but
-            # edits changed; structural staleness moves the raw hash too and
-            # stays a real stale_replay.
+            # The identity check above already excludes a replacement run.
+            # Compare this receipt's exact saved output to preserve edit-surface
+            # behavior without reading a second notion of current values.
             if REPLAY_EDIT_POLICY == "surface":
                 result_value_hash = output_column_result_value_hash(
-                    project, sheet_id=sheet_id, column_id=column_id, row_ids=row_ids
+                    project,
+                    run_id=run_id,
+                    sheet_id=sheet_id,
+                    column_id=column_id,
+                    row_ids=row_ids,
                 )
                 if result_value_hash == expected_value_hash:
                     continue

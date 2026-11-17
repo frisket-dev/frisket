@@ -372,7 +372,7 @@ def test_output_claim_blocks_run_backfill_on_claimed_column(tmp_path: Path) -> N
         project.close()
 
 
-def test_output_claim_blocks_operation_transitions_that_touch_claimed_column(
+def test_output_claim_does_not_block_undo_of_completed_changes(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, row_ids, _columns = _seed_project(tmp_path)
@@ -401,11 +401,11 @@ def test_output_claim_blocks_operation_transitions_that_touch_claimed_column(
             ),
             project_id=PROJECT_ID,
         )
-        assert undo_map.status == "failed"
-        assert undo_map.errors[0].code == "output_column_busy"
-        assert undo_map.errors[0].details["op_id"] == map_op_id
-        assert project.op_cursor == map_op_id
+        assert undo_map.status == "completed", undo_map.errors
+        assert project.get_column(output_column_id)["active"] == 0
         OutputColumnClaimStore(project).release(claim_token=map_claim, status="failed")
+        assert project.redo() == map_op_id
+        assert project.get_column(output_column_id)["active"] == 1
 
         edit = run_action_spec(
             project,
@@ -435,14 +435,15 @@ def test_output_claim_blocks_operation_transitions_that_touch_claimed_column(
             ),
             project_id=PROJECT_ID,
         )
-        assert undo_edit.status == "failed"
-        assert undo_edit.errors[0].code == "output_column_busy"
-        assert undo_edit.errors[0].details["op_id"] == edit_op_id
+        assert undo_edit.status == "completed", undo_edit.errors
         op = project.db.execute(
             "SELECT status FROM ops WHERE id=?", (edit_op_id,)
         ).fetchone()
         assert op is not None
-        assert op["status"] == "applied"
-        assert project.op_cursor == edit_op_id
+        assert op["status"] == "undone"
+        assert (
+            project.get_values(sheet_id, output_column_id)[row_ids[0]]
+            != "manual before later run"
+        )
     finally:
         project.close()

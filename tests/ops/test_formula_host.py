@@ -1,6 +1,7 @@
 """Formula's managed column publication is all or nothing."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import pickle
@@ -26,7 +27,10 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 def _runner(project: Project, router: object) -> MapRunner:
     return MapRunner(
         project,
-        router or ModelRouter(cache=None, cache_mode="off"),
+        router
+        or ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 
@@ -67,6 +71,14 @@ def test_formula_publishes_typed_number_once(tmp_path: Path) -> None:
         )
         first = _run(project, sheet, "={{amount}} * 2")
         assert first.status == "completed", first.errors
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+                "WHERE runs.id=?",
+                (first.run_id,),
+            ).fetchone()[0]
+            == 1
+        )
         assert len(first.outputs) == 1
         column = first.outputs[0].column_id
         assert project.get_column(column)["type"] == "number"
@@ -241,7 +253,7 @@ def test_formula_all_errors_refuses_output(tmp_path: Path) -> None:
         project.close()
 
 
-def test_formula_replaces_its_own_generated_source_and_undoes(tmp_path: Path) -> None:
+def test_formula_refuses_replacing_its_own_generated_source(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "replace.frisket", name="replace")
     try:
         sheet = project.add_sheet("source")
@@ -253,11 +265,10 @@ def test_formula_replaces_its_own_generated_source_and_undoes(tmp_path: Path) ->
         replacement = _run(
             project, sheet, "={{computed}} + 1", key="formula-2", replace_existing=True
         )
-        assert replacement.status == "completed", replacement.errors
-        assert replacement.outputs[0].column_id == column
-        assert project.get_values(sheet, column, row_ids=rows) == {rows[0]: 4}
-        project.undo()
+        assert replacement.status == "failed", replacement.errors
+        assert replacement.errors[0].code == "input_output_overlap"
         assert project.get_values(sheet, column, row_ids=rows) == {rows[0]: 3}
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
     finally:
         project.close()
 
@@ -274,7 +285,7 @@ def test_formula_replaces_generated_column_with_new_type(tmp_path: Path) -> None
         replacement = _run(
             project,
             sheet,
-            '=IF({{computed}} > 0, "positive", "negative")',
+            '=IF({{amount}} > 0, "positive", "negative")',
             key="formula-text",
             replace_existing=True,
         )
@@ -736,7 +747,7 @@ def test_formula_invalid_row_scope_keeps_typed_refusal(tmp_path: Path) -> None:
         project.close()
 
 
-def test_formula_source_edit_before_publication_refuses_all_output(
+def test_formula_source_edit_before_publication_keeps_consumed_result_and_marks_stale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import inferred_batch_action
@@ -754,14 +765,12 @@ def test_formula_source_edit_before_publication_refuses_all_output(
 
         monkeypatch.setattr(inferred_batch_action, "_publish", edit_before_publish)
         result = _run(project, sheet, "={{amount}} + 1")
-        assert result.status == "failed", result.errors
-        assert result.errors[0].code == "stale_input"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM columns WHERE name='computed' AND hidden=0"
-            ).fetchone()[0]
-            == 0
-        )
+        assert result.status == "completed", result.errors
+        column = result.outputs[0].column_id
+        assert project.get_values(sheet, column)[rows[0]] == 3
+        from frisket.engine.store.consumed_sources import row_input_state
+
+        assert row_input_state(project, result.run_id, rows[0]) == "stale"
     finally:
         project.close()
 
@@ -796,7 +805,7 @@ def test_formula_whole_scope_retype_refuses_row_appended_after_stage(
         replacement = _run(
             project,
             sheet,
-            '=IF({{computed}} > 0, "positive", "negative")',
+            '=IF({{amount}} > 0, "positive", "negative")',
             key="retype-after-append",
             replace_existing=True,
         )
@@ -840,13 +849,42 @@ def test_formula_whole_scope_retype_refuses_row_appended_before_publish(
         replacement = _run(
             project,
             sheet,
-            '=IF({{computed}} > 0, "positive", "negative")',
+            '=IF({{amount}} > 0, "positive", "negative")',
             key="retype-before-publish",
             replace_existing=True,
         )
         assert replacement.status == "failed", replacement.errors
         assert replacement.errors[0].code == "stale_input"
         assert project.get_column(column)["type"] == "number"
+        assert project.get_values(sheet, column, row_ids=rows + appended) == {
+            rows[0]: 3,
+            appended[0]: 4,
+        }
+        # The different-type generation never activated. A refused staged
+        # replacement preserves the prior values and descriptor together.
+        assert (
+            project.db.execute(
+                "SELECT outcome FROM canonical_cell_heads WHERE column_id=? AND row_id=?",
+                (column, rows[0]),
+            ).fetchone()[0]
+            == "completed"
+        )
+        assert (
+            project.db.execute(
+                "SELECT value FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+                (first.run_id, rows[0], column),
+            ).fetchone()[0]
+            == 3
+        )
+        # Reverting only the failed replacement preserves the unrelated appended edit.
+        from frisket.engine.store.op_log import step_operation
+
+        op_id = project.db.execute(
+            "SELECT op_id FROM runs WHERE id=?", (replacement.run_id,)
+        ).fetchone()[0]
+        project.db.execute("BEGIN IMMEDIATE")
+        step_operation(project, "revert", op_id=op_id)
+        project.db.commit()
         assert project.get_values(sheet, column, row_ids=rows + appended) == {
             rows[0]: 3,
             appended[0]: 4,

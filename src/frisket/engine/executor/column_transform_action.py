@@ -39,13 +39,15 @@ from frisket.engine.executor.map_rows_action import (
     typed_request_hash,
 )
 from frisket.engine.store.output_claims import OutputColumnClaimStore
-from frisket.engine.store.cell_writes import (
-    BaseCellWrite,
-    create_base_cell_producer,
-    initialize_base_cells,
-    remove_base_cells,
-)
+from frisket.engine.store.consumed_sources import read_consumed_source, store_capture
+from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.runs import RunResultStore
+from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.input_availability import (
+    input_unavailability,
+    not_completed_result,
+)
 from frisket.engine.runner.preview import PREVIEW_MAX_ROWS, PreviewColumn, PreviewResult
 
 _SOURCE_REF = "typed_column_transform_source"
@@ -131,7 +133,7 @@ def preflight_column_transform_source(
         )
     [reference] = references
     column = project.db.execute(
-        "SELECT id, name, type FROM columns WHERE sheet_id=? AND name=? AND hidden=0",
+        "SELECT id, name, type FROM columns WHERE sheet_id=? AND name=? AND active=1",
         (sheet_id, reference.column),
     ).fetchone()
     if column is None:
@@ -196,12 +198,32 @@ def _source(
     sheet_id = int(descriptor["sheet_id"])
     column_id = int(descriptor["column_id"])
     row_ids = [int(row_id) for row_id in project.visible_row_ids(sheet_id)]
-    stored = project.get_values(sheet_id, column_id)
-    values_by_row = {row_id: stored.get(row_id) for row_id in row_ids}
+    refs: dict[int, dict[int, dict[str, Any]]] = {}
+    _, stored, capture = read_consumed_source(
+        project,
+        sheet_id,
+        [column_id],
+        row_ids=row_ids,
+        refs_out=refs,
+        preserve_invalid_column_ids=[column_id],
+    )
+    values_by_row = {row_id: stored[column_id].get(row_id) for row_id in row_ids}
+    unavailable = {}
+    for row_id in row_ids:
+        reason = input_unavailability(
+            str(descriptor["column_name"]),
+            refs[column_id].get(row_id),
+            allow_missing=True,
+        )
+        if reason is not None:
+            unavailable[row_id] = not_completed_result(reason)
     return {
         **descriptor,
         "row_ids": row_ids,
+        "eligible_row_ids": [row_id for row_id in row_ids if row_id not in unavailable],
         "values_by_row": values_by_row,
+        "unavailable": unavailable,
+        "capture": capture,
     }
 
 
@@ -213,7 +235,7 @@ def _compute(
     rows = Rows(
         {
             row_id: Row({source["column_name"]: source["values_by_row"][row_id]})
-            for row_id in source["row_ids"]
+            for row_id in source["eligible_row_ids"]
         }
     )
     context = ColumnTransformContext(source_type=str(source["column_type"]))
@@ -225,7 +247,7 @@ def _compute(
     raw = terminal.handler(*args)
     if inspect.isawaitable(raw):
         raise TypeError("column_transform handlers must be synchronous")
-    if not isinstance(raw, Mapping) or set(raw) != set(source["row_ids"]):
+    if not isinstance(raw, Mapping) or set(raw) != set(source["eligible_row_ids"]):
         raise ValueError(
             "column_transform must return exactly one result per source row"
         )
@@ -233,7 +255,7 @@ def _compute(
     output_key = terminal.output_fields[0].key
     typed: dict[int, RowResult[Any]] = {}
     values: dict[int, Any] = {}
-    for row_id in source["row_ids"]:
+    for row_id in source["eligible_row_ids"]:
         result = raw[row_id]
         if not isinstance(result, RowResult):
             raise TypeError("column_transform returned a non-RowResult value")
@@ -248,18 +270,6 @@ def _compute(
     preferred_type = output_field.column_type
     if not is_registered(preferred_type):
         raise TypeError(f"unknown output column type {preferred_type!r}")
-    # Imported source columns may already contain exceptional values (for
-    # example ``"n/a"`` in a number column). A transform may preserve those
-    # exact cells. Dynamic transforms choose the narrowest declared/fallback
-    # type that accepts every value they actually changed.
-    changed_values = [
-        value
-        for row_id, value in values.items()
-        if not (
-            type(value) is type(source["values_by_row"][row_id])
-            and value == source["values_by_row"][row_id]
-        )
-    ]
     candidates = [preferred_type]
     if terminal.output_type is not None:
         candidates.extend(
@@ -269,22 +279,11 @@ def _compute(
         (
             candidate
             for candidate in candidates
-            if all(validate_value(candidate, value) for value in changed_values)
+            if all(validate_value(candidate, value) for value in values.values())
         ),
         None,
     )
     if output_type is None:
-        raise ValueError(
-            "column_transform returned values incompatible with its output type"
-        )
-    if not all(
-        (
-            type(value) is type(source["values_by_row"][row_id])
-            and value == source["values_by_row"][row_id]
-        )
-        or validate_value(output_type, value)
-        for row_id, value in values.items()
-    ):
         raise ValueError(
             "column_transform returned values incompatible with its output type"
         )
@@ -300,7 +299,7 @@ def _output_gate(
     output_name: str,
 ) -> ActionError | None:
     existing = cur.execute(
-        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND hidden=0",
+        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
         (sheet_id, output_name),
     ).fetchone()
     if existing is not None:
@@ -335,7 +334,7 @@ def _preview_output_gate(
     """Read-only form of the run gate for preview planning."""
 
     existing = project.db.execute(
-        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND hidden=0",
+        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
         (sheet_id, output_name),
     ).fetchone()
     if existing is not None:
@@ -382,17 +381,18 @@ def preflight_column_transform_request(
 
 
 def _write_column(
-    cur: Any,
+    project: Any,
     *,
     action_id: str,
     sheet_id: int,
     source_name: str,
     output_name: str,
     output_type: str,
-    values: Mapping[int, Any],
     op_spec: Mapping[str, Any],
 ) -> tuple[int, int]:
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
+    from frisket.engine.store.changes import ChangeStore
+
+    cur = project.db.cursor()
     cur.execute(
         "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, 0)",
         (
@@ -404,51 +404,20 @@ def _write_column(
         ),
     )
     op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
-    db = cur.connection
-    producer_id = create_base_cell_producer(db, stage_id=f"op:{op_id}", op_id=op_id)
-    hidden = cur.execute(
-        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
-        (sheet_id, output_name),
-    ).fetchone()
-    if hidden is None:
-        position = int(
-            cur.execute(
-                "SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?",
-                (sheet_id,),
-            ).fetchone()[0]
-        )
+    ChangeStore(project).start(op_id)
+    position = int(
         cur.execute(
-            "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden, format) "
-            "VALUES (?, ?, ?, ?, 1, 0, NULL)",
-            (sheet_id, output_name, output_type, position),
-        )
-        column_id = int(cur.lastrowid)
-    else:
-        column_id = int(hidden["id"])
-        cur.execute(
-            "UPDATE columns SET hidden=0, type=?, ai_generated=1, current_run_id=NULL "
-            "WHERE id=?",
-            (output_type, column_id),
-        )
-        remove_base_cells(
-            db,
-            producer_id=producer_id,
-            column_ids=[column_id],
-        )
-    initialize_base_cells(
-        db,
-        producer_id=producer_id,
-        cells=(
-            BaseCellWrite(row_id, column_id, value)
-            for row_id, value in values.items()
-            if value is not None
-        ),
+            "SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?",
+            (sheet_id,),
+        ).fetchone()[0]
     )
     cur.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?",
-        (json.dumps({"created_columns": [column_id]}, sort_keys=True), op_id),
+        "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden, format) "
+        "VALUES (?, ?, ?, ?, 1, 0, NULL)",
+        (sheet_id, output_name, output_type, position),
     )
+    column_id = int(cur.lastrowid)
+    project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
     return op_id, column_id
 
 
@@ -464,6 +433,7 @@ def _receipt(
     output_type: str,
     output_column_id: int,
     op_id: int,
+    run_id: int,
 ) -> Receipt:
     source_ref = {
         "kind": _SOURCE_REF,
@@ -495,6 +465,7 @@ def _receipt(
         action_id=action_instance_id,
         action_kind=bound.action.action_id,
         op_ids=[op_id],
+        run_id=run_id,
         idempotency_key=bound.request.idempotency_key,
         params_hash=params_hash,
         status="completed",
@@ -518,7 +489,8 @@ def _receipt(
                 ref={
                     "kind": "column_transform_counts",
                     "total_rows": len(source["row_ids"]),
-                    "completed_rows": len(source["row_ids"]),
+                    "completed_rows": len(source["eligible_row_ids"]),
+                    "not_completed_rows": len(source["unavailable"]),
                     "failed_rows": 0,
                     "op_id": op_id,
                 }
@@ -541,12 +513,12 @@ def column_transform_replay_error(project: Any, receipt: Receipt) -> ActionError
     assert isinstance(output_ref, dict)
     assert isinstance(source_ref, dict)
     output = project.db.execute(
-        "SELECT id, name, type, hidden, sheet_id FROM columns WHERE id=?",
+        "SELECT id, name, type, active, sheet_id FROM columns WHERE id=?",
         (output_ref.get("column_id"),),
     ).fetchone()
     if (
         output is None
-        or output["hidden"]
+        or not output["active"]
         or output["name"] != output_ref.get("name")
         or output["type"] != output_ref.get("type")
         or output["sheet_id"] != output_ref.get("sheet_id")
@@ -557,7 +529,7 @@ def column_transform_replay_error(project: Any, receipt: Receipt) -> ActionError
     sheet_id = source_ref.get("sheet_id")
     column_id = source_ref.get("column_id")
     source = project.db.execute(
-        "SELECT id, name, type, hidden FROM columns WHERE id=? AND sheet_id=?",
+        "SELECT id, name, type, active FROM columns WHERE id=? AND sheet_id=?",
         (column_id, sheet_id),
     ).fetchone()
     sheet = project.db.execute(
@@ -566,7 +538,7 @@ def column_transform_replay_error(project: Any, receipt: Receipt) -> ActionError
     if (
         sheet is None
         or source is None
-        or source["hidden"]
+        or not source["active"]
         or source["name"] != source_ref.get("name")
         or source["type"] != source_ref.get("type")
     ):
@@ -683,21 +655,29 @@ def run_typed_column_transform_action(
             "output_name": output_name,
         }
         op_id, output_column_id = _write_column(
-            cur,
+            project,
             action_id=bound.action.action_id,
             sheet_id=int(source["sheet_id"]),
             source_name=str(source["column_name"]),
             output_name=output_name,
             output_type=output_type,
-            values=values,
             op_spec=op_spec,
         )
-        action_instance_id = _new_id("act")
+        runs = RunResultStore(project)
+        run_id = runs.start_run(
+            op_id,
+            int(source["sheet_id"]),
+            bound.action.action_id,
+            params=bound.params.model_dump(mode="json"),
+            row_ids=source["row_ids"],
+            total_rows=len(source["row_ids"]),
+            commit=False,
+        )
         receipt_id = _new_id("receipt")
         receipt = _receipt(
             bound,
             project_id=project_id,
-            action_instance_id=action_instance_id,
+            action_instance_id=_new_id("act"),
             receipt_id=receipt_id,
             params_hash=params_hash,
             source=source,
@@ -705,9 +685,83 @@ def run_typed_column_transform_action(
             output_type=output_type,
             output_column_id=output_column_id,
             op_id=op_id,
+            run_id=run_id,
         )
+        receipts = ReceiptStore(project)
+        receipts.insert_running(
+            receipt.model_copy(update={"status": "running"}), commit=False
+        )
+        token = f"output-claim:{receipt_id}"
+        field = {"name": output_name, "column_type": output_type}
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=int(source["sheet_id"]),
+            output_names=[output_name],
+            action_kind=bound.action.action_id,
+            receipt_id=receipt_id,
+            run_id=run_id,
+            op_id=op_id,
+            claim_token=token,
+            details={"output_fields": [field]},
+            commit=False,
+        )
+        if conflict is not None or len(claims) != 1:
+            raise RuntimeError("column transform could not claim its output")
+        generations = ResultGenerationStore(project)
+        generations.declare(
+            run_id,
+            output_column_id,
+            output_role=output_key,
+            compatibility_key=_compatibility_key(field=field),
+            write_mode="create",
+            claim_token=token,
+            commit=False,
+        )
+        runs.write_precomputed_results(
+            run_id,
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": output_column_id,
+                    **(
+                        source["unavailable"][row_id]
+                        if row_id in source["unavailable"]
+                        else {
+                            "value": values[row_id],
+                            "publication_effect": "publish_null"
+                            if values[row_id] is None
+                            else "publish_value",
+                        }
+                    ),
+                }
+                for row_id in source["row_ids"]
+            ],
+            receipt_id=receipt_id,
+            action_kind=bound.action.action_id,
+            params_hash=params_hash,
+            claim_token=token,
+            commit=False,
+        )
+        store_capture(
+            project,
+            source["capture"],
+            owner_op_id=op_id,
+            output_sheet_id=int(source["sheet_id"]),
+            run_id=run_id,
+        )
+        generations.seal(
+            run_id,
+            [output_column_id],
+            claim_token=token,
+            terminal_disposition="completed",
+            commit=False,
+        )
+        runs.finish_run(run_id, "completed", commit=False, claim_token=token)
+        OutputColumnClaimStore(project).release(claim_token=token, commit=False)
+        if not receipts.update_body_status(
+            receipt, require_status="running", commit=False
+        ):
+            raise RuntimeError("column transform receipt changed during publication")
         result = _result_from_receipt(receipt)
-        ReceiptStore(project).insert_completed(receipt, commit=False)
         project.db.commit()
         return result
     except Exception:
@@ -774,7 +828,11 @@ def build_column_transform_preview_plan(
                 )
             ],
             values={
-                row_id: {output_name: {"value": values[row_id]}}
+                row_id: {
+                    output_name: source["unavailable"].get(
+                        row_id, {"value": values.get(row_id)}
+                    )
+                }
                 for row_id in sample_ids
             },
             row_ids=sample_ids,

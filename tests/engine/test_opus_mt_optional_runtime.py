@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
+from frisket.ops.base import OpContext
 from frisket.engine._workers import opus_mt_session, opus_mt_worker
 from frisket.ops.integrations import opus_mt
 from frisket.ops.integrations.translation_engine import TranslationEngine
@@ -67,8 +69,13 @@ async def test_invocation_reuses_managed_worker_and_closes(monkeypatch):
     monkeypatch.setattr(translation_install, "is_installed", lambda: True)
     monkeypatch.setattr(opus_mt_session, "OpusMtSession", Session)
     engine = TranslationEngine(invocation_owned=True)
-    assert await engine._opus_translate("en", "es", ["Hello"], None) == ["Hola"]
-    assert await engine._opus_translate("en", "es", ["World"], None) == ["Hola"]
+    ctx = OpContext(project=None, extras={"standalone_dispatch": STANDALONE})
+    assert await engine._opus_translate("en", "es", ["Hello"], None, ctx=ctx) == [
+        "Hola"
+    ]
+    assert await engine._opus_translate("en", "es", ["World"], None, ctx=ctx) == [
+        "Hola"
+    ]
     assert len(instances) == 1
     assert instances[0].calls == [["Hello"], ["World"]]
     await engine.aclose()
@@ -93,7 +100,13 @@ async def test_direct_engine_call_closes_temporary_session_on_error(monkeypatch)
     monkeypatch.setattr(translation_install, "is_installed", lambda: True)
     monkeypatch.setattr(opus_mt_session, "OpusMtSession", Session)
     with pytest.raises(opus_mt.OpusPairNotInstalled):
-        await TranslationEngine()._opus_translate("en", "es", ["Hello"], None)
+        await TranslationEngine()._opus_translate(
+            "en",
+            "es",
+            ["Hello"],
+            None,
+            ctx=OpContext(project=None, extras={"standalone_dispatch": STANDALONE}),
+        )
     assert closed == [True]
 
 
@@ -203,7 +216,6 @@ def test_worker_uses_framing_and_keeps_model_across_rows(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_managed_first_use_download_preserves_provenance(monkeypatch):
     from frisket.ai.models import artifact_manifest
-    from frisket.ops.base import OpContext
 
     instances, ensured = [], []
 
@@ -229,7 +241,7 @@ async def test_managed_first_use_download_preserves_provenance(monkeypatch):
     monkeypatch.setattr(opus_mt_session, "OpusMtSession", Session)
     monkeypatch.setattr(opus_mt, "ensure_pair_installed", ensure)
     engine = TranslationEngine(invocation_owned=True)
-    ctx = OpContext(project=None)
+    ctx = OpContext(project=None, extras={"standalone_dispatch": STANDALONE})
     result = await engine.execute(
         {"text": "Hello"},
         {"engine": "opus_mt", "target_language": "Spanish", "language": ["en"]},
@@ -275,7 +287,6 @@ async def test_invalid_worker_result_aborts_session(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_admitted_translator_owns_engine_cleanup(monkeypatch):
     from frisket.engine.executor.translate_read import AdmittedTranslator
-    from frisket.ops.base import OpContext
 
     owner = AdmittedTranslator(
         OpContext(project=None),

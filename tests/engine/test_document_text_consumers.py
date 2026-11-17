@@ -419,9 +419,7 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
 
 @pytest.mark.parametrize("manual", [False, True])
 @pytest.mark.parametrize("blank", ["", " \n\t\r "])
-def test_blank_designated_text_is_valid_but_not_preparation_ready(
-    tmp_path, manual, blank
-):
+def test_blank_designated_text_is_complete_preparation(tmp_path, manual, blank):
     with closing(Project.create(tmp_path / "blank-text.frisket")) as project:
         cell, text, _other, blob, _chosen, _alternative = _document(project)
         _text_output(project, cell, text, blob, [blank, blank])
@@ -436,8 +434,36 @@ def test_blank_designated_text_is_valid_but_not_preparation_ready(
         source = resolve_cell_blob_source(
             project, sheet_id=cell[0], row_id=cell[1], column_id=cell[2]
         )
-        assert not planning._has_current_result(project, source, "native_pdf")
-        # Readiness follows the selected pages, not a nonblank alternative.
+        assert planning._has_current_result(project, source, "native_pdf")
+        from frisket.retrieval.contracts import (
+            RankingPolicy,
+            RetrievalScope,
+            SearchRequest,
+            SheetScope,
+            TextQuery,
+        )
+        from frisket.retrieval.query import search
+        from frisket.search import drain_index
+
+        drain_index(project)
+        response = search(
+            project,
+            SearchRequest(
+                scope=RetrievalScope(
+                    sheets=(SheetScope(cell[0], column_ids=(cell[2],)),)
+                ),
+                query=TextQuery("not in this document"),
+                mode="lexical",
+                ranking=RankingPolicy(rerank="off"),
+            ),
+        )
+        coverage = next(
+            item
+            for item in response.coverage.channels
+            if item.channel == "search_preparation"
+        )
+        assert (coverage.eligible_count, coverage.prepared_count) == (1, 1)
+        # Completion follows the selected pages, not whether their text is blank.
         _text_output(project, cell, text, blob, ["", "readable second"])
         assert planning._has_current_result(project, source, "native_pdf")
 
@@ -646,3 +672,96 @@ def test_find_ignores_later_partial_quote_and_newline_only_prepared_page(tmp_pat
             project.db.execute("SELECT count(*) FROM source_spans").fetchone()[0]
             == span_count
         )
+
+
+def test_page_selection_requires_applied_owner_of_primary_support(tmp_path):
+    from frisket.engine.store.changes import ChangeStore
+    from frisket.engine.store.document_text import (
+        DocumentTextUnavailable,
+        resolve_document_text_selection,
+    )
+
+    with closing(Project.create(tmp_path / "page-evidence-owner.frisket")) as project:
+        cell, _text, _other, _blob, chosen, _alternative = _document(project, page=2)
+        # A page derived from another document needs the retained primary link;
+        # the artifact no longer claims to have originated at this file cell.
+        [parent_row] = project.add_rows(cell[0], [{}], {})
+        project.db.execute(
+            "UPDATE source_artifacts SET source_row_id=? WHERE id=?",
+            (parent_row, chosen[1]),
+        )
+        project.db.commit()
+        with pytest.raises(DocumentTextUnavailable, match="selection stale or missing"):
+            resolve_document_text_selection(project, cell)
+        _, refs = project.get_values_with_refs(cell[0], cell[2], row_ids=[cell[1]])
+        span = record_source_span(
+            project,
+            artifact_id=chosen[1],
+            span_kind="page",
+            page_start=2,
+            page_end=2,
+        )
+        with project.transaction_scope():
+            op = project.append_op("evidence.attach", commit=False)
+            ChangeStore(project).start(op)
+            record_evidence_link(
+                project,
+                subject_kind="cell_value",
+                subject_ref=refs[cell[1]],
+                spans=[{"span_id": span["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=cell[2],
+                op_id=op,
+                link_role="primary_support",
+            )
+            ChangeStore(project).close(op)
+        assert resolve_document_text_selection(project, cell) is not None
+        assert project.undo() == op
+        with pytest.raises(DocumentTextUnavailable, match="selection stale or missing"):
+            resolve_document_text_selection(project, cell)
+        assert project.redo() == op
+        assert resolve_document_text_selection(project, cell) is not None
+
+
+@pytest.mark.parametrize("hidden", ["file", "text", "both"])
+def test_explicit_document_consumers_allow_hidden_active_roles(tmp_path, hidden):
+    from frisket.engine.store.document_text import (
+        resolve_document_text_selection,
+        DocumentTextUnavailable,
+    )
+    from frisket.retrieval.anchors import resolve_cell_anchor
+    from frisket.retrieval.contracts import CellAnchor
+    from frisket.retrieval.encoding import TextEncodingInput
+    from frisket.retrieval.source_adapter import resolve_cell_text_sources
+
+    with closing(Project.create(tmp_path / "hidden-role.frisket")) as project:
+        cell, text, _other, _blob, _chosen, _alternative = _document(project)
+        for column in (
+            [cell[2], text]
+            if hidden == "both"
+            else [cell[2] if hidden == "file" else text]
+        ):
+            project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column,))
+        project.db.commit()
+        selected = resolve_document_text_selection(project, cell, allow_hidden=True)
+        assert selected.text_cell == (cell[0], cell[1], text)
+        target, _source, prepared = read_source_with_prepared(project, cell)
+        assert target == selected.text_cell and prepared is not None
+        assert resolve_cell_anchor(
+            project, CellAnchor(*selected.text_cell)
+        ).input == TextEncodingInput("chosen first\n\nchosen second")
+        with pytest.raises(DocumentTextUnavailable):
+            resolve_document_text_selection(project, cell)
+        assert (
+            resolve_cell_text_sources(
+                project, sheet_id=cell[0], column_id=text, row_ids=[cell[1]]
+            )
+            == {}
+        )
+        project.db.execute(
+            "UPDATE columns SET active=0,hidden=1 WHERE id=?", (cell[2],)
+        )
+        project.db.commit()
+        with pytest.raises(DocumentTextUnavailable):
+            resolve_document_text_selection(project, cell, allow_hidden=True)

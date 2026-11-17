@@ -40,6 +40,8 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
 const gridRows = [row({ first: 'A', second: 'B' }, { id: '9' })];
 vi.mock('../../src/grid/useRowCache', () => ({
   useRowCache: () => ({
+    getFreshRow: (index: number) => gridRows[index],
+    ready: true,
     getRow: (index: number) => gridRows[index],
     rowCount: gridRows.length,
     version: 0,

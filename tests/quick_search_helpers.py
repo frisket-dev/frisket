@@ -1,5 +1,7 @@
 """Offline model transport shared by Quick Search integration tests."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import json
 
 from frisket.ai.llm import LLMResponse, ModelRouter
@@ -29,6 +31,7 @@ def patch_quick_search_model(monkeypatch):
 
 def quick_search_router():
     return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "quick-search-test-key"},
         cache=None,
         cache_mode="off",

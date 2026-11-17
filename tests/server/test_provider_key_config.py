@@ -335,9 +335,7 @@ def test_set_key_route_redacts_and_router_uses_it(tmp_path, monkeypatch) -> None
     # a fresh project's router now resolves the UI-entered key
     pid = client.post("/api/projects", json={"name": "keys"}).json()["id"]
     project = app.state.workspace.get(pid)
-    assert (
-        app.state.workspace.router_for(project).adapter_for("openai").api_key == SECRET
-    )
+    assert app.state.workspace.router_for(project).configured_keys()["openai"] == SECRET
 
     deleted = client.delete("/api/providers/keys/openai")
     assert deleted.status_code == 200, deleted.text

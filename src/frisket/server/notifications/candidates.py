@@ -19,6 +19,7 @@ class NotificationCandidate(TypedDict):
     title: str
     summary: str
     source_event_ids: NotRequired[list[int]]
+    event_count: NotRequired[int]
     severity: NotRequired[Severity]
     deep_link: NotRequired[dict[str, Any]]
     payload: NotRequired[dict[str, Any]]
@@ -44,6 +45,13 @@ def validate_notification_candidate(data: dict[str, Any]) -> NotificationCandida
         if event_id <= 0:
             raise ValueError("source_event_ids must contain positive integers")
         normalized_event_ids.append(event_id)
+    event_count = data.get("event_count", max(1, len(normalized_event_ids)))
+    if (
+        isinstance(event_count, bool)
+        or not isinstance(event_count, int)
+        or event_count < max(1, len(normalized_event_ids))
+    ):
+        raise ValueError("event_count must include all preview events")
     severity = str(data.get("severity") or "info").strip().lower()
     if severity not in {"info", "warning", "critical"}:
         raise ValueError("severity must be info, warning, or critical")
@@ -57,6 +65,7 @@ def validate_notification_candidate(data: dict[str, Any]) -> NotificationCandida
         "source_kind": source_kind,
         "source_ref": deepcopy(source_ref),
         "source_event_ids": normalized_event_ids,
+        "event_count": event_count,
         "dedupe_key": dedupe_key,
         "title": title,
         "summary": summary,

@@ -44,20 +44,6 @@ _OPERATIONS = {
         "/api/projects/{pid}/import/drafts/paste/confirm",
     ),
     "tenant.import_urls.post": ("POST", "/api/projects/{pid}/import/urls"),
-    "tenant.import_update_preview.post": (
-        "POST",
-        "/api/projects/{pid}/import/rows/update/preview",
-    ),
-    "tenant.import_csv_update_preview.post": (
-        "POST",
-        "/api/projects/{pid}/import/csv/update/preview",
-    ),
-    "tenant.update_csv.post": ("POST", "/api/projects/{pid}/import/csv/update"),
-    "tenant.import_xlsx_update_preview.post": (
-        "POST",
-        "/api/projects/{pid}/import/xlsx/update/preview",
-    ),
-    "tenant.update_xlsx.post": ("POST", "/api/projects/{pid}/import/xlsx/update"),
 }
 
 

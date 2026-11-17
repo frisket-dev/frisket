@@ -10,6 +10,17 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from frisket.actions.types import RowError
+from frisket.ops.integrations.hosted_error import (
+    HostedEngineError,
+    transport_outcome_is_uncertain,
+)
+from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+    policy_for_context,
+)
 from frisket.engine.jobs.rate_limiter import RateLimitPolicy
 from frisket.engine.jobs.rate_limiter import (
     RateLimitCancelled,
@@ -161,20 +172,61 @@ class AdmittedOpenCorporates:
                 query = {"query": arguments.company_name, "limit": 1}
                 if arguments.jurisdiction_code is not None:
                     query["jurisdiction_code"] = arguments.jurisdiction_code
-                response = await self.client.post(
-                    "https://opencorporates.com/reconcile",
-                    data={"queries": json.dumps({"row": query}, separators=(",", ":"))},
-                )
+
+                async def invoke():
+                    return await self.client.post(
+                        "https://opencorporates.com/reconcile",
+                        data={
+                            "queries": json.dumps({"row": query}, separators=(",", ":"))
+                        },
+                    )
             else:
                 arguments = _Fetch.model_validate(call.arguments)
                 if any(ord(c) < 32 for c in arguments.company_number):
                     raise ValueError("invalid company number")
-                response = await self.client.get(
-                    "https://api.opencorporates.com/v0.4/companies/"
-                    + quote(arguments.jurisdiction_code, safe="")
-                    + "/"
-                    + quote(arguments.company_number, safe="")
-                )
+
+                async def invoke():
+                    return await self.client.get(
+                        "https://api.opencorporates.com/v0.4/companies/"
+                        + quote(arguments.jurisdiction_code, safe="")
+                        + "/"
+                        + quote(arguments.company_number, safe="")
+                    )
+
+            async def send():
+                try:
+                    return await invoke()
+                except (httpx.RequestError, OSError) as error:
+                    raise HostedEngineError(
+                        code="transport",
+                        message="OpenCorporates request transport failed.",
+                        retryable=True,
+                        post_egress_ambiguous=transport_outcome_is_uncertain(error),
+                        purchase_dispatched=(
+                            None if transport_outcome_is_uncertain(error) else False
+                        ),
+                    ) from None
+
+            response = await execute_purchase(
+                PurchaseRequest(
+                    provider="opencorporates",
+                    capability=CAPABILITY,
+                    engine=f"opencorporates.{call.method}",
+                    credential_source="project_key",
+                    prepared={
+                        "method": call.method,
+                        "arguments": arguments.model_dump(),
+                    },
+                    context=ctx,
+                ),
+                policy=policy_for_context(ctx),
+                dispatch=dispatch_for_context(ctx),
+                invoke=send,
+                observe=lambda response: PurchaseObservation(
+                    result={"status_code": response.status_code},
+                    usage={"requests": 1},
+                ),
+            )
             # Record a concrete response before every status/JSON/child check.
             self.record(response, call.method, ctx=ctx)
             if response.status_code == 429:

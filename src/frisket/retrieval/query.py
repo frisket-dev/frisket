@@ -6,8 +6,9 @@ import json
 import math
 import re
 import sqlite3
+import struct
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -112,7 +113,12 @@ class _Candidate:
 class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
     """One connection with project.db as main and a read-only attached sidecar."""
 
+    is_read_snapshot = True
+
     def __init__(self, project: Any):
+        self._snapshot = (
+            project if getattr(project, "is_read_snapshot", False) else None
+        )
         self.path = Path(project.path)
         self.db_path = self.path / "project.db"
         self.blob_store = project.blob_store
@@ -132,6 +138,26 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
             raise RetrievalQueryError(
                 "retrieval_not_prepared", "the project retrieval index does not exist"
             )
+        if self._snapshot is not None:
+            db = self._snapshot.db
+            attached = {row[1]: row[2] for row in db.execute("PRAGMA database_list")}
+            if "idx" not in attached:
+                db.execute(
+                    "ATTACH DATABASE ? AS idx",
+                    (f"{sidecar.resolve().as_uri()}?mode=ro",),
+                )
+            elif Path(attached["idx"]).resolve() != sidecar.resolve():
+                raise RetrievalQueryError(
+                    "retrieval_snapshot_invalid",
+                    "snapshot belongs to a different retrieval index",
+                )
+            # Keep the attachment until the outer snapshot closes. Detaching a
+            # database mid-transaction can fail and would break later consumers.
+            db.execute(
+                "SELECT value FROM idx.retrieval_meta WHERE key='schema_version'"
+            ).fetchone()
+            self._connection = db
+            return self
         db = sqlite3.connect(
             f"{self.db_path.resolve().as_uri()}?mode=ro",
             uri=True,
@@ -139,6 +165,9 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
             check_same_thread=False,
         )
         db.row_factory = sqlite3.Row
+        from frisket.engine.store.current_cells import register_current_cell_functions
+
+        register_current_cell_functions(db)
         try:
             db.execute("PRAGMA foreign_keys=ON")
             db.execute("PRAGMA busy_timeout=10000")
@@ -171,7 +200,7 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
 
     def close(self) -> None:
         db, self._connection = self._connection, None
-        if db is None:
+        if db is None or self._snapshot is not None:
             return
         try:
             if db.in_transaction:
@@ -194,7 +223,6 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
     ) -> dict[int, Any]:
@@ -203,7 +231,6 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
         )
@@ -214,7 +241,6 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
         include_validity: bool = False,
@@ -224,7 +250,6 @@ class PinnedRetrievalReader(AbstractContextManager["PinnedRetrievalReader"]):
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
             include_validity=include_validity,
@@ -436,6 +461,59 @@ class RetrievalQueryService:
             )
         return result
 
+    def iter_row_matches(
+        self,
+        request: SearchRequest,
+        *,
+        semantic_vectors: SemanticQueryVectors | None = None,
+    ) -> Iterator[dict[str, Any]]:
+        """Stream complete row membership/scores using ordinary retrieval SQL.
+
+        View consumers apply their final ordering and limit after composing all
+        criteria. No snippets, model preparation or full result list is needed.
+        A caller-owned read snapshot is borrowed for the whole iteration.
+        """
+        if request.group_by != "row" or request.mode not in {"lexical", "semantic"}:
+            raise ValueError("row matches require lexical or semantic row retrieval")
+        with PinnedRetrievalReader(self.project) as reader:
+            scope = compile_scope(reader, request.scope)
+            channels = (
+                ("lexical",)
+                if request.mode == "lexical"
+                else _semantic_coverage_channels(reader, request, scope)
+                or ("semantic",)
+            )
+            coverage = self._coverage(reader, request, scope, channels=channels)
+            if coverage.state != "complete" or any(
+                channel.state != "ready" for channel in coverage.channels
+            ):
+                raise RetrievalQueryError(
+                    "selection_incomplete",
+                    "Search preparation is incomplete for this view.",
+                )
+            if request.mode == "lexical":
+                rows, _ = self._lexical_cursor(
+                    reader, request, scope, limit=request.limit, group_hit_limit=1
+                )
+            else:
+                rows = self._semantic_cursor(
+                    reader,
+                    request,
+                    scope,
+                    semantic_vectors=semantic_vectors,
+                    limit=request.limit,
+                    group_hit_limit=1,
+                )
+            for row in rows:
+                yield {
+                    "sheet_id": int(row["sheet_id"]),
+                    "row_id": int(row["row_id"]),
+                    "column_id": row["column_id"],
+                    "score": -float(row["raw_score"])
+                    if request.mode == "lexical"
+                    else float(row["similarity"]),
+                }
+
     def _lexical_candidates(
         self,
         reader: PinnedRetrievalReader,
@@ -445,6 +523,27 @@ class RetrievalQueryService:
         limit: int,
         fusion: bool = False,
     ) -> tuple[list[_Candidate], str]:
+        rows, effective_query = self._lexical_cursor(
+            reader, request, scope, limit=limit, fusion=fusion
+        )
+        candidates = _attach_binding_dependencies(
+            reader, [_lexical_candidate(row) for row in rows]
+        )
+        candidates = _hydrate_lexical(
+            reader, candidates, effective_query, literal_query=request.query.text
+        )
+        return candidates, effective_query
+
+    def _lexical_cursor(
+        self,
+        reader: PinnedRetrievalReader,
+        request: SearchRequest,
+        scope: CompiledRetrievalScope,
+        *,
+        limit: int,
+        fusion: bool = False,
+        group_hit_limit: int = _GROUP_HIT_LIMIT,
+    ) -> tuple[sqlite3.Cursor, str]:
         if not isinstance(request.query, TextQuery):
             raise RetrievalQueryError(
                 "invalid_query", "lexical retrieval requires a text query"
@@ -523,27 +622,18 @@ class RetrievalQueryService:
             query,
             *dataset_params,
             limit,
-            _GROUP_HIT_LIMIT,
+            group_hit_limit,
         ]
         try:
-            rows = reader.db.execute(sql, params).fetchall()
+            rows = reader.db.execute(sql, params)
             effective_query = query
         except sqlite3.OperationalError as exc:
             if request.query.lexical_syntax != "fts" or not _is_fts_syntax_error(exc):
                 raise
             effective_query = _quoted_fts(request.query.text)
             params[len(scope.params)] = effective_query
-            rows = reader.db.execute(sql, params).fetchall()
-        candidates = _attach_binding_dependencies(
-            reader, [_lexical_candidate(row) for row in rows]
-        )
-        candidates = _hydrate_lexical(
-            reader,
-            candidates,
-            effective_query,
-            literal_query=request.query.text,
-        )
-        return candidates, effective_query
+            rows = reader.db.execute(sql, params)
+        return rows, effective_query
 
     def _semantic_candidates(
         self,
@@ -555,6 +645,32 @@ class RetrievalQueryService:
         limit: int,
         fusion: bool = False,
     ) -> list[_Candidate]:
+        rows = self._semantic_cursor(
+            reader,
+            request,
+            scope,
+            semantic_vectors=semantic_vectors,
+            limit=limit,
+            fusion=fusion,
+        )
+        return _hydrate_semantic(
+            reader,
+            _attach_binding_dependencies(
+                reader, [_semantic_candidate(row) for row in rows]
+            ),
+        )
+
+    def _semantic_cursor(
+        self,
+        reader: PinnedRetrievalReader,
+        request: SearchRequest,
+        scope: CompiledRetrievalScope,
+        *,
+        semantic_vectors: SemanticQueryVectors | None,
+        limit: int,
+        fusion: bool = False,
+        group_hit_limit: int = _GROUP_HIT_LIMIT,
+    ) -> sqlite3.Cursor:
         load_vec1(reader.db)
         if not request.space_id:
             raise RetrievalQueryError(
@@ -628,6 +744,9 @@ class RetrievalQueryService:
           LEFT JOIN main.current_cells AS current_head
             ON current_head.column_id=dependency.column_id
            AND current_head.row_id=dependency.row_id
+           AND NOT EXISTS (SELECT 1 FROM main.current_cell_repair dirty
+             WHERE dirty.column_id=dependency.column_id
+             AND dependency.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)
           LEFT JOIN main.columns AS dependency_column
             ON dependency_column.id=dependency.column_id
            AND dependency_column.sheet_id=retrieval_binding.sheet_id
@@ -741,14 +860,8 @@ class RetrievalQueryService:
         params.append(sqlite3.Binary(query_blob))
         if minimum is not None:
             params.append(minimum)
-        params.extend((limit, _GROUP_HIT_LIMIT))
-        return _hydrate_semantic(
-            reader,
-            _attach_binding_dependencies(
-                reader,
-                [_semantic_candidate(row) for row in reader.db.execute(sql, params)],
-            ),
-        )
+        params.extend((limit, group_hit_limit))
+        return reader.db.execute(sql, params)
 
     def _coverage(
         self,
@@ -918,7 +1031,7 @@ def _material_preparation_coverage(
                      AND prepared.source_column_id=eligible.column_id
                      AND prepared.blob_hash=eligible.blob_hash
                      AND prepared.page_number IS eligible.page_number
-                     AND prepared.has_text AND prepared.coverage_complete
+                     AND prepared.coverage_complete
                    LIMIT 1
                  ) OR EXISTS (
                    SELECT 1
@@ -1327,6 +1440,17 @@ def _source_anchor_query_blob(
     return pack_vector(composed, dimensions=dimension), dimension
 
 
+def source_anchor_vectors(project: Any, request: SearchRequest) -> SemanticQueryVectors:
+    """Read a prepared anchor within its explicit scope, independently of result filters."""
+    with PinnedRetrievalReader(project) as reader:
+        blob, _dimension, _part = _resolve_anchor_vector(
+            reader, request, compile_scope(reader, request.scope)
+        )
+        return SemanticQueryVectors(
+            term_vectors=(tuple(value[0] for value in struct.iter_unpack("<f", blob)),)
+        )
+
+
 def _resolve_anchor_vector(
     reader: PinnedRetrievalReader,
     request: SearchRequest,
@@ -1506,7 +1630,6 @@ def _hydrate_lexical_batch(
         tuple(text for _candidate, text in hydrated)
     )
     snippets = native_snippets(
-        reader.db,
         query,
         [
             {"index_id": index, "content": text}
@@ -1909,7 +2032,10 @@ def _binding_is_current(binding: str) -> str:
         "OR dependency.retrieval_revision != COALESCE(("
         "SELECT current_head.retrieval_revision FROM main.current_cells AS current_head "
         "WHERE current_head.column_id=dependency.column_id "
-        "AND current_head.row_id=dependency.row_id),0)))"
+        "AND current_head.row_id=dependency.row_id),0) "
+        "OR EXISTS (SELECT 1 FROM main.current_cell_repair dirty "
+        "WHERE dirty.column_id=dependency.column_id "
+        "AND dependency.row_id BETWEEN dirty.row_id_start AND dirty.row_id_end)))"
     )
 
 

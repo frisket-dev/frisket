@@ -29,6 +29,7 @@ export function createDocumentBrowsingApi(errorFactory: ContractErrorFactory) {
       return httpContract('tenant.browse_sheet_documents.get', {
         pathParams: { pid: projectId, sheet_id: Number(sheetId) },
         query: {
+          selection: options.selection ? JSON.stringify(options.selection) : undefined,
           source_column_id: Number(options.sourceColumnId),
           title_column_id: options.titleColumnId == null ? undefined : Number(options.titleColumnId),
           parent_row_id: options.parentRowId == null ? undefined : Number(options.parentRowId),

@@ -109,6 +109,7 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
             {"row_id": row, "column_id": text_column, "value": text},
             {"row_id": row, "column_id": blocks_column, "value": blocks},
         ],
+        output_roles={text_column: "text", blocks_column: "blocks"},
     )
     runs.finish_run(run)
 

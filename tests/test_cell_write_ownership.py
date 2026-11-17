@@ -38,6 +38,49 @@ def test_named_owner_is_allowed(tmp_path: Path):
     assert violations == []
 
 
+def test_isolated_project_migrations_have_only_their_named_write_authority(tmp_path):
+    # rule19: synthetic SQL verifies exact upgrade owners without running migrations.
+    directory = tmp_path / "src/frisket/upgrades/project"
+    directory.mkdir(parents=True)
+    fixtures = {
+        "domain_migration.py": (
+            'db.execute("UPDATE execution_attempts SET state=1")\n'
+            'db.execute("UPDATE runs SET status=1,finished_at=1,current_attempt_id=1")\n'
+            'db.execute("UPDATE results SET value=1")\n'
+        ),
+        "domain_document_text_migration.py": (
+            'db.execute("INSERT INTO cells VALUES (1)")\n'
+            'db.execute("INSERT INTO edits VALUES (1)")\n'
+            'db.execute("INSERT INTO base_cell_producers VALUES (1)")\n'
+            'db.execute("INSERT INTO current_cells VALUES (1)")\n'
+        ),
+        "historical_current_cells.py": 'db.execute("UPDATE current_cells SET value=1")\n',
+    }
+    for name, source in fixtures.items():
+        path = directory / name
+        path.write_text(source)
+        assert checker.check_paths([path], root=tmp_path) == []
+    arbitrary = directory / "arbitrary_migration.py"
+    arbitrary.write_text('db.execute("UPDATE current_cells SET value=1")\n')
+    assert len(checker.check_paths([arbitrary], root=tmp_path)) == 1
+
+
+def test_offline_purge_owns_deletion_but_cannot_publish_results(tmp_path: Path):
+    # rule19: synthetic source tests the operation-specific owner boundary.
+    path = tmp_path / "src/frisket/engine/store/purge.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        'db.execute("DELETE FROM results WHERE run_id=?")\n'
+        'db.execute("INSERT INTO results VALUES (?)")\n'
+        'db.execute("UPDATE results SET value=NULL")\n'
+    )
+    violations = checker.check_paths([path], root=tmp_path)
+    assert [(v.table, v.operation) for v in violations] == [
+        ("results", "INSERT"),
+        ("results", "UPDATE"),
+    ]
+
+
 def test_f_string_and_executescript_are_checked(tmp_path: Path):
     source = """
 name = "cells"
@@ -91,3 +134,101 @@ db.execute("UPDATE columns SET hidden=1 WHERE id=?")
 """
     violations = _scan(tmp_path, source, owners={"rows": ("owner.py",)})
     assert [(v.table, v.operation) for v in violations] == [("rows", "DELETE")]
+
+
+def test_run_progress_and_predicates_do_not_become_lifecycle_writes(tmp_path: Path):
+    source = """
+SQL = "UPDATE runs AS r SET completed_rows=completed_rows+1, "
+SQL = SQL + "work_progress=(SELECT status FROM jobs WHERE finished_at IS NULL) "
+SQL = SQL + "WHERE r.status='running' AND r.current_attempt_id=?"
+statement = SQL
+db.execute(statement)
+db.execute("UPDATE runs SET review_completed_at=CASE WHEN ? THEN datetime('now') END WHERE status<>'running'")
+"""
+    assert _scan(tmp_path, source) == []
+
+
+def test_run_lifecycle_targets_are_checked_with_aliases_and_static_sql(tmp_path: Path):
+    source = """
+table = "runs"
+field = "status"
+sql = f"UPDATE main.{table} AS r SET {field}=? WHERE r.id=?"
+statement = sql
+db.execute(statement)
+db.executemany('UPDATE "runs" SET [finished_at]=NULL, `current_attempt_id`=?', rows)
+db.executescript("UPDATE runs SET cancel_requested_at=datetime('now'); UPDATE runs SET completed_rows=1")
+"""
+    violations = _scan(tmp_path, source)
+    assert {(v.table, v.operation, v.field) for v in violations} == {
+        ("runs", "UPDATE", field)
+        for field in (
+            "status",
+            "finished_at",
+            "current_attempt_id",
+            "cancel_requested_at",
+        )
+    }
+
+
+def test_run_tuple_assignments_and_dynamic_targets_are_not_a_bypass(tmp_path: Path):
+    source = """
+db.execute("UPDATE runs SET (status, finished_at) = (?, ?), work_progress=NULL")
+db.execute(f"UPDATE runs SET {assignments} WHERE id=?")
+db.execute(f"UPDATE runs SET work_progress={progress} WHERE id=?")
+"""
+    assert [v.field for v in _scan(tmp_path, source)] == ["finished_at", "status", "*"]
+
+
+def test_run_creation_and_deletion_require_lifecycle_owner(tmp_path: Path):
+    source = """
+db.execute("INSERT INTO runs (sheet_id) VALUES (?)")
+db.execute("REPLACE INTO runs (sheet_id) VALUES (?)")
+db.execute("DELETE FROM runs WHERE id=?")
+"""
+    assert [(v.table, v.operation) for v in _scan(tmp_path, source)] == [
+        ("runs", "INSERT"),
+        ("runs", "REPLACE"),
+        ("runs", "DELETE"),
+    ]
+
+
+def test_change_owner_may_request_stop_but_cannot_complete_a_run(tmp_path: Path):
+    path = tmp_path / "src/frisket/engine/store/changes.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "db.execute(\"UPDATE runs SET cancel_requested_at=COALESCE(cancel_requested_at,datetime('now')) WHERE status='running'\")\n"
+        "db.execute(\"UPDATE runs SET status='completed',finished_at=datetime('now')\")\n"
+        "db.execute(\"UPDATE execution_attempts SET state='effected'\")\n"
+    )
+    violations = checker.check_paths([path], root=tmp_path)
+    assert {(v.table, v.field) for v in violations} == {
+        ("runs", "status"),
+        ("runs", "finished_at"),
+        ("execution_attempts", None),
+    }
+
+
+def test_run_owner_and_named_attempt_owner_are_allowed(tmp_path: Path):
+    run_owner = tmp_path / "src/frisket/engine/store/runs.py"
+    run_owner.parent.mkdir(parents=True)
+    run_owner.write_text(
+        'db.execute("INSERT INTO runs (sheet_id) VALUES (?)")\n'
+        'db.execute("UPDATE runs SET status=?,finished_at=NULL,cancel_requested_at=NULL,current_attempt_id=NULL")\n'
+    )
+    attempt_owner = tmp_path / "src/frisket/execution/attempt.py"
+    attempt_owner.parent.mkdir(parents=True)
+    attempt_owner.write_text(
+        'db.execute("INSERT INTO execution_attempts (id,state) VALUES (?,?)")\n'
+        'db.execute("UPDATE runs SET current_attempt_id=? WHERE id=?")\n'
+    )
+    assert checker.check_paths([run_owner, attempt_owner], root=tmp_path) == []
+
+
+def test_comments_literals_and_nested_rhs_do_not_create_lifecycle_targets(
+    tmp_path: Path,
+):
+    source = """
+db.executescript("UPDATE runs SET params='status=failed; UPDATE runs SET status=1', completed_rows=(SELECT count(*) FROM runs WHERE finished_at IS NOT NULL); -- UPDATE runs SET status=1")
+db.execute("/* UPDATE execution_attempts SET state='effected' */ SELECT 1")
+"""
+    assert _scan(tmp_path, source) == []

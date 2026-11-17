@@ -7,13 +7,13 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.bundle_open import (
+from frisket.upgrades.project.chain import (
     _migrate_search_work,
     _SEARCH_WORK_FROM_DIGEST,
     _SEARCH_WORK_TO_DIGEST,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
-from frisket.engine.store.value_codec import migrate_legacy_json_value
+from frisket.upgrades.project.typed_storage_migration import migrate_legacy_json_value
 from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
@@ -189,9 +189,10 @@ def test_rowid_layout_migration_copies_values_provenance_constraints_and_plans(
     ] == ["row_id", "column_id"]
     with pytest.raises(sqlite3.IntegrityError):
         migrated.db.execute(
-            "INSERT INTO cells(row_id,column_id,value_kind,value) "
-            "VALUES (?,?,'text',?)",
-            (row_ids[0], title_id, "duplicate"),
+            "INSERT INTO cells(row_id,column_id,producer_id,value_kind,value) "
+            "SELECT row_id,column_id,producer_id,'text','duplicate' FROM cells "
+            "WHERE row_id=? AND column_id=?",
+            (row_ids[0], title_id),
         )
     migrated.db.rollback()
     with pytest.raises(sqlite3.IntegrityError):

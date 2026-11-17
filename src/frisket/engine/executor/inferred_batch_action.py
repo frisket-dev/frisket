@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import hashlib
 import inspect
 import json
 import math
@@ -54,33 +53,6 @@ def scalar_kind(value):
     )
 
 
-def _source_digest(project, plan, row_ids):
-    """Hash bounded reads, including cell provenance and source identities."""
-    digest = hashlib.sha256()
-    digest.update(json.dumps(dict(plan.source_column_ids), sort_keys=True).encode())
-    for name, column_id in plan.source_column_ids.items():
-        column = project.get_column(column_id)
-        digest.update(
-            json.dumps(
-                {key: column[key] for key in ("id", "name", "type", "active")},
-                sort_keys=True,
-                default=str,
-            ).encode()
-        )
-        for start in range(0, len(row_ids), 1000):
-            ids = row_ids[start : start + 1000]
-            values = project.get_values_with_refs(
-                plan.request.scope.sheet_id, column_id, row_ids=ids
-            )
-            digest.update(
-                json.dumps(
-                    values, sort_keys=True, default=str, allow_nan=False
-                ).encode()
-            )
-    digest.update(json.dumps(row_ids).encode())
-    return digest.hexdigest()
-
-
 class StagedScopeChanged(Exception):
     """Staged values no longer cover the exact admitted row scope."""
 
@@ -90,10 +62,15 @@ class _StagedBatchProgram(_TypedMapBatchProgram):
     defer_generation_seal = True
     keep_zero_success_output_columns = True
 
-    def bind_stage(self, spool, batch_size):
+    def bind_stage(self, spool, batch_size, capture_offset):
         self._spool = spool
         self.batch_size = batch_size
         self._staged_rows_remaining = 0
+        spool.seek(capture_offset)
+        stored = pickle.load(spool)
+        self.staged_input_capture = stored["capture"]
+        self.staged_input_first_row_id = stored["first_row_id"]
+        spool.seek(0)
 
     def close_stage(self):
         if not self._spool.closed:
@@ -114,6 +91,22 @@ class _StagedBatchProgram(_TypedMapBatchProgram):
                     raise StagedScopeChanged(
                         "staged row scope changed before publication"
                     )
+                if error and len(error) == 3 and error[2] == "not_completed":
+                    from frisket.engine.runner.publication import PreparedRowPublication
+                    from frisket.engine.store.input_availability import (
+                        not_completed_result,
+                    )
+
+                    result[row_id] = PreparedRowPublication(
+                        trace_data={},
+                        cells={
+                            self._output_fields[0]["name"]: not_completed_result(
+                                {"code": error[0], "message": error[1]}
+                            )
+                        },
+                    )
+                    self._staged_rows_remaining -= 1
+                    continue
                 produced = (
                     RowError(*error)
                     if error
@@ -140,29 +133,76 @@ class _StagedBatchProgram(_TypedMapBatchProgram):
 
 def stage_plan(project, plan, spool, *, should_cancel=lambda: False):
     from frisket.engine.runner.validation import target_rows
+    from frisket.engine.store.consumed_sources import (
+        read_consumed_source,
+        merge_captures,
+        source_membership,
+        authority_revisions,
+    )
+    from frisket.engine.store.input_availability import input_unavailability
 
     row_ids = target_rows(project, plan.spec_dict())
-    before = _source_digest(project, plan, row_ids)
+    with project.read_snapshot() as snapshot:
+        _, membership = source_membership(
+            snapshot,
+            plan.request.scope.sheet_id,
+            row_ids if plan.request.scope.row_ids is not None else None,
+        )
+        membership_revisions = authority_revisions(
+            snapshot, list(plan.source_column_ids.values())
+        )
+    captures = []
     kinds = {}
     successes = 0
+    unavailable_count = 0
     terminal = plan.action.definition.run
     key = plan.program._resolved_output_fields[0].key
     for start in range(0, len(row_ids), terminal.batch_size):
         if should_cancel():
             raise InterruptedError("Formula cancelled before publication")
         ids = row_ids[start : start + terminal.batch_size]
-        columns = {
-            name: project.get_values(
-                plan.request.scope.sheet_id, column_id, row_ids=ids
-            )
-            for name, column_id in plan.source_column_ids.items()
-        }
+        refs, reads = {}, []
+        _, by_id, consumed = read_consumed_source(
+            project,
+            plan.request.scope.sheet_id,
+            list(plan.source_column_ids.values()),
+            row_ids=ids,
+            scope_intent="selected",
+            refs_out=refs,
+            partition_reads_out=reads,
+            preserve_invalid_column_ids=[
+                cid
+                for name, cid in plan.source_column_ids.items()
+                if name in plan.program.preserve_invalid_source_columns
+            ],
+        )
+        captures.append(consumed)
+        columns = {name: by_id[cid] for name, cid in plan.source_column_ids.items()}
         values = {}
+        unavailable = {}
         for row_id in ids:
             row = {}
             for name, cells in columns.items():
+                reason = input_unavailability(
+                    name,
+                    refs[plan.source_column_ids[name]].get(row_id),
+                    required=name in plan.program.required_source_columns,
+                    allow_missing=name in plan.program.missing_capable_source_columns,
+                    preserve_invalid=name
+                    in plan.program.preserve_invalid_source_columns,
+                )
+                if reason is not None:
+                    unavailable.setdefault(row_id, reason)
                 value = cells.get(row_id)
-                if plan.source_column_types[name] in {
+                descriptor = reads[0]["descriptors"].get(
+                    str(plan.source_column_ids[name])
+                )
+                current_type = (
+                    descriptor["type"]
+                    if descriptor is not None
+                    else plan.source_column_types[name]
+                )
+                if current_type in {
                     "date",
                     "datetime",
                 } and value not in (None, ""):
@@ -177,15 +217,31 @@ def stage_plan(project, plan, spool, *, should_cancel=lambda: False):
                             f"Invalid date in column {name!r}, row {row_id}"
                         ) from None
                 row[name] = value
-            values[row_id] = Row(row)
-        produced = terminal.handler(plan.program._params, Rows(values))
+            if row_id not in unavailable:
+                values[row_id] = Row(row)
+        produced = (
+            terminal.handler(plan.program._params, Rows(values)) if values else {}
+        )
         if inspect.isawaitable(produced):
             produced = asyncio.run(produced)
-        if set(produced) != set(ids):
+        if set(produced) != set(values):
             raise ValueError(
                 "inferred batch must return exactly one result for each input row"
             )
         for row_id in ids:
+            if row_id in unavailable:
+                reason = unavailable[row_id]
+                pickle.dump(
+                    (
+                        row_id,
+                        (reason["code"], reason["message"], "not_completed"),
+                        None,
+                        (),
+                    ),
+                    spool,
+                )
+                unavailable_count += 1
+                continue
             outcome = produced[row_id]
             if isinstance(outcome, RowError):
                 pickle.dump((row_id, (outcome.code, outcome.message), None, ()), spool)
@@ -208,14 +264,20 @@ def stage_plan(project, plan, spool, *, should_cancel=lambda: False):
             pickle.dump(
                 (row_id, None, None if kind is None else value, outcome.warnings), spool
             )
-    if not successes:
+    if not row_ids or (not successes and unavailable_count != len(row_ids)):
         raise ValueError(
             "Formula did not succeed on any row; no output column was created"
         )
     if should_cancel():
         raise InterruptedError("Formula cancelled before publication")
-    if before != _source_digest(project, plan, row_ids):
-        raise ValueError("Formula source values changed before publication")
+    capture = merge_captures(captures)
+    capture["membership_checks"] = [membership]
+    capture["coherent"] = (
+        capture["coherent"] and membership_revisions == captures[0]["revisions"]
+    )
+    capture["shared_run"] = True
+    capture_offset = spool.tell()
+    pickle.dump({"capture": capture, "first_row_id": row_ids[0]}, spool)
     kind = next(iter(kinds), "text")
     field = replace(
         plan.program._resolved_output_fields[0],
@@ -242,7 +304,7 @@ def stage_plan(project, plan, spool, *, should_cancel=lambda: False):
     )
     program.bind_project(project)
     spool.seek(0)
-    program.bind_stage(spool, terminal.batch_size)
+    program.bind_stage(spool, terminal.batch_size, capture_offset)
     program._staged_rows_remaining = len(row_ids)
     staged = replace(
         plan,
@@ -260,7 +322,7 @@ def stage_plan(project, plan, spool, *, should_cancel=lambda: False):
             }
         ),
     )
-    return staged, row_ids, before
+    return staged, row_ids, capture
 
 
 def run_inferred_batch(
@@ -308,7 +370,7 @@ def run_inferred_batch(
     try:
         plan = build_typed_map_rows_plan(project, bound, _admit_output_targets=False)
         spool = tempfile.TemporaryFile()
-        plan, row_ids, source_digest = stage_plan(
+        plan, row_ids, _input_capture = stage_plan(
             project, plan, spool, should_cancel=should_cancel
         )
         # The output descriptor is known only after the one evaluation pass.
@@ -317,12 +379,29 @@ def run_inferred_batch(
         field = plan.program._resolved_output_fields[0]
         _, preconditions = resolve_row_output_targets(project, bound.request, (field,))
         _require_expected_output_columns(bound.request, preconditions)
+        target = next(
+            (target for target in preconditions.values() if target is not None), None
+        )
+        existing = project.get_column(target) if target is not None else None
+        requires_full_scope = existing is not None and (
+            existing["type"],
+            existing["format"],
+            existing["semantic_type"],
+        ) != (field.column_type, field.format, field.semantic_type)
+        if set(plan.source_column_ids.values()).intersection(
+            target for target in preconditions.values() if target is not None
+        ):
+            raise TypedMapRowsPlanError(
+                "input_output_overlap",
+                "An action cannot overwrite its consumed input column",
+            )
         if project.visible_row_ids(bound.request.scope.sheet_id, row_ids) != row_ids:
             raise TypedMapRowsPlanError(
                 "stale_input", "Formula row scope changed after staging"
             )
         if (
             bound.request.replace_existing
+            and requires_full_scope
             and bound.request.scope.row_ids is None
             and project.visible_row_ids(bound.request.scope.sheet_id) != row_ids
         ):
@@ -434,7 +513,7 @@ def run_inferred_batch(
                 bound=bound,
                 plan=plan,
                 row_ids=row_ids,
-                source_digest=source_digest,
+                requires_full_scope=requires_full_scope,
                 should_cancel=should_cancel,
             ),
             output_claim_error_field="output_names",
@@ -451,13 +530,10 @@ def _publish(
     bound,
     plan,
     row_ids,
-    source_digest,
+    requires_full_scope,
     should_cancel,
     **kwargs,
 ):
-    from frisket.engine.executor.action_reservations import (
-        _finalize_reserved_action_receipt,
-    )
     from frisket.engine.executor.project_run_terminalization import (
         CurrentWriterTerminalAuthority,
         terminalize_project_run,
@@ -465,31 +541,35 @@ def _publish(
     from frisket.engine.store.output_claims import OutputColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.result_generations import ResultGenerationStore
-    from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
+    from frisket.execution.attempt import StaleAttemptWriter
 
     run_id, receipt_id = kwargs["run_id"], kwargs["receipt_id"]
     writer, claim = kwargs["writer_attempt_id"], kwargs["claim_token"]
+    terminal_status = kwargs.get("terminal_status", "completed")
     project.db.execute("BEGIN IMMEDIATE")
     try:
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
         claims = OutputColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
-        claims.require_current_writer(
-            project.db,
-            run_id=run_id,
-            writer_attempt_id=writer,
-            claim_token=claim,
-            output_column_ids=column_ids,
-        )
         error = None
-        cancelled = should_cancel() or run["status"] == "cancelled"
+        cancelled = (
+            should_cancel()
+            or run["status"] == "cancelled"
+            or run["cancel_requested_at"] is not None
+        )
         if cancelled:
             error = ActionError(
                 code="cancelled",
                 message="Formula cancelled before publication",
                 action_kind=action.kind,
             )
-        elif run["status"] not in {"completed", "partial"}:
+        elif terminal_status not in {"completed", "partial"} and not (
+            terminal_status == "failed"
+            and project.db.execute(
+                "SELECT count(*)>0 AND MIN(outcome='not_completed') FROM results WHERE run_id=?",
+                (run_id,),
+            ).fetchone()[0]
+        ):
             error = ActionError(
                 code="formula_failed",
                 message="Formula failed before publication",
@@ -503,18 +583,13 @@ def _publish(
             )
         elif (
             bound.request.replace_existing
+            and requires_full_scope
             and bound.request.scope.row_ids is None
             and project.visible_row_ids(bound.request.scope.sheet_id) != row_ids
         ):
             error = ActionError(
                 code="stale_input",
                 message="Formula row scope changed before replacement",
-                action_kind=action.kind,
-            )
-        elif source_digest != _source_digest(project, plan, row_ids):
-            error = ActionError(
-                code="stale_input",
-                message="Formula source values changed before publication",
                 action_kind=action.kind,
             )
         if error:
@@ -537,11 +612,18 @@ def _publish(
             if outcome.disposition not in {"terminalized", "already_terminal"}:
                 raise StaleAttemptWriter("Formula cancellation lost its current writer")
         else:
+            claims.require_current_writer(
+                project.db,
+                run_id=run_id,
+                writer_attempt_id=writer,
+                claim_token=claim,
+                output_column_ids=column_ids,
+            )
             ResultGenerationStore(project).seal(
                 run_id,
                 column_ids,
                 claim_token=claim,
-                terminal_disposition=run["status"],
+                terminal_disposition=terminal_status,
                 publish=True,
                 commit=False,
             )
@@ -564,24 +646,25 @@ def _publish(
                 plan=plan,
                 params_hash=kwargs["params_hash"],
             )
-            conflict = _finalize_reserved_action_receipt(
+            receipt_status = kwargs.get("receipt_status")
+            if receipt_status is not None:
+                receipt = receipt.model_copy(update={"status": receipt_status})
+            outcome = terminalize_project_run(
                 project,
-                action,
-                params_hash=kwargs["params_hash"],
-                project_id=kwargs["project_id"],
-                receipt=receipt,
-                reservation_lost_message="Formula reservation lost",
-                update_failed_message="Formula receipt update failed",
-                require_running_status=False,
-                replay_error_fn=_typed_replay_error(project, bound),
+                run_id=run_id,
+                receipt_id=receipt_id,
+                status=receipt.status,
+                run_status=terminal_status,
+                authority=CurrentWriterTerminalAuthority(
+                    writer_attempt_id=writer, claim_token=claim
+                ),
+                terminal_receipt=receipt,
                 commit=False,
             )
-            if conflict:
-                project.db.rollback()
-                return conflict
-            set_attempt_state(project, writer, "effected", commit=False)
-            if not claims.release(claim_token=claim, status="released", commit=False):
-                raise StaleAttemptWriter("Formula publication lost its output claim")
+            if outcome.disposition != "terminalized":
+                raise StaleAttemptWriter(
+                    f"Formula publication refused: {outcome.reason}"
+                )
         project.db.commit()
         return _result_from_receipt(receipt)
     except BaseException:

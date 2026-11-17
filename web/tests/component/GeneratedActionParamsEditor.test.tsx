@@ -445,6 +445,7 @@ describe('GeneratedActionParamsEditor', () => {
       'Replace selected rows',
     );
     fireEvent.click(screen.getByTestId('generated-action-row-scope-selected'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [11, 12, 13] },
       replace_existing: true,
@@ -469,6 +470,7 @@ describe('GeneratedActionParamsEditor', () => {
 
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
     fireEvent.click(screen.getByTestId('generated-action-row-scope-selected'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(2));
     expect(onExecute.mock.lastCall?.[0]).toMatchObject({
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [11, 12, 13] },
     });
@@ -478,13 +480,16 @@ describe('GeneratedActionParamsEditor', () => {
     // remain reachable without reopening the comparison.
     expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace columns');
     expect(screen.getByText('3 selected rows')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('generated-action-run-scope-menu-button')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
     fireEvent.click(screen.getByTestId('generated-action-row-scope-all'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(3));
     expect(onExecute.mock.lastCall?.[0]).toMatchObject({
       scope: { kind: 'sheet_rows', sheet_id: 7 },
     });
     expect(screen.getByTestId('generated-action-run')).toHaveTextContent('Replace columns');
     expect(screen.getByText('All 240 rows')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('generated-action-run-scope-menu-button')).toBeEnabled());
 
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
     fireEvent.click(screen.getByTestId('generated-action-menu-return-to-compare'));

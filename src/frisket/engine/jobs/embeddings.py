@@ -41,6 +41,7 @@ from frisket.engine.store import Project
 from .queue import ACTION_RUN_KIND, JobQueue
 from .schedule import _parse_time, _schedule_interval
 from .project_opener import (
+    project_bundle_paths,
     ProjectOpener,
     require_opener_storage_org_id,
 )
@@ -366,9 +367,7 @@ def enqueue_due_scheduled_refreshes(
     root = Path(workspace_root)
     now = (now or datetime.now(UTC)).astimezone(UTC)
     enqueued: list[dict[str, int | str]] = []
-    for bundle in sorted(root.glob("*.frisket")):
-        if not (bundle / "manifest.json").exists():
-            continue
+    for bundle in project_bundle_paths(root, require_slug=project_opener is not None):
         project_id = bundle.stem
         if project_opener is None:
             project = Project(bundle)
@@ -453,7 +452,9 @@ def register_embedding_refresh_handler(
     from frisket.engine.jobs.runs import register_action_run_handler
 
     if registry.get(ACTION_RUN_KIND) is None:
-        register_action_run_handler(registry, workspace_root=root, router=router)
+        register_action_run_handler(
+            registry, workspace_root=root, router=router, queue=queue
+        )
 
     def _enqueue_dependent_watches(
         project: Project,
@@ -479,7 +480,9 @@ def register_embedding_refresh_handler(
         )
         return len(watch_jobs)
 
-    def _action_job_executor(project: Project, env: ActionJobEnvelope) -> ActionResult:
+    def _action_job_executor(
+        project: Project, env: ActionJobEnvelope, *, execution
+    ) -> ActionResult:
         from frisket.engine.executor.action_families.embeddings import (
             run_index_refresh_action_job,
         )
@@ -489,6 +492,7 @@ def register_embedding_refresh_handler(
             env,
             router=router,
             embedding_gateway=gateway,
+            execution=execution,
         )
         if result.status == "completed":
             output_ref = result.outputs[0].ref if result.outputs else {}

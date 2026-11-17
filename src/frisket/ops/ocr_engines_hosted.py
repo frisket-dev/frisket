@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+from frisket.execution.purchases import (
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    cost_micro,
+    policy_for_context,
+)
+
 import base64
 from pathlib import Path
 from typing import Any
 
+from frisket.ai.models.usage_counts import sum_known_counts
 from frisket.ai.vision.coordinates import (
     CoordinateProfile,
     GENERIC_COORDINATE_PROFILE,
@@ -201,12 +210,9 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
     ``usage["cost_estimated"] = True`` so the caller can mark the
     result as estimated rather than reported.
 
-    Cancellation checks
-    ``ctx.extras['cancelled']`` (the SAME cooperative-cancel signal
-    MapRunner checks between rows, runner/map_runner.py's ``one_row``)
-    before every page, and threads it into ``datalab_ocr`` so a
-    multi-minute poll loop mid-page stops promptly instead of only
-    after the whole row completes."""
+    Check the execution owner before each new page purchase. Finish polling an
+    already accepted page so returned usage survives cancellation; the next
+    dispatch is refused and result publication independently checks ownership."""
     from frisket.execution.price_book import datalab_ocr_page_rate
     from frisket.ops.integrations.datalab import DatalabEngineError, datalab_ocr
     from frisket.ops.media_metadata import image_dimensions
@@ -237,14 +243,12 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
             context=ctx.credential_use_context,
         )
     usage["credential_source"] = credential_source
-    should_cancel = (ctx.extras or {}).get("cancelled")
+    from frisket.execution.dispatch_control import dispatch_for_context
+
+    dispatch = dispatch_for_context(ctx)
     out: list[dict] = []
     for p in pages:
-        if should_cancel is not None and should_cancel():
-            raise DatalabEngineError(
-                code="cancelled",
-                message="Datalab OCR stopped: the run was cancelled.",
-            )
+        dispatch.check()
         page_bytes = p.read_bytes()
         mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
         page_size = image_dimensions(page_bytes)
@@ -260,16 +264,50 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
             persist_hosted_accepted_accounting(ctx, accounting)
             usage.setdefault("model_calls", []).extend(accounting["model_calls"])
 
-        page_results, cost_usd = await datalab_ocr(
-            ctx.http,
-            api_key,
-            page_bytes,
-            p.name,
-            mime,
-            page_size=page_size,
-            should_cancel=should_cancel,
-            credential_source=credential_source,
-            on_accepted=persist_accepted,
+        from hashlib import sha256
+
+        async def invoke():
+            try:
+                return await datalab_ocr(
+                    ctx.http,
+                    api_key,
+                    page_bytes,
+                    p.name,
+                    mime,
+                    page_size=page_size,
+                    should_cancel=None,
+                    credential_source=credential_source,
+                    on_accepted=persist_accepted,
+                )
+            except BaseException as error:
+                if accepted_accounting is not None:
+                    error.accounting = accepted_accounting
+                    error.provider_job_accepted = True
+                raise
+
+        rate = datalab_ocr_page_rate()
+        page_results, cost_usd = await execute_purchase(
+            PurchaseRequest(
+                provider="datalab",
+                capability="ocr",
+                engine=DATALAB_ENGINE,
+                prepared={
+                    "image_digest": sha256(page_bytes).hexdigest(),
+                    "mime": mime,
+                    "pages": 1,
+                },
+                credential_source=credential_source,
+                estimated_cost_usd=float(rate) if rate is not None else None,
+                context=ctx,
+            ),
+            policy=policy_for_context(ctx),
+            dispatch=dispatch,
+            invoke=invoke,
+            observe=lambda result: PurchaseObservation(
+                result=result[0],
+                usage={"pages": 1},
+                provider_cost_micro=cost_micro(result[1]),
+            ),
         )
         if accepted_accounting is None:
             raise RuntimeError("Datalab returned without its accepted-job accounting")
@@ -324,6 +362,10 @@ async def ocr_vlm(
     )
 
     router = (ctx.extras or {}).get("router")
+    if router is not None:
+        from frisket.execution.dispatch_control import dispatch_for_context
+
+        router = router.for_execution(dispatch_for_context(ctx))
     if router is None:
         raise RuntimeError("remote ocr engines need the model router in OpContext")
     routed = routed_admission_in_scope(ctx.extras)
@@ -360,6 +402,8 @@ async def ocr_vlm(
     coordinate_profile = ocr_coordinate_profile(model)
     out: list[dict] = []
     wire_history = []
+    # Runtime identities let the capability consume error accounting once.
+    usage["_wire_calls"] = wire_history
     usage["input_pages"] = 0
     for p in pages:
         mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
@@ -460,19 +504,19 @@ async def ocr_vlm(
             result = await StructuredCompleter(router).complete(
                 req, recipe_version=recipe_version
             )
-        except Exception as exc:
+        except BaseException as exc:
             page_wire_calls = list(getattr(exc, "wire_calls", []) or [])
             if page_wire_calls:
                 accumulate_vlm_response_usage(
                     usage, _sum_response(model, page_wire_calls)
                 )
                 usage["input_pages"] += 1
+            known = {id(call) for call in wire_history}
+            wire_history.extend(
+                call for call in page_wire_calls if id(call) not in known
+            )
             if wire_history:
-                known = {id(call) for call in wire_history}
-                exc.wire_calls = [
-                    *wire_history,
-                    *(call for call in page_wire_calls if id(call) not in known),
-                ]
+                exc.wire_calls = list(wire_history)
             raise
         resp = result.response
         accumulate_vlm_response_usage(usage, resp)
@@ -506,8 +550,13 @@ def accumulate_vlm_response_usage(usage: dict, resp: Any) -> None:
     usage["requests"] = usage.get("requests", 0) + int(
         not getattr(resp, "cached", False)
     )
-    usage["in"] += resp.tokens_in or 0
-    usage["out"] += resp.tokens_out or 0
+    known_usage = getattr(resp, "usage_available", True)
+    usage["in"] = sum_known_counts(
+        (usage["in"], resp.tokens_in if known_usage else None)
+    )
+    usage["out"] = sum_known_counts(
+        (usage["out"], resp.tokens_out if known_usage else None)
+    )
     actual = getattr(resp, "actual_accounting", None)
     if actual is not None:
         usage.setdefault("model_calls", []).extend(

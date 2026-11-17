@@ -2,10 +2,10 @@
 //
 // Ruling 4 ("a retry is a resume") — the model half of the Monitor dock's
 // halted-run resume. The dock hands the halted job to
-// model.resumeHaltedRun(sheetId, columnName); this proves, at the wire, that
+// model.resumeHaltedRun(sheetId, sourceRunId); this proves, at the wire, that
 // the resume:
-//   * is run.backfill (durable results replay free, only never-completed rows
-//     buy) — never a fresh full-run door;
+//   * is run.retry (completed results stay put, only unfinished work
+//     buys) — never a fresh full-run door;
 //   * targets the halted run's OWN sheet, not whichever sheet happens to be
 //     selected;
 //   * routes an over-gate resume through the SAME 402 → shared-cost-gate →
@@ -151,12 +151,12 @@ const CONFIRMATION_402 = {
   ],
 };
 
-const BACKFILL_COMPLETED = {
+const RETRY_COMPLETED = {
   schema_version: 'frisket.action_result.v1',
   status: 'completed',
   run_id: 9,
   receipt_id: 'r-9',
-  outputs: [{ kind: 'run_backfill', name: null, ref: { filled: 28, run_id: 9 } }],
+  outputs: [],
   errors: [],
 };
 
@@ -211,27 +211,27 @@ afterEach(() => {
 });
 
 describe('resumeHaltedRun (behavioral)', () => {
-  it('resumes via run.backfill on the run’s OWN sheet, through the shared cost gate', async () => {
+  it('resumes via run.retry on the run’s OWN sheet, through the shared cost gate', async () => {
     runResponses = [
       () => jsonResponse(CONFIRMATION_402, 402),
-      () => jsonResponse(BACKFILL_COMPLETED),
+      () => jsonResponse(RETRY_COMPLETED),
     ];
 
     mountWorkspaceModel();
     await waitFor(() => expect(model().sheetsLoaded).toBe(true));
 
     act(() => {
-      void model().resumeHaltedRun('2', 'transcript');
+      void model().resumeHaltedRun('2', '9');
     });
 
-    // The unconfirmed attempt reached the wire as run.backfill for sheet 2 —
+    // The unconfirmed attempt reached the wire as run.retry for sheet 2 —
     // the halted run's sheet, NOT the selected sheet 1 — and the 402 landed
     // on the SHARED cost-gate surface.
     await waitFor(() => expect(jobHandle().store.get().costGate).not.toBeNull());
     expect(runBodies).toHaveLength(1);
-    expect(runBodies[0].action_id).toBe('run.backfill');
+    expect(runBodies[0].action_id).toBe('run.retry');
     expect(runBodies[0].scope).toEqual({ kind: 'sheet_rows', sheet_id: 2 });
-    expect(params(runBodies[0])).toEqual({ column: 'transcript' });
+    expect(params(runBodies[0])).toEqual({ source_run_id: 9 });
     expect(runBodies[0].confirmation).toBeUndefined();
     expect(jobHandle().store.get().costGate!.message).toBe(GATE_MESSAGE);
 
@@ -240,13 +240,13 @@ describe('resumeHaltedRun (behavioral)', () => {
     });
 
     // The confirmed retry is the SAME semantic request: same kind, same
-    // sheet/column, the consent bits added, and the SAME pending idempotency
+    // sheet/source run, the consent bits added, and the SAME pending idempotency
     // key — consent authorizes the request, it does not mint a new purchase.
     await waitFor(() => expect(runBodies).toHaveLength(2));
     const retry = runBodies[1];
-    expect(retry.action_id).toBe('run.backfill');
+    expect(retry.action_id).toBe('run.retry');
     expect(retry.scope).toEqual({ kind: 'sheet_rows', sheet_id: 2 });
-    expect(params(retry)).toEqual({ column: 'transcript' });
+    expect(params(retry)).toEqual({ source_run_id: 9 });
     expect(retry.confirmation).toBe(PROMISE_SET_HASH);
     expect(retry.idempotency_key).toBe(runBodies[0].idempotency_key);
   });
@@ -258,7 +258,7 @@ describe('resumeHaltedRun (behavioral)', () => {
     await waitFor(() => expect(model().sheetsLoaded).toBe(true));
 
     act(() => {
-      void model().resumeHaltedRun('2', 'transcript');
+      void model().resumeHaltedRun('2', '9');
     });
     await waitFor(() => expect(jobHandle().store.get().costGate).not.toBeNull());
 

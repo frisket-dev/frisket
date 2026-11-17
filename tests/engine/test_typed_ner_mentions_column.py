@@ -40,5 +40,16 @@ def test_typed_ner_publishes_a_recognized_mentions_column(tmp_path, monkeypatch)
         output = next(c for c in project.columns(sheet) if c["name"] == "mentions")
         assert output["semantic_type"] == "entity_mentions"
         assert is_entity_mentions_column(output)
+        run_id = int(
+            project.db.execute(
+                "SELECT id FROM runs WHERE action_kind='map.ner' ORDER BY id DESC LIMIT 1"
+            ).fetchone()["id"]
+        )
+        from frisket.engine.store.result_generations import ResultGenerationStore
+
+        binding = ResultGenerationStore(project).bindings_for_run(run_id)[0]
+        assert binding.output_role == "entities"
+        assert binding.output_descriptor["column_type"] == output["type"]
+        assert binding.output_descriptor["semantic_type"] == "entity_mentions"
     finally:
         project.close()

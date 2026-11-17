@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store.bundle_open import _migrate_search_work
+from frisket.upgrades.project.chain import _migrate_search_work
 from frisket.engine.store.project import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.value_codec import encode_stored_value
@@ -15,6 +15,7 @@ from frisket.engine.store.search_index_work import (
     enqueue_dirty_scope,
     latest_revision,
     read_dirty_scopes,
+    reserve_revision,
 )
 
 _PRE_SEARCH_DIGEST = "frisket.schema.v1:cb9a46c224c6d5e95af3c7e91df76e26"
@@ -183,3 +184,30 @@ def test_known_bundle_migration_preserves_data_and_seeds_repair(tmp_path) -> Non
         str(row[1]) for row in reopened.db.execute("PRAGMA index_list(current_cells)")
     }
     assert "idx_current_cells_column_row" in indexes
+
+
+def test_judgment_revision_reservation_does_not_enqueue_or_reuse_a_clock_tick():
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE search_dirty_scopes(id INTEGER PRIMARY KEY AUTOINCREMENT)")
+    with pytest.raises(RuntimeError, match="caller transaction"):
+        reserve_revision(db)
+    db.execute("BEGIN")
+    reserved = reserve_revision(db)
+    assert reserved == 1
+    assert db.execute("SELECT COUNT(*) FROM search_dirty_scopes").fetchone()[0] == 0
+    db.commit()
+    actual = db.execute("INSERT INTO search_dirty_scopes DEFAULT VALUES").lastrowid
+    assert actual > reserved
+    db.commit()
+    db.execute("BEGIN")
+    assert reserve_revision(db) > actual
+    db.rollback()
+    assert latest_revision(db) == actual
+    db.execute("BEGIN")
+    next_reserved = reserve_revision(db)
+    db.commit()
+    assert (
+        db.execute("INSERT INTO search_dirty_scopes DEFAULT VALUES").lastrowid
+        > next_reserved
+    )
+    db.close()

@@ -19,6 +19,8 @@ excluded by construction — the feature is opt-in and fails closed at read.
 
 from __future__ import annotations
 
+from frisket.engine.store.cell_reference import evidence_subject_ref_json
+
 from typing import Any
 
 from frisket.engine.store.evidence import _json_dumps, _json_loads
@@ -186,7 +188,7 @@ def _resolve_text_annotations(
     if meta.value_kind != "text":
         return empty
     validity = project.db.execute(
-        "SELECT validity FROM current_cells WHERE row_id=? AND column_id=?",
+        "SELECT validity FROM effective_current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
     if validity is None or validity[0] != "valid":
@@ -312,7 +314,9 @@ def _resolve_text_annotations(
         key = out
         if key not in current_ref_cache:
             _val, ref = _current_cell(project, out[0], out[1], out[2])
-            current_ref_cache[key] = _json_dumps(ref) if ref is not None else None
+            current_ref_cache[key] = (
+                evidence_subject_ref_json(ref) if ref is not None else None
+            )
         stored = current_ref_cache[key]
         return stored is not None and stored == r["subject_ref_json"]
 
@@ -580,7 +584,7 @@ def _annotated_text_column_ids(project: Any, sheet_id: int) -> list[int]:
             continue
         if out not in refs:
             _value, ref = _current_cell(project, out[0], out[1], out[2])
-            refs[out] = _json_dumps(ref) if ref is not None else None
+            refs[out] = evidence_subject_ref_json(ref) if ref is not None else None
         if refs[out] == row["subject_ref_json"]:
             available.add(int(row["column_id"]))
     return sorted(available)

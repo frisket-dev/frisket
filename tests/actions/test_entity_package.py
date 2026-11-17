@@ -190,6 +190,12 @@ def test_real_callable_import_preserves_schema_relationships_raw_and_undo(
         )
         receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
         assert receipt.op_ids == [dataset.op_id]
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops WHERE id=?", (dataset.op_id,)
+            ).fetchone()[0]
+            == 1
+        )
         assert next(
             item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
         )["sha256"]
@@ -302,14 +308,14 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
 
                     patch.setattr(cell_writes, "encode_stored_value", reject)
                 elif failure == "receipt":
-                    update = ReceiptStore.update_body_status
+                    update = ReceiptStore.update_if_status_in
                     patch.setattr(
                         ReceiptStore,
-                        "update_body_status",
-                        lambda self, receipt, **kwargs: (
+                        "update_if_status_in",
+                        lambda self, receipt, statuses, **kwargs: (
                             False
                             if len(receipt.op_ids) == 2
-                            else update(self, receipt, **kwargs)
+                            else update(self, receipt, statuses, **kwargs)
                         ),
                     )
                 else:
@@ -560,14 +566,14 @@ def test_failed_package_publication_preserves_shared_blob_and_prior_receipt(
             rowsets, mappings = _selection(report.dataset)
             with monkeypatch.context() as patch:
                 if failure == "receipt":
-                    update = ReceiptStore.update_body_status
+                    update = ReceiptStore.update_if_status_in
                     patch.setattr(
                         ReceiptStore,
-                        "update_body_status",
-                        lambda self, receipt, **kwargs: (
+                        "update_if_status_in",
+                        lambda self, receipt, statuses, **kwargs: (
                             False
                             if receipt.exports
-                            else update(self, receipt, **kwargs)
+                            else update(self, receipt, statuses, **kwargs)
                         ),
                     )
                 else:

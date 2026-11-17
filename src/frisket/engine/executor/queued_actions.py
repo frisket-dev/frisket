@@ -140,6 +140,8 @@ class QueuedV1PayloadEnvelope:
         run_id: int,
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
+        terminal_status: str | None = None,
+        receipt_status: str | None = None,
     ) -> dict[str, Any]:
         kwargs = {
             "runner_spec": self.runner_spec,
@@ -154,12 +156,35 @@ class QueuedV1PayloadEnvelope:
         # ResolvedAction, the same shape the sync path passes.
         decoded = queued_v1_finalize_kwargs(self.entry, self.payload)
         kwargs["resolved"] = ResolvedAction.from_resolve_dict(decoded)
+        if terminal_status is not None:
+            kwargs["terminal_status"] = terminal_status
+        if receipt_status is not None:
+            kwargs["receipt_status"] = receipt_status
         if writer_attempt_id is not None:
             kwargs["writer_attempt_id"] = writer_attempt_id
             kwargs["claim_token"] = claim_token
         return kwargs
 
     def pre_run_error(self, project: Project) -> ActionError | None:
+        from frisket.actions.registry import ACTION_REGISTRY
+        from frisket.authoring.workbench.installed_actions import (
+            resolve_installed_action,
+        )
+        from frisket.execution.action_admission import action_admission_error
+
+        installed = resolve_installed_action(project, self.action.kind)
+        action = (
+            installed[0]
+            if installed is not None
+            else ACTION_REGISTRY.get(self.action.kind)
+        )
+        refusal = action_admission_error(
+            project,
+            action,
+            runtime_binding=installed[1] if installed is not None else None,
+        )
+        if refusal is not None:
+            return refusal
         if self.entry.pre_run_guard is None:
             return None
         return self.entry.pre_run_guard(project, self.payload, self.params)
@@ -173,6 +198,25 @@ class QueuedV1PayloadEnvelope:
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
     ) -> ActionResult:
+        run = project.db.execute(
+            "SELECT status,total_rows,failed_rows FROM runs WHERE id=?", (run_id,)
+        ).fetchone()
+        terminal_status = "completed"
+        receipt_status = "completed"
+        if run is not None:
+            run_status = str(run["status"])
+            if run_status in {"completed", "partial", "failed", "cancelled"}:
+                terminal_status = run_status
+                receipt_status = run_status
+            else:
+                failed_rows = int(run["failed_rows"] or 0)
+                total_rows = int(run["total_rows"] or 0)
+                if failed_rows:
+                    receipt_status = (
+                        "failed"
+                        if total_rows and failed_rows >= total_rows
+                        else "partial"
+                    )
         return self.entry.finalize_action(
             project,
             self.action,
@@ -182,6 +226,8 @@ class QueuedV1PayloadEnvelope:
                 run_id=run_id,
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
+                terminal_status=terminal_status,
+                receipt_status=receipt_status,
             ),
         )
 
@@ -262,6 +308,30 @@ def queued_v1_action_request(
                 ):
                     return None
             assert bound is not None
+            from frisket.actions.types import SheetRows
+
+            if (
+                isinstance(bound.request.scope, SheetRows)
+                and bound.request.scope.selection is not None
+            ):
+                from .selection_scope import (
+                    freeze_action_selection,
+                    resolve_action_selection,
+                )
+
+                if payload is not None:
+                    frozen = payload.get("spec", {}).get("row_ids")
+                    if not isinstance(frozen, list):
+                        return None
+                    bound = freeze_action_selection(bound, frozen)
+                elif initial_typed_plan is not None:
+                    bound = freeze_action_selection(
+                        bound, initial_typed_plan.request.scope.row_ids
+                    )
+                elif project is not None:
+                    bound = resolve_action_selection(project, bound)
+                else:
+                    return None
             from frisket.actions.cluster_types import ValueClusterer
 
             clustering = getattr(bound.action.definition.run, "capabilities", ()) == (
@@ -698,6 +768,19 @@ def queued_v1_finalize_action_result(
     envelope: QueuedV1PayloadEnvelope | None = None,
 ) -> ActionResult | None:
     # The live worker supplies the envelope whose program actually executed.
+    receipt_id = payload.get("v1_receipt_id")
+    if isinstance(receipt_id, str):
+        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+        if (
+            stored is not None
+            and stored.run_id == run_id
+            and stored.status not in {"queued", "running"}
+        ):
+            # A redelivered worker observes the recorded terminal answer. It
+            # must not regenerate errors from row projections or release again.
+            from frisket.engine.executor.action_receipts import _result_from_receipt
+
+            return _result_from_receipt(stored)
     # Reconstruct only for recovery paths without invocation-local resources.
     envelope = envelope or queued_v1_payload_envelope(payload, project=project)
     if envelope is None:
@@ -879,6 +962,11 @@ def queued_v1_terminal_receipt_transition(
             if isinstance(prepared_attempt_id, str) and prepared_attempt_id
             else None
         )
+        latest_attempt = project.db.execute(
+            "SELECT state FROM execution_attempts WHERE run_id=? "
+            "ORDER BY seq DESC LIMIT 1",
+            (run_id,),
+        ).fetchone()
         has_abandoned_attempt = (
             project.db.execute(
                 "SELECT 1 FROM execution_attempts "
@@ -898,6 +986,22 @@ def queued_v1_terminal_receipt_transition(
                 claimless_direct_effect=claimless_direct_effect,
                 prepared_attempt_id=prepared_attempt_id,
                 require_cancel_intent=require_cancel_intent,
+            )
+        elif not has_abandoned_attempt and (
+            (prepared_attempt is not None and prepared_attempt["state"] == "created")
+            or (
+                prepared_attempt is None
+                and latest_attempt is not None
+                and latest_attempt["state"] == "created"
+            )
+        ):
+            # Consent/route verification can refuse after the attempt identity
+            # is recorded but before admission. Close that zero-effect attempt
+            # under the terminalizer's NeverDispatched proof. Unclaimed
+            # terminalization cannot distinguish this legitimate refusal from
+            # an arbitrary open attempt and correctly refuses it.
+            authority = NeverDispatchedRunTerminalAuthority(
+                claimless_direct_effect=claimless_direct_effect,
             )
         elif has_abandoned_attempt:
             authority = AbandonedRunRecoveryAuthority(

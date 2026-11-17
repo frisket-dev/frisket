@@ -20,6 +20,8 @@ from typing import (
     TypeVar,
 )
 
+from frisket.contracts.view import ViewSelection
+
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -191,6 +193,16 @@ class PreparedBackfill:
 
 class RunBackfiller(Protocol):
     def prepare(self, column: ColumnRef[Any]) -> PreparedBackfill: ...
+
+    def retry(self, source_run_id: int) -> PreparedBackfill: ...
+
+
+class ReappliedResults(BaseModel):
+    rows: int
+
+
+class RetainedResultPublisher(Protocol):
+    def reapply(self, source_run_id: int) -> ReappliedResults: ...
 
 
 class SourceCreateIntent(ActionParams):
@@ -517,6 +529,8 @@ class InputReference:
     accepted_column_types: tuple[str, ...] | None = None
     ai_generated_only: bool = False
     preserve_invalid: bool = False
+    required: bool = True
+    allow_missing: bool = False
 
 
 @dataclass(frozen=True)
@@ -653,7 +667,7 @@ class UpdatedImportedRows:
     sheet_id: int
     row_ids: tuple[int, ...]
     edit_count: int
-    op_id: int
+    op_id: int | None
     column_ids: Mapping[str, int]
     source: Mapping[str, Any]
 
@@ -699,10 +713,11 @@ class QueryEditedCells:
 
 @dataclass(frozen=True)
 class ReviewDecision:
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None
     row_id: int
     column_id: int
-    decision: Literal["accept", "reject", "reject_clear", "edit", "clear"]
+    decision: Literal["accept", "reject", "reject_clear", "clear"]
     review_state_before: Literal["unreviewed", "verified", "rejected"]
     review_state_after: Literal["unreviewed", "verified", "rejected"]
     note: str | None
@@ -711,7 +726,8 @@ class ReviewDecision:
 
 @dataclass(frozen=True)
 class ReviewNote:
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None
     row_id: int
     note: str | None
     column_count: int
@@ -753,7 +769,7 @@ class DismissedReplayValue:
 class OperationTransition:
     op_id: int
     operation_kind: str
-    direction: Literal["undo", "redo"]
+    direction: Literal["undo", "redo", "revert", "restore"]
     status_before: Literal["applied", "undone"]
     status_after: Literal["applied", "undone"]
     cursor_before: int
@@ -945,10 +961,11 @@ class CellEditQueryActionOutput(BaseModel):
 class ReviewDecisionActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None
     row_id: int
     column_id: int
-    decision: Literal["accept", "reject", "reject_clear", "edit", "clear"]
+    decision: Literal["accept", "reject", "reject_clear", "clear"]
     review_state_before: Literal["unreviewed", "verified", "rejected"]
     review_state_after: Literal["unreviewed", "verified", "rejected"]
     note: str | None
@@ -959,7 +976,8 @@ class ReviewDecisionActionOutput(BaseModel):
 class ReviewNoteActionOutput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    run_id: int
+    run_id: int | None
+    copied_op_id: int | None
     row_id: int
     note: str | None
     column_count: int
@@ -1009,7 +1027,7 @@ class OperationStepActionOutput(BaseModel):
 
     op_id: int
     operation_kind: str
-    direction: Literal["undo", "redo"]
+    direction: Literal["undo", "redo", "revert", "restore"]
     status_before: Literal["applied", "undone"]
     status_after: Literal["applied", "undone"]
     cursor_before: int
@@ -1221,6 +1239,8 @@ class RowsUpdater(Protocol):
         rows: tuple[Mapping[str, Any], ...],
         source: Mapping[str, Any],
         keep_existing_on_blank: bool,
+        update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes",
+        relationship_id: str | None = None,
     ) -> UpdatedImportedRows: ...
 
     def update_csv(self, params: Any) -> UpdatedImportedRows: ...
@@ -1252,12 +1272,11 @@ class ReviewDecider(Protocol):
     def decide(
         self,
         *,
-        run_id: int,
+        run_id: int | None,
+        copied_op_id: int | None,
         row_id: int,
         column_id: int,
-        decision: Literal["accept", "reject", "reject_clear", "edit", "clear"],
-        value: Any,
-        value_supplied: bool,
+        decision: Literal["accept", "reject", "reject_clear", "clear"],
         note: str | None,
         note_supplied: bool,
     ) -> ReviewDecision: ...
@@ -1267,7 +1286,8 @@ class ReviewNoter(Protocol):
     def note(
         self,
         *,
-        run_id: int,
+        run_id: int | None,
+        copied_op_id: int | None,
         row_id: int,
         note: str | None,
     ) -> ReviewNote: ...
@@ -1305,10 +1325,12 @@ class ReplayValueDismissor(Protocol):
 
 class OperationUndoer(Protocol):
     def undo(self, *, expected_op_id: int | None) -> OperationTransition: ...
+    def revert(self, *, op_id: int) -> OperationTransition: ...
 
 
 class OperationRedoer(Protocol):
     def redo(self, *, expected_op_id: int | None) -> OperationTransition: ...
+    def restore(self, *, op_id: int) -> OperationTransition: ...
 
 
 class QueryPreviewer(Protocol):
@@ -1429,6 +1451,24 @@ def column_ref_types(annotation: type[ColumnRef[Any]]) -> tuple[str, ...] | None
     return _exclude_ref_types(annotation, accepted)
 
 
+def column_ref_required(annotation: type) -> bool:
+    explicit = getattr(annotation, "required_input", None)
+    if isinstance(explicit, bool):
+        return explicit
+    args = next(
+        (
+            getattr(base, "__pydantic_generic_metadata__", {}).get("args", ())
+            for base in annotation.__mro__
+            if getattr(base, "__pydantic_generic_metadata__", {}).get("args", ())
+        ),
+        (),
+    )
+    if not args:
+        return True
+    value_type = args[0]
+    return value_type is not Any and type(None) not in typing.get_args(value_type)
+
+
 class ColumnRef(_SemanticText[T], Generic[T]):
     @property
     def name(self) -> str:
@@ -1440,6 +1480,8 @@ class ColumnRef(_SemanticText[T], Generic[T]):
                 self.root,
                 column_ref_types(type(self)),
                 preserve_invalid=bool(getattr(type(self), "preserve_invalid", False)),
+                required=column_ref_required(type(self)),
+                allow_missing=bool(getattr(type(self), "allow_missing_input", False)),
             ),
         )
 
@@ -1457,6 +1499,8 @@ class GeneratedColumnRef(ColumnRef[T], Generic[T]):
                 column_ref_types(type(self)),
                 ai_generated_only=True,
                 preserve_invalid=bool(getattr(type(self), "preserve_invalid", False)),
+                required=column_ref_required(type(self)),
+                allow_missing=bool(getattr(type(self), "allow_missing_input", False)),
             ),
         )
 
@@ -1478,7 +1522,11 @@ class Template(BaseModel, Generic[T]):
 
     def references(self) -> tuple[InputReference, ...]:
         return tuple(
-            InputReference(name, template_ref_types(type(self)))
+            InputReference(
+                name,
+                template_ref_types(type(self)),
+                allow_missing=bool(getattr(type(self), "allow_missing_input", True)),
+            )
             for name in column_template_names(self.text)
         )
 
@@ -1516,6 +1564,7 @@ class Formula(BaseModel):
                     "date",
                     "datetime",
                 ),
+                allow_missing=True,
             )
             for name in self.compiled.columns
         )
@@ -1626,6 +1675,9 @@ def discover_references(value: Any) -> tuple[InputReference, ...]:
                         preserve_invalid=(
                             current.preserve_invalid or reference.preserve_invalid
                         ),
+                        required=current.required or reference.required,
+                        allow_missing=(not current.required or current.allow_missing)
+                        and (not reference.required or reference.allow_missing),
                     )
         elif isinstance(item, BaseModel):
             for child in item.__class__.model_fields:
@@ -1827,7 +1879,7 @@ class ListTableReader(Protocol):
         *,
         item_schema: dict[str, Any] | None = None,
         parent_columns: Sequence[ListParentColumn] = (),
-    ) -> tuple[ListItem, ...]:
+    ) -> Sequence[ListItem]:
         """Admit and read list items; the host retains item evidence privately."""
         ...
 
@@ -2177,6 +2229,17 @@ class SheetRows(BaseModel):
     kind: Literal["sheet_rows"] = "sheet_rows"
     sheet_id: int = Field(gt=0, strict=True)
     row_ids: tuple[StrictInt, ...] | None = None
+    selection: ViewSelection | None = None
+
+    @model_validator(mode="after")
+    def _selection_scope(self):
+        if self.selection is not None:
+            if self.row_ids is not None:
+                raise ValueError("Use selection or row_ids, not both")
+            scope = self.selection.scope
+            if scope.kind != "sheet" or scope.sheet_id != self.sheet_id:
+                raise ValueError("Action selection must target the action sheet")
+        return self
 
     @field_validator("row_ids")
     @classmethod

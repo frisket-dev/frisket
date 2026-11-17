@@ -5,6 +5,8 @@
 - engine param resolves local-light → sidecar (dots.mocr) → remote VLM (router)
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import base64
 import mimetypes
@@ -17,6 +19,8 @@ import cv2
 import numpy as np
 import pytest
 
+from frisket.ai.llm.execution import ExecutionModelRouter
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store import Project
@@ -101,7 +105,13 @@ def test_ocr_image_light_engine_with_blocks(tmp_path):
     _require_nested_macos_sandbox()
     path = _render_png(tmp_path / "scan.png", "FRISKET OCR 4271")
     p, sheet = _project(tmp_path, [{"page": str(path)}])
-    prog = _execute(p, _spec(sheet), ModelRouter(cache=None, cache_mode="off"))
+    prog = _execute(
+        p,
+        _spec(sheet),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "ocr_text")
     assert "FRISKET" in text and "4271" in text
@@ -148,7 +158,11 @@ def test_ocr_light_language_rides_worker_payload(tmp_path, monkeypatch):
     path = _render_png(tmp_path / "scan.png", "BONJOUR")
     p, sheet = _project(tmp_path, [{"page": str(path)}])
     prog = _execute(
-        p, _spec(sheet, language="latin"), ModelRouter(cache=None, cache_mode="off")
+        p,
+        _spec(sheet, language="latin"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     assert prog.status == "completed", prog.errors
     assert captured["language"] == "latin"
@@ -165,7 +179,11 @@ def test_ocr_light_language_constructs_real_engine(tmp_path):
     path = _render_png(tmp_path / "scan.png", "FRISKET 4271")
     p, sheet = _project(tmp_path, [{"page": str(path)}])
     prog = _execute(
-        p, _spec(sheet, language="ch"), ModelRouter(cache=None, cache_mode="off")
+        p,
+        _spec(sheet, language="ch"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "ocr_text")
@@ -189,7 +207,11 @@ def test_ocr_light_unknown_language_fails_per_row(tmp_path):
     path = _render_png(tmp_path / "scan.png", "HELLO")
     p, sheet = _project(tmp_path, [{"page": str(path)}])
     prog = _execute(
-        p, _spec(sheet, language="klingon"), ModelRouter(cache=None, cache_mode="off")
+        p,
+        _spec(sheet, language="klingon"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
     assert prog.status == "failed", prog.errors
     err = p.db.execute(
@@ -216,7 +238,13 @@ def test_ocr_pdf_rasterize_then_ocr(tmp_path):
     )
 
     p, sheet = _project(tmp_path, [{"page": str(pdf)}], coltype="file")
-    prog = _execute(p, _spec(sheet), ModelRouter(cache=None, cache_mode="off"))
+    prog = _execute(
+        p,
+        _spec(sheet),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
     assert prog.status == "completed", prog.errors
     text = _col_value(p, sheet, "ocr_text")
     assert "ALPHA" in text and "1111" in text
@@ -303,6 +331,9 @@ def test_ocr_sidecar_posts_pages_with_bearer(tmp_path, monkeypatch):
             return FakeResponse()
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = FakeHttp()
 
     router = StubRouter()
@@ -334,6 +365,9 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
     seen = {}
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = None
 
         def credential_source_for(self, provider):
@@ -355,9 +389,11 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             return await self.complete_transport(
-                req, recipe_version=recipe_version, trace=trace
+                req, recipe_version=recipe_version, trace=trace, _execution=_execution
             )
 
         async def complete_transport(
@@ -367,7 +403,9 @@ def test_ocr_remote_vlm_engine_rides_router(tmp_path, monkeypatch):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             seen["model"] = req.model
             parts = req.messages[-1]["content"]
             seen["has_image"] = any(p.get("type") == "image" for p in parts)
@@ -427,6 +465,9 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
     seen = {}
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = None
 
         def secret_values_for_model(self, _model):  # noqa: ANN001
@@ -442,7 +483,9 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             del recipe_version, trace
             seen["request"] = req
             seen["part_types"] = [part["type"] for part in req.messages[-1]["content"]]
@@ -481,7 +524,10 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
         ocr_module.OcrEngines()._ocr_vlm(
             "openrouter/minimax/minimax-m3",
             [path],
-            ocr_module.OpContext(http=None, extras={"router": StubRouter()}),
+            ocr_module.OpContext(
+                http=None,
+                extras={"router": StubRouter(), "standalone_dispatch": STANDALONE},
+            ),
             usage,
         )
     )
@@ -518,6 +564,9 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
     seen = {}
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = None
 
         def credential_source_for(self, provider):
@@ -539,9 +588,11 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             return await self.complete_transport(
-                req, recipe_version=recipe_version, trace=trace
+                req, recipe_version=recipe_version, trace=trace, _execution=_execution
             )
 
         async def complete_transport(
@@ -551,7 +602,9 @@ def test_ocr_vlm_language_hint_reaches_prompt(tmp_path, monkeypatch):
             recipe_version="1",
             trace=None,  # noqa: ANN001
             on_request=None,
+            _execution,
         ):
+            _execution.check()
             parts = req.messages[-1]["content"]
             seen["ask"] = next(p["text"] for p in parts if p.get("type") == "text")
             return LLMResponse(

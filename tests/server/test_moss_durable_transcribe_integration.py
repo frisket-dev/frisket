@@ -31,6 +31,8 @@ behavior for a dead worker and for a declaration-violating adapter result.
 
 from __future__ import annotations
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 from http_test_helpers import drain_queue
 from frisket.engine.jobs.queue import PROJECT_RUN_KIND
@@ -189,7 +191,12 @@ class _SidecarAsgiRouter(ModelRouter):
     """
 
     def __init__(self, sidecar_asgi_app) -> None:
-        super().__init__(cache=None, cache_mode="off", use_env_keys=False)
+        super().__init__(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        )
         self._sidecar_asgi_app = sidecar_asgi_app
 
     @property

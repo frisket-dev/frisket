@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -9,6 +10,7 @@ import httpx
 import pytest
 from jsonschema import Draft202012Validator
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.adapters import AnthropicAdapter, OpenAICompatAdapter
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.structured import (
@@ -194,10 +196,12 @@ def _run_target(
                     raw={"id": "mock"},
                 )
             )
-    router = ModelRouter(keys={}, max_retries=3)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=3
+    )
     router._adapters["mock"] = _ScriptedAdapter(outcomes)
     result = asyncio.run(
-        StructuredCompleter(router).complete(
+        StructuredCompleter(router.for_execution(STANDALONE)).complete(
             StructuredRequest(
                 model="mock/model",
                 messages=[{"role": "user", "content": "go"}],

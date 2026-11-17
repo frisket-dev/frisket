@@ -6,6 +6,7 @@ prepare) lives in tests/engine/test_claims_gate_validation.py.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -39,7 +40,6 @@ from frisket.execution.resolve_for_action import (
     promise_rows,
     record_resolved_execution,
     resolve_for_action,
-    uncovered_user_claims,
 )
 from frisket.execution.resolver import Refusal, ResolvedExecution
 from frisket.execution.provider import (
@@ -117,7 +117,9 @@ def _spec(sheet_id: int, **overrides):
 
 def _composition(project, facts: CompositionFacts | None = None):
     composition = open_execution_composition(
-        project, ModelRouter(), ExecutionCompositionContext.direct()
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        ExecutionCompositionContext.direct(),
     )
     if facts is None:
         return composition
@@ -151,6 +153,7 @@ def test_non_marked_llm_recipe_honors_signed_out_saved_cloud_route(audio_project
     composition = open_execution_composition(
         project,
         ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "configured-own-key"},
             use_env_keys=False,
             cache_mode="off",
@@ -180,6 +183,7 @@ def test_non_marked_llm_recipe_keeps_saved_own_model_router_path(audio_project):
     composition = open_execution_composition(
         project,
         ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "configured-own-key"},
             use_env_keys=False,
             cache_mode="off",
@@ -489,18 +493,7 @@ def test_bounded_scratch_offer_quotes_its_single_ephemeral_unit(
 # ---------------------------------------------------------------------------
 
 
-class _StandingConsent:
-    """ConsentRow-shaped stub: F2 records the covered threshold on the row
-    itself; F5 scopes coverage to the minting installation principal."""
-
-    id = "consent_standing_stub"
-    standing_policy = "cost_under_gate_v1"
-    actor = "deployment:test-install"
-    granted_at = "2026-07-24T00:00:00+00:00"
-    policy_params = {"currency": "USD", "threshold_usd": "1"}
-
-
-_PRINCIPAL = _StandingConsent.actor
+_PRINCIPAL = "deployment:test-install"
 
 
 def _resolved_gateway_offering(audio_project, monkeypatch, rate="0.000164"):
@@ -546,29 +539,6 @@ def _resolved_gateway_offering(audio_project, monkeypatch, rate="0.000164"):
     )
 
 
-def test_standing_consent_covers_sub_gate_cost_but_never_egress(
-    audio_project, monkeypatch
-):
-    _, resolved = _resolved_gateway_offering(audio_project, monkeypatch)
-    uncovered = uncovered_user_claims(
-        resolved.promise_set,
-        standing_consents=[_StandingConsent()],
-        principal=_PRINCIPAL,
-    )
-    # The tiny commercial bound is covered by the standing consent; the
-    # operator_lan egress claim is NOT (categorical claims
-    # are covered only by exact-set consent).
-    assert [p.field for p in uncovered] == ["egress_class"]
-
-
-def test_without_standing_consent_cost_claim_is_uncovered(audio_project, monkeypatch):
-    _, resolved = _resolved_gateway_offering(audio_project, monkeypatch)
-    uncovered = uncovered_user_claims(
-        resolved.promise_set, standing_consents=[], principal=_PRINCIPAL
-    )
-    assert sorted(p.field for p in uncovered) == ["cost", "egress_class"]
-
-
 @pytest.mark.parametrize(
     ("provider_rate", "billed_cost", "covered"),
     [("2.5", 1_500_000, True), ("0.1", 3_000_000, False), ("0.1", None, False)],
@@ -606,24 +576,9 @@ def test_preapproval_uses_retail_quote_without_changing_provider_rates(
     )
 
 
-def test_over_gate_cost_claim_is_uncovered_even_with_standing(
-    audio_project, monkeypatch
-):
-    # absurd rate -> bound far above $1
-    _, resolved = _resolved_gateway_offering(audio_project, monkeypatch, rate="1000")
-    uncovered = uncovered_user_claims(
-        resolved.promise_set,
-        standing_consents=[_StandingConsent()],
-        principal=_PRINCIPAL,
-    )
-    assert sorted(p.field for p in uncovered) == ["cost", "egress_class"]
-
-
 def test_gate_claims_payload_shape(audio_project, monkeypatch):
     _, resolved = _resolved_gateway_offering(audio_project, monkeypatch)
-    uncovered = uncovered_user_claims(
-        resolved.promise_set, standing_consents=[], principal=_PRINCIPAL
-    )
+    uncovered = [p for p in resolved.promise_set.promises if p.audience == "user_claim"]
     payload = gate_claims_payload(
         uncovered,
         resolved.resolution.facts,
@@ -633,6 +588,49 @@ def test_gate_claims_payload_shape(audio_project, monkeypatch):
     )
     assert all(set(row) == {"field", "display"} for row in payload)
     assert all(row["display"] for row in payload)
+
+
+@pytest.mark.parametrize(
+    ("billed_cost", "covered"),
+    [(0, True), (1_000_000, True), (1_000_001, False), (None, False)],
+)
+def test_selected_cloud_payer_standing_coverage_requires_known_rated_amount(
+    audio_project, monkeypatch, billed_cost, covered
+):
+    from frisket.cloud_execution import CloudPayerSubject
+    from frisket.engine.runner.validation import _bind_rated_quote
+    from frisket.execution.consent_coverage import ConsentCoverage
+    from frisket.execution.promises import Promise, PromiseSet
+    from frisket.execution.resolve_for_action import project_uncovered_user_claims
+    from frisket.project_settings import ProjectSettings, write_project_settings
+
+    project, resolved = _resolved_gateway_offering(audio_project, monkeypatch)
+    payer = CloudPayerSubject(7, 41, "frisket_credits", "openai", "test", "route-1")
+    payer_claim = Promise.make(
+        "cloud_payer", "eq", payer.to_snapshot(), audience="user_claim"
+    )
+    resolved = replace(
+        resolved,
+        promise_set=PromiseSet.make([*resolved.promise_set.promises, payer_claim]),
+    )
+    write_project_settings(
+        project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
+    )
+    quoted = _bind_rated_quote(
+        resolved,
+        {
+            "cost": float(resolved.cost_basis.bound),
+            "billed_cost": billed_cost,
+            "policy_id": "test.cloud-preapproval.v1",
+        },
+    )
+    uncovered = project_uncovered_user_claims(
+        project,
+        quoted.promise_set,
+        consent_coverage=ConsentCoverage(_PRINCIPAL, Decimal("1")),
+    )
+    assert (payer_claim not in uncovered) is covered
+    assert (uncovered == []) is covered
 
 
 def test_action_identity_hash_strips_retry_flow_flags(audio_project):

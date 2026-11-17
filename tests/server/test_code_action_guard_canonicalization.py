@@ -480,6 +480,7 @@ class TestMcpBackendCodeActionGuard:
         from frisket.server.mcp import LocalBackend
 
         backend = LocalBackend(tmp_path / "ws")
+        backend.ws.create("Demo")
         spec = v1_action_from_canonical_run_spec(
             queued_python_run_spec(1, "source", "copied")
         )
@@ -500,6 +501,7 @@ class TestMcpBackendCodeActionGuard:
         from frisket.server.mcp import LocalBackend
 
         backend = LocalBackend(tmp_path / "ws")
+        backend.ws.create("Demo")
         spec = {
             "action_id": "research.answer",
             "scope": {"kind": "sheet_rows", "sheet_id": 1},

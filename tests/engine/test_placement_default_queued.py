@@ -43,6 +43,7 @@ this task's explicit "stays green" pin.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -437,7 +438,9 @@ def test_hosted_admission_refuses_map_python_before_lookup_or_runner(
     register_project_run_handler(
         registry,
         workspace_root=client.app.state.workspace.root,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         worker_ports=WorkerPorts(admission_port=admission),
     )
     run_worker_until_job_terminal(

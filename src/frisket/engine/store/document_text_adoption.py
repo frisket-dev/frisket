@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,8 +34,8 @@ def adopt_document_text_role(
 
     The caller owns the transaction. Candidates are current visible generated
     outputs with exact source provenance. Their compact prepared references
-    become ordinary base cells under the immutable content set's existing
-    producing operation; prepared page bodies are never read or copied.
+    become ordinary base cells under a new adoption Change. The immutable
+    content set retains its original producer; page bodies are never copied.
     """
 
     db = project.db
@@ -69,7 +68,7 @@ def adopt_document_text_role(
         f"""WITH candidate AS MATERIALIZED (
           SELECT head.row_id,? AS column_id,legacy_result.value AS value,
                  content.producing_op_id
-          FROM current_cells head
+          FROM effective_current_cells head
           JOIN results legacy_result
             ON legacy_result.run_id=head.origin_run_id
            AND legacy_result.row_id=head.row_id
@@ -109,23 +108,27 @@ def adopt_document_text_role(
         ),
     ).fetchall()
 
-    by_operation: dict[int, list[BaseCellWrite]] = defaultdict(list)
-    for row_id, prepared_ref_id, producing_op_id in candidates:
-        by_operation[int(producing_op_id)].append(
-            BaseCellWrite(
-                int(row_id),
-                role.text_column_id,
-                PreparedContentRef(int(prepared_ref_id)),
-            )
+    writes = [
+        BaseCellWrite(
+            int(row_id), role.text_column_id, PreparedContentRef(int(prepared_ref_id))
         )
+        for row_id, prepared_ref_id, _producing_op_id in candidates
+    ]
     seeded_count = 0
-    for producing_op_id, writes in by_operation.items():
-        producer_id = create_base_cell_producer(
-            db,
-            stage_id=f"op:{producing_op_id}",
-            op_id=producing_op_id,
+    if writes:
+        from .changes import close_change
+
+        adoption_op = project.append_op(
+            "document_text.adopt",
+            {"source_column_id": source_column_id, "text_column_id": text_column_id},
+            label="Adopt document text",
+            commit=False,
         )
-        seeded_count += initialize_base_cells(db, producer_id=producer_id, cells=writes)
+        producer_id = create_base_cell_producer(
+            db, stage_id=f"op:{adoption_op}", op_id=adoption_op
+        )
+        seeded_count = initialize_base_cells(db, producer_id=producer_id, cells=writes)
+        close_change(db, adoption_op)
     return DocumentTextAdoption(
         role=role,
         created=existing is None,

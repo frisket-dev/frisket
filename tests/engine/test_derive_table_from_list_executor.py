@@ -499,6 +499,35 @@ def test_live_list_copies_selected_parent_context_with_exact_metadata_and_nulls(
         project.close()
 
 
+def test_named_result_retains_historical_output_and_inherits_actual_input_freshness(
+    tmp_path, monkeypatch
+):
+    from frisket.engine.store.staleness import sheet_freshness
+
+    with case_env(CASES[0], tmp_path, monkeypatch) as env:
+        result = env.run(
+            _derive_action(env.seeded, target_sheet_name="Historical Source")
+        )
+        assert result.status == "completed", result.errors
+        child_id = next(
+            output.sheet_id for output in result.outputs if output.kind == "sheet"
+        )
+        assert sheet_freshness(env.project, child_id) == "synced"
+        transcript = next(
+            column
+            for column in env.project.columns(env.seeded["sheet_id"])
+            if column["name"] == "transcript"
+        )
+        row = env.seeded["source_row_ids"][0]
+        original = env.project.get_values(env.seeded["sheet_id"], transcript["id"])[row]
+        env.project.apply_edits(
+            [{"row_id": row, "column_id": transcript["id"], "value": original}]
+        )
+        assert sheet_freshness(env.project, child_id) == "stale"
+        env.project.undo()
+        assert sheet_freshness(env.project, child_id) == "synced"
+
+
 def test_named_result_copies_current_parent_context_for_receipt_rows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

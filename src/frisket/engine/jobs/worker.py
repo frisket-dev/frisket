@@ -15,6 +15,7 @@ embeddings, watches, notifications) that every edition composes;
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 import socket
@@ -271,6 +272,8 @@ class HandlerRegistry:
     def register_action_executor(
         self, kind: str, fn: Callable[[Any, Any], Any]
     ) -> None:
+        # Refuse incomplete worker composition before a queued job can be claimed.
+        inspect.signature(fn).bind(None, None, execution=None)
         self._action_executors[kind] = fn
 
     def register_recovery_hook(self, fn: Callable[[JobQueue], None]) -> None:
@@ -405,6 +408,7 @@ def register_production_handlers(
 
     from .blob_metadata import register_blob_metadata_handler
     from .search_index import register_search_index_handler
+    from .source_verification import register_source_verification_handler
     from .import_files import register_import_files_handler
     from .pdf_split import register_pdf_split_handler
     from .import_table import (
@@ -561,6 +565,13 @@ def register_production_handlers(
         project_opener=project_opener,
         prepare_enclosures_for_search=prepare_enclosures_for_search,
     )
+    source_verification_registration = register_source_verification_handler(
+        registry,
+        workspace_root=root,
+        queue=queue,
+        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        project_opener=project_opener,
+    )
     register_embedding_refresh_handler(
         registry,
         workspace_root=root,
@@ -613,6 +624,7 @@ def register_production_handlers(
             "enclosure.download": enclosure_download_registration,
             "blob.metadata.backfill": blob_metadata_registration,
             "search.index": search_index_registration,
+            "source.verify": source_verification_registration,
             "import.files.page": import_files_registration,
             "import.table.analysis": import_table_analysis_registration,
             "import.table.stream": import_table_registration,
@@ -1024,7 +1036,14 @@ class Worker:
                     )
                     handler_payload["project_id"] = storage_key.project_slug
                     handler_payload["storage_org_id"] = storage_key.storage_org_id
-                result = handler(handler_payload, handler_context)
+                from frisket.execution.handler_lineage import record_handler_lineage
+
+                with record_handler_lineage(
+                    job_id=handler_context.job_id,
+                    authority_id=handler_context.handler_authority_id,
+                    queue=self.queue,
+                ):
+                    result = handler(handler_payload, handler_context)
             except NonRetryableJobError as exc:
                 # A handler's explicit "this will never succeed on retry"
                 # signal: terminal-fail immediately, bypassing the attempts budget.

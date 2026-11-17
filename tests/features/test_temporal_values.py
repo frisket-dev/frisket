@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from frisket.authoring import column_types
-from frisket.features.temporal_values import (
+from frisket.contracts.temporal_values import (
     JAVASCRIPT_SAFE_INTEGER,
     TimelinePointValue,
     TimelinePointsValue,

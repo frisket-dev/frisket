@@ -30,7 +30,7 @@ function derivedSheet(refreshable: boolean): SheetMeta {
   };
 }
 
-it('presents lineage-only materializations as one-time outputs without rerun controls', () => {
+it('keeps source freshness separate from unavailable rerun controls', () => {
   render(<SheetInfoPopover
     sheet={derivedSheet(false)}
     onClose={vi.fn()}
@@ -39,7 +39,7 @@ it('presents lineage-only materializations as one-time outputs without rerun con
     refreshSheets={vi.fn()}
   />);
 
-  expect(screen.getByTestId('sheet-info-badge')).toHaveTextContent('Run once');
+  expect(screen.getByTestId('sheet-info-badge')).toHaveTextContent('Up to date');
   expect(screen.queryByTestId('sheet-info-rerun')).not.toBeInTheDocument();
   expect(screen.queryByTestId('sheet-info-rerun-scope')).not.toBeInTheDocument();
   expect(screen.getByTestId('sheet-info-view-lineage')).toBeInTheDocument();
@@ -59,4 +59,28 @@ it('labels manually refreshable outputs without implying automatic updates', () 
   expect(screen.getByTestId('sheet-info-rerun')).toBeInTheDocument();
   expect(screen.getByTestId('sheet-info-rerun-scope')).toBeInTheDocument();
   expect(screen.getByTestId('sheet-info-badge')).not.toHaveTextContent('Live');
+});
+
+it.each([
+  ['unknown', 'Source changes not checked'],
+  ['checking', 'Checking source changes…'],
+] as const)('does not present %s source freshness as up to date', (syncState, label) => {
+  render(<SheetInfoPopover
+    sheet={{ ...derivedSheet(false), syncState }}
+    onClose={vi.fn()}
+    onNavigateParent={vi.fn()}
+    onViewLineage={vi.fn()}
+    refreshSheets={vi.fn()}
+  />);
+  expect(screen.getByTestId('sheet-info-badge')).toHaveTextContent(label);
+  expect(screen.getByTestId('sheet-info-badge')).toHaveAttribute('data-tone', 'neutral');
+  expect(screen.getByTestId('sheet-info-badge')).not.toHaveTextContent('Up to date');
+});
+
+it('excludes non-refreshable stale sheets from cascade actions', async () => {
+  const { staleSheetsDeepestFirst } = await import('../../src/workbench/lineageStale');
+  expect(staleSheetsDeepestFirst([
+    { ...derivedSheet(false), id: 'old', syncState: 'stale' },
+    { ...derivedSheet(true), id: 'current', syncState: 'stale' },
+  ]).map(sheet => sheet.id)).toEqual(['current']);
 });

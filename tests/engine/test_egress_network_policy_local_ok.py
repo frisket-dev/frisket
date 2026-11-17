@@ -5,6 +5,7 @@
 network-gated."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 
@@ -159,7 +160,9 @@ def test_off_project_still_validates_local_translate_run(tmp_path) -> None:
         project.set_network_policy(mode="off")
         runner = MapRunner(
             project,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             authority=UnroutedOnlyAuthority(project),
         )
         program, spec = _engine_program(
@@ -195,6 +198,7 @@ def test_off_project_any_canonical_ollama_run_never_cost_gates(tmp_path) -> None
         runner = MapRunner(
             project,
             ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
                 cache=None,
                 cache_mode="off",
                 local_endpoints=(_local_endpoint(),),

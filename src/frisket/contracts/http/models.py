@@ -113,6 +113,8 @@ class SheetDataQuery(NonNullQueryWireModel):
     column_ids: str | None = None
     include_scope_metadata: bool = True
     value_mode: Literal["exact", "bounded"] = "exact"
+    selection: str | None = None
+    view_id: int | None = Field(default=None, gt=0)
 
 
 class CellTextWindowQuery(NonNullQueryWireModel):
@@ -126,6 +128,7 @@ class CellValueDownloadQuery(NonNullQueryWireModel):
 
 
 class DocumentBrowseQuery(NonNullQueryWireModel):
+    selection: str | None = None
     source_column_id: int = Field(ge=1)
     title_column_id: int | None = Field(default=None, ge=1)
     parent_row_id: int | None = Field(default=None, ge=1)
@@ -145,6 +148,9 @@ class ColumnStatsQuery(NonNullQueryWireModel):
     sort: str | None = None
     scope_row_ids: str | None = None
 
+    selection: str | None = None
+    view_id: int | None = Field(default=None, gt=0)
+
 
 class SheetRowLocationQuery(NonNullQueryWireModel):
     page_size: int = Field(default=500, ge=1, le=1000)
@@ -153,6 +159,8 @@ class SheetRowLocationQuery(NonNullQueryWireModel):
     sort: str | None = None
     row_ids: str | None = None
     scope_row_ids: str | None = None
+    selection: str | None = None
+    view_id: int | None = Field(default=None, gt=0)
 
 
 class ActionRunRowsQuery(NonNullQueryWireModel):
@@ -299,13 +307,22 @@ class SheetDataColumn(WireModel):
     default_hidden: bool = False
 
 
+class RetainedResultRef(WireModel):
+    run_id: int
+    row_id: int
+    column_id: int
+
+
 class SheetDataValueRef(WireModel):
     kind: str
     op_id: int | None
     row_id: int
     column_id: int
     run_id: int | None
+    producer_id: int | None = Field(default=None, gt=0)
+    outcome: Literal["completed", "pending", "failed", "not_completed"] | None = None
     prepared_ref_id: int | None = Field(default=None, gt=0)
+    retained_result: RetainedResultRef | None = None
 
 
 class SheetDataPendingValue(WireModel):
@@ -591,6 +608,7 @@ class ActionRunPublicStatus(WireModel):
     """
 
     run_id: int
+    retry_supported: bool = True
     action_kind: str
     action_name: str
     status: str
@@ -622,6 +640,11 @@ class ActionJobProgress(ActionRunPublicStatus):
     sheet_id: int
 
 
+class ActionJobColumn(WireModel):
+    id: int
+    name: str
+
+
 class ActionRunStatusRun(WireModel):
     id: int
     sheet_id: int
@@ -633,6 +656,7 @@ class ActionRunStatusRun(WireModel):
     failed_rows: int = Field(ge=0)
     cost_actual: float | None
     cost_estimate: float | None
+    output_columns: list[ActionJobColumn] = Field(default_factory=list)
     row_errors: RunRowErrorSummary | None = None
     public_status: ActionRunPublicStatus
 
@@ -712,11 +736,6 @@ class ActionJobTiming(WireModel):
     created_at: str | None
     started_at: str | None
     finished_at: str | None
-
-
-class ActionJobColumn(WireModel):
-    id: int
-    name: str
 
 
 class ActionJobContext(WireModel):

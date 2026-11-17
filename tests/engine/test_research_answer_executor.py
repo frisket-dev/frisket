@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import sqlite3
@@ -174,7 +175,12 @@ class _FailingResearchAdapter:
 
 
 def _router() -> tuple[ModelRouter, _ResearchAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _ResearchAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -182,6 +188,7 @@ def _router() -> tuple[ModelRouter, _ResearchAdapter]:
 
 def _failing_router() -> tuple[ModelRouter, _FailingResearchAdapter]:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "k"},
         cache=None,
         cache_mode="off",
@@ -279,6 +286,7 @@ def test_research_answer_persists_pricing_source_by_value(
     adapter = _PricedResearchAdapter()
     if model.startswith("ollama/"):
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache=None,
             cache_mode="off",
             use_env_keys=False,
@@ -294,6 +302,7 @@ def test_research_answer_persists_pricing_source_by_value(
         router._adapters["ollama"]._adapters["test-local"] = adapter  # type: ignore[attr-defined]  # noqa: SLF001
     else:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             cache=None,
             cache_mode="off",
@@ -367,11 +376,13 @@ def _bad_input_action(seeded: dict[str, Any]) -> dict[str, Any]:
 
 
 def _collision_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return _research_answer_action(
+    action = _research_answer_action(
         seeded["sheet_id"],
         idempotency_key="research_answer@sha256:collision",
-        output_name="company",
+        output_name="topic",
     )
+    action["params"]["source"] = ["company"]
+    return action
 
 
 def _conflict_action(seeded: dict[str, Any]) -> dict[str, Any]:
@@ -1222,7 +1233,11 @@ def _run_with_scripted_adapter(
 
     monkeypatch.setattr(research_read._BoundResearcher, "_search", fake_search)  # noqa: SLF001
     router = ModelRouter(
-        keys={"anthropic": "k"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     project = Project.create(tmp_path / "scripted.frisket", name="research guard")

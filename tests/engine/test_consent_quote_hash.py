@@ -1,25 +1,7 @@
-"""The unrouted confirmation hash reads a money projection, not the estimate.
+"""Consent binds selected work and pricing policy, not a sampled dollar ceiling.
 
-``confirmation_context_hash`` is minted when a 402 quote is shown and
-RECOMPUTED at dispatch (``frisket.execution.attempt_authority``) from a fresh
-``estimate_run``; the two are compared by exact string equality, and a
-mismatch refuses the run ``consent_missing``. So every field inside the hash
-is a field that can silently invalidate a persisted consent.
-
-Before ``ConsentQuote`` the whole estimate dict went in verbatim, which
-made that set unbounded: a page count, a token sample, or a new display key
-added by any recipe's ``estimate()`` was consent-bearing by accident. Now the
-hash reads a declared projection of the money-bearing facts.
-
-Two halves, both load-bearing:
-
-* the golden digests freeze the canonical serialization — key set, key
-  spelling, float rendering, and the payload's ``quote`` slot — so a
-  drift that would invalidate live consents fails BY NAME here rather than
-  silently at somebody's dispatch;
-* the sensitivity tests prove the projection is neither too small (every
-  money field still moves the digest) nor too large (a display field does
-  not).
+Cost estimates remain validated display facts. Changed estimates do not revoke
+approval; changed provider/engine, scope or policy still require different consent.
 """
 
 from __future__ import annotations
@@ -127,21 +109,19 @@ UNKNOWN_COST_ESTIMATE: dict[str, Any] = {
     "remote_capability": "external:ocr",
 }
 
-# Re-pinned 2026-08-29 when the canonical ``action_kind`` replaced Recipe.name
-# as the family identity. Pre-release, zero users, no persisted consent to
-# strand; every digest below now binds the public action identity directly.
+# Breaking execution-domain cutover: dollar estimates no longer bind consent.
 GOLDEN = {
     "priced": (
         PRICED_ESTIMATE,
-        "32b96f4c1e1c4cfe70a2591c31291e362f421190ef721606ae90c761a1adefac",
+        "4c4311fbcd33ce4122fdc415c5e4669e099d787d55ebc64fb151a9516386bcd1",
     ),
     "free_local": (
         FREE_LOCAL_ESTIMATE,
-        "146ca64433a301524bc589566c9be33456610d9a393e100c733388dcb9790e29",
+        "3427a8076e361ef9ee59dd65d83805c846ae3889e5b85539b50cc49ad33ef34e",
     ),
     "unknown_cost": (
         UNKNOWN_COST_ESTIMATE,
-        "a0dba957c2219266724737943742d348611578d180d14ad0dc48e11d38bda39f",
+        "5bd2c6d4a9d8bc64b8ffdd2c6bed4e82c905898afb9438771b0bf9cdae0217bd",
     ),
 }
 
@@ -150,19 +130,12 @@ GOLDEN = {
 def test_confirmation_hash_matches_its_golden_digest(case: str) -> None:
     estimate, expected = GOLDEN[case]
     assert digest(estimate) == expected, (
-        f"the {case} confirmation hash moved. Every consent row persisted "
-        "under the old digest now refuses its own dispatch as "
-        "consent_missing — re-pin this fixture only when that is intended."
+        f"the {case} confirmation hash moved. Only re-pin alongside an intentional confirmation contract change."
     )
 
 
-# The money-bearing set, one entry per ConsentQuote field that carries a
-# value from the estimate. Each mutation is a DIFFERENT quote: a different
-# dollar figure, a different quantity, a different rate identity, a different
-# derivation, a different payee, or a different gate verdict.
+# Scope, engine and pricing provenance still bind approval.
 MONEY_MUTATIONS: dict[str, dict[str, Any]] = {
-    "cost": {"cost": 0.0125},
-    "cost_none": {"cost": None},
     "rows": {"rows": 4},
     "pricing_key": {"pricing_key": "opencage.geocode.reverse"},
     "cost_source": {"cost_source": "unknown"},
@@ -171,26 +144,15 @@ MONEY_MUTATIONS: dict[str, dict[str, Any]] = {
     "remote_capability": {"remote_capability": "external:geocode"},
 }
 
-# The RATED half moves the digest too, and it has to: a deployment that
-# changes its tariff, or one whose policy declines to price a run it used to
-# price, is offering a different quote. Applied AFTER rating (hence
-# ``rated_digest``), because rating is what would otherwise overwrite them.
+# A changed pricing policy differs from a changed sampled estimate.
 RATED_MUTATIONS: dict[str, dict[str, Any]] = {
-    # the cost-plus case in miniature: same provider cost, higher bill
-    "billed_cost": {"billed_cost": 21_000},
-    "billed_cost_none": {"billed_cost": None},
     "policy_id": {"policy_id": "acme.cost_plus.v3"},
 }
 
 
 @pytest.mark.parametrize("field", sorted(RATED_MUTATIONS))
 def test_rated_field_change_changes_the_digest(field: str) -> None:
-    """The wave's central guarantee: the BILLED figure is inside the consent.
-
-    Without this, a hosted deployment could quote $0.11, persist a consent
-    over the provider facts alone, then bill $0.21 under a tariff the user
-    never saw and never approved — and the dispatch fence would agree.
-    """
+    """A new pricing policy changes the approved terms, unlike an estimate."""
     rated = rate_estimate(PRICED_ESTIMATE, policy=IDENTITY_PRICING_POLICY)
     baseline = rated_digest(rated)
     moved = rated_digest({**rated, **RATED_MUTATIONS[field]})
@@ -215,6 +177,20 @@ def test_dropping_rate_provenance_changes_the_digest(field: str) -> None:
     baseline = digest(PRICED_ESTIMATE)
     dropped = {key: value for key, value in PRICED_ESTIMATE.items() if key != field}
     assert digest(dropped) != baseline
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("cost", 100.0),
+        ("cost", None),
+        ("billed_cost", 100_000_000),
+        ("billed_cost", None),
+    ],
+)
+def test_estimate_change_does_not_revoke_scoped_approval(field, value):
+    rated = rate_estimate(PRICED_ESTIMATE, policy=IDENTITY_PRICING_POLICY)
+    assert rated_digest({**rated, field: value}) == rated_digest(rated)
 
 
 # Presentation keys the first-party client renders alongside money facts.

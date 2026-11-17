@@ -30,11 +30,10 @@ function watch(id: number, name: string): WatchInfo {
   return {
     id,
     name,
-    scope: 'sheet',
     sheetId: 1,
-    query: { kind: 'filter' },
-    queryVersion: null,
-    queryHash: null,
+    viewId: id,
+    schedule: '@hourly',
+  detectionPolicy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
     enabled: true,
     lastEvaluatedOp: 0,
     lastRunId: null,
@@ -56,8 +55,8 @@ function deferred<T>() {
 }
 
 const currentGridDraft = {
-  query: { kind: 'filter', sheet_id: 1, filter: { status: { eq: 'open' } } },
-  scope: { kind: 'sheet' as const, sheet_id: 1 },
+  view_id: 1,
+  sheet_id: 1,
   name: 'Watch: Current',
 };
 
@@ -87,6 +86,37 @@ afterEach(() => {
 });
 
 describe('WatchesPanel pending actions', () => {
+  it('describes an enabled threshold-only alert instead of calling it paused', async () => {
+    const item = watch(1, 'Threshold alert');
+    item.detectionPolicy = { kind: 'conditions', entered: false, exited: false, count_changed: false,
+      fields: [], threshold: { kind: 'threshold_crossed', metric: 'matched_rows', threshold: 10, direction: 'at_or_above' } };
+    const projectApi = {
+      qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([item]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+    } as unknown as ProjectApiPort;
+    const harness = createWorkspaceTestHarness({ projectId: 'threshold-alert', api: { projectApi } });
+    harness.render(<WatchesPanel canEdit />);
+    expect(await screen.findByText('Threshold crossings')).toBeInTheDocument();
+    expect(screen.queryByText('Alerts paused')).not.toBeInTheDocument();
+  });
+
+  it('changes independent alert conditions on the same saved View', async () => {
+    const item = watch(1, 'Open contracts');
+    const projectApi = {
+      qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([item]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+      updateWatch: vi.fn(async (_id, patch) => ({ ...item, detectionPolicy: patch.detection_policy })),
+    } as unknown as ProjectApiPort;
+    const harness = createWorkspaceTestHarness({ projectId: 'conditions', api: { projectApi } });
+    harness.render(<WatchesPanel canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Alert conditions' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Rows leaving this view' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Check frequency' }), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save alerts' }));
+    await waitFor(() => expect(projectApi.updateWatch).toHaveBeenCalledWith(1, { detection_policy: { ...item.detectionPolicy, exited: true }, schedule: null }));
+    expect(projectApi.updateWatch).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps rename cancellation available for an invalid draft and retains a failed rename', async () => {
     const projectApi = {
       qa: projectQAFixture(),
@@ -133,8 +163,9 @@ describe('WatchesPanel pending actions', () => {
     fireEvent.click(screen.getByTestId('create-watch-button'));
     await waitFor(() => expect(projectApi.createWatch).toHaveBeenCalledWith({
       name: 'Watch: Current',
-      query: currentGridDraft.query,
-      scope: currentGridDraft.scope,
+      view_id: currentGridDraft.view_id,
+      detection_policy: undefined,
+      schedule: '@hourly',
     }));
     expect(await screen.findByTestId('watch-notification-setup-notice')).toHaveTextContent(notificationSetupGuidance);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification setup guidance' }));

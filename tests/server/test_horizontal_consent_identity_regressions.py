@@ -1,6 +1,7 @@
 """Adversarial regressions for consent that must follow the paid data scope."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -83,19 +84,18 @@ def _stored_program(project, stored_spec: dict):
     return program
 
 
-def test_confirmation_echo_refuses_same_row_after_equal_quote_content_edit(
+def test_confirmation_echo_keeps_scope_and_reads_edited_content(
     tmp_path, monkeypatch
 ) -> None:
-    """The approved row identity and price do not authorize different data.
-
-    This is the ordinary UI ordering: quote, edit the source cell while the
-    dialog is open, then confirm.  Equal-length content deliberately keeps the
-    token estimate and dollar quote identical, so only content ownership can
-    distinguish what the user saw from what the provider would receive.
-    """
+    """Approval binds work configuration and rows, while content is read currently."""
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     adapter = _RecordingClassifyAdapter()
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     client = TestClient(create_app(tmp_path / "workspace", router=router))
     project_id = client.post("/api/projects", json={"name": "Scope"}).json()["id"]
@@ -167,12 +167,14 @@ def test_confirmation_echo_refuses_same_row_after_equal_quote_content_edit(
         ).fetchone()[0],
     }
     assert observed == {
-        "http_status": 402,
-        "action_status": "needs_confirmation",
-        "runs": 0,
-        "provider_calls": 0,
-        "model_calls": 0,
+        "http_status": 200,
+        "action_status": "queued",
+        "runs": 1,
+        "provider_calls": 1,
+        "model_calls": 1,
     }
+    assert "B" * 800 in str(adapter.calls[0].messages)
+    assert "A" * 800 not in str(adapter.calls[0].messages)
 
 
 def test_exact_match_consent_does_not_cross_to_a_different_equal_quote_row(
@@ -318,7 +320,12 @@ def _unrouted_classify_client(tmp_path, monkeypatch, *, name: str):
     """A gated unrouted (LLM map) project: stub adapter, one 800-char row."""
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     adapter = _RecordingClassifyAdapter()
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     client = TestClient(create_app(tmp_path / "workspace", router=router))
     project_id = client.post("/api/projects", json={"name": name}).json()["id"]
@@ -348,19 +355,10 @@ def _confirm_and_enqueue(
     return int(accepted.json()["run_id"]), accepted.json()["receipt_id"]
 
 
-def test_unrouted_worker_refuses_when_confirmed_source_changes_after_enqueue(
+def test_unrouted_worker_reads_confirmed_scope_current_content(
     tmp_path, monkeypatch
 ) -> None:
-    """The unrouted sibling of the routed post-enqueue scope recheck above.
-
-    Worker admission (``AttemptAuthority._admit``, unrouted branch) recomputes
-    the confirmation context hash from the CURRENT cells and quote and requires
-    it to equal a persisted consent.  Editing the source cell between confirm
-    and drain — with equal-length content, so the token estimate and dollar
-    quote stay identical and only content identity can distinguish what the
-    user approved from what the provider would receive — must fail the run
-    durably with ``consent_missing`` before any provider call.
-    """
+    """Queued work keeps approval and records the content actually read at dispatch."""
     adapter, client, project_id, project, sheet_id, column_id, row_id = (
         _unrouted_classify_client(tmp_path, monkeypatch, name="Unrouted recheck")
     )
@@ -397,15 +395,17 @@ def test_unrouted_worker_refuses_when_confirmed_source_changes_after_enqueue(
             "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (run_id,)
         ).fetchone()[0],
         "receipt_status": receipt.json()["status"],
-        "receipt_error_code": receipt.json()["errors"][0]["code"],
+        "receipt_errors": receipt.json()["errors"],
     }
     assert observed == {
-        "run_status": "failed",
-        "provider_calls": 0,
-        "model_calls": 0,
-        "receipt_status": "failed",
-        "receipt_error_code": "consent_missing",
+        "run_status": "completed",
+        "provider_calls": 1,
+        "model_calls": 1,
+        "receipt_status": "completed",
+        "receipt_errors": [],
     }
+    assert "B" * 800 in str(adapter.calls[0].messages)
+    assert "A" * 800 not in str(adapter.calls[0].messages)
 
 
 def test_unrouted_attempt_naming_rows_outside_recorded_scope_is_refused(

@@ -102,7 +102,8 @@ const historyFixture = {
       index: 0,
       kind: 'map',
       label: 'Classify',
-      status: 'completed',
+      status: 'applied',
+      executable: true,
       barrier: false,
       at_cursor: true,
       created_at: '2026-08-11 00:00:00',
@@ -693,7 +694,8 @@ describe('history and review generated HTTP reads', () => {
           index: 0,
           kind: 'future-kind',
           label: null,
-          status: 'completed',
+          status: 'applied',
+          executable: true,
           barrier: false,
           at_cursor: false,
           created_at: '2026-08-11 01:02:03',
@@ -704,7 +706,8 @@ describe('history and review generated HTTP reads', () => {
           index: 1,
           kind: 'sort',
           label: 'Sort rows',
-          status: 'completed',
+          status: 'applied',
+          executable: true,
           barrier: true,
           at_cursor: false,
           created_at: '2026-08-11T01:02:04Z',
@@ -851,20 +854,6 @@ describe('history and review generated HTTP reads', () => {
       following: [{ cursor: 1, undo: 12, redo: null }],
       actions: [{ kind: 'operation.redo', expectedOpId: 12, mismatch: false }],
       expectedCursor: 1,
-    },
-    {
-      name: 'stepTo preserves its captured project through recursive history reads',
-      invoke: (projectApi: ReturnType<typeof import('../../src/api/real').createProjectApi>) => projectApi.stepTo(2),
-      initial: { cursor: 0, undo: null, redo: 12 },
-      following: [
-        { cursor: 1, undo: 12, redo: 13 },
-        { cursor: 2, undo: 13, redo: null },
-      ],
-      actions: [
-        { kind: 'operation.redo', expectedOpId: 12, mismatch: false },
-        { kind: 'operation.redo', expectedOpId: 13, mismatch: false },
-      ],
-      expectedCursor: 2,
     },
   ])('$name across an ambient project switch', async (scenario) => {
     const real = await import('../../src/api/real');
@@ -1016,16 +1005,17 @@ describe('history and review mutations owned by the domain', () => {
     );
     const api = historyReviewDomain('113');
 
-    await expect(api.stepTo(3)).resolves.toMatchObject({ cursorIndex: 0 });
-    // A blocked step ends the walk: no further post, no re-read.
+    await expect(api.redo()).resolves.toMatchObject({ cursorIndex: 0 });
+    // Normal Redo stays blocked and refreshes current history.
     expect(exchange.calls()).toEqual([
       ['/api/projects/113/history?limit=50', 'GET'],
       ['/api/projects/113/actions/v1/run', 'POST'],
+      ['/api/projects/113/history?limit=50', 'GET'],
     ]);
     expect(warn).toHaveBeenCalledWith('operation.redo blocked:', blocked.message);
   });
 
-  it('fails the walk when a step reports an unrecognized error', async () => {
+  it('surfaces an unrecognized Redo error', async () => {
     stubHistoryAndPosts(
       [historyPage({ cursor: 0, redo: 12 })],
       [{
@@ -1036,64 +1026,38 @@ describe('history and review mutations owned by the domain', () => {
     );
     const api = historyReviewDomain('114');
 
-    await expect(api.stepTo(3)).rejects.toMatchObject({
+    await expect(api.redo()).rejects.toMatchObject({
       name: 'ApiError',
       status: 400,
       message: 'locked by another writer',
     });
   });
 
-  it('stops without posting when the cursor has no target toward the requested index', async () => {
-    const exchange = stubHistoryAndPosts([historyPage({ cursor: 0 })], []);
-    const api = historyReviewDomain('115');
-
-    await expect(api.stepTo(4)).resolves.toMatchObject({ cursorIndex: 0 });
-    expect(exchange.calls()).toEqual([['/api/projects/115/history?limit=50', 'GET']]);
-  });
-
-  it('bounds a walk whose cursor never advances at 100 steps', async () => {
+  it.each(['revert', 'restore'] as const)('selectively %ss one operation without walking other changes', async (direction) => {
     const exchange = stubHistoryAndPosts(
-      [historyPage({ cursor: 0, redo: 12 })],
-      [{ result: actionResult('operation.redo', 'completed') }],
+      [historyPage({ cursor: 9, undo: 99 })],
+      [{ result: actionResult(`operation.${direction}`, 'completed') }],
     );
-    const api = historyReviewDomain('116');
-
-    await expect(api.stepTo(9)).resolves.toMatchObject({ cursorIndex: 0 });
-    const calls = exchange.calls();
-    expect(calls.filter(([, method]) => method === 'POST')).toHaveLength(100);
-    // The initial read plus one re-read per step, each re-read keeping the
-    // page size the walk started with.
-    expect(calls.filter(([, method]) => method === 'GET')).toHaveLength(101);
-    expect(calls[calls.length - 1]).toEqual(['/api/projects/116/history?limit=4', 'GET']);
-  });
-
-  it('keeps one captured project across recursive reads and operation posts', async () => {
-    const exchange = stubHistoryAndPosts(
-      [
-        historyPage({ cursor: 0, redo: 12 }),
-        historyPage({ cursor: 1, undo: 12, redo: 13 }),
-        historyPage({ cursor: 2, undo: 13 }),
-      ],
-      [
-        { result: actionResult('operation.redo', 'completed') },
-        { result: actionResult('operation.redo', 'completed') },
-      ],
-    );
-    const api = historyReviewDomain('117-a');
-
-    const pending = api.stepTo(2);
-    await expect(pending).resolves.toMatchObject({ cursorIndex: 2 });
+    const api = historyReviewDomain('selective-project');
+    const command = direction === 'revert' ? api.revertOperation : api.restoreOperation;
+    await expect(command('12')).resolves.toMatchObject({ cursorIndex: 9 });
     expect(exchange.calls()).toEqual([
-      ['/api/projects/117-a/history?limit=50', 'GET'],
-      ['/api/projects/117-a/actions/v1/run', 'POST'],
-      ['/api/projects/117-a/history?limit=4', 'GET'],
-      ['/api/projects/117-a/actions/v1/run', 'POST'],
-      ['/api/projects/117-a/history?limit=4', 'GET'],
+      ['/api/projects/selective-project/actions/v1/run', 'POST'],
+      ['/api/projects/selective-project/history?limit=50', 'GET'],
     ]);
-    expect(exchange.bodies().map((body) => body.params)).toEqual([
-      { expected_op_id: 12 },
-      { expected_op_id: 13 },
-    ]);
+    expect(exchange.bodies()[0]).toMatchObject({ action_id: `operation.${direction}`, params: { op_id: 12 }, scope: { kind: 'project' } });
+  });
+
+  it('surfaces a selective Restore conflict instead of silently walking history', async () => {
+    const exchange = stubHistoryAndPosts([], [{ result: actionResult('operation.restore', 'failed', [{ code: 'restore_conflict', message: 'Column summary already exists' }]) }]);
+    await expect(historyReviewDomain('conflict').restoreOperation('12')).rejects.toMatchObject({ message: 'Column summary already exists' });
+    expect(exchange.calls()).toHaveLength(1);
+  });
+
+  it('refuses invalid selective operation ids before posting', async () => {
+    const exchange = stubHistoryAndPosts([], []);
+    await expect(historyReviewDomain('invalid').revertOperation('0')).rejects.toMatchObject({ status: 400 });
+    expect(exchange.calls()).toEqual([]);
   });
 
   it.each([
@@ -1104,18 +1068,6 @@ describe('history and review mutations owned by the domain', () => {
       action: 'reject_clear' as const,
       edited: undefined,
       decision: { decision: 'reject_clear' },
-    },
-    {
-      name: 'edit carrying a value',
-      action: 'edit' as const,
-      edited: 'corrected',
-      decision: { decision: 'edit', value: 'corrected' },
-    },
-    {
-      name: 'edit clearing the value',
-      action: 'edit' as const,
-      edited: undefined,
-      decision: { decision: 'edit', value: null },
     },
   ])('posts a review.decision envelope for $name', async (scenario) => {
     const exchange = stubHistoryAndPosts(
@@ -1142,6 +1094,18 @@ describe('history and review mutations owned by the domain', () => {
     }]);
   });
 
+  it('reviews a saved copy using its Change identity, without an execution id', async () => {
+    const exchange = stubHistoryAndPosts([], [{ result: actionResult('review.decision', 'completed') }]);
+    await historyReviewDomain('118').reviewItem('copy:12:7:5','accept');
+    expect(exchange.bodies()[0].params).toEqual({copied_op_id:12,row_id:7,column_id:5,decision:'accept'});
+  });
+
+  it('does not turn a cell edit into a review judgment', async () => {
+    const exchange = stubHistoryAndPosts([], []);
+    await expect(historyReviewDomain('118').reviewItem('9:7:5','edit','replacement')).rejects.toThrow('Use cell editing');
+    expect(exchange.calls()).toEqual([]);
+  });
+
   it.each(['9:7', '9:7:5:1', '0:7:5', '9:0:5', '9:7:-5', 'a:b:c', '9:7.5:5', ''])(
     'rejects the malformed review ref %j without posting',
     async (itemId) => {
@@ -1151,7 +1115,7 @@ describe('history and review mutations owned by the domain', () => {
       await expect(api.reviewItem(itemId, 'accept')).rejects.toMatchObject({
         name: 'ApiError',
         status: 400,
-        message: `Review item ${itemId} is not a valid v1 result-cell ref`,
+        message: `Invalid review result reference: ${itemId}`,
       });
       expect(exchange.calls()).toEqual([]);
     },

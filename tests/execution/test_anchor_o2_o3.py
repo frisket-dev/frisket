@@ -34,7 +34,7 @@ import pytest
 
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.engine.store import Project
-from frisket.engine.store.execution_routes import ConsentRegistry, RouteStore
+from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.promise_compiler import (
@@ -45,7 +45,7 @@ from frisket.execution.commercial import CommercialPresentation
 from frisket.execution.resolve_for_action import (
     gate_claims_payload,
     promise_rows,
-    uncovered_user_claims,
+    project_uncovered_user_claims,
 )
 from frisket.execution.resolver import RouteRowFacts
 from frisket.execution.runtime_binding import bind_fact_to_route
@@ -171,16 +171,10 @@ O2_SNAPSHOT = {
 
 def test_anchor_o2_gate_renders_cost_and_egress_claims(project):
     """O2's gate has cost and egress claims on first consent. Both rows are
-    user claims, neither is covered by the standing
-    sub-gate consent, and the rendered copy speaks the metered posture."""
+    user claims, neither is covered by the default
+    preapproval threshold, and the rendered copy speaks the metered posture."""
     promise_set = compile_route_promises(O2_FACTS, O2_COST)
-    from frisket.engine.store.execution_routes import instance_principal
-
-    uncovered = uncovered_user_claims(
-        promise_set,
-        standing_consents=ConsentRegistry(project).standing_consents(),
-        principal=instance_principal(project),
-    )
+    uncovered = project_uncovered_user_claims(project, promise_set)
     assert sorted(p.field for p in uncovered) == ["cost", "egress_class"]
 
     presentation = CommercialPresentation(

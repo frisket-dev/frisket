@@ -24,7 +24,9 @@ from frisket.engine.store.document_text import (
     require_document_text_publication_sources,
 )
 
-PUBLICATION_EFFECTS = frozenset({"publish_value", "publish_null", "publish_error"})
+PUBLICATION_EFFECTS = frozenset(
+    {"publish_value", "publish_null", "publish_error", "retain"}
+)
 WRITE_MODES = frozenset({"create", "replace_scope"})
 TERMINAL_DISPOSITIONS = frozenset({"completed", "partial", "failed", "cancelled"})
 
@@ -59,6 +61,7 @@ class RunOutputGeneration:
     run_id: int
     column_id: int
     output_role: str
+    output_descriptor: dict[str, Any]
     compatibility_key: str
     write_mode: str
     state: str
@@ -100,6 +103,12 @@ def decode_published_result_value(
 
     if publication_effect not in PUBLICATION_EFFECTS:
         raise ValueError(f"unknown publication effect {publication_effect!r}")
+    if publication_effect == "retain":
+        return (
+            None
+            if value_kind is None
+            else decode_logical_value(db, value_kind, stored_value)
+        )
     if publication_effect != "publish_value":
         return None
     if value_kind is None:
@@ -171,6 +180,7 @@ class ResultGenerationStore:
             run_id=int(row["run_id"]),
             column_id=int(row["column_id"]),
             output_role=str(row["output_role"]),
+            output_descriptor=json.loads(str(row["output_descriptor_json"])),
             compatibility_key=str(row["compatibility_key"]),
             write_mode=str(row["write_mode"]),
             state=str(row["state"]),
@@ -204,6 +214,26 @@ class ResultGenerationStore:
             (int(run_id),),
         ).fetchall()
         return [self._generation_from_row(row) for row in rows]
+
+    def output_columns_for_runs(
+        self, run_ids: Iterable[int]
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Read declared output identities with their current display labels."""
+        outputs: dict[int, list[dict[str, Any]]] = {}
+        for chunk in _chunks(sorted({int(run_id) for run_id in run_ids})):
+            placeholders = ",".join("?" for _ in chunk)
+            for row in self.db.execute(
+                f"""SELECT generation.run_id, column_meta.id, column_meta.name
+                    FROM run_output_generations generation
+                    JOIN columns column_meta ON column_meta.id=generation.column_id
+                    WHERE generation.run_id IN ({placeholders})
+                    ORDER BY generation.run_id, column_meta.position, column_meta.id""",
+                chunk,
+            ):
+                outputs.setdefault(int(row["run_id"]), []).append(
+                    {"id": int(row["id"]), "name": row["name"]}
+                )
+        return outputs
 
     def bindings_for_op(self, op_id: int) -> list[RunOutputGeneration]:
         rows = self.db.execute(
@@ -292,7 +322,8 @@ class ResultGenerationStore:
 
     def _run_operation(self, run_id: int) -> sqlite3.Row | None:
         return self.db.execute(
-            "SELECT op.id,op.spec,op.undo_info,op.status FROM runs run "
+            "SELECT op.id,op.spec,op.undo_info,op.status,op.publication_closed "
+            "FROM runs run "
             "JOIN ops op ON op.id=run.op_id WHERE run.id=?",
             (int(run_id),),
         ).fetchone()
@@ -366,10 +397,34 @@ class ResultGenerationStore:
         )
         if not column_ids:
             return
+        from .purge import require_publication_targets
+
+        require_publication_targets(
+            self.db,
+            column_ids=column_ids,
+            row_ids={
+                int(item["row_id"])
+                for item in batch
+                if item.get("publication_effect") is not None
+            },
+        )
         bindings = {
             binding.column_id: binding for binding in self.bindings_for_run(int(run_id))
         }
         operation = self._run_operation(int(run_id))
+        from .changes import ChangePublicationClosed, ChangeStore
+
+        if operation is not None:
+            if str(operation["status"]) != "applied":
+                raise GenerationStateError(
+                    f"run {run_id} owning Change is {operation['status']!r}"
+                )
+            try:
+                ChangeStore(self.project).require_publication(int(operation["id"]))
+            except ChangePublicationClosed as exc:
+                raise GenerationStateError(
+                    f"run {run_id} owning Change publication is closed"
+                ) from exc
         for column_id in column_ids:
             binding = bindings.get(column_id)
             if binding is None:
@@ -399,7 +454,7 @@ class ResultGenerationStore:
         row = self.db.execute(
             "SELECT claim.expected_current_run_id, claim.output_name, "
             "claim.action_kind, column.name AS column_name, "
-            "(SELECT MAX(head.run_id) FROM cell_result_heads head "
+            "(SELECT MAX(head.run_id) FROM published_result_bases head "
             " WHERE head.column_id=column.id) AS current_head_run_id, "
             "run.status AS run_status, op.status AS op_status "
             "FROM output_column_claims claim "
@@ -439,7 +494,7 @@ class ResultGenerationStore:
                     f"fresh output column {binding.column_id} moved to run {current}"
                 )
             return
-        if current != binding.expected_base_run_id:
+        if current not in (binding.expected_base_run_id, binding.run_id):
             raise GenerationClaimError(
                 f"replacement output column {binding.column_id} moved from expected "
                 f"base {binding.expected_base_run_id} to {current}"
@@ -478,6 +533,15 @@ class ResultGenerationStore:
             raise ValueError(f"unsupported generation write_mode {write_mode!r}")
 
         with self._write_scope(commit=commit):
+            if (
+                self.db.execute(
+                    "SELECT 1 FROM run_scopes WHERE run_id=?", (run_id,)
+                ).fetchone()
+                is None
+            ):
+                raise GenerationStateError(
+                    f"run {run_id} cannot declare outputs without a frozen row scope"
+                )
             existing = self.get_binding(run_id, column_id)
             claim = self._require_active_claim(
                 run_id=run_id,
@@ -505,19 +569,39 @@ class ResultGenerationStore:
                     "semantic_type": target_descriptor.get("semantic_type"),
                 }
             )
+            schema_snapshot = (
+                {}
+                if target_descriptor is None
+                else target_descriptor.get("schema") or {}
+            )
+            output_descriptor_json = json.dumps(
+                {
+                    "column_type": declared_descriptor["type"],
+                    "schema": schema_snapshot,
+                    "format": declared_descriptor["format"],
+                    "semantic_type": declared_descriptor["semantic_type"],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
             descriptor_change = current_descriptor != declared_descriptor
             operation = self._run_operation(run_id)
+            from .changes import ChangeStore
+
+            if operation is None:
+                raise GenerationStateError(f"run {run_id} has no owning Change")
+            ChangeStore(self.project).start(int(operation["id"]))
             operation_info = self._operation_info(operation)
             pending_changes = self._pending_descriptor_changes(operation_info)
             pending_change = pending_changes.get(str(column_id))
             if existing is not None:
                 expected_open_state = (
-                    "staged"
-                    if defer_publication or write_mode == "replace_scope"
-                    else "active"
+                    "staged" if defer_publication or descriptor_change else "active"
                 )
                 if (
                     existing.output_role != output_role
+                    or existing.output_descriptor != json.loads(output_descriptor_json)
                     or existing.compatibility_key != compatibility_key
                     or existing.write_mode != write_mode
                     or (
@@ -639,11 +723,7 @@ class ResultGenerationStore:
                     f"output column {column_id} has incompatible managed history "
                     f"at run {int(incompatible['run_id'])}"
                 )
-            state = (
-                "staged"
-                if defer_publication or write_mode == "replace_scope"
-                else "active"
-            )
+            state = "staged" if defer_publication or descriptor_change else "active"
             if descriptor_change:
                 if write_mode != "replace_scope":
                     raise GenerationDeclarationConflict(
@@ -681,14 +761,15 @@ class ResultGenerationStore:
                 self.db.execute(
                     "INSERT INTO run_output_generations "
                     "(run_id,column_id,output_role,compatibility_key,write_mode,"
-                    "state,claim_token,expected_base_run_id,document_text_authority) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    "output_descriptor_json,state,claim_token,expected_base_run_id,document_text_authority) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         run_id,
                         column_id,
                         output_role,
                         compatibility_key,
                         write_mode,
+                        output_descriptor_json,
                         state,
                         claim_token,
                         expected_base_run_id,
@@ -727,6 +808,9 @@ class ResultGenerationStore:
                     "UPDATE ops SET undo_info=? WHERE id=?",
                     (json.dumps(operation_info), int(operation["id"])),
                 )
+            from .cell_projection import invalidate_run_scope
+
+            invalidate_run_scope(self.db, run_id, column_id)
             return created
 
     def _upsert_heads_uncommitted(
@@ -759,7 +843,8 @@ class ResultGenerationStore:
                 "CROSS JOIN run_output_generations generation "
                 "ON generation.run_id=result.run_id "
                 "AND generation.column_id=result.column_id "
-                "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
+                "AND generation.state='active' "
+                "WHERE result.run_id=? AND result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
                 + document_text_result_eligibility_sql()
                 + " "
                 "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
@@ -781,7 +866,8 @@ class ResultGenerationStore:
             "JOIN run_output_generations generation "
             "ON generation.run_id=result.run_id "
             "AND generation.column_id=result.column_id "
-            "WHERE result.run_id=? AND result.publication_effect IS NOT NULL AND "
+            "AND generation.state='sealed' "
+            "WHERE result.run_id=? AND result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
             + document_text_result_eligibility_sql()
             + " "
             "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id "
@@ -799,10 +885,18 @@ class ResultGenerationStore:
     ) -> int:
         """Managed write sink hook; caller already owns the result transaction."""
 
+        retained = [
+            (int(item["row_id"]), int(item["column_id"]))
+            for item in batch
+            if item.get("publication_effect") == "retain"
+        ]
+        if retained:
+            refresh_current_cell_pairs(self.db, retained)
         keys = {
             (int(item["row_id"]), int(item["column_id"]))
             for item in batch
-            if item.get("publication_effect") is not None
+            if item.get("publication_effect")
+            in {"publish_value", "publish_null", "publish_error"}
         }
         if not keys:
             return 0
@@ -820,10 +914,46 @@ class ResultGenerationStore:
                 )
             if binding.state == "active":
                 active_keys.append((row_id, column_id))
-            elif binding.state != "staged":
+            elif binding.state == "staged":
+                # A staged member belongs to a seal-time output-family
+                # publication. Persist the result, but do not expose it as an
+                # independently current head while a sibling or descriptor
+                # replacement is still pending.
+                continue
+            else:
                 raise GenerationSealedError(
                     f"run {run_id} output column {column_id} is sealed"
                 )
+        # A row's output family is one publication, including explicit errors
+        # and nulls. A partial checkpoint stays pending until all siblings exist.
+        complete_rows = self.db.execute(
+            "SELECT row_id FROM results WHERE run_id=? "
+            "AND row_id IN (SELECT value FROM json_each(?)) "
+            "AND column_id IN (SELECT value FROM json_each(?)) "
+            "AND publication_effect IS NOT NULL GROUP BY row_id HAVING COUNT(*)=? "
+            "ORDER BY row_id",
+            (
+                int(run_id),
+                json.dumps(sorted({row for row, _ in active_keys})),
+                json.dumps(sorted(bindings)),
+                len(bindings),
+            ),
+        )
+        complete_keys = [
+            (int(row[0]), column_id)
+            for row in complete_rows
+            for column_id, binding in bindings.items()
+            if binding.state == "active"
+        ]
+        retained_keys = {
+            (int(row[0]), int(row[1]))
+            for row in self.db.execute(
+                "SELECT row_id,column_id FROM results WHERE run_id=? "
+                "AND publication_effect='retain' AND row_id IN (SELECT value FROM json_each(?))",
+                (int(run_id), json.dumps(sorted({row for row, _ in complete_keys}))),
+            )
+        }
+        active_keys = [key for key in complete_keys if key not in retained_keys]
         if not active_keys:
             return 0
         if claim_token is None:
@@ -834,6 +964,10 @@ class ResultGenerationStore:
         # RunResultStore already fenced every batch column under this claim;
         # this method is inside that same savepoint and only projects the exact
         # rows whose effect was just written.
+        self.db.executemany(
+            "UPDATE results SET published=1 WHERE run_id=? AND row_id=? AND column_id=?",
+            [(int(run_id), row_id, column_id) for row_id, column_id in active_keys],
+        )
         projected = self._upsert_heads_uncommitted(run_id=int(run_id), keys=active_keys)
         refresh_current_cell_pairs(self.db, active_keys)
         return projected
@@ -962,6 +1096,10 @@ class ResultGenerationStore:
             "UPDATE ops SET undo_info=? WHERE id=?",
             (json.dumps(info), int(operation["id"])),
         )
+        if publish:
+            from .column_descriptors import record_descriptor_changes
+
+            record_descriptor_changes(self.db, int(operation["id"]), info)
         return changed_column_ids if publish else set()
 
     def _record_unpublished_generations(
@@ -1078,6 +1216,12 @@ class ResultGenerationStore:
                 )
             if not ordered_column_ids:
                 return 0
+            operation = self._run_operation(int(run_id))
+            if operation is None:
+                raise GenerationStateError(f"run {run_id} has no owning Change")
+            change_open = str(operation["status"]) == "applied" and not bool(
+                operation["publication_closed"]
+            )
             open_bindings: list[RunOutputGeneration] = []
             for column_id in ordered_column_ids:
                 binding = self.get_binding(int(run_id), column_id)
@@ -1092,15 +1236,23 @@ class ResultGenerationStore:
                             f"{binding.terminal_disposition!r}"
                         )
                     continue
-                claim = self._require_active_claim(
-                    run_id=int(run_id),
-                    column_id=column_id,
-                    claim_token=claim_token,
-                    require_current_name=not allow_stale_output_name,
-                )
-                self._require_pointer_fence(
-                    binding, current_head_run_id=claim["current_head_run_id"]
-                )
+                if change_open:
+                    claim = self._require_active_claim(
+                        run_id=int(run_id),
+                        column_id=column_id,
+                        claim_token=claim_token,
+                        require_current_name=not allow_stale_output_name,
+                    )
+                    self._require_pointer_fence(
+                        binding, current_head_run_id=claim["current_head_run_id"]
+                    )
+                elif binding.claim_token != claim_token:
+                    # Undo releases the output claim immediately. The original
+                    # declaration token still authorizes only sealing this
+                    # already-closed generation as unpublished.
+                    raise GenerationClaimError(
+                        f"closed run {run_id} seal requires its original claim token"
+                    )
                 open_bindings.append(binding)
 
             # Sealing is idempotent but its original publish decision is not
@@ -1108,13 +1260,48 @@ class ResultGenerationStore:
             # or retroactively mark a published one as unpublished.
             if not open_bindings:
                 return 0
+            unpublished_staged_columns = [
+                binding.column_id
+                for binding in open_bindings
+                if binding.state == "staged"
+            ]
 
-            operation = self._run_operation(int(run_id))
             operation_info = self._operation_info(operation)
             pending_descriptor_changes = self._pending_descriptor_changes(
                 operation_info
             )
-            publish_generation = bool(publish)
+            # A terminal worker may arrive after Undo. Seal the generation so
+            # it cannot resume, but never let that late response reopen the
+            # Change's already closed publication authority.
+            publish_generation = bool(
+                publish
+                and operation is not None
+                and str(operation["status"]) == "applied"
+                and not bool(operation["publication_closed"])
+            )
+            if publish_generation:
+                from .purge import (
+                    PurgedMaterialUnavailable,
+                    require_publication_targets,
+                )
+
+                row_ids = {
+                    int(row[0])
+                    for row in self.db.execute(
+                        "SELECT row_id FROM run_rows WHERE run_id=?",
+                        (int(run_id),),
+                    )
+                }
+                try:
+                    require_publication_targets(
+                        self.db,
+                        column_ids=ordered_column_ids,
+                        row_ids=row_ids,
+                    )
+                except PurgedMaterialUnavailable:
+                    # The generation still terminalizes below, but no member
+                    # of its frozen output family may publish after purge.
+                    publish_generation = False
             if pending_descriptor_changes and publish_generation:
                 publish_generation = terminal_disposition in {
                     "completed",
@@ -1152,7 +1339,7 @@ class ResultGenerationStore:
             )
             if not publish_generation:
                 self._record_unpublished_generations(
-                    run_id=int(run_id), column_ids=declared_column_ids
+                    run_id=int(run_id), column_ids=unpublished_staged_columns
                 )
                 return 0
             for column_id in changed_descriptors:
@@ -1171,10 +1358,29 @@ class ResultGenerationStore:
             with self.run_effect_key_table(
                 int(run_id), open_column_ids
             ) as publication_key_table:
+                # Paired outputs form one row family. A terminal cancel can
+                # leave a result in one column after its sibling was withheld;
+                # publish only rows with an explicit result for every frozen
+                # output in this generation set.
+                self.db.execute(
+                    f"DELETE FROM {publication_key_table} AS candidate "
+                    "WHERE EXISTS (SELECT 1 FROM run_output_generations sibling "
+                    "WHERE sibling.run_id=? AND NOT EXISTS ("
+                    "SELECT 1 FROM results result WHERE result.run_id=sibling.run_id "
+                    "AND result.row_id=candidate.row_id "
+                    "AND result.column_id=sibling.column_id "
+                    "AND result.publication_effect IS NOT NULL))",
+                    (int(run_id),),
+                )
                 require_document_text_publication_key_table(
                     self.db,
                     run_id=int(run_id),
                     key_table=publication_key_table,
+                )
+                self.db.execute(
+                    "UPDATE results SET published=1 WHERE run_id=? AND (row_id,column_id) "
+                    f"IN (SELECT row_id,column_id FROM {publication_key_table})",
+                    (int(run_id),),
                 )
                 projected = self._upsert_heads_from_key_table_uncommitted(
                     run_id=int(run_id), key_table=publication_key_table
@@ -1216,10 +1422,10 @@ class ResultGenerationStore:
                 "result.publication_effect,result.value_kind,result.value,result.error,"
                 "result.error_code,result.outcome,result.review_state,"
                 "result.confidence,result.justification,result.warnings,run.op_id "
-                "FROM cell_result_heads head "
+                "FROM generated_result_candidates head "
                 "JOIN results result ON result.run_id=head.run_id "
                 "AND result.row_id=head.row_id "
-                "AND result.column_id=head.column_id "
+                "AND result.column_id=head.column_id AND result.published=1 "
                 "JOIN runs run ON run.id=head.run_id "
                 "WHERE head.column_id=?" + row_filter + " ORDER BY head.row_id",
                 params,
@@ -1276,7 +1482,7 @@ class ResultGenerationStore:
             return []
         if ordered_row_ids is None:
             rows = self.db.execute(
-                "SELECT DISTINCT run_id FROM cell_result_heads "
+                "SELECT DISTINCT run_id FROM generated_result_candidates "
                 "WHERE column_id=? ORDER BY run_id DESC LIMIT ?",
                 (int(column_id), int(limit)),
             ).fetchall()
@@ -1286,7 +1492,7 @@ class ResultGenerationStore:
         for row_id_batch in _chunks(ordered_row_ids):
             placeholders = ",".join("?" for _ in row_id_batch)
             rows = self.db.execute(
-                "SELECT DISTINCT run_id FROM cell_result_heads "
+                "SELECT DISTINCT run_id FROM generated_result_candidates "
                 f"WHERE column_id=? AND row_id IN ({placeholders}) "
                 "ORDER BY run_id DESC LIMIT ?",
                 (int(column_id), *row_id_batch, int(limit)),
@@ -1297,7 +1503,19 @@ class ResultGenerationStore:
     def has_mixed_origins(
         self, column_id: int, row_ids: Collection[int] | None = None
     ) -> bool:
-        return len(self.origin_run_ids(column_id, row_ids, limit=2)) > 1
+        """Whether actual current generated cells have multiple producing runs."""
+        from .current_read_sql import current_heads_sql
+
+        heads = current_heads_sql(self.db, [int(column_id)], row_ids)
+        return (
+            len(
+                self.db.execute(
+                    f"SELECT DISTINCT origin_run_id FROM {heads} "
+                    "WHERE origin_kind='run_result' AND outcome IN ('completed','failed') LIMIT 2"
+                ).fetchall()
+            )
+            > 1
+        )
 
     @contextmanager
     def _empty_key_table(self) -> Iterator[str]:
@@ -1329,7 +1547,7 @@ class ResultGenerationStore:
                         f"INSERT OR IGNORE INTO {table} (row_id,column_id) "
                         "SELECT row_id,column_id FROM results WHERE run_id=? "
                         f"AND column_id IN ({placeholders}) "
-                        "AND publication_effect IS NOT NULL",
+                        "AND publication_effect IN ('publish_value','publish_null','publish_error')",
                         (int(run_id), *column_batch),
                     )
             yield table
@@ -1437,7 +1655,7 @@ class ResultGenerationStore:
                 "AND generation.column_id=result.column_id "
                 "JOIN runs run ON run.id=generation.run_id "
                 "JOIN ops op ON op.id=run.op_id "
-                "WHERE result.publication_effect IS NOT NULL AND "
+                "WHERE result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
                 + document_text_result_eligibility_sql()
                 + " AND "
                 + _generation_publication_predicate(
@@ -1521,7 +1739,7 @@ class ResultGenerationStore:
                 "AND generation.column_id=result.column_id "
                 "JOIN runs run ON run.id=generation.run_id "
                 "JOIN ops op ON op.id=run.op_id "
-                "WHERE result.publication_effect IS NOT NULL AND "
+                "WHERE result.publication_effect IN ('publish_value','publish_null','publish_error') AND "
                 + document_text_result_eligibility_sql()
                 + " "
                 "AND "

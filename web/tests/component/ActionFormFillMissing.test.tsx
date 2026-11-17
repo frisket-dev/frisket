@@ -72,6 +72,7 @@ describe('generated resolve.fill_missing form', () => {
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run'));
 
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute.mock.calls[0][0].params).toEqual({
       source: 'agency', method: 'value', fill_value: 'Unknown', treat_blank_as_missing: true,
     });
@@ -81,6 +82,7 @@ describe('generated resolve.fill_missing form', () => {
     expect(screen.queryByTestId('field-fill_value')).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute.mock.calls[0][0].params).toEqual({
       source: 'agency', method: 'down', treat_blank_as_missing: true,
     });
@@ -100,9 +102,11 @@ describe('generated resolve.fill_missing form', () => {
     await waitFor(() => expect(screen.getByTestId('generated-action-preview')).toBeEnabled());
 
     fireEvent.click(screen.getByTestId('generated-action-preview'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute.mock.calls[0][0]).not.toHaveProperty('input_snapshot');
     fireEvent.click(screen.getByTestId('generated-action-run'));
 
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(2));
     expect(onExecute.mock.calls[1][0]).not.toHaveProperty('input_snapshot');
     expect(onExecute.mock.calls[1][0]).toMatchObject({
       action_id: 'resolve.fill_missing',

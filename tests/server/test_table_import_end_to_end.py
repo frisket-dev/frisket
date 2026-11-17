@@ -356,3 +356,153 @@ def test_reviewed_table_reaches_grid_errors_and_one_undo(tmp_path):
     project = app.state.workspace.get(pid)
     assert project.undo() is not None
     assert project.sheets() == []
+
+
+@pytest.mark.parametrize("busy_destination", [False, True])
+def test_typed_row_update_queues_compact_input_and_preserves_receipt(
+    tmp_path, busy_destination
+):
+    app = create_app(tmp_path / "workspace")
+    client = TestClient(app)
+    pid = client.post("/api/projects", json={"name": "Keyed updates"}).json()["id"]
+    drain_queue(client, worker_id="keyed-setup")
+    project = app.state.workspace.get(pid)
+    sheet = project.add_sheet("People")
+    columns = {name: project.add_column(sheet, name, "text") for name in ("id", "name")}
+    row = project.add_rows(sheet, [{"id": "a", "name": "Ada"}], columns)[0]
+    body = {
+        "action_id": "import.update_rows",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {
+            "columns": [{"name": name, "type": "text"} for name in columns],
+            "key_columns": ["id"],
+            "update_policy": "incoming_wins",
+            "rows": [{"id": "a", "name": "Augusta"}],
+        },
+        "idempotency_key": "typed-update-once",
+    }
+    if busy_destination:
+        busy = StreamingSheetWriter.start_append_session(
+            project,
+            session_id="other-import",
+            writer_authority="other-worker",
+            sheet_id=sheet,
+            columns=[{"name": "name", "type": "text"}],
+            project_id=pid,
+            action_kind="import.append_rows",
+            idempotency_key="other-import",
+            params_hash="hash:other",
+            action_id="act:other",
+            receipt_id="receipt:other",
+            source_ref={"kind": "inline"},
+        )
+        refused = client.post(f"/api/projects/{pid}/actions/v1/run", json=body)
+        assert refused.status_code == 409, refused.text
+        reserved = project.db.execute(
+            "SELECT id,status FROM receipts WHERE idempotency_key='typed-update-once'"
+        ).fetchone()
+        assert reserved["status"] == "queued"
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM import_sessions").fetchone()[0]
+            == 1
+        )
+        busy.finalize_session(expected_cursor=0, enumeration_complete=True)
+    response = client.post(f"/api/projects/{pid}/actions/v1/run", json=body)
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["status"] == "queued", result
+    if busy_destination:
+        assert result["receipt_id"] == reserved["id"]
+    job = app.state.workspace.queue.get(result["job_id"])
+    assert job.kind == "import.table.stream"
+    assert job.payload["action_job"]["action"]["params"]["rows"] == []
+    assert job.payload["action_job"]["action"]["params"]["staged_input"]
+    drain_queue(client, worker_id="typed-update-worker")
+    assert project.get_values(sheet, columns["name"])[row] == "Augusta"
+    from frisket.engine.store.receipts import ReceiptStore
+
+    receipt = ReceiptStore(project).parsed_by_id(result["receipt_id"])
+    assert receipt.status == "completed"
+    assert receipt.action_kind == "import.update_rows"
+    assert receipt.outputs[0].ref["kind"] == "updated_import_rows"
+    assert project.undo() == receipt.op_ids[0]
+    assert project.get_values(sheet, columns["name"])[row] == "Ada"
+
+
+@pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
+def test_busy_append_admission_leaves_only_queued_reservation(tmp_path, state):
+    client, project, base, draft_url, _request = _ready_paste(tmp_path)
+    sheet_id = project.add_sheet("Existing")
+    column_id = project.add_column(sheet_id, "name")
+    draft = client.get(draft_url).json()
+    response = client.patch(
+        f"{draft_url}/destination",
+        json={
+            "expected_revision": draft["revision"],
+            "destination": {"kind": "existing", "sheet_id": sheet_id},
+            "mappings": [
+                {
+                    "source_index": 0,
+                    "target": {"kind": "existing", "column_id": column_id},
+                }
+            ],
+            "dedup": {"enabled": False},
+        },
+    )
+    assert response.status_code == 200, response.text
+    request = {
+        "expected_revision": response.json()["revision"],
+        "idempotency_key": "busy-append",
+    }
+    writer = StreamingSheetWriter.start_append_session(
+        project,
+        session_id="busy",
+        writer_authority="busy-writer",
+        sheet_id=sheet_id,
+        columns=[{"name": "name", "type": "text"}],
+        project_id=base.rsplit("/", 1)[-1],
+        action_kind="import.append_rows",
+        idempotency_key="busy",
+        params_hash="sha256:busy",
+        action_id="act:busy",
+        receipt_id="receipt:busy",
+        source_ref={"kind": "inline"},
+    )
+    if state == "paused":
+        writer.pause(expected_cursor=0)
+    elif state == "cancelled":
+        writer.cancel(expected_cursor=0)
+    response = client.post(f"{draft_url}/commit", json=request)
+    assert response.status_code == 409, response.text
+    pending = project.db.execute(
+        "SELECT id,status,idempotency_key FROM receipts WHERE id!='receipt:busy'"
+    ).fetchall()
+    assert len(pending) == 1 and pending[0]["status"] == "queued"
+    assert project.db.execute("SELECT COUNT(*) FROM import_sessions").fetchone()[0] == 1
+    resume_url = f"{base}/import/files/sessions/{pending[0]['idempotency_key']}/resume"
+    assert client.post(resume_url).status_code == 409
+    writer.finalize_session(
+        expected_cursor=0,
+        keep_cancelled=state == "cancelled",
+        enumeration_complete=True,
+    )
+    retried = (
+        client.post(resume_url)
+        if state == "paused"
+        else client.post(f"{draft_url}/commit", json=request)
+    )
+    assert retried.status_code == 200, retried.text
+    assert (
+        project.db.execute(
+            "SELECT receipt_id FROM import_sessions WHERE id=?",
+            (retried.json()["import_ref"],),
+        ).fetchone()[0]
+        == pending[0]["id"]
+    )
+    drain_queue(client, worker_id="retry-busy-import")
+    assert (
+        project.db.execute(
+            "SELECT status FROM receipts WHERE id=?", (pending[0]["id"],)
+        ).fetchone()[0]
+        == "completed"
+    )

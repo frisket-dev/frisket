@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from typing import Any
 
@@ -62,6 +63,7 @@ def test_own_llm_admission_does_not_render_rows(
 
         recipe.render = counted_render
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys=keys,
             use_env_keys=False,
             cache_mode=cache_mode,

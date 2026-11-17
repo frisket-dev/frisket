@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 from pathlib import Path
 from typing import Any
 
@@ -88,7 +90,8 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     assert import_response.status_code == 200, import_response.text
     drain_queue(client, worker_id="notification-delivery-setup")
     drain_index(client.app.state.workspace.get(pid))
-    watch_response = client.post(
+    watch_response = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Budget watch",
@@ -98,6 +101,9 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     )
     assert watch_response.status_code == 200, watch_response.text
     watch = watch_response.json()
+    from watch_helpers import seed_empty_watch_baseline
+
+    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
     run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
@@ -458,3 +464,31 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
         assert provider.messages[0].title == "Hosted delivery"
     finally:
         project.close()
+
+
+def test_recovery_enqueues_delivery_planned_before_process_stopped(tmp_path):
+    from frisket.engine.jobs.notifications_delivery import (
+        reconcile_notification_delivery_requests,
+    )
+    from frisket.server.notifications.projections import emit_watch_run_notification
+
+    client = _client(tmp_path)
+    pid, refs, _events = _seed_watch_events(client)
+    channel = _create_email_channel(client, pid)
+    _create_route(client, pid, channel_id=channel["id"], watch_id=refs["watch"]["id"])
+    project = client.app.state.workspace.get(pid)
+    result = emit_watch_run_notification(
+        project, watch_id=refs["watch"]["id"], run_id=refs["run"]["id"]
+    )
+    request_id = result["planned_delivery_requests"][0]["id"]
+    assert project.notification_delivery_request(request_id)["job_id"] is None
+    workspace = client.app.state.workspace
+    reconcile_notification_delivery_requests(
+        workspace.queue, workspace_root=workspace.root
+    )
+    linked = project.notification_delivery_request(request_id)["job_id"]
+    assert linked is not None
+    reconcile_notification_delivery_requests(
+        workspace.queue, workspace_root=workspace.root
+    )
+    assert project.notification_delivery_request(request_id)["job_id"] == linked

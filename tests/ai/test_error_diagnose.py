@@ -15,6 +15,7 @@ Three things under test:
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -240,6 +241,7 @@ def test_remediation_details_never_carry_a_token_value():
     remediated details even for a connection failure against that origin."""
     canary_token = "sk-canary-remediation-must-never-echo"
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         local_endpoints=(
             LocalModelEndpointConfig(
                 endpoint_id="heavy",
@@ -248,7 +250,7 @@ def test_remediation_details_never_carry_a_token_value():
                 inference_token=canary_token,
                 source="env",
             ),
-        )
+        ),
     )
     exc = LLMError("transport error", retryable=True, transport_kind="connect")
     remediated = classify_llm_error(
@@ -316,7 +318,9 @@ def test_prepare_run_blocks_before_any_row_work_when_key_is_missing(
     try:
         sheet_id, _cols = _seed_sheet(project)
         spec = _classify_spec(sheet_id)
-        router = ModelRouter()  # no keys configured for any live provider
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY
+        )  # no keys configured for any live provider
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         confirmed_spec = _exactly_confirmed_spec(runner, spec)
         with pytest.raises(MissingProviderKey) as excinfo:
@@ -356,7 +360,11 @@ def test_replay_strict_golden_cache_run_is_not_treated_as_missing_key(tmp_path):
                 model=spec["model"],
             ),
         )
-        router = ModelRouter(cache=cache, cache_mode="replay_strict")  # no keys
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=cache,
+            cache_mode="replay_strict",
+        )  # no keys
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         progress = asyncio.run(run_with_output_claim(runner, spec, confirmed=True))
         assert progress.done and progress.failed == 0 and progress.completed == 1
@@ -372,6 +380,7 @@ def test_configured_local_model_never_hits_missing_provider_key(tmp_path):
         sheet_id, _cols = _seed_sheet(project)
         spec = _classify_spec(sheet_id, model="ollama/@desktop/llama3")
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             max_retries=0,
             local_endpoints=(
                 LocalModelEndpointConfig(
@@ -539,6 +548,7 @@ def test_diagnose_local_probe_receives_the_caller_router_not_a_bare_one(
 
     monkeypatch.setattr(provider_config, "ollama_reachable", probe)
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         local_endpoints=(
             LocalModelEndpointConfig(
                 endpoint_id="desk",
@@ -546,7 +556,7 @@ def test_diagnose_local_probe_receives_the_caller_router_not_a_bare_one(
                 origin="http://10.9.9.9:11434",
                 source="local_file",
             ),
-        )
+        ),
     )
     report = diagnostics.run_diagnostics(router=router)
     endpoint = report["info"]["local_model_endpoints"]["endpoints"][0]
@@ -579,6 +589,7 @@ def test_local_endpoint_report_sends_the_router_configured_bearer(monkeypatch):
     monkeypatch.setattr(provider_config, "ollama_reachable", probe)
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         local_endpoints=(
             LocalModelEndpointConfig(
                 endpoint_id="desk",
@@ -587,7 +598,7 @@ def test_local_endpoint_report_sends_the_router_configured_bearer(monkeypatch):
                 inference_token="secret-diag-token",
                 source="local_file",
             ),
-        )
+        ),
     )
     diagnostics.local_model_endpoints_report(router=router, timeout=0.2)
     assert seen == [("http://127.0.0.1:1", "secret-diag-token")]

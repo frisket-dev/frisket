@@ -5,6 +5,7 @@ map.ner), so this poke sets it directly on the live Project the app already
 holds (``app.state.workspace``) and asserts the HTTP payload reflects it."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from fastapi.testclient import TestClient
 
@@ -13,7 +14,9 @@ from frisket.server.app import create_app
 
 
 def _client(tmp_path) -> TestClient:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     return TestClient(create_app(tmp_path / "ws", router=router))
 
 

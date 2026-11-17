@@ -114,6 +114,7 @@ def test_every_project_action_has_exactly_one_host_owner() -> None:
     from frisket.actions.find_types import FindScanner
     from frisket.actions.group_summary_types import GroupSummarizer
     from frisket.actions.page_capture_types import PageCapturer
+    from frisket.actions.types import RetainedResultPublisher
 
     # Mirrors the owner table ``executor_actions.run_action_spec`` dispatches
     # project actions through.
@@ -134,6 +135,7 @@ def test_every_project_action_has_exactly_one_host_owner() -> None:
         lambda terminal: terminal.capabilities == (PageCapturer,),
         lambda terminal: terminal.capabilities == (GroupSummarizer,),
         lambda terminal: terminal.capabilities == (FindScanner,),
+        lambda terminal: terminal.capabilities == (RetainedResultPublisher,),
     )
     for registered, terminal in _project_actions():
         assert sum(supports(terminal) for supports in predicates) == 1, (

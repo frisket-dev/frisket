@@ -19,6 +19,7 @@ from urllib.parse import quote
 from frisket.authoring.action_metadata import action_available_in_edition
 from frisket.authoring.project_ask import default_project_ask_model
 from frisket.ai.embeddings.capabilities import resolve_embedding_capability
+from frisket.ai.models.metadata import provider_network_blocked
 from frisket.contracts.http.selector_choices import (
     ActionSelectorSubject,
     ProjectAskSelectorSubject,
@@ -1376,6 +1377,7 @@ class SelectorChoiceService:
                         "blocked_by_operation": blocked or operation,
                     }
             elif not available and active_target_id == CLOUDFLARE_CLEF_TARGET_ID:
+                status = "needs_setup"
                 setup = {
                     "kind": "instructions",
                     "title": "Connect Cloudflare",
@@ -1688,6 +1690,16 @@ class SelectorChoiceService:
                     "field": None,
                 }
         target, destination = _embedding_target(row)
+        if provider_network_blocked(
+            str(row.get("provider_kind") or ""), network_off=_network_off(project)
+        ):
+            status = "unavailable"
+            setup = None
+            blocker = {
+                "code": "project_network_off",
+                "message": "This project's network setting is off.",
+                "field": None,
+            }
         return _choice(
             selection={"kind": "embedding", "provider": provider, "model": model},
             label=str(row.get("label") or model or provider),

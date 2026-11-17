@@ -6,6 +6,7 @@ server route wraps it with the per-project router. No UI.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from fastapi.testclient import TestClient
 
@@ -150,7 +151,12 @@ def test_source_column_type_maps_to_modality():
 
 
 def _client(tmp_path):
-    return TestClient(create_app(tmp_path / "ws", router=ModelRouter(keys={})))
+    return TestClient(
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        )
+    )
 
 
 def test_route_returns_catalog(tmp_path, monkeypatch):

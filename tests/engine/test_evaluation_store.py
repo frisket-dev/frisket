@@ -4,8 +4,10 @@ from contextlib import closing
 
 import pytest
 
+from tests.engine.historical_schema import restore_pre_domain_schema
+
 from frisket.engine.store import Project
-from frisket.engine.store.evaluation_migration import (
+from frisket.upgrades.project.evaluation_migration import (
     EVALUATION_FROM_DIGEST,
     migrate_evaluation,
 )
@@ -20,6 +22,7 @@ TABLES = (
 
 
 def prior(project):
+    restore_pre_domain_schema(project.db)
     for table in TABLES:
         project.db.execute(f"DROP TABLE {table}")
     project.db.execute(

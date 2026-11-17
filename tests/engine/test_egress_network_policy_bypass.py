@@ -16,6 +16,7 @@ stored policy.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from typing import Any
@@ -37,7 +38,9 @@ def _client(tmp_path) -> TestClient:
     return TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
     )
 
@@ -171,7 +174,9 @@ def test_validate_spec_rejects_remote_engine_from_server_table(project) -> None:
     project.set_network_policy(mode="off")
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
     plan = _translate_plan(project, "deepl")
@@ -198,7 +203,9 @@ def test_validate_spec_allows_local_engine_under_off(project) -> None:
     project.set_network_policy(mode="off")
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
     plan = _translate_plan(project, "opus_mt")
@@ -233,7 +240,9 @@ def test_execute_row_reasserts_policy_for_direct_callers(project) -> None:
     project.set_network_policy(mode="off")
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
     plan = _translate_plan(project, "deepl")
@@ -241,7 +250,9 @@ def test_execute_row_reasserts_policy_for_direct_callers(project) -> None:
     from frisket.ops.base import OpContext
     from frisket.engine.runner.row_execution import execute_row
 
-    ctx = OpContext(project=project, http=None, extras={})
+    ctx = OpContext(
+        project=project, http=None, extras={"preview": True, "cancelled": lambda: False}
+    )
     with pytest.raises(NetworkDisabled):
         asyncio.run(
             execute_row(

@@ -233,7 +233,8 @@ def terminalize_project_run(
     try:
         run = db.execute(
             "SELECT runs.status, runs.finished_at, runs.current_attempt_id, "
-            "runs.cancel_requested_at, ops.spec AS runner_spec "
+            "runs.cancel_requested_at, ops.spec AS runner_spec, "
+            "ops.id AS op_id, ops.status AS change_status, ops.publication_closed "
             "FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
             (run_id,),
         ).fetchone()
@@ -286,6 +287,52 @@ def terminalize_project_run(
                         receipt_status=str(stored_row.status),
                         reason="receipt_identity_mismatch",
                     )
+                )
+
+        current_status = str(run["status"])
+        if (
+            current_status == "running"
+            and run["cancel_requested_at"] is not None
+            and isinstance(authority, CurrentWriterTerminalAuthority)
+            and terminal_run_status == "completed"
+        ):
+            if not commit:
+                # A family publisher may already have staged result DML in
+                # this caller-owned transaction. Refuse its success tuple so
+                # the caller rolls back before the existing cancel owner
+                # closes the receipt; never commit those rows as completed.
+                return complete(
+                    _result(
+                        "conflict",
+                        receipt_disposition="write_refused",
+                        run_status=current_status,
+                        receipt_status=(
+                            None if stored_row is None else stored_row.status
+                        ),
+                        reason="cancel_requested_before_successful_terminalization",
+                    )
+                )
+            status = "cancelled"
+            terminal_run_status = "cancelled"
+            cancellation_error = ActionError(
+                code="cancelled",
+                message="The run was stopped before terminalization.",
+                action_kind=(
+                    terminal_receipt.action_kind
+                    if terminal_receipt is not None
+                    else stored_receipt.action_kind
+                    if stored_receipt is not None
+                    else "unknown"
+                ),
+            )
+            errors = (cancellation_error,)
+            if terminal_receipt is not None:
+                terminal_receipt = terminal_receipt.model_copy(
+                    update={
+                        "status": "cancelled",
+                        "outputs": [],
+                        "errors": list(errors),
+                    }
                 )
 
         if terminal_receipt is not None:
@@ -401,23 +448,9 @@ def terminalize_project_run(
             ).fetchall()
         claimless = authority.claimless_direct_effect
         current_status = str(run["status"])
-        # A deferred action finalizer can still own a provisional MapRunner
-        # terminal status.  In particular, join.semantic leaves its exact
-        # attempt dispatching and its claim active after the map run records
-        # ``completed``; only then can the worker promote a persisted provider
-        # failure to the action's honest ``failed`` outcome.  No recovery or
-        # unclaimed authority may reclassify a terminal run.
-        current_writer_reclassification = bool(
-            isinstance(authority, CurrentWriterTerminalAuthority)
-            and current_status in {"completed", "failed", "cancelled"}
-            and current_status != terminal_run_status
-            and stored_row is not None
-            and stored_row.status in {"queued", "running"}
-        )
-        if (
-            current_status not in {"running", terminal_run_status}
-            and not current_writer_reclassification
-        ):
+        # Coupled publication keeps the run running until the same transaction
+        # lands its receipt. A terminal run is never a provisional state.
+        if current_status not in {"running", terminal_run_status}:
             return complete(
                 _result(
                     "conflict",
@@ -429,11 +462,15 @@ def terminalize_project_run(
             )
 
         authority_attempt_id: str | None = None
+        closed_cancellation = False
         if isinstance(authority, CurrentWriterTerminalAuthority):
             authority_attempt_id = authority.writer_attempt_id
             try:
-                OutputColumnClaimStore.require_current_writer(
-                    db,
+                from frisket.engine.store.run_lifecycle import require_terminal_writer
+
+                closed_cancellation = require_terminal_writer(
+                    project,
+                    terminal_status=terminal_run_status,
                     run_id=run_id,
                     writer_attempt_id=authority.writer_attempt_id,
                     claim_token=authority.claim_token,
@@ -466,22 +503,6 @@ def terminalize_project_run(
                             None if stored_row is None else stored_row.status
                         ),
                         reason=str(exc),
-                    )
-                )
-            if run["current_attempt_id"] != authority.writer_attempt_id:
-                return complete(
-                    _result(
-                        "conflict",
-                        receipt_disposition="write_refused",
-                        run_status=current_status,
-                        receipt_status=(
-                            None if stored_row is None else stored_row.status
-                        ),
-                        reason=(
-                            "current_writer_authority_not_proven: "
-                            f"run holder {run['current_attempt_id']!r} does not "
-                            f"match writer {authority.writer_attempt_id!r}"
-                        ),
                     )
                 )
         elif isinstance(authority, AbandonedAttemptRecoveryAuthority):
@@ -810,6 +831,7 @@ def terminalize_project_run(
             and stored_row is not None
             and stored_row.status in {"queued", "running"}
             and not isinstance(authority, NeverDispatchedRunTerminalAuthority)
+            and not closed_cancellation
         ):
             return complete(
                 _result(
@@ -870,8 +892,9 @@ def terminalize_project_run(
                     f"expected {len(pending_attempt_ids)}, closed "
                     f"{pending_update.rowcount}"
                 )
+        run_status_written = False
         if not isinstance(authority, ReceiptOnlyOrphanAuthority) and (
-            current_status == "running" or current_writer_reclassification
+            current_status == "running"
         ):
             current_writer_id = (
                 authority.writer_attempt_id
@@ -895,6 +918,7 @@ def terminalize_project_run(
                     "project-run terminal status write refused: "
                     f"run {run_id} did not leave {current_status}"
                 )
+            run_status_written = True
 
         from frisket.engine.store.result_generations import ResultGenerationStore
 
@@ -908,6 +932,15 @@ def terminalize_project_run(
         declared_bindings = generation_store.bindings_for_run(run_id)
         if any(binding.state != "sealed" for binding in declared_bindings):
             claim_tokens = {str(row["claim_token"]) for row in active_claims}
+            if not claim_tokens and (
+                str(run["change_status"]) != "applied"
+                or bool(run["publication_closed"])
+            ):
+                claim_tokens = {
+                    binding.claim_token
+                    for binding in declared_bindings
+                    if binding.state != "sealed"
+                }
             if len(claim_tokens) != 1:
                 raise RuntimeError(
                     "open result generation terminalization requires one exact claim"
@@ -917,22 +950,36 @@ def terminalize_project_run(
             # disposition, so this stays correct even if a partially-sealed
             # run ever becomes durably observable (a mismatched prior
             # disposition still refuses loudly inside seal()).
+            stale_claimed_output_name = (
+                db.execute(
+                    "SELECT 1 FROM output_column_claims claim "
+                    "JOIN columns column ON column.id=claim.column_id "
+                    "WHERE claim.run_id=? AND claim.status='active' "
+                    "AND claim.output_name<>column.name LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                is not None
+            )
+            stale_name_terminal_close = stale_claimed_output_name and not isinstance(
+                authority, CurrentWriterTerminalAuthority
+            )
             generation_store.seal(
                 run_id,
                 [binding.column_id for binding in declared_bindings],
                 claim_token=claim_tokens.pop(),
                 terminal_disposition=terminal_run_status,
-                # A pre-dispatch target rename invalidates the queued action,
-                # but it must not strand the exact prepared run/receipt/claim.
-                # NeverDispatched authority has already proven no effect could
-                # publish; permit only this terminal close to ignore name drift.
-                allow_stale_output_name=isinstance(
-                    authority, NeverDispatchedRunTerminalAuthority
-                ),
-                # Only the host's coupled finalizer may expose these heads.
-                # Read its durable declaration, never the worker/job payload.
+                # A pre-dispatch refusal can follow a target rename. The exact
+                # prepared attempt and active claim still authorize closing
+                # this generation, while name drift must not strand its
+                # receipt. No result head is published on this path.
+                allow_stale_output_name=stale_name_terminal_close,
+                # The durable deferred-publication declaration keeps staged
+                # output families unpublished until their coupled finalizer.
+                # Ordinary active generations retain their per-row outcomes,
+                # including already-published rows when Stop closes the Change.
                 publish=(
                     publication_refusal is None
+                    and not stale_claimed_output_name
                     and json.loads(run["runner_spec"]).get("deferred_publication")
                     is not True
                 ),
@@ -948,6 +995,59 @@ def terminalize_project_run(
                     generation_store.rebuild_heads_from_key_table(
                         key_table, commit=False
                     )
+
+        deferred_publication = (
+            json.loads(run["runner_spec"]).get("deferred_publication") is True
+        )
+        if (
+            run_status_written
+            and terminal_run_status != "cancelled"
+            and declared_bindings
+            and not deferred_publication
+        ):
+            # Prepared and recovery terminal paths share the ordinary
+            # finalizer's visibility rule unless a coupled publisher owns
+            # publication and visibility for this run.
+            from frisket.engine.runner.column_retirement import (
+                hide_zero_success_created_columns,
+                reveal_recovered_columns,
+            )
+            from frisket.engine.runner.finalization import (
+                zero_success_created_columns_for_run,
+            )
+            from frisket.engine.store.runs import RunResultStore
+
+            output_columns = {
+                str(int(binding.column_id)): int(binding.column_id)
+                for binding in declared_bindings
+            }
+            zero_success = zero_success_created_columns_for_run(
+                project,
+                RunResultStore(project),
+                run_id,
+                int(run["op_id"]),
+                output_columns,
+            )
+            if zero_success:
+                hide_zero_success_created_columns(
+                    project,
+                    int(run["op_id"]),
+                    output_columns,
+                    only_columns=zero_success,
+                )
+            reveal_recovered_columns(
+                project,
+                int(run["op_id"]),
+                output_columns,
+                still_zero_success=zero_success,
+            )
+
+        if run_status_written or isinstance(authority, CurrentWriterTerminalAuthority):
+            # The ordinary finisher and every recovery/admin terminal path
+            # share one transactional Change close plus scope invalidation.
+            from frisket.engine.store.run_lifecycle import close_run_change
+
+            close_run_change(project, run_id)
 
         receipt_disposition: ReceiptDisposition
         if receipt_source_statuses is None:
@@ -1018,6 +1118,17 @@ def terminalize_project_run(
                     "project-run terminal claim release refused: "
                     f"expected {len(active_claims)}, released {released}"
                 )
+
+        if receipt_disposition != "missing":
+            refresh_targets = db.execute(
+                "SELECT id FROM sheets WHERE refresh_claim_token=? ORDER BY id",
+                (receipt_id,),
+            ).fetchall()
+            if refresh_targets:
+                from .sheet_refresh_ownership import release_refresh_claim
+
+                for target in refresh_targets:
+                    release_refresh_claim(project, int(target["id"]), receipt_id)
 
         final_run = db.execute(
             "SELECT status, finished_at FROM runs WHERE id=?", (run_id,)

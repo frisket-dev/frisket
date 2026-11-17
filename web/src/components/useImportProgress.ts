@@ -198,6 +198,7 @@ export interface ImportProgressController {
   resume(activity: ImportActivity): void;
   stop(activity: ImportActivity): Promise<void>;
   keep(activity: ImportActivity): void;
+  remove(activity: ImportActivity): void;
 }
 
 export interface ImportProgressChange {
@@ -404,12 +405,11 @@ export function useImportProgress({ projectId, onChanged, onError }: {
         preparationGeneration.current += 1;
         setPreparingRef(null);
       }
-      return command(activity.session, async () => {
-        const cancelled = await cancelImportSession(projectId, activity.importRef);
-        return cancelled.state === 'cancelled'
-          ? resolveImportSession(projectId, activity.importRef, 'keep')
-          : cancelled;
-      });
+      return command(activity.session, () => cancelImportSession(projectId, activity.importRef));
+    },
+    remove(activity) {
+      if (activity.session.state !== 'cancelled') return;
+      void command(activity.session, () => resolveImportSession(projectId, activity.importRef, 'remove'));
     },
     keep(activity) {
       void command(activity.session, () => (
@@ -478,7 +478,7 @@ export function composeImportSearchActivity(
       tone: failed ? 'error' : recovering ? 'warning' : 'active',
       title: session.error
         ? session.selected_total !== null ? 'PDF preparation failed' : 'Import failed'
-        : recovering ? 'Import interrupted' : 'Preparing search',
+        : session.state === 'cancelled' ? 'Import cancelled' : recovering ? 'Import interrupted' : 'Preparing search',
       detail: session.error ?? (recovering
         ? `${session.committed_rows.toLocaleString()} rows added`
         : readingOcr && ocrLine
@@ -512,7 +512,7 @@ function composeTableImportActivity(
       stopBatchId: activity.canStop ? session.import_ref : null,
       stage: session.error ? 'failed' : 'prepare',
       tone: session.error ? 'error' : activity.needsRecovery || session.state === 'kept' ? 'warning' : finished ? 'complete' : 'active',
-      title: `${session.state === 'kept' ? 'Import stopped:' : finished ? 'Imported' : 'Importing'} ${session.source_label ?? session.sheet_name}`,
+      title: `${session.state === 'cancelled' ? 'Import cancelled:' : session.state === 'kept' ? 'Import stopped:' : finished ? 'Imported' : 'Importing'} ${session.source_label ?? session.sheet_name}`,
       detail,
       progress: null,
       details: session.source_label ? [session.source_label] : [],

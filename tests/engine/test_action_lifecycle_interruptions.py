@@ -86,7 +86,7 @@ def _invoke_begin_boundary(project, boundary, monkeypatch):
             action,
             project_id="p",
             params_hash="hash",
-            perform_fn=lambda *_args, **_kwargs: pytest.fail("perform must not run"),
+            perform_fn=lambda *_args, **_kwargs: SimpleNamespace(status="completed"),
         )
     monkeypatch.setattr(
         lifecycle,
@@ -131,6 +131,47 @@ def _interrupt_begin(project, monkeypatch, error, *, after):
             if sql == "BEGIN IMMEDIATE":
                 assert db.in_transaction
                 raise error
+            return result
+
+    class InterruptedConnection:
+        def __getattr__(self, name):
+            return getattr(db, name)
+
+        def cursor(self):
+            return InterruptedCursor(db.cursor())
+
+        def execute(self, sql, *args):
+            return self.cursor().execute(sql, *args)
+
+    connection = InterruptedConnection()
+    monkeypatch.setattr(
+        Project,
+        "db",
+        property(
+            lambda self: connection if self is project else original_db.fget(self)
+        ),
+    )
+
+
+def _interrupt_savepoint(project, monkeypatch, error, *, after):
+    original_db = Project.db
+    db = project.db
+
+    class InterruptedCursor:
+        def __init__(self, cursor):
+            self.cursor = cursor
+
+        def __getattr__(self, name):
+            return getattr(self.cursor, name)
+
+        def execute(self, sql, *args):
+            if sql.startswith("SAVEPOINT plain_action_write_") and not after:
+                raise error
+            result = self.cursor.execute(sql, *args)
+            if sql.startswith("SAVEPOINT plain_action_write_"):
+                assert db.in_transaction
+                if after:
+                    raise error
             return result
 
     class InterruptedConnection:
@@ -246,7 +287,10 @@ def test_failed_begin_preserves_callers_pending_transaction(
     before = _snapshot(project)
     if failure is not None:
         error = failure("interrupted before BEGIN")
-        _interrupt_begin(project, monkeypatch, error, after=False)
+        if boundary == "perform":
+            _interrupt_savepoint(project, monkeypatch, error, after=False)
+        else:
+            _interrupt_begin(project, monkeypatch, error, after=False)
         with pytest.raises(failure) as caught:
             _invoke_begin_boundary(project, boundary, monkeypatch)
         assert caught.value is error
@@ -257,6 +301,8 @@ def test_failed_begin_preserves_callers_pending_transaction(
         result = _invoke_begin_boundary(project, boundary, monkeypatch)
         if boundary == "delete":
             assert result is None
+        elif boundary == "perform":
+            assert result.status == "completed"
         else:
             assert result.status == "failed"
             assert result.errors[0].code == "project_write_failed"
@@ -285,7 +331,10 @@ def test_failed_begin_cleans_already_staged_export(
         project.db.execute("UPDATE sheets SET name='Caller edit'")
     before = _snapshot(project)
     error = failure("database is locked")
-    _interrupt_begin(project, monkeypatch, error, after=False)
+    if caller_owned:
+        _interrupt_savepoint(project, monkeypatch, error, after=False)
+    else:
+        _interrupt_begin(project, monkeypatch, error, after=False)
 
     def invoke():
         return lifecycle._run_in_txn_idempotent_perform(
@@ -314,6 +363,69 @@ def test_failed_begin_cleans_already_staged_export(
     assert _snapshot(project) == before
     project.db.commit()
     assert _snapshot(project) == before
+
+
+@pytest.mark.parametrize("after", [False, True])
+def test_failed_nested_savepoint_preserves_parent_and_cleans_staged_export(
+    project, tmp_path, monkeypatch, after
+):
+    project.db.execute("BEGIN IMMEDIATE")
+    project.db.execute("SAVEPOINT plain_action_write")
+    project.db.execute("UPDATE sheets SET name='Caller edit'")
+    pending = _snapshot(project)
+    destination = tmp_path / "nested-work-log.md"
+    resolved = exports._resolve_work_log(
+        project,
+        path=str(destination),
+        include_receipts=False,
+        project_id="p",
+    )
+    assert resolved.tmp_path.is_file()
+    error = RuntimeError("interrupted around SAVEPOINT")
+    _interrupt_savepoint(project, monkeypatch, error, after=after)
+
+    result = lifecycle._run_in_txn_idempotent_perform(
+        project,
+        _action(),
+        project_id="p",
+        params_hash="hash",
+        perform_fn=lambda *args, **kwargs: pytest.fail(
+            "failed SAVEPOINT must not perform"
+        ),
+        cleanup_resolved_fn=exports._cleanup,
+        resolved=resolved,
+    )
+
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert not resolved.tmp_path.exists()
+    assert not destination.exists()
+    assert project.db.in_transaction
+    assert _snapshot(project) == pending
+    project.db.rollback()
+
+
+def test_nested_action_commit_that_escapes_savepoint_fails_loudly(project):
+    project.db.execute("BEGIN IMMEDIATE")
+    project.db.execute("SAVEPOINT caller_work")
+    project.db.execute("UPDATE sheets SET name='Caller edit'")
+
+    def commit_caller_transaction(cur, **_kwargs):
+        cur.execute("UPDATE rows SET position=position+1")
+        project.db.commit()
+        return SimpleNamespace(status="completed")
+
+    with pytest.raises(RuntimeError, match="escaped its savepoint"):
+        lifecycle._run_in_txn_idempotent_perform(
+            project,
+            _action(),
+            project_id="p",
+            params_hash="hash",
+            perform_fn=commit_caller_transaction,
+        )
+
+    assert not project.db.in_transaction
+    assert project.db.execute("SELECT name FROM sheets").fetchone()[0] == "Caller edit"
 
 
 @pytest.mark.parametrize("failure", FAILURES)

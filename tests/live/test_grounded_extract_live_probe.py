@@ -24,6 +24,7 @@ Run it explicitly (spends sub-cent real money):
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import os
 import shutil
@@ -146,7 +147,11 @@ def test_grounded_extract_live_probe(tmp_path: Path, run_index: int) -> None:
             "idempotency_key": f"map_extract@sha256:live-probe-{run_index}",
         }
 
-        router = ModelRouter(cache=ResponseCache(":memory:"), cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=ResponseCache(":memory:"),
+            cache_mode="off",
+        )
         result = run_action_spec(
             project,
             action,

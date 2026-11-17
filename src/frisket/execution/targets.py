@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field as PydanticField
 from frisket.contracts.actions.schemas._engines import (
     CensusTransport,
     ClassifyTransport,
+    NerTransport,
     GeocodeTransport,
     OcrTransport,
     ToMarkdownTransport,
@@ -35,6 +36,7 @@ from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 # serves, so "which target can run this" is a declaration lookup rather than
 # an assumption that every engine id in the tree is a transcription engine.
 CAPABILITY_TRANSCRIBE = "transcribe"
+CAPABILITY_NER = "ner"
 CAPABILITY_OCR = "ocr"
 #: Each names the work, not the venue or the unit: the token is
 #: what a receipt says the user's data was sent off to have done to it, so
@@ -65,6 +67,7 @@ CAPABILITY_LLM = "llm.complete"
 EXECUTION_CAPABILITIES: frozenset[str] = frozenset(
     {
         CAPABILITY_TRANSCRIBE,
+        CAPABILITY_NER,
         CAPABILITY_OCR,
         CAPABILITY_TRANSLATE,
         CAPABILITY_CLASSIFY,
@@ -133,6 +136,7 @@ Transport = Union[
     GeocodeTransport,
     CensusTransport,
     ClassifyTransport,
+    NerTransport,
     Literal["frisket.cloud.llm.v1"],
 ]
 
@@ -154,8 +158,15 @@ CAPABILITY_TRANSPORTS: dict[str, frozenset[str]] = {
     CAPABILITY_GEOCODE: frozenset(get_args(GeocodeTransport)),
     CAPABILITY_CENSUS: frozenset(get_args(CensusTransport)),
     CAPABILITY_CLASSIFY: frozenset(get_args(ClassifyTransport)),
+    CAPABILITY_NER: frozenset(get_args(NerTransport)),
     CAPABILITY_LLM: frozenset({"remote", "frisket.cloud.llm.v1"}),
 }
+
+
+class NerOptionSupport(BaseModel):
+    """Both NER engines accept the authored labels and score threshold."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
 
 class ClassifyOptionSupport(BaseModel):
@@ -295,6 +306,7 @@ OptionSupport = Union[
     GeocodeOptionSupport,
     CensusOptionSupport,
     ClassifyOptionSupport,
+    NerOptionSupport,
     LLMOptionSupport,
 ]
 
@@ -310,6 +322,7 @@ CAPABILITY_OPTION_SUPPORT: dict[str, type] = {
     CAPABILITY_GEOCODE: GeocodeOptionSupport,
     CAPABILITY_CENSUS: CensusOptionSupport,
     CAPABILITY_CLASSIFY: ClassifyOptionSupport,
+    CAPABILITY_NER: NerOptionSupport,
     CAPABILITY_LLM: LLMOptionSupport,
 }
 

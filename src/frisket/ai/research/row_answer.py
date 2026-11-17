@@ -13,15 +13,9 @@ from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
 from frisket.ai.llm.structured import FrisketRouterModel, _content_to_pai
-from frisket.ai.llm.types import LLMResponse
-from frisket.ai.models.metadata import ModelCallMeta, PROVIDER_KIND
+from frisket.ai.models.accounting import wire_accounting_meta as model_call_accounting
 from frisket.ai.research.recorder import ResearchRecorder, redact_research_text
-from frisket.ai.research.search import (
-    SearchProviderError,
-    SearchResponse,
-    SearchService,
-)
-from frisket.local_model_ids import bare_model_name
+from frisket.ai.research.search import SearchResponse
 from frisket.ops.base import render_input_block
 
 MAX_STEPS = 5
@@ -329,82 +323,6 @@ def _row_error(
     )
 
 
-def model_call_accounting(engine: str, wire_calls: list[LLMResponse]) -> dict[str, Any]:
-    """Every wire attempt this run made (``FrisketRouterModel.wire_calls``)
-    becomes the same ``model_calls``/tokens/cost receipt shape the old
-    per-step loop built inline, now built once after the run completes."""
-    model_id = bare_model_name(engine)
-    tokens = {"in": 0, "out": 0, "cost": 0.0}
-    model_calls: list[dict[str, Any]] = []
-    for resp in wire_calls:
-        units = {"tokens_in": resp.tokens_in, "tokens_out": resp.tokens_out}
-        if resp.cached:
-            model_call = ModelCallMeta.cache_hit(
-                capability="llm.complete",
-                engine=engine,
-                provider=resp.provider,
-                provider_kind=PROVIDER_KIND.get(resp.provider, "platform_api"),
-                model_ids=[model_id or engine],
-                units=units,
-                warnings=[],
-            ).as_dict()
-        elif resp.actual_accounting is not None:
-            model_calls.extend(
-                dict(model_call) for model_call in resp.actual_accounting.model_calls
-            )
-            model_call = None
-        else:
-            model_call = ModelCallMeta.provider_call(
-                capability="llm.complete",
-                engine=engine,
-                provider=resp.provider,
-                provider_kind=PROVIDER_KIND.get(resp.provider, "platform_api"),
-                model_ids=[model_id or engine],
-                credential_source=resp.credential_source,
-                provider_reported_cost_usd=resp.cost,
-                provider_cost_usd=resp.cost,
-                units=units,
-                cost_source=resp.cost_source,
-                warnings=[],
-                # The router already measured this live wire call; carry
-                # it by value rather than reporting an honest-looking but
-                # false NULL.
-                duration_ms=resp.duration_ms,
-            ).as_dict()
-        if model_call is not None:
-            model_calls.append(model_call)
-        tokens["in"] += resp.tokens_in
-        tokens["out"] += resp.tokens_out
-        # resp.cost None = unpriced model; one unknown call makes the
-        # row's total unknown (None), never silently $0
-        if resp.cached:
-            pass  # cache hits bill nothing
-        elif resp.actual_accounting is not None:
-            if resp.actual_accounting.cost is None:
-                tokens["cost"] = None
-            elif tokens["cost"] is not None:
-                tokens["cost"] += resp.actual_accounting.cost
-        elif resp.cost is None:
-            tokens["cost"] = None
-        elif tokens["cost"] is not None:
-            tokens["cost"] += resp.cost
-    result = {
-        "tokens_in": tokens["in"],
-        "tokens_out": tokens["out"],
-        "cost": tokens["cost"],
-        "model_calls": model_calls,
-    }
-    receipts = [
-        dict(receipt)
-        for resp in wire_calls
-        if not resp.cached and resp.actual_accounting is not None
-        for receipt in resp.actual_accounting.receipts
-    ]
-    if receipts:
-        result["execution_receipts"] = receipts
-    return result
-
-
 def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
     usage = response.usage
     quote = usage.quote
@@ -431,31 +349,6 @@ def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
             else None
         ),
     }
-
-
-async def search_web_results(
-    query: str,
-    *,
-    service: SearchService | None = None,
-    timeout: float = FETCH_TIMEOUT_SECONDS,
-) -> SearchResponse:
-    """Search through the shared adapter without discarding usage metadata."""
-    selected = service or SearchService(preference="ddgs", effective_keys={})
-    return await selected.search(query, max_results=6, timeout=timeout)
-
-
-async def search_web(
-    query: str,
-    *,
-    service: SearchService | None = None,
-    timeout: float = FETCH_TIMEOUT_SECONDS,
-) -> ResearchSearchObservation:
-    """Return a model observation, citations, and provider usage by value."""
-    try:
-        response = await search_web_results(query, service=service, timeout=timeout)
-    except SearchProviderError as exc:
-        raise RuntimeError(str(exc)) from exc
-    return search_observation(query, response)
 
 
 def search_observation(

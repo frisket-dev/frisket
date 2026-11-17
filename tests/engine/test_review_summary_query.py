@@ -5,7 +5,7 @@ from pathlib import Path
 from frisket.engine.runner.review import review_bundle_count
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.value_codec import encode_stored_value
+from helpers import write_claimed_test_results
 
 
 def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
@@ -33,19 +33,14 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
             row_ids=row_ids,
             total_rows=len(row_ids),
         )
-        project.db.executemany(
-            "INSERT INTO results "
-            "(run_id,row_id,column_id,value_kind,value,outcome) "
-            "VALUES (?,?,?,?,?,?)",
+        write_claimed_test_results(
+            project,
+            run_id,
             [
-                (run_id, row_id, column_id, *encode_stored_value("value"), "ok")
+                {"row_id": row_id, "column_id": column_id, "value": "value"}
                 for row_id in row_ids
                 for column_id in (answer_id, category_id, support_id)
             ],
-        )
-        project.db.execute(
-            "UPDATE columns SET current_run_id=? WHERE id IN (?,?,?)",
-            (run_id, answer_id, category_id, support_id),
         )
         RunResultStore(project).finish_run(run_id)
 
@@ -82,21 +77,16 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
             row_ids=[hidden_row_id],
             total_rows=1,
         )
-        project.db.execute(
-            "INSERT INTO results "
-            "(run_id,row_id,column_id,value_kind,value,outcome) "
-            "VALUES (?,?,?,?,?,?)",
-            (
-                hidden_run_id,
-                hidden_row_id,
-                hidden_output_id,
-                *encode_stored_value("value"),
-                "ok",
-            ),
-        )
-        project.db.execute(
-            "UPDATE columns SET current_run_id=? WHERE id=?",
-            (hidden_run_id, hidden_output_id),
+        write_claimed_test_results(
+            project,
+            hidden_run_id,
+            [
+                {
+                    "row_id": hidden_row_id,
+                    "column_id": hidden_output_id,
+                    "value": "value",
+                }
+            ],
         )
         RunResultStore(project).finish_run(hidden_run_id)
         project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (hidden_sheet_id,))

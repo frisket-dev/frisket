@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,7 +15,9 @@ def project_client(tmp_path):
     client = TestClient(
         create_app(
             tmp_path / "workspace",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
     )
     project_id = client.post("/api/projects", json={"name": "Typed estimate"}).json()[

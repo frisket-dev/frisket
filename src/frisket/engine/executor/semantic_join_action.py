@@ -9,7 +9,6 @@ from types import MappingProxyType
 from frisket.contracts.action import ActionError, ReceiptEvidence, ReceiptIO
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
-    _finalize_reserved_action_receipt,
     _output_claim_token,
     _receipt_for_idempotency,
 )
@@ -31,7 +30,7 @@ from frisket.engine.runner.row_inputs import row_source_snapshot
 from frisket.engine.store.cell_writes import create_base_cell_producer
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
+from frisket.execution.attempt import StaleAttemptWriter
 
 
 def _resolve(project, bound, spec, router, *, admission=True):
@@ -254,15 +253,37 @@ def _materialize(
     sheet_id = state["source"]["sheet_id"]
     target_id = state["target"]["sheet_id"]
     names = state["child_names"]
+    from frisket.engine.store.consumed_sources import (
+        capture_read_scope,
+        capture_retained_results,
+        merge_captures,
+        store_capture,
+    )
+
+    prior_captures = []
+    if existing_child_id is not None:
+        prior_captures = [
+            json.loads(row["capture_json"])
+            for row in project.db.execute(
+                "SELECT b.capture_json FROM consumed_source_bundles b JOIN ops op ON op.id=b.owner_op_id "
+                "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND b.row_id IS NULL AND op.status='applied' "
+                "AND instr(b.capture_key,':shared:')=0 AND b.owner_op_id=("
+                "SELECT b2.owner_op_id FROM consumed_source_bundles b2 JOIN ops op2 ON op2.id=b2.owner_op_id "
+                "WHERE b2.output_sheet_id=b.output_sheet_id AND b2.kind='aggregate' AND b2.row_id IS NULL "
+                "AND instr(b2.capture_key,':shared:')=0 AND op2.status='applied' AND op2.change_order IS NOT NULL "
+                "ORDER BY op2.change_order DESC,b2.id DESC LIMIT 1)",
+                (existing_child_id,),
+            )
+        ]
     output_ids = {
         binding.output_role: binding.column_id
         for binding in ResultGenerationStore(project).bindings_for_run(run["id"])
     }
     values = {
         key: project.get_values(
-            sheet_id, output_ids[name], row_ids=state["source"]["row_ids"]
+            sheet_id, output_ids[key], row_ids=state["source"]["row_ids"]
         )
-        for key, name in plan.output_names.items()
+        for key in plan.output_names
     }
     copied = {
         "source": state["source_column"],
@@ -287,6 +308,34 @@ def _materialize(
                 values[key][row["parent_row_id"]] = previous_values.get(row["id"])
         if copied_values is not None:
             values[key].update(copied_values[key])
+    # These are the exact source/carry/result reads used by this publication,
+    # inside its existing writer transaction. Saved matches retain their actual
+    # comparison inputs rather than inventing a current target snapshot.
+    capture = merge_captures(
+        [
+            *prior_captures,
+            capture_read_scope(
+                project,
+                sheet_id,
+                [
+                    *(column["id"] for column in copied.values()),
+                    *output_ids.values(),
+                ],
+                state["source"]["row_ids"],
+            ),
+            capture_retained_results(
+                project,
+                sheet_id,
+                output_ids["match_value"],
+                run["id"],
+                state["source"]["row_ids"],
+            ),
+        ]
+    )
+    if existing_child_id is not None and not prior_captures:
+        # An older child without consumed identities cannot acquire invented
+        # historical certainty merely because a later delta was backfilled.
+        capture["incomplete"] = True
     op_id = project.append_op(
         "derive",
         {
@@ -305,6 +354,9 @@ def _materialize(
         label=f"semantic join {state['source']['name']} → {state['target']['name']}",
         commit=False,
     )
+    from frisket.engine.store.changes import ChangeStore, start_change
+
+    start_change(project.db, op_id, writing=True)
     producer_id = create_base_cell_producer(
         project.db, stage_id=f"op:{op_id}", op_id=op_id
     )
@@ -316,6 +368,7 @@ def _materialize(
             parent_sheet_id=sheet_id,
             parent_op_id=op_id,
             commit=False,
+            close_change=False,
         )
     else:
         old_rows = project.visible_row_ids(child_id)
@@ -361,6 +414,8 @@ def _materialize(
         },
         commit=False,
     )
+    store_capture(project, capture, owner_op_id=op_id, output_sheet_id=child_id)
+    ChangeStore(project).close(op_id)
     edges = [
         {
             "child_row_id": child,
@@ -397,13 +452,14 @@ def finalize_semantic_join(
     run_id = int(kwargs["run_id"])
     claim = kwargs.get("claim_token")
     writer = kwargs.get("writer_attempt_id")
+    terminal_status = kwargs.get("terminal_status", "completed")
     receipt_id = kwargs["receipt_id"]
     if writer is None or claim != _output_claim_token(receipt_id):
         raise StaleAttemptWriter(
             "semantic join finalization needs its exact writer claim"
         )
 
-    def abort(code, message):
+    def abort(code, message, *, status="failed", commit=True):
         from frisket.engine.executor.project_run_terminalization import (
             CurrentWriterTerminalAuthority,
             terminalize_project_run,
@@ -414,11 +470,14 @@ def finalize_semantic_join(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
-            status="failed",
+            status=status,
             authority=CurrentWriterTerminalAuthority(
                 writer_attempt_id=writer, claim_token=claim
             ),
-            errors=[ActionError(code=code, message=message, action_kind=action.kind)],
+            errors=[ActionError(code=code, message=message, action_kind=action.kind)]
+            if code
+            else [],
+            commit=commit,
         )
         if outcome.disposition not in {"terminalized", "already_terminal"}:
             raise StaleAttemptWriter(
@@ -429,6 +488,8 @@ def finalize_semantic_join(
     from frisket.ops.base import persisted_recipe_invocation_halt
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    if run["cancel_requested_at"] is not None:
+        return abort(None, None, status="cancelled")
     if halt := persisted_recipe_invocation_halt(run["params"]):
         return abort(*halt)
     plan = replace(
@@ -438,6 +499,11 @@ def finalize_semantic_join(
     )
     try:
         project.db.execute("BEGIN IMMEDIATE")
+        run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        if run["cancel_requested_at"] is not None:
+            result = abort(None, None, status="cancelled", commit=False)
+            project.db.commit()
+            return result
         column_ids = OutputColumnClaimStore(project).active_column_ids(
             claim_token=claim, run_id=run_id
         )
@@ -456,7 +522,7 @@ def finalize_semantic_join(
                 "semantic join result sheet name was taken after admission"
             )
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-        if run["status"] not in {"completed", "failed", "cancelled"}:
+        if terminal_status not in {"completed", "failed", "cancelled"}:
             raise ValueError(
                 "semantic join rows have not reached a terminal checkpoint"
             )
@@ -490,7 +556,7 @@ def finalize_semantic_join(
             run_id,
             column_ids,
             claim_token=claim,
-            terminal_disposition=run["status"],
+            terminal_disposition=terminal_status,
             publish=True,
             commit=False,
         )
@@ -549,6 +615,9 @@ def finalize_semantic_join(
             if receipt_fn is not None
             else semantic_receipt
         )
+        receipt_status = kwargs.get("receipt_status")
+        if receipt_status is not None:
+            receipt = receipt.model_copy(update={"status": receipt_status})
         roles = {
             name: ("target_row_id" if key == "matched_row_id" else key)
             for key, name in plan.output_names.items()
@@ -653,28 +722,27 @@ def finalize_semantic_join(
                 ],
             }
         )
-        result = _finalize_reserved_action_receipt(
+        from frisket.engine.executor.project_run_terminalization import (
+            CurrentWriterTerminalAuthority,
+            terminalize_project_run,
+        )
+
+        outcome = terminalize_project_run(
             project,
-            action,
-            params_hash=kwargs["params_hash"],
-            project_id=kwargs["project_id"],
-            receipt=receipt,
-            reservation_lost_message="semantic join reservation was lost",
-            update_failed_message="semantic join receipt update failed",
-            require_running_status=False,
-            replay_error_fn=lambda prior: _replay_error(project, prior),
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status=receipt.status,
+            run_status=terminal_status,
+            authority=CurrentWriterTerminalAuthority(
+                writer_attempt_id=writer, claim_token=claim
+            ),
+            terminal_receipt=receipt,
             commit=False,
         )
-        if result is not None:
-            project.db.rollback()
-            return result
-        set_attempt_state(project, writer, "effected", commit=False)
-        if not OutputColumnClaimStore(project).release(
-            claim_token=claim,
-            status="failed" if receipt.status == "failed" else "released",
-            commit=False,
-        ):
-            raise StaleAttemptWriter("semantic join lost its claim before publication")
+        if outcome.disposition != "terminalized":
+            raise StaleAttemptWriter(
+                f"Semantic join publication refused: {outcome.reason}"
+            )
         project.db.commit()
         return _result_from_receipt(receipt)
     except SemanticJoinSourceChanged as exc:
@@ -745,7 +813,12 @@ def typed_semantic_join_queue_spec(bound, *, initial_plan=None, semantic_state=N
                 )
             }
             if len(bindings) != len(bound.output_fields) or any(
-                columns.get(binding.output_role) != binding.column_id
+                columns.get(
+                    bound.request.output_names.get(
+                        binding.output_role, binding.output_role
+                    )
+                )
+                != binding.column_id
                 for binding in bindings
             ):
                 raise ValueError(
@@ -829,53 +902,6 @@ def run_typed_semantic_join_action(
     )
 
     envelope, queued, _ = typed_semantic_join_queue_spec(bound)
-    # A rolled-back child transaction retains its completed row checkpoints
-    # and exact writer. Retry only publication, never the paid scorer.
-    existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
-    if existing is not None and existing["status"] == "running":
-        from frisket.contracts.action import Receipt
-        from frisket.engine.executor.action_specs import ResolvedAction
-
-        receipt = Receipt.model_validate(json.loads(existing["body"]))
-        if (
-            receipt.params_hash == typed_request_hash(bound)
-            and receipt.run_id is not None
-        ):
-            run = project.db.execute(
-                "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
-                (receipt.run_id,),
-            ).fetchone()
-            if (
-                run is not None
-                and run["status"] in {"completed", "failed", "cancelled"}
-                and run["current_attempt_id"] is not None
-                and any(
-                    binding.state != "sealed"
-                    for binding in ResultGenerationStore(project).bindings_for_run(
-                        receipt.run_id
-                    )
-                )
-            ):
-                return finalize_semantic_join(
-                    project,
-                    envelope,
-                    bound.params,
-                    bound=bound,
-                    run_id=receipt.run_id,
-                    action_id=receipt.action_id,
-                    receipt_id=receipt.receipt_id,
-                    params_hash=receipt.params_hash,
-                    project_id=project_id,
-                    writer_attempt_id=run["current_attempt_id"],
-                    claim_token=_output_claim_token(receipt.receipt_id),
-                    resolved=ResolvedAction.from_resolve_dict(
-                        {
-                            "semantic_join": json.loads(run["runner_spec"])[
-                                "semantic_join"
-                            ]
-                        }
-                    ),
-                )
 
     def factory(project, router):
         runner = map_runner_factory(project, router)
@@ -913,3 +939,110 @@ def run_typed_semantic_join_action(
         ),
         map_runner_factory=factory,
     )
+
+
+def recover_typed_semantic_join_publication(project, project_id, bound):
+    """Publish an all-row returned run before generic idempotency replay.
+
+    The durable receipt still says ``running`` while the deferred semantic
+    publisher owns its final transaction. Generic replay would return
+    ``idempotency_in_progress`` before that owner can seal the saved outputs.
+    This path uses the receipt's immutable runner spec and current writer tuple;
+    it never re-resolves inputs or invokes the scorer.
+    """
+    from frisket.contracts.action import Receipt
+    from frisket.engine.executor.action_specs import ResolvedAction
+
+    existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
+    if existing is None or existing["status"] != "running":
+        return None
+    receipt = Receipt.model_validate(json.loads(existing["body"]))
+    if receipt.params_hash != typed_request_hash(bound) or receipt.run_id is None:
+        return None
+    run = project.db.execute(
+        "SELECT runs.*,ops.spec AS runner_spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+        (receipt.run_id,),
+    ).fetchone()
+    if (
+        run is None
+        or run["status"] != "running"
+        or run["total_rows"] is None
+        or int(run["completed_rows"] or 0) < int(run["total_rows"] or 0)
+        or run["current_attempt_id"] is None
+    ):
+        return None
+    if not any(
+        binding.state != "sealed"
+        for binding in ResultGenerationStore(project).bindings_for_run(receipt.run_id)
+    ):
+        return None
+    envelope = _TypedExecutionEnvelope(
+        kind=bound.action.action_id,
+        idempotency_key=bound.request.idempotency_key,
+        params=MappingProxyType(dict(bound.request.params)),
+    )
+    try:
+        return finalize_semantic_join(
+            project,
+            envelope,
+            bound.params,
+            bound=bound,
+            run_id=receipt.run_id,
+            action_id=receipt.action_id,
+            receipt_id=receipt.receipt_id,
+            params_hash=receipt.params_hash,
+            project_id=project_id,
+            writer_attempt_id=run["current_attempt_id"],
+            claim_token=_output_claim_token(receipt.receipt_id),
+            terminal_status="completed",
+            resolved=ResolvedAction.from_resolve_dict(
+                {"semantic_join": json.loads(run["runner_spec"])["semantic_join"]}
+            ),
+        )
+    except StaleAttemptWriter:
+        # Another holder of the same exact writer may have committed the
+        # family while this retry was waiting for SQLite's write lock. Return
+        # its immutable receipt only after proving that all publication work
+        # landed and no claim remains. Undo or a failed/incomplete finalizer
+        # cannot satisfy this check.
+        current = _receipt_for_idempotency(project, bound.request.idempotency_key)
+        if current is None or current["id"] != receipt.receipt_id:
+            raise
+        from frisket.contracts.action import Receipt
+
+        completed = Receipt.model_validate(json.loads(current["body"]))
+        durable_run = project.db.execute(
+            "SELECT status,current_attempt_id FROM runs WHERE id=?", (receipt.run_id,)
+        ).fetchone()
+        bindings = ResultGenerationStore(project).bindings_for_run(receipt.run_id)
+        if (
+            completed.params_hash != receipt.params_hash
+            or completed.status not in {"completed", "partial", "failed", "cancelled"}
+            or durable_run is None
+            or durable_run["status"] not in {"completed", "failed", "cancelled"}
+            or durable_run["current_attempt_id"] is not None
+            or not bindings
+            or any(binding.state != "sealed" for binding in bindings)
+        ):
+            raise
+        # The shared terminal owner validates the immutable tuple, including
+        # partial receipts on completed runs and absence of remaining writers.
+        from frisket.engine.executor.project_run_terminalization import (
+            CurrentWriterTerminalAuthority,
+            terminalize_project_run,
+        )
+
+        outcome = terminalize_project_run(
+            project,
+            run_id=receipt.run_id,
+            receipt_id=receipt.receipt_id,
+            status=completed.status,
+            run_status=durable_run["status"],
+            authority=CurrentWriterTerminalAuthority(
+                writer_attempt_id=run["current_attempt_id"],
+                claim_token=_output_claim_token(receipt.receipt_id),
+            ),
+        )
+        if outcome.disposition == "already_terminal":
+            return _result_from_receipt(completed)
+        raise

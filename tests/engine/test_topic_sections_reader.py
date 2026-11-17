@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from dataclasses import replace
@@ -39,7 +40,7 @@ from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.features.temporal_values import TimelineRangesValue
+from frisket.contracts.temporal_values import TimelineRangesValue
 from frisket.features.topic_segmentation import engines
 from frisket.features.topic_segmentation.contracts import SegmentationExecutionError
 from frisket.ops.base import OpContext
@@ -350,7 +351,12 @@ def test_preview_is_read_only_and_retains_hidden_analysis_flags(source):
     before = tuple(project.db.iterdump())
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off", use_env_keys=False),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="off",
+            use_env_keys=False,
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
     preview = asyncio.run(runner.preview(plan.spec_dict(), program=plan.program))

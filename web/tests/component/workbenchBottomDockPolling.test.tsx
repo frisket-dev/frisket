@@ -9,6 +9,7 @@ import {
   WorkbenchBottomDock,
   WorkbenchJobSplitPanel,
 } from '../../src/workbench/WorkbenchBottomDock';
+import { deriveDockRunSummary } from '../../src/workbench/dockJobSummary';
 import type { DockActionJob } from '../../src/workbench/WorkbenchBottomDock';
 import type {
   WorkbenchResolvedLayoutContribution,
@@ -32,6 +33,8 @@ function contribution(
     runtimeSource: 'firstParty',
   };
 }
+
+vi.mock('../../src/components/AttemptReceiptList', () => ({ AttemptReceiptList: () => null }));
 
 const jobs = contribution('frisket.core.panel.jobs', 'jobs', 'Jobs');
 const errors = contribution('frisket.core.panel.errors', 'errors', 'Errors');
@@ -257,4 +260,41 @@ it('shows the job sheet and output columns, with navigation to that sheet', () =
   expect(screen.getByText('Sheet 42')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Court filings' })).not.toBeInTheDocument();
   expect(screen.queryByText('Output columns')).not.toBeInTheDocument();
+});
+
+it('updates partial → success → success without replacing deliberately selected older run details', () => {
+  const partial: DockActionJob = {
+    schemaVersion: 'frisket.action_job.v1', projectId: 'project-a', jobId: 13,
+    kind: 'action', runId: '5', receiptId: null, status: 'done',
+    actionKind: 'media.ocr', actionName: 'Earlier Docling', attempts: 1, maxAttempts: 1,
+    lease: { lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseExpired: false },
+    timing: { createdAt: '2099-01-01', startedAt: '2099-01-02', finishedAt: '2099-01-03' },
+    error: null,
+    progress: { runId: '5', actionName: 'Earlier Docling', actionKind: 'media.ocr', sheetId: '1',
+      targetColumnId: 'text', status: 'partial', completedRows: 1, totalRows: 6, failedRows: 5, costSoFar: 0 },
+  };
+  const success = (jobId: number, runId: string, actionName: string): DockActionJob => ({
+    ...partial, jobId, runId, actionName,
+    timing: { createdAt: '2026-01-01', startedAt: '2026-01-01', finishedAt: '2026-01-01' },
+    progress: { ...partial.progress!, runId, actionName, status: 'complete', completedRows: 2, totalRows: 2, failedRows: 0 },
+  });
+  const firstSuccess = success(15, '6', 'First success');
+  const latestSuccess = success(16, '7', 'Latest ytdlp');
+  const liveActionJobs = { start: vi.fn(), dispose: vi.fn() };
+  const dock = (snapshot: DockActionJob[]) => <WorkbenchBottomDock
+    region={region} activeTabPlacementId="jobs" onSelectTab={() => undefined} onCloseTab={() => undefined}
+    liveActionJobs={liveActionJobs} runSummary={deriveDockRunSummary(snapshot, partial.progress!)}
+    renderContribution={() => <WorkbenchJobSplitPanel jobs={snapshot} loading={false} error={null} mode="jobs" />} />;
+  const view = render(dock([partial]));
+  fireEvent.click(screen.getByRole('button', { name: 'Earlier Docling' }));
+  expect(screen.getByTestId('bottom-dock-run-summary')).toHaveAttribute('data-run-state', 'partial');
+  for (const snapshot of [[firstSuccess, partial], [latestSuccess, firstSuccess, partial]]) {
+    view.rerender(dock(snapshot));
+    const summary = screen.getByTestId('bottom-dock-run-summary');
+    expect(summary).toHaveAttribute('data-run-state', 'complete');
+    expect(summary).toHaveTextContent(/^completed$/);
+    expect(screen.getByRole('complementary', { name: 'Selected run details' })).toHaveTextContent('Earlier Docling');
+    expect(screen.getByRole('complementary', { name: 'Selected run details' })).toHaveTextContent('partial');
+    expect(screen.getByRole('button', { name: 'Earlier Docling' })).toHaveAttribute('aria-pressed', 'true');
+  }
 });

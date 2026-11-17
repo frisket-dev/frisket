@@ -40,7 +40,7 @@ _OCR_METADATA_PREDICATE = (
     "WHERE generation.run_id=logical.origin_run_id "
     "AND generation.column_id=logical.column_id "
     "AND run.action_kind='media.ocr' "
-    "AND generation.output_role=json_extract(run.params,'$.output_names.blocks'))"
+    "AND generation.output_role='blocks')"
 )
 
 
@@ -169,8 +169,9 @@ def resolve_cell_blob_source(
     sheet_id: int,
     row_id: int,
     column_id: int,
+    include_hidden: bool = False,
 ) -> ResolvedCellBlobSource | None:
-    """Resolve one visible current media cell to its canonical blob metadata.
+    """Resolve current media; explicit anchors may include user-hidden columns.
 
     The result describes authority only.  Consumers materialize and verify the
     bytes for their own call lifetime before decoding or encoding them.
@@ -186,13 +187,19 @@ def resolve_cell_blob_source(
     selected_column = _positive_id(column_id, "column_id")
     current = project.db.execute(
         "SELECT current.retrieval_revision,c.type AS column_type "
-        "FROM current_cells current "
+        "FROM effective_current_cells current "
         "JOIN columns c ON c.id=current.column_id "
         "JOIN sheets s ON s.id=c.sheet_id "
         "WHERE current.column_id=? AND current.row_id=? "
-        "AND c.sheet_id=? AND c.hidden=0 AND s.hidden=0 "
+        "AND c.sheet_id=? AND c.active=1 AND (? OR c.hidden=0) AND s.hidden=0 "
         "AND c.type IN (?,?,?,?)",
-        (selected_column, selected_row, selected_sheet, *BLOB_SOURCE_COLUMN_TYPES),
+        (
+            selected_column,
+            selected_row,
+            selected_sheet,
+            include_hidden,
+            *BLOB_SOURCE_COLUMN_TYPES,
+        ),
     ).fetchone()
     if current is None:
         return None
@@ -269,7 +276,7 @@ def _binding_revision(
     project: Any, *, row_id: int, column_id: int
 ) -> BindingRevision | None:
     row = project.db.execute(
-        "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+        "SELECT retrieval_revision FROM effective_current_cells WHERE row_id=? AND column_id=?",
         (row_id, column_id),
     ).fetchone()
     if row is None:
@@ -489,12 +496,14 @@ def resolve_cell_text_sources(
     sheet_id: int,
     column_id: int,
     row_ids: Sequence[int],
+    include_hidden: bool = False,
 ) -> dict[int, ResolvedCellTextSource]:
     """Resolve a bounded set of current searchable cells from one snapshot.
 
     The caller controls batching and the lifetime of ``project``.  Passing a
     ``ProjectReadSnapshot`` pins values, binding revisions, and prepared
-    selectors to the same source snapshot.
+    selectors to the same source snapshot. Explicit anchors can include
+    user-hidden active columns; visible discovery keeps the default.
     """
 
     selected_sheet = _positive_id(sheet_id, "sheet_id")
@@ -505,9 +514,9 @@ def resolve_cell_text_sources(
 
     descriptor = project.db.execute(
         "SELECT 1 FROM columns c JOIN sheets s ON s.id=c.sheet_id "
-        "WHERE c.id=? AND c.sheet_id=? AND c.hidden=0 AND s.hidden=0 "
+        "WHERE c.id=? AND c.sheet_id=? AND c.active=1 AND (? OR c.hidden=0) AND s.hidden=0 "
         "AND c.type IN (?,?,?,?)",
-        (selected_column, selected_sheet, *TEXT_SOURCE_COLUMN_TYPES),
+        (selected_column, selected_sheet, include_hidden, *TEXT_SOURCE_COLUMN_TYPES),
     ).fetchone()
     if descriptor is None:
         return {}
@@ -519,7 +528,7 @@ def resolve_cell_text_sources(
     rows = project.db.execute(
         "SELECT current.row_id,current.retrieval_revision,logical.prepared_ref_id,"
         f"{_OCR_METADATA_PREDICATE} AS noncontent_metadata "
-        "FROM current_cells current "
+        "FROM effective_current_cells current "
         "JOIN current_cell_values logical ON logical.column_id=current.column_id "
         "AND logical.row_id=current.row_id "
         f"WHERE current.column_id=? AND current.row_id IN ({placeholders})",
@@ -541,9 +550,10 @@ def resolve_cell_text_sources(
         selections = project.db.execute(
             "SELECT row_id,source_retrieval_revision "
             "FROM current_document_text_selections "
-            "WHERE source_sheet_id=? AND text_column_id=? AND text_hidden=0 "
+            "WHERE source_sheet_id=? AND text_column_id=? "
+            "AND (? OR (source_hidden=0 AND text_hidden=0)) "
             f"AND row_id IN ({placeholders})",
-            (selected_sheet, selected_column, *selected_rows),
+            (selected_sheet, selected_column, include_hidden, *selected_rows),
         )
         source_bindings = {
             int(row["row_id"]): BindingRevision(

@@ -5,6 +5,8 @@ pre-populate the cache for chosen rows and chaos-fault everything else —
 partial failure, resume, and throttling become exact, network-free tests.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 from dataclasses import dataclass
@@ -23,6 +25,7 @@ from frisket.ai.llm import (
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.pricing import cost_of_with_source
 from frisket.ops.base import OpContext, Recipe, RenderedCall
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.builtin import prompt_hash_of
 from frisket.engine.runner import CostGate, MapRunner, validation
 from frisket.engine.runner.row_execution import AdaptiveThrottle, execute_row, llm_row
@@ -237,7 +240,10 @@ class TestHappyPath:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, [f"text {i}" for i in range(10)])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -260,7 +266,10 @@ class TestHappyPath:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, ["a"])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -286,7 +295,10 @@ class TestHappyPath:
             score=7,
         )
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         first = asyncio.run(
             run_with_output_claim(
@@ -388,6 +400,7 @@ class TestPartialFailure:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, texts[:5])
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             cache=cache,
             cache_mode="replay",
@@ -430,6 +443,7 @@ class TestPartialFailure:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, texts[:3])
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},
             cache=cache,
             cache_mode="replay",
@@ -449,7 +463,10 @@ class TestPartialFailure:
         # now the missing rows become cacheable (provider "recovered")
         prime_cache(cache, project, sheet, spec, texts[3:])
         router2 = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner2 = MapRunner(
             project,
@@ -482,7 +499,9 @@ class TestCostGate:
         sheet, _ = seed_sheet(project, ["long text " * 200] * 300)
         spec = classify_spec(sheet)
         spec["model"] = spec["params"]["model"] = "anthropic/claude-opus-4-8"
-        router = ModelRouter(keys={"anthropic": "k"})
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+        )
         runner = MapRunner(
             project,
             router,
@@ -510,7 +529,9 @@ class TestCostGate:
         spec["model"] = spec["params"]["model"] = "anthropic/claude-opus-4-8"
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -549,7 +570,9 @@ class TestCostGate:
         spec["model"] = spec["params"]["model"] = "anthropic/claude-opus-4-8"
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -579,7 +602,12 @@ class TestCostGate:
         spec["row_ids"] = rows
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, [texts[0]] * 1)
-        router = ModelRouter(keys={"anthropic": "k"}, cache=cache, cache_mode="replay")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay",
+        )
         runner = MapRunner(
             project,
             router,
@@ -610,7 +638,9 @@ class TestResumeExtendCostGate:
         program = program or _program(spec)
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -643,7 +673,9 @@ class TestResumeExtendCostGate:
 
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -684,7 +716,9 @@ class TestResumeExtendCostGate:
 
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -738,7 +772,9 @@ class TestResumeExtendCostGate:
 
         runner = MapRunner(
             project,
-            ModelRouter(keys={"anthropic": "k"}),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+            ),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -781,7 +817,10 @@ class TestUndoIntegration:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, ["a", "b"])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -810,7 +849,9 @@ class TestCodexFinalReviewRegressions:
         sheet, _ = seed_sheet(project, ["a"])
         spec = classify_spec(sheet)
         spec["params"]["fields"] = [{"name": "text", "type": "score"}]  # collides!
-        router = ModelRouter(keys={"anthropic": "k"})
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
+        )
         runner = MapRunner(
             project,
             router,
@@ -834,7 +875,10 @@ class TestCodexFinalReviewRegressions:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, ["a"])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -911,7 +955,12 @@ class TestCancel:
         sheet, _ = seed_sheet(project, ["must not reach the provider"])
         spec = classify_spec(sheet)
         adapter = _SlowAdapter()
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         runner = MapRunner(
             project,
@@ -958,7 +1007,12 @@ class TestCancel:
             "input_columns": ["text"],
             "output_name": "relevance",
         }
-        router = ModelRouter(keys={}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={},
+            cache=None,
+            cache_mode="off",
+        )
         runner = MapRunner(
             project,
             router,
@@ -1008,7 +1062,7 @@ class TestCancel:
 
         from frisket.engine.store.runs import RunResultStore
 
-        sheet, _ = seed_sheet(project, [f"text {i}" for i in range(8)])
+        sheet, _ = seed_sheet(project, [f"text {i}" for i in range(32)])
         recipe = _SlowCancellationRecipe()
         original_get_recipe = validation.get_recipe
         monkeypatch.setattr(
@@ -1025,7 +1079,12 @@ class TestCancel:
         run_store = RunResultStore(project)
         runner = MapRunner(
             project,
-            ModelRouter(keys={}, cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            ),
             concurrency=1,
             should_cancel=run_store.cancellation_requested,
             defer_cancel_terminal_close=True,
@@ -1047,7 +1106,7 @@ class TestCancel:
                     claim_token=claim_token,
                 )
             )
-            await _wait_for_calls_or_task_exit(task, recipe, 1)
+            await _wait_for_calls_or_task_exit(task, recipe, 26)
             assert run_store.request_cancel(prepared.run_id)
             return await asyncio.wait_for(task, timeout=2)
 
@@ -1055,8 +1114,8 @@ class TestCancel:
         assert progress.cancel_requested is True
         assert progress.cancelled is True
         assert progress.done is True
-        assert recipe.calls == 1
-        assert progress.completed == 0
+        assert recipe.calls == 26
+        assert progress.completed >= 25
         assert progress.writer_attempt_id is not None
         assert progress.writer_attempt_claimed is True
         run = project.db.execute(
@@ -1075,6 +1134,43 @@ class TestCancel:
                 (progress.writer_attempt_id,),
             ).fetchone()[0]
             == "dispatching"
+        )
+        output_id = int(prepared.out_cols["relevance"])
+        published_before_terminal = int(
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=? AND column_id=? "
+                "AND published=1",
+                (progress.run_id, output_id),
+            ).fetchone()[0]
+        )
+        assert published_before_terminal >= 25
+        from frisket.engine.runner.finalization import finalize_dispatched_run
+
+        finalize_dispatched_run(
+            project,
+            run_store,
+            op_id=prepared.op_id,
+            run_id=progress.run_id,
+            status="cancelled",
+            out_cols=dict(prepared.out_cols),
+            writer_attempt_id=progress.writer_attempt_id,
+            claim_token=claim_token,
+            claimless_direct_effect=False,
+            terminal_attempt_state="effected",
+        )
+        values = project.get_values(sheet, output_id)
+        assert sum(value == 5 for value in values.values()) == published_before_terminal
+        assert (
+            sum(value is not None for value in values.values())
+            == published_before_terminal
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM canonical_cell_heads WHERE column_id=? "
+                "AND outcome='not_completed'",
+                (output_id,),
+            ).fetchone()[0]
+            > 0
         )
 
     def test_cancel_intent_between_attempt_load_and_claim_defers_unclaimed_close(
@@ -1113,7 +1209,12 @@ class TestCancel:
 
         runner = MapRunner(
             project,
-            ModelRouter(keys={}, cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            ),
             concurrency=1,
             should_cancel=cancel_after_attempt_load,
             defer_cancel_terminal_close=True,
@@ -1157,21 +1258,20 @@ class TestCancel:
             == "admitted"
         )
 
-    def test_cancel_one_row_at_fence_finalizes_cancelled_zero_completed(
+    def test_cancel_after_only_row_returns_keeps_usage_but_withdraws_publication(
         self, project, monkeypatch
     ):
-        """sandbox-cancellation contract: a cancellation observed AFTER a row's
-        result is ready but before it is accepted drops the row at the lock's
-        fence — no result/error/completed progress. The provider cost that was
-        already incurred remains accounting truth. A one-row run therefore
-        finalizes with zero completed/failed rows and status 'cancelled' (the
-        row stays resumable via backfill), instead of the old unconditional
-        completed++ that made a cancelled one-row run look completed."""
+        """Stop after a response retains its paid fact but publishes no head."""
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
         sheet, _ = seed_sheet(project, ["only row"])
         spec = classify_spec(sheet)
         adapter = _SlowAdapter()
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         runner = MapRunner(
             project,
@@ -1180,9 +1280,7 @@ class TestCancel:
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
-        # Cancel becomes observable only once the row's model call has run, so
-        # the row executes and is dropped at the post-execute fence rather than
-        # at the queue-drain check.
+        # Cancellation becomes observable after submission; no new work starts.
         runner.should_cancel = lambda run_id: adapter.calls >= 1
 
         confirmed_spec = confirm_remote_spec(runner, spec)
@@ -1190,14 +1288,26 @@ class TestCancel:
             run_with_output_claim(runner, confirmed_spec, confirmed=True)
         )
         assert progress.cancelled and progress.done
-        assert progress.completed == 0 and progress.failed == 0
+        assert progress.completed == 1 and progress.failed == 0
         assert progress.cost == 0.0001
-        assert adapter.calls == 1  # the row DID run; its result was just dropped
+        assert adapter.calls == 1
         run = project.db.execute(
             "SELECT status, completed_rows FROM runs WHERE id=?", (progress.run_id,)
         ).fetchone()
         assert run["status"] == "cancelled"
         assert run["completed_rows"] == 0
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (progress.run_id,)
+            ).fetchone()[0]
+            == 1
+        )
 
     def test_uncancelled_run_still_completes(self, project, tmp_path):
         sheet, _ = seed_sheet(project, ["a", "b"])
@@ -1205,7 +1315,10 @@ class TestCancel:
         cache = ResponseCache(tmp_path / "c.db")
         prime_cache(cache, project, sheet, spec, ["a", "b"])
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(
             project,
@@ -1329,6 +1442,7 @@ def _scripted_row_repair_router(
             source="local_file",
         )
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             use_env_keys=False,
             cache=None,
             cache_mode="off",
@@ -1339,6 +1453,7 @@ def _scripted_row_repair_router(
         endpoint_adapter.complete = adapter.complete
     else:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"openai": "test-key"},
             key_sources={"openai": "org_byok"},
             use_env_keys=False,
@@ -1456,7 +1571,10 @@ def test_map_row_exhausts_after_exactly_three_repairs_and_keeps_accounting(
                 model_plan(spec).program,
                 {"text": "Ada Lovelace"},
                 spec,
-                OpContext(project=project),
+                OpContext(
+                    project=project,
+                    extras={"preview": True, "cancelled": lambda: False},
+                ),
                 output_field_names=("relevance",),
             )
         finally:
@@ -1520,12 +1638,21 @@ class TestStructuredArrayUnwrapMapPath:
 
     def test_array_schema_llm_row_returns_bare_list(self, project):
         items = [{"text": "Ada"}, {"text": "NYC"}]
-        router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = _ArrayToolUseAdapter(items)  # noqa: SLF001
         recipe = _FakeArrayRecipe()
         spec = {"model": "anthropic/claude-haiku-4-5"}
 
-        data, meta = asyncio.run(llm_row(router, AdaptiveThrottle(), recipe, {}, spec))
+        data, meta = asyncio.run(
+            llm_row(
+                router.for_execution(STANDALONE), AdaptiveThrottle(), recipe, {}, spec
+            )
+        )
 
         assert data == items  # the bare list, NOT {"items": [...]}
         assert meta["tokens_in"] == 10

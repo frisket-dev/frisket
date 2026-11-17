@@ -1,4 +1,8 @@
-"""Generic action-credential resolution.
+"""Provider credential and project secret resolution.
+
+User-authored requests use ``resolve_project_secret``: their secret names belong
+only to the project's explicit secrets store. Operator environment variables and
+provider-setup credentials are not part of that namespace.
 
 An `ActionCatalogEntry.required_credentials` list (contracts/actions/schemas/
 _base.py) names environment-variable-style credential names an action needs
@@ -145,6 +149,16 @@ def resolve_credential(project: Any, name: str) -> str | None:
     """
     resolved = resolve_credential_with_source(project, name)
     return resolved.value if resolved is not None else None
+
+
+def resolve_project_secret(project: Any, name: str) -> str | None:
+    """Read a user-named secret without access to operator/provider credentials.
+
+    User-authored HTTP destinations and MCP launch bindings can choose any name.
+    They may only retrieve a value explicitly saved in their own project.
+    """
+    secret_plaintext = getattr(project, "secret_plaintext", None)
+    return secret_plaintext(name) if secret_plaintext is not None else None
 
 
 def missing_required_credentials(

@@ -16,7 +16,7 @@ from frisket.contracts import plugin_rpc
 from frisket.engine.store import Project
 from frisket.actions.types import TableError
 from frisket.engine.store.artifact_timeline import TimelineError
-from frisket.features.temporal_ingress import validate_project_contextual_value
+from frisket.engine.store.temporal_ingress import validate_project_contextual_value
 from frisket.plugins.process_client import (
     PluginProcessError,
 )

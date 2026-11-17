@@ -1,5 +1,7 @@
 """Durable returned-file recovery and schema-bound occurrence contracts."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 from copy import deepcopy
 
@@ -42,10 +44,7 @@ def source(tmp_path, monkeypatch):
         "output_names": {"media": 'Downloaded "evidence"'},
         "idempotency_key": "review-recovery",
     }
-    router = ModelRouter()
-    quote = actions.run_action_spec(project, body, project_id="review", router=router)
-    assert quote.status == "needs_confirmation", quote.errors
-    body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     try:
         yield project, row, body, router, calls
     finally:

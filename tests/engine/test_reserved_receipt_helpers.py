@@ -117,7 +117,7 @@ def test_finalize_reserved_receipt_reports_lost_reservation(tmp_path: Path) -> N
         project.close()
 
 
-def test_finalize_reserved_receipt_reports_guarded_update_failure(
+def test_finalize_reserved_receipt_preserves_existing_terminal_result(
     tmp_path: Path,
 ) -> None:
     from frisket.engine.executor import (
@@ -140,10 +140,9 @@ def test_finalize_reserved_receipt_reports_guarded_update_failure(
         )
 
         assert result is not None
-        assert result.status == "failed"
-        assert result.receipt_id is None
-        assert result.errors[0].code == "project_write_failed"
-        assert result.errors[0].message == "test receipt update failed"
+        assert result.status == "completed"
+        assert result.receipt_id == _receipt(status="completed").receipt_id
+        assert not result.errors
         assert _receipt_row(project)["status"] == "completed"
     finally:
         project.close()
@@ -453,13 +452,27 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
             "failed_result_maprunner_finalization",
         }:
             assert result.receipt_id is None
-        assert (
-            env.project.db.execute(
-                "SELECT 1 FROM receipts WHERE idempotency_key=?",
+        if fault == "failed_result_child_sheet_finalization":
+            owned = env.project.db.execute(
+                "SELECT run_id,status FROM receipts WHERE idempotency_key=?",
                 (action["idempotency_key"],),
             ).fetchone()
-            is None
-        )
+            assert owned["run_id"] is not None and owned["status"] == "running"
+        elif fault in {"runner", "confirmation_retry_runner"}:
+            owned = env.project.db.execute(
+                "SELECT run_id,status FROM receipts WHERE idempotency_key=?",
+                (action["idempotency_key"],),
+            ).fetchone()
+            assert owned is not None
+            assert owned["run_id"] is not None and owned["status"] == "failed"
+        else:
+            assert (
+                env.project.db.execute(
+                    "SELECT 1 FROM receipts WHERE idempotency_key=?",
+                    (action["idempotency_key"],),
+                ).fetchone()
+                is None
+            )
         if fault == "model_completion":
             assert env.counts() == before
         elif fault == "failed_result_child_sheet_finalization":
@@ -468,12 +481,17 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
                 "ops": before["ops"] + 1,
                 "runs": before["runs"] + 1,
                 "model_calls": before["model_calls"] + 2,
+                "sheets": before["sheets"] + 1,
+                "columns": before["columns"] + 3,
+                "rows": before["rows"] + 2,
+                "results": before["results"] + 2,
+                "receipts": before["receipts"] + 1,
             }
             assert (
                 env.project.db.execute(
                     "SELECT COUNT(*) FROM effect_checkpoints WHERE state='returned'"
                 ).fetchone()[0]
-                == 2
+                == 0
             )
             assert len(module._ADAPTERS[0].requests) == 2
         elif fault == "failed_result_maprunner_finalization":
@@ -489,3 +507,79 @@ def test_reserved_receipt_cleanup_is_wired_across_action_builder_families(
             assert len(module._SEARCH_CALLS) == 2
         else:
             assert_pre_dispatch_failure_is_durable(env.project, before, env.counts())
+
+
+@pytest.mark.parametrize(
+    "claimless,live_lease", [(True, False), (False, False), (False, True)]
+)
+def test_stale_receipt_recovery_rechecks_dispatch_and_real_lease(
+    tmp_path, claimless, live_lease
+):
+    from contextlib import closing
+    from helpers import run_writer_authority_fixture
+    from frisket.engine.store.runs import RunResultStore
+    from frisket.engine.executor.action_reservations import (
+        _running_receipt_stale_result,
+    )
+
+    with closing(Project.create(tmp_path / "stale-dispatch.frisket")) as project:
+        sheet = project.add_sheet("source")
+        output = project.add_column(sheet, "answer")
+        [row] = project.add_rows(sheet, [{}], {})
+        op = project.append_op("test.stale")
+        run = RunResultStore(project).start_run(op, sheet, ACTION_KIND, row_ids=[row])
+        authority = run_writer_authority_fixture(
+            project,
+            run,
+            output_column_ids=set() if claimless else {output},
+            claimless_direct_effect=claimless,
+        )
+        _insert_receipt(
+            project, _receipt().model_copy(update={"run_id": run, "op_ids": [op]})
+        )
+        project.db.execute(
+            "UPDATE receipts SET run_id=?,created_at='2000-01-01' WHERE id=?",
+            (run, RECEIPT_ID),
+        )
+        project.db.execute(
+            "UPDATE execution_attempts SET created_at='2000-01-01' WHERE id=?",
+            (authority.writer_attempt_id,),
+        )
+        if not live_lease:
+            project.db.execute(
+                "UPDATE output_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
+                (run,),
+            )
+        project.db.commit()
+        result = _running_receipt_stale_result(
+            project,
+            _receipt_row(project),
+            params_hash=PARAMS_HASH,
+            project_id=PROJECT_ID,
+            action=_action(),
+        )
+        state = project.db.execute(
+            "SELECT state FROM execution_attempts WHERE id=?",
+            (authority.writer_attempt_id,),
+        ).fetchone()[0]
+        if claimless:
+            # A direct claimless effect has no queue-handler terminal evidence;
+            # attempt age alone cannot revoke its writer tuple.
+            assert result is None
+            assert state == "dispatching"
+            assert _receipt_row(project) is not None
+        elif live_lease:
+            assert result is None
+            assert state == "dispatching"
+            assert _receipt_row(project) is not None
+        else:
+            assert result.errors[0].code == "idempotency_stale_running"
+            assert state == "abandoned"
+            assert _receipt_row(project) is None
+            assert (
+                project.db.execute(
+                    "SELECT COUNT(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+                    (run,),
+                ).fetchone()[0]
+                == 0
+            )

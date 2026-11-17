@@ -4,6 +4,7 @@ quote evidence but claims no renderable coordinate surface.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import sqlite3
@@ -52,7 +53,9 @@ class _FixedSidecar:
 
 
 def _router_with(entities: list[dict[str, Any]]) -> ModelRouter:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = _FixedSidecar(entities)  # noqa: SLF001
     return router
 
@@ -226,7 +229,9 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
             project,
             _action(sheet_id, ["body"]),
             project_id=PROJECT_ID,
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
         assert result.status == "partial", result.errors
         run_id = int(result.run_id)
@@ -246,7 +251,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
 
         heads = project.db.execute(
             "SELECT head.row_id,result.publication_effect "
-            "FROM cell_result_heads head JOIN results result "
+            "FROM generated_result_candidates head JOIN results result "
             "ON result.run_id=head.run_id AND result.row_id=head.row_id "
             "AND result.column_id=head.column_id WHERE head.column_id=? "
             "ORDER BY head.row_id",
@@ -291,7 +296,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         assert project.undo() == op_id
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?",
+                "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
                 (output_column_id,),
             ).fetchone()[0]
             == 0
@@ -309,7 +314,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         assert project.redo() == op_id
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?",
+                "SELECT COUNT(*) FROM generated_result_candidates WHERE column_id=?",
                 (output_column_id,),
             ).fetchone()[0]
             == 3
@@ -353,7 +358,9 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(tmp_path, monkeypa
             project,
             _action(sheet_id, ["body"]),
             project_id=PROJECT_ID,
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
         assert result.status == "failed"
         assert result.run_id is not None and result.receipt_id is not None
@@ -362,7 +369,9 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(tmp_path, monkeypa
         assert len(calls) == 1
         assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
         assert (
-            project.db.execute("SELECT COUNT(*) FROM cell_result_heads").fetchone()[0]
+            project.db.execute(
+                "SELECT COUNT(*) FROM generated_result_candidates"
+            ).fetchone()[0]
             == 0
         )
         assert (
@@ -377,7 +386,9 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(tmp_path, monkeypa
             project,
             _action(sheet_id, ["body"]),
             project_id=PROJECT_ID,
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
         assert replay.model_dump() == result.model_dump()
         assert len(calls) == 1

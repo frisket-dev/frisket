@@ -47,8 +47,9 @@ class PreparedGroupSummaryPlan:
 
 
 class AdmittedGroupSummarizer:
-    def __init__(self, project, bound):
+    def __init__(self, project, bound, *, refresh_target=None):
         self.project, self.bound = project, bound
+        self.refresh_target = refresh_target
         self.plans: dict[PreparedGroupSummary, PreparedGroupSummaryPlan] = {}
 
     def prepare(self, source, *, options):
@@ -82,6 +83,7 @@ class AdmittedGroupSummarizer:
         payload = request.model_dump(mode="json", exclude={"confirmation"})
         operation = GroupSummaryPlan(
             action_kind=self.bound.action.action_id,
+            refresh_target=self.refresh_target,
             request=payload,
             sheet_id=request.scope.sheet_id,
             row_ids=request.scope.row_ids,
@@ -104,6 +106,7 @@ class AdmittedGroupSummarizer:
                 GroupSummaryParams(source=columns, **options.model_dump()),
             )
         except TypedMapRowsPlanError as exc:
+            resolved["groups"].close()
             raise GroupSummaryRefused(
                 ActionError(
                     code=exc.code,
@@ -117,6 +120,7 @@ class AdmittedGroupSummarizer:
             self.project, operation
         )
         if duplicate is not None:
+            resolved["groups"].close()
             raise GroupSummaryRefused(duplicate)
         handle = PreparedGroupSummary(
             len(resolved["source_row_ids"]), len(resolved["groups"])
@@ -130,8 +134,8 @@ class AdmittedGroupSummarizer:
         return handle
 
 
-def prepare_group_summary_action(project, bound):
-    summarizer = AdmittedGroupSummarizer(project, bound)
+def prepare_group_summary_action(project, bound, *, refresh_target=None):
+    summarizer = AdmittedGroupSummarizer(project, bound, refresh_target=refresh_target)
     handle = bound.action.definition.run.handler(bound.params, summarizer)
     if not isinstance(handle, PreparedGroupSummary) or handle not in summarizer.plans:
         raise ValueError("group summary must return its own invocation's preparation")
@@ -139,7 +143,7 @@ def prepare_group_summary_action(project, bound):
 
 
 def run_typed_group_summary_action(
-    project, project_id, bound, router=None, *, deps=None
+    project, project_id, bound, router=None, *, deps=None, prepared=None
 ):
     from frisket.execution.consent_coverage import effective_consent_coverage
 
@@ -168,7 +172,11 @@ def run_typed_group_summary_action(
     )
     identity = typed_request_hash(bound)
     existing = _receipt_for_idempotency(project, action.idempotency_key)
-    if existing is not None:
+    from .action_reservations import _recover_stale_receipt_attempt
+
+    existing = _recover_stale_receipt_attempt(project, existing, identity)
+    recovery_run = runtime._recoverable_group_run(project, existing, identity)
+    if existing is not None and recovery_run is None:
         return runtime._reduce_group_summary_result_from_existing_receipt(
             project,
             existing,
@@ -177,7 +185,8 @@ def run_typed_group_summary_action(
             action=action,
         )
     try:
-        prepared = prepare_group_summary_action(project, bound)
+        if prepared is None:
+            prepared = prepare_group_summary_action(project, bound)
     except (TypeError, ValueError) as exc:
         return _failed_result(
             project_id=project_id,
@@ -220,6 +229,16 @@ def run_typed_group_summary_action(
             ],
         )
     router = project_scoped_router(project, router)
+    from frisket.execution.provider import (
+        ExecutionCompositionContext,
+        open_execution_composition,
+    )
+
+    composition = deps.execution_composition if deps is not None else None
+    if composition is None:
+        composition = open_execution_composition(
+            project, router, ExecutionCompositionContext.direct()
+        )
     if not model_call_cannot_go_live(router):
         if (
             project.effective_network_policy() == "off"
@@ -250,16 +269,39 @@ def run_typed_group_summary_action(
                     details=dict(exc.details),
                 ),
             )
-    reservation = _reserve_running_action_receipt(
-        project,
-        action,
-        params_hash=identity,
-        project_id=project_id,
-        reservation_kind="reduce_group_summary_idempotency_reservation",
-        result_from_existing_fn=runtime._reduce_group_summary_result_from_existing_receipt,
-    )
+    if recovery_run is not None:
+        reservation = {
+            "receipt_id": str(existing["id"]),
+            "action_id": str(existing["action_id"]),
+        }
+        receipt = ReceiptStore(project).parsed_by_id(reservation["receipt_id"])
+        cohort = next(
+            item.ref["row_ids"]
+            for item in receipt.inputs
+            if item.ref.get("kind") == "reduce_group_summary_source_rows"
+        )
+        prepared.resolved["source_row_ids"] = cohort
+    else:
+        reservation = _reserve_running_action_receipt(
+            project,
+            action,
+            params_hash=identity,
+            project_id=project_id,
+            reservation_kind="reduce_group_summary_idempotency_reservation",
+            result_from_existing_fn=runtime._reduce_group_summary_result_from_existing_receipt,
+        )
     if isinstance(reservation, ActionResult):
         return reservation
+    from .group_summary_publication import GroupPublication, GroupPublicationError
+    from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
+
+    publication = GroupPublication(
+        project,
+        prepared.operation,
+        receipt_id=reservation["receipt_id"],
+        params_hash=identity,
+        recovery_run=recovery_run,
+    )
     try:
         computations = asyncio.run(
             runtime._complete_reduce_group_summaries(
@@ -267,10 +309,13 @@ def run_typed_group_summary_action(
                 prepared.operation,
                 prepared.resolved,
                 router=router,
+                publication=publication,
+                composition=composition,
             )
         )
         if isinstance(computations, ActionError):
-            ReceiptStore(project).delete_running(reservation["receipt_id"])
+            if publication.envelope is None and recovery_run is None:
+                ReceiptStore(project).delete_running(reservation["receipt_id"])
             return _failed_result(
                 project_id=project_id, action_kind=action.kind, error=computations
             )
@@ -285,24 +330,32 @@ def run_typed_group_summary_action(
             resolved=prepared.resolved,
             estimate=estimate,
             computations=computations,
-        )
-    except StaleAttemptWriter as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="stale_attempt_writer", message=str(exc), action_kind=action.kind
-            ),
+            publication=publication,
         )
     except Exception as exc:
-        ReceiptStore(project).delete_running(reservation["receipt_id"])
+        if publication.stopped():
+            return publication.finish_cancelled()
+        if publication.envelope is None:
+            ReceiptStore(project).delete_running(reservation["receipt_id"])
+        code = (
+            "stale_attempt_writer"
+            if isinstance(exc, StaleAttemptWriter)
+            else "project_write_failed"
+            if isinstance(exc, (GroupPublicationError, ResultEvidenceWriteFailed))
+            else "model_run_failed"
+        )
         return _failed_result(
             project_id=project_id,
             action_kind=action.kind,
-            error=ActionError(
-                code="model_run_failed", message=str(exc), action_kind=action.kind
-            ),
+            error=ActionError(code=code, message=str(exc), action_kind=action.kind),
         )
-    if result.status == "failed" and result.receipt_id is None:
+    finally:
+        publication.close()
+        prepared.resolved["groups"].close()
+    if (
+        result.status == "failed"
+        and result.receipt_id is None
+        and publication.envelope is None
+    ):
         ReceiptStore(project).delete_running(reservation["receipt_id"])
     return result

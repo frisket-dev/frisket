@@ -175,7 +175,21 @@ def test_create_sheet_materializes_typed_outputs_once_and_pins_destination(tmp_p
         op = project.db.execute("SELECT spec, undo_info FROM ops").fetchone()
         assert json.loads(op["spec"])["sheet_name"] == "Destination"
         sheet_id = first.outputs[0].ref["sheet_id"]
-        assert json.loads(op["undo_info"]) == {"created_sheets": [sheet_id]}
+        assert json.loads(op["undo_info"]) == {
+            "created_sheets": [sheet_id],
+            "created_columns": [
+                row[0]
+                for row in project.db.execute(
+                    "SELECT id FROM columns WHERE sheet_id=? ORDER BY id", (sheet_id,)
+                )
+            ],
+            "created_rows": [
+                row[0]
+                for row in project.db.execute(
+                    "SELECT id FROM rows WHERE sheet_id=? ORDER BY id", (sheet_id,)
+                )
+            ],
+        }
         original_rows = [tuple(row) for row in project.db.execute("SELECT * FROM rows")]
         assert project.undo() == first.op_ids[0]
         assert (

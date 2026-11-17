@@ -259,7 +259,6 @@ def _write_extract_in_transaction(
 
     committed = tuple(materializer.commit_blob(project, item.clip) for item in staged)
     cur = project.db.cursor()
-    cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
     op_spec = bound.request.model_dump(mode="json", exclude_none=True)
     op_spec["params_hash"] = params_hash
     cur.execute(
@@ -272,7 +271,9 @@ def _write_extract_in_transaction(
         ),
     )
     op_id = int(cur.lastrowid)
-    cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+    from frisket.engine.store.changes import ChangeStore
+
+    ChangeStore(project).start(op_id)
     cur.execute(
         "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden) "
         "VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM columns "
@@ -296,6 +297,7 @@ def _write_extract_in_transaction(
             )
             for item, stored_clip in zip(staged, committed, strict=True)
         ],
+        close_change=False,
     )
     created_column_ids = [output_column_id]
     transcript_column_ids: dict[int, int] = {}
@@ -325,7 +327,12 @@ def _write_extract_in_transaction(
                         value=projection.text,
                     )
                 )
-        insert_edits(project.db, op_id=op_id, edits=transcript_edits)
+        insert_edits(
+            project.db,
+            op_id=op_id,
+            edits=transcript_edits,
+            close_change=False,
+        )
     annotations_by_column = {
         annotation.column_id: annotation
         for annotation in _staged_extract_annotations(staged)
@@ -347,13 +354,7 @@ def _write_extract_in_transaction(
         annotation_column_id = int(cur.lastrowid)
         annotation_column_ids[source_column_id] = annotation_column_id
         created_column_ids.append(annotation_column_id)
-    cur.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?",
-        (
-            json.dumps({"created_columns": created_column_ids}, sort_keys=True),
-            op_id,
-        ),
-    )
+    project.set_undo_info(op_id, {"created_columns": created_column_ids}, commit=False)
 
     from frisket.engine.executor.temporal_transcripts import (
         persist_projected_transcript_evidence,
@@ -408,6 +409,7 @@ def _write_extract_in_transaction(
                         value=projection.value,
                     )
                 ],
+                close_change=False,
             )
             annotation_row_ids[annotation.column_id].append(source.row_id)
             receipt_evidence.append(
@@ -574,4 +576,5 @@ def _write_extract_in_transaction(
     )
     if not updated:
         raise RuntimeError("temporal extract receipt update did not land")
+    ChangeStore(project).close(op_id)
     return _result_from_receipt(receipt)

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.execution_composition_helpers import RecordingPurchasePolicy
 
 import asyncio
 
@@ -275,6 +276,7 @@ def test_actual_model_requests_keep_turn_authority_and_settle_durable_calls(tmp_
                 )
 
         router = ModelRouter(
+            model_call_policy=RecordingPurchasePolicy(),
             keys={"anthropic": "test"},
             key_sources={"anthropic": "platform_key"},
             cache=None,

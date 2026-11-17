@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import hashlib
 import io
@@ -514,6 +515,31 @@ def test_local_commit_opens_sheet_then_resumes_pending_upload_without_duplicates
     assert len(intake.results) == 1
 
 
+def _admit_preparation_parent(
+    project, project_id, sheet_id, receipt_id, *, create_row=False
+):
+    from frisket.engine.store.streaming_import import StreamingSheetWriter
+
+    writer = StreamingSheetWriter.start_append_session(
+        project,
+        session_id=receipt_id,
+        writer_authority="test-import",
+        sheet_id=sheet_id,
+        columns=[{"name": "media", "type": "file"}],
+        project_id=project_id,
+        action_kind="import.files",
+        idempotency_key=receipt_id,
+        params_hash="parent-hash",
+        action_id="act:" + receipt_id,
+        receipt_id=receipt_id,
+        source_ref={"kind": "file_inventory"},
+    )
+    if create_row:
+        writer.append_page([{"media": None}], expected_cursor=0, next_cursor=1)
+    writer.finalize_session(expected_cursor=int(create_row), enumeration_complete=True)
+    return writer
+
+
 class _ActionRuns:
     def __init__(self) -> None:
         self.bodies: list[dict[str, Any]] = []
@@ -525,8 +551,10 @@ class _ActionRuns:
         body: dict[str, Any],
         *,
         background_priority: str | None = None,
+        import_owner=None,
         trusted_consent_principal: str | None = None,
     ):
+        assert import_owner is not None
         self.bodies.append(body)
         self.priorities.append(background_priority)
         assert trusted_consent_principal is None
@@ -547,8 +575,10 @@ class _BusyThenReadyActions(_ActionRuns):
         body: dict[str, Any],
         *,
         background_priority: str | None = None,
+        import_owner=None,
         trusted_consent_principal: str | None = None,
     ):
+        assert import_owner is not None
         self.bodies.append(body)
         self.priorities.append(background_priority)
         assert trusted_consent_principal is None
@@ -581,8 +611,10 @@ class _CompletedActions(_ActionRuns):
         body: dict[str, Any],
         *,
         background_priority: str | None = None,
+        import_owner=None,
         trusted_consent_principal: str | None = None,
     ):
+        assert import_owner is not None
         self.bodies.append(body)
         self.priorities.append(background_priority)
         assert trusted_consent_principal is None
@@ -604,12 +636,14 @@ class _PaidActions:
         body: dict[str, Any],
         *,
         background_priority: str | None = None,
+        import_owner=None,
         trusted_consent_authorizer=None,
         trusted_consent_principal: str | None = None,
     ):
         assert background_priority == "pdf_import_ocr"
         assert trusted_consent_principal == "installation:user:paid-import"
         assert callable(trusted_consent_authorizer)
+        assert import_owner is not None
         self.bodies.append(body)
         self.authorizers.append(trusted_consent_authorizer)
         if self.refuse:
@@ -747,6 +781,7 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
     actions = _ActionRuns()
     preparation = SearchPreparationService(workspace, action_runs=actions)
 
+    _admit_preparation_parent(project, project_id, sheet_id, "receipt:pdf-import")
     preparation.create_from_pdf_import(
         project_id,
         import_receipt_id="receipt:pdf-import",
@@ -821,8 +856,10 @@ def test_reviewed_text_handoff_uses_one_designated_column_and_action_authority(
     )
 
 
+@pytest.mark.parametrize("withdraw_import", [False, True])
 def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
     tmp_path: Path,
+    withdraw_import: bool,
 ) -> None:
     workspace, project_id = _workspace(tmp_path)
     project = workspace.get(project_id)
@@ -846,6 +883,9 @@ def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
         {"media": media_id},
     )[0]
 
+    parent = _admit_preparation_parent(
+        project, project_id, sheet_id, "receipt:native-worker", create_row=True
+    )
     [started] = SearchPreparationService(workspace).create_from_pdf_import(
         project_id,
         import_receipt_id="receipt:native-worker",
@@ -869,16 +909,41 @@ def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
         registry,
         workspace_root=workspace.root,
         queue=workspace.queue,
-        router=ModelRouter(cache=None, cache_mode="off"),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
     )
 
+    child = project.db.execute(
+        "SELECT op.spec FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
+        (started["run_id"],),
+    ).fetchone()
+    assert json.loads(child["spec"])["import_execution_owner"] == {
+        "session_id": "receipt:native-worker",
+        "op_id": parent._op_id,
+    }
+    if withdraw_import:
+        from frisket.engine.store.op_log import step_operation
+
+        with project.transaction_scope():
+            step_operation(project, "revert", op_id=parent._op_id)
+        with project.transaction_scope():
+            step_operation(project, "restore", op_id=parent._op_id)
+        assert row_id in project.visible_row_ids(sheet_id)
+        child = project.db.execute(
+            "SELECT run.cancel_requested_at,op.publication_closed FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
+            (started["run_id"],),
+        ).fetchone()
+        assert child[0] is not None and child[1] == 1
     assert Worker(workspace.queue, registry, worker_id="pdf-native").run_once()
     job = workspace.queue.get(int(started["job_id"]))
-    assert job is not None and job.status == "done"
+    assert job is not None and job.status == "done", (job.status, job.error)
     run = project.db.execute(
         "SELECT status,params FROM runs WHERE id=?", (int(started["run_id"]),)
     ).fetchone()
-    assert run is not None and run["status"] == "completed"
+    assert run is not None and run["status"] == (
+        "cancelled" if withdraw_import else "completed"
+    )
     assert "group_label" not in json.loads(run["params"])
 
 
@@ -1306,7 +1371,10 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     workspace = Workspace(
         tmp_path / "workspace-paid",
         router=ModelRouter(
-            keys={"anthropic": "test-key"}, cache=None, cache_mode="off"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test-key"},
+            cache=None,
+            cache_mode="off",
         ),
         executor_deps_factory=executor_deps,
         enable_local_model_pull=False,
@@ -1476,6 +1544,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     assert public_attempt.payload["status"] in {"failed", "needs_confirmation"}
     assert not workspace.queue.list_project_jobs(project_id, kind=PROJECT_RUN_KIND)
 
+    _admit_preparation_parent(project, project_id, sheet_id, "receipt:paid-import")
     started = preparation.create_from_pdf_import(
         project_id,
         import_receipt_id="receipt:paid-import",
@@ -1524,6 +1593,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
     )
 
     changed = [{**rows[0], "sha256": "0" * 64}, *rows[1:]]
+    _admit_preparation_parent(project, project_id, sheet_id, "receipt:changed-import")
     try:
         preparation.create_from_pdf_import(
             project_id,

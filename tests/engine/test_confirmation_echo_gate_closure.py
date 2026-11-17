@@ -38,6 +38,7 @@ Closure mechanics (how a new kind goes red here, without anyone enumerating):
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import re
@@ -826,6 +827,53 @@ def _drive_run_backfill(
 
 
 @contextmanager
+def _drive_run_retry(tmp_path, monkeypatch):
+    from frisket.engine.executor import run_action_spec
+    from http_test_helpers import post_v1_action_with_exact_confirmation
+    from tests.server.test_run_backfill_executor import (
+        _client,
+        _seed_project,
+        _classify_spec,
+    )
+
+    with _client(tmp_path) as client:
+        pid, sheet_id = _seed_project(client)
+        project = client.app.state.workspace.get(pid)
+        adapter = client.app.state.workspace._router._adapters["anthropic"]
+        original_complete = adapter.complete
+
+        async def fail_second(request, transport):
+            if "second story" in str(request.messages):
+                raise RuntimeError("test unavailable provider")
+            return await original_complete(request, transport)
+
+        monkeypatch.setattr(adapter, "complete", fail_second)
+        response = post_v1_action_with_exact_confirmation(
+            client, pid, _classify_spec(sheet_id)
+        )
+        assert response.status_code == 200, response.text
+        drain_queue(client)
+        run_id = response.json()["run_id"]
+        monkeypatch.setattr(adapter, "complete", original_complete)
+        action = {
+            "action_id": "run.retry",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+            "params": {"source_run_id": run_id},
+            "idempotency_key": "retry-echo-closure",
+        }
+
+        def run(spec):
+            return run_action_spec(
+                project,
+                spec,
+                project_id=pid,
+                router=client.app.state.workspace.router_for(project),
+            )
+
+        yield project, action, run
+
+
+@contextmanager
 def _drive_export_google_sheets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[Project, dict[str, Any], Callable[..., Any]]]:
@@ -894,7 +942,9 @@ def _geospatial_driver(kind: str) -> Driver:
         def never_called(_request):
             pytest.fail("wrong-echo closure reached the external provider")
 
-        router = ModelRouter(cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
         router._client = httpx.AsyncClient(transport=httpx.MockTransport(never_called))
         project = Project.create(tmp_path / "geospatial.frisket")
         try:
@@ -952,6 +1002,7 @@ _BESPOKE_DRIVERS: dict[str, Driver] = {
     "derive.collection_expand": _drive_derive_collection_expand,
     "export.google_sheets": _drive_export_google_sheets,
     "run.backfill": _drive_run_backfill,
+    "run.retry": _drive_run_retry,
 }
 
 
@@ -1022,7 +1073,12 @@ def test_wrong_echo_refuses_without_executing(
     driver = _driver(kind)
     if driver is None:
         pytest.fail(f"{kind} is rostered but has no echo-gate closure driver")
-    if kind in {"enrich.census_demographics", "run.backfill"}:
+    if kind in {
+        "enrich.census_demographics",
+        "run.backfill",
+        "media.fetch_url",
+        "media.ytdlp_download",
+    }:
         # Free default routes need a real tariff to exercise explicit consent.
         # Keep this local: other drivers seed work under their normal pricing.
         install_pricing_policy(_PaidClosurePolicy())

@@ -9,6 +9,7 @@ results for a row anchor).
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 
@@ -51,12 +52,16 @@ class _RaisingRouter:
     """A router that fails if any embedding provider call is made — used to prove
     a row anchor never hits a provider."""
 
+    def for_execution(self, execution):
+        execution.check()
+        return self
+
     def embed_batch(self, *a, **k):
         raise AssertionError("provider was called for a row anchor")
 
 
 def _openai_router():
-    router = ModelRouter(keys={})
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
 
     class _Adapter:
         base_url = "https://example/v1"
@@ -163,7 +168,8 @@ def _run_paid_preview(client, pid, kind, query):
 
 
 def _install_paid_project_key_embed(monkeypatch, calls, *, dimension=1536):
-    async def embed_batch(self, texts, *, model, modality):
+    async def embed_batch(self, texts, *, model, modality, _execution):
+        _execution.check()
         provider, actual_model = model.split("/", 1)
         credential_source = self.credential_source_for(provider)
         calls.append(
@@ -197,7 +203,9 @@ def _install_paid_project_key_embed(monkeypatch, calls, *, dimension=1536):
 
 
 def test_row_anchor_preview_returns_ordered_hits_with_values(tmp_path):
-    client = _client(tmp_path, ModelRouter(keys={}))
+    client = _client(
+        tmp_path, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
+    )
     pid, project, sheet, cols, index_id = _seed(client)
     cat = _row(project, sheet, cols, "cat")
     resp = _preview(client, pid, _row_query(index_id, cat))
@@ -226,7 +234,9 @@ def test_no_provider_call_for_row_anchor(tmp_path):
 
 
 def test_hidden_rows_excluded(tmp_path):
-    client = _client(tmp_path, ModelRouter(keys={}))
+    client = _client(
+        tmp_path, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
+    )
     pid, project, sheet, cols, index_id = _seed(client)
     cat = _row(project, sheet, cols, "cat")
     kitten = _row(project, sheet, cols, "kitten")
@@ -239,7 +249,9 @@ def test_hidden_rows_excluded(tmp_path):
 
 
 def test_stale_anchor_returns_typed_400(tmp_path):
-    client = _client(tmp_path, ModelRouter(keys={}))
+    client = _client(
+        tmp_path, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
+    )
     pid, project, sheet, cols, index_id = _seed(client)
     cat = _row(project, sheet, cols, "cat")
     replace_test_source_cell(
@@ -254,7 +266,9 @@ def test_stale_anchor_returns_typed_400(tmp_path):
 
 
 def test_missing_index_returns_typed_400(tmp_path):
-    client = _client(tmp_path, ModelRouter(keys={}))
+    client = _client(
+        tmp_path, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
+    )
     pid, *_ = _seed(client)
     resp = _preview(client, pid, _row_query("embidx_missing", 1))
     assert resp.status_code == 400
@@ -262,7 +276,9 @@ def test_missing_index_returns_typed_400(tmp_path):
 
 
 def test_bad_space_returns_typed_400(tmp_path):
-    client = _client(tmp_path, ModelRouter(keys={}))
+    client = _client(
+        tmp_path, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
+    )
     pid, project, sheet, cols, index_id = _seed(client)
     cat = _row(project, sheet, cols, "cat")
     resp = _preview(client, pid, _row_query(index_id, cat, space_id="emb_other"))
@@ -271,7 +287,9 @@ def test_bad_space_returns_typed_400(tmp_path):
 
 
 def test_missing_project_returns_404(tmp_path):
-    client = _client(tmp_path, ModelRouter(keys={}))
+    client = _client(
+        tmp_path, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
+    )
     resp = _preview(client, "nope", _row_query("embidx_x", 1))
     assert resp.status_code == 404
 
@@ -461,7 +479,9 @@ def test_remote_manual_preview_accounts_for_paid_malformed_provider_result(
 
 def test_preview_blocks_incomplete_after_append(tmp_path):
     # Show Similar must not silently search a PARTIAL index (coordinator review).
-    client = _client(tmp_path, ModelRouter(keys={}))
+    client = _client(
+        tmp_path, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={})
+    )
     pid, project, sheet, cols, index_id = _seed(client)
     cat = _row(project, sheet, cols, "cat")
     project.add_rows(sheet, [{"headline": "lion"}], cols)  # unembedded

@@ -15,6 +15,7 @@ from typing import Any
 from frisket.authoring.column_types import range_facet_value_kind
 from frisket.calendar_dates import normalize_utc_calendar_date
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import read_transaction
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import (
     FAILURE_OUTCOMES,
@@ -279,11 +280,20 @@ def _sheet_row_scope_plan(
 ) -> SheetRowScopePlan:
     """Build one shared row-scope plan, optionally joining live values once."""
 
+    from frisket.engine.store.current_read_sql import (
+        current_heads_sql,
+        current_values_sql,
+    )
+
     cols = project.columns(sheet_id)
     columns_by_name = {c["name"]: c for c in cols}
-    columns_by_id = {int(c["id"]): c for c in cols}
-    filters = _parse_sheet_filter(filter_, columns_by_name, project)
-    sorts = _parse_sheet_sort(sort, columns_by_name)
+    columns_by_id = {
+        int(c["id"]): c
+        for c in project.columns(sheet_id, include_hidden=True)
+        if c["active"]
+    }
+    filters = _parse_sheet_filter(filter_, columns_by_name, project, columns_by_id)
+    sorts = _parse_sheet_sort(sort, columns_by_name, columns_by_id)
     required_numeric_columns: set[int] = set()
     required_comparison_columns: set[int] = set()
     for filter_item in filters:
@@ -331,7 +341,9 @@ def _sheet_row_scope_plan(
             )
             join = "JOIN" if required else "LEFT JOIN"
             numeric = column_id in required_numeric_columns
-            relation = "current_cells" if numeric else "current_cell_values"
+            relation = (current_heads_sql if numeric else current_values_sql)(
+                project.db, [column_id], row_ids
+            )
             numeric_scope = (
                 f" AND {alias}.validity='valid' "
                 f"AND {alias}.inline_value_kind IN ('integer','real')"
@@ -354,7 +366,12 @@ def _sheet_row_scope_plan(
     ) -> tuple[str, list[Any]]:
         if not join_live_values:
             return sheet_live_value_sql(
-                row_alias, column, preserve_invalid=preserve_invalid
+                row_alias,
+                column,
+                preserve_invalid=preserve_invalid,
+                values_relation=current_values_sql(
+                    project.db, [int(column["id"])], row_ids
+                ),
             )
         alias = scope_live_alias(row_alias, column)
         if int(column["id"]) in required_numeric_columns:
@@ -370,7 +387,13 @@ def _sheet_row_scope_plan(
 
     def scope_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
         if not join_live_values:
-            return sheet_live_value_kind_sql(row_alias, column)
+            return sheet_live_value_kind_sql(
+                row_alias,
+                column,
+                values_relation=current_values_sql(
+                    project.db, [int(column["id"])], row_ids
+                ),
+            )
         alias = scope_live_alias(row_alias, column)
         field = (
             "inline_value_kind"
@@ -388,8 +411,8 @@ def _sheet_row_scope_plan(
         if not row_ids:
             where.append("0=1")
         else:
-            where.append("r.id IN (" + ",".join("?" for _ in row_ids) + ")")
-            where_params.extend(row_ids)
+            where.append("r.id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))")
+            where_params.append(json.dumps(list(row_ids), separators=(",", ":")))
     for filter_item in filters:
         if isinstance(filter_item, RuntimeSheetFilter):
             runtime_sql, runtime_params = _runtime_operator_where(
@@ -405,7 +428,12 @@ def _sheet_row_scope_plan(
         if isinstance(filter_item, GroupLocatorPredicate):
             column = columns_by_id[filter_item.column_id]
             predicate_sql, predicate_params = _group_locator_where(
-                "r", column, filter_item
+                "r",
+                column,
+                filter_item,
+                values_relation=current_values_sql(
+                    project.db, [int(column["id"])], row_ids
+                ),
             )
             where.append(predicate_sql)
             where_params.extend(predicate_params)
@@ -427,11 +455,11 @@ def _sheet_row_scope_plan(
                 outcome_params = [value]
             if is_generation_managed(column):
                 where.append(
-                    "EXISTS (SELECT 1 FROM cell_result_heads head "
-                    "JOIN results res ON res.run_id = head.run_id "
+                    f"EXISTS (SELECT 1 FROM {current_heads_sql(project.db, [int(column['id'])], row_ids)} head "
+                    "JOIN results res ON res.run_id = head.origin_run_id "
                     "AND res.row_id = head.row_id "
                     "AND res.column_id = head.column_id "
-                    "WHERE head.row_id = r.id AND head.column_id = ? "
+                    "WHERE head.row_id = r.id AND head.column_id = ? AND head.origin_kind='run_result' AND res.published=1 "
                     f"AND {outcome_predicate})"
                 )
                 where_params.extend([column["id"], *outcome_params])
@@ -811,35 +839,36 @@ def resolve_sheet_filter_rows(
     reference_date: date | None = None,
     row_ids: Sequence[int] | None = None,
 ) -> SheetFilterRowSet:
-    plan = sheet_row_scope_plan(
-        project,
-        sheet_id,
-        parent_row_id=parent_row_id,
-        filter_=filter_,
-        sort=sort,
-        reference_date=reference_date,
-        row_ids=row_ids,
-    )
-    try:
-        bounded_limit = max(0, int(limit))
-        bounded_offset = max(0, int(offset))
-    except (TypeError, ValueError):
-        raise SheetRowSetError("limit and offset must be integers") from None
-    rows, total = execute_sheet_row_page(
-        project,
-        plan,
-        limit=bounded_limit,
-        offset=bounded_offset,
-    )
-    return SheetFilterRowSet(
-        sheet_id=sheet_id,
-        row_ids=[int(row["id"]) for row in rows],
-        total=total,
-        limit=bounded_limit,
-        offset=bounded_offset,
-        filter=filter_,
-        sort=sort,
-    )
+    with read_transaction(project.db):
+        plan = sheet_row_scope_plan(
+            project,
+            sheet_id,
+            parent_row_id=parent_row_id,
+            filter_=filter_,
+            sort=sort,
+            reference_date=reference_date,
+            row_ids=row_ids,
+        )
+        try:
+            bounded_limit = max(0, int(limit))
+            bounded_offset = max(0, int(offset))
+        except (TypeError, ValueError):
+            raise SheetRowSetError("limit and offset must be integers") from None
+        rows, total = execute_sheet_row_page(
+            project,
+            plan,
+            limit=bounded_limit,
+            offset=bounded_offset,
+        )
+        return SheetFilterRowSet(
+            sheet_id=sheet_id,
+            row_ids=[int(row["id"]) for row in rows],
+            total=total,
+            limit=bounded_limit,
+            offset=bounded_offset,
+            filter=filter_,
+            sort=sort,
+        )
 
 
 def count_sheet_filter_values(
@@ -854,57 +883,60 @@ def count_sheet_filter_values(
     reference_date: date | None = None,
 ) -> tuple[list[tuple[str, Any, int]], bool]:
     """Exact filter-scoped value groups, capped only at the response edge."""
-    column = next(
-        (c for c in project.columns(sheet_id) if int(c["id"]) == column_id), None
-    )
-    if column is None:
-        raise SheetRowSetError("count_by column is not in sheet")
-    plan = sheet_row_scope_plan(
-        project,
-        sheet_id,
-        filter_=filter_,
-        sort=sort,
-        row_ids=row_ids,
-        reference_date=reference_date,
-    )
-    rows = project.db.execute(
-        "WITH count_values AS (SELECT "
-        "live.value, live.value_kind, live.validity "
-        f"FROM {plan.filter_from_sql} LEFT JOIN current_cell_values live "
-        "ON live.column_id=? AND live.row_id=r.id "
-        f"WHERE {plan.where_sql}), "
-        "count_groups AS (SELECT CASE "
-        "WHEN validity='invalid' THEN 'invalid' "
-        "WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL THEN 'valid' "
-        "ELSE 'missing' END AS kind, "
-        "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
-        "THEN value_kind END AS value_kind, "
-        "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
-        "THEN value END AS value FROM count_values) "
-        "SELECT kind, CASE WHEN kind='valid' THEN CASE "
-        "WHEN value_kind IN ('integer','real') THEN 'number' "
-        "ELSE value_kind END END AS value_type, "
-        "CASE WHEN kind='valid' THEN value END AS value, "
-        "COUNT(*) AS count "
-        "FROM count_groups GROUP BY kind, value_type, value "
-        "ORDER BY count DESC, CASE kind "
-        "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
-        [
-            *plan.filter_join_params,
-            column["id"],
-            *plan.where_params,
-            limit + 1,
-        ],
-    ).fetchall()
-    values = [
-        (
-            str(row["kind"]),
-            _decode_grouped_json_value(row["value_type"], row["value"]),
-            int(row["count"]),
+    with read_transaction(project.db):
+        from frisket.engine.store.current_read_sql import current_values_sql
+
+        column = next(
+            (c for c in project.columns(sheet_id) if int(c["id"]) == column_id), None
         )
-        for row in rows[:limit]
-    ]
-    return values, len(rows) <= limit
+        if column is None:
+            raise SheetRowSetError("count_by column is not in sheet")
+        plan = sheet_row_scope_plan(
+            project,
+            sheet_id,
+            filter_=filter_,
+            sort=sort,
+            row_ids=row_ids,
+            reference_date=reference_date,
+        )
+        rows = project.db.execute(
+            "WITH count_values AS (SELECT "
+            "live.value, live.value_kind, live.validity "
+            f"FROM {plan.filter_from_sql} LEFT JOIN {current_values_sql(project.db, [column_id], row_ids)} live "
+            "ON live.column_id=? AND live.row_id=r.id "
+            f"WHERE {plan.where_sql}), "
+            "count_groups AS (SELECT CASE "
+            "WHEN validity='invalid' THEN 'invalid' "
+            "WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL THEN 'valid' "
+            "ELSE 'missing' END AS kind, "
+            "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
+            "THEN value_kind END AS value_kind, "
+            "CASE WHEN validity='valid' AND value_kind<>'null' AND value IS NOT NULL "
+            "THEN value END AS value FROM count_values) "
+            "SELECT kind, CASE WHEN kind='valid' THEN CASE "
+            "WHEN value_kind IN ('integer','real') THEN 'number' "
+            "ELSE value_kind END END AS value_type, "
+            "CASE WHEN kind='valid' THEN value END AS value, "
+            "COUNT(*) AS count "
+            "FROM count_groups GROUP BY kind, value_type, value "
+            "ORDER BY count DESC, CASE kind "
+            "WHEN 'valid' THEN 0 WHEN 'missing' THEN 1 ELSE 2 END, value LIMIT ?",
+            [
+                *plan.filter_join_params,
+                column["id"],
+                *plan.where_params,
+                limit + 1,
+            ],
+        ).fetchall()
+        values = [
+            (
+                str(row["kind"]),
+                _decode_grouped_json_value(row["value_type"], row["value"]),
+                int(row["count"]),
+            )
+            for row in rows[:limit]
+        ]
+        return values, len(rows) <= limit
 
 
 def _decode_grouped_json_value(value_type: str | None, value: Any) -> Any:
@@ -934,6 +966,7 @@ def sheet_live_value_sql(
     column: Any,
     *,
     preserve_invalid: bool = False,
+    values_relation: str = "current_cell_values",
 ) -> tuple[str, list[Any]]:
     """Lookup the same current value used by ordinary cell readers."""
     value = (
@@ -943,16 +976,18 @@ def sheet_live_value_sql(
     )
     return (
         f"(SELECT {value} "
-        "FROM current_cell_values live "
+        f"FROM {values_relation} live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
         [column["id"]],
     )
 
 
-def sheet_live_value_kind_sql(row_alias: str, column: Any) -> tuple[str, list[Any]]:
+def sheet_live_value_kind_sql(
+    row_alias: str, column: Any, *, values_relation: str = "current_cell_values"
+) -> tuple[str, list[Any]]:
     """Return the semantic kind paired with :func:`sheet_live_value_sql`."""
     return (
-        "(SELECT live.value_kind FROM current_cell_values live "
+        f"(SELECT live.value_kind FROM {values_relation} live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)",
         [column["id"]],
     )
@@ -1005,13 +1040,17 @@ def _parse_group_locator_predicate(column: Any, raw: Any) -> GroupLocatorPredica
 
 
 def _group_locator_where(
-    row_alias: str, column: Any, predicate: GroupLocatorPredicate
+    row_alias: str,
+    column: Any,
+    predicate: GroupLocatorPredicate,
+    *,
+    values_relation: str = "current_cell_values",
 ) -> tuple[str, list[Any]]:
     value_sql, value_params = sheet_live_value_sql(
-        row_alias, column, preserve_invalid=True
+        row_alias, column, preserve_invalid=True, values_relation=values_relation
     )
     validity_sql = (
-        "(SELECT live.validity FROM current_cell_values live "
+        f"(SELECT live.validity FROM {values_relation} live "
         f"WHERE live.column_id=? AND live.row_id={row_alias}.id)"
     )
     validity_params = [column["id"]]
@@ -1022,7 +1061,9 @@ def _group_locator_where(
         )
     if predicate.kind == "value":
         value = json.loads(str(predicate.value_json))
-        kind_sql, kind_params = sheet_live_value_kind_sql(row_alias, column)
+        kind_sql, kind_params = sheet_live_value_kind_sql(
+            row_alias, column, values_relation=values_relation
+        )
         if column["type"] == "boolean":
             accepted_kind = f"{kind_sql}='boolean'"
             comparison = int(bool(value))
@@ -1049,7 +1090,9 @@ def _group_locator_where(
             f"{validity_sql}='valid' AND {accepted_kind} AND {value_sql}=?",
             [*validity_params, *kind_params, *value_params, comparison],
         )
-    kind_sql, kind_params = sheet_live_value_kind_sql(row_alias, column)
+    kind_sql, kind_params = sheet_live_value_kind_sql(
+        row_alias, column, values_relation=values_relation
+    )
     scalar = value_sql
     if predicate.kind == "invalid":
         if column["type"] != "date":
@@ -1431,7 +1474,10 @@ def _parse_list_contains_any_filter(
 
 
 def _parse_sheet_filter(
-    raw: str | None, columns_by_name: dict[str, Any], project: Project
+    raw: str | None,
+    columns_by_name: dict[str, Any],
+    project: Project,
+    columns_by_id: dict[int, Any] | None = None,
 ) -> list[SheetFilter]:
     if raw is None or raw == "":
         return []
@@ -1439,8 +1485,33 @@ def _parse_sheet_filter(
         spec = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise SheetRowSetError(f"invalid filter JSON: {exc.msg}") from exc
+    if isinstance(spec, list):
+        # Saved selections bind identities; names remain an input convenience
+        # for the ordinary transient grid filter UI.
+        bound: dict[str, Any] = {}
+        columns_by_name = dict(columns_by_name)
+        for item in spec:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("column_id"), int)
+                or isinstance(item["column_id"], bool)
+            ):
+                raise SheetRowSetError("saved filters require a column_id")
+            column = (columns_by_id or {}).get(item["column_id"])
+            if column is None:
+                raise SheetRowSetError(
+                    f"filter column is unavailable: {item['column_id']}"
+                )
+            key = f"__bound_{item['column_id']}"
+            columns_by_name[key] = column
+            if key in bound:
+                raise SheetRowSetError("duplicate filter column")
+            bound[key] = item.get("condition")
+        spec = bound
     if not isinstance(spec, dict):
-        raise SheetRowSetError("filter must be a JSON object")
+        raise SheetRowSetError(
+            "filter must be a JSON object or bound column conditions"
+        )
 
     out: list[SheetFilter] = []
     runtime_bindings = _runtime_operator_bindings(project)
@@ -1784,7 +1855,9 @@ def _validate_runtime_operator_plan(
 
 
 def _parse_sheet_sort(
-    raw: str | None, columns_by_name: dict[str, Any]
+    raw: str | None,
+    columns_by_name: dict[str, Any],
+    columns_by_id: dict[int, Any] | None = None,
 ) -> list[tuple[Any, str]]:
     if raw is None or raw == "":
         return []
@@ -1800,10 +1873,18 @@ def _parse_sheet_sort(
         if not isinstance(item, dict):
             raise SheetRowSetError("sort entries must be objects")
         name = item.get("column")
-        if not isinstance(name, str) or name not in columns_by_name:
-            raise SheetRowSetError(f"unknown sort column: {name}")
+        if "column_id" in item:
+            column = (columns_by_id or {}).get(item["column_id"])
+            if column is None:
+                raise SheetRowSetError(
+                    f"sort column is unavailable: {item['column_id']}"
+                )
+        else:
+            if not isinstance(name, str) or name not in columns_by_name:
+                raise SheetRowSetError(f"unknown sort column: {name}")
+            column = columns_by_name[name]
         direction = str(item.get("dir", "asc")).lower()
         if direction not in {"asc", "desc"}:
             raise SheetRowSetError(f"unsupported sort direction: {direction}")
-        out.append((columns_by_name[name], direction))
+        out.append((column, direction))
     return out

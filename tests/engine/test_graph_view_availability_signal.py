@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import itertools
 from pathlib import Path
@@ -141,7 +142,12 @@ def test_sheet_list_exposes_materialized_kind_for_edge_and_join(tmp_path: Path) 
     ws.mkdir()
     ids = _seed(ws)
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     by_id = _list_sheets(client)
 
@@ -154,7 +160,12 @@ def test_plain_csv_sheets_carry_no_signal(tmp_path: Path) -> None:
     ws.mkdir()
     ids = _seed(ws)
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     by_id = _list_sheets(client)
 

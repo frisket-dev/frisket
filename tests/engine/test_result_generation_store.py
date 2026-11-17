@@ -17,6 +17,7 @@ from frisket.engine.store.result_generations import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
+from frisket.execution.attempt import set_attempt_state
 from helpers import RunWriterAuthorityFixture, run_writer_authority_fixture
 
 
@@ -185,8 +186,22 @@ def _publish_initial_generation(
     RunResultStore(project).point_column_at_run(
         first.op_id, output_column_id, first.run_id
     )
+    RunResultStore(project).finish_run(
+        first.run_id, **first.authority.terminal_kwargs()
+    )
+    set_attempt_state(project, first.authority.writer_attempt_id, "effected")
     _release(project, first)
     return generations, first
+
+
+def _outcomes(project: Project, column_id: int) -> dict[int, str]:
+    return {
+        row["row_id"]: row["outcome"]
+        for row in project.db.execute(
+            "SELECT row_id,outcome FROM canonical_cell_heads WHERE column_id=?",
+            (column_id,),
+        )
+    }
 
 
 def _descriptor(project: Project, column_id: int) -> dict[str, object]:
@@ -251,7 +266,27 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
             "format": None,
             "semantic_type": None,
         }
+        # Descriptor-changing work is staged: neither values nor its pending
+        # scope can replace the old descriptor's usable data before sealing.
         assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
+        assert {
+            head.run_id for head in generations.read_cell_heads(column_id).values()
+        } == {first.run_id}
+        token = replacement.authority.claim_token
+        assert token is not None
+        fence = generations._require_active_claim(
+            run_id=replacement.run_id,
+            column_id=column_id,
+            claim_token=token,
+        )
+        assert fence["current_head_run_id"] == first.run_id
+        assert (
+            project.db.execute(
+                "SELECT run_id FROM published_result_bases WHERE column_id=? AND row_id=?",
+                (column_id, row_ids[0]),
+            ).fetchone()["run_id"]
+            == first.run_id
+        )
 
         assert _seal(generations, replacement, column_id) == len(row_ids)
         assert _descriptor(project, column_id) == target
@@ -301,7 +336,7 @@ def test_descriptor_replacement_publishes_values_and_descriptor_at_seal_and_undo
                 for position, row_id in enumerate(row_ids)
             ],
         )
-        assert _seal(generations, retry, column_id) == len(row_ids)
+        assert _seal(generations, retry, column_id) == 0
         _release(project, retry)
         retry = None
 
@@ -385,14 +420,36 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
 
         assert _seal(generations, replacement, column_id, disposition=disposition) == 0
         assert _descriptor(project, column_id)["type"] == "text"
+        RunResultStore(project).finish_run(
+            replacement.run_id, disposition, **replacement.authority.terminal_kwargs()
+        )
         assert {
             head.run_id for head in generations.read_cell_heads(column_id).values()
         } == {first.run_id}
+        assert _outcomes(project, column_id) == {
+            row_id: "completed" for row_id in row_ids
+        }
+        # The aborted staged generation retains its saved results without
+        # replacing the prior published values or descriptor.
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
+            (first.run_id,),
+        ).fetchone()[0] == len(row_ids)
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=? AND published=0",
+                (replacement.run_id,),
+            ).fetchone()[0]
+            == effect_count
+        )
 
         generations.rebuild_heads([column_id])
         assert {
             head.run_id for head in generations.read_cell_heads(column_id).values()
         } == {first.run_id}
+        assert _outcomes(project, column_id) == {
+            row_id: "completed" for row_id in row_ids
+        }
         assert _seal(generations, replacement, column_id, disposition=disposition) == 0
         info = json.loads(
             project.db.execute(
@@ -429,7 +486,7 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
 
 
 @pytest.mark.parametrize("disposition", ["cancelled", "failed"])
-def test_coupled_abort_keeps_previous_heads_and_cannot_publish_on_retry(
+def test_coupled_abort_preserves_previous_heads_and_cannot_publish_on_retry(
     tmp_path: Path, disposition: str
 ) -> None:
     project, sheet_id, column_id, row_ids = _seed_project(tmp_path)
@@ -474,9 +531,22 @@ def test_coupled_abort_keeps_previous_heads_and_cannot_publish_on_retry(
             == 0
         )
         assert _seal(generations, second, column_id, disposition=disposition) == 0
-        heads = generations.read_cell_heads(column_id)
-        assert all(head.run_id == first.run_id for head in heads.values())
-        assert heads[row_ids[0]].value == "first:0"
+        RunResultStore(project).finish_run(
+            second.run_id, disposition, **second.authority.terminal_kwargs()
+        )
+        assert {
+            head.run_id for head in generations.read_cell_heads(column_id).values()
+        } == {first.run_id}
+        assert _outcomes(project, column_id) == {
+            row_id: "completed" for row_id in row_ids
+        }
+        assert (
+            project.db.execute(
+                "SELECT value FROM results WHERE run_id=? AND row_id=?",
+                (first.run_id, row_ids[0]),
+            ).fetchone()[0]
+            == "first:0"
+        )
         assert (
             project.db.execute(
                 "SELECT value FROM results WHERE run_id=?", (second.run_id,)
@@ -968,7 +1038,7 @@ def test_managed_run_treats_every_effect_as_attempted_and_refuses_same_run_retry
         assert after == before
 
         _seal(generations, claimed_run, output_column_id)
-        store.finish_run(claimed_run.run_id)
+        store.finish_run(claimed_run.run_id, **claimed_run.authority.terminal_kwargs())
         _release(project, claimed_run)
         admission = store.begin_run_resume(claimed_run.run_id)
         assert not admission.admitted
@@ -996,7 +1066,13 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
         row_ids=row_ids[:1],
         label="staged exact replay",
     )
-    _declare(generations, second, output_column_id, write_mode="replace_scope")
+    _declare(
+        generations,
+        second,
+        output_column_id,
+        write_mode="replace_scope",
+        defer_publication=True,
+    )
     batch = [
         {
             "row_id": row_ids[0],
@@ -1026,7 +1102,7 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
         project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (second.op_id,))
         project.db.commit()
 
-        with pytest.raises(GenerationStateError, match="op is 'undone'"):
+        with pytest.raises(GenerationStateError, match="owning Change is 'undone'"):
             _write(project, second, batch)
 
         after = (
@@ -1044,12 +1120,17 @@ def test_staged_idempotent_write_refuses_undone_op_without_partial_mutation(
             ),
             generations.read_cell_heads(output_column_id),
         )
-        assert after == before
+        assert after[:2] == before[:2]
+        # Deferred work never masked the old heads. Undo and the refused
+        # writer preserve them, the saved payload, and all counters.
+        assert set(before[2]) == set(row_ids)
+        assert set(after[2]) == set(row_ids)
+        assert {head.run_id for head in after[2].values()} == {first.run_id}
     finally:
         project.close()
 
 
-def test_fresh_results_stream_then_staged_subset_seals_exact_heads(
+def test_fresh_and_replacement_results_stream_then_seal_exact_heads(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
@@ -1143,9 +1224,21 @@ def test_fresh_results_stream_then_staged_subset_seals_exact_heads(
         ],
     )
 
-    # Existing output replacement is staged: no partial visibility and no
-    # carry-forward copies into the new run.
-    assert generations.read_cell_heads(output_column_id) == first_heads
+    # Same-descriptor replacements publish their completed row family now;
+    # untouched rows retain their prior heads, before terminal sealing.
+    progressive = generations.read_cell_heads(output_column_id)
+    assert [progressive[row_id].run_id for row_id in targeted] == [second.run_id] * 3
+    assert progressive[row_ids[3]] == first_heads[row_ids[3]]
+    assert _outcomes(project, output_column_id) == {
+        targeted[0]: "completed",
+        targeted[1]: "completed",
+        targeted[2]: "failed",
+        row_ids[3]: "completed",
+    }
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
+        (first.run_id,),
+    ).fetchone()[0] == len(row_ids)
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM results WHERE run_id=? AND column_id=?",
@@ -1313,6 +1406,243 @@ def test_progressive_publication_batches_generation_and_head_queries(
         row_id: f"bulk:{position}" for position, row_id in enumerate(row_ids)
     }
     _release(project, claimed)
+    project.close()
+
+
+def test_generation_declaration_requires_a_frozen_run_scope(tmp_path: Path) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    op_id = project.append_op("map.regex_extract", {"output": "generated"})
+    run_id = RunResultStore(project).start_run(
+        op_id, sheet_id, "map.regex_extract", total_rows=len(row_ids)
+    )
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={output_column_id}
+    )
+    with pytest.raises(GenerationStateError, match="frozen row scope"):
+        ResultGenerationStore(project).declare(
+            run_id,
+            output_column_id,
+            output_role="generated",
+            compatibility_key="sha256:test-output-v1",
+            write_mode="create",
+            claim_token=authority.claim_token or "",
+        )
+    assert not ResultGenerationStore(project).bindings_for_run(run_id)
+    project.close()
+
+
+def test_seal_after_undo_cannot_publish_a_staged_generation(tmp_path: Path) -> None:
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
+    generations = ResultGenerationStore(project)
+    claimed = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids,
+        label="undo before seal",
+    )
+    _declare(
+        generations,
+        claimed,
+        output_column_id,
+        write_mode="create",
+        defer_publication=True,
+    )
+    _write(
+        project,
+        claimed,
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": output_column_id,
+                "value": "late",
+                "publication_effect": "publish_value",
+            }
+        ],
+    )
+    assert project.undo() == claimed.op_id
+    assert (
+        generations.seal(
+            claimed.run_id,
+            [output_column_id],
+            claim_token=claimed.authority.claim_token or "",
+            terminal_disposition="cancelled",
+            publish=True,
+        )
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT published FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+            (claimed.run_id, row_ids[0], output_column_id),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?",
+            (claimed.run_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    op = project.db.execute(
+        "SELECT status,publication_closed FROM ops WHERE id=?", (claimed.op_id,)
+    ).fetchone()
+    assert tuple(op) == ("undone", 1)
+    project.close()
+
+
+def test_seal_publishes_only_complete_output_families(tmp_path: Path) -> None:
+    project, sheet_id, first_column_id, row_ids = _seed_project(tmp_path)
+    second_column_id = project.add_column(
+        sheet_id, "second", type="text", ai_generated=True
+    )
+    op_id = project.append_op("map.regex_extract", {"outputs": ["first", "second"]})
+    store = RunResultStore(project)
+    run_id = store.start_run(
+        op_id,
+        sheet_id,
+        "map.regex_extract",
+        row_ids=row_ids,
+        total_rows=len(row_ids),
+    )
+    authority = run_writer_authority_fixture(
+        project,
+        run_id,
+        output_column_ids={first_column_id, second_column_id},
+    )
+    token = authority.claim_token
+    assert token is not None
+    generations = ResultGenerationStore(project)
+    for column_id, role in (
+        (first_column_id, "first"),
+        (second_column_id, "second"),
+    ):
+        generations.declare(
+            run_id,
+            column_id,
+            output_role=role,
+            compatibility_key=f"sha256:{role}-v1",
+            write_mode="create",
+            claim_token=token,
+            defer_publication=True,
+        )
+    store.write_results(
+        run_id,
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": first_column_id,
+                "value": "first only",
+                "publication_effect": "publish_value",
+            },
+            {
+                "row_id": row_ids[1],
+                "column_id": second_column_id,
+                "value": "second only",
+                "publication_effect": "publish_value",
+            },
+        ],
+        **authority.kwargs(),
+    )
+    generations.seal(
+        run_id,
+        [first_column_id, second_column_id],
+        claim_token=token,
+        terminal_disposition="cancelled",
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1", (run_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    project.close()
+
+
+def test_undo_cancels_live_run_and_preserves_returned_usage(tmp_path: Path) -> None:
+    from frisket.execution.attempt import StaleAttemptWriter
+    from frisket.engine.store.changes import ChangePublicationClosed
+
+    project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path, row_count=1)
+    claimed = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=output_column_id,
+        row_ids=row_ids,
+        label="paid run undone in flight",
+    )
+    _declare(
+        ResultGenerationStore(project),
+        claimed,
+        output_column_id,
+        write_mode="create",
+    )
+    assert project.undo() == claimed.op_id
+    run = project.db.execute(
+        "SELECT cancel_requested_at FROM runs WHERE id=?", (claimed.run_id,)
+    ).fetchone()
+    assert run["cancel_requested_at"] is not None
+    assert not RunResultStore(project).begin_run_resume(claimed.run_id).admitted
+    batch = [
+        {
+            "row_id": row_ids[0],
+            "column_id": output_column_id,
+            "value": "must not publish",
+            "publication_effect": "publish_value",
+            "model_calls": [
+                {
+                    "id": "paid-before-undo-publication-refusal",
+                    "fact_version": "frisket.model-call-fact.v1",
+                    "capability": "classify",
+                    "engine": "fixture",
+                    "provider": "fixture",
+                    "provider_kind": "test",
+                    "model_ids": ["fixture-model"],
+                    "credential_source": "platform_key",
+                    "provider_cost_usd": 0.025,
+                }
+            ],
+        }
+    ]
+    with pytest.raises(
+        (ChangePublicationClosed, StaleAttemptWriter, GenerationStateError)
+    ):
+        RunResultStore(project).write_results(
+            claimed.run_id,
+            batch,
+            **claimed.authority.kwargs(),
+        )
+    assert (
+        RunResultStore(project).model_calls(claimed.run_id)[0]["provider_cost_usd"]
+        == 0.025
+    )
+    assert project.db.execute(
+        "SELECT cost_actual FROM runs WHERE id=?", (claimed.run_id,)
+    ).fetchone()[0] == pytest.approx(0.025)
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (claimed.run_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    RunResultStore(project).finish_run(
+        claimed.run_id,
+        "cancelled",
+        **claimed.authority.terminal_kwargs(),
+    )
+    assert (
+        project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (claimed.run_id,)
+        ).fetchone()[0]
+        == "cancelled"
+    )
     project.close()
 
 
@@ -1571,7 +1901,7 @@ def test_subset_replacement_seal_refreshes_only_its_301_exact_rows(
         project.db.execute("DELETE FROM search_dirty_scopes")
         project.db.commit()
 
-        assert _seal(generations, replacement, output_column_id) == len(targeted)
+        assert _seal(generations, replacement, output_column_id) == 0
         scopes = project.db.execute(
             "SELECT sheet_id,column_id,row_id_start,row_id_end "
             "FROM search_dirty_scopes WHERE column_id=? ORDER BY id",
@@ -1894,3 +2224,73 @@ def test_progressive_head_failure_rolls_back_result_and_counters(
     assert run is not None
     assert int(run["completed_rows"]) == 0
     assert generations.read_cell_heads(output_column_id) == {}
+
+
+def test_replacement_streams_then_stop_keeps_completed_and_later_manual_edit(tmp_path):
+    project, sheet, column, rows = _seed_project(tmp_path, row_count=3)
+    generations, first = _publish_initial_generation(project, sheet, column, rows)
+    replacement = _start_claimed_run(
+        project,
+        sheet_id=sheet,
+        output_column_id=column,
+        row_ids=rows,
+        label="streamed replacement",
+    )
+    try:
+        _declare(generations, replacement, column, write_mode="replace_scope")
+        _write(
+            project,
+            replacement,
+            [
+                {
+                    "row_id": rows[0],
+                    "column_id": column,
+                    "value": "new first",
+                    "publication_effect": "publish_value",
+                }
+            ],
+        )
+        assert project.get_values(sheet, column)[rows[0]] == "new first"
+        assert _outcomes(project, column) == {
+            rows[0]: "completed",
+            rows[1]: "pending",
+            rows[2]: "pending",
+        }
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": column, "value": "later manual"}]
+        )
+        _write(
+            project,
+            replacement,
+            [
+                {
+                    "row_id": rows[1],
+                    "column_id": column,
+                    "value": "new second",
+                    "publication_effect": "publish_value",
+                }
+            ],
+        )
+        store = RunResultStore(project)
+        store.request_cancel(replacement.run_id)
+        _seal(generations, replacement, column, disposition="cancelled")
+        store.finish_run(
+            replacement.run_id,
+            status="cancelled",
+            **replacement.authority.terminal_kwargs(),
+        )
+        assert project.get_values(sheet, column) == {
+            rows[0]: "later manual",
+            rows[1]: "new second",
+            rows[2]: None,
+        }
+        assert _outcomes(project, column)[rows[2]] == "not_completed"
+        assert project.undo() is not None
+        # Ordinary Undo follows user change order: the later manual edit first.
+        assert project.get_values(sheet, column)[rows[0]] == "new first"
+        assert project.undo() is not None
+        assert project.get_values(sheet, column) == {
+            row: f"first:{index}" for index, row in enumerate(rows)
+        }
+    finally:
+        project.close()

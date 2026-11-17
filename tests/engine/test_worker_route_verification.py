@@ -7,6 +7,7 @@ is literal: the stub records every invocation.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -126,7 +127,7 @@ def adapter_stub(monkeypatch):
     calls: list[dict] = []
 
     async def fake_execute(engine, path, spec, ctx, **kwargs):
-        calls.append({"engine": engine})
+        calls.append({"engine": engine, "input_bytes": Path(path).read_bytes()})
         return TranscriptionEngineResult(
             output={"text": "stubbed transcript", "segments": [], "language": "en"},
             model_calls=(),
@@ -187,7 +188,7 @@ def _prepare_local_run(project, spec, *, confirmed=False) -> int:
         request.action,
         request.params,
         project_id="proj",
-        router=ModelRouter(),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         program=request.program,
     )
     assert isinstance(reservation, dict), reservation
@@ -195,7 +196,7 @@ def _prepare_local_run(project, spec, *, confirmed=False) -> int:
     spec.update(reservation["runner_spec"])
     progress = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     ).prepare_run(spec, program=request.program, confirmed=confirmed)
@@ -218,7 +219,7 @@ def _prepare_local_run(project, spec, *, confirmed=False) -> int:
 def _prepare_consented_gateway_run(project, sheet_id) -> tuple[int, dict]:
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     )
@@ -240,7 +241,7 @@ def _prepare_consented_gateway_dispatch(project, sheet_id):
 
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     )
@@ -367,7 +368,11 @@ def _handle(root: Path, run_id: int, spec: dict) -> dict:
     finally:
         project.close()
     registry = HandlerRegistry()
-    register_project_run_handler(registry, workspace_root=root, router=ModelRouter())
+    register_project_run_handler(
+        registry,
+        workspace_root=root,
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+    )
     handler = registry.get("project.run")
     assert handler is not None
     return handler(payload, JobHandlerContext.without_job_row())
@@ -656,6 +661,67 @@ def test_dead_target_at_claim_is_durable_no_live_target(
     assert _run_row(root, run_id)["status"] == "failed"
 
 
+def test_dead_target_after_abandoned_dispatch_uses_recovery_authority(
+    workspace, gateway_env, adapter_stub, monkeypatch
+):
+    """A failed redelivery must respect the run's earlier dispatch history."""
+    from frisket.execution.attempt import set_attempt_state
+
+    root, project, sheet_id = workspace
+    run_id, spec = _prepare_consented_gateway_run(project, sheet_id)
+    action_body, request, reservation = _PREPARED_QUEUES[(str(project.path), run_id)]
+    marked_spec = request.entry.mark_runner_spec(
+        {**spec, **reservation["runner_spec"]},
+        receipt_id=reservation["receipt_id"],
+        action_id=reservation["action_id"],
+        params_hash=reservation["params_hash"],
+    )
+    project.db.execute(
+        "UPDATE runs SET action_kind=?, params=? WHERE id=?",
+        ("media.transcribe", json.dumps(marked_spec, sort_keys=True), run_id),
+    )
+    project.db.commit()
+
+    # The first worker reached dispatch, then went stale and was abandoned.
+    # Its receipt evidence remains the durable authority for a retry failure.
+    attempt = open_attempt_authority(project).mint(
+        recipe=request.program,
+        spec=marked_spec,
+        run_id=run_id,
+        scope=tuple(RunResultStore(project).run_row_scope(run_id)),
+    )
+    project.db.execute(
+        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+        (attempt.attempt_id,),
+    )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id=? WHERE id=?",
+        (attempt.attempt_id, run_id),
+    )
+    project.db.commit()
+    set_attempt_state(project, attempt.attempt_id, "abandoned")
+    request.entry.mark_prepared(
+        project,
+        receipt_id=reservation["receipt_id"],
+        run_id=run_id,
+        attempt_id=attempt.attempt_id,
+        output_fields=reservation["output_fields"],
+        program=request.program,
+    )
+
+    # Credentials disappear before the redelivery can dispatch. It must
+    # terminalize the receipt through abandoned-run recovery, not claim that
+    # this run was never dispatched.
+    monkeypatch.delenv("FRISKET_MODELS_URL")
+    monkeypatch.delenv("FRISKET_MODELS_TOKEN")
+    result = _handle(root, run_id, spec)
+
+    assert result["status"] == "failed"
+    assert result["action_result"]["errors"][0]["code"] == "no_live_target"
+    assert adapter_stub == []
+    assert _run_row(root, run_id)["status"] == "failed"
+
+
 # ---------------------------------------------------------------------------
 # F5: actor authorization — foreign consents (restored bundle) fail closed
 # ---------------------------------------------------------------------------
@@ -930,13 +996,13 @@ def test_head_that_moved_between_admission_and_the_claim_refuses(
     assert row["current_attempt_id"] is None
 
 
-def test_routed_dispatch_uses_the_attempt_owned_source_index(
+def test_routed_dispatch_reads_sources_through_bounded_live_pages(
     workspace, gateway_env, adapter_stub, monkeypatch
 ):
     """Exercise actual routed admission, not an unrouted template run."""
     import asyncio
 
-    from frisket.execution.scope_identity import AdmittedWorkScopeSnapshot
+    from frisket.engine.runner.row_inputs import RowSourcePage
 
     _root, project, sheet_id = workspace
     source_column = next(c for c in project.columns(sheet_id) if c["name"] == "media")
@@ -947,16 +1013,16 @@ def test_routed_dispatch_uses_the_attempt_owned_source_index(
     run_id, spec = _prepare_consented_gateway_run(project, sheet_id)
     claim_token, _output_column_ids = _claimed_output_authority(project, run_id)
     looked_up = []
-    source_cell = AdmittedWorkScopeSnapshot.source_cell
+    source_cell = RowSourcePage.cell
 
-    def record_lookup(snapshot, source_index, cells, row_id):
-        looked_up.append((id(snapshot), row_id))
-        return source_cell(snapshot, source_index, cells, row_id)
+    def record_lookup(page, sheet_id, column_id, row_id):
+        looked_up.append((sheet_id, column_id, row_id, page.row_ids))
+        return source_cell(page, sheet_id, column_id, row_id)
 
-    monkeypatch.setattr(AdmittedWorkScopeSnapshot, "source_cell", record_lookup)
+    monkeypatch.setattr(RowSourcePage, "cell", record_lookup)
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     )
@@ -972,20 +1038,21 @@ def test_routed_dispatch_uses_the_attempt_owned_source_index(
     )
     assert progress.completed == len(row_ids)
     assert len(adapter_stub) == len(row_ids)
-    assert sorted(row_id for _snapshot, row_id in looked_up) == row_ids
-    assert len({snapshot for snapshot, _row_id in looked_up}) == 1
+    assert sorted(row_id for _sheet, _column, row_id, _scope in looked_up) == row_ids
+    assert all(
+        sheet == sheet_id and column == source_column["id"] and scope == {row}
+        for sheet, column, row, scope in looked_up
+    )
+    assert all(call["input_bytes"] == b"RIFFxxxxWAVEfmt " for call in adapter_stub)
 
 
-def test_pending_row_edit_after_admission_refuses_before_egress(
+def test_pending_row_edit_after_admission_uses_current_input_in_fixed_scope(
     workspace, gateway_env, adapter_stub
 ):
-    """The work-scope check must govern the values actually sent.
+    """Approval covers selected work, not frozen values or an old estimate.
 
-    Validation and attempt admission both observe the original media cell.
-    The edit lands only after ``AttemptAuthority.mint`` has returned its
-    admitted commitment, while the row is still pending and before the
-    adapter is entered. Dispatch must not rebuild a different live value and
-    send it under the old consent.
+    An edit after admission is read at dispatch; newly appended rows remain
+    outside the execution's original selected cohort.
     """
     import asyncio
 
@@ -1027,13 +1094,16 @@ def test_pending_row_edit_after_admission_refuses_before_egress(
                 ],
                 label="edit pending row after admission",
             )
+            self.added_row = project.add_rows(
+                sheet_id, [{"media": replacement}], {"media": int(source_column["id"])}
+            )[0]
             self.edited = True
             return attempt
 
     authority = _EditAfterAdmissionAuthority()
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=authority,
     )
@@ -1049,9 +1119,22 @@ def test_pending_row_edit_after_admission_refuses_before_egress(
     )
 
     assert authority.edited is True
-    assert adapter_stub == []
-    assert progress.halted_code == "promise_violation"
-    assert progress.completed == 0
+    assert adapter_stub == [
+        {"engine": "moss", "input_bytes": b"RIFFreplacementWAVEfmt "}
+    ]
+    assert progress.halted_code is None
+    assert progress.completed == 1
+    assert (
+        project.get_values(sheet_id, source_column["id"])[authority.added_row]
+        == replacement
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=? AND row_id=?",
+            (run_id, authority.added_row),
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_the_claim_transaction_must_own_its_write_lock(
@@ -1190,7 +1273,7 @@ def test_batch_recipe_invokes_the_run_start_fence_before_dispatching(
 
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=_HaltingAuthority(),
     )
@@ -1349,7 +1432,7 @@ def test_a_different_action_still_re_asks(workspace, gateway_env, adapter_stub):
     with pytest.raises(ClaimsGate):
         MapRunner(
             project,
-            ModelRouter(),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
             allow_action_lifecycle_only_recipes=True,
             authority=open_attempt_authority(project),
         ).prepare_run(other, program=_program(other))
@@ -1392,7 +1475,7 @@ def test_fresh_launch_refused_by_the_unverified_fence_terminalizes(
 
     unwired = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -1445,7 +1528,7 @@ def test_fresh_launch_with_a_dead_target_terminalizes(
     )
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         authority=open_attempt_authority(project),
     )
     claim_token, _ = _claimed_output_authority(project, prepared.run_id)
@@ -1488,7 +1571,7 @@ def test_fresh_launch_refused_consent_missing_terminalizes(
 
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=_RefusingAuthority(),
     )
@@ -1512,11 +1595,8 @@ def test_fresh_launch_refused_consent_missing_terminalizes(
 
 
 # ---------------------------------------------------------------------------
-# The cost row on a remote-api route used to be structurally unevaluable:
-# pricing is ENGINE-keyed, ``connection()`` is TARGET-keyed, so the fence
-# compared "openai/whisper-1.audio_second" against None (basis_mismatch) on
-# every run. The verification site HAS the engine (route.engine); it mints
-# the same key + rate the estimate basis was compiled under.
+# Remote API cost approval is an estimate, never a frozen tariff ceiling.
+# Credential/route authorization still applies independently.
 # ---------------------------------------------------------------------------
 
 
@@ -1532,7 +1612,7 @@ def _remote_spec(sheet_id: int) -> dict:
 def _prepare_consented_remote_run(project, sheet_id: int) -> tuple[int, dict]:
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         allow_action_lifecycle_only_recipes=True,
         authority=open_attempt_authority(project),
     )
@@ -1543,16 +1623,20 @@ def _prepare_consented_remote_run(project, sheet_id: int) -> tuple[int, dict]:
     return _prepare_local_run(project, confirmed, confirmed=True), confirmed
 
 
-def test_remote_api_cost_row_evaluates_at_the_live_engine_rate(workspace, openai_env):
+def test_remote_api_cost_row_preserves_estimate_without_spend_ceiling(
+    workspace, openai_env
+):
     _root, project, sheet_id = workspace
     run_id, spec = _prepare_consented_remote_run(project, sheet_id)
     store = RouteStore.for_run(project, run_id)
     _route, promise_set = store.head()
     cost_rows = [row for row in promise_set.promises if row["field"] == "cost"]
-    assert cost_rows and cost_rows[0]["op"] == "le", cost_rows
+    assert cost_rows and cost_rows[0]["op"] == "unbounded", cost_rows
+    assert cost_rows[0]["basis"]["ceiling_mode"] == "none"
+    assert cost_rows[0]["basis"]["charge_authority"] == "provider_direct"
     assert cost_rows[0]["basis"]["pricing_key"] == "openai/whisper-1.audio_second"
 
-    # Satisfied at the consented rate, and the ledger is EMPTY. It used to
+    # An approved estimate leaves the violation ledger empty. It used to
     # carry one permanently-unevaluable ``credential_source`` row on every
     # tariffed run — the provenance only appears at the model call, so the
     # run-start fence had nothing to score. The pre-effect USE constraint at
@@ -1570,40 +1654,31 @@ def test_remote_api_cost_row_evaluates_at_the_live_engine_rate(workspace, openai
     assert not any(row["field"] == "credential_source" for row in promise_set.promises)
 
 
-def test_remote_api_cost_row_refuses_when_the_live_rate_is_raised(
+def test_remote_api_cost_approval_does_not_lock_the_old_rate(
     workspace, openai_env, monkeypatch
 ):
-    from frisket.ops.base import RecipeInvocationHalt
-
     _root, project, sheet_id = workspace
     run_id, spec = _prepare_consented_remote_run(project, sheet_id)
     store = RouteStore.for_run(project, run_id)
-    _route, promise_set = store.head()
+    route, promise_set = store.head()
 
-    # The provider raises its list price after consent. The bound was
-    # consented under the old rate, so claim-time evaluation must record it
-    # and refuse before dispatch under the stale confirmation.
+    # A changed tariff does not demand reapproval for the same selected work.
+    # Cloud request admission checks the current available balance separately.
     from frisket.ai.llm import pricing
 
     monkeypatch.setattr(pricing, "audio_price", lambda model: {"per_second": 0.01})
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
-        verify_execution_route(
-            project,
-            run_id,
-            spec,
-            composition=open_execution_composition(
-                project, None, ExecutionCompositionContext.direct()
-            ),
-        )
-    assert exc_info.value.code == "promise_violation"
-    assert "cost: bound_exceeded" in exc_info.value.detail
-    recorded = {v.promise_fingerprint for v in store.violations()}
-    assert _fingerprint_of(promise_set, "cost") in recorded
-    assert [
-        v
-        for v in store.violations()
-        if v.promise_fingerprint == _fingerprint_of(promise_set, "cost")
-    ]
+    verify_execution_route(
+        project,
+        run_id,
+        spec,
+        composition=open_execution_composition(
+            project, None, ExecutionCompositionContext.direct()
+        ),
+    )
+    assert store.violations() == []
+    same_route, same_promises = store.head()
+    assert same_route.id == route.id
+    assert same_promises.id == promise_set.id
 
 
 def test_route_verification_does_not_silently_skip_malformed_typed_program(workspace):

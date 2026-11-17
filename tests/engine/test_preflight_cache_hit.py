@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 
@@ -73,7 +74,9 @@ def test_replay_mode_cache_hit_completes_keyless_no_missing_provider_key(tmp_pat
                 model=spec["model"],
             ),
         )
-        router = ModelRouter(cache=cache, cache_mode="replay")  # no keys configured
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=cache, cache_mode="replay"
+        )  # no keys configured
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
 
         # The real bug: this used to raise MissingProviderKey before any row
@@ -126,7 +129,9 @@ def test_replay_mode_without_a_cache_object_still_blocks_eagerly(tmp_path):
     try:
         sheet_id, _cols, _row_ids = _seed_two_rows(project)
         spec = _classify_spec(sheet_id)
-        router = ModelRouter(cache=None, cache_mode="replay")  # no keys, no cache
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="replay"
+        )  # no keys, no cache
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         try:
             prepare_with_exact_confirmation(runner, spec)

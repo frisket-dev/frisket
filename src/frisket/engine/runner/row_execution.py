@@ -25,7 +25,7 @@ from frisket.ai.llm import (
     classify_llm_error,
     classify_resumable_provider_error,
 )
-from frisket.ai.models.accounting import wire_accounting_meta
+from frisket.ai.models.accounting import merge_accounting_meta, wire_accounting_meta
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
 from frisket.redaction import safe_error
@@ -41,6 +41,7 @@ from frisket.engine.runner.publication import (
 from frisket.engine.runner.row_inputs import row_source_values_empty
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
+from frisket.execution.purchases import PurchaseRecordingError
 from frisket.engine.store.runs import TERMINAL_FAILURE_OUTCOMES
 from frisket.execution.attempt import StaleAttemptWriter, routed_admission_in_scope
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
@@ -109,10 +110,49 @@ async def execute_row(
     required_output_field_names: frozenset[str] = frozenset(),
     managed_publication: bool = False,
 ) -> dict[str, dict]:
+    from contextlib import nullcontext
+
+    policy = getattr(router, "model_call_policy", None)
+    capture = getattr(policy, "operation_scope", None)
+    with capture(ctx, row_id=row_id) if capture is not None else nullcontext():
+        return await _execute_row(
+            project,
+            router,
+            throttle,
+            recipe,
+            values,
+            spec,
+            ctx,
+            row_id=row_id,
+            recorder=recorder,
+            output_field_names=output_field_names,
+            required_output_field_names=required_output_field_names,
+            managed_publication=managed_publication,
+        )
+
+
+async def _execute_row(
+    project: Project,
+    router: ModelRouter,
+    throttle: AdaptiveThrottle,
+    recipe: Recipe,
+    values: dict,
+    spec: dict,
+    ctx: OpContext,
+    *,
+    row_id: int | None = None,
+    recorder: TraceWriter | None = None,
+    output_field_names: tuple[str, ...] | None = None,
+    required_output_field_names: frozenset[str] = frozenset(),
+    managed_publication: bool = False,
+) -> dict[str, dict]:
     """Execute a row and return publication/accounting data by field.
 
     Every model call is captured best-effort through a ``TracingRouter``.
     """
+    from frisket.execution.dispatch_control import dispatch_for_context
+
+    router = router.for_execution(dispatch_for_context(ctx))
     # This public entry point may be called without prior spec validation.
     admission = routed_admission_in_scope(ctx.extras or {})
     validation.assert_network_policy(
@@ -129,6 +169,11 @@ async def execute_row(
         else [f["name"] for f in recipe.output_fields(spec)]
     )
     # Do not ask a plain LLM to fabricate output from an empty source row.
+    unavailable = getattr(values, "unavailable_inputs", ())
+    if unavailable:
+        from frisket.engine.store.input_availability import not_completed_result
+
+        return {name: not_completed_result(unavailable[0]) for name in field_names}
     if (
         recipe.is_llm(spec)
         and not hasattr(recipe, "run_agent")
@@ -153,6 +198,70 @@ async def execute_row(
     ) -> None:
         if recorder and row_trace:
             recorder.write_row(router.record(data=data, meta=meta, error=error))
+
+    def returned_error_accounting(error):
+        materialized = getattr(error, "_row_returned_accounting", None)
+        if materialized is not None:
+            return materialized
+        # Capability owners already assigned durable IDs. Only unconsumed wire
+        # responses need row-level facts; using their raw history again charges
+        # the same purchase twice under a different ID.
+        recorded = getattr(error, "accounting", None)
+        paid = list(getattr(error, "wire_calls", ()) or ())
+        if not paid:
+            observation = getattr(error, "observation", None)
+            purchase = getattr(error, "purchase_request", None)
+            if recorded is None and observation is not None and purchase is not None:
+                from frisket.ai.models.metadata import ModelCallMeta
+
+                expense = observation.provider_cost_micro
+                cost = None if expense is None else expense / 1_000_000
+                fact = ModelCallMeta.provider_call(
+                    capability=purchase.capability,
+                    engine=purchase.engine,
+                    provider=purchase.provider,
+                    provider_kind="local_http"
+                    if purchase.provider == "frisket-models"
+                    else "platform_api",
+                    credential_source=purchase.credential_source,
+                    provider_reported_cost_usd=cost,
+                    provider_cost_usd=cost,
+                    units=observation.usage,
+                    cost_source="provider_reported" if cost is not None else "unknown",
+                    duration_ms=None,
+                ).as_dict()
+                admission = routed_admission_in_scope(ctx.extras)
+                if admission is not None:
+                    fact = bind_fact_to_route(admission.route, fact)
+                recorded = {"model_calls": [fact], "cost": cost}
+                # The same exception may cross preview/row/agent consumers.
+                # Mint this fact once rather than charging it under new IDs.
+                error.accounting = recorded
+            error._row_returned_accounting = recorded
+            return recorded
+        raw = wire_accounting_meta(spec.get("model") or paid[-1].model, paid)
+        error._row_returned_accounting = merge_accounting_meta(recorded, raw)
+        return error._row_returned_accounting
+
+    def retain_returned_before_halt(error):
+        accounting = returned_error_accounting(error)
+        if accounting is None:
+            return
+        from frisket.execution.attempt import attempt_in_scope
+        from frisket.engine.store.runs import RunResultStore
+
+        attempt = attempt_in_scope(ctx.extras)
+        if attempt is None:
+            return
+        RunResultStore(project).write_returned_call_accounting(
+            attempt.run_id,
+            [{"row_id": row_id, "column_id": None, **accounting}],
+            writer_attempt_id=attempt.attempt_id,
+            authorized_attempt_id=attempt.attempt_id,
+            claim_token=ctx.extras.get("claim_token"),
+            claimless_direct_effect=ctx.extras.get("claim_token") is None,
+            receipt_id=attempt.receipt_id if attempt.run_id is None else None,
+        )
 
     meta: dict[str, Any] | None = None
     try:
@@ -299,11 +408,32 @@ async def execute_row(
                 cell["tokens_out"] = None
                 cell.pop("model_calls", None)
         return out
-    except asyncio.CancelledError:
+    except asyncio.CancelledError as exc:
         persist_trace(error="cancelled: row execution cancelled")
-        raise
+        accounting = returned_error_accounting(exc)
+        if ctx.extras.get("preview"):
+            if accounting is not None:
+                exc.accounting = accounting
+            # The preview owner retains usage and propagates cancellation;
+            # durable runs instead return a non-publishing accounting row.
+            raise
+        if accounting is None or not field_names:
+            raise
+        returned = {
+            name: {
+                "value": None,
+                "error": "Run stopped before the next model request.",
+                "error_code": "cancelled",
+                "outcome": "not_completed",
+                "publication_effect": "retain",
+            }
+            for name in field_names
+        }
+        returned[field_names[0]].update(accounting)
+        return returned
     except RecipeInvocationHalt as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
+        retain_returned_before_halt(e)
         raise
     except SandboxTeardownError as e:
         persist_trace(
@@ -313,6 +443,20 @@ async def execute_row(
     except StaleAttemptWriter as e:
         persist_trace(error=safe_error("stale_attempt_writer", e, max_chars=500).text)
         raise
+    except PurchaseRecordingError as e:
+        persist_trace(
+            data=e.provider_result,
+            meta=returned_error_accounting(e),
+            error=safe_error(
+                "external_effect_reconciliation_required", e, max_chars=500
+            ).text,
+        )
+        retain_returned_before_halt(e)
+        raise RecipeInvocationHalt(
+            "external_effect_reconciliation_required",
+            "The provider returned this row, but its accounting could not be saved. "
+            "Reconcile the returned result before retrying; another call could charge twice.",
+        ) from e
     except HostedEngineError as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
         if e.accounting is not None:
@@ -354,6 +498,7 @@ async def execute_row(
                     "model_calls": bound_calls,
                 }
         if e.provider_job_accepted or e.post_egress_ambiguous:
+            retain_returned_before_halt(e)
             # Preserve the reservation while an accepted provider job may finish.
             raise RecipeInvocationHalt(
                 "external_effect_reconciliation_required",
@@ -380,6 +525,7 @@ async def execute_row(
     except (LLMError, CacheMiss, ValueError, RuntimeError) as e:
         persist_trace(error=safe_error("model_error", e, max_chars=500).text)
         if isinstance(e, LLMError) and e.post_egress_ambiguous:
+            retain_returned_before_halt(e)
             # Ambiguous egress keeps its reservation until reconciliation.
             raise RecipeInvocationHalt(
                 "external_effect_reconciliation_required",
@@ -415,11 +561,9 @@ async def execute_row(
             }
             for name in field_names
         }
-        paid_wire_calls = list(getattr(e, "wire_calls", []) or [])
-        if paid_wire_calls and field_names:
-            failed[field_names[0]].update(
-                wire_accounting_meta(model_name, paid_wire_calls)
-            )
+        accounting = returned_error_accounting(e)
+        if accounting is not None and field_names:
+            failed[field_names[0]].update(accounting)
         elif meta is not None and field_names:
             # Validation/postprocessing happens after a successful transport;
             # preserve its actual call and cost even when publication refuses
@@ -447,7 +591,7 @@ async def llm_row(
             ),
             recipe_version=recipe.version,
         )
-        row_data = resp.data
+        row_data = recipe.model_response_data(resp, spec)
         wire_responses = [resp]
     else:
         result = await StructuredCompleter(router).complete(

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 
@@ -55,7 +56,12 @@ def env(tmp_path):
     )
     p.close()
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     env = {
         "client": client,
@@ -545,7 +551,12 @@ def test_edit_undo_redo_refreshes_map_payload(tmp_path):
         ],
     )
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     _install_default_map_points_binding(client, tmp_path, "proj1")
 
@@ -598,7 +609,12 @@ def test_filter_row_cap_is_not_silent(tmp_path, monkeypatch):
     p.close()
     monkeypatch.setenv("FRISKET_MAP_FILTER_ROW_CAP", "1")
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     _install_default_map_points_binding(client, tmp_path, "proj1")
     r = client.get(
@@ -621,7 +637,12 @@ def test_filter_not_truncated_signals_zero(tmp_path):
     )
     p.close()
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     _install_default_map_points_binding(client, tmp_path, "proj1")
     r = client.get(
@@ -665,7 +686,12 @@ def test_default_filtered_map_returns_every_point_beyond_legacy_cap(
     project.close()
 
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     _install_default_map_points_binding(client, tmp_path, "proj1")
     response = client.get(
@@ -701,7 +727,12 @@ def test_sort_param_does_not_reorder_payload(tmp_path):
     )
     p.close()
     client = TestClient(
-        create_app(ws, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
     _install_default_map_points_binding(client, tmp_path, "proj1")
 

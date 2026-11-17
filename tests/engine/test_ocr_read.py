@@ -84,7 +84,9 @@ def source(tmp_path):
 async def _reader(source, *, options=None, preview=False, engine="tesseract"):
     project, sheet, column, row_id, value = source
     options = options or OcrOptions()
-    ctx = OpContext(project=project, extras={})
+    ctx = OpContext(
+        project=project, extras={"preview": True, "cancelled": lambda: False}
+    )
     files = RowFileStager(project, preview=preview)
     reader = module.AdmittedOcrReader(
         ctx, files, engine=engine, options=options.normalize(engine)
@@ -487,7 +489,7 @@ async def test_indra_pdf_uses_one_worker_and_preserves_physical_geometry(
     async def forbidden_raster(*args, **kwargs):
         raise AssertionError("Indra PDF rendering belongs inside its model worker")
 
-    async def recognize(self, path, scratch, *, dpi, page_count, report_progress):
+    async def recognize(self, path, scratch, *, dpi, page_count, report_progress, ctx):
         calls.append(path)
         assert len(pypdf.PdfReader(path).pages) == page_count
         assert page_count == (1 if selected_page else 3)
@@ -527,7 +529,7 @@ async def test_indra_pdf_uses_one_worker_and_preserves_physical_geometry(
             assert list(fact["page_images"]) == ["2"]
             assert result.warnings == ()
         else:
-            assert result.text.root == "Page 1\n\n\n\nPage 3"
+            assert result.text.root == "Page 1\n\nPage 3"
             assert result.warnings == ("Page 2 failed during rendering.",)
             assert list(fact["page_images"]) == ["1", "3"]
         assert all(
@@ -614,7 +616,7 @@ async def test_failed_pdf_page_preserves_neighbors_and_warns_explicitly(
     monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
     async with _reader(source) as (owner, reader, row, options):
         result = await reader.recognize(row, ColumnRef("scan"), options=options)
-        assert result.text.root == "Page 1\n\n\n\nPage 3"
+        assert result.text.root == "Page 1\n\nPage 3"
         assert result.warnings == (f"Page 2 failed during {failure_stage}.",)
         assert [p["page"] for p in result.blocks] == [1, 2, 3]
         [fact] = owner.calls_by_row[source[3]]
@@ -672,11 +674,21 @@ def test_partial_pdf_action_persists_text_and_warns_every_successful_output(
     outputs = {output.name: output.column_id for output in result.outputs}
     assert set(outputs) == {"recognized", "geometry"}
     assert project.get_values(sheet, outputs["recognized"])[row_id] == "\n\n".join(
-        text(number) for number in range(1, page_count + 1)
+        text(number)
+        for number in range(1, page_count + 1)
+        if number not in failed_pages
     )
     assert [
         page["page"] for page in project.get_values(sheet, outputs["geometry"])[row_id]
     ] == list(range(1, page_count + 1))
+    from frisket.engine.store.prepared_content import PreparedContentStore
+
+    _, refs = project.get_values_with_refs(sheet, outputs["recognized"], [row_id])
+    prepared = PreparedContentStore(project).resolve(refs[row_id]["prepared_ref_id"])
+    assert prepared.covered_pages == tuple(
+        number for number in range(1, page_count + 1) if number not in failed_pages
+    )
+    assert prepared.complete is False
     expected_warnings = [
         f"Page {number} failed during rendering."
         for number in sorted(failed_pages)[:19]
@@ -743,7 +755,7 @@ async def test_pdf_bad_tail_stops_partial_with_truthful_skipped_pages_and_progre
         def close(self):
             pass
 
-    async def indra(self, path, scratch, *, dpi, page_count, report_progress):
+    async def indra(self, path, scratch, *, dpi, page_count, report_progress, ctx):
         return indra_ocr_worker._pdf_pages(
             None,
             {"pdf": str(path), "out": str(scratch / "result.json"), "dpi": dpi},
@@ -767,7 +779,7 @@ async def test_pdf_bad_tail_stops_partial_with_truthful_skipped_pages_and_progre
             value
         )
         result = await reader.recognize(row, ColumnRef("scan"), options=options)
-        assert result.text.root == "Page 1" + "\n\n" * 99
+        assert result.text.root == "Page 1"
         assert len(result.warnings) == 20
         assert result.warnings[-1] == (
             "OCR stopped after 50 consecutive page failures at page 51; "
@@ -843,7 +855,7 @@ async def test_worker_raster_memory_failure_preserves_neighboring_pdf_pages(
             value
         )
         result = await reader.recognize(row, ColumnRef("scan"), options=options)
-        assert result.text.root == "Page 1\n\n\n\nPage 3"
+        assert result.text.root == "Page 1\n\nPage 3"
         assert result.warnings == ("Page 2 failed during rendering.",)
         [fact] = owner.calls_by_row[source[3]]
         assert [page["page_number"] for page in fact["pages"]] == [1, 2, 3]
@@ -1018,7 +1030,7 @@ async def test_pdf_without_probe_count_uses_bounded_renderer_count(
     async def recognize(*args, **kwargs):
         return [{"text": "", "blocks": []}]
 
-    async def indra(self, path, scratch, *, dpi, page_count, report_progress):
+    async def indra(self, path, scratch, *, dpi, page_count, report_progress, ctx):
         assert page_count == 3 and not first_chunks[0].exists()
         return [{"text": "", "blocks": [], "width": 12, "height": 8} for _ in range(3)]
 
@@ -1082,7 +1094,9 @@ async def test_remote_engine_cannot_start_without_admission(source):
     project = source[0]
     files = RowFileStager(project)
     reader = module.AdmittedOcrReader(
-        OpContext(project=project, extras={}),
+        OpContext(
+            project=project, extras={"preview": True, "cancelled": lambda: False}
+        ),
         files,
         engine="datalab",
         options=OcrOptions().normalize("datalab"),
@@ -1176,3 +1190,31 @@ async def test_rapidocr_reuses_pool_and_releases_lease_after_children_stop(
         "close",
         "poison" if teardown_failed else "release",
     ]
+
+
+@pytest.mark.parametrize("counts", [(20, 10), (None, None), None])
+@pytest.mark.asyncio
+async def test_ocr_reader_uses_reported_fact_counts_not_initialized_totals(
+    source, monkeypatch, counts
+):
+    from frisket.ai.models.metadata import ModelCallMeta
+
+    async def recognize(self, engine, pages, ctx, *, usage, **kwargs):
+        units = {"pages": 1}
+        if counts is not None:
+            units.update(tokens_in=counts[0], tokens_out=counts[1])
+        usage["model_calls"] = [
+            ModelCallMeta.local(
+                capability="ocr",
+                engine=engine,
+                model_ids=[engine],
+                units=units,
+            ).as_dict()
+        ]
+        return [{"text": "Recognized", "blocks": []}]
+
+    monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
+    async with _reader(source) as (owner, reader, row, options):
+        await reader.recognize(row, ColumnRef("scan"), options=options)
+        meta = owner.accounting_by_row[source[3]]
+        assert (meta["tokens_in"], meta["tokens_out"]) == (counts or (None, None))

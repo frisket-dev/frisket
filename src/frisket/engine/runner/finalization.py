@@ -15,7 +15,6 @@ from frisket.engine.runner.column_retirement import (
     reveal_recovered_columns,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.runs import EXPECTED_ROW_ERROR, RunResultStore
@@ -30,7 +29,8 @@ def _finalize_run_in_transaction(
     run_id: int,
     status: str,
     out_cols: dict[str, int],
-    carry_forward_atomic_family: bool = False,
+    writer_attempt_id: str | None = None,
+    claimless_direct_effect: bool = False,
     keep_zero_success_output_columns: bool = False,
     halted_code: str | None = None,
     halted_reason: str | None = None,
@@ -46,10 +46,10 @@ def _finalize_run_in_transaction(
 
     The public entry points below decide whether this is a pre-dispatch close
     (no effect authority exists yet) or a dispatched close (the current-writer
-    fence has already succeeded in this same transaction).
+    fence is checked here before any mutation).
 
-    The transaction includes an atomic family's untargeted result carry-forward,
-    ``finish_run``'s status write, generation sealing, and the zero-success
+    The transaction includes ``finish_run``'s status write, generation sealing,
+    and the zero-success
     column rollback atomically. Either the whole finalize lands or none of it
     does, and the run stays ``running`` for the next attempt.
 
@@ -66,6 +66,30 @@ def _finalize_run_in_transaction(
     never reaches the rollback, so its sealed partial publication remains
     visible until a fresh scoped action replaces selected heads.
     """
+    # Cancellation is a durable command until terminalization commits, even
+    # when it arrives after the final row. Select it under the same write lock
+    # as the exact-writer fence and generation publication.
+    run = run_store.get_run(run_id)
+    if (
+        run is not None
+        and run["status"] == "running"
+        and run["cancel_requested_at"] is not None
+    ):
+        status = "cancelled"
+    if writer_attempt_id is not None:
+        from frisket.engine.store.run_lifecycle import require_terminal_writer
+
+        require_terminal_writer(
+            project,
+            terminal_status=status,
+            run_id=run_id,
+            writer_attempt_id=writer_attempt_id,
+            claim_token=generation_claim_token,
+            output_column_ids=frozenset(
+                int(column_id) for column_id in out_cols.values()
+            ),
+            claimless_direct_effect=claimless_direct_effect,
+        )
     managed_column_ids = {
         int(row["column_id"])
         for row in project.db.execute(
@@ -73,16 +97,6 @@ def _finalize_run_in_transaction(
             (run_id,),
         ).fetchall()
     }
-    if carry_forward_atomic_family:
-        run_store.carry_forward_results_outside_scope(
-            run_id,
-            [
-                column_id
-                for column_id in out_cols.values()
-                if int(column_id) not in managed_column_ids
-            ],
-            commit=False,
-        )
     if auto_verify:
         run_store.mark_run_results_verified(run_id, commit=False)
     run_store.set_run_halt(
@@ -96,8 +110,6 @@ def _finalize_run_in_transaction(
     # writer tuple.  Its paired receipt owner then writes the actual terminal
     # run status together with receipt + attempt + claim in the terminalizer
     # kernel.  Every other path keeps the established one-step run close.
-    if not defer_terminal_status:
-        run_store.finish_run(run_id, status, commit=False)
     if managed_column_ids and not defer_generation_seal:
         if not isinstance(generation_claim_token, str) or not generation_claim_token:
             raise RuntimeError(
@@ -109,6 +121,24 @@ def _finalize_run_in_transaction(
             claim_token=generation_claim_token,
             terminal_disposition=status,
             commit=False,
+        )
+    # Coupled publishers retain the current writer and running status until
+    # their materialization transaction seals outputs and terminalizes the run.
+    if defer_generation_seal and terminal_attempt_id is not None:
+        raise RuntimeError(
+            "deferred publication cannot close its current writer before materialization"
+        )
+    if not defer_terminal_status and not defer_generation_seal:
+        run_store.finish_run(
+            run_id,
+            status,
+            commit=False,
+            writer_attempt_id=writer_attempt_id,
+            claim_token=generation_claim_token,
+            claimless_direct_effect=claimless_direct_effect,
+            prepared_attempt_id=(
+                terminal_attempt_id if writer_attempt_id is None else None
+            ),
         )
     never_point = {int(column_id) for column_id in never_point_column_ids}
     if never_point:
@@ -221,17 +251,6 @@ def finalize_dispatched_run(
 
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        OutputColumnClaimStore.require_current_writer(
-            project.db,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            output_column_ids=frozenset(
-                int(column_id)
-                for column_id in dict(kwargs.get("out_cols") or {}).values()
-            ),
-            claimless_direct_effect=claimless_direct_effect,
-        )
         _finalize_run_in_transaction(
             project,
             run_store,
@@ -241,6 +260,8 @@ def finalize_dispatched_run(
                 writer_attempt_id if terminal_attempt_state is not None else None
             ),
             terminal_attempt_state=terminal_attempt_state,
+            writer_attempt_id=writer_attempt_id,
+            claimless_direct_effect=claimless_direct_effect,
             **kwargs,
         )
         project.db.commit()

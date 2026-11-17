@@ -160,6 +160,7 @@ describe('createJobStore — defaults (parity with the pre-migration hook state)
       'actionJobs',
       'completedClusterReceiptId',
       'costGate',
+      'launchPending',
       'outputColumnCollision',
       'run',
     ]);
@@ -183,6 +184,7 @@ describe('createJobStore — defaults (parity with the pre-migration hook state)
     expect(jobs.store.get()).toEqual({
       completedClusterReceiptId: null,
       run: null,
+      launchPending: false,
       actionJobs: { error: null, jobs: [], loading: false },
       costGate: null,
       // The SAME confirm/cancel-pair
@@ -1840,7 +1842,8 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     expect((runAction.mock.calls[1][0] as RegisteredActionRequest).output_names.result).toBe('col-reentrant');
     expect(signals[0].aborted).toBe(true);
     expect(signals[1].aborted).toBe(false);
-    expect(jobs.store.get().run?.targetColumnId).toBe('col-reentrant');
+    expect(jobs.store.get().run).toBeNull();
+    expect(jobs.store.get().launchPending).toBe(true);
 
     first.resolve({ runId: 'run-old' });
     reentrant.resolve({ runId: 'run-reentrant' });
@@ -2565,7 +2568,7 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
     expect(deps.onMaterializedSheetCreated).toHaveBeenCalledWith('42');
   });
 
-  it('startRun sets an optimistic run, then owns the run lane for a runId result', async () => {
+  it('keeps admission pending separate from accepted work, then owns the run lane for a runId result', async () => {
     const jobs = createJobStore('test-project', projectPort());
     const deps = noopDeps();
     const launch: RunActionLaunchResult = { runId: 'run-a' };
@@ -2578,13 +2581,16 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
       { id: 'sheet-1', rowCount: 5 } as never,
     );
 
-    expect(jobs.store.get().run?.status).toBe('queued');
-    expect(jobs.store.get().run?.totalRows).toBe(5);
+    expect(jobs.store.get().run).toBeNull();
+    expect(jobs.store.get().launchPending).toBe(true);
 
     // Flush the microtask queue for runAction's .then chain.
     await Promise.resolve();
     await Promise.resolve();
     expect(jobs.store.get().run?.runId).toBe('run-a');
+    expect(jobs.store.get().run?.totalRows).toBe(5);
+    await flushMicrotasks();
+    expect(jobs.store.get().launchPending).toBe(false);
   });
 
   it('a direct runless temporal launch polls its action job and receipt, not a run id', async () => {
@@ -2643,6 +2649,8 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
       .mockResolvedValueOnce({ runId: 'run-a' } as RunActionLaunchResult);
     jobs.start(deps);
 
+    const publishedRuns: Array<RunProgress | null> = [];
+    const unsubscribe = jobs.store.subscribe(() => publishedRuns.push(jobs.store.get().run));
     jobs.startRun(req, { id: 'sheet-1', rowCount: 250 } as never);
     await Promise.resolve();
     await Promise.resolve();
@@ -2659,6 +2667,9 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
     expect(jobs.store.get().costGate?.message).toContain('confirm to run it anyway');
     expect(jobs.store.get().run).toBeNull();
 
+    expect(publishedRuns.every((run) => run === null)).toBe(true);
+    unsubscribe();
+
     jobs.confirmCostGate();
     await Promise.resolve();
     await Promise.resolve();
@@ -2672,6 +2683,27 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
     expect(initialSignal).not.toBe(confirmedSignal);
     expect(confirmedSignal?.aborted).toBe(false);
     expect(jobs.store.get().costGate).toBeNull();
+  });
+
+  it('preserves accepted running work when a queued successor still needs admission', async () => {
+    const jobs = createJobStore('test-project', projectPort());
+    vi.spyOn(api, 'runAction')
+      .mockResolvedValueOnce({ runId: 'already-accepted' })
+      .mockRejectedValueOnce(new ConfirmationRequiredError(
+        { cost: 1, rows: 2, promise_set_hash: 'successor-only' }, 'Confirm successor.',
+      ));
+    vi.spyOn(api, 'listActionJobs').mockResolvedValue({ jobs: [] } as never);
+    jobs.start(noopDeps());
+    jobs.startRun(runRequest(), { id: '1', rowCount: 2 } as never);
+    await flushMicrotasks();
+    const accepted = jobs.store.get().run;
+    jobs.startRun(runRequest({ targetColumnId: 'successor' }), { id: '1', rowCount: 2 } as never);
+    expect(jobs.store.get().run).toBe(accepted);
+    expect(jobs.store.get().launchPending).toBe(true);
+    await flushMicrotasks();
+    expect(jobs.store.get().run).toBe(accepted);
+    expect(jobs.store.get().launchPending).toBe(false);
+    expect(jobs.store.get().costGate?.estimate.promise_set_hash).toBe('successor-only');
   });
 
   it('retries a registered request with only the exact server confirmation hash', async () => {

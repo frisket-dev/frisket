@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 import logging
@@ -40,7 +41,9 @@ def test_map_find_queue_persists_original_edition_context_on_receipt_replay(
     project_id = "runless-context"
     project = Project.create(tmp_path / f"{project_id}.frisket")
     queue = open_queue(workspace=tmp_path)
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     # The subject is the receipt's edition context, not Find's scan admission;
     # stub the typed admission seam the reservation pins as evidence.
     monkeypatch.setattr(
@@ -115,14 +118,11 @@ def test_map_find_queue_persists_original_edition_context_on_receipt_replay(
         project.close()
 
 
-class _RecordingSettlement:
+class _ReceiptObservation:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    def settle_run(self, **_kwargs: Any) -> None:
-        pass
-
-    def settle_action_receipt(self, **kwargs: Any) -> None:
+    def read(self, **kwargs: Any) -> None:
         project = kwargs["project"]
         row = project.db.execute(
             "SELECT status, body, edition_run_context FROM receipts WHERE id=?",
@@ -186,7 +186,7 @@ def _runless_handler_case(
     terminal_status: str,
     replay: bool = False,
     refuse_before_egress: bool = False,
-) -> tuple[_RecordingSettlement, dict[str, Any]]:
+) -> tuple[_ReceiptObservation, dict[str, Any]]:
     from frisket.contracts.action import ActionError, ActionResult, ActionSpec
     from frisket.engine.executor.action_jobs import (
         ActionJobEnvelope,
@@ -278,10 +278,15 @@ def _runless_handler_case(
             project_slug=trusted_project_id,
         ),
     }
-    settlement = _RecordingSettlement()
+    settlement = _ReceiptObservation()
     registry = HandlerRegistry()
 
-    def executor(target: Project, env: ActionJobEnvelope) -> ActionResult:
+    def executor(target: Project, env: ActionJobEnvelope, *, execution) -> ActionResult:
+        from frisket.execution.dispatch_control import QueuedDispatch
+
+        assert isinstance(execution, QueuedDispatch)
+        assert execution.project is target and execution.receipt_id == env.receipt_id
+        execution.check()
         assert not replay
         write_provider_facts(
             target,
@@ -303,7 +308,6 @@ def _runless_handler_case(
         control_database_url="sqlite:///trusted-control.db",
         worker_ports=WorkerPorts(
             admission_port=_RefuseAdmission() if refuse_before_egress else None,
-            settlement_port=settlement,
         ),
         require_storage_identity=True,
         workspace_root_storage_org_id=trusted_org_id,
@@ -314,11 +318,20 @@ def _runless_handler_case(
         payload,
         JobHandlerContext.from_claimed_job(trusted_org_id=trusted_org_id),
     )
+    observed_project = Project(tmp_path / f"{trusted_project_id}.frisket")
+    try:
+        settlement.read(
+            project=observed_project,
+            project_id=trusted_project_id,
+            receipt_id=result["receipt_id"],
+        )
+    finally:
+        observed_project.close()
     return settlement, result
 
 
 @pytest.mark.parametrize("terminal_status", ["completed", "partial", "failed"])
-def test_runless_terminal_receipt_settlement_keeps_exact_unscoped_model_links(
+def test_runless_terminal_receipt_keeps_exact_unscoped_model_links(
     tmp_path, terminal_status: str
 ) -> None:
     settlement, result = _runless_handler_case(
@@ -329,8 +342,6 @@ def test_runless_terminal_receipt_settlement_keeps_exact_unscoped_model_links(
     [call] = settlement.calls
     assert call["project_id"] == f"runless-{terminal_status}"
     assert call["receipt_id"] == result["receipt_id"]
-    assert call["trusted_job_org_id"] == 42
-    assert call["control_database_url"] == "sqlite:///trusted-control.db"
     assert call["status"] == terminal_status
     assert call["edition_run_context"] == {
         "funding_account_id": 42,
@@ -342,7 +353,7 @@ def test_runless_terminal_receipt_settlement_keeps_exact_unscoped_model_links(
     assert call["model_calls"] == [(f"model-call-{terminal_status}", None)]
 
 
-def test_runless_terminal_replay_reinvokes_idempotent_receipt_settlement(
+def test_runless_terminal_replay_preserves_receipt_facts(
     tmp_path,
 ) -> None:
     settlement, result = _runless_handler_case(
@@ -353,7 +364,7 @@ def test_runless_terminal_replay_reinvokes_idempotent_receipt_settlement(
     assert settlement.calls[0]["model_calls"] == [("model-call-completed", None)]
 
 
-def test_runless_pre_egress_refusal_settles_terminal_receipt_without_model_facts(
+def test_runless_pre_egress_refusal_has_no_model_facts(
     tmp_path,
 ) -> None:
     settlement, result = _runless_handler_case(

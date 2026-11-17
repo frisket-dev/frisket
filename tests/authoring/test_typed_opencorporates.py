@@ -21,6 +21,107 @@ from http_test_helpers import drain_queue
 PLUGIN = "frisket.opencorporates"
 
 
+@pytest.mark.parametrize(
+    "scenario", ["success", "invalid_response", "refused", "retry"]
+)
+def test_opencorporates_http_uses_purchase_owner(installed, monkeypatch, scenario):
+    from frisket.execution.purchases import (
+        LOCAL_PURCHASE_POLICY,
+        PurchasePolicyRequired,
+    )
+
+    _, project, project_id, sheet, _, calls, responses = installed
+    admitted, recorded = [], []
+
+    class Policy:
+        def admit_purchase(self, purchase):
+            admitted.append(purchase)
+            if scenario == "refused":
+                raise PurchasePolicyRequired("Purchase refused before HTTP")
+            return LOCAL_PURCHASE_POLICY.admit_purchase(purchase)
+
+        def record_purchase(self, purchase, admission, observation):
+            recorded.append((purchase, admission, observation))
+
+        def fail_purchase(self, purchase, admission, error):
+            pytest.fail(f"Unexpected transport failure: {error}")
+
+    monkeypatch.setattr(
+        opencorporates_read, "policy_for_context", lambda _ctx: Policy(), raising=False
+    )
+    if scenario == "invalid_response":
+        responses.append(httpx.Response(200, content=b"invalid JSON"))
+    elif scenario == "retry":
+        responses.append(httpx.Response(429, headers={"Retry-After": "0"}))
+    body, _ = confirm(project, project_id, request(sheet))
+    result = run_action_spec(project, body, project_id=project_id)
+    assert len(admitted) == (2 if scenario == "retry" else 1)
+    for purchase in admitted:
+        assert purchase.provider == "opencorporates"
+        assert purchase.credential_source == "project_key"
+        assert purchase.capability == opencorporates_read.CAPABILITY
+        assert purchase.estimated_cost_usd is None
+    if scenario == "refused":
+        assert result.status == "failed" and not calls and not recorded
+    else:
+        assert len(recorded) == len(calls) == len(admitted)
+        assert result.status == (
+            "failed" if scenario == "invalid_response" else "completed"
+        )
+        assert all(admission.disposition == "byok" for _, admission, _ in recorded)
+        assert all(
+            observation.usage == {"requests": 1} for _, _, observation in recorded
+        )
+        assert all(
+            observation.provider_cost_micro is None for _, _, observation in recorded
+        )
+        assert [item[2].result["status_code"] for item in recorded] == (
+            [429, 200] if scenario == "retry" else [200]
+        )
+    # Receipt replay must not create another provider purchase.
+    assert run_action_spec(project, body, project_id=project_id) == result
+    assert len(admitted) == (2 if scenario == "retry" else 1)
+
+
+@pytest.mark.parametrize("error_type", [httpx.ConnectError, httpx.ReadTimeout])
+def test_opencorporates_transport_failure_keeps_purchase_uncertainty(
+    installed, monkeypatch, error_type
+):
+    from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+    from frisket.ops.integrations.hosted_error import HostedEngineError
+
+    _, project, project_id, sheet, _, calls, responses = installed
+    failures = []
+
+    class Policy:
+        admit_purchase = LOCAL_PURCHASE_POLICY.admit_purchase
+
+        def record_purchase(self, *args):
+            pytest.fail("A lost response is not known returned usage")
+
+        def fail_purchase(self, purchase, admission, error):
+            failures.append(error)
+
+    monkeypatch.setattr(
+        opencorporates_read, "policy_for_context", lambda _ctx: Policy()
+    )
+    responses.append(error_type("transport failed"))
+    body, _ = confirm(project, project_id, request(sheet))
+    result = run_action_spec(project, body, project_id=project_id)
+    assert result.status == "failed"
+    assert len(calls) == len(failures) == 1
+    assert isinstance(failures[0], HostedEngineError)
+    assert failures[0].post_egress_ambiguous is (error_type is httpx.ReadTimeout)
+    if error_type is httpx.ReadTimeout:
+        assert result.errors[0].code == "external_effect_reconciliation_required"
+    else:
+        assert result.errors[0].code != "external_effect_reconciliation_required"
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt.provider_use == []
+    assert run_action_spec(project, body, project_id=project_id) == result
+    assert len(calls) == 1
+
+
 @pytest.fixture
 def installed(tmp_path, monkeypatch):
     shipped = (
@@ -95,7 +196,10 @@ def installed(tmp_path, monkeypatch):
             calls.append(request)
             assert request.headers["X-API-TOKEN"] == "test-token"
             if responses:
-                return responses.pop(0)
+                response = responses.pop(0)
+                if isinstance(response, Exception):
+                    raise response
+                return response
             if request.method == "POST":
                 return httpx.Response(
                     200,
@@ -317,13 +421,14 @@ def test_rate_limit_retry_preserves_policy_and_counts_each_response(
     assert len(calls) == 2
 
 
-def test_confirmation_refuses_source_drift_and_wrong_echo_before_http(installed):
-    _, project, project_id, sheet, rows, calls, _ = installed
+def test_confirmation_refuses_wrong_echo_but_reads_current_input(installed):
+    _, project, project_id, sheet, rows, calls, responses = installed
     body, _ = confirm(project, project_id, request(sheet))
     wrong = run_action_spec(
         project, {**body, "confirmation": "wrong"}, project_id=project_id
     )
     assert wrong.status == "needs_confirmation"
+    assert not calls
     number = next(
         column["id"] for column in project.columns(sheet) if column["name"] == "number"
     )
@@ -333,8 +438,41 @@ def test_confirmation_refuses_source_drift_and_wrong_echo_before_http(installed)
         column_id=number,
         value="999",
     )
-    stale = run_action_spec(project, body, project_id=project_id)
-    assert stale.status == "needs_confirmation", stale.model_dump()
+    responses.append(
+        httpx.Response(
+            200,
+            json={
+                "results": {
+                    "company": {
+                        "jurisdiction_code": "gb",
+                        "company_number": "999",
+                        "name": "Changed Ltd",
+                    }
+                }
+            },
+        )
+    )
+    result = run_action_spec(project, body, project_id=project_id)
+    assert result.status == "completed", result.model_dump()
+    assert len(calls) == 1
+    assert calls[0].url.path == "/v0.4/companies/gb/999"
+
+
+def test_declared_plugin_credential_uses_only_its_own_scope(installed):
+    _, project, project_id, sheet, _, calls, _ = installed
+    # The action was configured successfully, but another plugin owning a key
+    # with the same name cannot authorize this plugin's next invocation.
+    project.db.execute(
+        "UPDATE workbench_plugin_env_vars SET plugin_id=? WHERE plugin_id=?",
+        ("test.other_plugin", PLUGIN),
+    )
+    project.db.commit()
+    result = run_action_spec(project, request(sheet), project_id=project_id)
+    assert result.status == "failed", result.model_dump()
+    assert result.errors[0].code == "missing_action_credential"
+    assert result.errors[0].details["missing_credentials"] == [
+        "OPENCORPORATES_API_TOKEN"
+    ]
     assert not calls
 
 

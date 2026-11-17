@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
+import { gridFromPresentation } from './viewDefinition';
 import { groupManagedHiddenColumnNames } from './workspaceColumnVisibility';
 import type {
   ColumnDef, GridFilterBboxValue, GridFilterEntityValue, GridFilterOperator,
@@ -7,7 +8,7 @@ import type {
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
-import { useProjectDataResource } from '../bind/useRouteHandle';
+import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
 import { useSavedViewsHandle } from '../bind/useSavedViewsHandle';
 import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
@@ -41,6 +42,7 @@ export function useWorkspaceGridController({
 }) {
   const { projectApi } = useWorkspaceStores();
   const projectData = useProjectDataResource();
+  const route = useRouteHandle();
   const gridView = useGridViewHandle();
   const detail = useDetailHandle();
   const selection = useSelectionHandle();
@@ -105,6 +107,7 @@ export function useWorkspaceGridController({
     () => groupManagedHiddenColumnNames(columnGroupSpecs),
     [columnGroupSpecs],
   );
+  const presentationEdited = useSelector(gridView.store, (state) => state.presentationEdited);
   const activeSavedView = useMemo(
     () => activeSavedViewId === null || !sheet
       ? null
@@ -114,11 +117,9 @@ export function useWorkspaceGridController({
     [activeSavedViewId, sheet, views],
   );
   const activeExactViewColumns = useMemo(() => {
-    const raw = activeSavedView?.spec.columns;
-    return Array.isArray(raw)
-      ? raw.filter((name): name is string => typeof name === 'string')
-      : null;
-  }, [activeSavedView]);
+    if (!sheet || presentationEdited || !activeSavedView?.spec) return null;
+    return gridFromPresentation(sheet, activeSavedView.spec.presentation).columns;
+  }, [activeSavedView, presentationEdited, sheet]);
   const activeExactHiddenColumns = useMemo(() => {
     if (!sheet || activeExactViewColumns === null) return [];
     return exactViewHiddenColumns(sheet, activeExactViewColumns, groupManagedHiddenColumns);
@@ -255,15 +256,19 @@ export function useWorkspaceGridController({
   );
 
   const applyGridFailedFilter = useCallback(
-    (columnName: string, outcome: string) => {
-      if (!sheet || !columnName) return;
+    (sheetId: string, columnId: string, outcome: string) => {
+      const sourceSheet = projectData.store.get().sheets.find((candidate) => candidate.id === sheetId);
+      const column = sourceSheet?.columns.find((candidate) => candidate.id === columnId);
+      if (!column) return;
+      route.navigate({ ...route.baseRoute(), sheetId, actionKind: null, review: false, panel: null }, 'push');
       applyGridBboxFilterTransition(
         { gridView, detail, selection, workView },
         { setOpenSplit, setDocumentView, setPromotedViews },
         { promotedViews, activePromotedKey },
-        sheet.id,
+        sheetId,
         {
-          filter: { [columnName]: { failed: outcome } },
+          filter: { [column.name]: { failed: outcome } },
+          filterColumnIds: { [column.name]: Number(column.id) },
         },
       );
     },
@@ -277,7 +282,8 @@ export function useWorkspaceGridController({
       setDocumentView,
       setOpenSplit,
       setPromotedViews,
-      sheet,
+      projectData,
+      route,
     ],
   );
 

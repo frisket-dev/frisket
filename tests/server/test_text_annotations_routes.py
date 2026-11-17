@@ -10,6 +10,7 @@ is the WIRING: the field is always present, it is the narrow signal rather than
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 from typing import Any
@@ -111,7 +112,14 @@ def _seed(ws: Path) -> dict[str, Any]:
 
 
 def _client(ws: Path) -> TestClient:
-    return TestClient(create_app(ws, router=ModelRouter(cache=None, cache_mode="off")))
+    return TestClient(
+        create_app(
+            ws,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
+    )
 
 
 def _sheets(client: TestClient) -> dict[int, dict[str, Any]]:

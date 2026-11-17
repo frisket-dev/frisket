@@ -18,6 +18,7 @@ import type {
 import { PanelSelect } from '../../PanelSelect';
 import { PanelNotice, SegmentedToggle } from '../../PanelPrimitives';
 import { ImportDestinationPicker } from '../ImportDestinationPicker';
+import { KeyedUpdateControls } from './KeyedUpdateControls';
 import {
   summarizePasteForDisplay,
   type TableImportSourceIssue,
@@ -451,11 +452,14 @@ export function ImportTableStep({ draft, destination, destinationSheets, preferr
   onCommit(): void;
   onDestination(destination: TableImportDestinationConfig, snapshot?: TableImportDestinationSnapshot | null): void;
 }) {
+  const updating = destination.kind === 'existing' && !!destination.update;
+  const missingKeys = destination.kind === 'existing' && destination.update != null && destination.update.key_source_indices.length === 0;
   const comparison = draft.destination?.comparison ?? null;
   const existingSheet = destination.kind === 'existing' ? destinationSheets.find((sheet) => sheet.id === destination.sheet_id) : null;
   const rowTotal = draft.analysis.exact_rows ?? draft.analysis.estimated_rows ?? null;
   const importRows = comparison?.import_rows ?? rowTotal;
   const includedColumns = draft.columns.filter((column) => column.included && column.target_type !== 'omit').length;
+  const onlyKeys = destination.kind === 'existing' && destination.update != null && destination.update.key_source_indices.length >= includedColumns;
   const omittedColumns = draft.columns.length - includedColumns;
   const newColumns = destination.kind === 'existing' && draft.destination?.configuration.kind === 'existing' && draft.destination.configuration.sheet_id === destination.sheet_id
     ? draft.destination.mappings.filter((mapping) => mapping.target.kind === 'new').length : 0;
@@ -469,14 +473,14 @@ export function ImportTableStep({ draft, destination, destinationSheets, preferr
         preferredSheetId={preferredDestinationSheetId} busy={busy} onDestination={onDestination} />
       {destination.kind === 'existing' && <ExistingDestination draft={draft} destination={destination} sheet={existingSheet ?? null} busy={busy} onDestination={onDestination} />}
       <div className="table-import-summary">
-        <div><span>Rows to add</span><strong>{importRows == null ? 'Counting…' : `${draft.analysis.complete || comparison?.import_rows != null ? '' : 'About '}${importRows.toLocaleString()}`}</strong><small /></div>
+        <div><span>{updating ? 'Incoming rows' : 'Rows to add'}</span><strong>{importRows == null ? 'Counting…' : `${draft.analysis.complete || comparison?.import_rows != null ? '' : 'About '}${importRows.toLocaleString()}`}</strong><small /></div>
         <div><span>Columns</span><strong>{includedColumns.toLocaleString()}</strong><small>{columnSummary}</small></div>
         {(draft.analysis.issue_counts.extra_values ?? 0) > 0 && <div><span>Lines with extra values</span><strong>{draft.analysis.issue_counts.extra_values!.toLocaleString()}</strong><small>Kept; extra values go in a column named extra values</small></div>}
         {invalidValues > 0 && <div><span>Values left blank</span><strong>{invalidValues.toLocaleString()}</strong><small>{invalidColumnNames.join(', ')}; originals listed in Errors</small></div>}
         {(draft.analysis.issue_counts.missing_values ?? 0) > 0 && <div><span>Lines with missing values</span><strong>{draft.analysis.issue_counts.missing_values!.toLocaleString()}</strong><small>Missing cells stay blank</small></div>}
       </div>
     </PanelBody>
-    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{destination.kind === 'new' ? 'The new sheet opens when you click Import.' : `Rows are added below the existing ${existingSheet?.rowCount.toLocaleString() ?? 0}.`}</span><Button type="button" className="btn-primary" disabled={busy || !draft.can_commit || (destination.kind === 'new' && !destination.sheet_name.trim())} onClick={onCommit}>{busy ? 'Importing…' : importRows == null ? 'Import' : `Import ${draft.analysis.complete || comparison?.import_rows != null ? '' : 'about '}${count(importRows, 'row')}`}</Button></PanelFooter>
+    <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{destination.kind === 'new' ? 'The new sheet opens when you click Import.' : updating ? 'Matching rows are updated in this sheet.' : `Rows are added below the existing ${existingSheet?.rowCount.toLocaleString() ?? 0}.`}</span><Button type="button" className="btn-primary" disabled={busy || missingKeys || onlyKeys || !draft.can_commit || (destination.kind === 'new' && !destination.sheet_name.trim())} onClick={onCommit}>{busy ? 'Importing…' : updating ? 'Update matching rows' : importRows == null ? 'Import' : `Import ${draft.analysis.complete || comparison?.import_rows != null ? '' : 'about '}${count(importRows, 'row')}`}</Button></PanelFooter>
   </PanelFrame>;
 }
 
@@ -488,9 +492,14 @@ function ExistingDestination({ draft, destination, sheet, busy, onDestination }:
   const changeMapping = (sourceIndex: number, target: TableImportDestinationSnapshot['mappings'][number]['target']) => {
     const mappings = snapshot.mappings.map((candidate) => candidate.source_index === sourceIndex ? { ...candidate, target } : candidate);
     const keyStillMatches = mappings.some((candidate) => candidate.source_index === snapshot.dedup.key_source_index && candidate.target.kind === 'existing');
-    onDestination(destination, { ...snapshot, mappings, dedup: keyStillMatches ? snapshot.dedup : { enabled: false, key_source_index: null } });
+    const update = destination.update;
+    const keys = update?.key_source_indices.filter((index) => mappings.some((mapping) => mapping.source_index === index && mapping.target.kind === 'existing'));
+    const next = update ? { ...destination, update: { ...update, key_source_indices: keys!, relationship_id: update.key_source_indices.includes(sourceIndex) ? null : update.relationship_id } } : destination;
+    onDestination(next, { ...snapshot, mappings, dedup: keyStillMatches ? snapshot.dedup : { enabled: false, key_source_index: null } });
   };
   return <div className="table-import-existing">
+    <KeyedUpdateControls destination={destination} snapshot={snapshot} columns={draft.columns} busy={busy}
+      onChange={(next) => onDestination(next, { ...snapshot, dedup: next.update ? { enabled: false, key_source_index: null } : snapshot.dedup })} />
     <header><strong>Columns</strong><span>Matched by name. Change any match with its menu.</span></header>
     <div className="table-import-mappings">{snapshot.mappings.map((mapping) => <div key={mapping.source_index}><strong>{mapping.source_name}</strong><span>→</span><PanelSelect aria-label={`Map ${mapping.source_name}`} value={mapping.target.kind === 'new' ? 'new' : `existing:${mapping.target.column_id}`} disabled={busy} onChange={(event) => {
       const target = event.currentTarget.value === 'new'
@@ -498,7 +507,7 @@ function ExistingDestination({ draft, destination, sheet, busy, onDestination }:
         : { kind: 'existing' as const, column_id: Number(event.currentTarget.value.slice('existing:'.length)) };
       changeMapping(mapping.source_index, target);
     }}><option value="new">+ New column</option>{sheet?.columns.map((column) => <option key={column.id} value={`existing:${column.id}`}>{column.name}</option>)}</PanelSelect><span className="table-import-mapping-status"><b data-match={mapping.match}>{mapping.match === 'matched' ? 'Matched' : mapping.match === 'similar' ? 'Similar name' : mapping.match === 'type_clash' ? mapping.detail ?? 'Type clash' : 'Not in the sheet yet'}</b>{mapping.match === 'type_clash' && <button type="button" className="text-btn" disabled={busy} onClick={() => changeMapping(mapping.source_index, { kind: 'new', name: mapping.source_name })}>Add as new {targetTypeLabel(mapping.source_type)} column</button>}</span></div>)}</div>
-    <label className="table-import-dedup form-field"><input type="checkbox" checked={eligibleKeys.length > 0 && snapshot.dedup.enabled} disabled={busy || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: event.currentTarget.checked, key_source_index: event.currentTarget.checked ? snapshot.dedup.key_source_index ?? eligibleKeys[0]?.source_index ?? null : null } })} /> Skip rows already in {sheet?.name ?? 'this sheet'}, matched on <PanelSelect aria-label="Duplicate key" value={snapshot.dedup.key_source_index ?? ''} disabled={busy || !snapshot.dedup.enabled || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: true, key_source_index: Number(event.currentTarget.value) } })}><option value="">Choose a matched column</option>{eligibleKeys.map((column) => <option key={column.source_index} value={column.source_index}>{column.name}</option>)}</PanelSelect>{eligibleKeys.length === 0 ? <span>Match a column to use this</span> : snapshot.comparison.duplicate_rows != null && <span>{count(snapshot.comparison.duplicate_rows, 'row')} found</span>}</label>
+    {!destination.update && <label className="table-import-dedup form-field"><input type="checkbox" checked={eligibleKeys.length > 0 && snapshot.dedup.enabled} disabled={busy || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: event.currentTarget.checked, key_source_index: event.currentTarget.checked ? snapshot.dedup.key_source_index ?? eligibleKeys[0]?.source_index ?? null : null } })} /> Skip rows already in {sheet?.name ?? 'this sheet'}, matched on <PanelSelect aria-label="Duplicate key" value={snapshot.dedup.key_source_index ?? ''} disabled={busy || !snapshot.dedup.enabled || eligibleKeys.length === 0} onChange={(event) => onDestination(destination, { ...snapshot, dedup: { enabled: true, key_source_index: Number(event.currentTarget.value) } })}><option value="">Choose a matched column</option>{eligibleKeys.map((column) => <option key={column.source_index} value={column.source_index}>{column.name}</option>)}</PanelSelect>{eligibleKeys.length === 0 ? <span>Match a column to use this</span> : snapshot.comparison.duplicate_rows != null && <span>{count(snapshot.comparison.duplicate_rows, 'row')} found</span>}</label>}
   </div>;
 }
 

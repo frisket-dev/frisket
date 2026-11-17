@@ -8,6 +8,7 @@ provider responses and key-looking strings) never reach the output.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import uuid
@@ -343,7 +344,11 @@ def _ambiguous_run(
     columns = {"text": project.add_column(sheet, "text")}
     project.add_rows(sheet, [{"text": "unknown outcome"}], columns)
     provider = _KilledThenReturn()
-    router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = provider  # noqa: SLF001
     first = _runner(project, router)
     confirmed = _confirmed_spec(first, _spec(sheet))
@@ -400,7 +405,11 @@ def _resume(
     claim_token: str,
 ):
     _age_run_attempts(project, run_id)
-    router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = provider  # noqa: SLF001
     return asyncio.run(
         _runner(project, router).run(
@@ -414,7 +423,11 @@ def _resume(
 
 
 def _fresh_successor(project: Project, provider, confirmed: dict):
-    router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = provider  # noqa: SLF001
     runner = _runner(project, router)
     token = f"output-claim:test:cli-successor:{uuid.uuid4()}"

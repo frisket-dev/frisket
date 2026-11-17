@@ -7,10 +7,10 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.citation_text import (
+from frisket.upgrades.project.typed_storage_migration import (
     migrate_legacy_citation_texts,
-    read_text_snapshot,
 )
+from frisket.engine.store.citation_text import read_text_snapshot
 from frisket.engine.store.evidence import (
     record_evidence_link,
     record_source_artifact,

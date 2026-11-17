@@ -339,7 +339,11 @@ def test_public_routes_accept_key_preview_before_field_mapping(env):
         )
 
 
-def test_review_download_full_values_and_original_correctness(env):
+@pytest.mark.parametrize(
+    "decision,reviewed",
+    [("reject", "no"), ("reject_clear", "no"), ("edit", ""), (None, "")],
+)
+def test_review_download_full_values_and_original_correctness(env, decision, reviewed):
     e = env
     op = e.project.append_op("map", {"action_id": "extract.llm"})
     run = e.project.db.execute(
@@ -351,18 +355,22 @@ def test_review_download_full_values_and_original_correctness(env):
         (run, e.cols["answer"], "answer"),
     )
     long_value = "long,\n" * 20_000
-    for row_id, value, decision in zip(
-        e.rows, (long_value, "wrong"), ("accept", "edit"), strict=True
+    for row_id, value, verdict in zip(
+        e.rows, (long_value, "wrong"), ("accept", decision), strict=True
     ):
         e.project.db.execute(
             "INSERT INTO results(run_id,row_id,column_id,value_kind,value,review_decision) VALUES (?,?,?,'text',?,?)",
-            (run, row_id, e.cols["answer"], value, decision),
+            (run, row_id, e.cols["answer"], value, verdict),
         )
     e.project.db.commit()
+    e.service._edit_cell(
+        "p", e.project, e.rows[1], e.cols["answer"], "corrected current cell"
+    )
     records = list(csv.DictReader(io.StringIO(e.service.review_csv("p", run))))
     assert records[0]["answer"] == long_value
     assert records[0]["answer_reviewed"] == "yes"
-    assert records[1]["answer_reviewed"] == "no"
+    assert records[1]["answer"] == "wrong"  # Export reviews the saved result.
+    assert records[1]["answer_reviewed"] == reviewed  # Editing is not a judgment.
 
 
 def test_preview_chunks_reject_overlap_and_changed_schema(env):
@@ -1177,3 +1185,28 @@ def test_new_expected_row_rolls_back_a_key_that_cannot_round_trip(env):
     assert error.value.status_code == 409
     assert e.project.row_count(expected_sheet) == 1
     assert e.project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+
+
+def test_expected_answer_structure_and_value_are_one_undoable_change(env):
+    e = env
+    before = len(e.project.history())
+    link = e.service.expected_answer(
+        "p",
+        {
+            "basis": e.basis,
+            "link_id": None,
+            "row_id": e.rows[0],
+            "logical_key": "answer",
+            "value": "yes",
+            "rule": "exact",
+        },
+    )
+    assert len(e.project.history()) == before + 1
+    owner = e.project.op_cursor
+    e.project.undo()
+    assert link["expected_sheet_id"] not in [s["id"] for s in e.project.sheets()]
+    assert e.project.redo() == owner
+    column = link["fields"][0]["expected_column_id"]
+    assert list(e.project.get_values(link["expected_sheet_id"], column).values()) == [
+        "yes"
+    ]

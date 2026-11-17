@@ -39,12 +39,12 @@ def _api_routes(app: FastAPI) -> list[tuple[list[str], str, str]]:
     ]
 
 
-def test_watch_route_order_after_lenses_before_notifications(tmp_path: Path) -> None:
+def test_watch_route_order_after_views_before_notifications(tmp_path: Path) -> None:
     app = create_app(tmp_path / "ws")
     routes = _api_routes(app)
 
     expected = [
-        (["GET"], "/api/projects/{pid}/lenses/{lens_id}/resolve", "resolve_lens"),
+        (["GET"], "/api/projects/{pid}/views/{view_id}/resolve", "resolve_view"),
         *WATCH_ROUTE_ENTRIES,
         (["GET"], "/api/projects/{pid}/notifications", "list_notifications"),
     ]
@@ -67,8 +67,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "/api/projects/p/watches",
         json={
             "name": "Budget",
-            "scope": {"kind": "project"},
-            "query": {"kind": "fts", "q": "budget"},
+            "view_id": 7,
             "enabled": False,
         },
     )
@@ -77,18 +76,17 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "create_watch",
         "p",
         "Budget",
-        {"kind": "project"},
-        {"kind": "fts", "q": "budget"},
+        7,
         None,
         False,
+        "@hourly",
     )
 
     bad_create = client.post(
         "/api/projects/p/watches",
         json={
             "name": "bad",
-            "scope": {"kind": "project"},
-            "query": {"kind": "fts", "q": "budget"},
+            "view_id": 7,
         },
     )
     assert bad_create.status_code == 400
@@ -101,7 +99,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "/api/projects/p/watches",
         json={
             "name": "Retired source",
-            "query": {"kind": "fts", "q": "budget"},
+            "view_id": 7,
             "source_view_id": 7,
         },
     )
@@ -111,7 +109,7 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         "/api/projects/p/watches",
         json={
             "name": "Inline source",
-            "query": {"kind": "fts", "q": "budget"},
+            "view_id": 7,
             "source_view": {"name": "Source", "sheet_id": 7, "filter": {}},
         },
     )
@@ -199,13 +197,11 @@ def _watch_payload(watch_id: int, *, name: str = "Budget") -> dict[str, Any]:
     return {
         "id": watch_id,
         "name": name,
-        "scope": "project",
+        "view_id": 7,
         "sheet_id": None,
-        "query": {},
-        "query_version": None,
-        "query_hash": None,
         "detection_policy": {"kind": "new_matches"},
         "enabled": True,
+        "schedule": "@hourly",
         "last_evaluated_op": 0,
         "last_run_id": None,
         "last_status": None,
@@ -228,20 +224,20 @@ class _FakeWatchService:
         project_id: str,
         *,
         name: str,
-        scope: dict[str, Any] | None,
-        query: dict[str, Any],
+        view_id: int,
         detection_policy: dict[str, Any] | None,
         enabled: bool,
+        schedule: str | None,
     ) -> dict:
         self.calls.append(
             (
                 "create_watch",
                 project_id,
                 name,
-                scope,
-                query,
+                view_id,
                 detection_policy,
                 enabled,
+                schedule,
             )
         )
         if name == "bad":
@@ -341,3 +337,40 @@ class _FakeWatchService:
             "next_offset": None,
             "events": [],
         }
+
+
+def test_listing_legacy_alert_policy_returns_canonical_conditions(
+    tmp_path: Path,
+) -> None:
+    app = create_app(tmp_path / "legacy-alert-wire")
+    with TestClient(app) as client:
+        pid = client.post("/api/projects", json={"name": "Legacy alerts"}).json()["id"]
+        project = app.state.workspace.get(pid)
+        sheet_id = project.add_sheet("Records")
+        view_id = project.add_view(
+            "Records",
+            {
+                "selection": {
+                    "scope": {"kind": "sheet", "sheet_id": sheet_id},
+                    "filters": [],
+                    "order": [],
+                    "limit": None,
+                },
+                "presentation": {},
+            },
+        )
+        watch_id = project.add_watch("Legacy watch", view_id=view_id)
+        for stored in ('{"kind":"new_matches"}', "invalid json"):
+            project.db.execute(
+                "UPDATE watches SET detection_policy=? WHERE id=?", (stored, watch_id)
+            )
+            project.db.commit()
+            response = client.get(f"/api/projects/{pid}/watches")
+            assert response.status_code == 200, response.text
+            assert response.json()[0]["detection_policy"] == {
+                "kind": "conditions",
+                "entered": True,
+                "exited": False,
+                "count_changed": False,
+                "fields": [],
+            }

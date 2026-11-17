@@ -264,7 +264,16 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert op_spec["import_row_count"] == 2
     assert op_spec["params_hash"].startswith("sha256:")
     undo = json.loads(op["undo_info"])
-    assert undo == {"created_sheets": [sheet["id"]]}
+    assert undo == {
+        "created_sheets": [sheet["id"]],
+        "created_columns": sorted(column["id"] for column in columns.values()),
+        "created_rows": [
+            row[0]
+            for row in project.db.execute(
+                "SELECT id FROM rows WHERE sheet_id=? ORDER BY id", (sheet["id"],)
+            )
+        ],
+    }
     original_rows = [
         tuple(row)
         for row in project.db.execute(

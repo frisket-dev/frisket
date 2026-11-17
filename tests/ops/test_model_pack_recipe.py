@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from frisket.execution.dispatch_control import STANDALONE
 import pytest
 from fastapi.testclient import TestClient
 
@@ -51,7 +52,9 @@ async def test_ner_recipe_calls_model_pack_sidecar(monkeypatch):
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
     http = _Http()
 
-    out = await LocalNerExtractor("gliner", OpContext(http=http)).extract(
+    out = await LocalNerExtractor(
+        "gliner", OpContext(extras={"standalone_dispatch": STANDALONE}, http=http)
+    ).extract(
         "Ada Lovelace worked with Babbage.",
         labels=["person", "organization"],
         threshold=0.5,
@@ -99,7 +102,8 @@ async def test_gliner_raw_label_survives_double_canonicalization(monkeypatch):
     from frisket.actions.ner import normalize_ner_output
 
     executed = await LocalNerExtractor(
-        "gliner", OpContext(http=_ZeroShotHttp())
+        "gliner",
+        OpContext(extras={"standalone_dispatch": STANDALONE}, http=_ZeroShotHttp()),
     ).extract(
         "a@b.com",
         labels=["email address"],

@@ -39,7 +39,7 @@ function DeriveFromSheetForm({ extractEntry, onCompositeRun, ...props }:
     return {
       action_id: 'map.extract',
       scope: { kind: 'sheet_rows', sheet_id: Number(props.sheet.id),
-        ...(props.hasExactRowScopeInitializer ? { row_ids: (props.selectedRowIds ?? []).map(Number) } : {}) },
+        ...(props.viewSelection && !props.selectedRowIds?.length ? { selection: props.viewSelection } : props.hasExactRowScopeInitializer ? { row_ids: (props.selectedRowIds ?? []).map(Number) } : {}) },
       params: { source: source ? [source.name] : [], instruction: props.initialPrompt ?? '',
         fields: [{ name: 'items', type: 'list', description: 'Items to turn into rows', items: { type: 'string' } }] },
       output_names: { items: dedupeDefaultColumnName('items', props.sheet.columns) },

@@ -6,6 +6,7 @@ embedder — NO live model calls (mirrors tests/test_cluster_semantic.py).
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import uuid
 from typing import Any
@@ -245,7 +246,12 @@ def test_semantic_commit_uses_router_and_embeds_pre_txn(tmp_path, monkeypatch):
     )
     from frisket.ai.llm import ModelRouter
 
-    sentinel_router = ModelRouter(cache=None, cache_mode="off", use_env_keys=False)
+    sentinel_router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
+    )
     try:
         result = executor_actions.run_action_spec(
             project,
@@ -254,8 +260,9 @@ def test_semantic_commit_uses_router_and_embeds_pre_txn(tmp_path, monkeypatch):
             router=sentinel_router,
         )
         assert result.status == "completed", result.errors
-        # the project's router reached the shared resolver (not router=None)
-        assert seen["router"] is sentinel_router
+        # The resolver receives the execution-bound view of the project's
+        # router, so provider calls retain the admitted execution identity.
+        assert seen["router"]._router is sentinel_router
         # each distinct surface embedded EXACTLY once (pre-txn warm); the in-txn
         # clustering re-read from cache — no re-embed => no network in the txn.
         assert sorted(stub.embedded) == ["ACME Corp", "ACME Inc.", "Acme Corporation"]

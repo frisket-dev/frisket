@@ -9,7 +9,6 @@ native cell, so their text is retained once by content hash.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import sqlite3
 from typing import Any
@@ -293,44 +292,3 @@ def read_artifact_passage(
         if bounded
         else None,
     }, False
-
-
-def migrate_legacy_citation_texts(db: sqlite3.Connection) -> None:
-    """Deduplicate legacy inline contexts without discarding saved history."""
-
-    after_id = 0
-    while True:
-        rows = db.execute(
-            "SELECT id,metadata FROM source_artifacts WHERE id>? ORDER BY id LIMIT 500",
-            (after_id,),
-        ).fetchall()
-        if not rows:
-            return
-        for row in rows:
-            after_id = int(row[0])
-            try:
-                metadata = json.loads(row[1])
-            except (TypeError, ValueError):
-                continue
-            if not isinstance(metadata, dict) or not isinstance(
-                metadata.get("captured_text"), str
-            ):
-                continue
-            stored = store_captured_text(
-                db,
-                metadata=metadata,
-                text=metadata["captured_text"],
-                native=False,
-            )
-            db.execute(
-                "UPDATE source_artifacts SET metadata=? WHERE id=?",
-                (
-                    json.dumps(
-                        stored,
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ),
-                    int(row[0]),
-                ),
-            )

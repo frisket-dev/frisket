@@ -15,7 +15,6 @@ from frisket.engine.runner.finalization import finalize_dispatched_run
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import (
-    ClaimLeaseRenewalFailed,
     OutputColumnClaimStore,
 )
 from frisket.engine.store.receipts import ReceiptStore
@@ -125,10 +124,13 @@ def test_pre_dispatch_cleanup_preserves_live_dispatching_authority(
             state="dispatching",
         )
 
-        _terminalize_unclaimed_prepared_run(
-            project,
-            SimpleNamespace(run_id=run_id),
-        )
+        with pytest.raises(StaleAttemptWriter):
+            _terminalize_unclaimed_prepared_run(
+                project,
+                SimpleNamespace(run_id=run_id),
+                receipt_id="receipt_pre_dispatch_live_writer",
+                error=ActionError(code="setup_failed", message="setup failed"),
+            )
 
         run = project.db.execute(
             "SELECT status, current_attempt_id FROM runs WHERE id=?",
@@ -149,6 +151,52 @@ def test_pre_dispatch_cleanup_preserves_live_dispatching_authority(
             ).fetchone()[0]
             == "active"
         )
+    finally:
+        project.close()
+
+
+@pytest.mark.parametrize(
+    "state", ["dispatching", "abandoned", "halted", "effected", "two_pending"]
+)
+def test_unbound_preparation_refusal_preserves_reservation(tmp_path, state):
+    from frisket.engine.executor.action_lifecycle import (
+        _terminalize_unclaimed_prepared_run,
+    )
+
+    project = Project.create(tmp_path / "unbound.frisket")
+    try:
+        sheet = project.add_sheet("source")
+        op = project.append_op("map", {"recipe": "python"})
+        run_id = RunResultStore(project).start_run(op, sheet, "map.python", row_ids=[])
+        ReceiptStore(project).insert(
+            Receipt(
+                receipt_id="receipt_unbound",
+                project_id="project",
+                action_id="action_unbound",
+                action_kind="map.python",
+                status="running",
+            )
+        )
+        for seq, attempt_state in enumerate(
+            ["created", "admitted"] if state == "two_pending" else [state]
+        ):
+            _insert_attempt(
+                project,
+                attempt_id=f"attempt_{seq}",
+                run_id=run_id,
+                seq=seq,
+                state=attempt_state,
+            )
+        before = tuple(project.db.iterdump())
+        with pytest.raises(StaleAttemptWriter, match="dispatch history"):
+            _terminalize_unclaimed_prepared_run(
+                project,
+                SimpleNamespace(run_id=run_id),
+                receipt_id="receipt_unbound",
+                error=ActionError(code="setup_failed", message="setup failed"),
+            )
+        assert not project.db.in_transaction
+        assert tuple(project.db.iterdump()) == before
     finally:
         project.close()
 
@@ -477,6 +525,40 @@ def test_paused_writer_cannot_commit_after_replacement(
         )
         before = _authority_snapshot(project, run_id)
 
+        if effect_site == "checkpoint":
+            # A returned external fact belongs to the dispatched attempt even
+            # after replacement. This grants no right to publish cell values.
+            with pytest.raises(StaleAttemptWriter):
+                checkpoints.complete(
+                    "checkpoint-paused",
+                    family="row_effect",
+                    group_key=str(run_id),
+                    unit_key=str(row_ids[0]),
+                    action_kind="map.python",
+                    identity="paused",
+                    payload={"response": "imposter-b"},
+                    run_id=run_id,
+                    writer_attempt_id="attempt_b",
+                    claim_token=claim_token,
+                )
+            checkpoints.complete(
+                "checkpoint-paused",
+                family="row_effect",
+                group_key=str(run_id),
+                unit_key=str(row_ids[0]),
+                action_kind="map.python",
+                identity="paused",
+                payload={"response": "late-a"},
+                run_id=run_id,
+                writer_attempt_id="attempt_a",
+                claim_token=claim_token,
+            )
+            checkpoint = checkpoints.get("checkpoint-paused")
+            assert checkpoint["state"] == "returned"
+            assert checkpoint["authorized_attempt_id"] == "attempt_a"
+            assert _authority_snapshot(project, run_id)["run"] == before["run"]
+            return
+
         with pytest.raises(StaleAttemptWriter) as exc_info:
             if effect_site == "result":
                 RunResultStore(project).write_results(
@@ -713,13 +795,12 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
         )
 
         def accrue(checkpoint: dict[str, Any]) -> float:
-            RunResultStore(project).write_model_calls(
+            RunResultStore(project).write_returned_call_accounting(
                 run_id,
                 _fact_batch(rows[0], column_id, "replayed-a"),
-                writer_attempt_id="attempt_b",
+                writer_attempt_id="attempt_a",
                 claim_token=claim_token,
                 authorized_attempt_id=checkpoint["authorized_attempt_id"],
-                _renew_claim=False,
             )
             return 0.0
 
@@ -733,7 +814,7 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
             payload={"response": "returned"},
             accrue=accrue,
             run_id=run_id,
-            writer_attempt_id="attempt_b",
+            writer_attempt_id="attempt_a",
             claim_token=claim_token,
         )
         fact = project.db.execute(
@@ -1199,7 +1280,7 @@ def test_renewal_failure_rolls_back_batch_and_leaves_run_alive(
         project.close()
 
 
-def test_checkpoint_renewal_failure_rolls_back_and_leaves_run_alive(
+def test_returned_checkpoint_does_not_need_publication_lease_renewal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1236,26 +1317,24 @@ def test_checkpoint_renewal_failure_rolls_back_and_leaves_run_alive(
             "renew_in_transaction",
             fail_renew,
         )
-        with pytest.raises(
-            ClaimLeaseRenewalFailed,
-            match="checkpoint renewal failure",
-        ):
-            checkpoints.complete(
-                "checkpoint-renewal-failure",
-                family="row_effect",
-                group_key=str(run_id),
-                unit_key=str(rows[0]),
-                action_kind="map.python",
-                identity="checkpoint-renewal-failure",
-                payload={"response": "must-rollback"},
-                run_id=run_id,
-                writer_attempt_id="attempt_live",
-                claim_token=claim_token,
-            )
-        assert _authority_snapshot(project, run_id) == before
+        checkpoints.complete(
+            "checkpoint-renewal-failure",
+            family="row_effect",
+            group_key=str(run_id),
+            unit_key=str(rows[0]),
+            action_kind="map.python",
+            identity="checkpoint-renewal-failure",
+            payload={"response": "retained"},
+            run_id=run_id,
+            writer_attempt_id="attempt_live",
+            claim_token=claim_token,
+        )
+        after = _authority_snapshot(project, run_id)
+        assert after["run"] == before["run"]
+        assert after["claims"] == before["claims"]
         checkpoint = checkpoints.get("checkpoint-renewal-failure")
         assert checkpoint is not None
-        assert checkpoint["state"] == "reserved"
+        assert checkpoint["state"] == "returned"
     finally:
         project.close()
 

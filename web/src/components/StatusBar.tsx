@@ -138,6 +138,7 @@ const IDLE_IMPORT_PROGRESS: ImportProgressController = {
   resume() {},
   async stop() {},
   keep() {},
+  remove() {},
 };
 
 export interface StatusBarProps {
@@ -154,9 +155,9 @@ export interface StatusBarProps {
   onCancelRun(runId: string): void;
   /** Failure triage (run watcher popover): filter the grid to the target
    *  column's failing rows for an outcome bucket ('any' = all buckets). */
-  onShowFailedRows?(columnName: string, outcome: string): void;
+  onShowFailedRows?(sheetId: string, columnId: string, outcome: string): void;
   /** Failure triage: retry exactly one bucket's rows via run.backfill row_ids. */
-  onRetryFailedRows?(columnName: string, outcome: string): void;
+  onRetryFailedRows?(sheetId: string, columnId: string, outcome: string): Promise<boolean>;
 }
 
 export function StatusBar({
@@ -258,13 +259,18 @@ export function StatusBar({
             onKeepImport={importActivity?.needsRecovery
               ? () => importProgress.keep(importActivity)
               : undefined}
+            onRemoveImport={importActivity?.session.state === 'cancelled'
+              ? () => importProgress.remove(importActivity)
+              : undefined}
             importActionBusy={importProgress.busyRef === importActivity?.importRef
               || importProgress.preparingRef === importActivity?.importRef}
             importMessage={importActivity ? importProgress.message : null}
             importProblemCount={importActivity?.session.problem_count}
             importSourceLabel={importActivity?.session.source_label}
-            importHint={importActivity?.session.intake_kind === 'table' && importActivity.canStop
-              ? 'You can browse rows as they arrive.' : undefined}
+            importHint={importActivity?.session.state === 'cancelled'
+              ? "Completed work is still in the sheet. Keep it or remove this import's changes."
+              : importActivity?.session.intake_kind === 'table' && importActivity.canStop
+                ? 'You can browse rows as they arrive.' : undefined}
             onImportAnotherSheet={importActivity?.session.can_rerun_workbook
               && ['completed', 'kept'].includes(importActivity.session.state)
               ? () => actSurface.openTableImportRerun(importActivity.importRef) : undefined}
@@ -693,8 +699,8 @@ function RunWatcherBody({
 }) {
   const pct = (100 * run.completedRows) / Math.max(1, run.totalRows);
   const files = activeOcrFiles(run);
-  // Triage acts on the run's target column; a run restored without launch
-  // context has no column name — the buckets still render, the actions do not.
+  // Triage retains the declared output ID even when its display name changes.
+  // A run without a declared output still shows its failure buckets.
   const triageColumn = run.targetColumnId;
 
   return (
@@ -760,19 +766,20 @@ function RunWatcherBody({
       <RunFileProgress files={files} />
       {!isActiveRunStatus(run.status) && run.rowErrors && (
         <RunFailureTriage
+          key={run.runId}
           rowErrors={run.rowErrors}
           onShowRows={
             triageColumn && onShowFailedRows
               ? (outcome) => {
-                  onShowFailedRows(triageColumn, outcome);
+                  onShowFailedRows(run.sheetId, triageColumn, outcome);
                   // Close the popover so the freshly filtered grid is visible.
                   onClose?.();
                 }
               : undefined
           }
           onRetryRows={
-            triageColumn && onRetryFailedRows
-              ? (outcome) => onRetryFailedRows(triageColumn, outcome)
+            triageColumn && onRetryFailedRows && run.retrySupported !== false
+              ? (outcome) => onRetryFailedRows(run.sheetId, triageColumn, outcome)
               : undefined
           }
         />

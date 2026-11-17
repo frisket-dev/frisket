@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from frisket.features.watchlists.specs import canonical_json
+from frisket.contracts.query_spec import canonical_json
 from frisket.querysets import (
     BUILTIN_FILTER_OPERATORS,
     SheetRowSetError,

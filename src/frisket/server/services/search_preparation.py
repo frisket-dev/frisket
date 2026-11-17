@@ -41,7 +41,11 @@ from frisket.engine.store.document_text import (
 from frisket.engine.store.document_text_adoption import adopt_document_text_role
 from frisket.execution.provider import ExactExecutionMatch
 from frisket.execution.targets import CAPABILITY_OCR, CAPABILITY_TRANSCRIBE
-from frisket.engine.store.import_sessions import ImportSessionStore
+from frisket.engine.store.import_sessions import (
+    ImportExecutionOwner,
+    ImportSessionConflict,
+    ImportSessionStore,
+)
 from frisket.engine.store.import_intake import import_intake_dir, read_import_header
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import read_project_settings
@@ -517,8 +521,18 @@ class SearchPreparationService:
             session = ImportSessionStore(project).get(import_ref)
             header = read_import_header(import_intake_dir(project.path, import_ref))
             facts = header.pdf_preparation or {}
+            parent_current = False
+            if session is not None:
+                try:
+                    ImportExecutionOwner(session.id, session.op_id).require_current(
+                        project.db
+                    )
+                except ImportSessionConflict:
+                    pass
+                else:
+                    parent_current = True
             if (
-                session is not None
+                parent_current
                 and session.state in {"kept", "completed"}
                 and not header.cancel_requested
             ):
@@ -535,7 +549,7 @@ class SearchPreparationService:
                         import_ref=import_ref,
                     )
             if (
-                session is not None
+                parent_current
                 and session.state in {"kept", "completed"}
                 and not header.cancel_requested
             ):

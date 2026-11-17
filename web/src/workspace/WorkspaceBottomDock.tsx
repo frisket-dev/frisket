@@ -18,7 +18,8 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
   const {
     project,
     bottomDockPluginPanelDescriptors,
-    doStepTo,
+    doRevert,
+    doRestore,
     hideContribution,
     loadHistoryPage,
     refreshSheets,
@@ -72,8 +73,8 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
   const resumeHaltedDockJob = useCallback(
     (job: DockActionJob) => {
       const progress = job.progress;
-      if (!progress?.sheetId || !progress.targetColumnId) return;
-      void resumeHaltedRun(progress.sheetId, progress.targetColumnId);
+      if (!progress?.sheetId || !progress.runId) return;
+      void resumeHaltedRun(progress.sheetId, progress.runId);
     },
     [resumeHaltedRun],
   );
@@ -113,7 +114,7 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
             <HistoryWorkbenchPanel
               host="bottomDock"
               history={history}
-              onStepTo={doStepTo}
+              onRevert={doRevert} onRestore={doRestore}
               onLoadPage={loadHistoryPage}
             />
           );
@@ -159,7 +160,8 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
       actionJobsLoading,
       errorJobs,
       bottomDockPluginPanelDescriptors,
-      doStepTo,
+      doRevert,
+    doRestore,
       history,
       loadHistoryPage,
       refreshSheets,

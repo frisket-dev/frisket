@@ -139,7 +139,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 from urllib.parse import unquote, urlsplit
 
-from frisket.runtime.supervisor import guard_exit_proves_cleanup
+from frisket.runtime.supervisor import guard_exit_proves_cleanup, windows_cleanup_proved
 
 from . import fence
 
@@ -498,11 +498,13 @@ class ProcessTreeController:
         memory_limit_bytes: int | None = None,
         cpu_limit_seconds: int | None = None,
         guarded: bool = False,
+        guard_control: tuple[Path, Path, Path] | None = None,
     ) -> None:
         self.proc = proc
         self._job = None
         self._guarded = guarded
-        if os.name == "nt":
+        self._guard_control = guard_control
+        if os.name == "nt" and guard_control is None:
             job = _assign_windows_job(
                 proc,
                 memory_limit_bytes=memory_limit_bytes,
@@ -524,6 +526,9 @@ class ProcessTreeController:
         if pid is None:
             return
         if os.name == "nt":
+            if self._guard_control is not None:
+                self._guard_control[1].touch()
+                return
             # Ownership is guaranteed by the fail-closed constructor: terminate
             # the Job (no ``taskkill`` fail-open path).
             if self._job is not None:
@@ -543,6 +548,10 @@ class ProcessTreeController:
         if pid is None:
             return True
         if os.name == "nt":
+            if self._guard_control is not None:
+                return self.proc.returncode is not None and windows_cleanup_proved(
+                    self._guard_control[2]
+                )
             if self._job is not None:
                 active = _job_active_processes(self._job)
                 if active is not None:
@@ -575,6 +584,9 @@ class ProcessTreeController:
             await asyncio.sleep(_TREE_POLL_SECONDS)
 
     def close(self) -> None:
+        if self._guard_control is not None and self.tree_gone():
+            shutil.rmtree(self._guard_control[0], ignore_errors=True)
+            self._guard_control = None
         if self._job is not None:
             _close_windows_job(self._job)
             self._job = None
@@ -1375,11 +1387,24 @@ async def _spawn_owned_process(
     before re-raising :class:`asyncio.CancelledError`.
     """
 
-    from frisket.runtime.supervisor import guarded_argv
+    from frisket.runtime.supervisor import guarded_argv, windows_guard_command
+    from frisket.runtime.launch import optional_runtime_root
 
-    child_argv = guarded_argv(
-        _limited_exec_argv(_darwin_netwall_argv(argv, scratch, policy, env), policy)
+    runtime_root = optional_runtime_root(argv)
+    limited = _limited_exec_argv(
+        _darwin_netwall_argv(argv, scratch, policy, env), policy
     )
+    guard_control = None
+    if os.name == "nt" and runtime_root is not None:
+        child_argv, guard_control = windows_guard_command(
+            limited,
+            env=env,
+            runtime_root=runtime_root,
+            memory_limit_bytes=policy.memory_mb * 1024 * 1024,
+            cpu_limit_seconds=policy.cpu_seconds,
+        )
+    else:
+        child_argv = guarded_argv(limited, runtime_root=runtime_root)
     spawn_task = asyncio.ensure_future(
         asyncio.create_subprocess_exec(
             *child_argv,
@@ -1389,7 +1414,11 @@ async def _spawn_owned_process(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             limit=stream_limit,
-            **_process_group_kwargs(),
+            **(
+                {"creationflags": subprocess.CREATE_NO_WINDOW}
+                if guard_control is not None
+                else _process_group_kwargs()
+            ),
         )
     )
     outer_cancelled = False
@@ -1403,11 +1432,19 @@ async def _spawn_owned_process(
     try:
         proc = spawn_task.result()
     except BaseException as exc:
+        if guard_control is not None:
+            shutil.rmtree(guard_control[0], ignore_errors=True)
         if outer_cancelled and not isinstance(exc, asyncio.CancelledError):
             raise asyncio.CancelledError() from exc
         raise
     try:
-        controller = ProcessTreeController(proc, guarded=os.name == "posix")
+        controller = ProcessTreeController(
+            proc,
+            guarded=os.name == "posix",
+            guard_control=guard_control,
+            memory_limit_bytes=policy.memory_mb * 1024 * 1024,
+            cpu_limit_seconds=policy.cpu_seconds,
+        )
     except BaseException as exc:
         try:
             await _settle_unowned_process(proc)

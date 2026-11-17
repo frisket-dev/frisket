@@ -12,7 +12,7 @@ beforeAll(installDialogPolyfill);
 afterEach(cleanup);
 
 const run: ReviewRun = {
-  runId: '9', sheetId: '3', sheetName: 'Articles', actionKind: 'map.classify',
+  runId: '9', sourceId: '9', copiedOpId: null, sheetId: '3', sheetName: 'Articles', actionKind: 'map.classify',
   actionName: 'Classify', model: 'model-1', startedAt: '2026-09-01T12:00:00Z',
   reviewStatus: 'open', reviewCompletedAt: null,
   total: {
@@ -28,7 +28,7 @@ const run: ReviewRun = {
 
 describe('ReviewRunControls', () => {
   it('downloads results for the selected run only when export is available', () => {
-    const nextRun = { ...run, runId: '10' };
+    const nextRun = { ...run, runId: '10', sourceId: '10' };
     const controls = (selectedRunId: string, reviewExportUrl?: (id: string) => string) => (
       <ReviewRunControls runs={[run, nextRun]} selectedRunId={selectedRunId}
         onSelectedRunChange={vi.fn()} selectedFieldId={null} onSelectedFieldChange={vi.fn()}
@@ -73,8 +73,8 @@ describe('ReviewRunControls', () => {
 
   it('shows review progress dots in the selected run trigger and each run option', () => {
     const unreviewed = { ...run, total: { ...run.total, reviewedCount: 0 } };
-    const partial = { ...run, runId: '10', total: { ...run.total, reviewedCount: 1 } };
-    const complete = { ...run, runId: '11', reviewStatus: 'complete' as const };
+    const partial = { ...run, runId: '10', sourceId: '10', total: { ...run.total, reviewedCount: 1 } };
+    const complete = { ...run, runId: '11', sourceId: '11', reviewStatus: 'complete' as const };
     render(
       <ReviewRunControls
         runs={[unreviewed, partial, complete]}
@@ -88,7 +88,7 @@ describe('ReviewRunControls', () => {
     );
 
     expect(screen.getByLabelText('Review in progress')).toBeInTheDocument();
-    expect(screen.getByTestId('review-run-select')).toHaveAccessibleName('Run: Review in progress');
+    expect(screen.getByTestId('review-run-select')).toHaveAccessibleName('Review source: Review in progress');
     fireEvent.mouseDown(screen.getByTestId('review-run-select'));
     expect(within(screen.getByTestId('review-run-select-menu')).getByLabelText('No review decisions yet')).toBeInTheDocument();
     expect(within(screen.getByTestId('review-run-select-menu')).getByLabelText('Review in progress')).toBeInTheDocument();
@@ -213,7 +213,7 @@ describe('ReviewRunControls', () => {
     );
 
     expect(screen.getByText('Row 7 · 1 of 4')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Older runs' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Older results' }));
     expect(loadMore).toHaveBeenCalledOnce();
   });
 
@@ -238,7 +238,7 @@ describe('ReviewRunControls', () => {
     expect(screen.getByTestId('review-field-select')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Review order' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Results' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Older runs' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Older results' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Mark review complete' })).toBeDisabled();
   });
 });

@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
+from frisket.ops.base import OpContext
 from frisket.engine._workers import spacy_session as sessions
 
 
@@ -121,7 +123,7 @@ async def test_invocation_owns_one_session_and_closes_it(monkeypatch):
 
     monkeypatch.setattr(ner_read.importlib.util, "find_spec", lambda _: None)
     monkeypatch.setattr(sessions, "SpacySession", FakeSession)
-    ctx = SimpleNamespace(extras={})
+    ctx = OpContext(project=None, extras={"standalone_dispatch": STANDALONE})
     owner = ner_read.AdmittedNerExtractor(ctx, engine="spacy")
     for row_id in range(1, 4):
         row = owner.bind_row({}, sheet_id=1, row_id=row_id, sources=[], ctx=ctx)

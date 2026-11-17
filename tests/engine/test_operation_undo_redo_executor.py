@@ -294,7 +294,7 @@ def _check_undo_state(project: Project, seeded: dict[str, Any], result: Any) -> 
         "SELECT hidden, name FROM sheets WHERE id=?", (seeded["child_sheet_id"],)
     ).fetchone()
     assert int(child["hidden"]) == 1
-    assert child["name"] == f"Entities (undone:{seeded['child_sheet_id']})"
+    assert child["name"] == "Entities"
     hidden_rows = project.db.execute(
         "SELECT id FROM rows WHERE sheet_id=? AND hidden=1 ORDER BY position",
         (seeded["child_sheet_id"],),
@@ -423,6 +423,9 @@ def test_corrupt_undo_info_rolls_back_and_reports_corrupt_state(
             ),
         )
         corrupt_op_id = int(cur.lastrowid)
+        from frisket.engine.store.changes import start_change
+
+        start_change(project.db, corrupt_op_id)
         cur.execute(
             "UPDATE meta SET value=? WHERE key='op_cursor'",
             (str(corrupt_op_id),),
@@ -481,7 +484,10 @@ def test_typed_undo_replays_omitted_and_explicit_default_params(tmp_path: Path) 
             project_id="project-operation-default-replay",
         )
 
-        assert first.status == explicit.status == "completed"
+        assert first.status == explicit.status == "completed", (
+            first.errors,
+            explicit.errors,
+        )
         assert explicit.receipt_id == first.receipt_id
         assert explicit.outputs == first.outputs
     finally:
@@ -677,7 +683,10 @@ def test_completed_undo_survives_refresh_failure_and_replay_heals_manifest(
         )
         healed_manifest = json.loads((project.path / "manifest.json").read_text())
 
-        assert first.status == replay.status == "completed"
+        assert first.status == replay.status == "completed", (
+            first.errors,
+            replay.errors,
+        )
         assert replay.receipt_id == first.receipt_id
         assert stale_manifest["pending_review_count"] == 99
         assert healed_manifest["pending_review_count"] == 2

@@ -37,7 +37,7 @@ def _text_identity(
     if role is None:
         return None, None
     row = project.db.execute(
-        "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+        "SELECT retrieval_revision FROM effective_current_cells WHERE row_id=? AND column_id=?",
         (row_id, role.text_column_id),
     ).fetchone()
     return role.text_column_id, int(row[0]) if row is not None else None
@@ -132,7 +132,9 @@ def publish_pdf_ocr_sample(
         role = document_text_role(project, source_column_id=column)
         try:
             selection = (
-                resolve_document_text_selection(project, (sheet, row, column))
+                resolve_document_text_selection(
+                    project, (sheet, row, column), allow_hidden=True
+                )
                 if role
                 else None
             )
@@ -376,7 +378,7 @@ def publish_pdf_ocr_sample(
             terminal_disposition="completed",
             commit=False,
         )
-        runs.finish_run(run_id, "completed", commit=False)
+        runs.finish_run(run_id, "completed", commit=False, claim_token=token)
         OutputColumnClaimStore(project).release(claim_token=token, commit=False)
     return {
         "operation_id": op_id,

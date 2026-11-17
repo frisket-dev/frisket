@@ -42,8 +42,12 @@ async function fixture({ corruptRequirements = false, pythonVersion = '3.12.13',
   }));
   await fs.writeFile(path.join(runtime, '_bootstrap.py'), '# fake bootstrap\n');
   const guard = path.join(runtime, '_guard.py');
-  if (realGuard) await fs.copyFile(new URL('../../src/frisket/runtime/_guard.py', import.meta.url), guard);
-  else await fs.writeFile(guard, '# fake guard\n');
+  if (realGuard) {
+    // Match the bundled guardian's stdlib helper layout, including usage leases.
+    for (const name of ['_guard.py', '_environment_use.py']) {
+      await fs.copyFile(new URL(`../../src/frisket/runtime/${name}`, import.meta.url), path.join(runtime, name));
+    }
+  } else await fs.writeFile(guard, '# fake guard\n');
   const trace = path.join(root, 'trace.jsonl');
   const grandchildPid = path.join(root, 'term-ignoring-grandchild.pid');
   const grandchildReady = path.join(root, 'term-ignoring-grandchild.ready');
@@ -283,7 +287,10 @@ test('the bundled guardian reaps a TERM-ignoring descendant before cancellation 
   try {
     pending = prepareRuntime({ resourcesPath: subject.resources, dataPath: subject.data, signal: controller.signal });
     pending.catch(() => {});
-    const grandchild = Number(await waitForFile(subject.grandchildPid));
+    const grandchild = Number(await Promise.race([
+      waitForFile(subject.grandchildPid),
+      pending.then(() => { throw new Error('provisioning completed before the cancellation fixture started'); }),
+    ]));
     await waitForFile(subject.grandchildReady);
     const started = Date.now();
     controller.abort();

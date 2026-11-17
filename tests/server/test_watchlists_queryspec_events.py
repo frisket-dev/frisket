@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 import json
 from pathlib import Path
 from typing import Any
@@ -9,13 +11,10 @@ from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
 from frisket.server.notifications.candidates import validate_notification_candidate
-from frisket.features.watchlists.specs import (
+from frisket.contracts.query_spec import (
     QUERY_SPEC_VERSION,
-    WATCH_SPEC_VERSION,
     normalize_detection_policy,
-    normalize_lens_spec,
     normalize_query_spec,
-    normalize_watch_spec,
     query_spec_hash,
 )
 from http_test_helpers import post_row_add_as_v1_action
@@ -44,7 +43,8 @@ def _seed_project(client: TestClient) -> tuple[str, int]:
 def _create_fts_watch(
     client: TestClient, pid: str, *, limit: int = 10
 ) -> dict[str, Any]:
-    response = client.post(
+    response = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Budget watch",
@@ -96,19 +96,9 @@ def test_query_lens_watch_and_notification_candidate_helpers_are_versioned() -> 
         "filter": {"status": {"eq": "open"}},
         "sort": [{"column": "title", "dir": "asc"}],
     }
-    assert normalize_lens_spec(filter_query)["query"] == filter_query
 
     policy = normalize_detection_policy(None)
     assert policy == {"kind": "new_matches"}
-    watch_spec = normalize_watch_spec(
-        filter_query,
-        detection_policy=policy,
-    )
-    assert watch_spec["schema_version"] == WATCH_SPEC_VERSION
-    assert watch_spec["query"] == filter_query
-    assert watch_spec["query_hash"].startswith("sha256:")
-    assert watch_spec["detection_policy"] == {"kind": "new_matches"}
-
     candidate = validate_notification_candidate(
         {
             "source_kind": "watch",
@@ -147,10 +137,15 @@ def test_watch_runs_record_row_entered_events_and_keep_mvp_tables(
     project = client.app.state.workspace.get(pid)
     stored_watch = project.get_watch(watch["id"])
     assert stored_watch is not None
-    assert stored_watch["query_version"] == QUERY_SPEC_VERSION
-    assert stored_watch["query_hash"].startswith("sha256:")
-    assert json.loads(stored_watch["detection_policy"]) == {"kind": "new_matches"}
+    assert stored_watch["view_id"] == watch["view_id"]
+    assert json.loads(stored_watch["view_spec"])["selection"]["search"] == {
+        "text": "budget"
+    }
+    assert json.loads(stored_watch["detection_policy"])["entered"] is True
 
+    from watch_helpers import seed_empty_watch_baseline
+
+    seed_empty_watch_baseline(project, watch["id"])
     first = _run_watch(client, pid, watch["id"])
     assert first["run"]["matched_rows"] == 2
     assert first["run"]["new_rows"] == 2
@@ -180,7 +175,7 @@ def test_watch_runs_record_row_entered_events_and_keep_mvp_tables(
     assert event["delta_json"] is None
     assert event["severity"] == "info"
     assert event["rank"] == 1
-    assert event["snippet"]
+    assert event["snippet"] is None
 
     filtered = client.get(
         f"/api/projects/{pid}/watches/{watch['id']}/runs/{first['run']['id']}/events",

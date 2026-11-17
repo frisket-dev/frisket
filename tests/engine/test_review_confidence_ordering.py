@@ -5,13 +5,14 @@ from pathlib import Path
 
 from frisket.engine.runner.review import review_bundles
 from frisket.engine.store import Project
-from frisket.engine.store.review_confidence_migration import (
+from tests.engine.historical_schema import restore_pre_domain_schema
+from frisket.upgrades.project.review_confidence_migration import (
     REVIEW_CONFIDENCE_FROM_DIGEST,
     REVIEW_CONFIDENCE_TO_DIGEST,
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
-from frisket.engine.store.scalar_storage_migration import (
+from frisket.upgrades.project.scalar_storage_migration import (
     SCALAR_CURRENT_VALUES_FROM_DIGEST,
 )
 from helpers import write_claimed_test_results
@@ -133,6 +134,7 @@ def test_prior_review_schema_adds_confidence_ordering_index_on_open(
     path = tmp_path / "prior.frisket"
     Project.create(path).close()
     with sqlite3.connect(path / "project.db") as db:
+        restore_pre_domain_schema(db)
         _remove_extraction_layouts(db)
         index_rows = db.execute("PRAGMA index_list(results)").fetchall()
         confidence_index = next(

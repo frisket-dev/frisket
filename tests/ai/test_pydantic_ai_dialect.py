@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -13,6 +14,7 @@ from frisket.ai.llm.pricing import cost_of
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.structured import FrisketRouterModel
 from frisket.ai.llm.types import LLMRequest
+from frisket.execution.dispatch_control import STANDALONE
 
 # ---------------------------------------------------------------------------
 # Two-tool fixture for the dialect-extension tests.
@@ -300,7 +302,9 @@ def _openai_router_with_transport(
     bodies: list[dict],
 ) -> tuple[ModelRouter, list[dict]]:
     transport, seen = _openai_capturing_transport(bodies)
-    router = ModelRouter(keys={"openai": "k"}, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={"openai": "k"}, max_retries=0
+    )
     router._client = httpx.AsyncClient(transport=transport)
     return router, seen
 
@@ -315,7 +319,7 @@ def test_openai_malformed_tool_arguments_repair_retains_all_paid_wire_calls():
         ]
     )
     model_id = "openai/gpt-5"
-    model = FrisketRouterModel(router, model_id)
+    model = FrisketRouterModel(router.for_execution(STANDALONE), model_id)
     agent = Agent(model, output_type=str, retries=1)
     calls: list[str] = []
 
@@ -355,7 +359,9 @@ def _anthropic_router_with_transport(
     bodies: list[dict],
 ) -> tuple[ModelRouter, list[dict]]:
     transport, seen = _capturing_transport(bodies)
-    router = ModelRouter(keys={"anthropic": "k"}, max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}, max_retries=0
+    )
     router._client = httpx.AsyncClient(transport=transport)
     return router, seen
 
@@ -368,7 +374,7 @@ def test_shim_dispatches_two_tool_loop_through_real_anthropic_wire():
             _anthropic_text_wire("done: found 2 cats"),
         ]
     )
-    model = FrisketRouterModel(router, "anthropic/claude-x")
+    model = FrisketRouterModel(router.for_execution(STANDALONE), "anthropic/claude-x")
     agent = Agent(model, output_type=str)
     calls: list[str] = []
 

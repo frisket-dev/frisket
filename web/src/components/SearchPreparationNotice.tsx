@@ -24,6 +24,7 @@ export function SearchPreparationNotice({
   stopLabel = 'Stop remaining preparation',
   onResumeImport,
   onKeepImport,
+  onRemoveImport,
   importActionBusy = false,
   importMessage,
   onOpenErrors,
@@ -41,6 +42,7 @@ export function SearchPreparationNotice({
   stopLabel?: string;
   onResumeImport?(): void;
   onKeepImport?(): void;
+  onRemoveImport?(): void;
   importActionBusy?: boolean;
   importMessage?: string | null;
   onOpenErrors?(): void;
@@ -85,7 +87,7 @@ export function SearchPreparationNotice({
       && (notice.stage === 'approval' || notice.stage === 'failed'),
   );
   const hasFooter = Boolean(
-    searchFooter || onOpenErrors || onImportAnotherSheet || canStop || onResumeImport || onKeepImport || importMessage || canReview,
+    searchFooter || onOpenErrors || onImportAnotherSheet || canStop || onResumeImport || onKeepImport || onRemoveImport || importMessage || canReview,
   );
 
   return (
@@ -121,7 +123,12 @@ export function SearchPreparationNotice({
             )}
             {onKeepImport && (
               <button type="button" className="search-preparation-action" disabled={importActionBusy} onClick={onKeepImport}>
-                Keep what's added
+                Keep completed work
+              </button>
+            )}
+            {onRemoveImport && (
+              <button type="button" className="search-preparation-action" disabled={importActionBusy} onClick={onRemoveImport}>
+                Remove imported work
               </button>
             )}
             {canReview && (

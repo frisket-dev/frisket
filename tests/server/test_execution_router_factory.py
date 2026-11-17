@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from dataclasses import dataclass, replace
@@ -9,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import frisket.server.services.action_runs as action_runs_module
+from frisket.execution.purchases import PurchaseAdmission
 from frisket.ai.llm import ChaosConfig, ModelRouter, ResponseCache
 from frisket.engine.store import Project
 from frisket.execution.provider import (
@@ -30,11 +32,14 @@ class _BoundPolicy:
         del credential_source
         return request
 
-    def before_live(self, request: Any, credential_source: str) -> None:
-        del request, credential_source
+    def admit_purchase(self, request):
+        return PurchaseAdmission("local")
 
-    def after_live(self, request: Any, response: Any, credential_source: str) -> None:
-        del request, response, credential_source
+    def record_purchase(self, request, admission, observation):
+        pass
+
+    def fail_purchase(self, request, admission, error):
+        pass
 
 
 class _RefuseUnboundPolicy(_BoundPolicy):
@@ -42,12 +47,13 @@ class _RefuseUnboundPolicy(_BoundPolicy):
         del request, credential_source
         raise AssertionError("an unbound execution policy became executable")
 
-    def before_live(self, request: Any, credential_source: str) -> None:
-        del request, credential_source
+    def admit_purchase(self, request):
         raise AssertionError("an unbound execution policy became executable")
 
-    def after_live(self, request: Any, response: Any, credential_source: str) -> None:
-        del request, response, credential_source
+    def record_purchase(self, request, admission, observation):
+        raise AssertionError("an unbound execution policy became executable")
+
+    def fail_purchase(self, request, admission, error):
         raise AssertionError("an unbound execution policy became executable")
 
 
@@ -80,6 +86,7 @@ def test_non_action_consumers_never_resolve_the_execution_router(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ordinary_router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "ordinary-key"},
         key_sources={"anthropic": "local"},
         cache=None,
@@ -281,7 +288,12 @@ def test_direct_action_launch_resolves_one_router_for_gate_composition_and_dispa
     dispatched: list[ModelRouter] = []
 
     def fresh_router() -> ModelRouter:
-        router = ModelRouter(cache=cache, cache_mode="fresh", use_env_keys=False)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=cache,
+            cache_mode="fresh",
+            use_env_keys=False,
+        )
         bases.append(router)
         return router
 
@@ -345,6 +357,7 @@ def test_model_action_launch_reuses_one_router_across_preflight_and_queue(
 
     def fresh_router() -> ModelRouter:
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "platform-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,

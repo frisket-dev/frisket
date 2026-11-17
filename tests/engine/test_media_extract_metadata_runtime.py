@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import copy
@@ -441,7 +442,11 @@ def test_preview_dedupes_sequential_references_without_populating_shared_cache(
         preview = asyncio.run(
             MapRunner(
                 project,
-                ModelRouter(cache=None, cache_mode="off"),
+                ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                ),
                 authority=UnroutedOnlyAuthority(project),
             ).preview(plan.spec_dict(), program=plan.program)
         )
@@ -1071,7 +1076,9 @@ def test_raw_maprunner_cannot_launch_metadata_without_action_lifecycle(
         ):
             asyncio.run(
                 MapRunner(
-                    project, ModelRouter(), authority=UnroutedOnlyAuthority(project)
+                    project,
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+                    authority=UnroutedOnlyAuthority(project),
                 ).run(
                     {
                         "action_kind": "media.extract_metadata",
@@ -1166,7 +1173,7 @@ def test_metadata_resume_never_recreates_changed_claimed_outputs(
         spec = plan.spec_dict()
         runner = MapRunner(
             project,
-            ModelRouter(),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
             allow_action_lifecycle_only_recipes=True,
             authority=UnroutedOnlyAuthority(project),
         )
@@ -1314,7 +1321,7 @@ def test_direct_cancelled_metadata_family_has_receipt_and_reuses_on_retry(
         cancel_deps = ExecutorDeps(
             map_runner_factory=lambda p, router: MapRunner(
                 p,
-                router or ModelRouter(),
+                router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
                 concurrency=1,
                 should_cancel=lambda _run_id: True,
                 allow_action_lifecycle_only_recipes=True,
@@ -1709,14 +1716,19 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
         )
 
         after = live_snapshot()
-        raw_details = project.get_values(
-            sheet_id,
-            details_id,
-            row_ids=[target_row, untargeted_row],
-            apply_edits=False,
-        )
+        raw_details = {
+            row_id: result["value"]
+            for (_, row_id, _), result in RunResultStore(project)
+            .decoded_result_rows(
+                [
+                    (new_run_id, target_row, details_id),
+                    (prior_run_id, untargeted_row, details_id),
+                ]
+            )
+            .items()
+        }
         assert raw_details[target_row]["normalized"]["filename"] == "after.png"
-        assert after[details_name][target_row] == target_manual_value
+        assert after[details_name][target_row] == raw_details[target_row]
         assert after[details_name][untargeted_row] == manual_value
 
         receipt = json.loads(
@@ -1741,11 +1753,12 @@ def test_targeted_rerun_preserves_untargeted_atomic_family_rows(
         )
         assert details_ref["value_hash"] == output_column_result_value_hash(
             project,
+            run_id=new_run_id,
             sheet_id=sheet_id,
             column_id=details_id,
             row_ids=[target_row],
         )
-        assert details_ref["value_hash"] != output_column_value_hash(
+        assert details_ref["value_hash"] == output_column_value_hash(
             project,
             sheet_id=sheet_id,
             column_id=details_id,

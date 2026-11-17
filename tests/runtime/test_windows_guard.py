@@ -12,6 +12,249 @@ import pytest
 pytestmark = pytest.mark.realtime
 
 
+@pytest.mark.parametrize(
+    "limits", [{"cpu_limit_seconds": 0}, {"memory_limit_bytes": -1}]
+)
+def test_windows_guard_rejects_nonpositive_limits(limits):
+    from frisket.runtime.supervisor import windows_guard_command
+
+    with pytest.raises(ValueError, match="limit must be positive"):
+        windows_guard_command(["unused-target"], **limits)
+
+
+def test_windows_failed_cleanup_preserves_control_for_deliberate_retry(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from frisket.runtime import supervisor
+
+    control = tmp_path / "owned"
+    control.mkdir()
+    channel = (control, control / "stop", control / "clean")
+    process = SimpleNamespace(
+        returncode=0,
+        poll=lambda: 0,
+        wait=lambda **_: 0,
+        _frisket_guard_control=channel,
+    )
+    monkeypatch.setattr(supervisor, "os", SimpleNamespace(name="nt"))
+    channel[2].write_text("partial")
+    with pytest.raises(RuntimeError, match="without cleanup proof"):
+        supervisor.stop_guard(process)
+    assert process._frisket_guard_control == channel
+    assert control.exists()
+    channel[2].write_text("clean")
+    supervisor.stop_guard(process)
+    assert process._frisket_guard_control is None
+    assert not control.exists()
+
+
+def test_windows_guard_command_carries_runtime_and_sandbox_limits(tmp_path):
+    from frisket.runtime.supervisor import windows_guard_command
+    import shutil
+
+    command, control = windows_guard_command(
+        [str(tmp_path / "python.exe"), "-c", "pass"],
+        env={"SYSTEMROOT": str(tmp_path)},
+        runtime_root=tmp_path,
+        memory_limit_bytes=64 * 1024 * 1024,
+        cpu_limit_seconds=2,
+    )
+    try:
+        config = json.loads((control[0] / "launch.json").read_text())
+        assert config["runtimeLock"] == str(tmp_path / ".runtime-use.lock")
+        assert config["memoryLimitBytes"] == 64 * 1024 * 1024
+        assert config["cpuLimitSeconds"] == 2
+        assert "_guard_windows.ps1" in command[-3]
+    finally:
+        shutil.rmtree(control[0])
+
+
+def test_windows_private_runtime_controller_requires_guardian_cleanup_proof(
+    tmp_path, monkeypatch
+):
+    from types import SimpleNamespace
+    from frisket.engine.sandbox import shim
+
+    control = tmp_path / "control"
+    control.mkdir()
+    stop, proof = control / "stop", control / "clean"
+    monkeypatch.setattr(shim, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        shim,
+        "_assign_windows_job",
+        lambda *_a, **_k: pytest.fail("guardian must survive app-parent death"),
+    )
+    process = SimpleNamespace(pid=123, returncode=None)
+    owner = shim.ProcessTreeController(process, guard_control=(control, stop, proof))
+    owner.signal_tree(15)
+    assert stop.exists()
+    assert not owner.tree_gone()
+    process.returncode = 0
+    assert not owner.tree_gone()
+    proof.touch()
+    assert not owner.tree_gone()
+    proof.write_text("partial")
+    assert not owner.tree_gone()
+    proof.write_text("clean")
+    assert owner.tree_gone()
+    owner.close()
+    assert not control.exists()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows installer guardian")
+def test_windows_installer_guard_compiles_and_releases_exclusive_lease(tmp_path):
+    """Exercise the install path with diagnostics, without downloading a model."""
+    from filelock import FileLock, Timeout
+    from frisket.runtime._environment_use import LOCK_NAME
+    from frisket.runtime.supervisor import spawn_service, stop_service
+
+    ready = tmp_path / "installer-started"
+    process = spawn_service(
+        [
+            sys.executable,  # subprocess-boundary: actual installer Job and runtime lease.
+            "-I",
+            "-c",
+            "import pathlib,sys; pathlib.Path(sys.argv[1]).touch(); "
+            "sys.stdin.buffer.read(); sys.exit(7)",
+            str(ready),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        runtime_root=tmp_path,
+        runtime_ready=False,
+        runtime_exclusive=True,
+    )
+    try:
+        # Compilation errors must retain their actual PowerShell diagnostics.
+        deadline = time.monotonic() + 30
+        while not ready.exists():
+            if process.poll() is not None:
+                _, error = process.communicate(timeout=5)
+                pytest.fail(
+                    "installer guardian failed to start: "
+                    + error.decode(errors="replace")
+                )
+            if time.monotonic() >= deadline:
+                pytest.fail("installer guardian did not start within 30 seconds")
+            time.sleep(0.02)
+        with pytest.raises(Timeout):
+            FileLock(tmp_path / LOCK_NAME, timeout=0).acquire()
+        _, error = process.communicate(timeout=30)
+        assert process.returncode == 7, error.decode(errors="replace")
+        stop_service(process)
+        with FileLock(tmp_path / LOCK_NAME, timeout=0):
+            pass
+    finally:
+        if process.poll() is None:
+            stop_service(process)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows runtime leases")
+def test_windows_private_service_holds_usage_until_verified_stop(tmp_path, monkeypatch):
+    import venv
+    from filelock import FileLock, Timeout
+    from frisket.runtime import model_install
+    from frisket.runtime._environment_use import LOCK_NAME
+    from frisket.runtime.supervisor import spawn_service, stop_service
+
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
+    venv.EnvBuilder(with_pip=False).create(tmp_path / "venv")
+    (tmp_path / ".ready").touch()
+    process = spawn_service(
+        [
+            str(model_install.runtime_python()),
+            "-c",
+            "import os,time; print(os.getpid(),flush=True); time.sleep(60)",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=model_install.model_child_environment(),
+    )
+    try:
+        assert int(process.stdout.readline()) > 0
+        with pytest.raises(Timeout):
+            FileLock(tmp_path / LOCK_NAME, timeout=0).acquire()
+    finally:
+        stop_service(process)
+    with FileLock(tmp_path / LOCK_NAME, timeout=0):
+        pass
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows sandbox lease")
+def test_windows_sandbox_private_interpreter_uses_job_guardian(tmp_path, monkeypatch):
+    import asyncio
+    import venv
+    from filelock import FileLock, Timeout
+    from frisket.engine.sandbox import shim
+    from frisket.runtime import model_install
+    from frisket.runtime._environment_use import LOCK_NAME
+
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
+    venv.EnvBuilder(with_pip=False).create(tmp_path / "venv")
+    (tmp_path / ".ready").touch()
+
+    async def run():
+        proc, owner, cancelled = await shim._spawn_owned_process(
+            [
+                str(model_install.runtime_python()),
+                "-c",
+                "import os,time; print(os.getpid(),flush=True); time.sleep(60)",
+            ],
+            scratch=tmp_path,
+            env=model_install.model_child_environment(),
+            stdin=subprocess.DEVNULL,
+            policy=shim.SandboxPolicy(),
+        )
+        try:
+            assert not cancelled
+            assert int(await asyncio.wait_for(proc.stdout.readline(), timeout=30)) > 0
+            with pytest.raises(Timeout):
+                FileLock(tmp_path / LOCK_NAME, timeout=0).acquire()
+        finally:
+            await shim._teardown_cancelled_spawn(proc, owner)
+            owner.close()
+        with FileLock(tmp_path / LOCK_NAME, timeout=0):
+            pass
+
+    asyncio.run(run())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native Windows Job limits")
+@pytest.mark.parametrize("limit", ["cpu", "memory"])
+def test_windows_private_runtime_job_enforces_sandbox_limits(
+    tmp_path, monkeypatch, limit
+):
+    import asyncio
+    import venv
+    from frisket.engine.sandbox import shim
+    from frisket.runtime import model_install
+
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path))
+    venv.EnvBuilder(with_pip=False).create(tmp_path / "venv")
+    (tmp_path / ".ready").touch()
+    target = "while True: pass" if limit == "cpu" else "bytearray(256 * 1024 * 1024)"
+
+    async def run():
+        proc, owner, _ = await shim._spawn_owned_process(
+            [str(model_install.runtime_python()), "-c", target],
+            scratch=tmp_path,
+            env=model_install.model_child_environment(),
+            stdin=subprocess.DEVNULL,
+            policy=shim.SandboxPolicy(cpu_seconds=1, memory_mb=64),
+        )
+        try:
+            await asyncio.wait_for(proc.communicate(), timeout=30)
+            assert proc.returncode != 0
+            assert owner.tree_gone()
+        finally:
+            await shim._teardown_cancelled_spawn(proc, owner)
+            owner.close()
+
+    asyncio.run(run())
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="native Windows PowerShell")
 def test_spawn_service_starts_with_filtered_environment():
     from frisket.runtime.supervisor import spawn_service, stop_service

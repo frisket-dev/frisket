@@ -7,8 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from frisket.engine.store import Project
-from frisket.engine.store.document_text_migration import DOCUMENT_TEXT_FROM_DIGEST
-from frisket.engine.store.execution_metadata_migration import (
+from tests.engine.historical_schema import restore_pre_domain_schema
+from frisket.upgrades.project.document_text_migration import DOCUMENT_TEXT_FROM_DIGEST
+from frisket.upgrades.project.execution_metadata_migration import (
     EXECUTION_METADATA_FROM_DIGEST,
     EXECUTION_METADATA_TO_DIGEST,
     migrate_execution_metadata,
@@ -78,7 +79,11 @@ def warning_run(tmp_path, request):
             claim_token=authority.claim_token,
             terminal_disposition="completed",
         )
-        store.finish_run(run_id)
+        store.finish_run(
+            run_id,
+            writer_attempt_id=authority.writer_attempt_id,
+            claim_token=authority.claim_token,
+        )
         store.point_column_at_run(op_id, output_id, run_id)
     try:
         yield project, sheet_id, source_id, output_id, row_ids, run_id
@@ -162,6 +167,7 @@ def test_warnings_survive_heads_capture_receipt_and_reopen(warning_run):
 
 def _restore_prior_layout(project):
     # Downgrade this fixture to the immediately preceding on-disk layout.
+    restore_pre_domain_schema(project.db)
     _remove_execution_metadata(project.db)
     project.db.execute(
         "UPDATE meta SET value=? WHERE key=?",
@@ -204,51 +210,51 @@ def test_published_warnings_are_immutable_while_generation_is_active(warning_run
 
 
 def test_prior_digest_migration_preserves_history_and_installs_guards(warning_run):
-    project, _, _, output_id, row_ids, run_id = warning_run
+    project, sheet, _, output_id, row_ids, run_id = warning_run
     _restore_prior_layout(project)
+    snapshots = {
+        table: [
+            dict(row)
+            for row in project.db.execute(f"SELECT * FROM {table} ORDER BY 1,2")
+        ]
+        for table in ("ops", "current_cells", "cell_result_heads")
+    }
     before = [
-        tuple(row)
-        for row in project.db.execute("SELECT * FROM results ORDER BY row_id")
+        dict(row) for row in project.db.execute("SELECT * FROM results ORDER BY row_id")
     ]
-    heads_before = [
-        tuple(row) for row in project.db.execute("SELECT * FROM cell_result_heads")
+    # Verify the frozen historical step in isolation before the breaking cutover.
+    migrate_execution_metadata(project.db, bundle_path=project.db_path)
+    assert project.get_meta(SCHEMA_DIGEST_META_KEY) == EXECUTION_METADATA_TO_DIGEST
+    after = [
+        dict(row) for row in project.db.execute("SELECT * FROM results ORDER BY row_id")
     ]
-    ops_before = [
-        tuple(row) for row in project.db.execute("SELECT * FROM ops ORDER BY id")
-    ]
-    cells_before = [
-        tuple(row)
-        for row in project.db.execute(
-            "SELECT * FROM current_cells ORDER BY column_id,row_id"
-        )
-    ]
+    assert [
+        {key: value for key, value in row.items() if key != "warnings"} for row in after
+    ] == before
+    assert [row["warnings"] for row in after] == ["[]", "[]"]
+    for table, expected in snapshots.items():
+        assert [
+            dict(row)
+            for row in project.db.execute(f"SELECT * FROM {table} ORDER BY 1,2")
+        ] == expected
     path = project.path
     project.close()
     reopened = Project(path)
     try:
         assert EXECUTION_METADATA_TO_DIGEST == DOCUMENT_TEXT_FROM_DIGEST
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
-        after = [
-            dict(row)
-            for row in reopened.db.execute("SELECT * FROM results ORDER BY row_id")
-        ]
+        assert reopened.get_values(sheet, output_id) == {
+            row_ids[0]: "pages 1 and 3",
+            row_ids[1]: "",
+        }
         assert [
-            tuple(value for key, value in row.items() if key != "warnings")
-            for row in after
-        ] == before
-        assert [row["warnings"] for row in after] == ["[]", "[]"]
-        assert [
-            tuple(row) for row in reopened.db.execute("SELECT * FROM cell_result_heads")
-        ] == heads_before
-        assert [
-            tuple(row) for row in reopened.db.execute("SELECT * FROM ops ORDER BY id")
-        ] == ops_before
-        assert [
-            tuple(row)
+            row[0]
             for row in reopened.db.execute(
-                "SELECT * FROM current_cells ORDER BY column_id,row_id"
+                "SELECT warnings FROM results ORDER BY row_id"
             )
-        ] == cells_before
+        ] == ["[]", "[]"]
+        assert reopened.undo() is None
+        assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
         migrate_execution_metadata(reopened.db, bundle_path=reopened.db_path)
         _assert_warning_guard(reopened, run_id, row_ids[0], output_id)
     finally:

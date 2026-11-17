@@ -291,8 +291,25 @@ class TestUndoRedo:
     def test_undo_nothing_returns_none(self, project):
         assert project.undo() is None
 
-    def test_barrier_blocks_undo(self, project):
-        project.append_op("compaction", barrier=True)
+    def test_started_barrier_blocks_undo(self, project):
+        from frisket.engine.store.changes import start_change
+        from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
+
+        op_id = project.append_op("compaction", barrier=True)
+        # Reservation alone is not an undoable change. A real maintenance
+        # mutation starts its barrier when it changes project state.
+        assert project.undo() is None
+        sheet = project.add_sheet("Maintenance")
+        column = project.add_column(sheet, "value")
+        project.db.execute("BEGIN IMMEDIATE")
+        row = project.db.execute(
+            "INSERT INTO rows(sheet_id,position) VALUES (?,1)", (sheet,)
+        ).lastrowid
+        start_change(project.db, op_id, writing=True)
+        insert_edits(
+            project.db, op_id=op_id, edits=[EditCellWrite(row, column, "maintained")]
+        )
+        project.db.commit()
         with pytest.raises(ValueError):
             project.undo()
 
@@ -607,7 +624,9 @@ class TestCompactionGC:
         # the live column points at this run → blob is reachable
         assert project.gc_blobs(dry_run=True)["blobs_removed"] == 0
 
-    def test_compact_preserves_discarded_runs_and_vacuums(self, project):
+    def test_compact_preserves_revertible_runs_after_redo_branch_is_cleared(
+        self, project
+    ):
         sheet, _ = make_sheet(project, 2)
         col = project.add_column(sheet, "score", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
@@ -618,18 +637,25 @@ class TestCompactionGC:
         )
         RunResultStore(project).point_column_at_run(op, col, run)
         project.undo()
-        # appending a new op discards the undone branch (no longer redoable)
+        # Merely reserving work does not clear Redo. A new actual mutation
+        # clears ordinary Redo while retaining selective Restore and results.
         project.append_op("noop")
         assert (
-            project.db.execute("SELECT status FROM ops WHERE id=?", (op,)).fetchone()[
-                "status"
-            ]
-            == "discarded"
+            project.db.execute(
+                "SELECT redo_eligible FROM ops WHERE id=?", (op,)
+            ).fetchone()[0]
+            == 1
         )
+        project.apply_edits([{"row_id": rid, "column_id": col, "value": 6}])
+        assert tuple(
+            project.db.execute(
+                "SELECT status,redo_eligible FROM ops WHERE id=?", (op,)
+            ).fetchone()
+        ) == ("undone", 0)
 
         summary = project.compact()
         assert summary["results_pruned"] == 0
-        # Discarded branches remain durable audit and provenance history.
+        # Reverted branches remain durable audit and provenance history.
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM results WHERE run_id=?", (run,)
@@ -872,6 +898,7 @@ class TestCompactionRedoSafety:
             "row_id": rid,
             "column_id": col,
             "run_id": first_run,
+            "outcome": "completed",
         }
         assert project.read_blob(first_blob) == first_bytes
         assert MediaBlobStore(project).metadata(first_blob) == {"generation": "A"}

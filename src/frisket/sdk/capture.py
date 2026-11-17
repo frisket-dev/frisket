@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -203,7 +204,27 @@ def _output_columns_by_name(
         )
 
     bindings_by_role = {binding.output_role: binding for binding in bindings}
-    expected_roles = set(output_names)
+    run = project.db.execute(
+        "SELECT params FROM runs WHERE id=?", (int(run_id),)
+    ).fetchone()
+    try:
+        params = json.loads(str(run["params"] or "{}")) if run is not None else {}
+    except (TypeError, ValueError):
+        params = {}
+    logical_names = params.get("output_names") if isinstance(params, dict) else None
+    inverse = (
+        {
+            str(name): str(logical)
+            for logical, name in logical_names.items()
+            if isinstance(logical, str) and isinstance(name, str)
+        }
+        if isinstance(logical_names, dict)
+        else {}
+    )
+    names_by_role = {
+        inverse.get(str(name), str(name)): str(name) for name in output_names
+    }
+    expected_roles = set(names_by_role)
     binding_roles = set(bindings_by_role)
     if binding_roles != expected_roles:
         raise GenerationStateError(
@@ -211,7 +232,7 @@ def _output_columns_by_name(
             f"missing={sorted(expected_roles - binding_roles)}, "
             f"unexpected={sorted(binding_roles - expected_roles)}"
         )
-    expected_bindings = [bindings_by_role[name] for name in output_names]
+    expected_bindings = [bindings_by_role[role] for role in names_by_role]
     column_ids = sorted({binding.column_id for binding in expected_bindings})
     placeholders = ",".join("?" for _ in column_ids)
     columns_by_id = {
@@ -224,9 +245,9 @@ def _output_columns_by_name(
     columns_by_name: dict[str, Any] = {}
     for binding in expected_bindings:
         column = columns_by_id.get(binding.column_id)
-        if column is None or str(column["name"]) != binding.output_role:
+        if column is None:
             continue
-        columns_by_name[binding.output_role] = column
+        columns_by_name[str(column["name"])] = column
     return columns_by_name
 
 
@@ -255,26 +276,17 @@ def _input_source_run_id(
     origin_run_ids = sorted({head.run_id for head in heads.values()}, reverse=True)[:2]
     missing_head_row_ids = [row_id for row_id in ordered_row_ids if row_id not in heads]
 
-    # The public resolver owns the exact-head/static/manual overlay ordering.
-    # A divergent manual overlay has no run id and therefore cannot be
-    # collapsed into this receipt's column-level source_run_id.
-    underlying_values, _underlying_refs = project.get_values_with_refs(
+    # Capture current input ownership. An ordinary edit is its own contribution,
+    # even when its bytes happen to equal an older generated answer.
+    _live_values, live_refs = project.get_values_with_refs(
         sheet_id,
         column_id,
         row_ids=ordered_row_ids,
-        apply_edits=False,
-    )
-    live_values, live_refs = project.get_values_with_refs(
-        sheet_id,
-        column_id,
-        row_ids=ordered_row_ids,
-        apply_edits=True,
     )
     divergent_edit_row_ids = [
         row_id
         for row_id in ordered_row_ids
         if live_refs.get(row_id, {}).get("kind") == "manual_edit"
-        and live_values.get(row_id) != underlying_values.get(row_id)
     ]
 
     # Zero generated heads is honestly representable as a baseline/no-run
@@ -392,7 +404,7 @@ def capture_maprunner_facts(
         # function of the op's replay scope (sdk/replay.py), not of whether
         # the hash was captured.
         value_hash = output_column_result_value_hash(
-            project, sheet_id=sheet_id, column_id=col_id, row_ids=row_ids
+            project, run_id=run_id, sheet_id=sheet_id, column_id=col_id, row_ids=row_ids
         )
         output_facts.append(
             OutputFact(

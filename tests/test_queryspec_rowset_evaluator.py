@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch
+
 import json
 from pathlib import Path
 
@@ -119,7 +121,8 @@ def test_shared_sheet_filter_rowset_drives_grid_locate_and_watch(tmp_path: Path)
     assert located.json()["index"] == 1
     assert located.json()["page_offset"] == 1
 
-    watch = client.post(
+    watch = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Done tasks",

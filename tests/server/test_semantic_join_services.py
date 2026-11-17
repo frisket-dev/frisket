@@ -1,5 +1,7 @@
 """Semantic service paths retain the coupled source/child execution contract."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,7 +31,9 @@ def semantic_workspace(tmp_path, monkeypatch):
         "frisket.ai.embeddings.backends.resolve_embedder",
         lambda *args, **kwargs: (embed, "fastembed/test"),
     )
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     with TestClient(create_app(tmp_path / "workspace", router=router)) as client:
         pid = client.post("/api/projects", json={"name": "Semantic services"}).json()[
             "id"

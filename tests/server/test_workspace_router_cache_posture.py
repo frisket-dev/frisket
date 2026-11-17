@@ -24,6 +24,7 @@ B. The closure guard for the workspace-level claim "replay_strict means no
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import ast
 import inspect
@@ -60,6 +61,7 @@ def strict_env(monkeypatch):
 
 def _cached_router(tmp_path: Path, name: str, **kwargs) -> ModelRouter:
     return ModelRouter(
+        model_call_policy=kwargs.pop("model_call_policy", LOCAL_PURCHASE_POLICY),
         cache=ResponseCache(tmp_path / f"{name}.cache.db"),
         use_env_keys=False,
         **kwargs,
@@ -186,7 +188,12 @@ def _build(tmp_path: Path, composition: _Composition) -> tuple[Workspace, Projec
     if composition.base_router_cache == "cache":
         base = _cached_router(tmp_path, composition.label, cache_mode="replay_strict")
     elif composition.base_router_cache == "none":
-        base = ModelRouter(cache=None, cache_mode="replay_strict", use_env_keys=False)
+        base = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="replay_strict",
+            use_env_keys=False,
+        )
 
     workspace = Workspace(
         root,

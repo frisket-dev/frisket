@@ -3,14 +3,15 @@ hidden api_result column. All HTTP is mocked (httpx.MockTransport); the SSRF
 guard's DNS check is stubbed for the happy paths and exercised for real on the
 blocked-URL case (a link-local/metadata IP literal, deterministic offline).
 
-Secrets resolve via os.environ (resolve_credential checks it first), so
-`monkeypatch.setenv` stands in for a real project credential store."""
+Secrets resolve only through the project's named secrets store."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
 import math
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -36,8 +37,11 @@ from frisket.engine.store import Project
 from frisket.ops.base import OpContext
 
 
-def _ctx(handler) -> OpContext:
-    return OpContext(http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+def _ctx(handler, *, secrets=None) -> OpContext:
+    return OpContext(
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        project=SimpleNamespace(secret_plaintext=(secrets or {}).get),
+    )
 
 
 def _run(row_values, spec, ctx):
@@ -129,7 +133,9 @@ def test_control_like_output_names_are_safe_typed_columns(
 ):
     project, sheet = _sheet_with_columns(tmp_path)
     project.add_rows(sheet, [{}], {})
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda req: httpx.Response(
@@ -193,9 +199,7 @@ def test_source_columns_scan_every_field():
     assert "TOKEN" not in cols
 
 
-def test_get_resolves_column_and_secret(_allow_egress, monkeypatch):
-    monkeypatch.setenv("API_TOKEN", "s3cr3t")
-
+def test_get_resolves_column_and_secret(_allow_egress):
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/items/42"
         assert request.headers["authorization"] == "Bearer s3cr3t"
@@ -207,12 +211,12 @@ def test_get_resolves_column_and_secret(_allow_egress, monkeypatch):
         "headers": [["Authorization", "Bearer {{secret.API_TOKEN}}"]],
         "output_name": "api_result",
     }
-    out = _run({"id": "42"}, spec, _ctx(handler))
+    out = _run({"id": "42"}, spec, _ctx(handler, secrets={"API_TOKEN": "s3cr3t"}))
     assert out == {"api_result": {"ok": True, "id": 42}}
 
 
 def test_missing_secret_errors_cell():
-    # No env var, no project store -> the secret cannot resolve.
+    # No project store -> the secret cannot resolve.
     spec = {
         "method": "GET",
         "url": "https://api.test.example/x",
@@ -223,9 +227,7 @@ def test_missing_secret_errors_cell():
     assert "NOPE" not in out["error"]  # secret NAME leaks neither value nor id
 
 
-def test_non_2xx_errors_http_error_without_body_or_secret(_allow_egress, monkeypatch):
-    monkeypatch.setenv("API_TOKEN", "s3cr3t")
-
+def test_non_2xx_errors_http_error_without_body_or_secret(_allow_egress):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             503, json={"detail": "boom secret-ish leak", "value": "s3cr3t"}
@@ -236,7 +238,7 @@ def test_non_2xx_errors_http_error_without_body_or_secret(_allow_egress, monkeyp
         "url": "https://api.test.example/items/{{id}}?token={{secret.API_TOKEN}}",
         "output_name": "api_result",
     }
-    out = _run({"id": "42"}, spec, _ctx(handler))
+    out = _run({"id": "42"}, spec, _ctx(handler, secrets={"API_TOKEN": "s3cr3t"}))
     assert out["error_code"] == "http_error"
     assert "503" in out["error"]
     # bounded text: no response body, no secret value, no query string
@@ -368,14 +370,14 @@ def test_invalid_rendered_url_normalizes_not_raises(_allow_egress):
     assert out["error_code"] == "invalid_url"  # returned a cell, did not raise
 
 
-def test_secret_in_url_host_not_leaked_in_error(_allow_egress, monkeypatch):
-    monkeypatch.setenv("SECRET_HOST", "supersecrethost.example")
-
+def test_secret_in_url_host_not_leaked_in_error(_allow_egress):
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503)  # force http_error so error context is built
 
     spec = {"method": "GET", "url": "https://{{secret.SECRET_HOST}}/items"}
-    out = _run({}, spec, _ctx(handler))
+    out = _run(
+        {}, spec, _ctx(handler, secrets={"SECRET_HOST": "supersecrethost.example"})
+    )
     assert out["error_code"] == "http_error"
     assert "supersecrethost" not in out["error"]  # secret host blanked in context
 
@@ -727,7 +729,9 @@ def test_receipt_status_provider_and_aggregate_errors(
             json={"ok": True},
         )
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     body = _bound(sheet, request={"url": "https://x/{{id}}"}).request.model_dump(
         mode="json"

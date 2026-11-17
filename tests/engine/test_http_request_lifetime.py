@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 
@@ -88,7 +89,9 @@ def test_requester_cannot_escape_completed_typed_invocation(
     sheet = project.add_sheet("Rows")
     project.add_rows(sheet, [{}], {})
     calls = []
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(
         transport=httpx.MockTransport(
             lambda request: (

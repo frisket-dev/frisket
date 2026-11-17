@@ -27,6 +27,11 @@ REMOTE_PROVIDER_KINDS = frozenset(
 )
 
 
+def provider_network_blocked(provider_kind: str, *, network_off: bool) -> bool:
+    """Whether project network policy blocks calls to this provider venue."""
+    return network_off and provider_kind in REMOTE_PROVIDER_KINDS
+
+
 def is_remote_provider(provider: str) -> bool:
     """Server-side remoteness of a provider id string. Unknown providers are
     treated as remote (fail closed) — the same default the router applies
@@ -204,7 +209,8 @@ class ModelCallMeta:
     provider_reported_cost_usd: float | None = None
     provider_cost_usd: float | None = None
     cost_source: str = "unknown"
-    units: dict[str, float | int | str | bool] = field(default_factory=dict)
+    # Present NULL = applicable but unknown; absent = not measured by this call.
+    units: dict[str, float | int | str | bool | None] = field(default_factory=dict)
     cache: dict[str, float | int | str | bool] = field(default_factory=dict)
     request_id: str | None = None
     warnings: list[str] = field(default_factory=list)
@@ -249,7 +255,7 @@ class ModelCallMeta:
         engine: str,
         provider: str = "local",
         model_ids: list[str] | None = None,
-        units: dict[str, float | int | str | bool] | None = None,
+        units: dict[str, float | int | str | bool | None] | None = None,
         warnings: list[str] | None = None,
     ) -> "ModelCallMeta":
         return cls(
@@ -273,7 +279,7 @@ class ModelCallMeta:
         capability: str,
         engine: str,
         model_ids: list[str] | None = None,
-        units: dict[str, float | int | str | bool] | None = None,
+        units: dict[str, float | int | str | bool | None] | None = None,
         warnings: list[str] | None = None,
     ) -> "ModelCallMeta":
         return cls(
@@ -302,7 +308,7 @@ class ModelCallMeta:
         credential_source: str,
         provider_reported_cost_usd: float | None,
         provider_cost_usd: float | None,
-        units: dict[str, float | int | str | bool] | None = None,
+        units: dict[str, float | int | str | bool | None] | None = None,
         cost_source: str,
         request_id: str | None = None,
         warnings: list[str] | None = None,
@@ -345,7 +351,7 @@ class ModelCallMeta:
         provider: str,
         provider_kind: str,
         model_ids: list[str] | None = None,
-        units: dict[str, float | int | str | bool] | None = None,
+        units: dict[str, float | int | str | bool | None] | None = None,
         request_id: str | None = None,
         warnings: list[str] | None = None,
     ) -> "ModelCallMeta":

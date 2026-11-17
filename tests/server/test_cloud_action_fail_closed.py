@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from typing import Any
@@ -85,6 +86,7 @@ def _client(
 
     adapter = _LocalAdapter()
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "own-openai-key"},
         use_env_keys=False,
         cache_mode="off",

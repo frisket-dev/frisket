@@ -6,6 +6,8 @@ import copy
 import uuid
 
 from frisket.ai.research.row_answer import model_call_accounting
+from frisket.ai.models.accounting import merge_accounting_meta
+from frisket.ai.llm.types import wire_responses
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import attempt_in_scope
 from frisket.ops.base import RecipeInvocationHalt
@@ -31,7 +33,12 @@ class AccountedAgentRouter:
         return getattr(self._router, name)
 
     def retain_unrecorded_error_calls(self, error):
-        """The row exception path must not remint IDs for durable responses."""
+        """Hand off stable accounting and only wires not yet owned by this capability."""
+        accounting = self._accounting.get(self._ctx.extras.get("row_id"))
+        if accounting is not None:
+            error.accounting = copy.deepcopy(
+                merge_accounting_meta(getattr(error, "accounting", None), accounting)
+            )
         if getattr(error, "wire_calls", None):
             recorded = {id(response) for response in self._responses}
             error.wire_calls = [
@@ -44,29 +51,49 @@ class AccountedAgentRouter:
         if request.model != self._model:
             raise ValueError("Agent model differs from its admitted model")
         attempt = require_agent_attempt(self._ctx)
-        cancelled = self._ctx.extras.get("cancelled")
-        if callable(cancelled) and cancelled():
-            import asyncio
+        from frisket.execution.dispatch_control import dispatch_for_context
 
-            raise asyncio.CancelledError
-        response = await self._router.complete_transport(request, **kwargs)
-        self._responses.append(response)
+        dispatch_for_context(self._ctx).check()
+        try:
+            response = await self._router.complete_transport(request, **kwargs)
+        except BaseException as error:
+            self._record_returned(
+                wire_responses(getattr(error, "wire_calls", ()) or ()), attempt
+            )
+            raise
+        self._record_returned(wire_responses([response]), attempt)
+        return response
+
+    def _record_returned(self, returned, attempt):
+        known = {id(response) for response in self._responses}
+        fresh = [response for response in returned if id(response) not in known]
+        if not fresh:
+            return
+        self._responses.extend(fresh)
+        fresh_accounting = model_call_accounting(self._model, fresh)
+        facts = fresh_accounting["model_calls"]
+        hosted_ids = {
+            call["id"]
+            for response in fresh
+            if response.actual_accounting is not None
+            for call in response.actual_accounting.model_calls
+        }
+        for fact in facts:
+            # Hosted receipts already own an immutable provider fact ID.
+            if fact["id"] not in hosted_ids:
+                fact["id"] = "agent_call_" + uuid.uuid4().hex
+        self._facts.extend(facts)
         accounting = model_call_accounting(self._model, self._responses)
-        fact = accounting["model_calls"][-1]
-        fact["id"] = "agent_call_" + uuid.uuid4().hex
-        self._facts.append(fact)
         accounting["model_calls"] = copy.deepcopy(self._facts)
         ctx = self._ctx
         row_id = ctx.extras["row_id"]
         self._accounting[row_id] = accounting
-        # Persist returned spend before another model/tool call can fail or be
-        # cancelled. Reusing these IDs in row publication is idempotent.
+        # Persist every returned purchase before another step can fail or stop.
         if not ctx.extras.get("preview"):
             RunResultStore(ctx.project).write_returned_call_accounting(
                 ctx.extras["run_id"],
-                [{"row_id": row_id, "column_id": None, "model_calls": [fact]}],
+                [{"row_id": row_id, "column_id": None, "model_calls": facts}],
                 writer_attempt_id=attempt.attempt_id,
                 authorized_attempt_id=attempt.attempt_id,
                 claim_token=ctx.extras.get("claim_token"),
             )
-        return response

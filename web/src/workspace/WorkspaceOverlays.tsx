@@ -167,7 +167,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
         onOpenReview={() => openReview()}
         onCancelRun={cancelCurrentRun}
         onShowFailedRows={applyGridFailedFilter}
-        onRetryFailedRows={(columnName, outcome) => void retryFailedRows(columnName, outcome)}
+        onRetryFailedRows={retryFailedRows}
       />
       <NowPlayingWidget />
       <div

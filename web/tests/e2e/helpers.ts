@@ -680,6 +680,7 @@ import sys
 import time
 from pathlib import Path
 from frisket.ai.llm import ModelRouter
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.jobs.queue import open_queue
 from frisket.engine.jobs.runs import register_project_run_handler
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
@@ -694,7 +695,7 @@ registry = HandlerRegistry()
 register_project_run_handler(
     registry,
     workspace_root=Path(workspace),
-    router=ModelRouter(cache=None, cache_mode="off"),
+    router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"),
 )
 worker = Worker(queue, registry, worker_id=f"e2e-run-{run_id}", lease_seconds=600)
 if not worker.run_once():
@@ -1122,7 +1123,7 @@ export async function commitTableImport(page: Page, pid: string): Promise<number
     && new URL(response.url()).pathname.startsWith(`/api/projects/${pid}/import/table-imports/`)
     && new URL(response.url()).pathname.endsWith('/commit'));
   await page.locator('.table-import-flow').getByRole('region', { name: 'Import', exact: true })
-    .getByRole('button', { name: /^Import(?: |$)/ }).click();
+    .getByRole('button', { name: /^(?:Import|Update)(?: |$)/ }).and(page.locator('.btn-primary')).click();
   const response = await committed;
   expect(response.ok()).toBeTruthy();
   const result = await response.json();

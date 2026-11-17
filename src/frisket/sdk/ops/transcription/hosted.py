@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,13 @@ from frisket.contracts.actions.schemas._engines import (
     TranscriptionEngineCapabilities,
     engine_ids,
 )
+from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+    policy_for_context,
+)
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.credential_use import (
     CredentialUseContext,
@@ -30,7 +38,10 @@ from frisket.execution.credential_use import (
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.local_model_ids import bare_model_name
 from frisket.ops.base import OpContext, RecipeInvocationHalt, media_upload_filename
-from frisket.ops.integrations.hosted_error import HostedEngineError
+from frisket.ops.integrations.hosted_error import (
+    HostedEngineError,
+    transport_outcome_is_uncertain,
+)
 from frisket.redaction import redact_text
 
 from .common import (
@@ -107,6 +118,27 @@ def _safe_remote_exception(prefix: str, error: BaseException, key: str) -> str:
     return redact_text(f"{prefix}{cause_detail}", secret_values=(key,), max_chars=300)
 
 
+def _estimate_transcription_cost(
+    model_id: str, duration_seconds: float | None
+) -> float | None:
+    """Rough purchase headroom; the response's measured usage owns settlement."""
+    price = audio_price(model_id)
+    if price is None or duration_seconds is None:
+        return None
+    if "per_second" in price:
+        return duration_seconds * price["per_second"]
+    if "input_per_token" in price and "output_per_token" in price:
+        # Deliberately approximate audio encoding and transcript density. These
+        # are admission estimates, never billable usage or a whole-run ceiling.
+        audio_tokens = math.ceil(duration_seconds * 25)
+        transcript_tokens = math.ceil(duration_seconds * 5)
+        return (
+            audio_tokens * price["input_per_token"]
+            + transcript_tokens * price["output_per_token"]
+        )
+    return None
+
+
 def _remote_response_accounting(
     *,
     model_id: str,
@@ -115,13 +147,17 @@ def _remote_response_accounting(
     ctx: OpContext,
     response: httpx.Response,
     warning: str,
+    known_usage: dict[str, Any] | None = None,
+    known_cost: float | None = None,
 ) -> dict[str, Any]:
     price = audio_price(model_id)
     known_zero = price is not None and all(
         isinstance(rate, (int, float)) and not isinstance(rate, bool) and rate == 0
         for rate in price.values()
     )
-    provider_cost = 0.0 if known_zero else None
+    provider_cost = (
+        known_cost if known_cost is not None else 0.0 if known_zero else None
+    )
     call = ModelCallMeta.provider_call(
         capability="transcribe",
         engine=model_id,
@@ -135,13 +171,13 @@ def _remote_response_accounting(
             "free_local"
             if known_zero and provider == "ollama"
             else "pricing_data"
-            if known_zero
+            if provider_cost is not None
             else "unknown"
         ),
-        units={"requests": 1},
+        units={"requests": 1, **(known_usage or {})},
         request_id=response.headers.get("x-request-id")
         or response.headers.get("request-id"),
-        warnings=[] if known_zero else [warning],
+        warnings=[] if provider_cost is not None else [warning],
         duration_ms=None,
     ).as_dict()
     admission = routed_admission_in_scope(ctx.extras)
@@ -173,26 +209,23 @@ class OpenAITranscriptionAdapter:
         spec = project_transcription_engine_options(model_id, spec)
         provider, _, model = model_id.partition("/")
         router = (ctx.extras or {}).get("router")
-        adapter = (
-            router.adapter_for(provider)
-            if router is not None and provider != "ollama"
-            else None
-        )
-        local_endpoint = None
-        if provider == "ollama" and router is not None:
+        from frisket.ai.llm.router import _transcription_connection
+
+        base, key, edge_auth = None, None, False
+        if router is not None:
             try:
-                local_endpoint, adapter, model = router.resolve_local_model(model_id)
+                base, key, model, edge_auth = _transcription_connection(
+                    router, model_id
+                )
             except LLMError as exc:
                 raise RuntimeError(str(exc)) from exc
-        base = getattr(adapter, "base_url", None)
-        key = getattr(adapter, "api_key", None)
         if not base or not key:
             raise RuntimeError(
                 f"remote transcription needs a configured '{provider}' "
                 f"provider (set {provider.upper()}_API_KEY or an org key) — "
                 f"or use a local engine: {', '.join(engine_ids(TRANSCRIBE_ENGINE_TABLE, tier='local'))}"
             )
-        if provider == "ollama" and local_endpoint.edge_auth:
+        if provider == "ollama" and edge_auth:
             raise LocalTranscribeUnsupportedError(
                 "local-server transcription isn't supported through an authenticated front door"
             )
@@ -221,81 +254,174 @@ class OpenAITranscriptionAdapter:
             if isinstance(media, dict) and media.get("mime")
             else "application/octet-stream"
         )
-        try:
-            if request_builder is not None:
-                payload = request_builder(
-                    data,
-                    path,
-                    fname,
-                    content_type,
-                    spec,
-                    transcribe_engine_capabilities(model_id),
-                )
-                resp = await ctx.http.post(
+        file_bytes = Path(path).read_bytes()
+        payload = (
+            request_builder(
+                data,
+                path,
+                fname,
+                content_type,
+                spec,
+                transcribe_engine_capabilities(model_id),
+            )
+            if request_builder is not None
+            else None
+        )
+        from hashlib import sha256
+        from frisket.ops.media_probe import probe_for_ingest
+
+        digest = sha256(file_bytes).hexdigest()
+        duration = probe_for_ingest(Path(path), digest=digest).get("duration_seconds")
+        request = PurchaseRequest(
+            provider=provider,
+            capability="transcribe",
+            engine=model_id,
+            prepared={
+                "audio_digest": digest,
+                "mime": content_type,
+                "request": data,
+                "options": spec,
+                "audio_seconds": duration,
+            },
+            credential_source=selected_source,
+            estimated_cost_usd=_estimate_transcription_cost(model_id, duration),
+            context=ctx,
+        )
+
+        async def invoke():
+            try:
+                response = await ctx.http.post(
                     f"{base.rstrip('/')}/audio/transcriptions",
-                    json=payload,
+                    **(
+                        {"json": payload}
+                        if payload is not None
+                        else {
+                            "data": data,
+                            "files": {"file": (fname, file_bytes, content_type)},
+                        }
+                    ),
                     headers={"Authorization": f"Bearer {key}"},
                     timeout=600.0,
                 )
-            else:
-                resp = await ctx.http.post(
-                    f"{base.rstrip('/')}/audio/transcriptions",
-                    data=data,
-                    files={"file": (fname, Path(path).read_bytes(), content_type)},
-                    headers={"Authorization": f"Bearer {key}"},
-                    timeout=600.0,
+            except (httpx.HTTPError, OSError) as error:
+                raise _RemoteTranscriptionResponseError(
+                    code="transport",
+                    message=_safe_remote_exception(
+                        "remote transcription transport error: ", error, key
+                    ),
+                    retryable=True,
+                    post_egress_ambiguous=transport_outcome_is_uncertain(error),
+                    purchase_dispatched=(
+                        None if transport_outcome_is_uncertain(error) else False
+                    ),
+                ) from None
+            if response.status_code != 200:
+                error = _RemoteTranscriptionResponseError(
+                    code="http",
+                    message=redact_text(
+                        f"remote transcription failed ({response.status_code}): {response.text}",
+                        secret_values=(key,),
+                        max_chars=300,
+                    ),
+                    retryable=response.status_code == 429
+                    or response.status_code >= 500,
+                    accounting=_remote_response_accounting(
+                        model_id=model_id,
+                        provider=provider,
+                        credential_source=selected_source,
+                        ctx=ctx,
+                        response=response,
+                        warning=f"{provider} returned HTTP {response.status_code}; request cost is unknown",
+                    ),
                 )
-        except (httpx.HTTPError, OSError) as error:
-            raise RuntimeError(
-                _safe_remote_exception(
-                    "remote transcription transport error: ", error, key
-                )
-            ) from None
-        if resp.status_code != 200:
-            raise _RemoteTranscriptionResponseError(
-                code="http",
-                message=redact_text(
-                    f"remote transcription failed ({resp.status_code}): {resp.text}",
-                    secret_values=(key,),
-                    max_chars=300,
-                ),
-                retryable=resp.status_code == 429 or resp.status_code >= 500,
-                accounting=_remote_response_accounting(
-                    model_id=model_id,
-                    provider=provider,
-                    credential_source=selected_source,
-                    ctx=ctx,
-                    response=resp,
-                    warning=f"{provider} returned HTTP {resp.status_code}; request cost is unknown",
-                ),
-            ) from None
+                error.status_code = response.status_code
+                raise error from None
+            return response
+
+        out: Any = None
+        usage: dict[str, Any] = {}
+        cost: float | None = None
+        parse_error: Exception | None = None
+        observed_usage: dict[str, Any] = {}
+
+        def observe(response):
+            nonlocal out, usage, cost, parse_error, observed_usage
+            try:
+                out = response.json()
+                if not isinstance(out, dict):
+                    raise TypeError("response is not an object")
+                raw_segments = out.get("segments") or []
+                usage = out.get("usage") or {}
+                if not isinstance(usage, dict):
+                    raise TypeError("usage is not an object")
+                seconds = out.get("duration")
+                if seconds is None:
+                    seconds = usage.get("seconds")
+                if (
+                    seconds is None
+                    and isinstance(raw_segments, list)
+                    and raw_segments
+                    and isinstance(raw_segments[-1], dict)
+                ):
+                    seconds = raw_segments[-1].get("end")
+                observed_usage = dict(usage)
+                if seconds is not None:
+                    observed_usage["audio_seconds"] = seconds
+                price = audio_price(model_id)
+                if price and "per_second" in price:
+                    if price["per_second"] == 0:
+                        cost = 0.0
+                    elif seconds is not None:
+                        cost = round(float(seconds) * price["per_second"], 6)
+                elif price and usage.get("type") == "tokens":
+                    cost = round(
+                        usage.get("input_tokens", 0) * price["input_per_token"]
+                        + usage.get("output_tokens", 0) * price["output_per_token"],
+                        6,
+                    )
+                if cost is not None and (not math.isfinite(cost) or cost < 0):
+                    cost = None
+                    raise ValueError(
+                        "provider usage must produce a finite nonnegative cost"
+                    )
+            except (
+                ValueError,
+                TypeError,
+                KeyError,
+                IndexError,
+                AttributeError,
+                OverflowError,
+            ) as error:
+                parse_error = error
+            return PurchaseObservation(
+                result=out
+                if out is not None
+                else {
+                    "http_status": response.status_code,
+                    "body": redact_text(
+                        response.text, secret_values=(key,), max_chars=300
+                    ),
+                },
+                usage=observed_usage,
+                provider_cost_micro=None if cost is None else round(cost * 1_000_000),
+            )
+
+        resp = await execute_purchase(
+            request,
+            policy=policy_for_context(ctx),
+            dispatch=dispatch_for_context(ctx),
+            invoke=invoke,
+            observe=observe,
+        )
+        # Accounting owns the returned response before transcript validation or
+        # publication, including when cancellation happened during the request.
         try:
-            out = resp.json()
-            if not isinstance(out, dict):
-                raise TypeError("response is not an object")
+            if parse_error is not None:
+                raise parse_error
             raw_segments = out.get("segments") or []
             if not isinstance(raw_segments, list):
                 raise TypeError("segments is not a list")
             segments = [_segment_with_speaker(segment) for segment in raw_segments]
-            usage = out.get("usage") or {}
-            if not isinstance(usage, dict):
-                raise TypeError("usage is not an object")
-            price = audio_price(model_id)
-            cost: float | None = None
-            if price and "per_second" in price:
-                seconds = out.get("duration") or usage.get("seconds")
-                if seconds is None and segments:
-                    seconds = segments[-1]["end"]
-                if price["per_second"] == 0:
-                    cost = 0.0
-                elif seconds is not None:
-                    cost = round(float(seconds) * price["per_second"], 6)
-            elif price and usage.get("type") == "tokens":
-                cost = round(
-                    usage.get("input_tokens", 0) * price["input_per_token"]
-                    + usage.get("output_tokens", 0) * price["output_per_token"],
-                    6,
-                )
         except (
             ValueError,
             TypeError,
@@ -316,6 +442,8 @@ class OpenAITranscriptionAdapter:
                     ctx=ctx,
                     response=resp,
                     warning=f"{provider} returned an unusable transcription response; request cost is unknown",
+                    known_usage=observed_usage,
+                    known_cost=cost,
                 ),
             ) from None
         return {

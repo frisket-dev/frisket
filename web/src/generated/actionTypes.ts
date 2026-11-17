@@ -375,7 +375,55 @@ type GoogleSheetsExportRequest_GoogleSheetsSource = ({
   "query"?: ((({
   [key: string]: JsonValue;
 })) | ((null)));
+  "selection"?: (((GoogleSheetsExportRequest_ViewSelection)) | ((null)));
   "scope_row_ids"?: (((Array<(number)>)) | ((null)));
+});
+
+type GoogleSheetsExportRequest_JsonValue = JsonValue;
+
+type GoogleSheetsExportRequest_ViewColumnOrder = ({
+  "column_id": (number);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type GoogleSheetsExportRequest_ViewFilter = ({
+  "column_id": (number);
+  "condition": ({
+  [key: string]: (GoogleSheetsExportRequest_JsonValue);
+});
+});
+
+type GoogleSheetsExportRequest_ViewProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type GoogleSheetsExportRequest_ViewScoreOrder = ({
+  "score": ("search" | "similarity") & (string);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type GoogleSheetsExportRequest_ViewSearch = ({
+  "text": (string);
+});
+
+type GoogleSheetsExportRequest_ViewSelection = ({
+  "scope": (((GoogleSheetsExportRequest_ViewSheetScope)) | ((GoogleSheetsExportRequest_ViewProjectScope)));
+  "filters"?: (Array<(GoogleSheetsExportRequest_ViewFilter)>);
+  "order"?: (Array<(((GoogleSheetsExportRequest_ViewColumnOrder)) | ((GoogleSheetsExportRequest_ViewScoreOrder)))>);
+  "limit"?: (((number)) | ((null)));
+  "search"?: (((GoogleSheetsExportRequest_ViewSearch)) | ((null)));
+  "similarity"?: ((({
+  [key: string]: (GoogleSheetsExportRequest_JsonValue);
+})) | ((null)));
+  "ranking"?: ((("hybrid") & (string)) | ((null)));
+  "rank_constant"?: (((number)) | ((null)));
+});
+
+type GoogleSheetsExportRequest_ViewSheetScope = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "parent_row_id"?: (((number)) | ((null)));
 });
 
 export type GoogleSheetsExportRequest = ({
@@ -660,12 +708,22 @@ type UpdateCsvParams_ImportRowsColumn = ({
   "default_hidden"?: (boolean);
 });
 
+type UpdateCsvParams_StagedImportInput = ({
+  "import_ref": (string);
+  "plan_hash": (string);
+  "source_hash": (string);
+  "request_hash"?: (((string)) | ((null)));
+});
+
 export type UpdateCsvParams = ({
   "sources": (Array<(UpdateCsvParams_CsvSource)>);
   "columns": (Array<(UpdateCsvParams_ImportRowsColumn)>);
   "source_label_column"?: (((string)) | ((null)));
+  "staged_input"?: (((UpdateCsvParams_StagedImportInput)) | ((null)));
   "key_columns": (Array<(string)>);
   "keep_existing_on_blank"?: (boolean);
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 type UpdateRowsParams_ImportRowsColumn = ({
@@ -693,14 +751,24 @@ type UpdateRowsParams_ImportRowsSource = ({
 })>);
 });
 
+type UpdateRowsParams_StagedImportInput = ({
+  "import_ref": (string);
+  "plan_hash": (string);
+  "source_hash": (string);
+  "request_hash"?: (((string)) | ((null)));
+});
+
 export type UpdateRowsParams = ({
   "columns": (Array<(UpdateRowsParams_ImportRowsColumn)>);
   "rows": (Array<({
   [key: string]: JsonValue;
 })>);
   "source"?: (((UpdateRowsParams_ImportRowsSource)) | ((null)));
+  "staged_input"?: (((UpdateRowsParams_StagedImportInput)) | ((null)));
   "key_columns": (Array<(string)>);
   "keep_existing_on_blank"?: (boolean);
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 type UpdateXlsxParams_FileSource = ({
@@ -718,13 +786,23 @@ type UpdateXlsxParams_ImportRowsColumn = ({
   "default_hidden"?: (boolean);
 });
 
+type UpdateXlsxParams_StagedImportInput = ({
+  "import_ref": (string);
+  "plan_hash": (string);
+  "source_hash": (string);
+  "request_hash"?: (((string)) | ((null)));
+});
+
 export type UpdateXlsxParams = ({
   "source": (UpdateXlsxParams_FileSource);
   "columns": (Array<(UpdateXlsxParams_ImportRowsColumn)>);
   "header"?: ("present") & (string);
   "worksheet"?: (((string)) | ((null)));
+  "staged_input"?: (((UpdateXlsxParams_StagedImportInput)) | ((null)));
   "key_columns": (Array<(string)>);
   "keep_existing_on_blank"?: (boolean);
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 export type ImportUrlsParams = ({
@@ -1142,6 +1220,7 @@ type DocumentExtractParams_ExtractionField = ({
 });
 
 type DocumentExtractParams_ExtractionScope = ({
+  "selection"?: (((DocumentExtractParams_ViewSelection)) | ((null)));
   "kind": ("this" | "filter" | "all" | "layout") & (string);
   "row_id"?: (((number)) | ((null)));
   "filter"?: ((({
@@ -1168,6 +1247,8 @@ type DocumentExtractParams_IgnoreBand = ({
   "box": (DocumentExtractParams_Box);
 });
 
+type DocumentExtractParams_JsonValue = JsonValue;
+
 type DocumentExtractParams_PagePosition = ({
   "page": (number);
   "y": (number);
@@ -1188,6 +1269,51 @@ type DocumentExtractParams_RepeatedSection = ({
   "name"?: (string);
   "first": (DocumentExtractParams_PageSpan);
   "rest": (DocumentExtractParams_PageSpan);
+});
+
+type DocumentExtractParams_ViewColumnOrder = ({
+  "column_id": (number);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type DocumentExtractParams_ViewFilter = ({
+  "column_id": (number);
+  "condition": ({
+  [key: string]: (DocumentExtractParams_JsonValue);
+});
+});
+
+type DocumentExtractParams_ViewProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type DocumentExtractParams_ViewScoreOrder = ({
+  "score": ("search" | "similarity") & (string);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type DocumentExtractParams_ViewSearch = ({
+  "text": (string);
+});
+
+type DocumentExtractParams_ViewSelection = ({
+  "scope": (((DocumentExtractParams_ViewSheetScope)) | ((DocumentExtractParams_ViewProjectScope)));
+  "filters"?: (Array<(DocumentExtractParams_ViewFilter)>);
+  "order"?: (Array<(((DocumentExtractParams_ViewColumnOrder)) | ((DocumentExtractParams_ViewScoreOrder)))>);
+  "limit"?: (((number)) | ((null)));
+  "search"?: (((DocumentExtractParams_ViewSearch)) | ((null)));
+  "similarity"?: ((({
+  [key: string]: (DocumentExtractParams_JsonValue);
+})) | ((null)));
+  "ranking"?: ((("hybrid") & (string)) | ((null)));
+  "rank_constant"?: (((number)) | ((null)));
+});
+
+type DocumentExtractParams_ViewSheetScope = ({
+  "kind": ("sheet") & (string);
+  "sheet_id": (number);
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "parent_row_id"?: (((number)) | ((null)));
 });
 
 export type DocumentExtractParams = ({
@@ -1308,6 +1434,10 @@ export type MediaDownloadParams = ({
 
 export type OperationStepParams = ({
   "expected_op_id"?: (((number)) | ((null)));
+});
+
+export type OperationTargetParams = ({
+  "op_id": (number);
 });
 
 type PluginLoadParams_PluginManifestSource = ({
@@ -1489,16 +1619,17 @@ export type SubstituteParams = ({
 });
 
 export type ReviewDecisionParams = ({
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
+  "copied_op_id"?: (((number)) | ((null)));
   "row_id": (number);
   "column_id": (number);
-  "decision": ("accept" | "reject" | "reject_clear" | "edit" | "clear") & (string);
-  "value"?: ((JsonValue) | ((null)));
+  "decision": ("accept" | "reject" | "reject_clear" | "clear") & (string);
   "note"?: (((string)) | ((null)));
 });
 
 export type ReviewNoteParams = ({
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
+  "copied_op_id"?: (((number)) | ((null)));
   "row_id": (number);
   "note"?: (((string)) | ((null)));
 });
@@ -1521,8 +1652,17 @@ export type BackfillParams = ({
   "column": (BackfillParams_ColumnRef_Any_);
 });
 
+export type ReapplyParams = ({
+  "source_run_id": (number);
+});
+
+export type RetryParams = ({
+  "source_run_id": (number);
+});
+
 export type RefreshParams = ({
   "sheet_id": (number);
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
 });
 
 export type SourceCheckParams = ({
@@ -1715,6 +1855,8 @@ export interface GeneratedActionParams {
   'media.video_frames': VideoFramesParams;
   'media.ytdlp_download': MediaDownloadParams;
   'operation.redo': OperationStepParams;
+  'operation.restore': OperationTargetParams;
+  'operation.revert': OperationTargetParams;
   'operation.undo': OperationStepParams;
   'plugin.load': PluginLoadParams;
   'query.preview': QueryPreviewParams;
@@ -1735,6 +1877,8 @@ export interface GeneratedActionParams {
   'row.add': RowAddParams;
   'row.delete': RowDeleteParams;
   'run.backfill': BackfillParams;
+  'run.reapply': ReapplyParams;
+  'run.retry': RetryParams;
   'sheet.refresh': RefreshParams;
   'source.check': SourceCheckParams;
   'source.create': SourceCreateIntent;

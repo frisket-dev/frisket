@@ -79,15 +79,6 @@ async function fillExtractionForm(page: Page): Promise<void> {
 
 }
 
-async function confirmPreviewCost(page: Page): Promise<void> {
-  const modal = page.getByTestId('cost-gate-modal');
-  await expect(modal).toBeVisible();
-  await expect(modal).toContainText('Investigations Cloud credits');
-  const confirm = page.getByTestId('cost-gate-confirm');
-  await expect(confirm).toBeEnabled();
-  await confirm.click();
-}
-
 async function expectGatewayLayout(dialog: Locator, stacked: boolean): Promise<void> {
   const guide = dialog.getByRole('link', { name: 'Models server setup guide' });
   const url = dialog.getByLabel('Gateway URL');
@@ -209,8 +200,16 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
     && response.ok()
     && (await response.json()).status === 'done'
   ));
+  const admitted = page.waitForResponse((response) => (
+    response.request().method() === 'POST'
+    && response.url().endsWith(`/api/projects/${projectId}/actions/v1/preview`)
+  ));
   await page.getByTestId('generated-action-preview').click();
-  await confirmPreviewCost(page);
+  // This known tiny Cloud charge is covered by ordinary cost preapproval.
+  const admission = await admitted;
+  expect(admission.status()).toBe(202);
+  expect(admission.request().postDataJSON()).not.toHaveProperty('confirmation');
+  await expect(page.getByTestId('cost-gate-modal')).toHaveCount(0);
   const result = await (await completed).json();
   // Preview reports provider model cost; the fixture's Cloud charge is separate.
   expect(result.accounting).toMatchObject({

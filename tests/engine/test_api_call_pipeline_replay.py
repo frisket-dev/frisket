@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from typing import Any
@@ -46,7 +47,9 @@ def test_api_pipeline_completed_replays_keep_outputs_without_reexecution(
             "frisket.ops.netguard.safe_pinned_addresses",
             lambda url, **kwargs: ["93.184.216.34"],
         )
-        router = ModelRouter(cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        )
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         router._client = client
         api_action: dict[str, Any] = {

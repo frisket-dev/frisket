@@ -216,7 +216,7 @@ def test_remote_without_allow_remote_blocks_before_any_embed(tmp_path):
 def test_no_exclude_query_hash_is_unchanged():
     # A query with NO exclude must hash identically to its pre-Lane-G form (the
     # exclude field must not perturb existing manual_text_query lenses).
-    from frisket.features.watchlists.specs import query_spec_hash
+    from frisket.contracts.query_spec import query_spec_hash
 
     base = {
         "kind": "embedding_similarity",
@@ -238,7 +238,7 @@ def test_no_exclude_query_hash_is_unchanged():
 
 
 def test_exclude_lens_stores_canonical_exclude():
-    from frisket.features.watchlists.specs import normalize_query_spec
+    from frisket.contracts.query_spec import normalize_query_spec
 
     spec = normalize_query_spec(
         {

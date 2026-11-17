@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { MapPin, Pause, Play } from 'lucide-react';
 import type { CellValue, ColumnDef, Row } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
@@ -27,6 +27,7 @@ import { linkify, safeHttpUrl } from './ValueLinks';
  *  fits shows no toggle at all. */
 export function ClampedField({ children }: { children: ReactNode }) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const contentId = useId();
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
 
@@ -51,21 +52,25 @@ export function ClampedField({ children }: { children: ReactNode }) {
     <div className="row-field-clamp" data-clamped={!expanded && overflowing ? 'true' : undefined}>
       <div
         ref={contentRef}
+        id={contentId}
         className={`row-field-clamp-content${expanded ? ' row-field-clamp-expanded' : ''}`}
         data-testid="row-field-clamp"
       >
         {children}
       </div>
       {overflowing && (
-        <Button
-          type="button"
-          className="row-field-clamp-toggle"
-          data-testid="row-field-clamp-toggle"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? 'Show less' : 'Show more'}
-        </Button>
+        <div className="row-field-clamp-toggle">
+          <Button
+            type="button"
+            variant="text"
+            data-testid="row-field-clamp-toggle"
+            aria-expanded={expanded}
+            aria-controls={contentId}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? '[show less]' : '[show more]'}
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -206,6 +211,10 @@ export function FieldValue({
       onSelectItem={onSelectItem} selectableItemIndices={selectableItemIndices} />;
   }
   if (typeof value === 'string') {
+    if (col.type === 'text' && col.ai) {
+      return <MarkdownView className="row-field-value row-field-markdown" source={value}
+        testId="markdown-value" decodeEscapes />;
+    }
     const trimmed = value.trim();
     if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
       return <JsonValue value={value} semanticType={col.semanticType}

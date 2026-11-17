@@ -79,7 +79,7 @@ from frisket.engine.store.transcript_projection import (
     project_transcript_segments,
     whole_intersecting_transcript_chunks,
 )
-from frisket.features.temporal_values import normalize_temporal_value
+from frisket.contracts.temporal_values import normalize_temporal_value
 from frisket.engine.executor.temporal_preview import PreviewTemporalValue
 
 ACTION_KIND = "derive.transcript_segments"
@@ -504,6 +504,7 @@ class AdmittedTranscriptReader:
         self.parent_sheet_id = scope.sheet_id
         self.sources: set[RowSource] = set()
         self.facts: list[dict[str, Any]] = []
+        self.consumed_captures: list[dict[str, Any]] = []
         self.plans: list[TranscriptSegmentsPlan] = []
         self.projections: dict[
             TranscriptProjectionValue, tuple[TranscriptSegment, RowSource]
@@ -541,6 +542,43 @@ class AdmittedTranscriptReader:
                 source=source,
                 selection=selection,
             )
+            if not isinstance(plan, ActionError):
+                from frisket.engine.store.consumed_sources import (
+                    capture_read_scope,
+                    merge_captures,
+                    source_membership,
+                )
+
+                # Each row may inherit a different annotation set. Do not add
+                # dependencies on unrelated annotation columns in other rows.
+                groups: dict[tuple[int, ...], list[int]] = {}
+                for item in plan.sources:
+                    columns = {item.transcript.transcript_column_id}
+                    if item.selection_column_id is not None:
+                        columns.add(item.selection_column_id)
+                    columns.update(
+                        annotation.column_id for annotation in item.annotations
+                    )
+                    if item.topic_analysis is not None:
+                        columns.add(item.topic_analysis.sidecar_column_id)
+                    groups.setdefault(tuple(sorted(columns)), []).append(
+                        item.transcript.row_id
+                    )
+                capture = merge_captures(
+                    [
+                        capture_read_scope(project, self.scope.sheet_id, columns, rows)
+                        for columns, rows in sorted(groups.items())
+                    ]
+                )
+                _, membership = source_membership(
+                    project,
+                    self.scope.sheet_id,
+                    list(self.scope.row_ids)
+                    if self.scope.row_ids is not None
+                    else None,
+                )
+                capture["membership_checks"] = [membership]
+                self.consumed_captures.append(capture)
         if isinstance(plan, ActionError):
             raise TableReadRefused(
                 plan.model_copy(update={"action_kind": self.action_kind})

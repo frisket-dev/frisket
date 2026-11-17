@@ -6,7 +6,6 @@ from contextlib import closing
 import pytest
 
 from frisket.engine.jobs.worker import Worker
-from frisket.engine.jobs.ports import WorkerPorts
 from frisket.engine.store import Project
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.document_text import (
@@ -56,24 +55,9 @@ def test_source_changed_publication_refusal_closes_exact_worker(
                 sheet_id, [{"source": original_value}], {"source": source_id}
             )
 
-    settled = []
-
-    class SettlementObserver:
-        def settle_run(self, *, project, run_id, terminal_status, **_kwargs):
-            settled.append(
-                (
-                    terminal_status,
-                    RunResultStore(project).get_run(run_id)["cost_actual"],
-                )
-            )
-
-        def settle_action_receipt(self, **_kwargs):
-            pytest.fail("PDF text preparation must settle its run")
-
     workspace = Workspace(
         root,
         enable_local_model_pull=False,
-        worker_ports=WorkerPorts(settlement_port=SettlementObserver()),
     )
     service = ActionRunService(workspace)
     declare = ResultGenerationStore.declare
@@ -105,7 +89,6 @@ def test_source_changed_publication_refusal_closes_exact_worker(
             assert worker.run_once()
         pytest.fail("target document job did not run")
 
-    prior_head = None
     if publication == "replacement_seal":
         execute_target(first.payload["job_id"])
         assert workspace.queue.get(first.payload["job_id"]).status == "done", (
@@ -114,7 +97,6 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         assert (
             workspace.queue.get(first.payload["job_id"]).result["status"] == "completed"
         )
-        prior_head = first.payload["run_id"]
         request = {
             **request,
             "idempotency_key": "replacement-document-text",
@@ -224,7 +206,6 @@ def test_source_changed_publication_refusal_closes_exact_worker(
             assert len(RunResultStore(project).model_calls(run_id)) == 2
             assert run["cost_actual"] == pytest.approx(0.25)
             assert project.provider_spend_state("anthropic").spent_micro == 250_000
-            assert settled == [("failed", 0.25)]
         receipt = receipts.find_by_id(receipt_id).parsed()
         assert receipt.status == "failed" and receipt.provider_use == provider_use
         assert receipt.errors[0].code == "source_changed"
@@ -238,29 +219,34 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         bindings = ResultGenerationStore(project).bindings_for_run(run_id)
         assert len(bindings) == 1 and bindings[0].state == "sealed"
         assert bindings[0].terminal_disposition == "failed"
+        retained_row = published_rows[0]
         head = project.db.execute(
             "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
-            (row_id, text_id),
+            (retained_row, text_id),
         ).fetchone()
-        assert (None if head is None else head[0]) == prior_head
+        # Same-descriptor publication is progressive: keep the committed row
+        # when a later row or the final source check refuses further work.
+        assert head is not None and head[0] == run_id
         if publication == "first_flush":
             assert (
                 project.db.execute(
                     "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?",
                     (text_id,),
                 ).fetchone()[0]
-                == 0
+                == 1
             )
         op = project.db.execute(
             "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
         ).fetchone()
-        assert text_id in json.loads(op[0])["unpublished_generation_columns"]
+        assert text_id not in json.loads(op[0]).get(
+            "unpublished_generation_columns", []
+        )
         ResultGenerationStore(project).rebuild_heads([text_id])
         rebuilt = project.db.execute(
             "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
-            (row_id, text_id),
+            (retained_row, text_id),
         ).fetchone()
-        assert (None if rebuilt is None else rebuilt[0]) == prior_head
+        assert rebuilt is not None and rebuilt[0] == run_id
     finally:
         workspace.queue.close()
         project.close()

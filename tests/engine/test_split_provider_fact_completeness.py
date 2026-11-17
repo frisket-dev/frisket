@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from frisket.execution.dispatch_control import STANDALONE
 from runner_test_helpers import run_action_with_exact_confirmation
 
 pytestmark = pytest.mark.gap
@@ -153,7 +155,9 @@ def test_structured_map_persists_cache_and_live_attempt_facts_separately(
             project,
             _map_action(sheet_id),
             project_id="provider-fact-contract",
-            router=ModelRouter(keys={"openai": live_secret}),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"openai": live_secret}
+            ),
         )
         assert result.status == "completed", result.errors
         rows = [dict(row) for row in RunResultStore(project).model_calls(result.run_id)]
@@ -221,6 +225,7 @@ def test_exhausted_structured_repair_still_persists_paid_wire_facts(
 
     adapter = _InvalidStructuredAdapter()
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": secret},
         key_sources={"openai": "project_key"},
         cache_mode="off",
@@ -301,6 +306,7 @@ def test_output_limited_structured_response_persists_one_neutral_wire_fact(
 
     adapter = _LimitedStructuredAdapter()
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": secret},
         key_sources={"openai": "project_key"},
         cache_mode="off",
@@ -385,6 +391,7 @@ def test_paid_invalid_wire_survives_transport_failure_during_repair(
 
     adapter = _InvalidThenTransportFailureAdapter()
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": secret},
         key_sources={"openai": "project_key"},
         cache_mode="off",
@@ -505,11 +512,14 @@ def test_remote_embedding_batch_and_refresh_receipt_keep_versioned_fact(
 
     secret = "embedding-key-never-persisted"
     router = ModelRouter(
-        keys={"openai": secret}, key_sources={"openai": "org_byok"}, cache_mode="off"
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": secret},
+        key_sources={"openai": "org_byok"},
+        cache_mode="off",
     )
     router._adapters["openai"] = _EmbeddingAdapter()  # noqa: SLF001 - hermetic adapter
     batch = asyncio.run(
-        router.embed_batch(
+        router.for_execution(STANDALONE).embed_batch(
             ["A city awarded a no-bid contract."], model="openai/text-embedding-3-small"
         )
     )

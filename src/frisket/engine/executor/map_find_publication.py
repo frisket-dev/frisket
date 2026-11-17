@@ -29,19 +29,6 @@ from frisket.engine.executor.map_find_source import (
 )
 
 
-def _model_calls(
-    params: FindOperation, wire_calls: tuple[Any, ...]
-) -> list[dict[str, Any]]:
-    from frisket.ai.models.accounting import wire_accounting_meta
-
-    accounting = wire_accounting_meta(params.model, list(wire_calls))
-    return [
-        dict(call)
-        for call in accounting.get("model_calls", [])
-        if isinstance(call, dict)
-    ]
-
-
 def _find_admission_evidence(project: Any, receipt_id: str) -> list[ReceiptEvidence]:
     from frisket.engine.store.receipts import ReceiptStore
 
@@ -63,17 +50,12 @@ def _failure_after_egress(
     receipt_id: str,
     params_hash: str,
     error: ActionError,
-    wire_calls: tuple[Any, ...],
+    calls: tuple[dict[str, Any], ...],
 ) -> ActionResult:
     from frisket.engine.store.receipts import ReceiptStore
-    from frisket.engine.store.runs import RunResultStore
 
-    calls = _model_calls(params, wire_calls)
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        RunResultStore(project).write_unscoped_model_calls(
-            calls, row_id=None, column_id=None, commit=False
-        )
         receipt = Receipt(
             receipt_id=receipt_id,
             project_id=project_id,
@@ -412,7 +394,7 @@ def write_find_result(
         )
         for match in scan.matches
     ]
-    calls = _model_calls(params, scan.wire_calls)
+    calls = scan.model_calls
     op_spec = dict(params.request)
     op_spec["params"] = dict(op_spec["params"])
     op_spec["params"].pop("confirmed", None)
@@ -509,9 +491,6 @@ def write_find_result(
             commit=False,
         ):
             raise RuntimeError("map.find running receipt was lost")
-        run_store.write_unscoped_model_calls(
-            calls, row_id=None, column_id=None, commit=False
-        )
         run_store.attach_unscoped_model_calls(
             run_id,
             [str(call["id"]) for call in calls],
@@ -538,12 +517,15 @@ def write_find_result(
         if conflict is not None or len(claims) != len(output_fields):
             raise RuntimeError("map.find could not acquire its exact output claim")
         generations = ResultGenerationStore(project)
+        logical_roles = {
+            str(name): str(logical) for logical, name in params.output_names.items()
+        }
         for field in output_fields:
             column_id = write.column_ids[str(field["name"])]
             generations.declare(
                 run_id,
                 column_id,
-                output_role=str(field["name"]),
+                output_role=logical_roles.get(str(field["name"]), str(field["name"])),
                 compatibility_key=_compatibility_key(field=field),
                 write_mode="create",
                 claim_token=claim_token,
@@ -763,7 +745,7 @@ def write_find_result(
             receipt_id=receipt_id,
             params_hash=params_hash,
             error=exc.error,
-            wire_calls=scan.wire_calls,
+            calls=scan.model_calls,
         )
     except Exception:
         project.db.rollback()

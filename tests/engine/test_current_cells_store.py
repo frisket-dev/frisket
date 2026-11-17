@@ -4,6 +4,9 @@ import sqlite3
 
 import pytest
 
+from helpers import stored_output_descriptor
+from frisket.engine.store.changes import close_change, start_change
+
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     EditCellWrite,
@@ -17,16 +20,18 @@ from frisket.engine.store.cell_writes import (
 )
 from frisket.engine.store.current_cells import (
     rebuild_current_cells,
+    register_current_cell_functions,
     refresh_current_cell_pairs,
     refresh_current_cells,
 )
 from frisket.engine.store.schema import SCHEMA
-from frisket.engine.store.value_codec import migrate_legacy_json_value
+from frisket.upgrades.project.typed_storage_migration import migrate_legacy_json_value
 
 
 def _database() -> sqlite3.Connection:
     db = sqlite3.connect(":memory:")
     db.row_factory = sqlite3.Row
+    register_current_cell_functions(db)
     db.executescript(SCHEMA)
     db.execute("INSERT INTO sheets (id,name) VALUES (1,'Sheet')")
     db.execute("INSERT INTO columns (id,sheet_id,name) VALUES (10,1,'value')")
@@ -74,14 +79,25 @@ def _result_head(
         "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (?, ?, 1, 'map.test')",
         (run_id, op_id),
     )
+    start_change(db, op_id, writing=True)
     state = "staged" if write_mode == "replace_scope" else "active"
     db.execute(
         "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) "
-        "VALUES (?,10,'value','text',?,?,?)",
-        (run_id, write_mode, state, f"claim-{run_id}"),
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
+        "VALUES (?,10,'value','text',?,?,?,?)",
+        (
+            run_id,
+            write_mode,
+            state,
+            f"claim-{run_id}",
+            stored_output_descriptor(db, 10),
+        ),
     )
     result_rows = [(row_id, value, effect, error), *(additional or [])]
+    db.executemany(
+        "INSERT INTO run_rows(run_id,row_id,position) VALUES (?,?,?)",
+        [(run_id, result[0], pos) for pos, result in enumerate(result_rows)],
+    )
     encoded_result_rows = []
     for result_row_id, result_value, result_effect, result_error in result_rows:
         if result_effect == "publish_error":
@@ -103,8 +119,8 @@ def _result_head(
         )
     db.executemany(
         "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,error,outcome,publication_effect) "
-        "VALUES (?,?,10,?,?,?,?,?)",
+        "(run_id,row_id,column_id,value_kind,value,error,outcome,publication_effect,published) "
+        "VALUES (?,?,10,?,?,?,?,?,1)",
         encoded_result_rows,
     )
     if write_mode == "replace_scope":
@@ -114,10 +130,7 @@ def _result_head(
             "WHERE run_id=? AND column_id=10",
             (run_id,),
         )
-    db.executemany(
-        "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (10,?,?)",
-        [(result_row_id, run_id) for result_row_id, *_rest in result_rows],
-    )
+    close_change(db, op_id)
 
 
 def test_base_and_edit_sinks_are_transactional_and_preserve_source_ref_shape() -> None:
@@ -291,9 +304,14 @@ def test_projection_preserves_explicit_result_null_error_and_edit_clear_heads() 
         101: (None, "run_result"),
         102: (None, "manual_edit"),
     }
+    assert dict(db.execute("SELECT row_id,outcome FROM current_cell_values")) == {
+        100: "completed",
+        101: "failed",
+        102: "completed",
+    }
 
 
-def test_replacement_boundary_and_reject_clear_use_the_existing_precedence() -> None:
+def test_later_replacement_supersedes_edit_and_reject_clear_by_change_order() -> None:
     db = _database()
     db.execute("BEGIN")
     _op(db, 1)
@@ -327,12 +345,8 @@ def test_replacement_boundary_and_reject_clear_use_the_existing_precedence() -> 
         write_mode="replace_scope",
         additional=[(101, '"replacement two"', "publish_value", None)],
     )
-    # The descriptor-change marker makes op 4 the #564 whole-column boundary.
-    db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=4",
-        ('{"column_types_after":{"10":"text"}}',),
-    )
-    # A replacement head also supersedes the older reject-clear overlay.
+    # Logical Change order supersedes old edits, including reject-clear. No
+    # descriptor-change marker or hand-written head cache grants precedence.
     refresh_current_cells(db, column_ids=[10])
     assert [
         tuple(row)
@@ -380,9 +394,25 @@ def test_replace_remove_and_rebuild_share_the_same_projector() -> None:
         row_ids=[100],
         cells=[BaseCellWrite(100, 10, "second")],
     )
-    assert db.execute(
+    replaced = db.execute(
         "SELECT value,base_producer_id FROM current_cell_values WHERE row_id=100"
-    ).fetchone()[:] == ("second", second)
+    ).fetchone()
+    assert replaced["value"] == "second"
+    second_version = replaced["base_producer_id"]
+    assert second_version != second
+    assert (
+        db.execute(
+            "SELECT op_id FROM base_cell_producers WHERE id=?", (second_version,)
+        ).fetchone()[0]
+        == 2
+    )
+    assert (
+        db.execute(
+            "SELECT value FROM cells WHERE row_id=100 AND column_id=10 AND producer_id=?",
+            (first,),
+        ).fetchone()[0]
+        == "first"
+    )
     replaced_revisions = {
         int(row["row_id"]): int(row["retrieval_revision"])
         for row in db.execute(
@@ -407,46 +437,54 @@ def test_replace_remove_and_rebuild_share_the_same_projector() -> None:
         ).fetchone()[0]
     )
     assert same_producer_revision > replaced_revisions[100]
-    replaced_revisions[100] = same_producer_revision
+    assert (
+        db.execute(
+            "SELECT value FROM cells WHERE row_id=100 AND column_id=10 AND producer_id=?",
+            (second_version,),
+        ).fetchone()[0]
+        == "second"
+    )
+    assert (
+        db.execute(
+            "SELECT base_producer_id FROM current_cell_values WHERE row_id=100 AND column_id=10"
+        ).fetchone()[0]
+        != second_version
+    )
 
+    # Rebuilding the disposable cache preserves identity/value, while its
+    # search invalidation token may advance independently of either.
+    def current():
+        return [
+            tuple(row)
+            for row in db.execute(
+                "SELECT row_id,value,base_producer_id FROM current_cell_values ORDER BY row_id"
+            )
+        ]
+
+    before_repair = current()
     refresh_current_cells(db, column_ids=[10])
-    assert {
-        int(row["row_id"]): int(row["retrieval_revision"])
-        for row in db.execute(
-            "SELECT row_id,retrieval_revision FROM current_cells "
-            "WHERE column_id=10 ORDER BY row_id"
-        )
-    } == replaced_revisions
-
+    assert current() == before_repair
     assert rebuild_current_cells(db) == 2
-    assert {
-        int(row["row_id"]): int(row["retrieval_revision"])
-        for row in db.execute(
-            "SELECT row_id,retrieval_revision FROM current_cells "
-            "WHERE column_id=10 ORDER BY row_id"
-        )
-    } == replaced_revisions
+    assert current() == before_repair
     assert (
         remove_base_cells(db, producer_id=second, column_ids=[10], row_ids=[101]) == 1
     )
-    assert (
-        db.execute(
-            "SELECT 1 FROM current_cells WHERE column_id=10 AND row_id=101"
-        ).fetchone()
-        is None
-    )
-
+    cleared = current()
+    assert [(row[0], row[1]) for row in cleared] == [(100, "third"), (101, None)]
+    # Removal is a new explicit-null contribution, not physical deletion of
+    # history. Selectively reverting its owning Change restores both sources.
+    db.execute("UPDATE ops SET status='undone' WHERE id=2")
+    refresh_current_cells(db, column_ids=[10])
+    assert current() == [(100, "first", first), (101, "keep", first)]
+    db.execute("UPDATE ops SET status='applied' WHERE id=2")
+    refresh_current_cells(db, column_ids=[10])
+    assert current() == cleared
     db.execute("DELETE FROM current_cells")
-    assert rebuild_current_cells(db) == 1
-    assert (
-        db.execute(
-            "SELECT value FROM current_cell_values WHERE column_id=10 AND row_id=100"
-        ).fetchone()[0]
-        == "third"
-    )
+    assert rebuild_current_cells(db) == 2
+    assert current() == cleared
 
 
-def test_source_replacement_preserves_visible_edit_revision() -> None:
+def test_old_source_continuation_preserves_newer_edit_and_immutable_versions() -> None:
     db = _database()
     db.execute("BEGIN")
     _op(db, 1)
@@ -477,12 +515,29 @@ def test_source_replacement_preserves_visible_edit_revision() -> None:
         "JOIN current_cells USING (column_id,row_id) "
         "WHERE column_id=10 AND row_id=100"
     ).fetchone()
-    assert tuple(after) == tuple(before)
+    assert after["value"] == before["value"] == "overlay"
+    assert after["retrieval_revision"] > before["retrieval_revision"]
+    assert [
+        row[0]
+        for row in db.execute(
+            "SELECT value FROM cells WHERE column_id=10 AND row_id=100 ORDER BY producer_id"
+        )
+    ] == ["source", "changed source"]
+    db.execute("UPDATE ops SET status='undone' WHERE id=2")
+    refresh_current_cells(db, column_ids=[10])
     assert (
         db.execute(
-            "SELECT value FROM cells WHERE column_id=10 AND row_id=100"
+            "SELECT value FROM current_cell_values WHERE column_id=10 AND row_id=100"
         ).fetchone()[0]
         == "changed source"
+    )
+    db.execute("UPDATE ops SET status='applied' WHERE id=2")
+    refresh_current_cells(db, column_ids=[10])
+    assert (
+        db.execute(
+            "SELECT value FROM current_cell_values WHERE column_id=10 AND row_id=100"
+        ).fetchone()[0]
+        == "overlay"
     )
 
 
@@ -500,7 +555,9 @@ def test_exact_pair_refresh_groups_dense_sets_without_expanding_sparse_pairs(
         *,
         column_ids: list[int],
         row_ids: tuple[int, ...],
+        eager_limit: int,
     ) -> int:
+        assert eager_limit == 512
         calls.append((tuple(column_ids), tuple(row_ids)))
         return len(column_ids) * len(row_ids)
 

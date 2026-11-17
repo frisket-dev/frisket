@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.execution_composition_helpers import RecordingPurchasePolicy
 
 import asyncio
 from pathlib import Path
@@ -101,6 +102,7 @@ def test_plain_provider_output_saves_the_meaningful_uncited_answer(
     project, store, turn = _turn(tmp_path, question, prior_answer=prior_answer)
     try:
         router = ModelRouter(
+            model_call_policy=RecordingPurchasePolicy(),
             keys={"anthropic": "test-key"},
             key_sources={"anthropic": "platform_key"},
             cache=None,

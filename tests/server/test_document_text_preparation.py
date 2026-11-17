@@ -96,22 +96,28 @@ def _publish_legacy_results(
     sheet_id: int,
     values: list[tuple[int, int, PreparedContentRef]],
 ) -> None:
-    run_id = RunResultStore(project).start_run(
-        op_id,
-        sheet_id,
-        "media.ocr",
-        row_ids=sorted({row_id for row_id, _column_id, _ref in values}),
-        total_rows=len({row_id for row_id, _column_id, _ref in values}),
-    )
-    write_claimed_test_results(
-        project,
-        run_id,
-        [
-            {"row_id": row_id, "column_id": column_id, "value": ref}
-            for row_id, column_id, ref in values
-        ],
-    )
-    RunResultStore(project).finish_run(run_id, "completed")
+    # Each old OCR output was independently produced. A single declared output
+    # family cannot publish sparse siblings and still claim a completed row.
+    columns = sorted({column_id for _row_id, column_id, _ref in values})
+    for column_id in columns:
+        column_values = [item for item in values if item[1] == column_id]
+        owner = op_id if len(columns) == 1 else project.append_op("media.ocr", {})
+        rows = sorted({row_id for row_id, _column_id, _ref in column_values})
+        run_id = RunResultStore(project).start_run(
+            owner, sheet_id, "media.ocr", row_ids=rows, total_rows=len(rows)
+        )
+        write_claimed_test_results(
+            project,
+            run_id,
+            [
+                {"row_id": row_id, "column_id": output, "value": ref}
+                for row_id, output, ref in column_values
+            ],
+        )
+        RunResultStore(project).finish_run(run_id, "completed")
+        assert project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1", (run_id,)
+        ).fetchone()[0] == len(column_values)
 
 
 def test_grid_treats_unattempted_document_text_as_blank_without_hiding_errors(
@@ -193,7 +199,7 @@ def test_grid_treats_unattempted_document_text_as_blank_without_hiding_errors(
         assert by_id[row_ids[0]]["cells"][text_key] is None
         assert "state" not in by_id[row_ids[0]]["meta"][text_key]
         assert by_id[row_ids[0]]["meta"][ordinary_key]["state"] == "incomplete"
-        assert by_id[row_ids[1]]["meta"][text_key]["state"] == "incomplete"
+        assert by_id[row_ids[1]]["meta"][text_key]["state"] == "error"
         assert RunResultStore(project).row_error_summary(text_run_id) == {
             "total_failed_rows": 1,
             "groups": [
@@ -542,27 +548,43 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
 
         assert adoption.created is False
         assert adoption.seeded_count == 1
-        assert (
-            tuple(
-                int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-                for table in (
-                    "prepared_page_versions",
-                    "prepared_content_sets",
-                    "prepared_content_refs",
-                    "ops",
-                )
+        assert tuple(
+            int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            for table in (
+                "prepared_page_versions",
+                "prepared_content_sets",
+                "prepared_content_refs",
+                "ops",
             )
-            == immutable_counts
-        )
+        ) == (*immutable_counts[:3], immutable_counts[3] + 1)
         stored = project.db.execute(
             "SELECT cell.row_id,cell.value_kind,cell.value,producer.op_id "
             "FROM cells cell JOIN base_cell_producers producer "
             "ON producer.id=cell.producer_id WHERE cell.column_id=?",
             (text_column_id,),
         ).fetchall()
-        assert [tuple(row) for row in stored] == [
-            (unique, "prepared_content_ref", unique_ref.ref_id, op_id)
-        ]
+        assert len(stored) == 1
+        adoption_op = int(stored[0]["op_id"])
+        assert adoption_op != op_id
+        assert tuple(stored[0]) == (
+            unique,
+            "prepared_content_ref",
+            unique_ref.ref_id,
+            adoption_op,
+        )
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops WHERE id=?", (adoption_op,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert (
+            project.db.execute(
+                "SELECT producing_op_id FROM prepared_content_sets WHERE id=(SELECT set_id FROM prepared_content_refs WHERE id=?)",
+                (unique_ref.ref_id,),
+            ).fetchone()[0]
+            == op_id
+        )
         selection = resolve_document_text_selection(
             project, (sheet_id, unique, source_column_id)
         )
@@ -603,6 +625,25 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
         assert isinstance(find_sources, tuple) and len(find_sources) == 1
         assert find_sources[0].value_ref["prepared_ref_id"] == unique_ref.ref_id
         assert [unit.text for unit in find_sources[0].units] == ["preserve me"]
+        with project.transaction_scope():
+            assert (
+                adopt_document_text_role(
+                    project,
+                    source_column_id=source_column_id,
+                    text_column_id=text_column_id,
+                ).seeded_count
+                == 0
+            )
+        assert (
+            project.db.execute("SELECT count(*) FROM ops").fetchone()[0]
+            == immutable_counts[3] + 1
+        )
+        assert project.undo() == adoption_op
+        assert project.get_values(sheet_id, text_column_id, [unique]) == {unique: None}
+        assert project.redo() == adoption_op
+        assert project.get_values(sheet_id, text_column_id, [unique]) == {
+            unique: "preserve me"
+        }
 
 
 def test_overlapping_batch_replans_after_another_batch_adopts_its_row(tmp_path) -> None:

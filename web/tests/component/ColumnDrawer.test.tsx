@@ -15,8 +15,10 @@ const projectApi = vi.hoisted(() => ({
 }));
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
-  useWorkspaceStores: () => ({ projectApi, gridView: { store: {} } }),
+  useWorkspaceStores: () => ({ projectApi, projectData: { store: {} } }),
 }));
+
+vi.mock('../../src/bind/useCurrentViewSelection', () => ({ useCurrentViewSelection: () => null }));
 
 vi.mock('../../src/bind/useSelector', () => ({
   useSelector: () => ({}),

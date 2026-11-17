@@ -276,7 +276,7 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
         assert receipt["provider_use"][0]["service"] == "https_get"
         assert receipt["provider_use"][0]["url_host"] == "data.example.gov"
         assert API_URL not in json.dumps(receipt["provider_use"])
-        assert _table_count(project, "source_items") == 2
+        assert _table_count(project, "keyed_observations") == 2
         assert _table_count(project, "blobs") == 0
 
         second = run_action_spec(
@@ -306,6 +306,12 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
             "case-2",
         ]
 
+        stable_rows = dict(
+            project.db.execute(
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+                (source_id,),
+            )
+        )
         third = run_action_spec(
             project,
             _source_poll_action(
@@ -327,19 +333,23 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
         assert third_run["new_rows"] == 1
         assert third_run["skipped_rows"] == 1
         assert third_run["changed_rows"] == 1
-        assert third_run["revisions"] == 1
+        assert third_run["revisions"] == 0
+        after_rows = dict(
+            project.db.execute(
+                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+                (source_id,),
+            )
+        )
+        assert {key: after_rows[key] for key in stable_rows} == stable_rows
         rows = _rows(project, sheet_id)
         assert [row["name"] for row in rows] == [
             "Alpha",
-            "Beta",
             "Beta revised",
             "Gamma",
         ]
-        assert rows[2]["_revises"] == "case-2"
-        assert rows[2]["_revision"] == 1
-        assert rows[2]["agency"] == "Records Office"
+        assert rows[1]["agency"] == "Records Office"
         assert "agency" in _columns(project, sheet_id)
-        assert _table_count(project, "source_items") == 3
+        assert _table_count(project, "keyed_observations") == 3
     finally:
         project.close()
 
@@ -414,7 +424,16 @@ def test_api_list_dicts_invalid_identity_falls_back_with_warning() -> None:
 def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
     tmp_path: Path,
     restore_api_poller: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    append_sizes: list[int] = []
+    original_add_rows = Project.add_rows
+
+    def tracked_add_rows(project, sheet_id, records, *args, **kwargs):
+        append_sizes.append(len(records))
+        return original_add_rows(project, sheet_id, records, *args, **kwargs)
+
+    monkeypatch.setattr(Project, "add_rows", tracked_add_rows)
     records = [
         {"id": f"case-{index:05d}", "name": f"Case {index}"} for index in range(10_001)
     ]
@@ -440,7 +459,10 @@ def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
         )
 
         assert result.status == "completed", result.errors
-        assert _table_count(project, "source_items") == 10_001
+        assert _table_count(project, "keyed_observations") == 10_001
+        assert sum(append_sizes) == 10_001
+        assert len(append_sizes) < 50
+        assert max(append_sizes) <= 1_000
         run_ref = next(
             output.ref for output in result.outputs if output.kind == "source_run"
         )
@@ -586,7 +608,7 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
         assert "max_bytes=10" in failed.errors[0].message
         source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
         assert source_run["status"] == "error"
-        assert _table_count(failed_project, "source_items") == 0
+        assert _table_count(failed_project, "keyed_observations") == 0
         assert _receipt(failed_project, failed.receipt_id)["status"] == "failed"
     finally:
         failed_project.close()

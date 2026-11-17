@@ -6,6 +6,26 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from statemachine import State, StateMachine
+from statemachine.exceptions import TransitionNotAllowed
+
+
+class ImportLifecycle(StateMachine):
+    active = State(initial=True)
+    paused = State()
+    cancelled = State()
+    kept = State()
+    completed = State(final=True)
+    removed = State(final=True)
+
+    pause = active.to(paused)
+    resume = active.to.itself() | paused.to(active)
+    cancel = active.to(cancelled) | paused.to(cancelled)
+    keep = cancelled.to(kept) | active.to(kept) | paused.to(kept)
+    complete = active.to(completed) | paused.to(completed)
+    remove = cancelled.to(removed)
+    discard_setup = kept.to(removed)
+
 
 ImportSessionState = Literal[
     "active", "paused", "cancelled", "kept", "completed", "removed"
@@ -99,6 +119,10 @@ class ImportSessionStore:
             raise ValueError("writer authority must be non-empty")
         self.db.execute("BEGIN IMMEDIATE")
         try:
+            session = self.get(session_id)
+            if session is None or session.cursor != int(expected_cursor):
+                raise ImportSessionConflict("import session cannot be resumed")
+            self._transition(session, "resume")
             updated = self.db.execute(
                 "UPDATE import_sessions SET writer_authority=?,state='active',"
                 "updated_at=datetime('now') WHERE id=? AND cursor=? "
@@ -147,26 +171,79 @@ class ImportSessionStore:
             (json.dumps(undo), session.op_id),
         )
 
-    def set_state(
+    def _transition(self, session: ImportSession, event: str) -> ImportSession:
+        """Named graph plus SQL fencing inside the owner's effects transaction."""
+        if not self.db.in_transaction:
+            raise RuntimeError("Import transitions require a caller-owned transaction")
+        machine = ImportLifecycle(start_value=session.state)
+        try:
+            machine.send(event)
+        except TransitionNotAllowed as exc:
+            raise ImportSessionConflict(
+                f"cannot {event} an import in state {session.state}"
+            ) from exc
+        state = next(iter(machine.configuration)).id
+        updated = self.db.execute(
+            "UPDATE import_sessions SET state=?,updated_at=datetime('now') "
+            "WHERE id=? AND writer_authority=? AND cursor=? AND state=?",
+            (
+                state,
+                session.id,
+                session.writer_authority,
+                session.cursor,
+                session.state,
+            ),
+        )
+        if updated.rowcount != 1:
+            raise ImportSessionConflict("import session state changed")
+        return self.get(session.id)
+
+    def pause(
+        self, session_id: str, authority: str, expected_cursor: int
+    ) -> ImportSession:
+        return self._stop(session_id, authority, expected_cursor, "pause")
+
+    def cancel(
+        self, session_id: str, authority: str, expected_cursor: int
+    ) -> ImportSession:
+        return self._stop(session_id, authority, expected_cursor, "cancel")
+
+    def cancel_in_transaction(self, session: ImportSession) -> ImportSession:
+        """Stop acquisition while preserving published work for Keep/Remove."""
+        return self._transition(session, "cancel")
+
+    def finish(
+        self, session: ImportSession, *, keep: bool, enumeration_complete: bool = False
+    ) -> ImportSession:
+        # The existing reader/stager owns EOF and full key validation. It supplies
+        # that fact after draining, never by inferring it from a page's row count.
+        if not keep and not enumeration_complete:
+            raise ImportSessionConflict("import source enumeration is incomplete")
+        return self._transition(session, "keep" if keep else "complete")
+
+    def remove(self, session: ImportSession) -> ImportSession:
+        if session.state in ("active", "paused"):
+            session = self.cancel_in_transaction(session)
+        return self._transition(session, "remove")
+
+    def discard_setup(self, session: ImportSession) -> ImportSession:
+        if session.committed_rows or session.cursor:
+            raise ImportSessionConflict("cannot discard a published import")
+        return self._transition(session, "discard_setup")
+
+    def _stop(
         self,
         session_id: str,
         authority: str,
         expected_cursor: int,
-        *,
-        from_states: tuple[ImportSessionState, ...],
-        state: ImportSessionState,
+        event: Literal["pause", "cancel"],
     ) -> ImportSession:
-        placeholders = ",".join("?" for _ in from_states)
         self.db.execute("BEGIN IMMEDIATE")
         try:
-            updated = self.db.execute(
-                "UPDATE import_sessions SET state=?,updated_at=datetime('now') "
-                "WHERE id=? AND writer_authority=? AND cursor=? "
-                f"AND state IN ({placeholders})",
-                (state, session_id, authority, int(expected_cursor), *from_states),
+            session = self.require_writer(
+                session_id, authority, expected_cursor, states=("active", "paused")
             )
-            if updated.rowcount != 1:
-                raise ImportSessionConflict("import session state changed")
+            self._transition(session, event)
             self.db.commit()
         except BaseException:
             self.db.rollback()
@@ -300,18 +377,78 @@ def import_session_generation_is_applied(
     )
 
 
-def invalidate_pdf_split_generation(db: Any, *, op_id: int) -> None:
-    """Invalidate queued preparation in the same transaction as split Undo."""
-    if not db.in_transaction:
-        raise RuntimeError(
-            "split generation invalidation requires a history transaction"
+@dataclass(frozen=True)
+class ImportExecutionOwner:
+    session_id: str
+    op_id: int
+
+    def require_current(self, db: Any) -> None:
+        if (
+            db.execute(
+                "SELECT 1 FROM import_sessions session JOIN ops ON ops.id=session.op_id "
+                "WHERE session.id=? AND session.op_id=? AND ops.status='applied' "
+                "AND session.state IN ('active','paused','kept','completed') "
+                "AND session.writer_authority NOT LIKE 'undone:%'",
+                (self.session_id, self.op_id),
+            ).fetchone()
+            is None
+        ):
+            raise ImportSessionConflict(
+                "The parent import no longer permits preparation"
+            )
+
+    def bind_run(self, project: Any, run_id: int) -> None:
+        """Persist parent ownership before publishing a queued child."""
+        if not project.db.in_transaction:
+            raise RuntimeError(
+                "Import child binding requires its admission transaction"
+            )
+        self.require_current(project.db)
+        row = project.db.execute(
+            "SELECT op.id,op.spec FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
+            (int(run_id),),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Import child has no admitted run")
+        spec = json.loads(row["spec"])
+        owner = {"session_id": self.session_id, "op_id": self.op_id}
+        if spec.get("import_execution_owner", owner) != owner:
+            raise ImportSessionConflict("Import child belongs to another parent")
+        spec["import_execution_owner"] = owner
+        project.db.execute(
+            "UPDATE ops SET spec=? WHERE id=?", (json.dumps(spec), row["id"])
         )
-    db.execute(
+
+
+def require_import_execution_owner(db: Any, spec: dict[str, Any]) -> None:
+    owner = spec.get("import_execution_owner")
+    if owner is not None:
+        ImportExecutionOwner(**owner).require_current(db)
+
+
+def invalidate_import_generation(project: Any, *, op_id: int) -> None:
+    """Undo stops acquisition and owned preparation without erasing returned usage."""
+    db = project.db
+    if not db.in_transaction:
+        raise RuntimeError("Import invalidation requires a history transaction")
+    changed = db.execute(
         "UPDATE import_sessions SET writer_authority='undone:' || lower(hex(randomblob(16))),"
-        "updated_at=datetime('now') WHERE op_id=? "
-        "AND EXISTS(SELECT 1 FROM ops WHERE id=? AND kind='pdf.split')",
-        (int(op_id), int(op_id)),
+        "updated_at=datetime('now') WHERE op_id=?",
+        (int(op_id),),
     )
+    if changed.rowcount == 0:
+        return
+    from .runs import RunResultStore
+    from .run_lifecycle import close_run_change
+
+    for child in db.execute(
+        "SELECT run.id FROM runs run JOIN ops child ON child.id=run.op_id "
+        "WHERE run.status='running' AND child.status='applied' "
+        "AND json_extract(child.spec,'$.import_execution_owner.op_id')=?",
+        (int(op_id),),
+    ).fetchall():
+        RunResultStore(project).request_cancel(int(child[0]), commit=False)
+        close_run_change(project, int(child[0]))
 
 
 def require_import_sheet_write(
@@ -367,5 +504,7 @@ __all__ = [
     "set_import_session_rows_hidden",
     "set_import_session_replaced_rows_hidden",
     "import_session_generation_is_applied",
-    "invalidate_pdf_split_generation",
+    "ImportExecutionOwner",
+    "invalidate_import_generation",
+    "require_import_execution_owner",
 ]

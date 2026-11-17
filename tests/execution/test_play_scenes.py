@@ -10,6 +10,7 @@ epoch test) live in their own named files.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -105,7 +106,7 @@ def _spec(sheet_id: int, **overrides):
 
 
 def _validate(project, spec, *, confirmed=False):
-    router = ModelRouter()
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     plan = build_typed_map_rows_plan(project, typed_action_for_request(spec))
     return validation.validate_spec(
         project,
@@ -133,7 +134,7 @@ def _handle(
     register_project_run_handler(
         registry,
         workspace_root=root,
-        router=ModelRouter(),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         execution_composition_factory=execution_composition_factory,
     )
     assert int(payload["run_id"]) == run_id
@@ -169,7 +170,7 @@ def test_queued_composition_uses_claimed_and_durable_facts_then_replays_without_
     register_project_run_handler(
         registry,
         workspace_root=root,
-        router=ModelRouter(),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         require_storage_identity=True,
         workspace_root_storage_org_id=41,
         execution_composition_factory=factory,
@@ -196,7 +197,7 @@ def test_queued_composition_uses_claimed_and_durable_facts_then_replays_without_
     register_project_run_handler(
         replay_registry,
         workspace_root=root,
-        router=ModelRouter(),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         require_storage_identity=True,
         workspace_root_storage_org_id=41,
         execution_composition_factory=unexpected_factory,
@@ -227,7 +228,7 @@ def _prepare_queued_run(
 
     workspace = Workspace(
         root,
-        router=ModelRouter(),
+        router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         enable_local_model_pull=False,
         execution_composition_factory=execution_composition_factory,
     )

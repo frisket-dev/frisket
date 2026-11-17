@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import logging
 import re
 from contextlib import AbstractContextManager, nullcontext
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -24,7 +25,7 @@ from frisket.ai.llm.structured import FrisketRouterModel
 from frisket.ai.llm.router import model_call_cannot_go_live
 from frisket.ai.llm.types import LLMRequest, LLMResponse, provider_from_model_id
 from frisket.ai.models.accounting import wire_accounting_meta
-from frisket.ai.research.row_answer import fetch_page, search_web_results
+from frisket.ai.research.row_answer import fetch_page
 from frisket.authoring.project_ask import (
     ProjectAskRegisteredActionDraft,
     default_project_ask_model,
@@ -56,6 +57,14 @@ from frisket.server.services.project_qa_skill_authoring import (
     skill_runtime_instructions,
 )
 from frisket.ai.research.search import SearchService, SearchProviderError
+from frisket.engine.executor.web_search_read import search_observation
+from frisket.execution.dispatch_control import DispatchControl
+from frisket.execution.purchases import (
+    PurchasePolicy,
+    PurchaseRecordingError,
+    PurchaseRequest,
+    execute_purchase,
+)
 from frisket.cloud_execution import (
     CloudLLMExecutionBinding,
     cloud_llm_execution_scope,
@@ -95,6 +104,51 @@ async def _complete_before_cancellation(awaitable: Awaitable[Any]) -> Any:
     if cancelled:
         raise asyncio.CancelledError
     return result
+
+
+async def _search_with_purchase(
+    service,
+    query,
+    *,
+    policy: PurchasePolicy,
+    dispatch: DispatchControl,
+    call_scope=None,
+    quote=None,
+    **kwargs,
+):
+    """Own the paid search scope in the task that actually sends the request."""
+    quote = quote or service.quote(max_results=kwargs.get("max_results", 6))
+    with call_scope() if call_scope is not None else nullcontext():
+        try:
+            return await execute_purchase(
+                PurchaseRequest(
+                    provider=quote.provider,
+                    capability="web.search",
+                    engine=quote.provider,
+                    credential_source=service.credential_source,
+                    prepared={
+                        "query": query,
+                        "max_results": kwargs.get("max_results", 6),
+                    },
+                    estimated_cost_usd=quote.estimated_cost_usd,
+                    quote=quote,
+                ),
+                policy=policy,
+                dispatch=dispatch,
+                invoke=lambda: service.search(query, quote=quote, **kwargs),
+                observe=search_observation,
+            )
+        except PurchaseRecordingError as error:
+            from frisket.ai.research.search import SearchResponse
+
+            if not isinstance(error.provider_result, SearchResponse):
+                raise
+            # The provider already did the work. Retain the returned result for
+            # chat usage/evidence rather than letting accounting trigger a retry.
+            logging.getLogger(__name__).warning(
+                "Search returned but its purchase accounting could not be recorded"
+            )
+            return error.provider_result
 
 
 async def run_turn(
@@ -207,6 +261,12 @@ async def run_turn(
             )
         return call_scope() if call_scope is not None else nullcontext()
 
+    from frisket.execution.dispatch_control import TransientDispatch
+
+    turn_dispatch = TransientDispatch(
+        lambda: store.get_turn(turn["id"])["status"] != "running"
+    )
+    router = router.for_execution(turn_dispatch)
     model = FrisketRouterModel(
         router,
         model_id,
@@ -415,11 +475,23 @@ async def run_turn(
         await progress("search_web", "started", query=query)
         try:
             async with tool_lock:
+                service = search_service or SearchService(effective_keys={})
+
+                async def purchased_search(query, **kwargs):
+                    return await _search_with_purchase(
+                        service,
+                        query,
+                        policy=router.model_call_policy,
+                        dispatch=turn_dispatch,
+                        call_scope=call_scope,
+                        **kwargs,
+                    )
+
                 if research is not None:
                     # Budget/approval waits are outside the per-network-call
                     # timeout. Only the real search request has that timeout.
                     response = await research.search(
-                        search_service or SearchService(effective_keys={}), query
+                        service, query, search=purchased_search
                     )
 
                     async def search_response(*args, **kwargs):
@@ -427,9 +499,7 @@ async def run_turn(
 
                     search = search_response
                 else:
-                    search = (
-                        search_service.search if search_service else search_web_results
-                    )
+                    search = purchased_search
                 result = await search_public_web(
                     query,
                     search=search,
@@ -810,19 +880,19 @@ async def run_turn(
         agent.tool_plain(find_in_source, name="find_in_source")
         agent.tool_plain(list_sources, name="list_sources")
         if turn["web"]:
-            agent.tool_plain(search_web, name="search_web")
+            agent.tool_plain(search_web, name="search_web", sequential=True)
             agent.tool_plain(open_web_page, name="open_web_page")
         if turn["suggest_actions"] or execution is not None:
             agent.tool_plain(search_actions, name="search_actions")
             agent.tool_plain(describe_action, name="describe_action")
-            agent.tool_plain(propose_action, name="propose_action")
+            agent.tool_plain(propose_action, name="propose_action", sequential=True)
         if execution is not None:
-            agent.tool_plain(prepare_action, name="prepare_action")
-            agent.tool_plain(execute_action, name="execute_action")
+            agent.tool_plain(prepare_action, name="prepare_action", sequential=True)
+            agent.tool_plain(execute_action, name="execute_action", sequential=True)
         if skill_authoring is not None:
             agent.tool_plain(list_skills, name="list_skills")
             agent.tool_plain(read_skill, name="read_skill")
-            agent.tool_plain(propose_skill, name="propose_skill")
+            agent.tool_plain(propose_skill, name="propose_skill", sequential=True)
 
         @agent.output_validator
         def known_citations(

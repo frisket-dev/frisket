@@ -29,8 +29,6 @@ from frisket.contracts.http.onboarding_imports import (
     ImportPasteConfirmResponse,
     ImportPasteDraftBody,
     ImportPasteDraftResponse,
-    ImportUpdatePreviewBody,
-    ImportUpdatePreviewResponse,
     ImportPdfResponse,
     ImportUrlsBody,
     ImportUrlsResponse,
@@ -104,21 +102,6 @@ def register_import_draft_routes(
                 content=response.payload,
             )
         return response.payload
-
-    @app.post(
-        "/api/projects/{pid}/import/rows/update/preview",
-        response_model=ImportUpdatePreviewResponse,
-        responses=http_error_responses(400, 401, 403, 404, 422, 500),
-    )
-    async def import_update_preview(
-        pid: str, body: ImportUpdatePreviewBody, request: Request
-    ) -> dict:
-        return await await_thread_worker(
-            service.preview_update,
-            pid,
-            body,
-            deps=service.executor_deps_for_request(pid, request),
-        )
 
 
 def register_import_bulk_routes(
@@ -232,7 +215,8 @@ def register_import_csv_routes(
         column_mapping: str | None = None,
         update_key_columns: str | None = None,
         keep_existing_on_blank: bool = False,
-        confirmation: str | None = None,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
     ) -> dict[str, Any] | Response:
         executor_deps = service.executor_deps_for_request(pid, request)
         response = await await_thread_worker(
@@ -246,7 +230,8 @@ def register_import_csv_routes(
             column_mapping=column_mapping,
             update_key_columns=update_key_columns,
             keep_existing_on_blank=keep_existing_on_blank,
-            confirmation=confirmation,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
             deps=executor_deps,
         )
         if response.force_json_response:
@@ -270,33 +255,6 @@ def register_import_csv_routes(
             pid,
             upload=await _admit_one(file, limits=limits),
             encoding=encoding,
-        )
-
-    @app.post(
-        "/api/projects/{pid}/import/csv/update/preview",
-        response_model=ImportUpdatePreviewResponse,
-        responses=http_error_responses(400, 401, 403, 404, 413, 422, 500),
-    )
-    async def import_csv_update_preview(
-        pid: str,
-        request: Request,
-        file: Annotated[UploadFile, File()],
-        destination_sheet_id: Annotated[int, Form(ge=1)],
-        column_mapping: Annotated[str, Form(min_length=2)],
-        key_columns: Annotated[str, Form(min_length=2)],
-        keep_existing_on_blank: Annotated[bool, Form()] = False,
-        encoding: str | None = None,
-    ) -> dict[str, Any]:
-        return await await_thread_worker(
-            service.preview_csv_update,
-            pid,
-            upload=await _admit_one(file, limits=limits),
-            destination_sheet_id=destination_sheet_id,
-            column_mapping=column_mapping,
-            key_columns=key_columns,
-            keep_existing_on_blank=keep_existing_on_blank,
-            encoding=encoding,
-            deps=service.executor_deps_for_request(pid, request),
         )
 
     @app.post(
@@ -354,43 +312,6 @@ def register_import_csv_routes(
             column_mapping=column_mapping,
         )
 
-    @app.post(
-        "/api/projects/{pid}/import/csv/update",
-        response_model=ImportCsvResponse,
-        responses={
-            **IMPORT_CSV_ERROR_RESPONSES,
-            **http_error_responses(401, 403, 404, 413, 422),
-        },
-        **v1_action_transport(
-            V1_IMPORT_CSV_UPLOAD_BRIDGE_TASK, "import.update_csv", "multipart_upload"
-        ),
-    )
-    async def update_csv(
-        pid: str,
-        request: Request,
-        file: Annotated[UploadFile, File()],
-        destination_sheet_id: Annotated[int, Form(ge=1)],
-        update_request_key: Annotated[str, Form(min_length=1)],
-        column_mapping: Annotated[str, Form(min_length=2)],
-        key_columns: Annotated[str, Form(min_length=2)],
-        confirmation: Annotated[str, Form(min_length=1)],
-        keep_existing_on_blank: Annotated[bool, Form()] = False,
-        encoding: str | None = None,
-    ) -> dict[str, Any] | Response:
-        return await upload(
-            pid,
-            request,
-            file,
-            sheet_name=None,
-            encoding=encoding,
-            destination_sheet_id=destination_sheet_id,
-            append_request_key=update_request_key,
-            column_mapping=column_mapping,
-            update_key_columns=key_columns,
-            keep_existing_on_blank=keep_existing_on_blank,
-            confirmation=confirmation,
-        )
-
 
 def register_import_xlsx_routes(
     app: FastAPI,
@@ -410,31 +331,6 @@ def register_import_xlsx_routes(
             service.preview_xlsx,
             pid,
             upload=await _admit_one(file, limits=limits),
-        )
-
-    @app.post(
-        "/api/projects/{pid}/import/xlsx/update/preview",
-        response_model=ImportUpdatePreviewResponse,
-        responses=http_error_responses(400, 401, 403, 404, 413, 422, 500),
-    )
-    async def import_xlsx_update_preview(
-        pid: str,
-        request: Request,
-        file: Annotated[UploadFile, File()],
-        destination_sheet_id: Annotated[int, Form(ge=1)],
-        column_mapping: Annotated[str, Form(min_length=2)],
-        key_columns: Annotated[str, Form(min_length=2)],
-        keep_existing_on_blank: Annotated[bool, Form()] = False,
-    ) -> dict[str, Any]:
-        return await await_thread_worker(
-            service.preview_xlsx_update,
-            pid,
-            upload=await _admit_one(file, limits=limits),
-            destination_sheet_id=destination_sheet_id,
-            column_mapping=column_mapping,
-            key_columns=key_columns,
-            keep_existing_on_blank=keep_existing_on_blank,
-            deps=service.executor_deps_for_request(pid, request),
         )
 
     @app.post(
@@ -498,47 +394,6 @@ def register_import_xlsx_routes(
             destination_sheet_id=destination_sheet_id,
             append_request_key=append_request_key,
             column_mapping=column_mapping,
-        )
-        if response.force_json_response:
-            return JSONResponse(
-                status_code=response.status_code, content=response.payload
-            )
-        return response.payload
-
-    @app.post(
-        "/api/projects/{pid}/import/xlsx/update",
-        response_model=ImportXlsxResponse,
-        responses={
-            **IMPORT_XLSX_ERROR_RESPONSES,
-            **http_error_responses(401, 403, 404, 413, 422),
-        },
-        **v1_action_transport(
-            V1_IMPORT_XLSX_UPLOAD_BRIDGE_TASK, "import.update_xlsx", "multipart_upload"
-        ),
-    )
-    async def update_xlsx(
-        pid: str,
-        request: Request,
-        file: Annotated[UploadFile, File()],
-        destination_sheet_id: Annotated[int, Form(ge=1)],
-        update_request_key: Annotated[str, Form(min_length=1)],
-        column_mapping: Annotated[str, Form(min_length=2)],
-        key_columns: Annotated[str, Form(min_length=2)],
-        confirmation: Annotated[str, Form(min_length=1)],
-        keep_existing_on_blank: Annotated[bool, Form()] = False,
-    ) -> dict[str, Any] | Response:
-        response = await await_thread_worker(
-            service.upload_xlsx,
-            pid,
-            upload=await _admit_one(file, limits=limits),
-            sheet_name=None,
-            deps=service.executor_deps_for_request(pid, request),
-            destination_sheet_id=destination_sheet_id,
-            append_request_key=update_request_key,
-            column_mapping=column_mapping,
-            update_key_columns=key_columns,
-            keep_existing_on_blank=keep_existing_on_blank,
-            confirmation=confirmation,
         )
         if response.force_json_response:
             return JSONResponse(

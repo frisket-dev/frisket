@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 from dataclasses import dataclass
@@ -66,11 +67,32 @@ class PdfPacketScopeService:
                     break
         return ordered
 
+    @contextmanager
+    def _read_scope(self, project, body):
+        if body.selection is not None:
+            from frisket.engine.views.evaluate import open_selection
+            from frisket.retrieval.query import RetrievalQueryError
+            from frisket.ai.embeddings.similarity import SimilarityError
+
+            try:
+                with open_selection(
+                    project, body.selection.model_dump(mode="json", exclude_none=True)
+                ) as selected:
+                    yield (
+                        selected.snapshot,
+                        [int(hit["row_id"]) for hit in selected.hits()],
+                    )
+            except (RetrievalQueryError, SimilarityError) as exc:
+                raise ValueError(f"Selection unavailable: {exc}") from exc
+        else:
+            with project.read_snapshot() as snapshot:
+                yield snapshot, self._ordered_scope(snapshot, body)
+
     def order_token(
         self, project_id: str, body: PdfPacketSheetScopeRequest
     ) -> dict[str, str]:
         project = self._workspace.get(project_id)
-        with project.read_snapshot() as snapshot:
+        with self._read_scope(project, body) as (snapshot, ordered):
             if (
                 snapshot.db.execute(
                     "SELECT 1 FROM sheets WHERE id=? AND hidden=0", (body.sheet_id,)
@@ -78,7 +100,6 @@ class PdfPacketScopeService:
                 is None
             ):
                 raise ValueError("sheet is unavailable")
-            ordered = self._ordered_scope(snapshot, body)
             digest = hashlib.sha256(
                 json.dumps(ordered, separators=(",", ":")).encode()
             ).hexdigest()
@@ -88,7 +109,7 @@ class PdfPacketScopeService:
         self, project_id: str, body: PdfPacketSheetCreateRequest
     ) -> PacketScopeInventory:
         project = self._workspace.get(project_id)
-        with project.read_snapshot() as snapshot:
+        with self._read_scope(project, body) as (snapshot, ordered):
             sheet = snapshot.db.execute(
                 "SELECT id FROM sheets WHERE id=? AND hidden=0", (body.sheet_id,)
             ).fetchone()
@@ -98,7 +119,6 @@ class PdfPacketScopeService:
             ).fetchone()
             if sheet is None or column is None:
                 raise ValueError("sheet or file column is unavailable")
-            ordered = self._ordered_scope(snapshot, body)
             order_hash = hashlib.sha256(
                 json.dumps(ordered, separators=(",", ":")).encode()
             ).hexdigest()
@@ -183,7 +203,9 @@ class PdfPacketScopeService:
                 prepared_pages: tuple[int, ...] = ()
                 try:
                     selection = resolve_document_text_selection(
-                        snapshot, (body.sheet_id, row_id, body.file_column_id)
+                        snapshot,
+                        (body.sheet_id, row_id, body.file_column_id),
+                        allow_hidden=True,
                     )
                     if selection is not None and selection.prepared_ref_id is not None:
                         prepared_ref = selection.prepared_ref_id

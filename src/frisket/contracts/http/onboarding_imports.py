@@ -22,57 +22,29 @@ class ImportPasteDraftBody(BaseModel):
     raw: str = Field(min_length=1, max_length=2_000_000)
 
 
-class ImportUpdatePreviewColumn(BaseModel):
+class ImportPasteColumn(BaseModel):
     source_name: str = Field(min_length=1)
     name: str | None = Field(default=None, min_length=1)
     type: str = Field(min_length=1)
     format: str | None = None
 
 
-class ImportUpdatePreviewBody(BaseModel):
-    raw: str = Field(min_length=1, max_length=2_000_000)
-    draft_id: str = Field(min_length=1)
-    destination_sheet_id: int = Field(ge=1, strict=True)
-    columns: list[ImportUpdatePreviewColumn] = Field(min_length=1)
-    key_columns: list[str] = Field(min_length=1)
-    keep_existing_on_blank: bool = False
-
-
 class ImportPasteConfirmBody(BaseModel):
     raw: str = Field(min_length=1, max_length=2_000_000)
     draft_id: str = Field(min_length=1)
-    columns: list[ImportUpdatePreviewColumn] = Field(min_length=1)
+    columns: list[ImportPasteColumn] = Field(min_length=1)
     sheet_name: str | None = Field(default=None, min_length=1)
     destination_sheet_id: int | None = Field(default=None, ge=1, strict=True)
     key_columns: list[str] | None = None
     keep_existing_on_blank: bool = False
-    confirmation: str | None = Field(default=None, min_length=1)
+    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
+    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class ImportPasteConfirmResponse(WireModel):
     sheet_id: int
     rows: int
     columns: list[str]
-
-
-class ImportUpdatePreviewSample(WireModel):
-    source_row: int
-    key: dict[str, JsonValue]
-    status: Literal["matched", "unmatched", "blank_key", "ambiguous"]
-    target_row_id: int | None
-    before: dict[str, JsonValue]
-    after: dict[str, JsonValue]
-
-
-class ImportUpdatePreviewResponse(WireModel):
-    matched: int
-    unmatched: int
-    blank_keys: int
-    ambiguous: int
-    changed_cells: int
-    cleared_cells: int
-    samples: list[ImportUpdatePreviewSample]
-    confirmation: str
 
 
 class ImportUrlsBody(BaseModel):
@@ -243,8 +215,6 @@ __all__ = [
     "ImportPasteDraftBody",
     "ImportPasteConfirmBody",
     "ImportPasteConfirmResponse",
-    "ImportUpdatePreviewBody",
-    "ImportUpdatePreviewResponse",
     "ImportPasteDraftColumn",
     "ImportPasteDraftResponse",
     "ImportPasteDraftSource",

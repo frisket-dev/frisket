@@ -121,6 +121,21 @@ async def deepl_translate(
         error_cls=TranslateEngineError,
         provider_name="DeepL",
     )
+    translations = body.get("translations") if isinstance(body, dict) else None
+    # Usage belongs to the response, even if it has the wrong number of results.
+    # A partial set of counters cannot establish a complete billed quantity.
+    billed_characters = None
+    if (
+        200 <= response.status_code < 300
+        and isinstance(translations, list)
+        and translations
+    ):
+        counters = [
+            item.get("billed_characters") if isinstance(item, dict) else None
+            for item in translations
+        ]
+        if all(type(count) is int and count >= 0 for count in counters):
+            billed_characters = sum(counters)
     try:
         _raise_for_status(
             response.status_code, body if isinstance(body, dict) else None
@@ -129,13 +144,16 @@ async def deepl_translate(
             raise TranslateEngineError(
                 code="http", message="DeepL returned a non-JSON response."
             )
-        translations = body.get("translations")
         if not isinstance(translations, list) or len(translations) != len(texts):
             raise TranslateEngineError(
                 code="http",
                 message=(
                     "DeepL response shape was unexpected (translation count mismatch)."
                 ),
+            )
+        if not all(isinstance(item, dict) for item in translations):
+            raise TranslateEngineError(
+                code="http", message="DeepL returned an invalid translation item."
             )
     except TranslateEngineError as exc:
         if exc.accounting is None:
@@ -144,6 +162,7 @@ async def deepl_translate(
                 provider="deepl",
                 credential_source=credential_source,
                 status_code=response.status_code,
+                billed_characters=billed_characters,
                 request_id=(
                     response.headers.get("x-request-id")
                     or response.headers.get("request-id")

@@ -225,7 +225,8 @@ def test_reader_holds_snapshot_uses_actual_source_and_retains_item_associations(
         assert [item.value for item in result] == ["a", "b"]
         assert reader.parent_sheet_id == sheet
         assert reader.source_ai_generated is True
-        assert reader.sources == {item.source for item in result}
+        live_items = list(result)
+        assert set(reader.sources) == {item.source for item in live_items}
         assert [
             reader.item_associations[item.source]["item_index"] for item in result
         ] == [0, 1]
@@ -342,6 +343,6 @@ def test_empty_named_values_keep_admitted_parent(named_project):
     project, seeded = named_project
     source = _named_source(seeded)
     reader = AdmittedListTableReader(project)
-    assert reader.read(source, item_schema=_item_schema()) == ()
+    assert not reader.read(source, item_schema=_item_schema())
     assert reader.parent_sheet_id == source.sheet_id
     assert reader.facts[0]["item_count"] == 0

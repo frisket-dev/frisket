@@ -19,7 +19,6 @@ from .remediation import (
 from .router import (
     CACHE_MODES,
     CacheMode,
-    ModelCallPolicy,
     ModelRouter,
     live_calls_possible,
     model_call_cannot_go_live,
@@ -41,7 +40,6 @@ __all__ = [
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "ModelRouter",
     "CacheMode",
-    "ModelCallPolicy",
     "CACHE_MODES",
     "live_calls_possible",
     "model_call_cannot_go_live",

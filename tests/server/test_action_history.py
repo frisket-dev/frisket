@@ -1,6 +1,7 @@
 """Submitted settings survive refusals without becoming execution authority."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import sqlite3
 from types import SimpleNamespace
@@ -18,7 +19,13 @@ from http_test_helpers import drain_queue
 def scene(tmp_path):
     client = TestClient(
         create_app(
-            tmp_path / "ws", router=ModelRouter(keys={}, cache=None, cache_mode="off")
+            tmp_path / "ws",
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                keys={},
+                cache=None,
+                cache_mode="off",
+            ),
         )
     )
     workspace = client.app.state.workspace

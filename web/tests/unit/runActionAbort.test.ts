@@ -82,6 +82,7 @@ function runProgressWire(projectId: string, runId = 77, status = 'running') {
       failed_rows: 0,
       cost_actual: 0,
       cost_estimate: 0,
+      output_columns: [{ id: 2, name: 'Current output' }],
       public_status: {
         run_id: runId,
         action_kind: 'map.extract',
@@ -206,7 +207,7 @@ describe('RealApi action invocation safety (WEB-03-4A)', () => {
     expect(posts).toEqual([`/api/projects/${projectA}/actions/v1/run`]);
     expect(bodies).toEqual([request]);
     expect(await captured.getRunProgress('77')).toMatchObject({
-      actionName: 'map.classify', targetColumnId: 'result', targetRowIds: ['1'],
+      actionName: 'map.classify', targetColumnId: '2', targetRowIds: ['1'],
     });
   });
 
@@ -234,7 +235,7 @@ describe('RealApi action invocation safety (WEB-03-4A)', () => {
     const projectApi = createProjectApi(projectId);
     await projectApi.runAction(request);
     expect(await projectApi.getRunProgress('77')).toMatchObject({
-      targetColumnId: 'found_items', actionName: 'Derive rows',
+      targetColumnId: '2', actionName: 'Derive rows',
     });
     const data = await projectApi.getSheetData('7');
     expect(data.columns.find((column) => column.name === 'found_items')?.ai).toMatchObject({
@@ -450,7 +451,9 @@ describe('RealApi action invocation safety (WEB-03-4A)', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path.endsWith('/sheets/741/data?offset=0&limit=0')) {
-        return jsonResponse(sheetDataWire(target));
+        const data = sheetDataWire(target);
+        return jsonResponse({ ...data, columns: data.columns.map((column) => column.id === 2
+          ? { ...column, current_run_id: 741 } : column) });
       }
       if (path.endsWith('/actions/v1/run')) return jsonResponse(actionResult(741));
       if (path.endsWith('/columns/2/runs?offset=0&limit=20')) {
@@ -481,8 +484,8 @@ describe('RealApi action invocation safety (WEB-03-4A)', () => {
     const runB = await projectApiA.getRunProgress('741', { projectId: projectB });
     const sheetB = await projectApiB.getSheetData('741', 0, 0);
 
-    expect(runA).toMatchObject({ actionName: 'map.classify', targetColumnId: target, targetRowIds: ['1'] });
-    expect(runB).toMatchObject({ actionName: 'map.classify', targetColumnId: target, targetRowIds: ['2'] });
+    expect(runA).toMatchObject({ actionName: 'map.classify', targetColumnId: '2', targetRowIds: ['1'] });
+    expect(runB).toMatchObject({ actionName: 'map.classify', targetColumnId: '2', targetRowIds: ['2'] });
     expect(sheetA.columns.find((column) => column.name === target)?.ai?.model).toBe(
       'model-project-a',
     );
@@ -514,7 +517,7 @@ describe('RealApi action invocation safety (WEB-03-4A)', () => {
     api = createProjectApi(projectId);
     await api.runAction(visualCutsRequest(target));
     expect(await api.getRunProgress('742')).toMatchObject({
-      actionName: 'map.find_visual_cuts', targetColumnId: target,
+      actionName: 'map.find_visual_cuts', targetColumnId: '2',
     });
     const sheet = await api.getSheetData('7', 0, 0);
 
@@ -582,7 +585,7 @@ describe('RealApi job invocation safety (WEB-03-4B AMEND-01)', () => {
 
     await expect(progress).resolves.toMatchObject({
       actionName: 'map.classify',
-      targetColumnId: target,
+      targetColumnId: '2',
       targetRowIds: ['1'],
     });
     expect(statusSignal).toBe(controller.signal);
@@ -668,4 +671,56 @@ describe('RealApi job invocation safety (WEB-03-4B AMEND-01)', () => {
     ]);
     expect(requests.every(({ signal }) => signal === controller.signal)).toBe(true);
   });
+});
+
+it('reads the durable output ID after reload despite a renamed output and reused authored name', async () => {
+  const projectId = 'renamed-run-output';
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path.endsWith('/actions/v1/run')) return jsonResponse(actionResult());
+    if (path.endsWith('/actions/runs/77/status')) {
+      const wire = runProgressWire(projectId);
+      wire.run.output_columns = [{ id: 2, name: 'Renamed output' }];
+      return jsonResponse(wire);
+    }
+    throw new Error(`Unexpected request: ${path}`);
+  }));
+  const launching = createProjectApi(projectId);
+  await launching.runAction(classifyRequest('original', '7', 'result'));
+  expect(await launching.getRunProgress('77')).toMatchObject({ targetColumnId: '2' });
+  const reloaded = createProjectApi(projectId);
+  expect(await reloaded.getRunProgress('77')).toMatchObject({ targetColumnId: '2' });
+});
+
+it('keeps derive metadata on its returned column ID when the old name is reused, with durable history after reload', async () => {
+  const projectId = 'derive-renamed-id';
+  const request = deriveRequest();
+  request.extraction.output_names = { items: 'found_items' };
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.endsWith('/actions/v1/run')) {
+      const body = JSON.parse(String(init?.body)) as RegisteredActionRequest;
+      return jsonResponse({ ...actionResult(77, 'completed', body.action_id), outputs: body.action_id === 'map.extract'
+        ? [{ kind: 'named_result', name: 'items', ref: { sheet_id: 7, column_id: 2, run_id: 77,
+            route: 'items', schema: 'items_list' } }] : [{ kind: 'sheet', sheet_id: 9 }] });
+    }
+    if (path.includes('/sheets/7/data')) {
+      const data = sheetDataWire('Renamed items');
+      return jsonResponse({ ...data, columns: [...data.columns, { ...data.columns[1], id: 3, name: 'found_items', current_run_id: 66 }] });
+    }
+    if (path.endsWith('/columns/2/runs?offset=0&limit=20')) return jsonResponse(columnRunsWire('persisted-original', 'Renamed items', 77));
+    throw new Error(`Unexpected request: ${path}`);
+  }));
+  const launching = createProjectApi(projectId);
+  await launching.runAction(request);
+  const data = await launching.getSheetData('7');
+  expect(data.columns.find((column) => column.id === '2')?.ai).toMatchObject({
+    actionName: 'Derive rows', prompt: 'Extract a list of items.', model: 'model-derive',
+  });
+  expect(data.columns.find((column) => column.id === '3')?.ai?.model).toBe('');
+  const reloaded = createProjectApi(projectId);
+  await reloaded.getColumnRuns('2');
+  const fresh = await reloaded.getSheetData('7');
+  expect(fresh.columns.find((column) => column.id === '2')?.ai?.model).toBe('model-persisted-original');
+  expect(fresh.columns.find((column) => column.id === '3')?.ai?.model).toBe('');
 });

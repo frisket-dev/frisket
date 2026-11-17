@@ -1,6 +1,7 @@
 """A routed consent's identity includes the billed quote, not just provider cost."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -105,7 +106,12 @@ def test_tariff_drift_invalidates_exact_match_without_rewriting_provider_basis(
     """
     project, sheet_id = routed_audio_project
     spec = _spec(sheet_id)
-    router = ModelRouter(keys={"openai": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     composition = open_execution_composition(
         project, router, ExecutionCompositionContext.direct()
     )
@@ -159,6 +165,12 @@ def test_tariff_drift_invalidates_exact_match_without_rewriting_provider_basis(
     assert first_estimate["cost"] == second_estimate["cost"] == 0.001064
     assert first_estimate["billed_cost"] == 2_128
     assert second_estimate["billed_cost"] == 4_256
+    first_cost_claim = next(c for c in first_estimate["claims"] if c["field"] == "cost")
+    second_cost_claim = next(
+        c for c in second_estimate["claims"] if c["field"] == "cost"
+    )
+    assert first_cost_claim["display"].startswith("Estimated cost $0.002128;")
+    assert second_cost_claim["display"].startswith("Estimated cost $0.004256;")
     assert first_hash != second_hash
     assert not exact_match_consent_covers(project, spec, second_bound.promise_set)
 

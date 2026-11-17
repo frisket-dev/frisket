@@ -28,6 +28,8 @@ import math
 import os
 from typing import Any, Callable
 
+from frisket.execution.dispatch_control import DispatchControl
+
 MAX_ATTEMPTS = 4
 BACKOFF_SECONDS = 1.5  # 429 backoff: 1.5s, 3.0s, 4.5s between the 4 attempts
 MAX_RETRY_AFTER_SECONDS = 60.0
@@ -193,23 +195,6 @@ def ephemeral_gateway_connection(
     return binding.connection
 
 
-async def _cancellable_wait(operation, should_cancel):
-    """Stop the HTTP wait on cancellation, without stopping the shared server."""
-    if should_cancel is None:
-        return await operation
-    task = asyncio.ensure_future(operation)
-    try:
-        while not task.done():
-            if should_cancel():
-                raise asyncio.CancelledError
-            await asyncio.wait({task}, timeout=0.2)
-        return task.result()
-    finally:
-        if not task.done():
-            task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-
-
 async def sidecar_post(
     ctx: Any,
     route: str,
@@ -222,7 +207,126 @@ async def sidecar_post(
     timeout: Any | None = None,
     structured_errors: bool = False,
     connection: Any | None = None,
-    should_cancel: Callable[[], bool] | None = None,
+    dispatch: DispatchControl,
+    quantity: dict[str, float | None] | None = None,
+) -> dict:
+    """Determine accounting and own one logical model-server operation."""
+    from hashlib import sha256
+    from frisket.execution.purchases import (
+        PurchaseObservation,
+        PurchaseRequest,
+        execute_purchase,
+        policy_for_context,
+    )
+
+    capabilities = {
+        "/ocr": "ocr",
+        "/to-markdown": "document.convert",
+        "/v1/transcribe": "transcribe",
+        "/ner": "ner",
+        "/classify": "classify",
+    }
+    if route not in capabilities:
+        raise ValueError(f"No purchase contract for model-server route {route!r}")
+    engine = (data or {}).get("engine") or (json or {}).get("engine")
+    if not engine:
+        raise ValueError("Model-server purchase requires an engine")
+    measured = dict(quantity or {})
+    if route == "/ocr":
+        measured["pages"] = len(files or ())
+    request = PurchaseRequest(
+        provider="frisket-models",
+        capability=capabilities[route],
+        engine=engine,
+        credential_source="none",
+        context=ctx,
+        quantity=measured,
+        prepared={
+            "route": route,
+            "data": data,
+            "json": json,
+            "files": [sha256(part[1][1]).hexdigest() for part in (files or ())],
+        },
+    )
+
+    def observe(body):
+        usage: dict[str, Any] = {}
+        if isinstance(body, dict):
+            if route == "/ocr" and isinstance(body.get("pages"), list):
+                usage["pages"] = len(body["pages"])
+            elif route == "/to-markdown":
+                documents = body.get("documents", body.get("results"))
+                documents = documents if isinstance(documents, list) else [body]
+                pages = [
+                    doc.get("ocr_used") for doc in documents if isinstance(doc, dict)
+                ]
+                if (
+                    len(pages) == len(documents)
+                    and pages
+                    and all(isinstance(value, list) for value in pages)
+                ):
+                    usage["pages"] = sum(len(value) for value in pages)
+            elif (
+                route == "/v1/transcribe"
+                and isinstance(body.get("results"), list)
+                and body["results"]
+            ):
+                durations = [
+                    item.get("duration")
+                    for item in body["results"]
+                    if isinstance(item, dict)
+                ]
+                if len(durations) == len(body["results"]) and all(
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(value)
+                    and value >= 0
+                    for value in durations
+                ):
+                    usage["audio_seconds"] = sum(durations)
+                elif measured.get("audio_seconds") is not None:
+                    usage["audio_seconds"] = measured["audio_seconds"]
+            elif route in {"/ner", "/classify"}:
+                usage["requests"] = 1
+        return PurchaseObservation(body, usage)
+
+    async def invoke():
+        return await _sidecar_post_transport(
+            ctx,
+            route,
+            files=files,
+            data=data,
+            json=json,
+            op=op,
+            light_engine=light_engine,
+            timeout=timeout,
+            structured_errors=structured_errors,
+            connection=connection,
+            dispatch=dispatch,
+        )
+
+    return await execute_purchase(
+        request,
+        policy=policy_for_context(ctx),
+        dispatch=dispatch,
+        invoke=invoke,
+        observe=observe,
+    )
+
+
+async def _sidecar_post_transport(
+    ctx: Any,
+    route: str,
+    *,
+    files: list[tuple] | None = None,
+    data: dict[str, str] | None = None,
+    json: Any = None,
+    op: str = "request",
+    light_engine: str | None = None,
+    timeout: Any | None = None,
+    structured_errors: bool = False,
+    connection: Any | None = None,
+    dispatch: DispatchControl,
 ) -> dict:
     """POST a route on the frisket-models sidecar and return the JSON body.
 
@@ -293,11 +397,10 @@ async def sidecar_post(
         kwargs["files"] = files
         kwargs["data"] = data
     for attempt in range(MAX_ATTEMPTS):
-        if should_cancel is not None and should_cancel():
-            raise asyncio.CancelledError
-        resp = await _cancellable_wait(ctx.http.post(url, **kwargs), should_cancel)
-        if should_cancel is not None and should_cancel():
-            raise asyncio.CancelledError
+        dispatch.check()
+        # A dispatched request can finish after cancellation. Return its known
+        # response for accounting; publication has its own authority check.
+        resp = await ctx.http.post(url, **kwargs)
         if resp.status_code != 429:  # sidecar backpressure: retry politely
             break
         if attempt == MAX_ATTEMPTS - 1:
@@ -311,11 +414,9 @@ async def sidecar_post(
                 delay = None
         except (TypeError, ValueError):
             delay = None
-        await _cancellable_wait(
-            asyncio.sleep(
-                delay if delay is not None else BACKOFF_SECONDS * (attempt + 1)
-            ),
-            should_cancel,
+        dispatch.check()
+        await asyncio.sleep(
+            delay if delay is not None else BACKOFF_SECONDS * (attempt + 1)
         )
     if resp.status_code != 200 and structured_errors:
         try:

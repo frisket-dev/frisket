@@ -166,6 +166,7 @@ def run_google_sheets_action_job(
     project: Any,
     envelope: ActionJobEnvelope,
     *,
+    execution,
     deps: ExecutorDeps | None = None,
 ) -> ActionResult:
     from frisket.engine.executor.action_families.exports import (
@@ -214,6 +215,7 @@ def run_google_sheets_action_job(
                 action_kind=envelope.action_kind,
             ),
         )
+    execution.check()
     result = _run_export_google_sheets(
         project,
         _identity(bound),

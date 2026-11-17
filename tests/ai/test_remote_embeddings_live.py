@@ -8,6 +8,7 @@ gemini-embedding-001). Run with OPENAI_API_KEY / GEMINI_API_KEY exported.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import os
 
@@ -29,7 +30,7 @@ def test_remote_embedding_live_matches_catalog(provider, model, key_env):
         pytest.skip(f"{key_env} not set — remote live check skipped")
     # a fresh gateway/router per provider (own httpx client) avoids the cross-loop
     # client reuse that bites a long-lived worker (tracked separately).
-    gw = EmbeddingGateway(router=ModelRouter())
+    gw = EmbeddingGateway(router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY))
     res = gw.embed(["hello world"], provider=provider, model=model, modality="text")
     vec = res["vectors"][0]
     assert vec and res["actual_model_id"]
@@ -45,7 +46,7 @@ def test_openrouter_embedding_live():
     # adapter) — verified, not catalog-enumerated. Routes by its own model slug.
     if not os.environ.get("OPENROUTER_API_KEY"):
         pytest.skip("OPENROUTER_API_KEY not set — OpenRouter live check skipped")
-    gw = EmbeddingGateway(router=ModelRouter())
+    gw = EmbeddingGateway(router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY))
     res = gw.embed(
         ["hello world"],
         provider="openrouter",

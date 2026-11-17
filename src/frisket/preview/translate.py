@@ -244,7 +244,9 @@ async def _run_engine_with_project(
             f"translate compare tried to dispatch billable engine '{engine}'; "
             "billable engines belong to the cost-gated map.translate action"
         )
-    ctx = OpContext(project=project, http=http, extras={})
+    ctx = OpContext(
+        project=project, http=http, extras={"preview": True, "cancelled": lambda: False}
+    )
     out = await TranslationEngine().execute(row_values, spec, ctx)
     data = out[0] if isinstance(out, tuple) else out
     return {

@@ -280,6 +280,7 @@ def test_model_envelope_does_not_report_unknown_provider_cost_as_free() -> None:
         model_calls=[
             {
                 "provider": "anthropic",
+                "capability": "llm.complete",
                 "engine": "anthropic/claude-haiku-4-5",
                 "credential_source": "platform_key",
                 "provider_cost_usd": None,

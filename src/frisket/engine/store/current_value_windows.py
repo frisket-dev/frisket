@@ -8,6 +8,8 @@ including the canonical two-newline separators between physical pages.
 
 from __future__ import annotations
 
+from .cell_reference import current_value_ref
+
 import codecs
 import hashlib
 import json
@@ -80,6 +82,7 @@ class CurrentCellRead:
     value_ref: dict[str, Any]
     validity: str
     bounded_value: BoundedValuePreview | None = None
+    outcome: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,13 +117,18 @@ _AUTHORITY_CTE = """
 heads AS MATERIALIZED (
   SELECT r.id AS row_id,head.retrieval_revision,head.origin_kind,
          head.origin_op_id,head.origin_run_id,head.base_producer_id,
-         COALESCE(head.validity,'missing') AS validity
+         COALESCE(head.validity,'missing') AS validity,head.outcome,
+         copy.source_run_id AS copied_run_id,copy.source_row_id AS copied_row_id,
+         copy.source_column_id AS copied_column_id
   FROM rows AS r
   JOIN sheets AS sheet ON sheet.id=r.sheet_id AND sheet.hidden=0
   JOIN columns AS col ON col.sheet_id=r.sheet_id
     AND col.id=:column_id AND (:include_hidden=1 OR col.hidden=0)
-  LEFT JOIN current_cells AS head
+  LEFT JOIN (SELECT * FROM {heads}
+             WHERE column_id=:column_id AND row_id IN ({row_ids})) AS head
     ON head.row_id=r.id AND head.column_id=:column_id
+  LEFT JOIN copied_result_outcomes copy ON head.origin_kind='copied_result'
+    AND copy.op_id=head.origin_op_id AND copy.row_id=r.id AND copy.column_id=:column_id
   WHERE r.sheet_id=:sheet_id AND r.hidden=0 AND r.id IN ({row_ids})
 ),
 authority AS NOT MATERIALIZED (
@@ -136,7 +144,12 @@ authority AS NOT MATERIALIZED (
           WHEN 'publish_null' THEN 'null' END
         FROM results AS result
         WHERE result.run_id=head.origin_run_id AND result.row_id=head.row_id
-          AND result.column_id=:column_id)
+          AND result.column_id=:column_id AND result.published=1)
+      WHEN 'copied_result' THEN (
+        SELECT CASE WHEN copy.outcome='completed' THEN copy.value_kind END
+        FROM copied_result_values copy
+        WHERE copy.op_id=head.origin_op_id AND copy.row_id=head.row_id
+          AND copy.column_id=:column_id)
       WHEN 'manual_edit' THEN (
         SELECT edit.value_kind FROM edits AS edit
         WHERE edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
@@ -151,7 +164,12 @@ authority AS NOT MATERIALIZED (
         SELECT CASE WHEN result.publication_effect='publish_value'
           THEN result.value END FROM results AS result
         WHERE result.run_id=head.origin_run_id AND result.row_id=head.row_id
-          AND result.column_id=:column_id)
+          AND result.column_id=:column_id AND result.published=1)
+      WHEN 'copied_result' THEN (
+        SELECT CASE WHEN copy.outcome='completed' THEN copy.value END
+        FROM copied_result_values copy
+        WHERE copy.op_id=head.origin_op_id AND copy.row_id=head.row_id
+          AND copy.column_id=:column_id)
       WHEN 'manual_edit' THEN (
         SELECT edit.value FROM edits AS edit
         WHERE edit.op_id=head.origin_op_id AND edit.row_id=head.row_id
@@ -162,9 +180,26 @@ authority AS NOT MATERIALIZED (
 """
 
 
-def _authority_cte(row_ids: list[int]) -> str:
+def _authority_cte(
+    db: sqlite3.Connection,
+    column_id: int,
+    row_ids: list[int],
+    *,
+    exclude_op_id: int | None = None,
+) -> str:
+    from .current_read_sql import current_heads_sql
+
+    from .current_read_sql import reconciliation_heads_sql
+
+    heads = (
+        current_heads_sql(db, [column_id], row_ids)
+        if exclude_op_id is None
+        else reconciliation_heads_sql(
+            db, column_id, row_ids, exclude_op_id=exclude_op_id
+        )
+    )
     placeholders = ",".join(f":row_{index}" for index in range(len(row_ids)))
-    return _AUTHORITY_CTE.format(row_ids=placeholders)
+    return _AUTHORITY_CTE.format(heads=heads, row_ids=placeholders)
 
 
 def _params(
@@ -527,6 +562,7 @@ def read_current_column(
     bounded: bool,
     preserve_invalid: bool = False,
     include_hidden: bool = False,
+    _exclude_op_id: int | None = None,
 ) -> dict[int, CurrentCellRead]:
     """Read one column for a row page, omitting only oversized bounded values."""
 
@@ -537,9 +573,10 @@ def read_current_column(
             continue
         sql = (
             "WITH "
-            + _authority_cte(chunk)
+            + _authority_cte(db, column_id, chunk, exclude_op_id=_exclude_op_id)
             + " SELECT row_id,retrieval_revision,origin_kind,origin_op_id,"
-            "origin_run_id,validity,stored_kind,"
+            "origin_run_id,base_producer_id,validity,stored_kind,outcome,"
+            "copied_run_id,copied_row_id,copied_column_id,"
             "CASE WHEN stored_kind IN ('text','json','bigint','legacy_invalid') "
             "AND length(CAST(stored_value AS BLOB))>:byte_limit "
             "THEN NULL ELSE stored_value END AS bounded_value,"
@@ -571,15 +608,9 @@ def read_current_column(
             stored_kind = row["stored_kind"]
             stored_value = row["bounded_value"]
             revision = row["retrieval_revision"]
-            ref = {
-                "kind": row["origin_kind"] or "missing",
-                "op_id": row["origin_op_id"],
-                "row_id": row_id,
-                "column_id": column_id,
-                "run_id": row["origin_run_id"],
-            }
+            ref = current_value_ref(row, row_id=row_id, column_id=column_id)
             preview: BoundedValuePreview | None = None
-            value_present = True
+            value_present = row["outcome"] in (None, "completed")
             if stored_kind == "prepared_content_ref" and stored_value is not None:
                 ref_id = int(stored_value)
                 ref["prepared_ref_id"] = ref_id
@@ -647,6 +678,7 @@ def read_current_column(
                 value_ref=ref,
                 validity=str(row["validity"]),
                 bounded_value=preview,
+                outcome=row["outcome"],
             )
     return output
 
@@ -663,7 +695,7 @@ def current_text_metadata(
     params = _params(sheet_id, column_id, [row_id], include_hidden=include_hidden)
     row = db.execute(
         "WITH "
-        + _authority_cte([row_id])
+        + _authority_cte(db, column_id, [row_id])
         + " SELECT stored_kind,CASE WHEN stored_kind='prepared_content_ref' "
         "THEN stored_value END AS prepared_ref_id,retrieval_revision,"
         "CASE WHEN origin_kind='source_cell' THEN (SELECT source.rowid FROM cells AS source "
@@ -702,7 +734,7 @@ def current_text_metadata(
             )
     sizes = db.execute(
         "WITH "
-        + _authority_cte([row_id])
+        + _authority_cte(db, column_id, [row_id])
         + " SELECT length(CAST(stored_value AS TEXT)),"
         "length(CAST(stored_value AS BLOB)),instr(stored_value,char(0))>0 FROM authority",
         params,
@@ -715,7 +747,7 @@ def current_text_metadata(
             for chunk in _blob_text_chunks(
                 db,
                 "WITH "
-                + _authority_cte([row_id])
+                + _authority_cte(db, column_id, [row_id])
                 + " SELECT stored_value AS value FROM authority",
                 params,
                 byte_size,
@@ -767,7 +799,7 @@ def read_current_text(
     return _sql_text_slice(
         db,
         "WITH "
-        + _authority_cte([row_id])
+        + _authority_cte(db, column_id, [row_id])
         + " SELECT CAST(stored_value AS TEXT) AS value FROM authority",
         _params(sheet_id, column_id, [row_id], include_hidden=include_hidden),
         start=start,
@@ -796,7 +828,7 @@ def locate_current_text(
     if metadata.prepared_ref_id is None and not metadata.has_nul:
         row = db.execute(
             "WITH "
-            + _authority_cte([row_id])
+            + _authority_cte(db, column_id, [row_id])
             + " SELECT instr(CAST(stored_value AS TEXT),:literal)-1 FROM authority",
             {**_params(sheet_id, column_id, [row_id]), "literal": literal},
         ).fetchone()
@@ -907,7 +939,7 @@ def iter_current_value(
         yield from _blob_text_chunks(
             db,
             "WITH "
-            + _authority_cte([row_id])
+            + _authority_cte(db, column_id, [row_id])
             + " SELECT CAST(stored_value AS TEXT) AS value FROM authority",
             _params(sheet_id, column_id, [row_id]),
             metadata.total_bytes,

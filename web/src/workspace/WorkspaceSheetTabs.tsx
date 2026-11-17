@@ -7,7 +7,7 @@ import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useSheetTabsOverflow } from '../workbench/useSheetTabsOverflow';
 import { ConfirmDeleteSheetModal } from '../components/ConfirmDeleteSheetModal';
 import { AddSheetButton } from '../components/TabStripButtons';
-import { staleSheetsDeepestFirst } from '../workbench/lineageStale';
+import { sourceFreshnessLabel, staleSheetsDeepestFirst } from '../workbench/lineageStale';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { previewViewForSheet } from '../state/previewViewStore';
 import { useChromeHandle } from '../bind/useChromeHandle';
@@ -63,15 +63,9 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
   const [deleteSheetBusy, setDeleteSheetBusy] = useState(false);
   const [deleteSheetError, setDeleteSheetError] = useState<string | null>(null);
   const deleteSheet = sheets.find((candidate) => candidate.id === deleteSheetId) ?? null;
-  const deleteSheetDependents = deleteSheet
-    ? (deleteSheet.dependentSheetIds ?? []).flatMap((id) => {
-        const dependent = sheets.find((candidate) => candidate.id === id);
-        return dependent ? [dependent.name] : [];
-      })
-    : [];
 
   const confirmDeleteSheet = useCallback(async () => {
-    if (!deleteSheet || deleteSheetBusy || deleteSheetDependents.length > 0) return;
+    if (!deleteSheet || deleteSheetBusy) return;
     setDeleteSheetBusy(true);
     setDeleteSheetError(null);
     try {
@@ -83,7 +77,7 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
     } finally {
       setDeleteSheetBusy(false);
     }
-  }, [deleteSheet, deleteSheetBusy, deleteSheetDependents.length, projectApi, refreshSheets]);
+  }, [deleteSheet, deleteSheetBusy, projectApi, refreshSheets]);
 
   // Preserve deepest-first cascade order.
   const staleDeepestFirst = staleSheetsDeepestFirst(sheets);
@@ -127,7 +121,7 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
                 <span key={tabSheet.id} className={`workbench-mainView-tab${tabSheet.id === sheet?.id && hasActiveSheet ? ' active' : ''}`}>
                   {tabSheet.parent ? <GitFork size={13} className="workbench-mainView-tab-glyph" /> : <SheetGlyph size={13} className="workbench-mainView-tab-glyph" />}
                   <span className="workbench-mainView-tab-name">{tabSheet.name}</span>
-                  {tabSheet.parent && tabSheet.refreshable && tabSheet.syncState && (
+                  {tabSheet.parent && tabSheet.syncState && (
                     <span className="workbench-mainView-tab-syncDot" />
                   )}
                   {tabSheet.id === sheet?.id && hasActiveSheet && <>
@@ -172,21 +166,13 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
                   <SheetGlyph size={13} className="workbench-mainView-tab-glyph" aria-hidden />
                 )}
                 <span className="workbench-mainView-tab-name">{tabSheet.name}</span>
-                {derived && tabSheet.refreshable && tabSheet.syncState && (
+                {derived && tabSheet.syncState && (
                   <span
                     className="workbench-mainView-tab-syncDot"
                     data-sync-state={tabSheet.syncState}
                     data-testid={`workbench-mainView-tab-syncDot-${tabSheet.id}`}
-                    aria-label={
-                      tabSheet.syncState === 'stale'
-                        ? 'Source changed'
-                        : 'Up to date'
-                    }
-                    title={
-                      tabSheet.syncState === 'stale'
-                        ? 'Source changed'
-                        : 'Up to date'
-                    }
+                    aria-label={sourceFreshnessLabel(tabSheet.syncState)}
+                    title={sourceFreshnessLabel(tabSheet.syncState)}
                   />
                 )}
                 {active && (
@@ -405,7 +391,6 @@ export const WorkspaceMainViewTabs = memo(function WorkspaceMainViewTabs() {
       {deleteSheet && (
         <ConfirmDeleteSheetModal
           sheetName={deleteSheet.name}
-          dependentSheetNames={deleteSheetDependents}
           busy={deleteSheetBusy}
           error={deleteSheetError}
           onConfirm={() => void confirmDeleteSheet()}

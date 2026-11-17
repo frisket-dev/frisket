@@ -77,7 +77,7 @@ test('grid column layout: drag reorder persists as default layout and saved-view
   );
   await page.getByTestId('save-view-button').click();
   const firstView = await (await firstViewResponse).json();
-  expect(firstView.spec.columns).toEqual(['city', 'source', 'status']);
+  expect(firstView.spec.presentation.columns).toEqual(['city', 'source', 'status']);
 
   // Header drag is a layout preference, not a schema mutation.
   expect((await sheetColumns(page.request, pid, sheetId)).map((column) => column.name)).toEqual([
@@ -101,5 +101,5 @@ test('grid column layout: drag reorder persists as default layout and saved-view
   );
   await page.getByTestId('save-view-button').click();
   const secondView = await (await secondViewResponse).json();
-  expect(secondView.spec.columns).toEqual(['city', 'source', 'status']);
+  expect(secondView.spec.presentation.columns).toEqual(['city', 'source', 'status']);
 });

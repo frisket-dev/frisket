@@ -104,15 +104,18 @@ class _BoundMcpExtractor:
                     recipe_version="1",
                     router=router,
                 )
-            except LLMError as exc:
+            except BaseException as exc:
                 router.retain_unrecorded_error_calls(exc)
-                raise
-            except (asyncio.CancelledError, RecipeInvocationHalt):
-                raise
-            except Exception as exc:
-                raise RowError(
+                if not isinstance(exc, Exception) or isinstance(
+                    exc, (LLMError, RecipeInvocationHalt)
+                ):
+                    raise
+                failure = RowError(
                     "mcp_extract_failed", str(exc)[:500] or "MCP extraction failed"
-                ) from exc
+                )
+                failure.accounting = getattr(exc, "accounting", None)
+                failure.wire_calls = getattr(exc, "wire_calls", ())
+                raise failure from exc
         if data.get("error") and data.get("outcome") == "model_error":
             raise RowError(
                 data.get("error_code", "mcp_extract_failed"), data["error"][:500]

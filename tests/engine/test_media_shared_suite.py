@@ -625,7 +625,10 @@ def test_media_successful_result_row_ids_preserves_input_order() -> None:
     )
     assert result == [5, 2]
     sql, params = project.executed[0]
-    assert "outcome NOT IN ('model_error', 'invalid_output', 'row_error')" in sql
+    assert (
+        "outcome NOT IN ('model_error', 'invalid_output', 'row_error', 'not_completed')"
+        in sql
+    )
     assert params == [7, 9, 5, 3, 2]
 
 

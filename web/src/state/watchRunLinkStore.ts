@@ -1,4 +1,4 @@
-import type { DirectWatchInput, WatchInfo } from '../api/types';
+import type { ViewAlertConditions, WatchInfo } from '../api/types';
 import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 
@@ -9,11 +9,13 @@ export interface PendingWatchRunLink { link: WatchRunLink; target: 'watches'; }
 
 export interface PendingCreateDraft {
   name: string;
-  query: DirectWatchInput['query'];
-  scope: DirectWatchInput['scope'];
+  view_id: number;
+  sheet_id?: number | null;
+  detection_policy?: ViewAlertConditions;
+  schedule?: string | null;
 }
 
-export type WatchActionIntent = 'run' | 'refresh_run' | 'rename' | 'pause' | 'resume' | 'delete';
+export type WatchActionIntent = 'run' | 'refresh_run' | 'configure' | 'rename' | 'pause' | 'resume' | 'delete';
 export interface WatchActionOutcome {
   status: string | null;
   error: string | null;
@@ -57,7 +59,7 @@ export function createWatchRunLinkStore(): {
   setPendingWatchRunLink(link: WatchRunLink, target: 'watches'): void;
   ackPendingWatchRunLink(): void;
   setPendingCreateDraft(draft: PendingCreateDraft): void;
-  updatePendingCreateDraft(patch: Pick<PendingCreateDraft, 'name'>): void;
+  updatePendingCreateDraft(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy'>>): void;
   clearPendingCreateDraft(): void;
   claimCreateWatch(): CreateWatchRecord | null;
   settleCreateWatch(record: CreateWatchRecord, outcome: WatchActionOutcome): void;

@@ -5,9 +5,11 @@ experimental, no quality claim in copy (Hy-MT2 precedent). Mirrors
 test_ocr_engine_expansion.py's pattern for paddleocr-vl joining dots.mocr."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ai.llm import ModelRouter
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.contracts.actions.schemas._engines import (
@@ -86,7 +88,9 @@ def test_chandra_needs_sidecar_url(tmp_path, monkeypatch):
     document is read, instead of failing every row with the same message."""
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     p, sheet = _project(tmp_path, [{"doc": "<html><body>hi</body></html>"}])
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     refusal = _run_with_exact_confirmation(p, _spec(sheet, "chandra"), router)
     assert refusal.status == "failed", refusal.errors
     assert "FRISKET_MODELS_URL" in str(refusal.errors)
@@ -131,6 +135,9 @@ def test_document_models_route_to_sidecar_to_markdown(tmp_path, monkeypatch, eng
             return FakeResponse()
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = FakeHttp()
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
@@ -210,7 +217,12 @@ def test_chandra_listed_in_action_catalog(tmp_path):
 
     from frisket.server.app import create_app
 
-    app = create_app(tmp_path / "ws", router=ModelRouter(cache=None, cache_mode="off"))
+    app = create_app(
+        tmp_path / "ws",
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
     client = TestClient(app)
     entries = {
         entry["kind"]: entry

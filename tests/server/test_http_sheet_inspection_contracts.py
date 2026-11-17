@@ -255,6 +255,8 @@ def test_sheet_inspection_query_scope_forwards_zero_json_and_default_page_size()
                 "filter_": filter_json,
                 "sort": sort_json,
                 "scope_row_ids": None,
+                "selection": None,
+                "view_id": None,
             },
         )
     ]
@@ -268,6 +270,8 @@ def test_sheet_inspection_query_scope_forwards_zero_json_and_default_page_size()
                 "sort": sort_json,
                 "row_ids": None,
                 "scope_row_ids": None,
+                "selection": None,
+                "view_id": None,
             },
         )
     ]
@@ -286,6 +290,8 @@ def test_sheet_inspection_query_scope_forwards_zero_json_and_default_page_size()
             "sort": None,
             "row_ids": "11",
             "scope_row_ids": None,
+            "selection": None,
+            "view_id": None,
         },
     )
 

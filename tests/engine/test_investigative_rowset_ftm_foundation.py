@@ -165,6 +165,7 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(tmp_path: Path) -
     age_cell = _cell_by_name(first, "age")
     assert age_cell["value_ref"] == {
         "kind": "manual_edit",
+        "outcome": "completed",
         "op_id": edit_op_id,
         "row_id": row_ids[0],
         "column_id": columns["age"],

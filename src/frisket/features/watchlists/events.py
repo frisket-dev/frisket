@@ -101,6 +101,7 @@ def row_exited_event(
     sheet_id: int,
     row_id: int,
     rank: int,
+    reason: str = "membership_changed",
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
@@ -109,7 +110,7 @@ def row_exited_event(
         "subject_kind": "row",
         "subject_ref": {"sheet_id": int(sheet_id), "row_id": int(row_id)},
         "before_json": {"matched": True},
-        "after_json": {"matched": False},
+        "after_json": {"matched": False, "reason": reason},
         "delta_json": {"membership_delta": -1},
         "severity": "info",
         "rank": int(rank),

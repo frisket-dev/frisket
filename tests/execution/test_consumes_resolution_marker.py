@@ -20,6 +20,7 @@ lives with the recipe registry in tests/ops/test_first_party_runner_registry.py.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -113,7 +114,9 @@ def test_undeclared_recipe_raises_instead_of_defaulting_to_no(audio_project):
             _spec(sheet_id),
             _UndeclaredRecipe(),
             composition=open_execution_composition(
-                project, ModelRouter(), ExecutionCompositionContext.direct()
+                project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+                ExecutionCompositionContext.direct(),
             ),
         )
 
@@ -140,7 +143,9 @@ def test_marker_drives_the_resolve_for_action_compile_branch(audio_project, cons
         _spec(sheet_id),
         _synthetic(consumes),
         composition=open_execution_composition(
-            project, ModelRouter(), ExecutionCompositionContext.direct()
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            ExecutionCompositionContext.direct(),
         ),
     )
     if consumes:
@@ -174,7 +179,7 @@ def test_marker_drives_the_effect_site_verification(
     run_id = (
         MapRunner(
             project,
-            ModelRouter(),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
             authority=open_attempt_authority(project),
             allow_action_lifecycle_only_recipes=True,
         )

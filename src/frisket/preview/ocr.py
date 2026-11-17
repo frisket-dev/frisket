@@ -542,7 +542,11 @@ async def run_ocr_engine_preview(
         output_pages = await recipe.run_engine_on_pages(
             engine,
             page_paths,
-            OpContext(project=project, http=http, extras={}),
+            OpContext(
+                project=project,
+                http=http,
+                extras={"preview": True, "cancelled": lambda: False},
+            ),
             usage=usage,
             language=language,
             scratch=scratch,

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts.ci.check_import_boundaries import (
     ImportBoundaryRule,
     check_import_boundaries,
+    _rules_from_json,
 )
 
 
@@ -68,3 +71,561 @@ def test_checker_reports_exact_diagnostics_for_forbidden_and_unresolved_mutation
         leaf.write_text(mutation, encoding="utf-8")
         diagnostics = tuple(map(str, check_import_boundaries(source_root, (RULE,))))
         assert expected in diagnostics
+
+
+MEMBER_RULE = ImportBoundaryRule(
+    id="fixture-member-owner",
+    modules=("pkg.*",),
+    exclude=("pkg.cache", "pkg.process_owner"),
+    forbidden_members=(
+        "pkg.cache.promote",
+        "pkg.cache.uninstall",
+        "pkg.process_owner.Process._*",
+    ),
+    reject_unresolved_dynamic=False,
+)
+
+
+@pytest.mark.parametrize(
+    "source, forbidden",
+    [
+        ("from pkg.cache import promote as publish\npublish()\n", "pkg.cache.promote"),
+        (
+            "from pkg import cache as storage\nstorage.uninstall()\n",
+            "pkg.cache.uninstall",
+        ),
+        ("import pkg.cache as storage\nstorage.promote()\n", "pkg.cache.promote"),
+        ("import pkg.cache\npkg.cache.promote()\n", "pkg.cache.promote"),
+        ("from . import cache\ncallback = cache.promote\n", "pkg.cache.promote"),
+        ("from .cache import uninstall\nuninstall()\n", "pkg.cache.uninstall"),
+        ("from pkg.cache import *\n", "pkg.cache.*"),
+        (
+            "from pkg.process_owner import Process as Child\nChild._cleanup()\n",
+            "pkg.process_owner.Process._cleanup",
+        ),
+    ],
+)
+def test_member_owner_rejects_aliases_and_callback_escape(
+    tmp_path: Path, source: str, forbidden: str
+) -> None:
+    _write_tree(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/cache.py": "def promote(): pass\n",
+            "pkg/process_owner.py": "",
+            "pkg/caller.py": source,
+        },
+    )
+    violations = check_import_boundaries(tmp_path, (MEMBER_RULE,))
+    assert any(
+        item.imported == forbidden and item.reason == "forbidden member access"
+        for item in violations
+    )
+
+
+def test_member_owner_allows_reads_public_commands_and_owner_implementation(
+    tmp_path: Path,
+) -> None:
+    _write_tree(
+        tmp_path,
+        {
+            "pkg/__init__.py": "",
+            "pkg/cache.py": "from pkg import cache\ndef promote(): cache.promote()\n",
+            "pkg/process_owner.py": "class Process:\n def _cleanup(self): pass\n",
+            "pkg/caller.py": (
+                "from pkg import cache\nfrom pkg.process_owner import Process\n"
+                "cache.is_installed()\nProcess.start()\n"
+                "# cache.promote() is documentation, not a use.\n"
+                "example = 'pkg.cache.uninstall()'\n"
+                "def promote(): pass\n"
+            ),
+        },
+    )
+    assert not check_import_boundaries(tmp_path, (MEMBER_RULE,))
+
+
+def _write_purchase_tree(root: Path, files: dict[str, str]) -> None:
+    namespaces = ("actions", "sdk", "engine/executor", "ops")
+    baseline = {"frisket/__init__.py": ""}
+    for namespace in namespaces:
+        baseline[f"frisket/{namespace}/__init__.py"] = ""
+        baseline[f"frisket/{namespace}/fixture.py"] = ""
+    _write_tree(root, {**baseline, **files})
+
+
+PURCHASE_RULE_IDS = {
+    "model-provider-transports-have-finite-owners",
+    "search-provider-transports-have-finite-owners",
+    "hosted-service-transports-have-finite-owners",
+    "sidecar-raw-transport-is-private",
+    "local-purchase-policy-belongs-to-composition",
+    "model-router-construction-belongs-to-composition",
+    "operator-credential-values-belong-to-transport-leaves",
+    "sidecar-credential-values-belong-to-transport-leaves",
+    "pydantic-agent-construction-belongs-to-router-bridges",
+    "transcription-connection-belongs-to-hosted-transport",
+    "private-local-model-resolution-belongs-to-router",
+    "local-ocr-inference-belongs-to-purchase-facade",
+    "local-transcription-adapters-belong-to-purchase-facade",
+    "local-spacy-pipeline-belongs-to-purchase-facade",
+    "local-spacy-session-belongs-to-purchase-facade",
+    "local-translation-inference-belongs-to-purchase-facade",
+    "local-translation-session-belongs-to-purchase-facade",
+    "local-classifier-session-belongs-to-purchase-facade",
+}
+
+
+def _purchase_rules() -> tuple[ImportBoundaryRule, ...]:
+    config = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "ci"
+        / "import_boundaries.json"
+    )
+    rules = tuple(
+        rule for rule in _rules_from_json(config) if rule.id in PURCHASE_RULE_IDS
+    )
+    assert {rule.id for rule in rules} == PURCHASE_RULE_IDS
+    return rules
+
+
+@pytest.mark.parametrize(
+    "caller", ["actions/new_action", "sdk/new_client", "engine/executor/new_reader"]
+)
+@pytest.mark.parametrize(
+    "source, expected_rule",
+    [
+        (
+            "from frisket.ai.research.search import SearchService as Search\n",
+            "search-provider-transports-have-finite-owners",
+        ),
+        (
+            "import frisket.ai.research.search as wire\nwire.SearchService(effective_keys={})\n",
+            "search-provider-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops.integrations.deepl import deepl_translate as send\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops.integrations import datalab as wire\nwire.datalab_ocr(client, key)\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops.integrations.google_translate import google_translate\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops.integrations.datalab import datalab_convert\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "import frisket.ops.integrations.opendocrouter as wire\nwire.parse_document(client, key)\n",
+            "hosted-service-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ai.llm.adapters import AnthropicAdapter as Provider\nProvider('key')\n",
+            "model-provider-transports-have-finite-owners",
+        ),
+        (
+            "import frisket.ai.llm.adapters as wire\nwire.OpenAICompatAdapter('key')\n",
+            "model-provider-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ai import llm as models\ntransport = models.adapters.AnthropicAdapter\n",
+            "model-provider-transports-have-finite-owners",
+        ),
+        (
+            "from importlib import import_module\nwire = import_module('frisket.ai.llm.adapters')\n",
+            "model-provider-transports-have-finite-owners",
+        ),
+        (
+            "from openai import AsyncOpenAI\n",
+            "model-provider-transports-have-finite-owners",
+        ),
+        (
+            "from pydantic_ai import Agent as Assistant\nAssistant('openai:unowned')\n",
+            "pydantic-agent-construction-belongs-to-router-bridges",
+        ),
+        (
+            "from pydantic_ai.agent import Agent as Assistant\nAssistant[None, str]('openai:unowned')\n",
+            "pydantic-agent-construction-belongs-to-router-bridges",
+        ),
+        (
+            "from pydantic_ai.models.openai import OpenAIChatModel\n",
+            "model-provider-transports-have-finite-owners",
+        ),
+        (
+            "from frisket.ops._sidecar import _sidecar_post_transport as send\n",
+            "sidecar-raw-transport-is-private",
+        ),
+        (
+            "from frisket.ops import _sidecar as models\ncallback = models._sidecar_post_transport\n",
+            "sidecar-raw-transport-is-private",
+        ),
+        (
+            "from frisket.ai.llm import ModelRouter as Router\nRouter()\n",
+            "model-router-construction-belongs-to-composition",
+        ),
+        (
+            "from frisket.ai.llm import *\n",
+            "model-router-construction-belongs-to-composition",
+        ),
+        (
+            "from frisket.credentials import resolve_credential as key\n",
+            "operator-credential-values-belong-to-transport-leaves",
+        ),
+        (
+            "import frisket.credentials as secrets\ncallback = secrets.resolve_credential_with_source\n",
+            "operator-credential-values-belong-to-transport-leaves",
+        ),
+        (
+            "from frisket import credentials\ncredentials.resolve_credential_for_use(project, 'KEY', context=None)\n",
+            "operator-credential-values-belong-to-transport-leaves",
+        ),
+        (
+            "from frisket.ops._sidecar import sidecar_token\n",
+            "sidecar-credential-values-belong-to-transport-leaves",
+        ),
+        (
+            "from frisket.ops import _sidecar as models\nmodels.sidecar_headers()\n",
+            "sidecar-credential-values-belong-to-transport-leaves",
+        ),
+        (
+            "import frisket.ops._sidecar as models\nconnection = models.ephemeral_gateway_connection(op='ocr')\n",
+            "sidecar-credential-values-belong-to-transport-leaves",
+        ),
+        (
+            "import frisket.ai.llm.router as models\nmodels.ModelRouter()\n",
+            "model-router-construction-belongs-to-composition",
+        ),
+        (
+            "from frisket.execution.purchases import LocalPurchasePolicy as Free\nFree()\n",
+            "local-purchase-policy-belongs-to-composition",
+        ),
+        (
+            "import frisket.execution.purchases as purchase\npolicy = purchase.LOCAL_PURCHASE_POLICY\n",
+            "local-purchase-policy-belongs-to-composition",
+        ),
+    ],
+)
+def test_new_authoring_and_executor_callers_cannot_borrow_raw_model_transport(
+    tmp_path: Path,
+    caller: str,
+    source: str,
+    expected_rule: str,
+) -> None:
+    _write_purchase_tree(
+        tmp_path,
+        {
+            "frisket/__init__.py": "",
+            "frisket/actions/__init__.py": "",
+            "frisket/sdk/__init__.py": "",
+            "frisket/engine/executor/__init__.py": "",
+            "frisket/ops/__init__.py": "",
+            f"frisket/{caller}.py": source,
+        },
+    )
+    violations = check_import_boundaries(tmp_path, _purchase_rules())
+    assert any(violation.rule_id == expected_rule for violation in violations)
+
+
+def test_purchase_fences_allow_real_transport_owners_public_clients_and_ordinary_http(
+    tmp_path: Path,
+) -> None:
+    _write_purchase_tree(
+        tmp_path,
+        {
+            "frisket/__init__.py": "",
+            "frisket/ai/llm/router.py": (
+                "from frisket.ai.llm.adapters import AnthropicAdapter\n"
+                "from frisket.ai.llm.cloud import CloudLLMAdapter\n"
+            ),
+            "frisket/engine/executor/web_search_read.py": "from frisket.ai.research.search import SearchService\n",
+            "frisket/server/services/project_qa_runner.py": "from frisket.ai.research.search import SearchService\n",
+            "frisket/ops/integrations/translation_engine.py": "from frisket.ops.integrations.deepl import deepl_translate\n",
+            "frisket/engine/executor/document_convert.py": "from frisket.ops.integrations.datalab import datalab_convert\n",
+            "frisket/ops/_sidecar.py": "from frisket.ops._sidecar import _sidecar_post_transport\n",
+            "frisket/execution/purchases.py": "from frisket.execution.purchases import LocalPurchasePolicy\n",
+            "frisket/server/workspace.py": "from frisket.ai.llm import ModelRouter\nfrom frisket.execution.purchases import LOCAL_PURCHASE_POLICY\nrouter = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)\n",
+            "frisket/engine/jobs/runs.py": "from frisket.ai.llm.router import ModelRouter as Router\nrouter = Router()\n",
+            "frisket/actions/new_action.py": (
+                "from frisket.ai.research.search import SearchResponse\n"
+                "import httpx\n"
+                "from frisket.ai.llm import ModelRouter\ndef use_client(router: ModelRouter): pass\n"
+                "from frisket.ops._sidecar import sidecar_post, probe_sidecar_capabilities, SidecarHTTPError\n"
+                "from frisket.ai.llm.types import LLMRequest, LLMResponse\n"
+                "from pydantic_ai.models import Model\n"
+                "from pydantic_ai import Agent\ndef inspect_agent(agent: Agent): pass\n"
+                "from frisket.credentials import ResolvedCredential, missing_required_credentials, resolve_project_secret\n"
+            ),
+        },
+    )
+    assert not check_import_boundaries(tmp_path, _purchase_rules())
+
+
+def test_router_constructor_fence_resolves_relative_imports_without_banning_annotations(
+    tmp_path: Path,
+) -> None:
+    caller = tmp_path / "frisket" / "actions" / "new_action.py"
+    _write_purchase_tree(
+        tmp_path,
+        {
+            "frisket/__init__.py": "",
+            "frisket/actions/new_action.py": (
+                "from ..ai.llm.router import ModelRouter as Router\n"
+                "def use_client(router: Router): pass\n"
+            ),
+        },
+    )
+    assert not check_import_boundaries(tmp_path, _purchase_rules())
+    with caller.open("a") as stream:
+        stream.write("router = Router()\n")
+    violations = check_import_boundaries(tmp_path, _purchase_rules())
+    assert any(
+        item.rule_id == "model-router-construction-belongs-to-composition"
+        and item.imported == "frisket.ai.llm.router.ModelRouter"
+        for item in violations
+    )
+
+
+@pytest.mark.parametrize(
+    "owner",
+    [
+        "frisket.engine.executor.document_convert",
+        "frisket.engine.executor.decision_read",
+        "frisket.engine.executor.geocode_capability",
+        "frisket.engine.executor.census_capability",
+        "frisket.sdk.ops.transcription.hosted",
+        "frisket.ops.ocr_engines_hosted",
+        "frisket.ops.opendocrouter",
+        "frisket.ops.integrations.translation_engine",
+    ],
+)
+def test_credential_fence_allows_only_the_existing_named_purchase_transport_leaves(
+    tmp_path: Path, owner: str
+) -> None:
+    _write_purchase_tree(
+        tmp_path,
+        {
+            "frisket/__init__.py": "",
+            "frisket/actions/__init__.py": "",
+            "frisket/sdk/__init__.py": "",
+            "frisket/engine/executor/__init__.py": "",
+            "frisket/ops/__init__.py": "",
+            owner.replace(".", "/")
+            + ".py": "from frisket.credentials import resolve_credential_for_use\n",
+        },
+    )
+    assert not check_import_boundaries(tmp_path, _purchase_rules())
+
+
+@pytest.mark.parametrize(
+    "owner",
+    [
+        "frisket.ai.llm.structured",
+        "frisket.ai.research.row_answer",
+        "frisket.ops.mcp_extract",
+        "frisket.server.services.project_qa_runner",
+    ],
+)
+def test_only_existing_router_bridges_construct_pydantic_agents(
+    tmp_path: Path, owner: str
+) -> None:
+    _write_purchase_tree(
+        tmp_path,
+        {
+            owner.replace(".", "/")
+            + ".py": "from pydantic_ai import Agent\nagent = Agent(model)\n",
+        },
+    )
+    assert not check_import_boundaries(tmp_path, _purchase_rules())
+
+
+@pytest.mark.parametrize(
+    "caller", ["actions/new_action", "sdk/new_client", "engine/executor/new_reader"]
+)
+@pytest.mark.parametrize(
+    "source, expected_rule",
+    [
+        (
+            "from frisket.ai.llm.router import _transcription_connection as connection\n",
+            "transcription-connection-belongs-to-hosted-transport",
+        ),
+        (
+            "import frisket.ai.llm.router as models\nborrow = models.ModelRouter._resolve_local_model\n",
+            "private-local-model-resolution-belongs-to-router",
+        ),
+        (
+            "from frisket.ops import ocr_engines_local as raw\ncallback = raw.ocr_tesseract\n",
+            "local-ocr-inference-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.ops.ocr_engines import OcrEngines\nborrow = OcrEngines._ocr_tesseract\n",
+            "local-ocr-inference-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.ops.spacy_ner import _load_pipeline\n",
+            "local-spacy-pipeline-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.ops.integrations.hy_mt2 import _load_model\n",
+            "local-translation-inference-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.sdk.ops.transcription.faster_whisper import FasterWhisperAdapter as Adapter\n",
+            "local-transcription-adapters-belong-to-purchase-facade",
+        ),
+        (
+            "from frisket.sdk.ops.transcription import parakeet as raw\nraw.ParakeetAdapter()\n",
+            "local-transcription-adapters-belong-to-purchase-facade",
+        ),
+        (
+            "from frisket.ops.spacy_ner import run_spacy_ner_default as extract\n",
+            "local-spacy-pipeline-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.engine._workers.spacy_session import SpacySession\nSpacySession()\n",
+            "local-spacy-session-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.ops.integrations import opus_mt as raw\ncallback = raw.translate_texts\n",
+            "local-translation-inference-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.ops.integrations.hy_mt2 import translate_texts\n",
+            "local-translation-inference-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.engine._workers.opus_mt_session import OpusMtSession\n",
+            "local-translation-session-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.engine._workers.classifier_session import ClassifierSession as Session\n",
+            "local-classifier-session-belongs-to-purchase-facade",
+        ),
+        (
+            "import frisket.engine._workers.classifier_session as runtime\nfactory = runtime.ClassifierSession\n",
+            "local-classifier-session-belongs-to-purchase-facade",
+        ),
+        (
+            "from importlib import import_module\nruntime = import_module('frisket.engine._workers.classifier_session')\n",
+            "local-classifier-session-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.engine.executor.classify_read import _new_classifier_session as factory\n",
+            "local-classifier-session-belongs-to-purchase-facade",
+        ),
+        (
+            "from frisket.engine.executor import classify_read as runtime\nfactory = runtime._new_classifier_session\n",
+            "local-classifier-session-belongs-to-purchase-facade",
+        ),
+    ],
+)
+def test_raw_local_inference_cannot_escape_its_purchase_parent(
+    tmp_path: Path, caller: str, source: str, expected_rule: str
+) -> None:
+    _write_purchase_tree(tmp_path, {f"frisket/{caller}.py": source})
+    assert any(
+        item.rule_id == expected_rule
+        for item in check_import_boundaries(tmp_path, _purchase_rules())
+    )
+
+
+@pytest.mark.parametrize(
+    "owner, source",
+    [
+        (
+            "frisket.sdk.ops.transcription.hosted",
+            "from frisket.ai.llm.router import _transcription_connection\n",
+        ),
+        (
+            "frisket.ops.ocr_engines",
+            "from frisket.ops.ocr_engines_local import ocr_rapidocr, run_rapidocr_pool, ocr_tesseract, ocr_indra\n",
+        ),
+        (
+            "frisket.sdk.ops.transcribe_engines",
+            "from frisket.sdk.ops.transcription.faster_whisper import FasterWhisperAdapter\nfrom frisket.sdk.ops.transcription.parakeet import ParakeetAdapter\n",
+        ),
+        (
+            "frisket.ops.ner_local",
+            "from frisket.ops.spacy_ner import run_spacy_ner_default\n",
+        ),
+        (
+            "frisket.engine.executor.ner_read",
+            "from frisket.engine._workers.spacy_session import SpacySession\n",
+        ),
+        (
+            "frisket.ops.integrations.translation_engine",
+            "from frisket.ops.integrations.opus_mt import translate_texts\nfrom frisket.ops.integrations.hy_mt2 import translate_texts\nfrom frisket.engine._workers.opus_mt_session import OpusMtSession\n",
+        ),
+        (
+            "frisket.server.workspace",
+            "from frisket.execution.purchases import LOCAL_PURCHASE_POLICY\n",
+        ),
+        (
+            "frisket.engine.jobs.runs",
+            "from frisket.execution.purchases import LOCAL_PURCHASE_POLICY\n",
+        ),
+        (
+            "frisket.operability.diagnostics",
+            "from frisket.execution.purchases import LOCAL_PURCHASE_POLICY\n",
+        ),
+        (
+            "frisket.cli.doctor",
+            "from frisket.execution.purchases import LOCAL_PURCHASE_POLICY\n",
+        ),
+        (
+            "frisket.ai.embeddings.backends",
+            "from frisket.execution.purchases import LOCAL_PURCHASE_POLICY\n",
+        ),
+        (
+            "frisket.ai.embeddings.runtime",
+            "from frisket.execution.purchases import LOCAL_PURCHASE_POLICY\n",
+        ),
+        (
+            "frisket.engine.executor.classify_read",
+            "from frisket.engine._workers.classifier_session import ClassifierSession\n",
+        ),
+    ],
+)
+def test_only_exact_local_purchase_parents_borrow_raw_implementations(
+    tmp_path: Path, owner: str, source: str
+) -> None:
+    _write_purchase_tree(tmp_path, {owner.replace(".", "/") + ".py": source})
+    assert not check_import_boundaries(tmp_path, _purchase_rules())
+
+
+def test_local_readiness_helpers_do_not_become_private_transport(
+    tmp_path: Path,
+) -> None:
+    _write_purchase_tree(
+        tmp_path,
+        {
+            "frisket/actions/new_action.py": (
+                "from frisket.ops.ocr_engines_local import rapidocr_available, rapidocr_setup_ready, LIGHT_ENGINE\n"
+                "from frisket.ops.spacy_ner import spacy_available, requested_spacy_types, run_spacy_ner\n"
+                "from frisket.ops.integrations.opus_mt import installed_pairs, is_pair_installed\n"
+                "from frisket.ops.integrations.hy_mt2 import is_installed, target_language_name\n"
+                "from frisket.sdk.ops.transcription.faster_whisper import faster_whisper_policy\n"
+                "from frisket.engine.executor.classify_read import classifier_provenance_model, local_semantic_chunks\n"
+            )
+        },
+    )
+    assert not check_import_boundaries(tmp_path, _purchase_rules())
+
+
+def test_router_implementation_cannot_silently_choose_local_policy(
+    tmp_path: Path,
+) -> None:
+    _write_purchase_tree(
+        tmp_path,
+        {
+            "frisket/ai/llm/router.py": "from frisket.execution.purchases import LOCAL_PURCHASE_POLICY\n",
+        },
+    )
+    assert any(
+        item.rule_id == "local-purchase-policy-belongs-to-composition"
+        for item in check_import_boundaries(tmp_path, _purchase_rules())
+    )

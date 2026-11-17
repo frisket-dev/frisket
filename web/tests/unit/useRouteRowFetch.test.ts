@@ -25,7 +25,7 @@ describe('fetchRouteRow', () => {
 
     await expect(fetchRouteRow(apiWith(locate, read), 'sheet-1', row.id, scope)).resolves.toEqual(row);
     expect(locate).toHaveBeenCalledOnce();
-    expect(read).toHaveBeenCalledWith('sheet-1', 0, 1, { ...scope, rowIds: [7], valueMode: 'bounded' });
+    expect(read).toHaveBeenCalledWith('sheet-1', 0, 1, { rowIds: [7], valueMode: 'bounded' });
   });
 
   it('falls back to the unfiltered sheet when the current view excludes the row', async () => {

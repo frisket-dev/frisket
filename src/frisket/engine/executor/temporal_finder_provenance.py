@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from frisket.engine.store.artifact_timeline import canonical_json_hash
 from frisket.engine.store.runs import RunResultStore
-from frisket.features.temporal_values import (
+from frisket.contracts.temporal_values import (
     canonical_temporal_hash,
     parse_temporal_value,
 )
@@ -151,23 +151,18 @@ def resolve_topic_analysis_sidecar(
         selection_column_id,
         row_ids=[row_id],
     )
-    _base_values, base_refs = project.get_values_with_refs(
-        sheet_id,
-        selection_column_id,
-        row_ids=[row_id],
-        apply_edits=False,
-    )
-    base_ref = base_refs.get(row_id)
-    if not isinstance(base_ref, dict) or base_ref.get("kind") != "run_result":
+    candidate = project.db.execute(
+        "SELECT run_id FROM generated_result_candidates WHERE column_id=? AND row_id=?",
+        (selection_column_id, row_id),
+    ).fetchone()
+    if candidate is None:
         return None
-    run_id = base_ref.get("run_id")
-    if not _positive_int(run_id):
-        return None
-    run_id = int(run_id)
+    run_id = int(candidate["run_id"])
 
     run = project.db.execute(
-        "SELECT id, op_id, params, action_kind FROM runs WHERE id=? AND sheet_id=? "
-        "AND status IN ('completed', 'partial')",
+        "SELECT runs.id, op_id, params, action_kind,ops.change_order FROM runs "
+        "JOIN ops ON ops.id=runs.op_id WHERE runs.id=? AND runs.sheet_id=? "
+        "AND runs.status IN ('completed', 'partial')",
         (run_id, sheet_id),
     ).fetchone()
     if run is None:
@@ -192,11 +187,16 @@ def resolve_topic_analysis_sidecar(
             return None
     elif live_ref.get("kind") == "manual_edit":
         edit_op_id = live_ref.get("op_id")
-        run_op_id = run["op_id"]
+        edit_order = project.db.execute(
+            "SELECT change_order FROM ops WHERE id=?", (edit_op_id,)
+        ).fetchone()
+        run_order = run["change_order"]
         if (
             not _positive_int(edit_op_id)
-            or not _positive_int(run_op_id)
-            or int(edit_op_id) <= int(run_op_id)
+            or edit_order is None
+            or edit_order[0] is None
+            or run_order is None
+            or int(edit_order[0]) <= int(run_order)
         ):
             # Edit refs do not retain their underlying generated-value ref.
             # A run created after the edit therefore cannot truthfully be

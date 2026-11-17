@@ -5,19 +5,20 @@ from pathlib import Path
 
 import pytest
 
+from tests.engine.historical_schema import restore_pre_domain_schema
+
 from frisket.engine.store import Project
-from frisket.engine.store.document_text_migration import (
+from frisket.upgrades.project.document_text_migration import (
     DOCUMENT_TEXT_FROM_DIGEST,
     DOCUMENT_TEXT_TO_DIGEST,
     migrate_document_text,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
-from frisket.engine.store.bundle_open import (
-    _IMPORT_SESSION_ROWS_FROM_DIGEST,
-)
+from frisket.upgrades.project.chain import _IMPORT_SESSION_ROWS_FROM_DIGEST
 
 
 def _restore_prior_layout(project: Project) -> None:
+    restore_pre_domain_schema(project.db)
     project.db.execute("DROP VIEW current_document_text_selections")
     project.db.execute("DROP TABLE document_text_manual_pins")
     project.db.execute("DROP TABLE document_text_column_roles")
@@ -74,6 +75,7 @@ def test_prior_bundle_migrates_without_guessing_legacy_roles(tmp_path: Path) -> 
 def test_document_text_bundle_adds_stable_import_row_ledger(tmp_path: Path) -> None:
     project = Project.create(tmp_path / "import-rows.frisket")
     path = project.path
+    restore_pre_domain_schema(project.db)
     project.db.execute("DROP TABLE import_session_rows")
     project.db.execute(
         "UPDATE meta SET value=? WHERE key=?",

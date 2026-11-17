@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -53,13 +54,15 @@ def _declare_generation(
     state: str = "active",
     write_mode: str = "create",
 ) -> None:
+    column = project.get_column(column_id)
+    assert column is not None
     terminal = "completed" if state == "sealed" else None
     sealed_at = "2026-08-16T00:00:00Z" if state == "sealed" else None
     project.db.execute(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token,terminal_disposition,sealed_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
+        "claim_token,terminal_disposition,sealed_at,output_descriptor_json) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
             run_id,
             column_id,
@@ -70,6 +73,14 @@ def _declare_generation(
             "claim:test",
             terminal,
             sealed_at,
+            json.dumps(
+                {
+                    "column_type": column["type"],
+                    "schema": {},
+                    "format": column["format"],
+                    "semantic_type": column["semantic_type"],
+                }
+            ),
         ),
     )
 

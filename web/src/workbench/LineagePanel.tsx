@@ -110,16 +110,9 @@ export function CascadeConfirmDialog({
               </li>
             ))}
           </ol>
-          {/* Ruling 4 honesty: sheet.refresh cannot resume — it rebuilds each
-              sheet from its parent, replacing every derived row. Naming the
-              scope before the click was not enough: this door re-runs a whole
-              CASCADE, so the copy also says it is a fresh purchase of every
-              listed sheet. The cost gate then prices model steps. */}
           <p className="muted" data-testid="cascade-rerun-scope">
-            Re-running rebuilds each sheet from its parent — every row is
-            replaced and re-derived, not just the changed ones. That makes it
-            a new run, not a resume: every derived row in every sheet listed
-            above is charged again.
+            Refresh these sheets from current sources using their saved settings.
+            Paid steps may require confirmation.
           </p>
           {error && <div className="sheet-cascade-confirm-error">{error}</div>}
           <div className="sheet-cascade-confirm-actions">
@@ -183,8 +176,9 @@ function LineageNodeChip({
       <div className="lineage-node-name">
         {node.name}
         {node.kind === 'sheet' && node.syncState && (
-          <StatusChip tone={stale ? 'warning' : 'success'} size="sm">
-            {stale ? 'source changed' : 'up to date'}
+          <StatusChip tone={stale || node.syncState !== 'synced' ? 'warning' : 'success'} size="sm">
+            {stale ? 'source changed' : node.syncState === 'checking' ? 'checking source changes'
+              : node.syncState === 'unknown' ? 'source changes not checked' : 'up to date'}
           </StatusChip>
         )}
       </div>
@@ -224,21 +218,32 @@ export function LineagePanel({
   // re-run produces a new array, which re-syncs the DAG with the same read.
   useEffect(() => {
     let alive = true;
-    projectApi
-      .getLineage()
-      .then((next) => {
-        if (alive) {
-          setDag(next);
-          setError(null);
-        }
-      })
-      .catch((err) => {
-        if (alive) setError(err instanceof Error ? err.message : 'Lineage unavailable');
-      });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let checking = false;
+    const read = () => {
+      projectApi.getLineage()
+        .then((next) => {
+          if (alive) {
+            setDag(next);
+            setError(null);
+            if (next.nodes.some((node) => node.syncState === 'checking')) {
+              checking = true;
+              timer = setTimeout(read, 2000);
+            } else if (checking) {
+              void refreshSheets();
+            }
+          }
+        })
+        .catch((err) => {
+          if (alive) setError(err instanceof Error ? err.message : 'Lineage unavailable');
+        });
+    };
+    read();
     return () => {
       alive = false;
+      clearTimeout(timer);
     };
-  }, [sheets]);
+  }, [projectApi, sheets, refreshSheets]);
 
   const staleDeepestFirst = staleSheetsDeepestFirst(sheets);
 

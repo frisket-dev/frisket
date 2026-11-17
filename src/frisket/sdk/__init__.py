@@ -211,7 +211,7 @@ from frisket.actions.entity_types import (
     EntityVariant,
 )
 from frisket.actions.temporal_types import VisualCutsReader
-from frisket.features.temporal_values import TimelinePointsValue
+from frisket.contracts.temporal_values import TimelinePointsValue
 
 __all__ = [
     "EntityRowset",

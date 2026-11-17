@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from frisket.contracts.action import (
     ActionError,
@@ -27,6 +28,7 @@ from frisket.engine.store.receipts import (
     ReceiptStore,
 )
 from frisket.execution.attempt import StaleAttemptWriter
+from frisket.execution.dispatch_control import DispatchControl
 from frisket.engine.executor.action_specs import declared_queued_action_job_kinds
 
 
@@ -743,6 +745,9 @@ def reserve_typed_action_job(
         raise TypeError(
             "typed action jobs require a supported callable or transcript table"
         )
+    from .selection_scope import authored_request, resolve_action_selection
+
+    bound = resolve_action_selection(project, bound, replay_before_resolution=True)
     request = bound.request
     identity = _TypedProjectEnvelope(
         kind=request.action_id,
@@ -765,7 +770,16 @@ def reserve_typed_action_job(
         params_hash=reservation["params_hash"],
         idempotency_key=request.idempotency_key,
         project_id=project_id,
-        action=request.model_dump(mode="json", exclude_none=True),
+        action=authored_request(bound).model_dump(mode="json", exclude_none=True),
+        resolved_snapshot=(
+            {
+                "selection_scope": request.scope.model_dump(
+                    mode="json", exclude_none=True
+                )
+            }
+            if bound.authored_scope is not None
+            else None
+        ),
         resolve_phase="worker",
     )
 
@@ -790,6 +804,30 @@ def bind_typed_action_job(
             )
         if bound is None:
             bound = typed_action_for_request(dict(envelope.action))
+        if (
+            envelope.resolved_snapshot is not None
+            and "selection_scope" in envelope.resolved_snapshot
+        ):
+            from .selection_scope import freeze_action_selection
+            from frisket.actions.types import SheetRows
+
+            frozen_scope = SheetRows.model_validate(
+                envelope.resolved_snapshot["selection_scope"]
+            )
+            if (
+                frozen_scope.selection is not None
+                or frozen_scope.row_ids is None
+                or frozen_scope.sheet_id != bound.request.scope.sheet_id
+            ):
+                raise ValueError("Frozen action selection scope is invalid")
+            bound = freeze_action_selection(bound, frozen_scope.row_ids)
+        from frisket.actions.types import SheetRows
+
+        if (
+            isinstance(bound.request.scope, SheetRows)
+            and bound.request.scope.selection is not None
+        ):
+            raise ValueError("Queued View selection has no frozen cohort")
         if (
             bound.request.action_id != envelope.action_kind
             or bound.request.idempotency_key != envelope.idempotency_key
@@ -950,7 +988,12 @@ def mark_action_job_enqueued(
 # worker passes the registry lookup into ``run_action_run_job``; the worker
 # owns terminalization, so the executor just resolves+computes and returns its
 # ActionResult (or raises).
-ActionJobExecutor = Callable[[Any, "ActionJobEnvelope"], ActionResult]
+class ActionJobExecutor(Protocol):
+    def __call__(
+        self, project: Any, envelope: ActionJobEnvelope, *, execution: DispatchControl
+    ) -> ActionResult: ...
+
+
 ActionJobExecutorLookup = Callable[[str], ActionJobExecutor | None]
 
 
@@ -1095,9 +1138,50 @@ def run_action_run_job(
     if already_terminal is not None:
         return already_terminal
 
+    from frisket.execution.dispatch_control import QueuedDispatch
+
+    execution = QueuedDispatch(project, receipt_id, should_cancel)
     executor = executor_lookup(action_kind) if executor_lookup is not None else None
     try:
+        execution.check()
         bound = bind_typed_action_job(envelope, project=project)
+        from frisket.actions.registry import ACTION_REGISTRY
+        from frisket.authoring.workbench.installed_actions import (
+            resolve_installed_action,
+        )
+        from frisket.authoring.action_metadata import product_edition_from_snapshot
+        from frisket.execution.action_admission import action_admission_error
+
+        installed = resolve_installed_action(project, action_kind)
+        try:
+            declared = (
+                installed[0]
+                if installed is not None
+                else ACTION_REGISTRY.get(action_kind)
+            )
+        except KeyError:
+            declared = None  # Composition-owned custom executors may have no public declaration.
+        if declared is not None:
+            snapshot = project.db.execute(
+                "SELECT edition_run_context FROM receipts WHERE id=?", (receipt_id,)
+            ).fetchone()[0]
+            refusal = action_admission_error(
+                project,
+                declared,
+                edition=product_edition_from_snapshot(
+                    json.loads(snapshot) if snapshot else None
+                ),
+                runtime_binding=installed[1] if installed is not None else None,
+            )
+            if refusal is not None:
+                return action_job_failure_result(
+                    project,
+                    project_id=project_id,
+                    receipt_id=receipt_id,
+                    action_kind=action_kind,
+                    error=refusal,
+                    job_id=job_id,
+                )
         if not isinstance(bound, ActionResult):
             from frisket.actions.core import MapBatch
 
@@ -1110,7 +1194,7 @@ def run_action_run_job(
                 )
                 from frisket.engine.executor.actions import _default_map_runner_factory
 
-                def executor(current, intent):
+                def executor(current, intent, *, execution):
                     return run_inferred_batch(
                         current,
                         intent.project_id,
@@ -1122,6 +1206,25 @@ def run_action_run_job(
                             "receipt_id": intent.receipt_id,
                         },
                         should_cancel=should_cancel,
+                    )
+
+        if executor is None and not isinstance(bound, ActionResult):
+            from frisket.actions.types import RowsUpdater
+
+            if getattr(bound.action.definition.run, "capabilities", ()) == (
+                RowsUpdater,
+            ):
+                from frisket.engine.executor.import_update_admission import (
+                    run_rows_updater,
+                )
+                from frisket.engine.executor.action_inventory import ExecutorDeps
+
+                def executor(current, intent, *, execution):
+                    return run_rows_updater(
+                        current,
+                        intent.project_id,
+                        bound,
+                        ExecutorDeps(cancelled=should_cancel),
                     )
 
         if executor is None:
@@ -1147,7 +1250,15 @@ def run_action_run_job(
                 action_kind=action_kind,
                 job_id=job_id,
             )
-        result = executor(project, envelope)
+        result = executor(project, envelope, execution=execution)
+    except asyncio.CancelledError:
+        return action_job_cancelled_result(
+            project,
+            project_id=project_id,
+            receipt_id=receipt_id,
+            action_kind=action_kind,
+            job_id=job_id,
+        )
     except ClaimLeaseRenewalFailed:
         # The effect batch and renewal rolled back together. Preserve the
         # running receipt so the queue can retry without buying work again.

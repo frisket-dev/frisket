@@ -212,12 +212,9 @@ def test_undo_then_create_same_name_gets_fresh_empty_identity(tmp_path: Path) ->
         ).fetchone()
         is not None
     )
-    assert (
-        project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (first.json()["op_ids"][0],)
-        ).fetchone()[0]
-        == "discarded"
-    )
+    assert project.db.execute(
+        "SELECT status,redo_eligible FROM ops WHERE id=?", (first.json()["op_ids"][0],)
+    ).fetchone()[:] == ("undone", 0)
 
     # New creation owns its own undo/redo; neither operation resurrects the old ID.
     new_op = second.json()["op_ids"][0]

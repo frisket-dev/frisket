@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from contextlib import nullcontext, closing
+from weakref import WeakSet, WeakKeyDictionary
+from .table_read_stage import JoinReadStage
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -24,12 +27,8 @@ from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.executor.import_read_guard import require_action_sheet_readable
 from frisket.engine.executor.joined_table import (
     _pair_mode,
-    _row_key,
     _side_read_ids,
-    _top_fanout_keys,
     _widen_type,
-    iter_join_records,
-    join_counts,
 )
 from frisket.engine.runner.confirmation_context import (
     ParamsScope,
@@ -149,20 +148,66 @@ def _projection(keys, picks, left, right, indicator):
     return descriptors
 
 
-def _read_side(project, sheet, columns, ids):
+def _read_side(
+    project,
+    sheet,
+    columns,
+    ids,
+    *,
+    scope_intent="whole",
+    stage=None,
+    side=None,
+    specs=(),
+    require_complete=False,
+):
+    from frisket.engine.store.consumed_source_pages import iter_consumed_source_pages
+    from frisket.engine.store.consumed_sources import capture_fingerprint
+
     by_id = {column["id"]: column for column in columns.values()}
-    values = {
-        column_id: project.get_values(
-            sheet["sheet_id"], column_id, row_ids=sheet["row_ids"]
-        )
-        for column_id in ids
-    }
+    captures = []
+    pages = iter_consumed_source_pages(
+        project,
+        sheet["sheet_id"],
+        ids,
+        row_ids=sheet["row_ids"] if scope_intent == "selected" else None,
+        captures=captures,
+    )
+    with closing(pages):
+        for page, values, refs in pages:
+            if require_complete:
+                for column, column_refs in refs.items():
+                    for row, ref in column_refs.items():
+                        if (
+                            ref.get("outcome") not in (None, "completed")
+                            or ref.get("validity") == "invalid"
+                        ):
+                            raise TableError(
+                                "invalid_input_ref",
+                                "Join source is unavailable; refresh cannot infer that previous matches disappeared",
+                                details={
+                                    "row_id": row,
+                                    "column_id": column,
+                                    "reason": "upstream_unavailable",
+                                },
+                            )
+            if stage is not None:
+                for row in page:
+                    stage.add(side, row, values, specs)
+    capture = captures[0]
     facts = {**sheet, "columns": [by_id[column_id] for column_id in ids]}
-    facts["snapshot_hash"] = _digest([facts, values])
-    return facts, values
+    facts["snapshot_hash"] = _digest([facts, capture_fingerprint(capture)])
+    return facts, capture
 
 
 def validate_joined_tables_source(project, fact, *, code="stale_replay"):
+    snapshot = (
+        nullcontext(project) if project.db.in_transaction else project.read_snapshot()
+    )
+    with snapshot as captured:
+        return _validate_joined_tables_source(captured, fact, code=code)
+
+
+def _validate_joined_tables_source(project, fact, *, code):
     """Verify both recorded dependencies, even when no output row used either."""
     try:
         for side in ("left", "right"):
@@ -177,6 +222,9 @@ def validate_joined_tables_source(project, fact, *, code="stale_replay"):
                 sheet,
                 columns,
                 [column["id"] for column in recorded["columns"]],
+                scope_intent="selected"
+                if side == "left" and fact["left_requested_row_ids"] is not None
+                else "whole",
             )
             if "column_roster" in recorded:
                 current["column_roster"] = list(columns.values())
@@ -223,10 +271,14 @@ class AdmittedJoinedTablesReader:
             if refresh_admission is None
             else refresh_admission.confirmation
         )
+        self.require_complete = refresh_admission is not None
         self.parent_sheet_id = scope.sheet_id
-        self.sources = set()
-        self.source_roles = {}
+        self.sources = WeakSet()
+        self.source_roles = WeakKeyDictionary()
+        self._tokens = WeakKeyDictionary()
+        self._stages = []
         self.facts = []
+        self.consumed_captures = []
         self._plans = []
 
     def read(
@@ -266,6 +318,8 @@ class AdmittedJoinedTablesReader:
         if len({(key.left_column, key.right_column) for key in keys}) != len(keys):
             raise TableError("invalid_input_ref", "Join key pairs must be distinct")
         requested = None if self.scope.row_ids is None else list(self.scope.row_ids)
+        stage = JoinReadStage()
+        self._stages.append(stage)
         with self.project.read_snapshot() as project:
             left_sheet, left_columns = _sheet(project, self.scope.sheet_id, requested)
             right_sheet, right_columns = _sheet(project, right.sheet_id)
@@ -290,31 +344,34 @@ class AdmittedJoinedTablesReader:
                     }
                 )
             output = _projection(keys, picks, left_columns, right_columns, indicator)
-            left_fact, left_vals = _read_side(
-                project, left_sheet, left_columns, _side_read_ids(specs, output, "left")
+            left_fact, left_capture = _read_side(
+                project,
+                left_sheet,
+                left_columns,
+                _side_read_ids(specs, output, "left"),
+                scope_intent="selected" if requested is not None else "whole",
+                stage=stage,
+                side="left",
+                specs=specs,
+                require_complete=self.require_complete,
             )
-            right_fact, right_vals = _read_side(
+            right_fact, right_capture = _read_side(
                 project,
                 right_sheet,
                 right_columns,
                 _side_read_ids(specs, output, "right"),
+                stage=stage,
+                side="right",
+                specs=specs,
+                require_complete=self.require_complete,
             )
             if picks is None:
                 # An implicit projection reads the column roster as well as cells:
                 # newly added columns change its schema. Explicit picks do not.
                 left_fact["column_roster"] = list(left_columns.values())
                 right_fact["column_roster"] = list(right_columns.values())
-        left_keys = [
-            (row, _row_key(row, left_vals, specs, "left"))
-            for row in left_sheet["row_ids"]
-        ]
-        right_keys = [
-            (row, _row_key(row, right_vals, specs, "right"))
-            for row in right_sheet["row_ids"]
-        ]
-        right_index, left_key_set, stats, count = join_counts(
-            left_keys, right_keys, how
-        )
+        stage.seal()
+        stats, count = stage.stats(how)
         fact = {
             "kind": "joined_tables_source",
             "left_sheet_id": self.scope.sheet_id,
@@ -330,27 +387,26 @@ class AdmittedJoinedTablesReader:
             "stats": stats,
         }
         self.facts.append(fact)
-        tokens = {
-            side: {
-                row: RowSource(sheet_id=sheet["sheet_id"], row_id=row)
-                for row in sheet["row_ids"]
-            }
-            for side, sheet in (("left", left_sheet), ("right", right_sheet))
-        }
-        for side, rows in tokens.items():
-            self.sources.update(rows.values())
-            self.source_roles.update((token, f"join_{side}") for token in rows.values())
-        self._plans.append(
-            (tokens, dict(left_keys), dict(right_keys), left_key_set, right_index, how)
-        )
+        self.consumed_captures.extend((left_capture, right_capture))
+        self._plans.append((stage, how))
+
+        def token(side, row_id):
+            if row_id is None:
+                return None
+            source = RowSource(
+                sheet_id=self.scope.sheet_id if side == "left" else right.sheet_id,
+                row_id=row_id,
+            )
+            self.sources.add(source)
+            self.source_roles[source] = f"join_{side}"
+            self._tokens[source] = (stage, side)
+            return source
 
         def rows():
             details = {
                 "estimated_rows": count,
                 "max_output_rows": max_output_rows,
-                "top_fanout_keys": _top_fanout_keys(
-                    left_key_set & right_index.keys(), left_keys, right_index
-                ),
+                "top_fanout_keys": stage.top_keys(),
             }
             confirmation_hash = mint_confirmation_hash(
                 scope_confirmation(
@@ -375,20 +431,11 @@ class AdmittedJoinedTablesReader:
                 )
                 if refusal is not None:
                     raise TableReadRefused(refusal)
-            for record in iter_join_records(
-                how=how,
-                output_columns=output,
-                left_keys=left_keys,
-                right_keys=right_keys,
-                right_index=right_index,
-                left_key_set=left_key_set,
-                left_vals=left_vals,
-                right_vals=right_vals,
-            ):
-                left = tokens["left"].get(record["left_row_id"])
-                other = tokens["right"].get(record["right_row_id"])
+            for left_id, right_id, values in stage.records(how, output):
+                left = token("left", left_id)
+                other = token("right", right_id)
                 yield TableRow(
-                    output=DynamicOutput(record["values"]),
+                    output=DynamicOutput(values),
                     sources=tuple(
                         token for token in (left, other) if token is not None
                     ),
@@ -401,13 +448,18 @@ class AdmittedJoinedTablesReader:
             warnings=warnings,
         )
 
+    def close(self):
+        for stage in self._stages:
+            stage.close()
+        self._stages.clear()
+
     def validate_lineage(self, sources, parent):
-        for tokens, left_keys, right_keys, left_set, right_index, how in self._plans:
+        for stage, how in self._plans:
             left = next(
                 (
                     token
                     for token in sources
-                    if tokens["left"].get(token.row_id) is token
+                    if self._tokens.get(token) == (stage, "left")
                 ),
                 None,
             )
@@ -415,7 +467,7 @@ class AdmittedJoinedTablesReader:
                 (
                     token
                     for token in sources
-                    if tokens["right"].get(token.row_id) is token
+                    if self._tokens.get(token) == (stage, "right")
                 ),
                 None,
             )
@@ -423,20 +475,8 @@ class AdmittedJoinedTablesReader:
                 token for token in (left, right) if token is not None
             }:
                 continue
-            if left is not None and right is not None:
-                key = left_keys[left.row_id]
-                if key is not None and key == right_keys[right.row_id]:
-                    return
-            elif (
-                left is not None
-                and how in ("left", "outer")
-                and left_keys[left.row_id] not in right_index
-            ):
-                return
-            elif (
-                right is not None
-                and how in ("right", "outer")
-                and right_keys[right.row_id] not in left_set
+            if stage.valid_pair(
+                left.row_id if left else None, right.row_id if right else None, how
             ):
                 return
         raise TableError(

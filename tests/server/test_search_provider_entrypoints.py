@@ -102,6 +102,17 @@ def test_local_mcp_backfill_uses_the_workspace_search_provider(
         )
         assert source.status_code == 200, source.text
         drain_queue(client)
+        project = client.app.state.workspace.get(project_id)
+        first_run = project.db.execute(
+            "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert first_run["status"] == "completed"
+        assert first_run["completed_rows"] == 1
+        assert first_run["failed_rows"] == 0, [
+            dict(row)
+            for row in project.db.execute("SELECT error, error_code FROM results")
+        ]
+        assert calls == [(provider, "Background on first story")]
         added = post_row_add_as_v1_action(
             client, project_id, sheet_id, {"story": "late story"}
         )

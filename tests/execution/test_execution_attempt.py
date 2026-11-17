@@ -12,6 +12,7 @@ refused, not converted (``tests/engine/test_bundle_schema_fence.py``).
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import ast
 import json
@@ -302,13 +303,23 @@ def test_maprunner_without_an_authority_is_a_type_error(project):
     trusted to remember a keyword and an effect-site fence existed to notice
     when one didn't."""
     with pytest.raises(TypeError) as exc_info:
-        MapRunner(project, ModelRouter())
+        MapRunner(project, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY))
     assert "authority" in str(exc_info.value)
 
     # Positional is refused too — it is keyword-only, so the argument is
     # named at every site rather than hiding in a position.
     with pytest.raises(TypeError):
-        MapRunner(project, ModelRouter(), 1, None, None, {}, False, None, object())
+        MapRunner(
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            1,
+            None,
+            None,
+            {},
+            False,
+            None,
+            object(),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -411,13 +422,24 @@ def test_the_attempt_receipt_route_serves_the_facts(tmp_path):
 
     app = create_app(tmp_path / "ws")
     created = app.state.workspace.create("attempts")
+    project = app.state.workspace.get(created["id"])
+    from frisket.engine.store.runs import RunResultStore
+
+    sheet_id = project.add_sheet("S")
+    op_id = project.append_op("media.transcribe")
+    run_id = RunResultStore(project).start_run(
+        op_id, sheet_id, "media.transcribe", params=dict(SPEC)
+    )
     route = next(
         route
         for route in app.routes
         if getattr(route, "path", None)
         == "/api/projects/{pid}/actions/runs/{run_id}/attempts"
     )
-    assert route.endpoint(created["id"], 1) == {"run_id": 1, "attempts": []}
+    assert route.endpoint(created["id"], run_id) == {
+        "run_id": run_id,
+        "attempts": [],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -425,8 +447,29 @@ def test_the_attempt_receipt_route_serves_the_facts(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def _link_run_job(project, run_id, job_id):
+    from frisket.contracts.action import Receipt, ReceiptEvidence
+    from frisket.engine.store.receipts import ReceiptStore
+
+    receipt = Receipt(
+        receipt_id=f"receipt_job_{job_id}",
+        project_id="t",
+        action_id="act-test",
+        run_id=run_id,
+        action_kind="media.transcribe",
+        status="running",
+        evidence=[
+            ReceiptEvidence(
+                ref={"kind": "queued_action_job_enqueued", "job_id": job_id}
+            )
+        ],
+    )
+    ReceiptStore(project).insert(receipt)
+
+
+@pytest.mark.parametrize("age_days", [0, 2])
 def test_stale_dispatching_attempts_are_closed_before_a_retry_is_admitted(
-    project, consented_run
+    project, consented_run, age_days
 ):
     """A crash mid-dispatch leaves a ``dispatching`` row. Left alone it would
     make every future reconsent on that run 409 forever, so recovery closes
@@ -436,8 +479,24 @@ def test_stale_dispatching_attempts_are_closed_before_a_retry_is_admitted(
     crashed = _mint(project, run_id)
     _claim_unscoped(project, crashed)
 
-    # Age the row past the bound, exactly as a crashed worker would leave it.
-    old = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds")
+    from frisket.engine.jobs import SqliteJobQueue
+
+    queue = SqliteJobQueue(project.path.parent / "queue.db")
+    project._frisket_run_queue = queue
+    job_id = queue.enqueue("action.run", {"project_id": "t", "run_id": run_id})
+    job = queue.claim("dead-worker")
+    assert job is not None
+    assert queue.fail(job_id, "dead-worker", "worker stopped", retry=False)
+    _link_run_job(project, run_id, job_id)
+    # Another live job in the same project is not this run's writer.
+    other_job_id = queue.enqueue("action.run", {"project_id": "t"})
+    other_job = queue.claim("other-worker")
+    assert other_job is not None and other_job.id == other_job_id
+
+    # Explicit handler exit proves death even before the age heuristic expires.
+    old = (datetime.now(timezone.utc) - timedelta(days=age_days)).isoformat(
+        timespec="seconds"
+    )
     project.db.execute(
         "UPDATE execution_attempts SET created_at=? WHERE id=?",
         (old, crashed.attempt_id),
@@ -454,18 +513,73 @@ def test_stale_dispatching_attempts_are_closed_before_a_retry_is_admitted(
         ).fetchone()["current_attempt_id"]
         is None
     )
-    # A fresh mint runs the detector itself, so recovery needs no operator.
-    assert _mint(project, run_id).seq == 1
+    # Reopening the project preserves the stopped queue association.
+    reopened = Project(project.path)
+    try:
+        reopened._frisket_run_queue = queue
+        assert _mint(reopened, run_id).seq == 1
+    finally:
+        reopened.close()
+        queue.close()
 
 
 def test_a_live_dispatching_attempt_is_never_abandoned(project, consented_run):
-    """The bound is what makes the detector safe: a young dispatching attempt
-    is a run that is working, not a crash."""
+    """A recent attempt cannot be considered stale."""
     run_id, _route, _set, _consent = consented_run
     live = _mint(project, run_id)
     _claim_unscoped(project, live)
     assert abandon_stale_dispatching_attempts(project, run_id) == 0
     assert attempt_receipt(project, live.attempt_id)["state"] == "dispatching"
+
+
+@pytest.mark.parametrize(
+    "queue_state", ["unlinked", "live", "cancelled_with_handler", "unavailable"]
+)
+def test_old_claimless_attempt_requires_proof_its_handler_stopped(
+    project, consented_run, queue_state
+):
+    from frisket.engine.jobs import SqliteJobQueue
+
+    run_id, *_ = consented_run
+    live = _mint(project, run_id)
+    _claim_unscoped(project, live)
+    project.db.execute(
+        "UPDATE execution_attempts SET created_at=? WHERE id=?",
+        ((datetime.now(timezone.utc) - timedelta(days=2)).isoformat(), live.attempt_id),
+    )
+    project.db.commit()
+    queue = SqliteJobQueue(project.path.parent / "queue.db")
+    try:
+        project._frisket_run_queue = queue
+        if queue_state != "unlinked":
+            job_id = queue.enqueue("action.run", {"project_id": "t", "run_id": run_id})
+            job = queue.claim("live-worker")
+            assert job is not None
+            _link_run_job(project, run_id, job_id)
+            if queue_state == "cancelled_with_handler":
+                queue.cancel(job_id)
+            if queue_state == "unavailable":
+
+                class UnavailableQueue:
+                    def job_execution_stopped(self, job_id):
+                        raise OSError("queue unavailable")
+
+                project._frisket_run_queue = UnavailableQueue()
+        assert abandon_stale_dispatching_attempts(project, run_id) == 0
+        assert attempt_receipt(project, live.attempt_id)["state"] == "dispatching"
+        assert (
+            project.db.execute(
+                "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
+            ).fetchone()[0]
+            == live.attempt_id
+        )
+        if queue_state == "cancelled_with_handler":
+            assert queue.acknowledge_handler_exit(
+                job_id, "live-worker", authority_id=job.handler_authority_id
+            )
+            assert abandon_stale_dispatching_attempts(project, run_id) == 1
+    finally:
+        queue.close()
 
 
 # ---------------------------------------------------------------------------
@@ -881,8 +995,10 @@ def test_halted_reason_without_a_code_stays_representable(project, consented_run
     assert _halt_columns(project, run_id) == (None, "halted after 10 failures")
 
 
-def test_running_queue_admission_preserves_racing_cancel_intent(project, consented_run):
-    """A prepared queued run is already running when resume admission starts."""
+def test_running_queue_admission_refuses_a_closed_cancelled_change(
+    project, consented_run
+):
+    """A Stop closes its Change before a queued worker can resume it."""
 
     from frisket.engine.store.runs import RunResultStore
 
@@ -901,13 +1017,19 @@ def test_running_queue_admission_preserves_racing_cancel_intent(project, consent
         reopen_operator_cancelled=False,
     )
 
-    assert admission.admitted is True
+    assert admission.admitted is False
     assert admission.prior_cancel_requested_at == requested_at
-    assert admission.transient_cancel_requested_at == requested_at
+    assert admission.transient_cancel_requested_at is None
     assert store.cancellation_requested(run_id) is True
+    change = project.db.execute(
+        "SELECT op.publication_closed FROM runs run JOIN ops op ON op.id=run.op_id "
+        "WHERE run.id=?",
+        (run_id,),
+    ).fetchone()
+    assert change[0] == 1
 
 
-def test_terminal_resume_clears_and_refused_revert_restores_cancel_intent(
+def test_terminal_cancelled_run_cannot_resume_or_clear_cancel_intent(
     project, consented_run
 ):
     from frisket.engine.store.runs import RunResultStore
@@ -926,12 +1048,10 @@ def test_terminal_resume_clears_and_refused_revert_restores_cancel_intent(
     project.db.commit()
 
     admission = store.begin_run_resume(run_id)
-    assert admission.admitted is True
+    assert admission.admitted is False
     assert admission.prior_cancel_requested_at == requested_at
     assert admission.transient_cancel_requested_at is None
-    assert store.has_cancel_intent(run_id) is False
-
-    store.revert_run_resume(run_id, admission)
+    assert store.has_cancel_intent(run_id) is True
     restored = project.db.execute(
         "SELECT status, finished_at, cancel_requested_at FROM runs WHERE id=?",
         (run_id,),
@@ -981,6 +1101,12 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
     run_id = RunResultStore(project).start_run(
         op_id, sheet_id, "media.transcribe", params=dict(SPEC)
     )
+    from frisket.engine.store.changes import ChangeStore
+
+    project.db.execute("BEGIN IMMEDIATE")
+    ChangeStore(project).start(op_id, writing=True)
+    ChangeStore(project).close(op_id)
+    project.db.commit()
     _route, promise_set, consent = _consent_and_route(project, run_id)
     attempt = _mint(project, run_id)
     _claim_unscoped(project, attempt)
@@ -1004,14 +1130,16 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
     set_attempt_state(project, attempt.attempt_id, "effected")
 
     # Undo, then a new op so the undone branch is no longer redoable.
-    project.undo()
-    project.append_op("noop")
-    assert (
-        project.db.execute("SELECT status FROM ops WHERE id=?", (op_id,)).fetchone()[
-            "status"
-        ]
-        == "discarded"
-    )
+    assert project.undo() == op_id
+    noop_op = project.append_op("noop")
+    project.db.execute("BEGIN IMMEDIATE")
+    ChangeStore(project).start(noop_op, writing=True)
+    ChangeStore(project).close(noop_op)
+    project.db.commit()
+    discarded = project.db.execute(
+        "SELECT status,redo_eligible FROM ops WHERE id=?", (op_id,)
+    ).fetchone()
+    assert tuple(discarded) == ("undone", 0)
 
     project.compact()
 
@@ -1053,3 +1181,144 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
     )
     assert "unsettleable" not in receipt["settlement"]
     assert receipt["settlement"]["charge_usd"] == "0.02"
+
+
+@pytest.mark.parametrize("attached_queue", [False, True])
+def test_requeued_claimless_attempt_recovers_original_handler_not_current_job(
+    project, consented_run, monkeypatch, attached_queue
+):
+    from frisket.engine.jobs import SqliteJobQueue
+    from frisket.execution.handler_lineage import record_handler_lineage
+
+    run_id, *_ = consented_run
+    original = _mint(project, run_id)  # Admission can precede the worker claim.
+    now = [datetime.now(timezone.utc)]
+    queue = SqliteJobQueue(project.path.parent / "retry-queue.db", clock=lambda: now[0])
+    if attached_queue:
+        project._frisket_run_queue = queue
+
+    def unavailable_default_queue(**kwargs):
+        raise OSError("default queue is unavailable; use this worker's exact queue")
+
+    monkeypatch.setattr(
+        "frisket.engine.jobs.queue.open_queue", unavailable_default_queue
+    )
+    reopened = None
+    try:
+        job_id = queue.enqueue("action.run", {"project_id": "t", "run_id": run_id})
+        old_handler = queue.claim("old-worker", lease_seconds=1)
+        assert old_handler is not None
+        with record_handler_lineage(
+            job_id=job_id, authority_id=old_handler.handler_authority_id
+        ):
+            _claim_unscoped(project, original)
+        now[0] += timedelta(seconds=2)
+        assert queue.recover_expired() == 1
+        new_handler = queue.claim("replacement-worker", lease_seconds=60)
+        assert new_handler is not None and new_handler.id == job_id
+        assert queue.get(job_id).status == "running"
+        with record_handler_lineage(
+            job_id=job_id, authority_id=new_handler.handler_authority_id, queue=queue
+        ):
+            # Expiry and a successor are not evidence that the original code died.
+            assert abandon_stale_dispatching_attempts(project, run_id) == 0
+            stopped = queue.abandon_stopped_worker_handler_authorities(
+                "old-worker", heartbeat_cutoff=now[0]
+            )
+            assert stopped.abandoned_authorities == 1
+            assert not queue.job_execution_stopped(job_id)  # The replacement is live.
+            reopened = Project(project.path)
+            if attached_queue:
+                reopened._frisket_run_queue = queue
+            from frisket.engine.store.output_claims import OutputColumnClaimStore
+
+            claims = OutputColumnClaimStore(reopened)
+            assert claims.attempt_handler_execution_stopped(original.attempt_id)
+            assert abandon_stale_dispatching_attempts(reopened, run_id) == 1
+            assert claims.attempt_handler_execution_stopped(original.attempt_id)
+            replacement = _mint(reopened, run_id)
+            with record_handler_lineage(
+                job_id=job_id, authority_id=new_handler.handler_authority_id
+            ):
+                _claim_unscoped(reopened, replacement)
+            rows = reopened.db.execute(
+                "SELECT id,state,job_id,handler_authority_id FROM execution_attempts "
+                "WHERE run_id=? ORDER BY seq",
+                (run_id,),
+            ).fetchall()
+            assert [tuple(row) for row in rows] == [
+                (
+                    original.attempt_id,
+                    "abandoned",
+                    job_id,
+                    old_handler.handler_authority_id,
+                ),
+                (
+                    replacement.attempt_id,
+                    "dispatching",
+                    job_id,
+                    new_handler.handler_authority_id,
+                ),
+            ]
+            assert abandon_stale_dispatching_attempts(reopened, run_id) == 0
+    finally:
+        if reopened is not None:
+            reopened.close()
+        queue.close()
+
+
+def test_worker_records_trusted_handler_identity_at_dispatch_and_clears_scope(
+    project, consented_run
+):
+    import asyncio
+    from frisket.engine.jobs import SqliteJobQueue
+    from frisket.engine.jobs.worker import HandlerRegistry, Worker
+    from frisket.execution.handler_lineage import current_handler_lineage
+
+    run_id, *_ = consented_run
+    attempt = _mint(project, run_id)
+    queue = SqliteJobQueue(project.path.parent / "worker-queue.db")
+    registry = HandlerRegistry()
+    seen = []
+
+    def handler(payload, context):
+        async def dispatch():
+            seen.append(current_handler_lineage())
+            assert seen[-1].job_id == context.job_id
+            assert seen[-1].authority_id == context.handler_authority_id
+            _claim_unscoped(project, attempt)
+
+        asyncio.run(dispatch())
+        return {"dispatched": True}
+
+    registry.register("test.lineage", handler)
+    try:
+        job_id = queue.enqueue("test.lineage", {"job_id": 99999, "project_id": "t"})
+        worker = Worker(queue, registry, worker_id="test-worker")
+        assert worker.run_once()
+        assert queue.get(job_id).status == "done"
+        stored = project.db.execute(
+            "SELECT job_id,handler_authority_id FROM execution_attempts WHERE id=?",
+            (attempt.attempt_id,),
+        ).fetchone()
+        assert tuple(stored) == (job_id, seen[0].authority_id)
+        assert current_handler_lineage() is None
+    finally:
+        queue.close()
+
+
+def test_missing_original_job_is_not_proof_of_dead_handler(project, consented_run):
+    from frisket.engine.jobs import SqliteJobQueue
+    from frisket.execution.handler_lineage import record_handler_lineage
+
+    run_id, *_ = consented_run
+    attempt = _mint(project, run_id)
+    with record_handler_lineage(job_id=999, authority_id="lost-original-handler"):
+        _claim_unscoped(project, attempt)
+    queue = SqliteJobQueue(project.path.parent / "empty-queue.db")
+    project._frisket_run_queue = queue
+    try:
+        assert abandon_stale_dispatching_attempts(project, run_id) == 0
+        assert attempt_receipt(project, attempt.attempt_id)["state"] == "dispatching"
+    finally:
+        queue.close()

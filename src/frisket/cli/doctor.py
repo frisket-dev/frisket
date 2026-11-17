@@ -4,6 +4,8 @@ Without a subcommand it runs the local project-store/search round-trip probe;
 `frisket doctor embeddings [--json]` reports the embedding product path.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import json
 import os
 import sys
@@ -134,7 +136,7 @@ def _embeddings_doctor(argv: list[str]) -> int:
     try:
         from frisket.ai.llm import ModelRouter
 
-        router = ModelRouter()
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
     except Exception:  # noqa: BLE001 — doctor reports, never crashes
         router = None
 

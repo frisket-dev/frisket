@@ -7,8 +7,10 @@ action.
 
 from __future__ import annotations
 
+from tests.watch_helpers import add_watch
+
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from frisket.engine.jobs import (
     JobHandlerContext,
@@ -176,11 +178,17 @@ def test_source_poll_watch_notification_enqueues_external_delivery_only_for_even
     q.enqueue(SOURCE_POLL_KIND, {"project_id": "news", "source_id": sid})
     assert worker.run_once()
     p = Project(workspace / "news.frisket")
-    watch_id = p.add_watch(
+    watch_id = add_watch(
+        p,
         "Budget watch",
         scope="project",
         query={"kind": "fts", "q": "budget", "limit": 20},
     )
+    # The initial observation is silent; later source changes produce alerts.
+    from frisket.features.watchlists.service import run_watch_evaluation
+
+    drain_index(p)
+    run_watch_evaluation(p, p.get_watch(watch_id))
     channel = p.create_notification_channel(
         kind="email",
         name="Watch email",
@@ -500,6 +508,66 @@ def test_source_poll_failure_retry_replays_same_logical_poll(tmp_path):
         assert len(receipts) == 1
         assert receipts[0]["status"] == "failed"
         reopened.close()
+
+
+def test_unavailable_destination_check_preserves_scheduled_interval(tmp_path):
+    from contextlib import closing
+
+    workspace = tmp_path / "ws"
+    with closing(_project(workspace)) as project:
+        sheet = project.add_sheet("Feed")
+        source_id = SourceStore(project).add_source(
+            "Feed",
+            kind="rss",
+            url="https://example.test/feed",
+            sheet_id=sheet,
+            schedule="@hourly",
+        )
+        project.delete_sheet(sheet)
+    with closing(SqliteJobQueue(workspace / ".queue.db")) as queue:
+        [scheduled] = enqueue_due_source_polls(
+            workspace_root=workspace,
+            queue=queue,
+            now=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        calls = []
+
+        def fetch(url):
+            calls.append(url)
+            return _feed([{"guid": "a", "title": "Alpha"}])
+
+        worker = Worker(queue, _register(workspace, fetch, queue=queue))
+        assert worker.run_once()
+        assert queue.get(scheduled["job_id"]).status == "failed"
+        assert calls == []
+        with closing(Project(workspace / "news.frisket")) as project:
+            source = dict(SourceStore(project).get_source(source_id))
+            assert source["enabled"] == 1 and source["schedule"] == "@hourly"
+            assert source["last_status"] == "error"
+            assert source["last_checked_at"] is not None
+            checked = datetime.fromisoformat(source["last_checked_at"]).replace(
+                tzinfo=UTC
+            )
+            runs = SourceStore(project).source_runs(source_id)
+            assert len(runs) == 1 and runs[0]["status"] == "error"
+            assert project.undo() is not None
+        assert (
+            enqueue_due_source_polls(
+                workspace_root=workspace,
+                queue=queue,
+                now=checked + timedelta(minutes=1),
+            )
+            == []
+        )
+        [next_check] = enqueue_due_source_polls(
+            workspace_root=workspace,
+            queue=queue,
+            now=checked + timedelta(hours=1),
+        )
+        assert next_check["source_id"] == source_id
+        assert worker.run_once()
+        assert queue.get(next_check["job_id"]).status == "done"
+        assert calls == ["https://example.test/feed"]
 
 
 def test_scheduler_enqueues_due_enabled_sources_once(tmp_path):

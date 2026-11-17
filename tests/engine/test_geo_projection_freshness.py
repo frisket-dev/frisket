@@ -100,7 +100,7 @@ def _seed_ai_run(project: Project, values_by_row):
     return sheet, geo_col, rows, op, run
 
 
-def test_staged_full_rerun_keeps_old_points_until_atomic_seal(project):
+def test_same_descriptor_rerun_projects_completed_rows_before_seal(project):
     sheet, geo_col, rows, op1, run1 = _seed_ai_run(
         project, {0: {"lat": 1.0, "lon": 2.0}}
     )
@@ -112,12 +112,11 @@ def test_staged_full_rerun_keeps_old_points_until_atomic_seal(project):
     assert s1["valid_points"] == 1
     gen1 = s1["generation_hash"]
 
-    # A replacement generation is visible as chronology while its values stay
-    # staged. The cached projection must keep serving the old exact heads until
-    # the whole generation seals atomically.
+    # A replacement owns its frozen scope immediately. Pending rows mask old
+    # points; completed same-descriptor row families publish progressively.
     op2 = project.append_op("map", {"action_kind": "map.to_geo_point"})
     run2 = RunResultStore(project).start_run(
-        op2, sheet, "map.to_geo_point", total_rows=2
+        op2, sheet, "map.to_geo_point", row_ids=rows, total_rows=2
     )
     authority = run_writer_authority_fixture(project, run2, output_column_ids={geo_col})
     assert authority.claim_token is not None
@@ -139,6 +138,7 @@ def test_staged_full_rerun_keeps_old_points_until_atomic_seal(project):
         write_mode="replace_scope",
         claim_token=authority.claim_token,
     )
+    assert backend.query_points(sheet, geo_col)[0] == []
     RunResultStore(project).write_results(
         run2,
         [
@@ -159,8 +159,8 @@ def test_staged_full_rerun_keeps_old_points_until_atomic_seal(project):
     )
 
     staged_points, staged_status = backend.query_points(sheet, geo_col)
-    assert [(point.lat, point.lon) for point in staged_points] == [(1.0, 2.0)]
-    assert generations.get_binding(run2, geo_col).state == "staged"  # type: ignore[union-attr]
+    assert [(p.lat, p.lon) for p in staged_points] == [(5.0, 6.0), (3.0, 4.0)]
+    assert generations.get_binding(run2, geo_col).state == "active"  # type: ignore[union-attr]
 
     generations.seal(
         run2,
@@ -168,7 +168,11 @@ def test_staged_full_rerun_keeps_old_points_until_atomic_seal(project):
         claim_token=authority.claim_token,
         terminal_disposition="completed",
     )
-    RunResultStore(project).finish_run(run2)
+    RunResultStore(project).finish_run(
+        run2,
+        writer_attempt_id=authority.writer_attempt_id,
+        claim_token=authority.claim_token,
+    )
     OutputColumnClaimStore(project).finish_current_writer(
         run_id=run2,
         writer_attempt_id=authority.writer_attempt_id,
@@ -178,7 +182,8 @@ def test_staged_full_rerun_keeps_old_points_until_atomic_seal(project):
 
     s2 = backend.materialize_geo_column(sheet, geo_col)
     assert s2["valid_points"] == 2
-    assert s2["generation_hash"] not in {gen1, staged_status["generation_hash"]}
+    assert s2["generation_hash"] != gen1
+    assert s2["generation_hash"] != staged_status["generation_hash"]
     points, _ = backend.query_points(sheet, geo_col)
     assert [(point.lat, point.lon) for point in points] == [(5.0, 6.0), (3.0, 4.0)]
     assert project.get_column(geo_col)["current_run_id"] == run1

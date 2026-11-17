@@ -73,6 +73,7 @@ class AdmittedTemporalMediaReader:
         self.parent_sheet_id = scope.sheet_id
         self.sources = set()
         self.facts = []
+        self.consumed_captures = []
         self.plans = []
         self.values = {}
         self.occurrences = []
@@ -127,6 +128,9 @@ class AdmittedTemporalMediaReader:
                 plan.model_copy(update={"action_kind": self.action_kind})
             )
         self.plans.append(plan)
+        self.consumed_captures.extend(
+            source.consumed_capture for source in plan.sources
+        )
         self.facts.extend(entry.ref for entry in _receipt_inputs(plan))
         schema, transcripts, annotations = _planned_schema(
             plan, cancelled=self.cancelled

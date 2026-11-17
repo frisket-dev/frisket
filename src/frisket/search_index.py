@@ -73,6 +73,8 @@ def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
 def index_needs_work(project: Project) -> bool:
     """Return a read-only scheduling hint for lexical source maintenance."""
 
+    if project.db.execute("SELECT 1 FROM current_cell_repair LIMIT 1").fetchone():
+        return True
     path = project.path / RETRIEVAL_DB_NAME
     # Fresh bundles carry a bootstrap dirty scope, but have nothing to index.
     # An existing sidecar still needs maintenance after the last cell is removed.
@@ -168,8 +170,7 @@ def _column_page(
     params = (column, lower, upper, limit)
     live = (
         source.execute(
-            "SELECT cc.row_id FROM current_cells cc "
-            "INDEXED BY idx_current_cells_column_row "
+            "SELECT cc.row_id FROM effective_current_cells cc "
             "WHERE cc.column_id=? AND cc.row_id>? AND cc.row_id<=? "
             "ORDER BY cc.row_id LIMIT ?",
             params,
@@ -312,6 +313,9 @@ def index_batch(
         raise ValueError("batch_size and max_bytes must be positive")
     if project.db.in_transaction:
         raise RuntimeError("index maintenance requires its own source transaction")
+    from frisket.engine.store.cell_projection import repair_current_cells
+
+    repair_current_cells(project, limit=min(batch_size, 512))
     bind_retrieval_sidecar(project)
     snapshot = None
     retrieval = None
@@ -461,7 +465,13 @@ def index_batch(
             except BaseException:
                 project.db.rollback()
                 raise
-        complete = complete and latest_revision(project.db) == revision
+        complete = (
+            complete
+            and latest_revision(project.db) == revision
+            and not project.db.execute(
+                "SELECT 1 FROM current_cell_repair LIMIT 1"
+            ).fetchone()
+        )
         return IndexProgress(processed, not complete, complete, processed_bytes)
     finally:
         if snapshot is not None:

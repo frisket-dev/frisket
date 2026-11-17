@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from dataclasses import replace
@@ -170,6 +171,7 @@ _STRUCTURED_ACTION = RegisteredAction(
 
 def _router(requests: list[LLMRequest]) -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-only"},
         cache=None,
         cache_mode="off",
@@ -181,6 +183,7 @@ def _router(requests: list[LLMRequest]) -> ModelRouter:
 
 def _failing_router() -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-only"},
         cache=None,
         cache_mode="off",
@@ -192,6 +195,7 @@ def _failing_router() -> ModelRouter:
 
 def _value_router(requests: list[LLMRequest], value: str) -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-only"},
         cache=None,
         cache_mode="off",
@@ -203,6 +207,7 @@ def _value_router(requests: list[LLMRequest], value: str) -> ModelRouter:
 
 def _data_router(requests: list[LLMRequest], data: dict[str, Any]) -> ModelRouter:
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "test-only"},
         cache=None,
         cache_mode="off",
@@ -1469,7 +1474,7 @@ def test_model_rows_can_replace_compatible_cross_action_output_by_id(
         client.post(f"/api/projects/{project_id}/actions/v1/run", json=invalid).json()
     )
     assert refused.status == "failed"
-    assert refused.errors[0].code == "output_column_exists"
+    assert refused.errors[0].code == "input_output_overlap"
 
 
 def test_queued_model_rows_replacement_refuses_target_rename_before_worker(
@@ -1545,8 +1550,17 @@ def test_queued_model_rows_replacement_refuses_target_rename_before_worker(
         "output targets changed after this action was queued"
     )
     assert len(requests) == 1
-    head = ResultGenerationStore(project).read_cell_heads(target_id)[row_ids[0]]
-    assert head.run_id == first.run_id
+    # Failed replacement remains the current incomplete contribution; saved
+    # results from the prior execution are restored only by undoing it.
+    assert row_ids[0] not in ResultGenerationStore(project).read_cell_heads(target_id)
+    owner = project.db.execute(
+        "SELECT op_id FROM runs WHERE id=?", (queued.run_id,)
+    ).fetchone()[0]
+    assert project.undo() == owner
+    assert (
+        ResultGenerationStore(project).read_cell_heads(target_id)[row_ids[0]].run_id
+        == first.run_id
+    )
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM output_column_claims "
@@ -1654,7 +1668,12 @@ def test_model_request_exact_replay_ignores_empty_rows(tmp_path: Path) -> None:
                 model=spec["model"],
             ),
         )
-        router = ModelRouter(cache=cache, cache_mode="replay", use_env_keys=False)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=cache,
+            cache_mode="replay",
+            use_env_keys=False,
+        )
         from frisket.engine.runner import MapRunner
         from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 

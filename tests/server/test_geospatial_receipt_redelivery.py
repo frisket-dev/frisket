@@ -1,5 +1,7 @@
 """Routed receipts reconstruct from completed runs without repeating effects."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from copy import deepcopy
 import json
 
@@ -31,7 +33,9 @@ def geocode_client(tmp_path, monkeypatch):
             },
         )
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with TestClient(
         create_app(tmp_path / "workspace", router=router, run_status_grace_seconds=3600)
@@ -218,7 +222,8 @@ def test_recovered_summary_counts_actual_http_without_inventing_charges(
                 return httpx.Response(
                     200, json={"results": [{"geometry": {"lat": 1, "lng": 2}}]}
                 )
-            raise httpx.ConnectError("transport outcome unknown")
+            # A read failure is ambiguous; ConnectError proves no dispatch.
+            raise httpx.ReadError("response lost after dispatch")
 
         monkeypatch.setattr(httpx.AsyncClient, "get", geocode_get)
     url = f"/api/projects/{project_id}/actions/v1/run"

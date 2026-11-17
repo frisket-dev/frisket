@@ -6,10 +6,8 @@ import csv
 import io
 
 from frisket.engine.store.prepared_content import decode_logical_value
-from frisket.review_predicate import is_exact_review_correction
 from frisket.server.exports.sheet_csv import csv_display
 from frisket.server.route_errors import RouteError
-from frisket.server.services.evaluation_values import full_column
 
 
 def _csv(rows):
@@ -104,31 +102,12 @@ def review_csv(project, run_id):
     values = {}
     for field in fields:
         header.extend((field["column_name"], f"{field['column_name']}_reviewed"))
-        current = full_column(project, run["sheet_id"], field["column_id"], row_ids)
         for row in project.db.execute(
             "SELECT row_id,value_kind,value,error,review_decision FROM results WHERE run_id=? AND column_id=?",
             (run_id, field["column_id"]),
         ):
-            read = current.get(row["row_id"])
-            ref = read.value_ref if read is not None else None
-            op = (
-                project.db.execute(
-                    "SELECT id,status,kind,spec FROM ops WHERE id=?", (ref["op_id"],)
-                ).fetchone()
-                if ref and ref.get("kind") == "manual_edit" and ref.get("op_id")
-                else None
-            )
-            corrected = is_exact_review_correction(
-                run_id=run_id,
-                row_id=row["row_id"],
-                column_id=field["column_id"],
-                ref=ref,
-                op=dict(op) if op else None,
-            )
             value = (
-                read.value
-                if corrected and read is not None
-                else "#FAILED"
+                "#FAILED"
                 if row["error"]
                 else decode_logical_value(project.db, row["value_kind"], row["value"])
             )
@@ -138,7 +117,7 @@ def review_csv(project, run_id):
                 "yes"
                 if decision == "accept"
                 else "no"
-                if decision in {"reject", "reject_clear", "edit"}
+                if decision in {"reject", "reject_clear"}
                 else "",
             )
 

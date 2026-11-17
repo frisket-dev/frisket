@@ -131,3 +131,17 @@ def action_metadata_for_action_kind(action_kind: object) -> dict[str, str]:
         "action_kind": action_kind,
         "action_name": title or "Unknown action",
     }
+
+
+def action_supports_row_retry(action_kind: object) -> bool:
+    """Whole-column transforms must be rerun with their complete input scope."""
+    from frisket.actions.core import ColumnTransform
+    from frisket.actions.registry import ACTION_REGISTRY
+
+    try:
+        terminal = ACTION_REGISTRY.get(
+            canonical_action_kind(action_kind)
+        ).definition.run
+    except KeyError:
+        return True
+    return not isinstance(terminal, ColumnTransform)

@@ -543,6 +543,7 @@ def prepare_table_producer(
     inventory_admission: FileInventoryAdmission | None = None,
     publication_resources: ExitStack | None = None,
     join_refresh: JoinRefreshAdmission | None = None,
+    empty_list_schema: tuple[Any, ...] | None = None,
     schema_only: bool = False,
     row_limit: int | None = None,
     cancelled: Callable[[], bool] | None = None,
@@ -558,6 +559,9 @@ def prepare_table_producer(
     from frisket.engine.executor.list_table_read import AdmittedListTableReader
     from frisket.engine.executor.sheet_rows_read import AdmittedSheetRowsReader
 
+    from .selection_scope import resolve_action_selection
+
+    bound = resolve_action_selection(project, bound)
     terminal = bound.action.definition.run
     if not isinstance(terminal, CreateSheet):
         raise TypeError("table preparation requires CreateSheet")
@@ -641,6 +645,8 @@ def prepare_table_producer(
                 resources.callback(reader.close)
             elif capability is ListTableReader:
                 reader = AdmittedListTableReader(project, bound.action.action_id)
+                reader.require_complete = empty_list_schema is not None
+                resources.callback(reader.close)
             elif capability is SheetRowsReader:
                 reader = AdmittedSheetRowsReader(
                     project, scope=bound.request.scope, params=bound.params
@@ -668,6 +674,7 @@ def prepare_table_producer(
                     confirmation=bound.request.confirmation,
                     refresh_admission=join_refresh,
                 )
+                resources.callback(reader.close)
             elif capability is TranscriptReader:
                 reader = AdmittedTranscriptReader(
                     project,
@@ -749,13 +756,26 @@ def prepare_table_producer(
             plugin_secrets = HostPluginSecrets.from_binding(
                 project, bound.runtime_binding
             )
-        pending = terminal.handler(
-            bound.params,
-            *(
-                plugin_secrets if injection is PluginSecrets else readers[injection]
-                for injection in terminal.injections
-            ),
-        )
+        from frisket.actions.list_table import EmptyListSchema
+
+        try:
+            pending = terminal.handler(
+                bound.params,
+                *(
+                    plugin_secrets if injection is PluginSecrets else readers[injection]
+                    for injection in terminal.injections
+                ),
+            )
+        except EmptyListSchema:
+            reader = readers.get(ListTableReader)
+            if (
+                empty_list_schema is None
+                or reader is None
+                or not reader.facts
+                or reader.facts[-1]["item_count"] != 0
+            ):
+                raise
+            pending = DynamicTableResult(schema=empty_list_schema, rows=())
         produced = producer.resolve(pending)
         producer.own_rows(getattr(produced, "rows", None))
         if inspect.isawaitable(pending):
@@ -967,8 +987,10 @@ def run_inventory_table_page(
         raise ImportSessionConflict("import session belongs to another destination")
     if session is not None and session.state in {"completed", "kept", "removed"}:
         return session
-    if stored.status != "running":
-        raise ImportSessionConflict("inventory receipt is no longer running")
+    if stored.status != "running" and not (
+        session is None and stored.status == "queued"
+    ):
+        raise ImportSessionConflict("inventory receipt cannot start or continue")
     writer = None
     if session is not None:
         session = sessions.require_writer(session_id, writer_authority, admission.after)
@@ -1049,7 +1071,9 @@ def run_inventory_table_page(
             raise ValueError("inventory action skipped admitted occurrences")
         writer.set_warnings(prepared.warnings)
         if reader.complete:
-            writer.finalize_session(expected_cursor=reader.next_cursor)
+            writer.finalize_session(
+                expected_cursor=reader.next_cursor, enumeration_complete=reader.complete
+            )
     result = sessions.get(session_id)
     assert result is not None
     return result
@@ -1223,6 +1247,11 @@ def run_table_source(
                 "parent_sheet_id": parent,
                 "sources": sources,
                 "reads": reads,
+                "consumed_captures": [
+                    capture
+                    for reader in prepared.readers.values()
+                    for capture in getattr(reader, "consumed_captures", ())
+                ],
                 "op_spec": identity,
                 "list_reader": list_reader,
                 "resolved_output_names": prepared.resolved_output_names,
@@ -1448,16 +1477,23 @@ def _run_reserved_table(
     )
 
 
-def run_typed_table_action_job(project, envelope):
+def run_typed_table_action_job(project, envelope, *, execution):
     from frisket.engine.executor.action_jobs import bind_typed_action_job
 
     bound = bind_typed_action_job(envelope, project=project)
     if isinstance(bound, ActionResult):
         return bound
+    from frisket.execution.dispatch_control import dispatch_cancelled
+
+    execution.check()
     return run_typed_create_sheet_action(
         project,
         envelope.project_id,
         bound,
+        deps=ExecutorDeps(
+            cancelled=lambda: dispatch_cancelled(execution),
+            seal_cancellation=lambda: not dispatch_cancelled(execution),
+        ),
         reserved_action_id=envelope.action_id,
         reserved_receipt_id=envelope.receipt_id,
     )
@@ -1556,6 +1592,21 @@ def _perform_table_in_txn(
     list_reader = resolved.get("list_reader")
     resolved_output_names = resolved.get("resolved_output_names", {})
     roles = resolved.get("source_roles", {})
+    from frisket.engine.store.derived_updates import MaterializedIdentity, join_identity
+
+    refresh_identity = None
+    if resolved.get("joined_tables_reader") is not None:
+        refresh_identity = MaterializedIdentity(
+            "join",
+            [
+                join_identity(
+                    [(source.row_id, roles[source]) for source in lineage.sources]
+                )
+                for lineage in sources
+            ],
+        )
+    elif list_reader is not None:
+        refresh_identity = MaterializedIdentity("list", None)
     write = write_contributor_table(
         cur,
         ContributorTablePlan(
@@ -1564,6 +1615,7 @@ def _perform_table_in_txn(
             target_sheet_name=table.sheet_name,
             parent_sheet_id=parent_sheet_id,
             op_spec={**resolved["op_spec"], "reads": resolved["reads"]},
+            refresh_identity=refresh_identity,
             columns=[
                 MaterializedColumnSpec(
                     name=column.name,
@@ -1604,6 +1656,7 @@ def _perform_table_in_txn(
                 )
             ],
         ),
+        defer_publication_close=True,
     )
     if list_reader is not None:
         from frisket.engine.executor.list_table_grounding import (
@@ -1635,6 +1688,16 @@ def _perform_table_in_txn(
         "columns": write.column_ids,
         "reads": resolved["reads"],
     }
+    from frisket.engine.store.consumed_sources import merge_captures, store_capture
+
+    consumed_captures = resolved.get("consumed_captures", ())
+    if consumed_captures:
+        store_capture(
+            project,
+            merge_captures(consumed_captures),
+            owner_op_id=write.op_id,
+            output_sheet_id=write.sheet_id,
+        )
     projection_evidence = [
         evidence
         for reader in projections
@@ -1703,6 +1766,10 @@ def _perform_table_in_txn(
             raise ActionJobTerminalizationError("table receipt completion did not land")
     else:
         ReceiptStore(project).insert_completed(receipt, commit=False)
+    from frisket.engine.store.changes import ChangeStore
+
+    # Annotation cells, evidence and blobs are part of this same atomic write.
+    ChangeStore(project).close(write.op_id)
     return _result_from_receipt(receipt)
 
 

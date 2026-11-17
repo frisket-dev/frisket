@@ -1,10 +1,12 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from typing import Any
 
 import pytest
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.cloud_execution import (
@@ -148,7 +150,12 @@ class _DirectAdapter:
 
 
 def _router(direct: _DirectAdapter | None = None) -> ModelRouter:
-    router = ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        cache_mode="off",
+        max_retries=0,
+    )
     if direct is not None:
         router._adapters["anthropic"] = direct  # noqa: SLF001 - coexistence proof
     return router
@@ -185,7 +192,9 @@ def test_cloud_adapter_round_trips_request_result_and_receipt_accounting():
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, attempt)
             ):
-                result = await router.complete_transport(request)
+                result = await router.for_execution(STANDALONE).complete_transport(
+                    request
+                )
         finally:
             await router.aclose()
 
@@ -264,7 +273,9 @@ def test_cloud_adapter_preserves_ocr_identity_and_token_receipt():
                 ),
                 "receipt": _response().receipt.model_copy(
                     update={
-                        "usage": CloudOCRUsage(kind="ocr", tokens_in=23, tokens_out=7)
+                        "usage": CloudOCRUsage(
+                            kind="ocr", meter="tokens", tokens_in=23, tokens_out=7
+                        )
                     }
                 ),
             }
@@ -288,7 +299,7 @@ def test_cloud_adapter_preserves_ocr_identity_and_token_receipt():
                     capability="ocr",
                 )
             ):
-                result = await router.complete_transport(
+                result = await router.for_execution(STANDALONE).complete_transport(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "Read the image"}],
@@ -332,7 +343,9 @@ def test_cloud_adapter_preserves_tools_and_provider_details():
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, attempt)
             ):
-                result = await router.complete_transport(request)
+                result = await router.for_execution(STANDALONE).complete_transport(
+                    request
+                )
         finally:
             await router.aclose()
 
@@ -356,7 +369,7 @@ def test_public_structured_completion_preserves_cloud_receipt():
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, attempt)
             ):
-                result = await router.complete(
+                result = await router.for_execution(STANDALONE).complete(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "Name the person."}],
@@ -387,12 +400,12 @@ def test_cloud_binding_dispatches_without_overriding_configured_adapter():
         direct = _DirectAdapter()
         router = _router(direct)
         try:
-            assert router.adapter_for_model(MODEL) is direct
+            assert router._adapters["anthropic"] is direct
             transport = _CloudTransport()
             with cloud_llm_execution_scope(
                 CloudLLMExecutionBinding(transport, _attempt())
             ):
-                result = await router.complete_transport(
+                result = await router.for_execution(STANDALONE).complete_transport(
                     LLMRequest(
                         model=MODEL,
                         messages=[{"role": "user", "content": "hello"}],
@@ -417,13 +430,126 @@ def test_cloud_adapter_refuses_receipt_from_another_account():
                 CloudLLMExecutionBinding(transport, attempt)
             ):
                 with pytest.raises(CloudExecutionRefused) as error:
-                    await router.complete_transport(
+                    await router.for_execution(STANDALONE).complete_transport(
                         LLMRequest(
                             model=MODEL,
                             messages=[{"role": "user", "content": "hello"}],
                         )
                     )
             assert error.value.code == "route_changed"
+        finally:
+            await router.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_completed_cloud_output_survives_pending_accounting_without_free_receipt():
+    from frisket.contracts.http.cloud_connection import CloudExecutionAccounting
+
+    async def scenario():
+        settled = _response(output_limited=False)
+        pending = settled.model_copy(
+            update={
+                "receipt": None,
+                "accounting": CloudExecutionAccounting(
+                    status="pending",
+                    usage=settled.receipt.usage,
+                    provider_cost_micro=12_000,
+                ),
+            }
+        )
+        transport = _CloudTransport(pending)
+        router = _router()
+        try:
+            with cloud_llm_execution_scope(
+                CloudLLMExecutionBinding(
+                    transport=transport,
+                    attempt=_attempt(),
+                )
+            ):
+                result = await router.for_execution(STANDALONE).complete(
+                    LLMRequest(
+                        model=MODEL,
+                        messages=[{"role": "user", "content": "one name"}],
+                    )
+                )
+            assert result.content == settled.result.content
+            assert len(transport.calls) == 1
+            assert result.actual_accounting.cost is None
+            assert result.actual_accounting.receipts == ()
+            metadata = wire_accounting_meta(MODEL, [result])
+            assert metadata["cost"] is None
+            assert "execution_receipts" not in metadata
+            fact = metadata["model_calls"][0]
+            assert fact["provider_cost_usd"] == 0.012
+            assert fact["units"]["cloud_accounting_status"] == "pending"
+            assert "cloud_charge_micro" not in fact["units"]
+        finally:
+            await router.aclose()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("capability", ["llm.complete", "ocr"])
+def test_cloud_adapter_and_cache_preserve_unknown_usage(tmp_path, capability):
+    from frisket.ai.llm.cache import ResponseCache
+
+    async def scenario():
+        payload = _response(output_limited=False).model_dump(mode="json")
+        payload["receipt"] = None
+        payload["accounting"] = {
+            "status": "pending",
+            "usage": {"kind": capability},
+            "provider_cost_micro": None,
+        }
+        payload["result"].update(
+            usage_available=False,
+            tokens_in=0,
+            tokens_out=0,
+            cost=None,
+            cost_source="unknown",
+        )
+        payload["route"]["capability"] = capability
+        if capability == "ocr":
+            payload["accounting"]["usage"]["meter"] = "tokens"
+            payload["route"]["options"] = CloudOCROptionSupport(
+                kind="ocr", language=True, geometry=True, searchable_pdf=False
+            ).model_dump(mode="json")
+        response = CloudExecutionResponse.model_validate(payload)
+        calls = []
+
+        class Transport:
+            async def execute_llm(self, attempt, request, *, capability=None):
+                calls.append(request)
+                return response
+
+        router = _router()
+        try:
+            with cloud_llm_execution_scope(
+                CloudLLMExecutionBinding(Transport(), _attempt(), capability=capability)
+            ):
+                result = await router.for_execution(STANDALONE).complete_transport(
+                    LLMRequest(model=MODEL, messages=[])
+                )
+            assert len(calls) == 1
+            assert result.content == response.result.content
+            assert result.usage_available is False
+            assert result.cost is None
+            assert result.actual_accounting.cost is None
+            assert result.actual_accounting.receipts == ()
+            [fact] = result.actual_accounting.model_calls
+            assert fact["provider_cost_usd"] is None
+            assert fact["units"]["tokens_in"] is None
+            assert fact["units"]["tokens_out"] is None
+            cache = ResponseCache(tmp_path / "responses.sqlite")
+            try:
+                cache.put("unknown-usage", result)
+                replay = cache.get("unknown-usage")
+                assert replay.usage_available is False
+                assert replay.cost is None
+                assert replay.actual_accounting is None
+            finally:
+                cache.db.close()
         finally:
             await router.aclose()
 

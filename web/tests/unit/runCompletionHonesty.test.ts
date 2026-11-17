@@ -14,7 +14,7 @@ import {
   runStatusLabel,
   toRunProgressStatus,
 } from '../../src/runStatusModel';
-import { deriveDockRunSummary } from '../../src/workbench/dockJobSummary';
+import { deriveDockErrorJobs, deriveDockRunSummary } from '../../src/workbench/dockJobSummary';
 import type { DockActionJob } from '../../src/workbench/WorkbenchBottomDock';
 import type { RunProgress } from '../../src/api/types';
 
@@ -106,6 +106,44 @@ describe('dock run summary carries the errored state', () => {
   it('flags a direct run that failed without ever becoming a job row', () => {
     const summary = deriveDockRunSummary([], progress({ status: 'failed', failedRows: 4 }));
     expect(summary.anyErrored).toBe(true);
+  });
+
+  it('follows partial → success → success by accepted job identity, keeping older errors inspectable', () => {
+    const partial = job({ jobId: 13, runId: '5', progress: progress({ runId: '5', status: 'partial',
+      completedRows: 1, totalRows: 6, failedRows: 5 }),
+      timing: { createdAt: '2099-01-01', startedAt: '2099-01-02', finishedAt: '2099-01-03' } });
+    const firstSuccess = job({ jobId: 15, runId: '6', progress: progress({ runId: '6' }) });
+    const latestSuccess = job({ jobId: 16, runId: '7', progress: progress({ runId: '7', completedRows: 2, totalRows: 2 }) });
+    expect(deriveDockRunSummary([partial], partial.progress!).anyPartial).toBe(true);
+    expect(deriveDockRunSummary([partial, firstSuccess], partial.progress!)).toMatchObject({
+      anyComplete: true, anyPartial: false, anyErrored: false,
+    });
+    expect(deriveDockRunSummary([firstSuccess, partial, latestSuccess], partial.progress!)).toMatchObject({
+      anyComplete: true, anyPartial: false, anyErrored: false,
+    });
+    expect(deriveDockErrorJobs([latestSuccess, firstSuccess, partial], partial.progress!)).toEqual([partial]);
+  });
+
+  it('does not override latest job success with an unrelated direct run', () => {
+    const latest = job({ jobId: 16, runId: '6', progress: progress({ runId: '6' }) });
+    expect(deriveDockRunSummary([latest], progress({ runId: '99', status: 'partial', failedRows: 1 }))).toMatchObject({
+      anyComplete: true, anyPartial: false, anyErrored: false,
+    });
+  });
+
+  it('keeps current work aggregated even with older partial history', () => {
+    const old = job({ jobId: 13, runId: '5', progress: progress({ runId: '5', status: 'partial', failedRows: 1 }) });
+    const active = job({ jobId: 16, runId: '6', status: 'running',
+      progress: progress({ runId: '6', status: 'running', completedRows: 1, totalRows: 2 }) });
+    expect(deriveDockRunSummary([old, active], old.progress!)).toMatchObject({
+      runningCount: 1, percent: 50, anyComplete: false, anyPartial: false, anyErrored: false,
+    });
+  });
+
+  it('preserves the latest job error even when its correlated run has no failed rows', () => {
+    expect(deriveDockRunSummary([job({ error: 'Worker failed after row settlement.' })], progress())).toMatchObject({
+      anyComplete: true, anyErrored: true,
+    });
   });
 
   it('never claims errors while work is still running', () => {

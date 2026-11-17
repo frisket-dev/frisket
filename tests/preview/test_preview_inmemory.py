@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -457,7 +458,9 @@ def test_scoped_ner_preview_samples_complete_semantic_scope(
     tmp_path: Path,
     scope: str,
 ) -> None:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = _NerSidecarHttp()  # noqa: SLF001
     client = TestClient(create_app(tmp_path / "ws", router=router))
     pid, project, sheet_id, row_ids = _route_project(
@@ -494,7 +497,9 @@ def test_exact_empty_ner_scope_is_refused_before_a_preview_starts(
     # The typed request boundary refuses an empty exact scope outright (only a
     # host-computed backfill may carry an empty selection), so no preview job
     # exists to sample zero rows and nothing durable is touched.
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = _NerSidecarHttp()  # noqa: SLF001
     client = TestClient(create_app(tmp_path / "ws", router=router))
     pid, project, sheet_id, _row_ids = _route_project(client, ["row"])
@@ -532,7 +537,7 @@ def test_preview_route_missing_provider_key_refuses_after_exact_confirmation(
 ) -> None:
     # Exact consent does not substitute for the ordinary provider-key gate.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    router = ModelRouter(cache_mode="off")
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache_mode="off")
     client = TestClient(create_app(tmp_path / "ws", router=router))
     pid, project, sheet_id, row_ids = _route_project(client, ["alpha", "beta"])
     route_response = client.patch(
@@ -601,7 +606,12 @@ def test_paid_preview_wrong_confirmation_cannot_authorize_effect(
 ) -> None:
     """Attacker-supplied consent bits never authorize uncheckpointed effect."""
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _PaidSummaryAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     client = TestClient(create_app(tmp_path / "ws", router=router))

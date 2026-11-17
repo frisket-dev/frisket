@@ -244,7 +244,7 @@ def test_single_text_and_one_term_lens_hash_identically():
     # single one-weight term canonicalize to the SAME spec hash (identity/replay).
     # query_spec_hash normalizes internally, so pass the RAW query (allow_row_cell
     # = the lens path) — double-normalizing would re-reject manual_text_query.
-    from frisket.features.watchlists.specs import query_spec_hash
+    from frisket.contracts.query_spec import query_spec_hash
 
     base = {
         "kind": "embedding_similarity",
@@ -271,7 +271,7 @@ def test_single_text_and_one_term_lens_hash_identically():
 def test_manual_text_query_still_rejected_for_watches():
     # Watches re-evaluate on a schedule, so a re-embedding manual_text_query stays
     # NOT watchable (unchanged contract) even though lenses now accept it.
-    from frisket.features.watchlists.specs import normalize_query_spec
+    from frisket.contracts.query_spec import normalize_query_spec
 
     with pytest.raises(ValueError):
         normalize_query_spec(

@@ -776,19 +776,28 @@ def source_values_all_empty(
     source_names: list[str],
     row_ids: list[int],
 ) -> bool:
-    """True only when EVERY named source column's value is empty for
-    EVERY target row (EmptyInputColumns' all-empty gate — partial
-    emptiness returns False as soon as one non-empty value turns up)."""
+    """Only genuinely empty sources qualify for the all-empty precheck.
+
+    Unusable versions retain their per-row reason at dispatch; they are not
+    proof that an input column was never populated.
+    """
     for name in source_names:
         column_id = col_map.get(name)
         if column_id is None:
             continue
         for start in range(0, len(row_ids), 500):
-            values = project.get_values(
+            values, refs = project.get_values_with_refs(
                 sheet_id,
                 column_id,
                 row_ids=row_ids[start : start + 500],
+                include_validity=True,
             )
+            if any(
+                ref.get("validity") == "invalid"
+                or ref.get("outcome") in {"pending", "failed", "not_completed"}
+                for ref in refs.values()
+            ):
+                return False
             if any(not _is_empty_cell_value(v) for v in values.values()):
                 return False
     return True
@@ -925,10 +934,23 @@ def estimate_run(
     categorical claim its own run already consented to, which is exactly what
     kept the resume gate's cost half unreachable.
     """
+    recipe = program if program is not None else recipe_for_spec(spec)
+    # Model-backed recipes can select Cloud without consumes_resolution.
+    # Standalone previews need the same route quote admission resolves; the
+    # legacy list-price estimate may describe a different purchase entirely.
+    if resolution is None and recipe.is_llm(spec) and composition is not None:
+        resolution = resolve_for_action(
+            project,
+            spec,
+            recipe,
+            composition=composition,
+            persistence="ephemeral",
+            scope_row_ids=scope_row_ids,
+        )
     return _estimate_run(
         project,
         spec,
-        program=program,
+        program=recipe,
         composition=composition,
         pricing_policy=pricing_policy,
         resolution=resolution,
@@ -999,6 +1021,7 @@ def _estimate_run(
                 bound_resolution.resolution.facts,
                 bound_resolution.presentation,
                 has_cost_claim=True,
+                rated_estimate=rated,
             )
             out["promise_set_hash"] = consented_set_hash(bound_resolution.promise_set)
         return _EstimateRunResult(out, bound_resolution)
@@ -1021,15 +1044,20 @@ def _estimate_run(
             # An unavailable route has no executable quote. Do not discard its
             # reason and ask the recipe to invent a second, unrouted estimate.
             raise ExecutionResolutionRefused(resolution)
-        col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
-        values = [
-            row_values(project, recipe, spec, col_map, row_id, for_model=False)
-            for row_id in rows
-        ]
-        if resolution is not None and recipe.consumes_resolution:
-            est = recipe.estimate(project, spec, values, resolution=resolution)
+        if not recipe.consumes_resolution and recipe.cost_class_for(spec) == "free":
+            # A declared free, unrouted action has no purchase to estimate.
+            # Do not read every source cell before the bounded execution read.
+            est = unestimated_cost(recipe, spec)
         else:
-            est = recipe.estimate(project, spec, values)
+            col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
+            values = [
+                row_values(project, recipe, spec, col_map, row_id, for_model=False)
+                for row_id in rows
+            ]
+            if resolution is not None and recipe.consumes_resolution:
+                est = recipe.estimate(project, spec, values, resolution=resolution)
+            else:
+                est = recipe.estimate(project, spec, values)
         out = {
             "rows": len(rows),
             **(est if est is not None else unestimated_cost(recipe, spec)),
@@ -1069,6 +1097,7 @@ def _estimate_run(
                         promise.field == "cost"
                         for promise in bound_resolution.promise_set.promises
                     ),
+                    rated_estimate=rated,
                 )
                 out["promise_set_hash"] = consented_set_hash(
                     bound_resolution.promise_set
@@ -1382,6 +1411,7 @@ def validate_spec(
                         promise.field == "cost"
                         for promise in resolved_execution.promise_set.promises
                     ),
+                    rated_estimate=est,
                 )
                 claims_gate = refuse_unless_exact_echo(
                     confirmed=confirmed,
@@ -1624,7 +1654,7 @@ def validate_spec(
         if (
             recipe_is_llm
             and not cache_can_serve_replay
-            and router.adapter_for(provider) is None
+            and not router.has_provider(provider)
         ):
             raise MissingProviderKey(provider)
 

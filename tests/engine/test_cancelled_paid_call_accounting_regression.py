@@ -1,12 +1,13 @@
 """Regression proof: cancellation must not erase a provider call that returned.
 
-The result cell may remain resumable when cancellation wins the post-execute
-fence, but the already-incurred provider spend is a ledger fact, not a cell.
+The returned value and incurred usage survive cancellation as retained facts;
+Stop prevents that late value from becoming current.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 
 from frisket.ai.llm import LLMResponse
 from frisket.engine.jobs.runs import project_scoped_router
@@ -110,6 +111,27 @@ def test_cancel_after_paid_call_returns_keeps_usage_cost_and_project_spend(
 
         assert progress.cancelled is True
         assert adapter.calls == 1
+        output = next(
+            column for column in project.columns(sheet) if column["name"] == "relevance"
+        )
+        assert list(project.get_values(sheet, output["id"]).values()) == [None]
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?",
+                (progress.run_id,),
+            ).fetchone()[0]
+            == 0
+        )
+        checkpoint = project.db.execute(
+            "SELECT state,accounting_persisted,payload FROM effect_checkpoints "
+            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
+            (progress.run_id,),
+        ).fetchone()
+        assert (checkpoint["state"], checkpoint["accounting_persisted"]) == (
+            "returned",
+            1,
+        )
+        assert json.loads(checkpoint["payload"])["relevance"]["value"] == 7
         assert {
             "provider_calls": persisted_calls,
             "run_cost": row["cost_actual"],

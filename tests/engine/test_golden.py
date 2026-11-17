@@ -7,6 +7,8 @@ Runs from the committed cache by default (replay_strict, keyless). To refresh:
 Recording requires GEMINI_API_KEY and explicitly echoes the runner's cost gate.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import os
 
@@ -98,6 +100,7 @@ def test_golden_classify_categories(tmp_path, model, golden_model_keys):
             "include_justification": True,
         }
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys=golden_model_keys,
             use_env_keys=False,
             cache=ResponseCache(CACHE_PATH),
@@ -163,6 +166,7 @@ def test_vision_input_reaches_model(tmp_path, golden_model_keys):
         digest = p.add_blob(path.read_bytes(), filename="card.png", mime="image/png")
         p.add_rows(sheet, [{"card": {"blob": digest, "mime": "image/png"}}], cols)
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys=golden_model_keys,
             use_env_keys=False,
             cache=ResponseCache(CACHE_PATH),

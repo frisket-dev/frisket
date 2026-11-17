@@ -41,9 +41,10 @@ async function start() {
   return { launch, listing, progress, list, handle: jobs };
 }
 
-it('keeps extraction busy through optimistic launch, accepted loading, the queued job, and terminal refresh', async () => {
+it('keeps extraction busy through pending admission, accepted loading and terminal refresh', async () => {
   const { launch, listing, progress, list, handle } = await start();
-  expect(handle.store.get().run?.actionKind).toBe('media.extract_document');
+  expect(handle.store.get().run).toBeNull();
+  expect(handle.store.get().launchPending).toBe(true);
   expect(isExtractionRunning(handle.store.get())).toBe(true);
   launch.resolve({ runId: null, jobId: 1, receiptId: null, status: 'queued' });
   await settle();
@@ -79,6 +80,6 @@ it('keeps a failed accepted-job listing busy until the ordinary queued poll refr
 });
 
 it('does not block extraction for an unrelated active job or a finished extraction job', () => {
-  const state = { run: null, actionJobs: { loading: false, error: null, jobs: [job('running', 'map.classify'), job('failed')] } };
+  const state = { run: null, launchPending: false, actionJobs: { loading: false, error: null, jobs: [job('running', 'map.classify'), job('failed')] } };
   expect(isExtractionRunning(state)).toBe(false);
 });

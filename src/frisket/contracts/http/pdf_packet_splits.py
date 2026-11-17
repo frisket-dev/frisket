@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from frisket.contracts.view import ViewSelection
+
 from typing import Literal
 
 from pydantic import Field, JsonValue, model_validator
@@ -76,6 +78,27 @@ class PdfPacketCachedAnchor(WireModel):
     row_id: int = Field(gt=0)
 
 
+def _validate_view_selection(body) -> None:
+    if body.selection is None:
+        return
+    if (
+        body.selection.scope.kind != "sheet"
+        or body.selection.scope.sheet_id != body.sheet_id
+    ):
+        raise ValueError("Selection must target this sheet")
+    if body.scope == "all" or any(
+        value is not None
+        for value in (
+            body.filter_,
+            body.sort,
+            body.parent_row_id,
+            body.scope_row_ids,
+            body.ranked_row_ids,
+        )
+    ):
+        raise ValueError("Use View selection without legacy filters or all-row scope")
+
+
 class PdfPacketSheetScopeRequest(WireModel):
     sheet_id: int = Field(gt=0)
     scope: Literal["selected", "filtered", "all"]
@@ -84,9 +107,11 @@ class PdfPacketSheetScopeRequest(WireModel):
     parent_row_id: int | None = Field(default=None, gt=0)
     scope_row_ids: list[int] | None = None
     ranked_row_ids: list[int] | None = None
+    selection: ViewSelection | None = None
 
     @model_validator(mode="after")
     def _rows(self) -> "PdfPacketSheetScopeRequest":
+        _validate_view_selection(self)
         for rows in (self.scope_row_ids, self.ranked_row_ids):
             if rows is not None and (
                 any(type(row) is not int or row <= 0 for row in rows)
@@ -111,6 +136,7 @@ class PdfPacketSheetCreateRequest(WireModel):
     parent_row_id: int | None = Field(default=None, gt=0)
     scope_row_ids: list[int] | None = None
     ranked_row_ids: list[int] | None = None
+    selection: ViewSelection | None = None
     selected_row_ids: list[int] | None = None
     selected_index_ranges: list[PdfPacketIndexRange] | None = None
     cached_anchors: list[PdfPacketCachedAnchor] = Field(default_factory=list)
@@ -118,6 +144,7 @@ class PdfPacketSheetCreateRequest(WireModel):
 
     @model_validator(mode="after")
     def _selection(self) -> "PdfPacketSheetCreateRequest":
+        _validate_view_selection(self)
         for rows in (self.scope_row_ids, self.ranked_row_ids, self.selected_row_ids):
             if rows is not None and (
                 any(type(row) is not int or row <= 0 for row in rows)

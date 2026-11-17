@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import hashlib
 import json
 from typing import Any, Callable
@@ -17,6 +18,7 @@ from frisket.engine.runner.confirmation_context import (
 )
 from frisket.engine.runner.confirmation_echo import refuse_unless_exact_echo
 from frisket.features.url_classification import classify_url
+from frisket.engine.store.consumed_sources import read_consumed_source
 from frisket.server.sources.youtube import (
     collection_display_name,
     enumerate_youtube_collection,
@@ -29,37 +31,45 @@ def _text_hash(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
 
 
-def _load_source_url(project, *, sheet_id, column_id, row_id) -> str:
+def _read_source_url(project, *, sheet_id, column_id, row_id):
     if any(
         type(value) is not int or value <= 0 for value in (sheet_id, column_id, row_id)
     ):
         raise TableError(
             "invalid_input_ref", "Source cell IDs must be positive integers"
         )
-    sheet = project.db.execute(
-        "SELECT id FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
-    ).fetchone()
-    column = project.db.execute(
-        "SELECT id FROM columns WHERE id=? AND sheet_id=?", (column_id, sheet_id)
-    ).fetchone()
-    if (
-        sheet is None
-        or column is None
-        or row_id not in project.visible_row_ids(sheet_id, [row_id])
-    ):
-        raise TableError(
-            "invalid_input_ref", "Source cell must belong to a visible sheet and row"
+    context = (
+        nullcontext(project) if project.db.in_transaction else project.read_snapshot()
+    )
+    with context as snapshot:
+        sheet = snapshot.db.execute(
+            "SELECT id FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
+        ).fetchone()
+        column = snapshot.db.execute(
+            "SELECT id FROM columns WHERE id=? AND sheet_id=?", (column_id, sheet_id)
+        ).fetchone()
+        if (
+            sheet is None
+            or column is None
+            or row_id not in snapshot.visible_row_ids(sheet_id, [row_id])
+        ):
+            raise TableError(
+                "invalid_input_ref",
+                "Source cell must belong to a visible sheet and row",
+            )
+        _, values, capture = read_consumed_source(
+            snapshot, sheet_id, [column_id], row_ids=[row_id], scope_intent="selected"
         )
-    raw = project.get_values(sheet_id, column_id, row_ids=[row_id]).get(row_id)
-    if not isinstance(raw, str) or not raw.strip():
-        raise TableError("invalid_input_ref", "Source cell does not hold a URL")
-    return raw.strip()
+        raw = values[column_id].get(row_id)
+        if not isinstance(raw, str) or not raw.strip():
+            raise TableError("invalid_input_ref", "Source cell does not hold a URL")
+    return raw.strip(), capture
 
 
 def validate_collection_source(project, fact) -> None:
     """Validate the actual source-cell URL without invoking its provider."""
     try:
-        url = _load_source_url(
+        url, _capture = _read_source_url(
             project,
             sheet_id=fact.get("source_sheet_id"),
             column_id=fact.get("source_column_id"),
@@ -82,6 +92,7 @@ class AdmittedCollectionReader:
         self.sources: set[RowSource] = set()
         self.parent_sheet_id: int | None = None
         self.facts: list[dict[str, Any]] = []
+        self.consumed_captures: list[dict[str, Any]] = []
         self.provider_use: list[dict[str, Any]] = []
 
     def read(
@@ -92,7 +103,7 @@ class AdmittedCollectionReader:
             raise TableError(
                 "invalid_input_ref", "Collection reads must share one parent sheet"
             )
-        url = _load_source_url(
+        url, capture = _read_source_url(
             self.project, sheet_id=sheet_id, column_id=column_id, row_id=row_id
         )
         from frisket.authoring.workbench.plugin_runtime_capabilities import (
@@ -237,6 +248,7 @@ class AdmittedCollectionReader:
                 },
             ]
         )
+        self.consumed_captures.append(capture)
         self.provider_use.append(
             {
                 "provider": classification.provider,

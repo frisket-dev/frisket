@@ -56,6 +56,15 @@ def paid_ocr_scratch_plan(
         scratch_estimate,
     )
 
+    from frisket.actions.registry import ACTION_REGISTRY
+    from frisket.execution.action_admission import action_admission_error
+
+    refusal = action_admission_error(project, ACTION_REGISTRY.get("media.ocr"))
+    if refusal is not None:
+        raise OcrComparePreviewError(
+            refusal.code, refusal.message, field=refusal.field, details=refusal.details
+        )
+
     engine = payload.get("engine")
     if not isinstance(engine, str) or not engine.strip():
         raise OcrComparePreviewError(
@@ -173,7 +182,7 @@ def paid_ocr_scratch_plan(
                 "filename": filename or source.name,
                 "mime": source_mime,
             }
-            recipe_impl = OcrEngines(cancelled=context.cancel_event.is_set)
+            recipe_impl = OcrEngines(cancelled=lambda: context.cancelled)
             async with AsyncExitStack() as stack:
                 if (
                     canonical_engine == LIGHT_ENGINE
@@ -373,7 +382,7 @@ def paid_ocr_scratch_plan(
                         "{source_stem}.searchable.pdf", {"source_stem": stem}
                     )
                     stager = AdmittedImportBlobStager(
-                        cancelled=context.cancel_event.is_set
+                        cancelled=lambda: context.cancelled
                     )
                     handle = stager.stage(
                         io.BytesIO(searchable),

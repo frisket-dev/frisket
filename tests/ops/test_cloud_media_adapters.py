@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from frisket.execution.dispatch_control import STANDALONE
 import asyncio
 from contextlib import closing
 from typing import Any
@@ -148,13 +149,18 @@ def _ctx(
 ) -> OpContext:
     return OpContext(
         extras=(
-            _route_extras(
-                engine,
-                capability=CAPABILITY_OCR,
-                option_support=OcrOptionSupport(geometry=ocr_geometry),
-            )
-            if capability == "ocr"
-            else {}
+            {
+                **(
+                    _route_extras(
+                        engine,
+                        capability=CAPABILITY_OCR,
+                        option_support=OcrOptionSupport(geometry=ocr_geometry),
+                    )
+                    if capability == "ocr"
+                    else {}
+                ),
+                "standalone_dispatch": STANDALONE,
+            }
         ),
         cloud_execution=CloudMediaExecutionBinding(
             transport=transport,
@@ -188,7 +194,7 @@ def test_cloud_ocr_batches_page_streams_once_and_preserves_geometry(tmp_path):
                 {"page": 2, "text": "Second", "blocks": []},
             ]
         ),
-        CloudOCRUsage(kind="ocr", pages=2),
+        CloudOCRUsage(kind="ocr", meter="pages", pages=2),
         CloudOCROptionSupport(
             kind="ocr", language=True, geometry=True, searchable_pdf=False
         ),
@@ -228,7 +234,11 @@ def test_cloud_ocr_batches_page_streams_once_and_preserves_geometry(tmp_path):
         [1.0, 4.0],
     ]
     assert [page["page"] for page in pages] == [1, 2]
-    assert usage["cloud_receipt"]["usage"] == {"kind": "ocr", "pages": 2}
+    assert usage["cloud_receipt"]["usage"] == {
+        "kind": "ocr",
+        "meter": "pages",
+        "pages": 2,
+    }
     [fact] = usage["model_calls"]
     assert fact["id"] == "cloud-ocr-execution-1"
     assert fact["units"]["cloud_account_id"] == 41
@@ -241,7 +251,7 @@ def test_cloud_ocr_disables_geometry_for_admitted_plain_text_route(tmp_path):
     response = _response(
         "ocr",
         CloudOCRResult(pages=[{"page": 1, "text": "Plain text", "blocks": []}]),
-        CloudOCRUsage(kind="ocr", pages=1),
+        CloudOCRUsage(kind="ocr", meter="pages", pages=1),
         CloudOCROptionSupport(
             kind="ocr", language=True, geometry=False, searchable_pdf=False
         ),
@@ -268,7 +278,7 @@ def test_cloud_ocr_sends_generic_users_actual_position_choice(tmp_path):
     response = _response(
         "ocr",
         CloudOCRResult(pages=[{"page": 1, "text": "Plain text", "blocks": []}]),
-        CloudOCRUsage(kind="ocr", pages=1),
+        CloudOCRUsage(kind="ocr", meter="pages", pages=1),
         CloudOCROptionSupport(
             kind="ocr", language=True, geometry=True, searchable_pdf=False
         ),
@@ -292,7 +302,16 @@ def test_cloud_ocr_requires_exact_typed_binding_before_opening_files(tmp_path):
     missing = tmp_path / "missing.png"
 
     with pytest.raises(CloudExecutionRefused, match="admitted paid attempt"):
-        asyncio.run(ocr_cloud(ENGINE, [missing], OpContext(), {}))
+        asyncio.run(
+            ocr_cloud(
+                ENGINE,
+                [missing],
+                OpContext(
+                    extras={"standalone_dispatch": STANDALONE},
+                ),
+                {},
+            )
+        )
 
 
 def test_cloud_ocr_requires_admitted_engine_support_before_egress(tmp_path):
@@ -301,7 +320,7 @@ def test_cloud_ocr_requires_admitted_engine_support_before_egress(tmp_path):
     response = _response(
         "ocr",
         CloudOCRResult(pages=[{"page": 1, "text": "", "blocks": []}]),
-        CloudOCRUsage(kind="ocr", pages=1),
+        CloudOCRUsage(kind="ocr", meter="pages", pages=1),
         CloudOCROptionSupport(
             kind="ocr", language=True, geometry=True, searchable_pdf=False
         ),
@@ -322,7 +341,7 @@ def test_ocr_dispatch_selects_cloud_from_the_admitted_transport(tmp_path):
     response = _response(
         "ocr",
         CloudOCRResult(pages=[{"page": 1, "text": "Cloud", "blocks": []}]),
-        CloudOCRUsage(kind="ocr", pages=1),
+        CloudOCRUsage(kind="ocr", meter="pages", pages=1),
         CloudOCROptionSupport(
             kind="ocr", language=True, geometry=True, searchable_pdf=False
         ),
@@ -557,7 +576,7 @@ def test_cloud_document_convert_keeps_source_provenance_and_external_accounting(
         [row_id] = project.add_rows(
             sheet_id, [{"doc": "source document"}], {"doc": column_id}
         )
-        extras = _route_extras(engine)
+        extras = {**_route_extras(engine), "preview": True, "cancelled": lambda: False}
         ctx = OpContext(
             project=project,
             extras=extras,

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from helpers import stored_output_descriptor
 
 from frisket.contracts.http.history_review import ColumnRunsPage
 from frisket.contracts.http.models import SheetData
@@ -51,7 +52,7 @@ def _declare_generation(
     project.db.execute(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token,expected_base_run_id) VALUES (?,?,?,?,?,?,?,?)",
+        "claim_token,expected_base_run_id,output_descriptor_json) VALUES (?,?,?,?,?,?,?,?,?)",
         (
             run_id,
             column_id,
@@ -61,6 +62,7 @@ def _declare_generation(
             state,
             f"claim:{run_id}",
             None,
+            stored_output_descriptor(project.db, column_id),
         ),
     )
 
@@ -126,6 +128,19 @@ def _point_heads(
     project.db.executemany(
         "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (?,?,?) "
         "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id",
+        [(column_id, row_id, run_id) for row_id in row_ids],
+    )
+
+    from frisket.engine.store.changes import start_change
+
+    start_change(
+        project.db,
+        project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()[
+            0
+        ],
+    )
+    project.db.executemany(
+        "UPDATE results SET published=1 WHERE column_id=? AND row_id=? AND run_id=?",
         [(column_id, row_id, run_id) for row_id in row_ids],
     )
 
@@ -394,6 +409,7 @@ def test_exact_heads_resolve_value_null_error_and_manual_overlay(
         "row_id": fixture.row_ids[0],
         "column_id": fixture.output_column_id,
         "run_id": None,
+        "outcome": "completed",
     }
     for row_id in fixture.row_ids[1:3]:
         assert refs[row_id] == {
@@ -402,6 +418,7 @@ def test_exact_heads_resolve_value_null_error_and_manual_overlay(
             "row_id": row_id,
             "column_id": fixture.output_column_id,
             "run_id": fixture.second_run_id,
+            "outcome": "completed" if row_id == fixture.row_ids[1] else "failed",
         }
     assert refs[fixture.row_ids[3]] == {
         "kind": "run_result",
@@ -409,16 +426,14 @@ def test_exact_heads_resolve_value_null_error_and_manual_overlay(
         "row_id": fixture.row_ids[3],
         "column_id": fixture.output_column_id,
         "run_id": fixture.first_run_id,
+        "outcome": "completed",
     }
 
-    underlying, underlying_refs = fixture.project.get_values_with_refs(
-        fixture.sheet_id,
-        fixture.output_column_id,
-        row_ids=fixture.row_ids,
-        apply_edits=False,
-    )
-    assert underlying[fixture.row_ids[0]] == "second-value"
-    assert underlying_refs[fixture.row_ids[0]]["run_id"] == fixture.second_run_id
+    from frisket.engine.store.runs import RunResultStore
+
+    coordinate = (fixture.second_run_id, fixture.row_ids[0], fixture.output_column_id)
+    saved = RunResultStore(fixture.project).decoded_result_rows([coordinate])
+    assert saved[coordinate]["value"] == "second-value"
 
     generations = ResultGenerationStore(fixture.project)
     assert generations.has_mixed_origins(fixture.output_column_id)
@@ -502,6 +517,7 @@ def test_grid_filter_sort_and_export_follow_exact_heads(
         "row_id": fixture.row_ids[2],
         "column_id": fixture.output_column_id,
         "run_id": fixture.second_run_id,
+        "outcome": "failed",
     }
     assert (
         grid_rows[fixture.row_ids[3]]["meta"][output_key]["current_value_ref"]["run_id"]
@@ -604,10 +620,10 @@ def test_managed_sheet_grid_wire_separates_cell_authority_from_latest_family(
     }
     SheetData.model_validate(grid)
 
-    fixture.project.db.execute(
-        "DELETE FROM cell_result_heads WHERE column_id=? AND row_id=?",
-        (fixture.output_column_id, fixture.row_ids[3]),
-    )
+    from frisket.engine.store.op_log import step_operation
+
+    fixture.project.db.execute("BEGIN IMMEDIATE")
+    step_operation(fixture.project, "revert", op_id=fixture.first_op_id)
     fixture.project.db.commit()
     single_origin_grid = _sheet_data_payload(
         fixture.project,
@@ -671,13 +687,13 @@ def test_single_origin_replay_uses_heads_when_scalar_mirror_is_unusable(
     fixture = mixed_reader
     project = fixture.project
 
-    # Simulate an undo/GC rebuild which leaves one exact published origin.
-    # The compatibility scalar is either cleared or still points at the older
-    # run whose remaining head was removed.
-    project.db.execute(
-        "DELETE FROM cell_result_heads WHERE column_id=? AND row_id=?",
-        (fixture.output_column_id, fixture.row_ids[3]),
-    )
+    # Selectively revert the old generation, leaving the newer subset and
+    # manual edit intact. Deleting a disposable head cannot change authority.
+    # The compatibility scalar is either cleared or still points at the old run.
+    from frisket.engine.store.op_log import step_operation
+
+    project.db.execute("BEGIN IMMEDIATE")
+    step_operation(project, "revert", op_id=fixture.first_op_id)
     project.db.execute(
         "UPDATE columns SET current_run_id=? WHERE id=?",
         (
@@ -756,10 +772,8 @@ def test_single_origin_replay_uses_heads_when_scalar_mirror_is_unusable(
                 }
             ]
         )
-        project.db.execute(
-            "DELETE FROM cell_result_heads WHERE column_id=?",
-            (fixture.output_column_id,),
-        )
+        project.db.execute("BEGIN IMMEDIATE")
+        step_operation(project, "revert", op_id=fixture.second_op_id)
         project.db.commit()
         assert (
             project.pending_replay_values(fixture.sheet_id, fixture.output_column_id)

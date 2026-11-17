@@ -92,6 +92,7 @@ def _text_anchor(project: Any, selected: CellAnchor) -> ResolvedAnchor | None:
             sheet_id=selected.sheet_id,
             column_id=selected.column_id,
             row_ids=[selected.row_id],
+            include_hidden=True,
         ).get(selected.row_id)
     if resolved is None:
         return None
@@ -170,6 +171,7 @@ def _resolve_authority(
             sheet_id=selected.sheet_id,
             row_id=selected.row_id,
             column_id=selected.column_id,
+            include_hidden=True,
         )
     if blob is None:
         raise RetrievalQueryError(

@@ -79,7 +79,7 @@ public static class FrisketWindowsGuard {
         Check(QueryInformationJobObject(job, 1, out info, (uint)Marshal.SizeOf(typeof(Accounting)), IntPtr.Zero));
         return info.active;
     }
-    public static int Run(string command, string[] args, uint parentPid, uint ownerPid, string stop, string proof) {
+    public static int Run(string command, string[] args, uint parentPid, uint ownerPid, string stop, string proof, string runtimeLock, string runtimeReady, bool runtimeExclusive, ulong memoryLimitBytes, uint cpuLimitSeconds) {
         IntPtr parent = OpenProcess(0x00100000, false, parentPid);
         if (parent == IntPtr.Zero) {
             // An already-dead parent cannot authorize a late target spawn.
@@ -88,6 +88,7 @@ public static class FrisketWindowsGuard {
         }
         IntPtr owner = IntPtr.Zero;
         IntPtr job = IntPtr.Zero; ProcessInfo child = new ProcessInfo();
+        FileStream runtimeUse = null;
         try {
             if (ownerPid != 0 && ownerPid != parentPid) {
                 owner = OpenProcess(0x00100000, false, ownerPid);
@@ -99,9 +100,39 @@ public static class FrisketWindowsGuard {
             if (Exited(parent, 0) || (owner != IntPtr.Zero && Exited(owner, 0)) || File.Exists(stop)) {
                 File.WriteAllText(proof, "clean"); return 0;
             }
+            if (!String.IsNullOrEmpty(runtimeLock)) {
+                // Shared read handles reject the installer's write-capable
+                // FileLock. Keep this handle in the Job owner, including
+                // application-parent death and verified descendant cleanup.
+                while (runtimeUse == null) {
+                    if (Exited(parent, 0) || (owner != IntPtr.Zero && Exited(owner, 0)) || File.Exists(stop)) {
+                        File.WriteAllText(proof, "clean"); return 0;
+                    }
+                    try {
+                        runtimeUse = new FileStream(runtimeLock, FileMode.OpenOrCreate,
+                            runtimeExclusive ? FileAccess.ReadWrite : FileAccess.Read,
+                            runtimeExclusive ? FileShare.None : FileShare.Read);
+                    } catch (IOException error) {
+                        int sharingError = error.HResult & 0xffff;
+                        if (sharingError != 32 && sharingError != 33) throw;
+                        Thread.Sleep(50);
+                    }
+                }
+                if (!String.IsNullOrEmpty(runtimeReady) && !File.Exists(runtimeReady)) {
+                    File.WriteAllText(proof, "clean"); return 125;
+                }
+            }
             job = CreateJobObjectW(IntPtr.Zero, null);
             Check(job != IntPtr.Zero);
             var limits = new ExtendedLimits(); limits.basic.flags = 0x2000; // KILL_ON_JOB_CLOSE
+            if (memoryLimitBytes > 0) {
+                limits.basic.flags |= 0x200; // JOB_OBJECT_LIMIT_JOB_MEMORY
+                limits.jobMemory = new UIntPtr(memoryLimitBytes);
+            }
+            if (cpuLimitSeconds > 0) {
+                limits.basic.flags |= 0x4; // JOB_OBJECT_LIMIT_JOB_TIME
+                limits.basic.jobTime = (long)cpuLimitSeconds * 10000000;
+            }
             Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(typeof(ExtendedLimits))));
             var startup = new Startup(); startup.cb = (uint)Marshal.SizeOf(typeof(Startup));
             startup.flags = 0x100; // STARTF_USESTDHANDLES; keep stdin/stdout byte-transparent
@@ -138,12 +169,18 @@ public static class FrisketWindowsGuard {
             if (child.process != IntPtr.Zero && job != IntPtr.Zero) {
                 // TerminateProcess also covers the suspended assignment-failure case.
                 TerminateProcess(child.process, 1);
+                while (!Exited(child.process, 25)) { }
+            }
+            if (job != IntPtr.Zero) {
+                TerminateJobObject(job, 1);
+                while (Active(job) != 0) Thread.Sleep(10);
             }
             if (job != IntPtr.Zero) CloseHandle(job);
             if (child.thread != IntPtr.Zero) CloseHandle(child.thread);
             if (child.process != IntPtr.Zero) CloseHandle(child.process);
             CloseHandle(parent);
             if (owner != IntPtr.Zero) CloseHandle(owner);
+            if (runtimeUse != null) runtimeUse.Dispose();
         }
     }
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateProcess(IntPtr process, uint code);
@@ -154,7 +191,9 @@ public static class FrisketWindowsGuard {
         throw 'invalid Windows runtime configuration'
     }
     $result = [FrisketWindowsGuard]::Run([string]$launch.command, [string[]]$launch.args,
-        [uint32]$launch.parentPid, [uint32]$launch.ownerPid, [string]$launch.stop, [string]$launch.proof)
+        [uint32]$launch.parentPid, [uint32]$launch.ownerPid, [string]$launch.stop, [string]$launch.proof,
+        [string]$launch.runtimeLock, [string]$launch.runtimeReady, [bool]$launch.runtimeExclusive,
+        [System.UInt64]$launch.memoryLimitBytes, [uint32]$launch.cpuLimitSeconds)
     exit $result
 } catch {
     [Console]::Error.WriteLine('Windows runtime guardian failed: ' + $_.Exception.Message)

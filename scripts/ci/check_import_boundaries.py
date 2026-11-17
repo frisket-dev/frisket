@@ -32,6 +32,12 @@ class ImportBoundaryRule:
     A rule carrying ``forbidden_imports`` and no ``allowed_imports`` is
     therefore evaluated as a deny-list, NOT as "allow nothing".
 
+    ``forbidden_members`` additionally fences imported symbols and qualified
+    member references, leaving the module's read-only/public helpers usable.
+    It follows import aliases, not runtime object types or reflection.
+    ``forbidden_calls`` applies the same resolution only to invocations, so
+    constructor imports used solely for annotations can remain available.
+
     ``exclude`` subtracts modules from the governed set, so a rule that governs
     ``frisket.*`` can exempt the private tree from being flagged for importing
     itself.
@@ -41,13 +47,20 @@ class ImportBoundaryRule:
     modules: tuple[str, ...]
     allowed_imports: tuple[str, ...] = ()
     forbidden_imports: tuple[str, ...] = ()
+    forbidden_members: tuple[str, ...] = ()
+    forbidden_calls: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
     allow_stdlib: bool = False
     reject_unresolved_dynamic: bool = True
 
     @property
     def is_deny_list(self) -> bool:
-        return bool(self.forbidden_imports) and not self.allowed_imports
+        return (
+            bool(
+                self.forbidden_imports or self.forbidden_members or self.forbidden_calls
+            )
+            and not self.allowed_imports
+        )
 
 
 @dataclass(frozen=True, order=True)
@@ -169,6 +182,73 @@ def _static_imports(
                         expression,
                         "unresolved relative import",
                     )
+                )
+    return references
+
+
+def _member_references(
+    module: _Module, patterns: tuple[str, ...], *, calls_only: bool = False
+) -> list[_ImportReference]:
+    """Follow imported aliases to symbols and qualified member accesses.
+
+    This is an architectural convention check, not type inference: object
+    instances, reflection and indirect dynamic imports are not evaluated.
+    """
+    bindings: dict[str, str] = {}
+    references: list[_ImportReference] = []
+
+    def relevant(name: str) -> bool:
+        return _matches(name, patterns) or any(
+            member.startswith(f"{name}.") for member in patterns
+        )
+
+    for node in ast.walk(module.tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if not relevant(alias.name):
+                    continue
+                bindings[alias.asname or alias.name.partition(".")[0]] = (
+                    alias.name if alias.asname else alias.name.partition(".")[0]
+                )
+        elif isinstance(node, ast.ImportFrom):
+            base = _resolve_base(module, node)
+            if base is None:
+                continue
+            for alias in node.names:
+                imported = f"{base}.{alias.name}"
+                if not relevant(base if alias.name == "*" else imported):
+                    continue
+                if not calls_only or alias.name == "*":
+                    references.append(
+                        _ImportReference(imported, node.lineno, ast.unparse(node))
+                    )
+                if alias.name != "*":
+                    bindings[alias.asname or alias.name] = imported
+
+    if not bindings:
+        return references
+
+    def qualified(node: ast.expr) -> str | None:
+        if isinstance(node, ast.Name):
+            return bindings.get(node.id)
+        if isinstance(node, ast.Attribute):
+            parent = qualified(node.value)
+            return f"{parent}.{node.attr}" if parent else None
+        return None
+
+    for node in ast.walk(module.tree):
+        target = node.func if calls_only and isinstance(node, ast.Call) else node
+        if calls_only and isinstance(target, ast.Subscript):
+            target = (
+                target.value
+            )  # Generic constructors still invoke the imported class.
+        if isinstance(target, (ast.Name, ast.Attribute)) and (
+            not calls_only or isinstance(node, ast.Call)
+        ):
+            imported = qualified(target)
+            if imported:
+                references.append(
+                    _ImportReference(imported, node.lineno, ast.unparse(node))
                 )
     return references
 
@@ -348,6 +428,39 @@ def check_import_boundaries(
             }
 
         for module in governed.values():
+            for patterns, calls_only, reason in (
+                (rule.forbidden_members, False, "forbidden member access"),
+                (rule.forbidden_calls, True, "forbidden call"),
+            ):
+                if not patterns:
+                    continue
+                for reference in _member_references(
+                    module, patterns, calls_only=calls_only
+                ):
+                    imported = reference.imported
+                    if imported is None:
+                        continue
+                    wildcard = imported.endswith(".*") and any(
+                        member.startswith(imported[:-1]) for member in patterns
+                    )
+                    if wildcard or _matches(imported, patterns):
+                        violations.append(
+                            ImportViolation(
+                                rule.id,
+                                module.relative_path,
+                                reference.line,
+                                reason,
+                                imported,
+                                reference.expression,
+                            )
+                        )
+            if (
+                (rule.forbidden_members or rule.forbidden_calls)
+                and not rule.allowed_imports
+                and not rule.forbidden_imports
+                and not rule.reject_unresolved_dynamic
+            ):
+                continue
             references = _static_imports(module, modules) + _dynamic_imports(module)
             for reference in references:
                 if reference.imported is None:
@@ -415,6 +528,8 @@ def _rules_from_json(path: Path) -> tuple[ImportBoundaryRule, ...]:
             modules=tuple(item["modules"]),
             allowed_imports=tuple(item.get("allowed_imports", ())),
             forbidden_imports=tuple(item.get("forbidden_imports", ())),
+            forbidden_members=tuple(item.get("forbidden_members", ())),
+            forbidden_calls=tuple(item.get("forbidden_calls", ())),
             exclude=tuple(item.get("exclude", ())),
             allow_stdlib=bool(item.get("allow_stdlib", False)),
             reject_unresolved_dynamic=bool(item.get("reject_unresolved_dynamic", True)),

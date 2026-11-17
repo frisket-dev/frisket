@@ -37,6 +37,7 @@ from frisket.server.route_errors import RouteError
 from frisket.server.services.row_source_documents import (
     RowSourceNotFound,
     resolve_row_source_documents,
+    request_row_source_freshness,
 )
 
 
@@ -92,11 +93,13 @@ class ProjectEvidenceService:
     def row_source_documents(self, project_id: str, *, row_id: int) -> Any:
         project = self._project_or_404(project_id)
         try:
+            requested_freshness = request_row_source_freshness(project, row_id)
             with project.read_snapshot() as snapshot:
                 return resolve_row_source_documents(
                     snapshot,
                     row_id=row_id,
                     project_id=project_id,
+                    requested_freshness=requested_freshness,
                 )
         except RowSourceNotFound as exc:
             raise ProjectEvidenceRouteError(

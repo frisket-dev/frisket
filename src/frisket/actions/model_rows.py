@@ -46,10 +46,13 @@ FILE_SOURCE_CONVERSION_HINT = "For file contents, run To markdown or OCR first, 
 
 
 class RichColumn(ColumnRef[Any]):
+    required_input: ClassVar[bool] = True
+    allow_missing_input: ClassVar[bool] = True
     accepted_column_types: ClassVar[tuple[str, ...]] = RICH_COLUMN_TYPES
 
 
 class RichTemplate(Template[Any]):
+    required_input: ClassVar[bool] = True
     accepted_column_types: ClassVar[tuple[str, ...]] = RICH_COLUMN_TYPES
 
     @model_validator(mode="before")

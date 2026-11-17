@@ -1,5 +1,7 @@
 """Provider setup behavior stays coherent across catalogs, probes and key scopes."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import json
 
 import httpx
@@ -101,7 +103,12 @@ def test_unknown_provider_does_not_send_key():
 
 def test_catalogs_reflect_supported_key_scopes(tmp_path):
     with TestClient(
-        create_app(tmp_path / "ws", router=ModelRouter(use_env_keys=False))
+        create_app(
+            tmp_path / "ws",
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False
+            ),
+        )
     ) as client:
         pid = client.post("/api/projects", json={"name": "Keys"}).json()["id"]
         org = client.get("/api/org/provider-catalog")

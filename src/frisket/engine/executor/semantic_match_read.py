@@ -436,6 +436,11 @@ def _derive_link_table_review_refs(
     selected_row_ids: list[int],
 ) -> dict[str, Any]:
     selected = set(selected_row_ids)
+    from frisket.engine.store.review_judgments import decision_scope_identity
+
+    effective_owners, judgment_fingerprint = decision_scope_identity(
+        project.db, source_run_id, output_column_ids, selected_row_ids
+    )
     bodies = ReceiptStore(project).bodies_for_action_status(
         action_kind="review.decision",
         status="completed",
@@ -456,6 +461,8 @@ def _derive_link_table_review_refs(
             continue
         if not _receipt_ops_are_applied(project, receipt.op_ids):
             continue
+        if not effective_owners.intersection(receipt.op_ids):
+            continue
         row_id = int(target_ref["row_id"])
         receipt_ids.append(receipt.receipt_id)
         if row_id not in reviewed_row_ids:
@@ -474,6 +481,7 @@ def _derive_link_table_review_refs(
         "receipt_ids": receipt_ids,
         "reviewed_row_ids": reviewed_row_ids,
         "decisions": decisions,
+        "judgment_fingerprint": judgment_fingerprint,
     }
 
 
@@ -548,6 +556,7 @@ class AdmittedSemanticMatchReader:
         self.sources: set[RowSource] = set()
         self.source_roles: dict[RowSource, str] = {}
         self.facts: list[dict[str, Any]] = []
+        self.consumed_captures: list[dict[str, Any]] = []
         self._matches: dict[RowSource, SemanticMatch] = {}
         self._values: dict[RowSource, dict[str, Any]] = {}
         self._reads: list[dict[str, Any]] = []
@@ -559,12 +568,56 @@ class AdmittedSemanticMatchReader:
         if type(include_unmatched) is not bool:
             raise TableError("invalid_params", "include_unmatched must be a boolean")
         selected = self.scope.row_ids if isinstance(self.scope, SheetRows) else None
-        resolved = _resolve_semantic_matches(
-            self.project,
-            receipt_id=source.receipt_id,
-            row_ids=selected,
-            include_unmatched=include_unmatched,
-        )
+        with self.project.read_snapshot() as snapshot:
+            resolved = _resolve_semantic_matches(
+                snapshot,
+                receipt_id=source.receipt_id,
+                row_ids=selected,
+                include_unmatched=include_unmatched,
+            )
+            if not isinstance(resolved, ActionError):
+                from frisket.engine.store.consumed_sources import (
+                    capture_read_scope,
+                    capture_retained_results,
+                    merge_captures,
+                )
+
+                output_columns = list(resolved["output_column_ids"].values())
+                capture = merge_captures(
+                    [
+                        capture_read_scope(
+                            snapshot,
+                            resolved["source_sheet_id"],
+                            [resolved["source_column_id"], *output_columns],
+                            resolved["selected_row_ids"],
+                        ),
+                        capture_read_scope(
+                            snapshot,
+                            resolved["target_sheet_id"],
+                            [resolved["target_column_id"]],
+                            [
+                                record["target_row_id"]
+                                for record in resolved["records"]
+                                if record["target_row_id"] is not None
+                            ],
+                        ),
+                        # A saved match also depends on the corpus its producing
+                        # run actually compared, including empty/unmatched edges.
+                        capture_retained_results(
+                            snapshot,
+                            resolved["source_sheet_id"],
+                            output_columns[0],
+                            resolved["source_run_id"],
+                            resolved["selected_row_ids"],
+                        ),
+                    ]
+                )
+                capture["scopes"][0]["judgments"] = {
+                    "run_id": resolved["source_run_id"],
+                    "column_ids": output_columns,
+                    "fingerprint": resolved["review_refs"]["judgment_fingerprint"],
+                }
+                self.consumed_captures.append(capture)
         if isinstance(resolved, ActionError):
             raise TableReadRefused(
                 resolved.model_copy(update={"action_kind": self.action_kind})

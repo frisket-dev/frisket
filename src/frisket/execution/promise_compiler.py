@@ -320,7 +320,7 @@ def compile_route_promises(
             )
         )
     if isinstance(cost, PricedCostBasis):
-        bound = cost.bound
+        bound = cost.bound if cost.ceiling_mode == "consented_quantity" else None
         rows.append(
             Promise.make(
                 "cost",

@@ -8,6 +8,8 @@ Network-marked (live DDG search + live/cached model calls):
     FRISKET_CACHE_REFRESH=1 FRISKET_CACHE_MODE=replay uv run pytest -m network tests/test_golden_tariff.py
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import os
 import time
@@ -46,7 +48,11 @@ def test_golden_tariff_chain(tmp_path):
         p.add_rows(sheet, [{"country": c} for c in COUNTRIES], cols)
         row_ids = list(p.visible_row_ids(sheet))
 
-        router = ModelRouter(cache=ResponseCache(CACHE_PATH), cache_mode=MODE)
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=ResponseCache(CACHE_PATH),
+            cache_mode=MODE,
+        )
         runner = MapRunner(p, router, concurrency=3, authority=UnroutedOnlyAuthority(p))
 
         async def sleep(n):

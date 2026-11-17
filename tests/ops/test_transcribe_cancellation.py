@@ -9,6 +9,7 @@ and the preview-path fence.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
@@ -149,7 +150,9 @@ def test_worker_completes_when_cancel_reports_false(tmp_path, monkeypatch, engin
     )
     runner = MapRunner(
         p,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         concurrency=1,
         # Transcribe resolves an execution route, and a routed run
         # never dispatches unverified: a test runner builds the
@@ -185,11 +188,13 @@ async def _parakeet_false_result(observed: dict, should_cancel) -> dict:
 
 
 @pytest.mark.parametrize("engine", _LOCAL_ENGINES)
-def test_external_cancel_during_worker_drops_row(tmp_path, monkeypatch, engine):
+def test_external_cancel_retains_returned_diagnosis_without_publishing_row(
+    tmp_path, monkeypatch, engine
+):
     """A cancel arrives from OUTSIDE while the worker runs; the fake observes the
     should_cancel False->True transition and returns cancelled. The MapRunner
-    fence then drops the row wholesale: zero completed/failed, no persisted
-    value/error/cost, status 'cancelled', row still resumable."""
+    fence retains the returned diagnosis while Stop closes publication.
+    No current result or completed row is invented; the run stays cancelled."""
     p, sheet = _transcribe_project(tmp_path)
     state = {"running": False, "cancel": False, "callable": False, "transition": False}
 
@@ -217,7 +222,9 @@ def test_external_cancel_during_worker_drops_row(tmp_path, monkeypatch, engine):
     async def go():
         runner = MapRunner(
             p,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             concurrency=1,
             # Transcribe resolves an execution route, and a routed run
             # never dispatches unverified: a test runner builds the
@@ -240,10 +247,19 @@ def test_external_cancel_during_worker_drops_row(tmp_path, monkeypatch, engine):
     prog = asyncio.run(go())
 
     assert state["callable"] and state["transition"]
-    assert prog.cancelled and prog.completed == 0 and prog.failed == 0
+    assert prog.cancelled
     assert prog.cost == 0.0
     row = _run_row(p, prog.run_id)
     assert row["status"] == "cancelled" and row["completed_rows"] == 0
+    assert (
+        p.db.execute(
+            "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (prog.run_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    checkpoint = p.db.execute("SELECT state,payload FROM effect_checkpoints").fetchone()
+    assert checkpoint["state"] == "returned"
+    assert "cancel" in checkpoint["payload"].lower()
     transcript = next(c for c in p.columns(sheet) if c["name"] == "transcript")
     assert all(v is None for v in p.get_values(sheet, transcript["id"]).values())
 
@@ -281,7 +297,9 @@ def test_worker_timeout_stays_a_row_failure_not_cancellation(
     )
     runner = MapRunner(
         p,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         concurrency=1,
         # Transcribe resolves an execution route, and a routed run
         # never dispatches unverified: a test runner builds the
@@ -386,7 +404,9 @@ def test_preview_external_cancel_persists_no_row_values(tmp_path, monkeypatch):
     async def go():
         runner = MapRunner(
             p,
-            ModelRouter(cache=None, cache_mode="off"),
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
             concurrency=1,
             # Transcribe resolves an execution route, and a routed run
             # never dispatches unverified: a test runner builds the

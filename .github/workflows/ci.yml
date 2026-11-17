@@ -72,7 +72,8 @@ jobs:
           fi
           match() {
             if [ "$allchanged" = "1" ]; then echo true; return; fi
-            if printf '%s\n' "$files" | grep -Eq "$1"; then echo true; else echo false; fi
+            # Drain the whole diff: grep -q can SIGPIPE printf under pipefail.
+            if printf '%s\n' "$files" | grep -E "$1" >/dev/null; then echo true; else echo false; fi
           }
           # backend = anything the Python suite can depend on, including the
           # web/sdk TS toolchain the renderer-matrix/plugin-build tests shell

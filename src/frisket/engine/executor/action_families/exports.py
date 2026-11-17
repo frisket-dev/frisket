@@ -1681,6 +1681,33 @@ def _google_sheets_tabs_for_source(
         return tabs
 
     assert params.source.sheet_id is not None
+    if params.source.selection is not None:
+        from frisket.engine.views.evaluate import open_selection
+        from frisket.retrieval.query import RetrievalQueryError
+        from frisket.ai.embeddings.similarity import SimilarityError
+
+        try:
+            with open_selection(
+                project,
+                params.source.selection.model_dump(mode="json", exclude_none=True),
+            ) as selected:
+                tab = _google_sheets_tab_for_sheet(
+                    selected.snapshot,
+                    params.source.sheet_id,
+                    query=None,
+                    scope_row_ids=None,
+                    action_kind=action.kind,
+                    query_field="params.source.selection",
+                    selection_read=selected,
+                )
+                return tab if isinstance(tab, ActionError) else [tab]
+        except (ValueError, RetrievalQueryError, SimilarityError) as exc:
+            return ActionError(
+                code="invalid_view_selection",
+                message=str(exc),
+                action_kind=action.kind,
+                field="params.source.selection",
+            )
     return_tab = _google_sheets_tab_for_sheet(
         project,
         params.source.sheet_id,
@@ -1702,6 +1729,7 @@ def _google_sheets_tab_for_sheet(
     scope_row_ids: list[int] | None,
     action_kind: str,
     query_field: str,
+    selection_read: Any | None = None,
 ) -> dict[str, Any] | ActionError:
     try:
         plan = build_sheet_export_plan(
@@ -1713,6 +1741,7 @@ def _google_sheets_tab_for_sheet(
             value_policy="typed",
             max_rows=MAX_FILTERED_SHEET_CSV_EXPORT_ROWS,
             query_field=query_field,
+            selection_read=selection_read,
         )
     except ExportError as exc:
         return _export_error_to_action_error(exc, action_kind)

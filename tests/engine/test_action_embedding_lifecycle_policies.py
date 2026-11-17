@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 
 def test_manual_refresh_v1_launch_enqueues_action_run(tmp_path) -> None:
@@ -61,7 +62,9 @@ def test_manual_refresh_v1_launch_enqueues_action_run(tmp_path) -> None:
             ctx=QueuedV1ActionRunContext(
                 queue=queue,
                 workspace_root=workspace,
-                router_for=lambda _project: ModelRouter(keys={}),
+                router_for=lambda _project: ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY, keys={}
+                ),
                 execution_composition_for=open_execution_composition,
                 active_runs={},
                 run_jobs={},

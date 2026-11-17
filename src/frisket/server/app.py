@@ -180,7 +180,7 @@ from frisket.server.routes.sheet_features import (
 from frisket.server.routes.sheet_grid import register_sheet_grid_routes
 from frisket.server.routes.spend import register_spend_routes
 from frisket.server.routes.sources import register_source_routes
-from frisket.server.routes.views import register_view_lens_routes
+from frisket.server.routes.views import register_view_routes
 from frisket.server.routes.watches import register_watch_routes
 from frisket.server.routes.walkthroughs import register_walkthrough_routes
 from frisket.server.routes.workbench import register_workbench_routes
@@ -247,7 +247,7 @@ from frisket.server.services.sheet_export import SheetDatasetExportService
 from frisket.server.services.sheet_grid import SheetGridService
 from frisket.server.services.spend import SpendService
 from frisket.server.services.sources import SourceService
-from frisket.server.services.views import ViewLensService
+from frisket.server.services.views import ViewService
 from frisket.server.services.watches import WatchService
 from frisket.server.services.work_log_exports import WorkLogExportService
 from frisket.server.services.workbench import WorkbenchService
@@ -419,8 +419,8 @@ def create_app(
     execution_router_factory: Callable[[], ModelRouter] | None = None,
     execution_composition_factory: ExecutionCompositionFactory | None = None,
     action_observer: ActionObserver | None = None,
-    direct_action_receipt_settlement_port: (
-        server_workspace.DirectActionReceiptSettlementPort | None
+    import_child_admission_port: (
+        server_workspace.ImportChildAdmissionPort | None
     ) = None,
     project_qa_runtime_port: server_workspace.ProjectQARuntimePort | None = None,
     project_qa_internal_error_reporter: ProjectQAInternalErrorReporter | None = None,
@@ -594,7 +594,7 @@ def create_app(
         plugin_composition_policy=plugin_composition_policy,
         execution_router_factory=execution_router_factory,
         execution_composition_factory=execution_composition_factory,
-        direct_action_receipt_settlement_port=(direct_action_receipt_settlement_port),
+        import_child_admission_port=(import_child_admission_port),
         action_observer=action_observer,
         project_qa_runtime_port=project_qa_runtime_port,
         edition=edition,
@@ -1203,8 +1203,8 @@ def create_app(
 
     register_spend_routes(app, service=SpendService(ws))
 
-    view_lens_service = ViewLensService(ws)
-    register_view_lens_routes(app, service=view_lens_service)
+    view_service = ViewService(ws)
+    register_view_routes(app, service=view_service)
 
     register_watch_routes(
         app,

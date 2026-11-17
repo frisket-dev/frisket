@@ -9,6 +9,8 @@ backend is the live/manual extension of this).
 Offline: no network, no model keys — import is deterministic.
 """
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import io
 import time
 
@@ -24,7 +26,12 @@ from helpers import make_client  # noqa: E402
 
 @pytest.fixture
 def client(tmp_path):
-    return make_client(tmp_path, router=ModelRouter(cache=None, cache_mode="off"))
+    return make_client(
+        tmp_path,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
 
 
 def _new_project(client, name="gauntlet"):

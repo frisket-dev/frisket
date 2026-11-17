@@ -51,6 +51,7 @@ function exportSource(input: GoogleSheetsExportInput): Record<string, unknown> {
   const sheetId = input.sheetId ? Number(input.sheetId) : NaN;
   if (!Number.isFinite(sheetId)) throw new ApiError(400, 'Choose a sheet to export');
   if (input.sourceKind === 'current_view') {
+    if (input.currentView?.selection) return { kind: 'current_view', sheet_id: sheetId, selection: input.currentView.selection };
     const filter = input.currentView?.filter ?? null;
     const sort = input.currentView?.sort ?? null;
     return {

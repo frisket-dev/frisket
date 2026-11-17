@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from frisket.contracts.action import (
     ActionError,
@@ -14,9 +14,7 @@ from frisket.contracts.action import (
 )
 from frisket.engine.executor.action_support import _failed_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.executor.import_update import ImportUpdatePlan, plan_import_update
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.features.temporal_ingress import preflight_typed_rows_for_persistence
 
 if TYPE_CHECKING:
     from frisket.actions.import_xlsx import ImportXlsxParams, UpdateXlsxParams
@@ -83,7 +81,6 @@ def run_tabular_action(
     deps: ExecutorDeps,
     sheet_name: str | None = None,
     destination_sheet_id: int | None = None,
-    confirmation: str | None = None,
     router: Any | None = None,
 ) -> ActionResult:
     """Run an existing typed tabular action with its ordinary request envelope."""
@@ -123,8 +120,6 @@ def run_tabular_action(
     if mode == "create":
         if not sheet_name:
             raise ValueError("import create requires a sheet name")
-        if confirmation is not None:
-            raise ValueError("import create does not accept confirmation")
         final_name = resolve_import_sheet_name(
             project,
             request_key=idempotency_key,
@@ -141,11 +136,6 @@ def run_tabular_action(
     else:
         if destination_sheet_id is None:
             raise ValueError("import append/update requires a destination sheet")
-        if mode == "update":
-            if not confirmation:
-                raise ValueError("import update requires confirmation")
-        elif confirmation is not None:
-            raise ValueError("import append does not accept confirmation")
         append_action = {
             "import.rows": "import.append_rows",
             "import.csv": "import.append_csv",
@@ -157,8 +147,6 @@ def run_tabular_action(
             "params": params.model_dump(mode="json", exclude_unset=True),
             "idempotency_key": idempotency_key,
         }
-        if mode == "update":
-            request["confirmation"] = confirmation
     return run_action_spec(
         project, request, project_id=project_id, router=router, deps=deps
     )
@@ -216,45 +204,6 @@ def resolve_destination_mapping(
     if require_keys and (not set(keys).issubset(names) or set(keys) == names):
         raise ValueError("import update requires unique key and update targets")
     return ResolvedImportMapping(tuple(columns), keys)
-
-
-def plan_tabular_update(
-    project: Any,
-    *,
-    sheet_id: int,
-    columns: Iterable[ImportRowsColumn],
-    key_columns: Iterable[str],
-    rows: Iterable[Mapping[str, Any]],
-    keep_existing_on_blank: bool,
-    max_rows: int | None,
-) -> ImportUpdatePlan:
-    """Compose the server's temporal preflight with the existing update planner."""
-
-    return plan_import_update(
-        project,
-        sheet_id=sheet_id,
-        columns=columns,
-        key_columns=key_columns,
-        rows=rows,
-        keep_existing_on_blank=keep_existing_on_blank,
-        preflight_rows=preflight_typed_rows_for_persistence,
-        max_rows=max_rows,
-    )
-
-
-def update_preview_payload(plan: ImportUpdatePlan) -> dict[str, Any]:
-    """Project only the public update-preview fields."""
-
-    return {
-        "matched": plan.matched,
-        "unmatched": plan.unmatched,
-        "blank_keys": plan.blank_keys,
-        "ambiguous": plan.ambiguous,
-        "changed_cells": plan.changed_cells,
-        "cleared_cells": plan.cleared_cells,
-        "samples": list(plan.samples),
-        "confirmation": plan.confirmation,
-    }
 
 
 def materialized_sheet_output(result: ActionResult) -> ActionOutput | None:

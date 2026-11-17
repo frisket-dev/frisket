@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 
@@ -60,7 +61,9 @@ def test_diagnose_reports_explicitly_injected_router_keys(tmp_path, monkeypatch)
         "OPENROUTER_API_KEY",
     ):
         monkeypatch.delenv(var, raising=False)
-    router = ModelRouter(keys={"anthropic": "sk-test-injected"})
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "sk-test-injected"}
+    )
     client = TestClient(create_app(tmp_path / "ws", router=router))
     resp = client.get("/api/diagnose")
     assert resp.status_code == 200

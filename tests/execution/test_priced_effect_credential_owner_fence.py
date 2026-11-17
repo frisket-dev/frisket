@@ -43,6 +43,7 @@ from frisket.ops.ocr_engines_hosted import (
     _datalab_credential_parts,
 )
 from frisket.engine.executor.translate_read import AdmittedTranslator
+from tests.execution_composition_helpers import RecordingPurchasePolicy
 
 
 DEPLOYMENT = CredentialOwner.deployment("frisket-hosted")
@@ -174,6 +175,9 @@ def _admitted_context(project, context, *, capability, engine, transport, source
         http=object(),
         credential_use_context=context,
         extras={
+            "service_operation_policy": RecordingPurchasePolicy(),
+            "preview": True,
+            "cancelled": lambda: False,
             "row_id": 1,
             ATTEMPT_EXTRA: AttemptCommitment(
                 attempt_id="attempt_FENCE",

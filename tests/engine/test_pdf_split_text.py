@@ -17,6 +17,7 @@ from frisket.engine.store.pdf_split import PdfSplitSource, PdfSplitWriter
 from frisket.engine.store.pdf_split_text import (
     capture_pdf_split_text_identities,
     publish_pdf_split_page,
+    publish_pdf_split_pages,
 )
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
@@ -26,7 +27,7 @@ from frisket.server.services.pdf_split_preparation import PdfSplitChildBinding
 from tests.server.test_pdf_split_preparation import _runtime
 
 
-def _child(tmp_path, monkeypatch):
+def _child(tmp_path, monkeypatch, *, child_count=1):
     adapter, preview, project, provider, read, _op, source = _runtime(
         tmp_path, monkeypatch
     )
@@ -49,9 +50,11 @@ def _child(tmp_path, monkeypatch):
         action_id="split-text",
         receipt_id="split-text-receipt",
         columns=[{"name": "media", "type": "file"}, {"name": "text", "type": "text"}],
-        sources=[PdfSplitSource("first", 1)],
+        sources=[PdfSplitSource("first", child_count)],
     )
-    rows = writer.publish_source([{"media": value, "text": ""}], expected_cursor=0)
+    rows = writer.publish_source(
+        [{"media": value, "text": ""}] * child_count, expected_cursor=0
+    )
     columns = {
         column["name"]: int(column["id"]) for column in project.columns(writer.sheet_id)
     }
@@ -158,20 +161,35 @@ def test_finished_pages_merge_partial_refs_and_one_undo_restores_saved_text(
         assert content.text == "Page 1\n\nPage 2"
         assert content.pins[1].positions["source_page_number"] == 2
         assert content.pins[1].positions["page_number"] == 2
-        assert project.op_cursor == before
+        assert project.op_cursor > before
         assert (
             project.db.execute("SELECT COUNT(*) FROM search_dirty_scopes").fetchone()[0]
             > 0
         )
-        project.undo()
-        assert project.visible_row_ids(first.source_cell[0]) == []
-        project.redo()
+        preparation_op = project.undo()
+        assert project.visible_row_ids(first.source_cell[0]) == [binding.row_id]
+        restored_first = resolve_document_text_selection(project, first.source_cell)
+        assert (
+            PreparedContentStore(project).resolve(restored_first.prepared_ref_id).text
+            == "Page 1"
+        )
+        assert project.redo() == preparation_op
         restored = resolve_document_text_selection(project, first.source_cell)
         assert (
             PreparedContentStore(project).resolve(restored.prepared_ref_id).text
             == content.text
         )
+        count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        assert publish_pdf_split_page(project, binding, refs[0])
+        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == count
+        from frisket.engine.store.op_log import step_operation
+
+        with project.transaction_scope():
+            step_operation(project, "revert", op_id=binding.operation_id)
+        with project.transaction_scope():
+            step_operation(project, "restore", op_id=binding.operation_id)
         assert not publish_pdf_split_page(project, binding, refs[0])
+        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == count
     finally:
         preview._registry.shutdown()
         project.close()
@@ -315,9 +333,9 @@ def test_merged_original_cache_is_narrowed_before_real_child_fanout(
             "SELECT COUNT(*) FROM prepared_page_versions WHERE source_artifact_id=?",
             (artifact,),
         ).fetchone()[0]
-        adapter.publish_child_page = lambda current, ref: publish_pdf_split_page(
-            project, current, ref
-        )
+        adapter.publish_child_pages = lambda bindings, ref: [
+            publish_pdf_split_page(project, current, ref) for current in bindings
+        ]
         assert adapter.start_pending(generation=binding.generation) == ()
         sheet = project.db.execute(
             "SELECT sheet_id FROM rows WHERE id=?", (binding.row_id,)
@@ -340,6 +358,76 @@ def test_merged_original_cache_is_narrowed_before_real_child_fanout(
             == versions
         )
         assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 0
+    finally:
+        preview._registry.shutdown()
+        project.close()
+
+
+def test_page_fanout_has_one_separate_preparation_change(tmp_path, monkeypatch):
+    _adapter, preview, project, binding, refs = _child(
+        tmp_path, monkeypatch, child_count=2
+    )
+    try:
+        second_row = project.db.execute(
+            "SELECT row_id FROM import_session_rows WHERE session_id=? AND row_id!=?",
+            (binding.session_id, binding.row_id),
+        ).fetchone()[0]
+        first_artifact = project.db.execute(
+            "SELECT * FROM source_artifacts WHERE id=?",
+            (binding.artifact_id,),
+        ).fetchone()
+        second_artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=first_artifact["blob_hash"],
+            filename="second.pdf",
+            page_count=2,
+            source_sheet_id=first_artifact["source_sheet_id"],
+            source_row_id=second_row,
+            source_column_id=binding.source_column_id,
+        )
+        source, text = capture_pdf_split_text_identities(
+            project,
+            row_id=second_row,
+            source_column_id=binding.source_column_id,
+            text_column_id=binding.text_column_id,
+            original_artifact_id=binding.expected_source_value["original_artifact_id"],
+            original_page_number=1,
+        )
+        second = replace(
+            binding,
+            row_id=second_row,
+            artifact_id=second_artifact["id"],
+            expected_source_value=source,
+            expected_text_value=text,
+        )
+        count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        assert publish_pdf_split_pages(project, [binding, second], refs[0]) == [
+            True,
+            True,
+        ]
+        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == count + 1
+        child = project.db.execute(
+            "SELECT id,publication_closed,spec FROM ops WHERE kind='pdf.prepare_text'"
+        ).fetchone()
+        assert child["publication_closed"] == 1
+        assert json.loads(child["spec"])["import_op_id"] == binding.operation_id
+        assert (
+            project.db.execute(
+                "SELECT publication_closed FROM ops WHERE id=?", (binding.operation_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        assert project.undo() == child["id"]
+        values = project.get_values(
+            first_artifact["source_sheet_id"], binding.text_column_id
+        )
+        assert values == {binding.row_id: "", second_row: ""}
+        assert project.redo() == child["id"]
+        assert project.get_values(
+            first_artifact["source_sheet_id"], binding.text_column_id
+        ) == {binding.row_id: "Page 1", second_row: "Page 1"}
     finally:
         preview._registry.shutdown()
         project.close()

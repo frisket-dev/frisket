@@ -46,17 +46,18 @@ def assert_pre_dispatch_failure_is_durable(
     """Assert the canonical post-prepare failure shape.
 
     Once a direct action has published its run/output family, a fake runner
-    failure no longer rewinds history to zero rows. It must leave one
-    terminal failed run with no live writer, results, model calls, or receipt.
-    This keeps the old tests' no-effect/reservation-cleanup proof while
-    recognizing the now-auditable preparation record.
+    failure no longer rewinds history to zero rows. It leaves one terminal
+    failed run and its failed receipt, with no live writer, results, or model
+    calls. The durable receipt keeps the failed idempotency decision auditable.
     """
 
     assert after["runs"] == before["runs"] + 1
     assert after["ops"] == before["ops"] + 1
-    for table in ("results", "model_calls", "receipts"):
+    for table in ("results", "model_calls"):
         if table in before:
             assert after[table] == before[table]
+    if "receipts" in before:
+        assert after["receipts"] == before["receipts"] + 1
     run = project.db.execute(
         "SELECT id, status, finished_at, current_attempt_id "
         "FROM runs ORDER BY id DESC LIMIT 1"
@@ -65,6 +66,12 @@ def assert_pre_dispatch_failure_is_durable(
     assert run["status"] == "failed"
     assert run["finished_at"] is not None
     assert run["current_attempt_id"] is None
+    receipt = project.db.execute(
+        "SELECT status,run_id FROM receipts WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
+        (int(run["id"]),),
+    ).fetchone()
+    assert receipt is not None
+    assert (receipt["status"], receipt["run_id"]) == ("failed", int(run["id"]))
     attempts = project.db.execute(
         "SELECT state FROM execution_attempts WHERE run_id=?",
         (int(run["id"]),),

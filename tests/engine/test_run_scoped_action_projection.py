@@ -1,6 +1,7 @@
 """Action/receipt projection tests for invocation-scoped recipe halts."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
@@ -196,7 +197,8 @@ def test_direct_halt_and_operator_cancel_remain_distinct(
             deps=ExecutorDeps(
                 map_runner_factory=lambda target, router: MapRunner(
                     target,
-                    router or ModelRouter(keys={}),
+                    router
+                    or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     should_cancel=lambda _run_id: True,
                     # These transcribe actions resolve an execution route, and
                     # a routed run never dispatches unverified: a test factory
@@ -260,7 +262,8 @@ def test_direct_sandbox_teardown_persists_typed_partial_receipt(
             deps=ExecutorDeps(
                 map_runner_factory=lambda target, router: MapRunner(
                     target,
-                    router or ModelRouter(keys={}),
+                    router
+                    or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     concurrency=1,
                     # See above: routed runs verify at dispatch, test
                     # factories included.

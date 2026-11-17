@@ -40,7 +40,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from frisket.project_identity import ProjectStorageKey
+from frisket.project_identity import ProjectStorageKey, validate_project_slug
 from frisket.engine.store import Project
 
 __all__ = [
@@ -49,6 +49,7 @@ __all__ = [
     "open_claimed_project",
     "open_payload_project",
     "require_opener_storage_org_id",
+    "project_bundle_paths",
 ]
 
 #: Open a claimed project. Given the trusted ``ProjectStorageKey`` and the
@@ -143,3 +144,39 @@ def open_payload_project(
         workspace_root_storage_org_id=workspace_root_storage_org_id,
     )
     return slug, open_claimed_project(payload, project_path, project_opener)
+
+
+def project_bundle_paths(
+    workspace: Path, *, project_id: str | None = None, require_slug: bool = False
+) -> list[Path]:
+    """Discover complete, visible bundles before assigning storage identities.
+
+    Dot directories are unpublished staging bundles. Local Python projects can
+    have ordinary filesystem names; hosted openers require routable slugs.
+    Invalid discovered names are not hosted projects, while an explicitly
+    requested invalid identity remains an error. Valid bundles are not opened
+    or parsed here, so their processing failures retain the caller's handling.
+    """
+    if require_slug and project_id is not None:
+        validate_project_slug(project_id)
+    candidates = (
+        [workspace / f"{project_id}.frisket"]
+        if project_id is not None
+        else sorted(workspace.glob("*.frisket"))
+    )
+    ready = []
+    for path in candidates:
+        if (
+            path.name.startswith(".")
+            or not path.is_dir()
+            or not (path / "manifest.json").is_file()
+            or not (path / "project.db").is_file()
+        ):
+            continue
+        if require_slug:
+            try:
+                validate_project_slug(path.stem)
+            except ValueError:
+                continue
+        ready.append(path)
+    return ready

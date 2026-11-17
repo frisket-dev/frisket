@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
@@ -7,6 +8,8 @@ from frisket.engine.store.media_blobs import owned_media_metadata_document
 import json
 from pathlib import Path
 from typing import Any
+
+from frisket.engine.store.receipts import ReceiptStore
 
 import pytest
 
@@ -43,7 +46,12 @@ class _StubAdapter:
 
 
 def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _StubAdapter(reply)
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -421,11 +429,13 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
             fresh_links = active_links()
             assert set(fresh_links).isdisjoint(previous_links)
             for link_id in previous_links:
-                stale = project.db.execute(
+                retained = project.db.execute(
                     "SELECT status, stale_reason FROM evidence_links WHERE stable_id=?",
                     (link_id,),
                 ).fetchone()
-                assert tuple(stale) == ("stale", "sheet_refreshed")
+                # Refresh hides superseded rows; it does not invalidate their
+                # retained evidence, which becomes current again on Undo.
+                assert tuple(retained) == ("active", None)
             assert [
                 tuple(row)
                 for row in project.db.execute(
@@ -437,8 +447,12 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
             assert replay.status == "completed", replay.errors
             assert replay.receipt_id == refreshed.receipt_id
             assert active_links() == fresh_links
+            assert project.undo() == refreshed.op_ids[0]
+            assert active_links() == previous_links
+            assert project.redo() == refreshed.op_ids[0]
+            assert active_links() == fresh_links
 
-        # Evidence-copy failure rolls back both row replacement and the stale sweep.
+        # Evidence-copy failure rolls back membership and copied evidence together.
         table_keys = {
             "sheets": "id",
             "rows": "id",
@@ -471,7 +485,15 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
         assert refused.status == "failed"
         assert refused.errors[0].code == "project_write_failed"
         for table, old_rows in before.items():
-            assert snapshot(table) == old_rows
+            if table not in {"ops", "receipts"}:
+                assert snapshot(table) == old_rows
+        failed_receipt = ReceiptStore(project).parsed_by_id(refused.receipt_id)
+        assert failed_receipt.status == "failed"
+        failed_op = project.db.execute(
+            "SELECT publication_closed,change_order FROM ops WHERE id=?",
+            (failed_receipt.op_ids[0],),
+        ).fetchone()
+        assert tuple(failed_op) == (1, None)  # no batch committed a Change
         assert active_links() == fresh_links
     finally:
         project.close()

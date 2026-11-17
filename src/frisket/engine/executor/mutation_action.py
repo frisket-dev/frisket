@@ -8,7 +8,6 @@ from typing import Any, Mapping
 
 from frisket.actions.core import _ProjectAction
 from frisket.actions.mutations import COLUMN_DISPLAY_FORMATS
-from frisket.actions.review_replay import ReviewDecisionParams
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
     AcceptedReplayColumn,
@@ -92,12 +91,12 @@ from frisket.engine.store.current_cells import (
 from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.artifact_timeline import TimelineError
-from frisket.features.temporal_ingress import (
+from frisket.engine.store.temporal_ingress import (
     is_temporal_column_type,
     preflight_typed_rows_for_persistence,
     validate_temporal_persistence_value,
 )
-from frisket.features.watchlists.specs import (
+from frisket.contracts.query_spec import (
     canonical_json,
     normalize_query_spec,
     query_spec_hash,
@@ -200,6 +199,7 @@ class _ColumnPatcher(_CallOnce):
                 "column_formats_after": {str(column_id): format},
             },
         )
+        refresh_current_cells(self._project.db, column_ids=[column_id])
         result = PatchedColumn(
             sheet_id=int(row["sheet_id"]),
             sheet_name=str(row["sheet_name"]),
@@ -413,6 +413,13 @@ class _RowCreator(_CallOnce):
                 for name, value in record.items()
             ],
         )
+        from frisket.engine.store.structural_changes import note_row_membership_change
+
+        note_row_membership_change(
+            self._project.db,
+            [sheet_id],
+            already_refreshed_columns={column_ids[name] for name in record},
+        )
         total = int(
             self._cur.execute(
                 "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
@@ -547,6 +554,7 @@ class _RowsAppender(_CallOnce):
             self._project.db, stage_id=f"op:{op_id}", op_id=op_id
         )
         iterator = iter(rows)
+        written_columns: set[int] = set()
         offset = 0
         while True:
             try:
@@ -594,6 +602,9 @@ class _RowsAppender(_CallOnce):
             )
             row_id = int(self._cur.lastrowid)
             row_ids.append(row_id)
+            written_columns.update(
+                column_ids[name] for name, value in record.items() if value is not None
+            )
             initialize_base_cells(
                 self._project.db,
                 producer_id=producer_id,
@@ -617,6 +628,14 @@ class _RowsAppender(_CallOnce):
                 op_id,
             ),
         )
+        from frisket.engine.store.structural_changes import note_row_membership_change
+
+        from frisket.engine.store.structural_changes import record_structural_changes
+
+        record_structural_changes(self._project.db, op_id, {"created_rows": row_ids})
+        note_row_membership_change(
+            self._project.db, [sheet_id], already_refreshed_columns=written_columns
+        )
         total = int(
             self._cur.execute(
                 "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
@@ -625,177 +644,6 @@ class _RowsAppender(_CallOnce):
         result = AppendedRows(
             sheet_id, tuple(row_ids), total, op_id, column_ids, source
         )
-        self.result = result
-        return result
-
-
-class _RowsUpdater(_CallOnce):
-    def __init__(self, *args: Any, max_rows: int | None = None):
-        super().__init__(*args)
-        self._max_rows = max_rows
-
-    def update(
-        self,
-        *,
-        columns: tuple[Any, ...],
-        key_columns: tuple[str, ...],
-        rows: tuple[Mapping[str, Any], ...],
-        source: Mapping[str, Any],
-        keep_existing_on_blank: bool,
-    ) -> UpdatedImportedRows:
-        self._begin()
-        return self._update_rows(
-            columns, key_columns, rows, source, keep_existing_on_blank
-        )
-
-    def update_csv(self, params: Any) -> UpdatedImportedRows:
-        from frisket.actions.imports import import_csv
-
-        self._begin()
-
-        with open_local_file_reader(self._file_sources) as reader:
-            produced = import_csv(params, reader)
-            return self._update_rows(
-                tuple(params.columns),
-                tuple(params.key_columns),
-                (row.output.root for row in produced.rows),
-                dict(produced.source or {}),
-                bool(params.keep_existing_on_blank),
-            )
-
-    def update_xlsx(self, params: Any) -> UpdatedImportedRows:
-        from frisket.actions.import_xlsx import import_xlsx
-
-        self._begin()
-
-        with open_local_file_reader(self._file_sources) as reader:
-            produced = import_xlsx(params, reader)
-            return self._update_rows(
-                tuple(params.columns),
-                tuple(params.key_columns),
-                (row.output.root for row in produced.rows),
-                dict(produced.source or {}),
-                bool(params.keep_existing_on_blank),
-            )
-
-    def _update_rows(
-        self,
-        columns: tuple[Any, ...],
-        key_columns: tuple[str, ...],
-        rows: Any,
-        source: Mapping[str, Any],
-        keep_existing_on_blank: bool,
-    ) -> UpdatedImportedRows:
-        from frisket.engine.executor.import_update import plan_import_update
-
-        try:
-            plan = plan_import_update(
-                self._project,
-                sheet_id=int(self._action.row_scope.sheet_id),
-                columns=columns,
-                key_columns=key_columns,
-                rows=rows,
-                keep_existing_on_blank=keep_existing_on_blank,
-                preflight_rows=preflight_typed_rows_for_persistence,
-                max_rows=self._max_rows,
-            )
-        except TableError as exc:
-            _refuse(
-                exc.code,
-                str(exc),
-                action_kind=self._action.kind,
-                field="params",
-                details=exc.details,
-            )
-        except OverflowError as exc:
-            _refuse(
-                "import_workload_limit_exceeded",
-                "import.update_rows exceeds the deployment row limit",
-                action_kind=self._action.kind,
-                field="params.rows",
-                details={"row_count": int(exc.args[0]), "max_rows": self._max_rows},
-            )
-        except TimelineError as exc:
-            code = (
-                exc.code if exc.code in _TEMPORAL_ERRORS else "invalid_temporal_value"
-            )
-            _refuse(
-                code,
-                _TEMPORAL_ERRORS[code],
-                action_kind=self._action.kind,
-                field="params.rows",
-                details={"reason": exc.message},
-            )
-        except LookupError as exc:
-            code = str(exc)
-            _refuse(
-                code,
-                code.replace("_", " "),
-                action_kind=self._action.kind,
-                field="scope.sheet_id",
-            )
-        if plan.ambiguous:
-            _refuse(
-                "ambiguous_import_keys",
-                "Duplicate exact keys make the imported update ambiguous",
-                action_kind=self._action.kind,
-                field="params.rows",
-                details={"ambiguous": plan.ambiguous},
-            )
-        if self._action.confirmation != plan.confirmation:
-            _refuse(
-                "stale_import_preview",
-                "Preview these updates again before applying them",
-                action_kind=self._action.kind,
-                field="confirmation",
-                details={
-                    "confirmation": plan.confirmation,
-                    "preview": plan.__dict__ | {"targets": []},
-                },
-            )
-        for column_id in {int(target["column_id"]) for target in plan.targets}:
-            _claimed_column(
-                self._project,
-                column_id,
-                action_kind=self._action.kind,
-                field="params.columns",
-            )
-        op_id = _write_edit_overlay(
-            self._project,
-            self._cur,
-            label=f"update {plan.matched} imported rows",
-            spec={
-                "action_id": self._action.kind,
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": int(self._action.row_scope.sheet_id),
-                },
-                "params": {
-                    **{
-                        key: value
-                        for key, value in self._action.params.items()
-                        if key != "rows"
-                    },
-                    "row_count": plan.matched + plan.unmatched + plan.ambiguous,
-                    "params_hash": self._params_hash,
-                },
-                "idempotency_key": self._action.idempotency_key,
-            },
-            targets=list(plan.targets),
-            stale_reason="imported_cell_update",
-        )
-        result = UpdatedImportedRows(
-            int(self._action.row_scope.sheet_id),
-            tuple(sorted({int(target["row_id"]) for target in plan.targets})),
-            plan.changed_cells,
-            op_id,
-            {
-                str(target["column_name"]): int(target["column_id"])
-                for target in plan.targets
-            },
-            source,
-        )
-        self._plan = plan
         self.result = result
         return result
 
@@ -855,6 +703,9 @@ class _RowDeleter(_CallOnce):
             spec=_op_spec(self._action, self._params_hash),
             undo_info={"deleted_rows": list(row_ids)},
         )
+        from frisket.engine.store.structural_changes import note_row_membership_change
+
+        note_row_membership_change(self._project.db, [sheet_id])
         total = int(
             self._cur.execute(
                 "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
@@ -1328,7 +1179,6 @@ _CAPABILITY_IMPL = {
     ColumnCreator: _ColumnCreator,
     RowCreator: _RowCreator,
     RowsAppender: _RowsAppender,
-    RowsUpdater: _RowsUpdater,
     RowDeleter: _RowDeleter,
     ColumnTyper: _ColumnTyper,
     CellEditor: _CellEditor,
@@ -1344,6 +1194,7 @@ def supports_typed_mutation_action(terminal: object) -> bool:
         for cap in {
             **_CAPABILITY_IMPL,
             **CAPABILITY_IMPL,
+            RowsUpdater: None,
         }
     )
 
@@ -1387,9 +1238,14 @@ def _require_mutation_targets_mutable(
         ReplayValueAcceptor,
         ReplayValueDismissor,
     }:
-        run = project.db.execute(
-            "SELECT sheet_id FROM runs WHERE id=?", (int(params["run_id"]),)
-        ).fetchone()
+        if params.get("copied_op_id") is not None:
+            run = project.db.execute(
+                "SELECT sheet_id FROM rows WHERE id=?", (int(params["row_id"]),)
+            ).fetchone()
+        else:
+            run = project.db.execute(
+                "SELECT sheet_id FROM runs WHERE id=?", (int(params["run_id"]),)
+            ).fetchone()
         if run is not None:
             sheet_ids.add(int(run["sheet_id"]))
     elif capability is ReplayColumnAcceptor:
@@ -1852,7 +1708,7 @@ def _result_and_receipt(
         project_id=project_id,
         action_id=action_id,
         action_kind=action.kind,
-        op_ids=[returned.op_id],
+        op_ids=[] if returned.op_id is None else [returned.op_id],
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",
@@ -1865,7 +1721,7 @@ def _result_and_receipt(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status="completed",
         project_id=project_id,
-        op_ids=[returned.op_id],
+        op_ids=[] if returned.op_id is None else [returned.op_id],
         outputs=[output],
         receipt_id=receipt_id,
     )
@@ -1960,6 +1816,10 @@ def _perform(
         receipt_id=receipt_id,
         params_hash=params_hash,
     )
+    from frisket.engine.store.changes import ChangeStore
+
+    for op_id in result.op_ids:
+        ChangeStore(project).close(op_id)
     ReceiptStore(project).insert_completed(receipt, commit=False)
     return result
 
@@ -1984,26 +1844,12 @@ def run_typed_mutation_action(
     terminal = bound.action.definition.run
     if not supports_typed_mutation_action(terminal):
         raise TypeError("typed mutation executor requires a column or row action")
+    if terminal.capabilities == (RowsUpdater,):
+        from frisket.engine.executor.import_update_admission import run_rows_updater
+
+        return run_rows_updater(project, project_id, bound, deps or ExecutorDeps())
     params = bound.params.model_dump(mode="json")
     _require_mutation_targets_mutable(project, bound, terminal, params)
-    if (
-        isinstance(bound.params, ReviewDecisionParams)
-        and bound.params.decision == "edit"
-        and "value" not in bound.params.model_fields_set
-    ):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=bound.action.action_id,
-            error=ActionError(
-                code="review_value_required",
-                message=(
-                    "review.decision edit requires a replacement value "
-                    "(which may be null)"
-                ),
-                action_kind=bound.action.action_id,
-                field="params.value",
-            ),
-        )
     envelope = _TypedProjectEnvelope(
         kind=bound.action.action_id,
         idempotency_key=bound.request.idempotency_key,

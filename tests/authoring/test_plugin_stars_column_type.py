@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 from typing import Any
@@ -22,7 +23,9 @@ PLUGIN_MANIFEST = ROOT / "tests/fixtures/local_plugins/demo_stars/plugin.json"
 
 
 def _client(tmp_path: Path) -> TestClient:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     return TestClient(create_app(tmp_path / "ws", router=router))
 
 

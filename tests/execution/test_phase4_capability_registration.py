@@ -5,6 +5,7 @@ the typed Geocode/Census migration must not silently drop either routed lane.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import ast
 from pathlib import Path
@@ -549,7 +550,9 @@ def test_a_routing_recipe_binds_its_venue_and_quotes_its_own_sku(
         spec,
         program,
         composition=open_execution_composition(
-            project, ModelRouter(), ExecutionCompositionContext.direct()
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            ExecutionCompositionContext.direct(),
         ),
     )
 
@@ -585,7 +588,9 @@ def test_census_route_has_known_zero_public_spend_and_no_priced_basis(
         plan.spec_dict(),
         plan.program,
         composition=open_execution_composition(
-            project, ModelRouter(), ExecutionCompositionContext.direct()
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            ExecutionCompositionContext.direct(),
         ),
     )
 
@@ -630,7 +635,9 @@ def test_the_geocode_option_key_reaches_the_ability_checker_through_the_seam(
         spec,
         plan.program,
         composition=open_execution_composition(
-            project, ModelRouter(), ExecutionCompositionContext.direct()
+            project,
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            ExecutionCompositionContext.direct(),
         ),
     )
     assert isinstance(refused, Refusal), refused

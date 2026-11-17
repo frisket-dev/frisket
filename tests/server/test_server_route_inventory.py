@@ -157,6 +157,8 @@ def test_route_inventory_captures_query_aliases_and_defaults(tmp_path):
         "column_ids": ("column_ids", None),
         "include_scope_metadata": ("include_scope_metadata", True),
         "value_mode": ("value_mode", "exact"),
+        "selection": ("selection", None),
+        "view_id": ("view_id", None),
     }
     assert _query_defaults(_route(app, "/api/projects/{pid}/exports/sheets")) == {
         "sheet_ids": ("sheet_id", "<required>"),
@@ -166,6 +168,8 @@ def test_route_inventory_captures_query_aliases_and_defaults(tmp_path):
         "scope_row_ids": ("scope_row_ids", None),
         "formula_policy": ("formula_policy", "escape"),
         "include_attachments": ("include_attachments", False),
+        "selection": ("selection", None),
+        "view_id": ("view_id", None),
     }
     assert _query_defaults(_route(app, "/api/projects/{pid}/actions/v1/run")) == {}
     assert _query_defaults(

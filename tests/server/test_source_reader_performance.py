@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 
 from frisket.engine.store import Project
+from frisket.engine.store.cell_reference import current_value_ref
 from frisket.engine.store.current_value_windows import (
     current_text_hash,
     current_text_metadata,
@@ -193,17 +194,17 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
             quote="TAIL-NEEDLE",
             text_layer_hash=expected_hash,
         )
+        # Obtain the immutable identity without loading/caching the 8MB text
+        # before the measured bounded reader below.
+        head = project.db.execute(
+            "SELECT origin_kind,origin_op_id,origin_run_id,base_producer_id,"
+            "prepared_ref_id,outcome FROM current_cell_values WHERE row_id=? AND column_id=?",
+            (row, column),
+        ).fetchone()
         record_evidence_link(
             project,
             subject_kind="cell_value",
-            subject_ref={
-                "kind": "source_cell",
-                "op_id": None,
-                "row_id": row,
-                "column_id": column,
-                "run_id": None,
-                "prepared_ref_id": ref.ref_id,
-            },
+            subject_ref=current_value_ref(head, row_id=row, column_id=column),
             spans=[{"span_id": span["id"]}],
             sheet_id=sheet,
             row_id=row,

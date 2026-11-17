@@ -57,7 +57,7 @@ from math import isclose, isfinite
 from typing import Any, Mapping, Sequence
 
 from frisket.execution.action_identity import action_identity_hash
-from frisket.execution.claim_labels import claim_display
+from frisket.execution.claim_labels import claim_display, rated_cost_display
 from frisket.execution.commercial import CommercialOffering, CommercialPresentation
 from frisket.execution.promise_compiler import (
     CostBasis,
@@ -81,6 +81,7 @@ from frisket.execution.price_book import (
 from frisket.execution.targets import (
     CAPABILITY_CENSUS,
     CAPABILITY_CLASSIFY,
+    CAPABILITY_NER,
     CAPABILITY_GEOCODE,
     CAPABILITY_LLM,
     CAPABILITY_OCR,
@@ -125,6 +126,7 @@ from frisket.execution.resolver import (
 # hint and searchable-PDF composition.
 _CAPABILITY_OPTION_KEYS: dict[str, tuple[str, ...]] = {
     CAPABILITY_CLASSIFY: (),
+    CAPABILITY_NER: (),
     CAPABILITY_TRANSCRIBE: (
         "vad",
         "language",
@@ -536,6 +538,15 @@ def _selected_row_count(project: Any, spec: Mapping[str, Any]) -> int:
     return len(target_rows(project, dict(spec)))
 
 
+def _ner_cost_basis(project, spec, recipe, resolution, composition):
+    """Current NER venues are operator-owned or explicitly included."""
+    if _free_local_or(CAPABILITY_NER, resolution, composition) is not None:
+        raise ValueError(
+            "Priced NER execution requires a declared pricing implementation"
+        )
+    return OperatorBorneZeroCost(), None
+
+
 def _classify_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
@@ -754,24 +765,23 @@ def _llm_cost_basis(
     if not isinstance(price, CloudTokenPrice):
         raise ValueError("Cloud LLM route has no authoritative token price")
 
-    # Structured validation can issue changed repair requests, and agents can
-    # issue changed tool rounds.  Their initial render is not a spend bound;
-    # keep the known price terms while asking for explicit unknown-quantity
-    # consent.  A schema-less non-agent row has exactly one paid request.
+    # Quote the initial request, including structured-output schema overhead.
+    # Validation may issue repair requests, so this is an estimate, never a
+    # spend bound: the Cloud basis below retains ceiling_mode="none" and
+    # all-metered settlement. Agent tool rounds remain unknown quantity.
     from frisket.ai.llm.pdf_estimates import estimate_input_tokens
 
-    bounded_one_call = not hasattr(recipe, "run_agent") and all(
-        call.schema is None and estimate_input_tokens(call.messages) is not None
-        for call in rendered.values()
+    estimable_first_call = not hasattr(recipe, "run_agent") and all(
+        estimate_input_tokens(call.messages) is not None for call in rendered.values()
     )
     row_micro: dict[int, int] = {}
-    if bounded_one_call:
+    if estimable_first_call:
         for row_id, call in rendered.items():
             row_micro[int(row_id)] = cloud_llm_estimated_spend_micro(
                 CloudLLMRequest(
                     model=resolution.facts.engine,
                     messages=call.messages,
-                    schema=None,
+                    schema=call.schema,
                     max_tokens=call.max_tokens,
                     temperature=0,
                 ),
@@ -782,9 +792,9 @@ def _llm_cost_basis(
         _cloud_model_cost_basis(
             resolution,
             CAPABILITY_LLM,
-            row_micro=row_micro if bounded_one_call else None,
+            row_micro=row_micro if estimable_first_call else None,
         ),
-        sum(row_micro.values()) if bounded_one_call else None,
+        sum(row_micro.values()) if estimable_first_call else None,
     )
 
 
@@ -818,14 +828,10 @@ def _cloud_model_cost_basis(
         quantity_rounding_decimal_places=None,
         meter_key="cloud_effective_cost_micro",
         meter_units_per_quantity_unit="1000000",
-        ceiling_mode="consented_quantity",
-        row_settlement_mode="quoted_successful_rows",
+        ceiling_mode="none",
+        row_settlement_mode="all_metered",
         charge_authority="frisket_cloud_receipt",
-        row_quote_quantities=(
-            tuple((row_id, usd(micro)) for row_id, micro in sorted(row_micro.items()))
-            if row_micro is not None
-            else None
-        ),
+        row_quote_quantities=None,
     )
 
 
@@ -1236,6 +1242,8 @@ def _default_engine(capability: str) -> str:
         return "opus_mt"
     if capability == CAPABILITY_CENSUS:
         return "us_census_acs"
+    if capability == CAPABILITY_NER:
+        return "spacy"
     if capability == CAPABILITY_CLASSIFY:
         return "local_semantic"
     from frisket.sdk.ops.transcribe_engines import DEFAULT_ENGINE
@@ -1250,6 +1258,7 @@ def _default_engine(capability: str) -> str:
 #: second capability.
 _CAPABILITY_COST_BASIS: dict[str, Any] = {
     CAPABILITY_CLASSIFY: _classify_cost_basis,
+    CAPABILITY_NER: _ner_cost_basis,
     CAPABILITY_TRANSCRIBE: _transcribe_cost_basis,
     CAPABILITY_OCR: _ocr_cost_basis,
     CAPABILITY_TRANSLATE: _translate_cost_basis,
@@ -1290,37 +1299,6 @@ def _bound_decimal(value: Any) -> Decimal | None:
     except (InvalidOperation, ValueError, TypeError):
         return None
     return parsed if parsed.is_finite() else None
-
-
-def uncovered_user_claims(
-    promise_set: PromiseSet,
-    *,
-    standing_consents: Sequence[Any],
-    principal: str,
-) -> list[Promise]:
-    """The ``user_claim`` rows NOT covered by standing consents (§5.1/F2).
-
-    The ``cost_under_gate_v1`` standing consent covers cost ``le`` claims
-    whose bound <= the threshold RECORDED on the persisted head standing
-    consent for this installation ``principal`` (F2: coverage — validation
-    AND worker — reads persisted policy parameters, never the env knob; F5:
-    a foreign install's standing rows never cover). ``unbounded`` cost and
-    every categorical claim (egress beyond ``none``) are covered only by an
-    explicit per-action consent, so their presence gates.
-    """
-    from frisket.engine.store.execution_routes import standing_cost_threshold
-
-    threshold = standing_cost_threshold(list(standing_consents), principal=principal)
-    uncovered: list[Promise] = []
-    for promise in promise_set.promises:
-        if promise.audience != "user_claim":
-            continue
-        if promise.field == "cost" and promise.op == "le" and threshold is not None:
-            bound = _bound_decimal(promise.value)
-            if bound is not None and bound <= threshold:
-                continue
-        uncovered.append(promise)
-    return uncovered
 
 
 def exact_match_consent_covers(
@@ -1485,7 +1463,8 @@ def project_uncovered_user_claims(
 ) -> list[Promise]:
     """Claims not covered by this actor's exact consent or per-run preference.
 
-    A known quote within the preference covers the cost and its provider call.
+    A known quote within the preference covers the cost and its provider call,
+    including the project's explicitly selected Cloud payer.
     Validation materializes that decision as an exact scope/quote-bound consent;
     workers verify that proof and never apply a saved threshold to changed work.
     Resumes may additionally reuse this actor's own persisted claim envelope.
@@ -1525,8 +1504,31 @@ def project_uncovered_user_claims(
             and bound <= effective.threshold_usd
             for p in costs
         )
+    preapproved_payer: Promise | None = None
+    if preapproved and quote_json is not None:
+        from frisket.cloud_execution import CloudPayerSubject
+        from frisket.project_settings import read_project_settings
+
+        settings = read_project_settings(project)
+        for claim in claims:
+            if claim.field != "cloud_payer" or not isinstance(claim.value, Mapping):
+                continue
+            try:
+                payer = CloudPayerSubject.from_snapshot(claim.value)
+            except (TypeError, ValueError):
+                continue
+            if (payer.user_id, payer.account_id) == (
+                settings.cloud_user_id,
+                settings.cloud_account_id,
+            ):
+                preapproved_payer = claim
     uncovered = [
-        p for p in claims if not (preapproved and p.field in {"cost", "egress_class"})
+        p
+        for p in claims
+        if not (
+            preapproved
+            and (p.field in {"cost", "egress_class"} or p == preapproved_payer)
+        )
     ]
     if not uncovered or spec is None or run_id is None:
         return uncovered
@@ -1548,6 +1550,7 @@ def gate_claims_payload(
     presentation: CommercialPresentation | None = None,
     *,
     has_cost_claim: bool,
+    rated_estimate: Mapping[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """[{field, display}] rows for the 402 payload (§5.2). ``facts`` is the
     resolution's route facts — every caller passes ``resolution.facts``, so
@@ -1558,14 +1561,29 @@ def gate_claims_payload(
     inventing billing copy while retaining the billing label when a cost row
     was merely covered by a standing consent.
     """
+    from frisket.engine.runner.confirmation_context import quoted_usd
+
+    # Display the same rated purchase as the estimate/footer and the gate's
+    # scalar amount. Provider settlement terms remain on the cost promise;
+    # reconstructing a second price from them loses tariffs and explicit
+    # unpriceable verdicts. A rated zero remains a known zero.
+    rated_display = (
+        rated_cost_display(quoted_usd(rated_estimate), facts, presentation)
+        if rated_estimate is not None
+        else None
+    )
     return [
         {
             "field": promise.field,
-            "display": claim_display(
-                promise,
-                facts,
-                presentation,
-                show_billing=has_cost_claim,
+            "display": (
+                rated_display
+                if promise.field == "cost" and rated_display is not None
+                else claim_display(
+                    promise,
+                    facts,
+                    presentation,
+                    show_billing=has_cost_claim,
+                )
             ),
         }
         for promise in promises

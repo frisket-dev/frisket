@@ -8,7 +8,6 @@ import type { HydratedChromePreferences } from './workspaceResources';
 import { createDetailStore } from './detailStore';
 import { createGridViewStore } from './gridViewStore';
 import { createJobStore, type JobState } from './jobStore';
-import { createLensViewStore } from './lensViewStore';
 import { createPreviewViewStore } from './previewViewStore';
 import { createRouteStore } from './routeStore';
 import { createRowCacheStore } from './rowCacheStore';
@@ -37,17 +36,16 @@ function createMatrixHarness() {
   const selection = createSelectionStore();
   const detail = createDetailStore();
   const workView = createWorkViewStore();
-  const lensView = createLensViewStore();
   const previewView = createPreviewViewStore(api);
   const route = createRouteStore('p1', {
     resetForSheetChange: (sheetId) =>
       resetForRouteSheetChange(
-        { gridView, selection, detail, workView, lensView, previewView },
+        { gridView, selection, detail, workView, previewView },
         sheetId,
       ),
   });
   route.projectExternal(base);
-  return { detail, gridView, lensView, previewView, route, workView, selection };
+  return { detail, gridView, previewView, route, workView, selection };
 }
 
 function seedClassOne(harness: ReturnType<typeof createMatrixHarness>): void {
@@ -203,24 +201,15 @@ describe('applyRoute fixed six-class matrix', () => {
       const selection = createSelectionStore();
       const detail = createDetailStore();
       const workView = createWorkViewStore();
-      const lensView = createLensViewStore();
-      const previewView = createPreviewViewStore(api);
+          const previewView = createPreviewViewStore(api);
       selection.setSelectedRows({ sheetId: 's1', rowIds: ['r1'], rowIndexes: [0] });
       detail.openRow({ id: 'r1' } as Row);
-      lensView.setLensView({
-        lensId: 1,
-        name: 'lens',
-        sheetId: 's1',
-        rowIds: [1],
-        scores: {},
-        total: 1,
-      });
-      lensView.setLensOpenError('stale');
+
       const route = createRouteStore('p1', {
         resetForSheetChange: (sheetId) => {
           order.push('reset');
           resetForRouteSheetChange(
-            { gridView, selection, detail, workView, lensView, previewView },
+            { gridView, selection, detail, workView, previewView },
             sheetId,
           );
         },
@@ -253,8 +242,6 @@ describe('applyRoute fixed six-class matrix', () => {
         rowIds: [],
         rowIndexes: [],
       });
-      expect(lensView.store.get().lensView).toBeNull();
-      expect(lensView.store.get().lensOpenError).toBeNull();
     });
 
   it('class 3: route commits before target row hydration runs', () => {

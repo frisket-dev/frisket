@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -25,7 +26,7 @@ CASES = []
 
 
 def run_action_with_confirmation(project, action, **kwargs):
-    kwargs.setdefault("router", ModelRouter())
+    kwargs.setdefault("router", ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY))
     result = run_action_spec(project, action, **kwargs)
     if result.status == "needs_confirmation":
         result = run_action_spec(
@@ -124,7 +125,7 @@ def _png():
     return stream.getvalue()
 
 
-def test_typed_download_confirmation_identity_and_stale_replay(tmp_path, monkeypatch):
+def test_typed_free_download_identity_and_stale_replay(tmp_path, monkeypatch):
     from frisket.ops import ytdlp
 
     project, sheet_id, _ = _seed_youtube_project(tmp_path)
@@ -138,21 +139,10 @@ def test_typed_download_confirmation_identity_and_stale_replay(tmp_path, monkeyp
     )
     try:
         action = _youtube_action(sheet_id=sheet_id)
-        router = ModelRouter()
-        quote = run_action_spec(project, action, project_id=PROJECT_ID, router=router)
-        assert quote.status == "needs_confirmation"
-        assert calls == []
-        wrong = run_action_spec(
-            project,
-            {**action, "confirmation": "0" * 64},
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert wrong.status == "needs_confirmation"
-        assert calls == []
-        result = run_action_with_confirmation(
-            project, action, project_id=PROJECT_ID, router=router
-        )
+        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+        # Free downloads do not require approval, even at zero preapproval.
+        monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+        result = run_action_spec(project, action, project_id=PROJECT_ID, router=router)
         assert result.status == "completed", result.errors
         assert len(calls) == 2
         replay = run_action_with_confirmation(
@@ -474,7 +464,7 @@ def test_media_download_overwrite_existing_intent_reuses_ai_column_but_protects_
             project_id=PROJECT_ID,
         )
         assert protected.status == "failed"
-        assert protected.errors[0].code == "output_column_exists"
+        assert protected.errors[0].code == "input_output_overlap"
     finally:
         project.close()
 

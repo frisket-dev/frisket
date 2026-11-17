@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.watch_helpers import post_watch, seed_empty_watch_baseline
+
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +55,8 @@ def _seed_watch(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
     assert imported.status_code == 200, imported.text
     drain_queue(client, worker_id="notification-resolver-setup")
     drain_index(client.app.state.workspace.get(pid))
-    watch = client.post(
+    watch = post_watch(
+        client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Budget",
@@ -61,6 +64,7 @@ def _seed_watch(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
             "query": {"kind": "fts", "q": "budget", "limit": 10},
         },
     ).json()
+    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
     run = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run").json()["run"]
     events = client.get(
         f"/api/projects/{pid}/watches/{watch['id']}/runs/{run['id']}/events",

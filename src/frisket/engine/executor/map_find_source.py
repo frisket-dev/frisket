@@ -244,7 +244,9 @@ def resolve_find_sources(
             if not mime.startswith("image/"):
                 try:
                     selected = resolve_document_text_selection(
-                        project, (params.sheet_id, row_id, source_column_id)
+                        project,
+                        (params.sheet_id, row_id, source_column_id),
+                        allow_hidden=True,
                     )
                 except DocumentTextUnavailable as error:
                     return ActionError(
@@ -276,7 +278,9 @@ def resolve_find_sources(
             if role is not None:
                 try:
                     selected = resolve_document_text_selection(
-                        project, (params.sheet_id, row_id, role.source_column_id)
+                        project,
+                        (params.sheet_id, row_id, role.source_column_id),
+                        allow_hidden=True,
                     )
                 except DocumentTextUnavailable as error:
                     return ActionError(
@@ -311,6 +315,8 @@ def resolve_find_sources(
                     sheet_id=params.sheet_id,
                     row_id=row_id,
                     column_id=column_id,
+                    value=value,
+                    current_value_ref=value_ref,
                 )
             except (KeyError, TimelineError, TypeError, ValueError):
                 return ActionError(

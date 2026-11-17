@@ -80,7 +80,11 @@ def supports_typed_backfill_action(terminal: Any) -> bool:
 
 
 def _resolve(
-    project: Project, bound: BoundTypedActionRequest, column: ColumnRef[Any]
+    project: Project,
+    bound: BoundTypedActionRequest,
+    column: ColumnRef[Any],
+    *,
+    edition: str | None = None,
 ) -> _BackfillPlan:
     scope = bound.request.scope
     if not isinstance(scope, SheetRows) or not isinstance(column, ColumnRef):
@@ -97,7 +101,7 @@ def _resolve(
     if isinstance(resolved, ActionError):
         raise BackfillRefused(resolved)
     spec = resolved["runner_spec"]
-    guard = _guard_backfill_run_spec(spec, project=project)
+    guard = _guard_backfill_run_spec(spec, project=project, edition=edition)
     if guard is not None:
         raise BackfillRefused(guard)
     # No source-run consent or caller-supplied routing state survives reconstruction.
@@ -112,27 +116,118 @@ def _resolve(
     )
 
 
+def _resolve_retry(
+    project: Project,
+    bound: BoundTypedActionRequest,
+    source_run_id: int,
+    *,
+    edition: str | None = None,
+) -> _BackfillPlan:
+    from frisket.engine.store.execution_groups import execution_runs
+    from frisket.engine.store.runs import RunResultStore
+    from frisket.engine.store.result_generations import ResultGenerationStore
+
+    scope = bound.request.scope
+    if not isinstance(scope, SheetRows):
+        raise ValueError("Retry requires a sheet selection")
+    root_id, run_ids = execution_runs(project, source_run_id)
+    original = project.db.execute(
+        "SELECT * FROM runs WHERE id=?", (root_id,)
+    ).fetchone()
+    if original is None or original["sheet_id"] != scope.sheet_id:
+        raise ValueError("Execution does not belong to the selected sheet")
+    from frisket.authoring.action_metadata import action_supports_row_retry
+
+    if not action_supports_row_retry(original["action_kind"]):
+        raise BackfillRefused(
+            ActionError(
+                code="run_required",
+                message="This action transforms the whole column; run the action again instead of retrying rows.",
+                action_kind="run.retry",
+            )
+        )
+    original_rows = set(RunResultStore(project).run_row_scope(root_id))
+    requested = (
+        original_rows.intersection(project.visible_row_ids(scope.sheet_id))
+        if scope.row_ids is None
+        else set(scope.row_ids)
+    )
+    if not requested.issubset(original_rows):
+        raise ValueError("Retry cannot expand the original execution cohort")
+    bindings = ResultGenerationStore(project).bindings_for_run(root_id)
+    if not bindings:
+        raise ValueError("Execution has no retained output schema")
+    from frisket.engine.store.execution_groups import completed_execution_rows
+
+    done = completed_execution_rows(project, root_id, run_ids)
+    remaining = sorted(requested - done)
+    if not remaining:
+        raise ValueError("Execution has no unfinished requested rows")
+    columns = [project.get_column(binding.column_id) for binding in bindings]
+    if any(column is None or not column["active"] for column in columns):
+        raise ValueError(
+            "Original output columns are no longer active. Reapply saved results "
+            "to restore completed work, or start a new action for unfinished rows."
+        )
+    target = columns[0]
+    resolved = _resolve_backfill_target(
+        project,
+        sheet_id=scope.sheet_id,
+        column=target["name"],
+        row_ids=remaining,
+        confirmation=bound.request.confirmation,
+        source_run_id=root_id,
+    )
+    if isinstance(resolved, ActionError):
+        raise BackfillRefused(resolved)
+    spec = resolved["runner_spec"]
+    guard = _guard_backfill_run_spec(spec, project=project, edition=edition)
+    if guard is not None:
+        raise BackfillRefused(guard)
+    spec.pop("edition_run_context", None)
+    spec["execution_root_run_id"] = root_id
+    return _BackfillPlan(
+        scope.sheet_id,
+        target["name"],
+        bindings[0].column_id,
+        root_id,
+        tuple(remaining),
+        json.dumps(spec, sort_keys=True, separators=(",", ":")),
+    )
+
+
 class _RunBackfiller:
-    def __init__(self, project: Project, bound: BoundTypedActionRequest):
+    def __init__(
+        self, project: Project, bound: BoundTypedActionRequest, edition: str | None
+    ):
         self.project = project
         self.bound = bound
+        self.edition = edition
         self.plans: dict[PreparedBackfill, _BackfillPlan] = {}
 
+    def retry(self, source_run_id: int) -> PreparedBackfill:
+        plan = _resolve_retry(
+            self.project, self.bound, source_run_id, edition=self.edition
+        )
+        handle = PreparedBackfill(selected_row_count=len(plan.row_ids))
+        self.plans[handle] = plan
+        return handle
+
     def prepare(self, column: ColumnRef[Any]) -> PreparedBackfill:
-        plan = _resolve(self.project, self.bound, column)
+        plan = _resolve(self.project, self.bound, column, edition=self.edition)
         handle = PreparedBackfill(selected_row_count=len(plan.row_ids))
         self.plans[handle] = plan
         return handle
 
 
 def prepare_backfill_action(
-    project: Project, bound: BoundTypedActionRequest
+    project: Project, bound: BoundTypedActionRequest, *, edition: str | None = None
 ) -> _BackfillPlan:
     """Run the complete callable using only real, read-only preparation results."""
     terminal = bound.action.definition.run
     if not supports_typed_backfill_action(terminal):
         raise TypeError("backfill requires a RunBackfiller action")
-    capability = _RunBackfiller(project, bound)
+    capability = _RunBackfiller(project, bound, edition)
     returned = terminal.handler(bound.params, capability)
     if not isinstance(returned, PreparedBackfill) or returned not in capability.plans:
         raise ValueError("backfill must return a preparation issued by this invocation")
@@ -161,6 +256,8 @@ def run_typed_backfill_action(
     bound: BoundTypedActionRequest,
     router: Any,
     map_runner_factory: Callable[..., Any],
+    *,
+    edition: str | None = None,
 ) -> ActionResult:
     action = _TypedExecutionEnvelope(
         kind=bound.action.action_id,
@@ -188,10 +285,14 @@ def run_typed_backfill_action(
             replay_error_fn=replay_error,
         )
     try:
-        plan = prepare_backfill_action(project, bound)
+        plan = prepare_backfill_action(project, bound, edition=edition)
         # A callable may inspect other admitted preparations before choosing one.
         # Recheck the selected source after it returns, before reserving or running.
-        if _resolve(project, bound, ColumnRef[Any](plan.column)) != plan:
+        if (
+            _resolve_retry(project, bound, bound.params.source_run_id, edition=edition)
+            if hasattr(bound.params, "source_run_id")
+            else _resolve(project, bound, ColumnRef[Any](plan.column), edition=edition)
+        ) != plan:
             raise ValueError("the prepared backfill source changed before execution")
         spec = plan.spec()
         typed_program = bound_typed_program_request_from_runner_spec(

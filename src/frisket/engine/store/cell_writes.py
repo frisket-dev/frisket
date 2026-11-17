@@ -10,11 +10,17 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from uuid import uuid4
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from .current_cells import refresh_current_cell_pairs, refresh_current_cells
+from .current_cells import (
+    initialize_current_cell_pairs,
+    refresh_current_cell_pairs,
+    refresh_current_cells,
+)
+from .changes import close_change as _close_change, start_change
 from .import_sessions import (
     ImportInProgress,
     active_import_session,
@@ -118,6 +124,18 @@ def create_base_cell_producer(
     return int(cursor.lastrowid)
 
 
+def _replacement_producer(db: sqlite3.Connection, producing_op_id: int) -> int:
+    """Each source replacement keeps previously consumed references immutable.
+
+    A producer identifies a value version, not just a reusable import session.
+    The session's original producer still authorizes its writes; each revision
+    belongs to that same Change but gets a distinct payload identity.
+    """
+    return create_base_cell_producer(
+        db, stage_id=f"source-version:{uuid4().hex}", op_id=producing_op_id
+    )
+
+
 def bind_base_cell_producer(
     db: sqlite3.Connection, producer_id: int, *, op_id: int
 ) -> None:
@@ -127,6 +145,7 @@ def bind_base_cell_producer(
     producer_id = int(producer_id)
     op_id = int(op_id)
     _require_applied_op(db, op_id)
+    start_change(db, op_id, writing=True)
     row = db.execute(
         "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
     ).fetchone()
@@ -143,6 +162,16 @@ def bind_base_cell_producer(
     db.execute(
         "UPDATE base_cell_producers SET op_id=? WHERE id=? AND op_id IS NULL",
         (op_id, producer_id),
+    )
+    refresh_current_cells(
+        db,
+        column_ids=[
+            int(row[0])
+            for row in db.execute(
+                "SELECT DISTINCT column_id FROM cells WHERE producer_id=?",
+                (producer_id,),
+            )
+        ],
     )
 
 
@@ -194,6 +223,13 @@ def _validate_cell_pairs(
 
     if not pairs:
         return
+    from .purge import require_publication_targets
+
+    require_publication_targets(
+        db,
+        column_ids={int(column_id) for _row_id, column_id in pairs},
+        row_ids={int(row_id) for row_id, _column_id in pairs},
+    )
     encoded = json.dumps([[row_id, column_id] for row_id, column_id in pairs])
     invalid = db.execute(
         "WITH requested(row_id,column_id) AS ("
@@ -240,12 +276,21 @@ def _require_cell_targets_mutable(
     db: sqlite3.Connection,
     pairs: Collection[tuple[int, int]],
     *,
+    column_ids: Collection[int] = (),
     producer_id: int | None = None,
     import_writer_authority: str | None = None,
 ) -> None:
-    if not pairs:
+    columns = {int(column_id) for column_id in column_ids}
+    columns.update(int(column_id) for _row_id, column_id in pairs)
+    rows = {int(row_id) for row_id, _column_id in pairs}
+    if not rows and not columns:
         return
-    row_ids = sorted({int(row_id) for row_id, _column_id in pairs})
+    from .purge import require_publication_targets
+
+    require_publication_targets(db, column_ids=columns, row_ids=rows)
+    if not rows:
+        return
+    row_ids = sorted(rows)
     marks = ",".join("?" for _ in row_ids)
     sheet_ids = {
         int(row[0])
@@ -254,15 +299,24 @@ def _require_cell_targets_mutable(
         )
     }
     for sheet_id in sheet_ids:
+        authorized_producer = producer_id
         if import_writer_authority is not None:
             session = active_import_session(db, sheet_id)
-            if session is not None and (
-                session.state != "active"
-                or session.producer_id != producer_id
-                or session.writer_authority != import_writer_authority
-            ):
-                raise ImportInProgress(session)
-        require_import_sheet_write(db, sheet_id, producer_id=producer_id)
+            if session is not None:
+                owner = db.execute(
+                    "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+                ).fetchone()
+                if (
+                    session.state != "active"
+                    or session.writer_authority != import_writer_authority
+                    or owner is None
+                    or owner[0] != session.op_id
+                ):
+                    raise ImportInProgress(session)
+                # Immutable replacements have fresh producer IDs; the same
+                # admitted operation and current writer lease authorize them.
+                authorized_producer = session.producer_id
+        require_import_sheet_write(db, sheet_id, producer_id=authorized_producer)
 
 
 def initialize_base_cells(
@@ -289,12 +343,31 @@ def initialize_base_cells(
         [(row_id, column_id) for row_id, column_id, _kind, _value in encoded],
         producer_id=producer_id,
     )
+    for start in range(0, len(encoded), 400):
+        chunk = encoded[start : start + 400]
+        coordinates = ",".join("(?,?)" for _ in chunk)
+        values = [coordinate for cell in chunk for coordinate in cell[:2]]
+        existing = db.execute(
+            f"WITH incoming(row_id,column_id) AS (VALUES {coordinates}) "
+            "SELECT 1 FROM incoming JOIN cells USING(row_id,column_id) LIMIT 1",
+            values,
+        ).fetchone()
+        if existing is not None:
+            raise ValueError(
+                "initializing an existing source cell requires an explicit replacement"
+            )
     db.executemany(
         "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
         "VALUES (?,?,?,?,?)",
         [(*cell, producer_id) for cell in encoded],
     )
-    _refresh_written_region(db, encoded)
+    if producing_op_id is not None:
+        start_change(db, producing_op_id, writing=True)
+        initialize_current_cell_pairs(
+            db, {(row_id, column_id) for row_id, column_id, _kind, _value in encoded}
+        )
+    else:
+        _refresh_written_region(db, encoded)
     return len(encoded)
 
 
@@ -308,7 +381,7 @@ def remove_base_cells(
     """Remove a deliberate base-cell region and refresh its visible winners."""
 
     _require_transaction(db)
-    _require_base_producer(db, int(producer_id))
+    producing_op_id = _require_base_producer(db, int(producer_id))
     columns = sorted({int(column_id) for column_id in column_ids})
     rows = None if row_ids is None else sorted({int(row_id) for row_id in row_ids})
     if not columns or rows == []:
@@ -322,13 +395,23 @@ def remove_base_cells(
             columns,
         )
     ]
-    _require_cell_targets_mutable(db, [(row_id, columns[0]) for row_id in target_rows])
+    _require_cell_targets_mutable(
+        db,
+        [(row_id, columns[0]) for row_id in target_rows],
+        column_ids=columns,
+    )
     params: list[int] = list(columns)
     where = f"column_id IN ({','.join('?' for _ in columns)})"
     if rows is not None:
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
-    cursor = db.execute(f"DELETE FROM cells WHERE {where}", params)
+    start_change(db, producing_op_id, writing=True)
+    version_producer_id = _replacement_producer(db, producing_op_id)
+    cursor = db.execute(
+        "INSERT INTO cells(row_id,column_id,value_kind,value,producer_id) "
+        f"SELECT DISTINCT row_id,column_id,'null',NULL,? FROM cells WHERE {where}",
+        [version_producer_id, *params],
+    )
     refresh_current_cells(db, column_ids=columns, row_ids=rows)
     return int(cursor.rowcount)
 
@@ -350,6 +433,18 @@ def delete_sheet_rows(
 
     _require_transaction(db)
     _require_base_producer(db, int(producer_id))
+    from .purge import require_publication_targets
+
+    require_publication_targets(
+        db,
+        sheet_id=int(sheet_id),
+        row_ids=(
+            int(row[0])
+            for row in db.execute(
+                "SELECT id FROM rows WHERE sheet_id=?", (int(sheet_id),)
+            )
+        ),
+    )
     if active_import_session(db, sheet_id) is not None:
         if import_writer_authority is None or import_expected_cursor is None:
             require_import_sheet_write(db, sheet_id)
@@ -372,12 +467,13 @@ def replace_base_cells(
     cells: Iterable[BaseCellWrite],
     row_ids: Collection[int] | None = None,
     import_writer_authority: str | None = None,
+    clear_omitted: bool = True,
 ) -> int:
-    """Replace exactly one declared base-cell region with a new sparse set."""
+    """Version a declared cell region; explicit updates can retain omitted cells."""
 
     _require_transaction(db)
     producer_id = int(producer_id)
-    _require_base_producer(db, producer_id)
+    producing_op_id = _require_base_producer(db, producer_id)
     columns = sorted({int(column_id) for column_id in column_ids})
     rows = None if row_ids is None else sorted({int(row_id) for row_id in row_ids})
     if not columns or rows == []:
@@ -407,6 +503,7 @@ def replace_base_cells(
     _require_cell_targets_mutable(
         db,
         [(row_id, columns[0]) for row_id in target_rows],
+        column_ids=columns,
         producer_id=producer_id if import_writer_authority is not None else None,
         import_writer_authority=import_writer_authority,
     )
@@ -416,26 +513,46 @@ def replace_base_cells(
     if rows is not None:
         where += f" AND row_id IN ({','.join('?' for _ in rows)})"
         params.extend(rows)
-    db.execute(f"DELETE FROM cells WHERE {where}", params)
+    start_change(db, producing_op_id, writing=True)
+    provided = {(row_id, column_id) for row_id, column_id, _, _ in encoded}
+    # Sparse replacement clears omitted existing coordinates, but keeps the
+    # old producer-qualified versions available to history and baseline.
+    if clear_omitted:
+        encoded.extend(
+            (int(row[0]), int(row[1]), "null", None)
+            for row in db.execute(
+                f"SELECT DISTINCT row_id,column_id FROM cells WHERE {where}", params
+            )
+            if (int(row[0]), int(row[1])) not in provided
+        )
     if encoded:
+        version_producer_id = _replacement_producer(db, producing_op_id)
         db.executemany(
             "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
             "VALUES (?,?,?,?,?)",
-            [(*cell, producer_id) for cell in encoded],
+            [(*cell, version_producer_id) for cell in encoded],
         )
     refresh_current_cells(
         db,
         column_ids=columns,
         row_ids=rows,
-        source_values_changed=True,
     )
     return len(encoded)
 
 
 def insert_edits(
-    db: sqlite3.Connection, *, op_id: int, edits: Iterable[EditCellWrite]
+    db: sqlite3.Connection,
+    *,
+    op_id: int,
+    edits: Iterable[EditCellWrite],
+    close_change: bool = True,
 ) -> int:
-    """Insert operation-owned edit overlays and refresh their exact cells."""
+    """Insert operation-owned edit overlays and refresh their exact cells.
+
+    One-shot writers close their Change in this call. A caller that owns a
+    larger publication transaction may pass ``close_change=False`` and close
+    the Change after its final related write.
+    """
 
     _require_transaction(db)
     op_id = int(op_id)
@@ -456,6 +573,7 @@ def insert_edits(
         db,
         [(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded],
     )
+    start_change(db, op_id, writing=True)
     db.executemany(
         "INSERT INTO edits (op_id,row_id,column_id,value_kind,value) "
         "VALUES (?,?,?,?,?)",
@@ -470,4 +588,6 @@ def insert_edits(
         db,
         {(row_id, column_id) for _op, row_id, column_id, _kind, _value in encoded},
     )
+    if close_change:
+        _close_change(db, op_id)
     return len(encoded)

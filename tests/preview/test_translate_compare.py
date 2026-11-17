@@ -241,3 +241,74 @@ async def test_validation_errors() -> None:
     with pytest.raises(TranslateComparePreviewError) as exc:
         await compare_translate_scratch(None, {"engines": ["deepl"], "text": "   "})
     assert exc.value.field == "text"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("engine", ["opus_mt", "hy_mt2"])
+@pytest.mark.parametrize("cancel_before_dispatch", [False, True])
+async def test_local_compare_uses_purchase_owner_and_task_cancellation(
+    monkeypatch, engine, cancel_before_dispatch
+):
+    import asyncio
+
+    from frisket.execution.purchases import LocalPurchasePolicy, PurchaseNotDispatched
+    from frisket.ops.integrations import hy_mt2, opus_mt, translation_engine
+    from frisket.runtime import translation_install
+
+    calls, admitted, returned, failed = [], [], [], []
+
+    def opus(src, target, texts):
+        calls.append((src, target, texts))
+        return ["Hola"]
+
+    def hy(target, texts):
+        calls.append((target, texts))
+        return ["Hola"]
+
+    monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
+    monkeypatch.setattr(hy_mt2, "runtime_available", lambda: True)
+    monkeypatch.setattr(opus_mt, "translate_texts", opus)
+    monkeypatch.setattr(hy_mt2, "translate_texts", hy)
+    monkeypatch.setattr(translation_install, "host_present", lambda: True)
+
+    class Policy(LocalPurchasePolicy):
+        def admit_purchase(self, request):
+            admission = super().admit_purchase(request)
+            admitted.append(request)
+            if cancel_before_dispatch:
+                asyncio.current_task().cancel()
+            return admission
+
+        def record_purchase(self, request, admission, observation):
+            returned.append(observation)
+
+        def fail_purchase(self, request, admission, error):
+            failed.append(error)
+
+    monkeypatch.setattr(translation_engine, "policy_for_context", lambda ctx: Policy())
+    task = asyncio.create_task(
+        compare_translate_scratch(
+            None,
+            {
+                "engines": [engine],
+                "text": "Hello",
+                "target_language": "Spanish",
+                "language": ["English"],
+            },
+        )
+    )
+    if cancel_before_dispatch:
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert calls == returned == []
+        assert len(failed) == 1 and isinstance(failed[0], PurchaseNotDispatched)
+    else:
+        result = await task
+        assert result["errors"] == []
+        assert result["results"][0]["translation"] == "Hola"
+        assert len(calls) == len(returned) == 1
+        assert returned[0].provider_cost_micro == 0
+        assert failed == []
+    assert len(admitted) == 1
+    assert admitted[0].engine == engine
+    assert admitted[0].context.project is None

@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from tests.engine.test_cell_edit_executor import _cell_edit_action
+
 from executor_harness import (
     CatalogEntry,
     ExecutorCase,
@@ -15,7 +17,6 @@ from executor_harness import (
     operation_action,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.edit_overlays import write_edit_overlay
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.runner.review import review_bundle_page, review_runs_page
 from frisket.engine.store.evidence import (
@@ -241,11 +242,9 @@ def _edit_without_value_action(seeded: dict[str, Any]) -> dict[str, Any]:
 
 
 def _edit_null_value_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    return _review_action(
-        run_id=seeded["run_id"],
+    return _cell_edit_action(
         row_id=seeded["row_ids"][1],
         column_id=seeded["risk_column_id"],
-        decision="edit",
         value=None,
         key="review_null_edit@sha256:v1",
     )
@@ -332,7 +331,7 @@ CASES = [
             error_codes=frozenset(
                 {
                     "invalid_action_request",
-                    "review_value_required",
+                    "invalid_action_request",
                     "review_target_not_found",
                     "review_complete",
                     "output_column_busy",
@@ -346,7 +345,7 @@ CASES = [
                 "row_id",
                 "column_id",
                 "decision",
-                "value",
+                "copied_op_id",
                 "note",
             ),
             output_schema_properties=(
@@ -371,7 +370,7 @@ CASES = [
             Gate(
                 "review_value_required_missing",
                 _edit_without_value_action,
-                "review_value_required",
+                "invalid_action_request",
             ),
             Gate(
                 "review_target_not_found",
@@ -416,7 +415,7 @@ CASES = [
                 }
             ),
             cost_policy_kind="none",
-            input_schema_properties=("run_id", "row_id", "note"),
+            input_schema_properties=("run_id", "copied_op_id", "row_id", "note"),
             output_schema_properties=(
                 "run_id",
                 "row_id",
@@ -463,11 +462,9 @@ def test_superseded_result_can_be_graded_but_cannot_overwrite_current_value(
         row_id = seeded["row_ids"][0]
         run_id = seeded["run_id"]
         column_id = seeded["risk_column_id"]
-        project.db.execute(
-            "DELETE FROM cell_result_heads WHERE run_id=? AND row_id=? AND column_id=?",
-            (run_id, row_id, column_id),
+        project.apply_edits(
+            [{"row_id": row_id, "column_id": column_id, "value": "later manual"}]
         )
-        project.db.commit()
 
         page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
         historical = next(item for item in page["bundles"] if item["row_id"] == row_id)
@@ -490,9 +487,8 @@ def test_superseded_result_can_be_graded_but_cannot_overwrite_current_value(
                 run_id=run_id,
                 row_id=row_id,
                 column_id=column_id,
-                decision="edit",
-                value="must-not-land",
-                key="edit-superseded-result@sha256:v1",
+                decision="reject_clear",
+                key="clear-superseded",
             )
         )
         assert refused.status == "failed"
@@ -500,10 +496,8 @@ def test_superseded_result_can_be_graded_but_cannot_overwrite_current_value(
         assert _review_metadata(project, seeded, row_id) == ("accept", None)
 
 
-def test_resumed_running_run_is_not_reviewable_until_it_stops(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from frisket.engine.store.runs import RunResultStore
+def test_running_execution_keeps_completed_rows_reviewable(tmp_path, monkeypatch):
+    from frisket.engine.runner.review import set_review_run_status
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         project, seeded = env.project, env.seeded
@@ -512,26 +506,14 @@ def test_resumed_running_run_is_not_reviewable_until_it_stops(
             (seeded["run_id"],),
         )
         project.db.commit()
-
-        assert review_bundle_page(project, run_id=seeded["run_id"])["total"] == 0
-        refused = env.run(
-            {
-                **_make_action(seeded),
-                "idempotency_key": "review-running-refused@sha256:v1",
-            }
-        )
-        assert refused.status == "failed"
-        assert [error.code for error in refused.errors] == ["review_target_not_found"]
-
-        RunResultStore(project).finish_run(seeded["run_id"], "completed")
         assert review_bundle_page(project, run_id=seeded["run_id"])["total"] == 2
-        accepted = env.run(
-            {
-                **_make_action(seeded),
-                "idempotency_key": "review-stopped-accepted@sha256:v1",
-            }
-        )
+        accepted = env.run(_make_action(seeded))
         assert accepted.status == "completed", accepted.errors
+        assert _review_state(project, seeded, seeded["row_ids"][0]) == "verified"
+        assert (
+            set_review_run_status(project, run_id=seeded["run_id"], status="complete")
+            is None
+        )
 
 
 def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
@@ -601,14 +583,14 @@ def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         project, seeded = env.project, env.seeded
         row_id = seeded["row_ids"][1]
+        note_request = _review_note_action(seeded)
+        note_request["params"].update(row_id=row_id, note="Keep this row note.")
+        assert env.run(note_request).status == "completed"
         edited = env.run(
-            _review_action(
-                run_id=seeded["run_id"],
+            _cell_edit_action(
                 row_id=row_id,
                 column_id=seeded["risk_column_id"],
-                decision="edit",
                 value="manual-medium",
-                note="Keep this row note.",
                 key="review_clear_edit@sha256:v1",
             )
         )
@@ -638,9 +620,9 @@ def test_clear_decision_preserves_review_note_and_visible_edit_overlay(
             project, run_id=seeded["run_id"], include_reviewed=True
         )
         corrected = next(item for item in page["bundles"] if item["row_id"] == row_id)
-        assert corrected["fields"][0]["value"] == "manual-medium"
-        assert corrected["fields"][0]["changed"] is True
-        assert corrected["fields"][0]["can_edit"] is True
+        assert corrected["fields"][0]["value"] == "low"
+        assert corrected["fields"][0]["changed"] is False
+        assert corrected["fields"][0]["can_edit"] is False
         assert queue_count(project, run_id=seeded["run_id"]) == 2
         [run] = review_runs_page(project, run_id=seeded["run_id"])["runs"]
         assert run["total"]["reviewed_count"] == 0
@@ -684,8 +666,8 @@ def test_clear_reject_clear_keeps_the_null_overlay(
         cleared_field = next(
             item for item in page["bundles"] if item["row_id"] == row_id
         )["fields"][0]
-        assert cleared_field["value"] is None
-        assert cleared_field["changed"] is True
+        assert cleared_field["value"] == "high"
+        assert cleared_field["changed"] is False
 
         project.apply_edits(
             [
@@ -711,9 +693,8 @@ def test_clear_reject_clear_keeps_the_null_overlay(
                 run_id=seeded["run_id"],
                 row_id=row_id,
                 column_id=seeded["risk_column_id"],
-                decision="edit",
-                value="must not replace later edit",
-                key="review-after-unrelated-edit@sha256:v1",
+                decision="reject_clear",
+                key="refuse-clear-newer-edit",
             )
         )
         assert refused.status == "failed"
@@ -721,85 +702,32 @@ def test_clear_reject_clear_keeps_the_null_overlay(
         assert _live_risk(project, seeded, row_id) == "later manual edit"
 
 
-def test_review_edit_refuses_bounded_target_and_oversized_replacement(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_large_ordinary_edit_does_not_replace_saved_review_answer(
+    tmp_path, monkeypatch
+):
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         project, seeded = env.project, env.seeded
-        row_id = seeded["row_ids"][0]
-        column_id = seeded["risk_column_id"]
-
-        oversized_replacement = env.run(
-            _review_action(
-                run_id=seeded["run_id"],
-                row_id=row_id,
-                column_id=column_id,
-                decision="edit",
-                value="x" * 65_537,
-                key="review_oversized_replacement@sha256:v1",
+        row = seeded["row_ids"][0]
+        edited = env.run(
+            _cell_edit_action(
+                row_id=row,
+                column_id=seeded["risk_column_id"],
+                value="x" * 65537,
+                key="large-cell-edit",
             )
         )
-        assert oversized_replacement.status == "failed"
-        assert [error.code for error in oversized_replacement.errors] == [
-            "review_value_too_large"
-        ]
-        assert _review_state(project, seeded, row_id) == "unreviewed"
-
-        _values, refs = project.get_values_with_refs(
-            seeded["sheet_id"], column_id, row_ids=[row_id]
-        )
-        project.db.execute("BEGIN IMMEDIATE")
-        write_edit_overlay(
-            project,
-            kind="review.decision",
-            label="Existing oversized Review correction",
-            spec={
-                "action_id": "review.decision",
-                "params": {
-                    "run_id": seeded["run_id"],
-                    "row_id": row_id,
-                    "column_id": column_id,
-                    "decision": "edit",
-                },
-            },
-            targets=[
-                {
-                    "row_id": row_id,
-                    "column_id": column_id,
-                    "value_after": "y" * 65_537,
-                    "current_value_ref": refs[row_id],
-                }
-            ],
-            stale_reason="review_decision_edit",
-        )
-        project.db.commit()
+        assert edited.status == "completed", edited.errors
+        assert _live_risk(project, seeded, row) == "x" * 65537
+        assert _review_state(project, seeded, row) == "unreviewed"
         page = review_bundle_page(
             project, run_id=seeded["run_id"], include_reviewed=True
         )
-        correction = next(item for item in page["bundles"] if item["row_id"] == row_id)[
+        answer = next(item for item in page["bundles"] if item["row_id"] == row)[
             "fields"
         ][0]
-        assert correction["changed"] is True
-        assert correction["value"] is None
-        assert correction["bounded_value"]["preview"] == "y" * 2_048
-        assert correction["bounded_value"]["_download_revision"] > 0
-        assert correction["can_edit"] is False
-
-        bounded_target = env.run(
-            _review_action(
-                run_id=seeded["run_id"],
-                row_id=row_id,
-                column_id=column_id,
-                decision="edit",
-                value="small correction",
-                key="review_bounded_target@sha256:v1",
-            )
-        )
-        assert bounded_target.status == "failed"
-        assert [error.code for error in bounded_target.errors] == [
-            "review_value_truncated"
-        ]
-        assert _review_state(project, seeded, row_id) == "unreviewed"
+        assert answer["value"] == "high"
+        assert answer["can_edit"] is False
+        assert answer["changed"] is False
 
 
 def test_review_edit_allows_replacement_at_utf8_byte_limit(
@@ -811,11 +739,9 @@ def test_review_edit_allows_replacement_at_utf8_byte_limit(
         replacement = "é" * 32_768
 
         edited = env.run(
-            _review_action(
-                run_id=seeded["run_id"],
+            _cell_edit_action(
                 row_id=row_id,
                 column_id=seeded["risk_column_id"],
-                decision="edit",
                 value=replacement,
                 key="review_replacement_at_limit@sha256:v1",
             )
@@ -1037,28 +963,22 @@ def test_row_note_uses_stable_legacy_note_and_normalizes_primary_siblings(
 def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Edit is usable but failed; reject preserves, reject_clear blanks."""
+    """Edit changes no judgment; reject preserves, reject_clear blanks."""
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         project, seeded = env.project, env.seeded
         row_id = seeded["row_ids"][1]
 
         edited = env.run(
-            _review_action(
-                run_id=seeded["run_id"],
+            _cell_edit_action(
                 row_id=row_id,
                 column_id=seeded["risk_column_id"],
-                decision="edit",
                 value="manual-medium",
-                note="Corrected the original category.",
                 key="review_edit@sha256:v1",
             )
         )
         assert edited.status == "completed", edited.errors
-        assert _review_state(project, seeded, row_id) == "verified"
-        assert _review_metadata(project, seeded, row_id) == (
-            "edit",
-            "Corrected the original category.",
-        )
+        assert _review_state(project, seeded, row_id) == "unreviewed"
+        assert _review_metadata(project, seeded, row_id) == (None, None)
         assert _live_risk(project, seeded, row_id) == "manual-medium"
         from frisket.contracts.action import Receipt
 
@@ -1069,11 +989,11 @@ def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(
                 ).fetchone()["body"]
             )
         )
-        assert {item.ref["kind"] for item in edit_receipt.evidence} >= {
-            "target_result_cell",
-            "review_state_transition",
-            "edit_overlay",
-        }
+        assert edit_receipt.action_kind == "cell.edit"
+        assert not any(
+            item.ref["kind"] == "review_state_transition"
+            for item in edit_receipt.evidence
+        )
 
         undo = env.run(
             operation_action(
@@ -1168,7 +1088,7 @@ def test_review_edit_undo_and_two_reject_decisions_walk_exact_metadata(
         assert _live_risk(project, seeded, row_id) is None
 
 
-def test_review_explicit_null_refreshes_summary_and_replays_exactly(
+def test_null_cell_edit_replays_without_judgment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An explicit null is a real edit value, distinct from an omitted value."""
@@ -1176,17 +1096,11 @@ def test_review_explicit_null_refreshes_summary_and_replays_exactly(
         project, seeded = env.project, env.seeded
         row_id = seeded["row_ids"][1]
         request = _edit_null_value_action(seeded)
-        project._write_manifest(pending_review_count=99)
 
         first = env.run(request)
         assert first.status == "completed", first.errors
         assert _live_risk(project, seeded, row_id) is None
-        assert (
-            json.loads((project.path / "manifest.json").read_text())[
-                "pending_review_count"
-            ]
-            == 1
-        )
+        assert _review_state(project, seeded, row_id) == "unreviewed"
         assert env.run(request) == first
 
         omitted = _review_action(
@@ -1201,13 +1115,13 @@ def test_review_explicit_null_refreshes_summary_and_replays_exactly(
         malformed = run_action_spec(
             project, omitted, project_id="project-review-decision"
         )
-        assert [error.code for error in malformed.errors] == ["review_value_required"]
+        assert [error.code for error in malformed.errors] == ["invalid_action_request"]
         assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 2
 
         op = project.db.execute(
             "SELECT spec FROM ops WHERE id=?", (first.op_ids[0],)
         ).fetchone()
-        assert json.loads(op["spec"])["params"]["value"] is None
+        assert json.loads(op["spec"])["params"]["edits"][0]["value"] is None
 
 
 def test_review_success_survives_pending_summary_manifest_failure(
@@ -1296,11 +1210,9 @@ def test_review_decision_edit_and_reject_clear_stale_active_evidence(
         assert accepted_evidence["stale_count"] == 0
 
         edited = env.run(
-            _review_action(
-                run_id=seeded["run_id"],
+            _cell_edit_action(
                 row_id=rows[1],
                 column_id=column_id,
-                decision="edit",
                 value="manual-medium",
                 key="review_edit_evidence@sha256:v1",
             )
@@ -1317,7 +1229,7 @@ def test_review_decision_edit_and_reject_clear_stale_active_evidence(
         edited_viewer = resolve_evidence_viewer(
             project, edited_evidence["links"][0]["stable_id"]
         )
-        assert edited_viewer["link"]["stale_reason"] == "review_decision_edit"
+        assert edited_viewer["link"]["stale_reason"] == "manual_cell_edit"
         assert edited_evidence["stale_count"] == 1
 
         _attach_cell_evidence(project, seeded, rows[0])
@@ -1357,11 +1269,9 @@ def test_review_edit_undo_redo_restores_exact_evidence_status(
         link = _attach_cell_evidence(project, seeded, row_id)
 
         edited = env.run(
-            _review_action(
-                run_id=seeded["run_id"],
+            _cell_edit_action(
                 row_id=row_id,
                 column_id=column_id,
-                decision="edit",
                 value="manual-medium",
                 key="review-edit-evidence-history@sha256:v1",
             )
@@ -1395,7 +1305,7 @@ def test_review_edit_undo_redo_restores_exact_evidence_status(
         assert redone.status == "completed", redone.errors
         restaled = resolve_evidence_viewer(project, link["stable_id"])["link"]
         assert restaled["status"] == "stale"
-        assert restaled["stale_reason"] == "review_decision_edit"
+        assert restaled["stale_reason"] == "manual_cell_edit"
 
 
 def test_review_state_only_undo_does_not_dirty_value_search(
@@ -1423,7 +1333,7 @@ def test_review_state_only_undo_does_not_dirty_value_search(
         )
 
 
-def test_review_note_undo_retains_output_claim_fencing(
+def test_review_note_undo_does_not_mutate_claimed_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with case_env(CASES[1], tmp_path, monkeypatch) as env:
@@ -1446,5 +1356,5 @@ def test_review_note_undo_retains_output_claim_fencing(
             )
         )
 
-        assert blocked.status == "failed"
-        assert blocked.errors[0].code == "output_column_busy"
+        assert blocked.status == "completed", blocked.errors
+        assert _review_metadata(project, seeded, seeded["row_ids"][0]) == (None, None)

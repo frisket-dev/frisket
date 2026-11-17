@@ -113,6 +113,7 @@ export function EngineSelector({
   renderDetailFooter,
   notice,
   disabled = false,
+  loading = false,
   searchPlaceholder = 'Search all engines…',
   triggerRef: externalTriggerRef,
 }: EngineSelectorProps) {
@@ -394,7 +395,7 @@ export function EngineSelector({
     : undefined;
 
   return (
-    <div className="engine-selector" data-testid="engine-selector">
+    <div className="engine-selector" data-testid="engine-selector" aria-busy={loading || undefined}>
       {!open && notice}
       <button
         ref={triggerRef}
@@ -402,11 +403,12 @@ export function EngineSelector({
         className="engine-selector__trigger form-input select-trigger"
         aria-haspopup="dialog"
         aria-expanded={open}
-        disabled={disabled}
+        disabled={disabled || loading}
+        aria-label={loading ? `Loading ${label.toLowerCase()}` : undefined}
         onClick={openSelector}
       >
         <span className={`engine-selector__status engine-selector__status--${triggerCopy?.status ?? 'unavailable'}`} aria-hidden />
-        <span className="engine-selector__trigger-copy">
+        <span className="engine-selector__trigger-copy" aria-hidden={loading || undefined}>
           <strong>{triggerCopy?.label ?? `Choose ${label.toLowerCase()}`}</strong>
           <small>{triggerSecondaryCopy}</small>
           {triggerActivity && <progress

@@ -82,7 +82,15 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
     result = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmed
     )
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops JOIN runs ON runs.op_id=ops.id "
+            "WHERE runs.id=?",
+            (result.run_id,),
+        ).fetchone()[0]
+        == 1
+    )
     assert len(adapter.calls) == 1
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     assert receipt.provider_use[0]["cost_actual"] == adapter.COST_USD
@@ -118,7 +126,7 @@ def test_network_off_keeps_local_clustering(cluster_project, monkeypatch, method
         lambda *a, **kw: (embed, "fastembed/test"),
     )
     result = execute(options={"method": method})
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
 
 
 def test_network_off_refuses_remote_before_any_call(cluster_project, monkeypatch):
@@ -142,6 +150,47 @@ def test_review_hash_refuses_changed_source_before_publication(cluster_project):
     assert result.errors[0].code == "stale_input"
     assert [column["name"] for column in project.columns(sheet)] == ["name"]
     assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0
+
+
+def test_cluster_computes_from_captured_rows_after_equal_text_new_contribution(
+    cluster_project, monkeypatch
+):
+    from frisket.engine.executor import cluster_program
+    from frisket.engine.store.consumed_sources import row_input_state
+    from frisket.engine.store.op_log import step_operation
+
+    project, sheet, source, execute = cluster_project
+    row = project.visible_row_ids(sheet)[0]
+    run_batch = cluster_program._ClusterProgram.execute_batch
+    validate = cluster_program.validate_cluster_source
+    inside_batch = False
+    edits = []
+
+    def admission_only(*args, **kwargs):
+        assert not inside_batch, "batch computation must use its captured source values"
+        return validate(*args, **kwargs)
+
+    async def interleave(program, values, spec, ctx):
+        nonlocal inside_batch
+        edits.append(
+            project.apply_edits(
+                [{"row_id": row, "column_id": source, "value": values[row]["name"]}]
+            )
+        )
+        inside_batch = True
+        try:
+            return await run_batch(program, values, spec, ctx)
+        finally:
+            inside_batch = False
+
+    monkeypatch.setattr(cluster_program, "validate_cluster_source", admission_only)
+    monkeypatch.setattr(cluster_program._ClusterProgram, "execute_batch", interleave)
+    result = execute(options={"method": "fingerprint"})
+    assert result.status == "completed", result.errors
+    assert row_input_state(project, result.run_id, row) == "stale"
+    with project.transaction_scope():
+        step_operation(project, "revert", op_id=edits[0])
+    assert row_input_state(project, result.run_id, row) == "fresh"
 
 
 def test_source_change_during_paid_clustering_preserves_cost_not_output(
@@ -232,11 +281,17 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     cleared = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )
-    assert cleared.errors[0].code == "idempotency_stale_running", cleared.model_dump()
+    assert cleared.errors[0].code == "idempotency_in_progress", cleared.model_dump()
+    assert (
+        project.db.execute(
+            "SELECT status FROM receipts WHERE status='running'"
+        ).fetchone()[0]
+        == "running"
+    )
     live = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )
-    assert live.errors[0].code == "output_column_busy", live.model_dump()
+    assert live.errors[0].code == "idempotency_in_progress", live.model_dump()
     assert len(adapter.calls) == 1
     from frisket.execution.attempt import abandon_stale_dispatching_attempts
     from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -261,13 +316,19 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     result = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )
+    if result.errors and result.errors[0].code == "idempotency_stale_running":
+        result = execute(
+            router=router,
+            options={"method": "semantic"},
+            confirmation=confirmation,
+        )
     if result.status == "needs_confirmation":
         result = execute(
             router=router,
             options={"method": "semantic"},
             confirmation=result.errors[0].details["promise_set_hash"],
         )
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
     assert len(adapter.calls) == 1
     assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 1
     assert (
@@ -278,11 +339,11 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
 def test_cluster_publication_rolls_back_then_retries_without_recomputing(
     cluster_project, monkeypatch
 ):
-    import frisket.engine.executor.cluster_action as host
+    import frisket.engine.executor.project_run_terminalization as host
     import frisket.engine.executor.cluster_program as backend
 
     project, sheet, source, execute = cluster_project
-    original = host.set_attempt_state
+    original = host.terminalize_project_run
     compute = backend.compute_reviewed_clusters
     calls = []
 
@@ -301,7 +362,7 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
             raise RuntimeError("terminal handoff failure")
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(host, "set_attempt_state", broken)
+    monkeypatch.setattr(host, "terminalize_project_run", broken)
     with pytest.raises(RuntimeError, match="terminal handoff failure"):
         execute()
     assert [column["name"] for column in project.columns(sheet)] == ["name"]
@@ -318,7 +379,7 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
     assert "value_clusters_result" in staged
     assert "value_clusters_result_storage" not in staged
     result = execute()
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
     assert len(calls) == 1
     terminal = json.loads(
         project.db.execute(
@@ -381,7 +442,7 @@ def test_actual_prepared_call_not_builtin_parameter_names_controls_source(
         None,
         _default_map_runner_factory,
     )
-    assert result.status == "completed", result.model_dump()
+    assert result.status == "completed", result.model_dump_json(indent=2)
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     fact = next(
         item.ref
@@ -450,3 +511,52 @@ def test_cluster_publishes_actual_groups_with_canonical_values(
         assert replay.receipt_id == result.receipt_id
     finally:
         project.close()
+
+
+def test_stop_after_cluster_rows_before_publication_closes_cancelled(
+    cluster_project, monkeypatch
+):
+    from frisket.engine.executor import cluster_action
+    from frisket.engine.store.runs import RunResultStore
+
+    project, sheet, source, execute = cluster_project
+    original = cluster_action.finalize_cluster_action
+
+    def stop_then_publish(project, *args, **kwargs):
+        assert RunResultStore(project).request_cancel(kwargs["run_id"])
+        return original(project, *args, **kwargs)
+
+    monkeypatch.setattr(cluster_action, "finalize_cluster_action", stop_then_publish)
+    result = execute(options={"method": "fingerprint"})
+    assert result.status == "cancelled", result.model_dump_json(indent=2)
+    run = project.db.execute(
+        "SELECT * FROM runs WHERE id=?", (result.run_id,)
+    ).fetchone()
+    assert run["status"] == "cancelled"
+    assert run["current_attempt_id"] is None
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+            (result.run_id,),
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_cluster_final_receipt_failure_recovers_without_recomputation(cluster_project):
+    project, sheet, source, execute = cluster_project
+    project.db.execute("""CREATE TRIGGER reject_cluster_receipt BEFORE UPDATE ON receipts
+        WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT, 'receipt unavailable'); END""")
+    project.db.commit()
+    import sqlite3
+
+    with pytest.raises(sqlite3.IntegrityError, match="receipt unavailable"):
+        execute(options={"method": "fingerprint"})
+    run_id = project.db.execute(
+        "SELECT id FROM runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()[0]
+    project.db.execute("DROP TRIGGER reject_cluster_receipt")
+    project.db.commit()
+    recovered = execute(options={"method": "fingerprint"})
+    assert recovered.status == "completed", recovered.model_dump_json(indent=2)
+    assert recovered.run_id == run_id

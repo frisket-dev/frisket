@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Iterator
+from collections.abc import Sequence
 
 from pydantic import Field, field_validator, model_validator
 
@@ -139,11 +140,18 @@ def _is_file_envelope(value: Any) -> bool:
     )
 
 
+class EmptyListSchema(TableError):
+    """Complete list enumeration has no item from which to infer a schema."""
+
+    def __init__(self):
+        super().__init__("invalid_input_ref", "Source column has no list items")
+
+
 def infer_projection(
-    items: tuple[ListItem, ...], include_columns: list[str] | None
+    items: Sequence[ListItem], include_columns: list[str] | None
 ) -> tuple[ListProjectionColumn, ...]:
     if not items:
-        raise TableError("invalid_input_ref", "Source column has no list items")
+        raise EmptyListSchema()
     key_types: dict[str, str | None] = {}
     has_object = any(isinstance(item.value, dict) for item in items)
     if has_object and any(not isinstance(item.value, dict) for item in items):
@@ -197,7 +205,7 @@ def infer_projection(
 
 
 def project_items(
-    items: tuple[ListItem, ...],
+    items: Sequence[ListItem],
     columns: list[ListProjectionColumn] | tuple[ListProjectionColumn, ...],
     *,
     require_paths: bool,

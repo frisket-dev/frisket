@@ -35,6 +35,7 @@ describe('typed API Call discovery and saved intent', () => {
       { target: { value: 'https://example.test/static' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     expect(onExecute.mock.calls[0][0]).toMatchObject({
       action_id: 'map.api_call', scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: { request: { url: 'https://example.test/static' } },
@@ -66,6 +67,7 @@ describe('typed API Call discovery and saved intent', () => {
       { target: { value: 'https://example.test/edited' } });
     await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
     fireEvent.click(screen.getByTestId('generated-action-run'));
+    await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1));
     const submitted = onExecute.mock.calls[0][0];
     expect(submitted).toMatchObject({ ...draft,
       params: { request: { ...request, url: 'https://example.test/edited' } } });

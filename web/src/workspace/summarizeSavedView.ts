@@ -1,60 +1,14 @@
 import type { SavedView } from '../api/open';
-import {
-  gridFilterLabel,
-  gridSortLabel,
-  normalizeGridFilterSpec,
-  normalizeGridSortSpec,
-} from './gridColumnState';
-
-export interface SavedViewSummary {
-  /** The filter's display text, including the explicit unfiltered state. */
-  filterSummary: string;
-  /** null when sorting is not part of the saved presentation. */
-  sortSummary: string | null;
-  /** null when the view has no custom displayed-column list. */
-  columnCount: number | null;
-  hasNoEffectiveFilter: boolean;
-  /** The compact summary used wherever a Saved View is displayed. */
-  summary: string;
-}
-
-function readableFilterSummary(filter: NonNullable<ReturnType<typeof normalizeGridFilterSpec>>): string {
-  // The grid's normalizer deliberately preserves wire operators (such as
-  // `eq`). Saved View descriptions are user-facing prose.
-  return gridFilterLabel(filter).replace(/\seq\s/g, ' equals ');
-}
-
-function readableSortSummary(sort: NonNullable<ReturnType<typeof normalizeGridSortSpec>>): string {
-  const label = gridSortLabel(sort);
-  if (label.endsWith(' asc')) return `${label.slice(0, -4)} ascending`;
-  if (label.endsWith(' desc')) return `${label.slice(0, -5)} descending`;
-  return label;
-}
-
-/**
- * Describes only a Saved View's persisted presentation/query state. Consumers
- * may carry these fields as display metadata, but never use them as Watch
- * execution authority.
- */
+export interface SavedViewSummary { filterSummary: string; sortSummary: string | null; columnCount: number | null; hasNoEffectiveFilter: boolean; summary: string; }
 export function summarizeSavedView(view: SavedView): SavedViewSummary {
-  const filter = normalizeGridFilterSpec(view.spec.filter);
-  const sort = normalizeGridSortSpec(view.spec.sort);
-  const columns = Array.isArray(view.spec.columns)
-    ? view.spec.columns.filter((column): column is string => typeof column === 'string')
-    : null;
-  const filterSummary = filter ? readableFilterSummary(filter) : 'No filters';
-  const sortSummary = sort ? readableSortSummary(sort) : null;
-  const columnCount = columns === null ? null : columns.length;
-
-  return {
-    filterSummary,
-    sortSummary,
-    columnCount,
-    hasNoEffectiveFilter: filter === null,
-    summary: [
-      filterSummary,
-      sortSummary,
-      columnCount === null ? null : `${columnCount} columns`,
-    ].filter((part): part is string => part !== null).join(' · '),
-  };
+  if (!view.spec) return { filterSummary: 'Unavailable', sortSummary: null, columnCount: null, hasNoEffectiveFilter: false, summary: view.unavailable_reason ?? 'Unavailable view' };
+  const { selection, presentation } = view.spec;
+  const criteria = [selection.search ? `Search “${selection.search.text}”` : null, selection.similarity ? 'Similarity' : null,
+    selection.filters.length ? `${selection.filters.length} filter${selection.filters.length === 1 ? '' : 's'}` : null,
+    selection.scope.kind === 'sheet' && selection.scope.row_ids ? `${selection.scope.row_ids.length} selected rows` : null].filter(Boolean);
+  const filterSummary = criteria.join(' · ') || 'No filters';
+  const sortSummary = selection.order.length ? `${selection.order.length} sort${selection.order.length === 1 ? '' : 's'}` : null;
+  const columnCount = presentation.columns?.length ?? null;
+  return { filterSummary, sortSummary, columnCount, hasNoEffectiveFilter: criteria.length === 0,
+    summary: view.unavailable_reason ?? [filterSummary, sortSummary, selection.limit ? `First ${selection.limit.toLocaleString()}` : null, columnCount === null ? null : `${columnCount} columns`].filter(Boolean).join(' · ') };
 }

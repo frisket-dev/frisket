@@ -35,6 +35,7 @@ This file pins three things:
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from datetime import UTC, datetime
@@ -111,6 +112,7 @@ def _run_all_failing(project: Project, tmp_path: Path, row_count: int) -> int:
     spec = _classify_spec(sheet)
     cache = ResponseCache(tmp_path / "c.db")
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "k"},
         cache=cache,
         cache_mode="replay",
@@ -183,7 +185,12 @@ class TestNonLlmExecuteFailurePersistence:
             "sheet_id": sheet,
             "input_columns": ["text"],
         }
-        router = ModelRouter(keys={}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={},
+            cache=None,
+            cache_mode="off",
+        )
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         progress = asyncio.run(run_with_output_claim(runner, spec))
         assert progress.failed == 1
@@ -347,7 +354,10 @@ class TestRowErrorSummaryShape:
                 ),
             )
         router = ModelRouter(
-            keys={"anthropic": "k"}, cache=cache, cache_mode="replay_strict"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "k"},
+            cache=cache,
+            cache_mode="replay_strict",
         )
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         progress = asyncio.run(run_with_output_claim(runner, spec))
@@ -548,9 +558,16 @@ class TestEmptyInputPrecheck:
         before = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
         response = client.post(
             f"/api/projects/{project_id}/actions/v1/run",
-            json=_empty_input_probe_action(
-                sheet_id=sheet, idempotency_key="empty-precheck@sha256:all"
-            ),
+            json={
+                "action_id": "map.ask",
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+                "params": {
+                    "source": ["note"],
+                    "model": MODEL,
+                    "question": "What phone number is given?",
+                },
+                "idempotency_key": "empty-precheck@sha256:all",
+            },
         )
         assert response.status_code == 400, response.text
         result = response.json()
@@ -565,7 +582,12 @@ class TestEmptyInputPrecheck:
         after = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
         assert after == before, "the precheck must create ZERO run rows"
 
-    def test_partial_empty_input_column_proceeds(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "has_content", [True, False], ids=["partial", "all-missing"]
+    )
+    def test_missing_capable_python_input_proceeds(
+        self, tmp_path: Path, has_content: bool
+    ) -> None:
         client = _http_client(tmp_path)
         project_id = client.post(
             "/api/projects", json={"name": "Partial empty"}
@@ -573,10 +595,11 @@ class TestEmptyInputPrecheck:
         project = client.app.state.workspace.get(project_id)
         sheet = project.add_sheet("data")
         col = project.add_column(sheet, "note")
-        # only ONE row has data — partial emptiness must NOT block.
+        # Native Python can intentionally fill absent values. Unlike the model
+        # precheck above, even a completely missing source is admissible.
         project.add_rows(
             sheet,
-            [{"note": "Call 212-555-0123"}, {}, {}],
+            [{"note": "Call 212-555-0123"} if has_content else {}, {}, {}],
             {"note": col},
         )
 
@@ -593,4 +616,4 @@ class TestEmptyInputPrecheck:
         assert result.get("errors") in (None, [])
 
         after = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-        assert after == before + 1, "a partial-empty launch must still create a run"
+        assert after == before + 1, "a missing-capable launch must still create a run"

@@ -508,7 +508,7 @@ function DockRunSummaryView({ summary }: { summary?: DockRunSummary }) {
       : state === 'complete-with-errors'
         ? 'complete with errors'
         : state === 'complete'
-          ? 'all complete'
+          ? 'completed'
           : 'idle';
   const percent = summary?.percent ?? null;
   return (

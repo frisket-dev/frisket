@@ -15,6 +15,8 @@ from frisket.actions.media_types import OcrText, RecognizedDocument
 from frisket.actions.types import ColumnRef, Outcome, RowError
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
+from frisket.ai.models.usage_counts import model_call_token_counts
+from frisket.ai.models.accounting import merge_accounting_meta
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine._workers.pdf_render_worker import (
@@ -318,7 +320,17 @@ class _BoundOcrReader:
         if self._row_id in owner._called_rows:
             raise RuntimeError("OCR permits one recognition per admitted row")
         owner._called_rows.add(self._row_id)
-        return await owner._run(lambda: self._recognize(source_ref, engine))
+        try:
+            return await owner._run(lambda: self._recognize(source_ref, engine))
+        except BaseException as exc:
+            # This also covers Stop after a successful engine return, before
+            # the recognized document can be materialized or published.
+            accounting = owner.accounting_by_row.get(self._row_id)
+            if accounting is not None:
+                exc.accounting = copy.deepcopy(
+                    merge_accounting_meta(getattr(exc, "accounting", None), accounting)
+                )
+            raise
 
     async def _recognize(self, source, engine):
         owner, ctx = self._owner, self._ctx
@@ -405,6 +417,7 @@ class _BoundOcrReader:
                 page_images = {}
                 warnings = ()
                 returned = False
+                failure = None
                 try:
                     if is_pdf and cloud_pdf:
                         if type(page_count) is not int or page_count <= 0:
@@ -472,6 +485,9 @@ class _BoundOcrReader:
                             owner._check_open()
                             self._report_page_progress(1, 1)
                     returned = True
+                except BaseException as exc:
+                    failure = exc
+                    raise
                 finally:
                     if usage.get("model_calls") or usage["calls"] or returned:
                         calls = usage.get("model_calls") or [
@@ -487,12 +503,20 @@ class _BoundOcrReader:
                             ]
                         owner.accounting_by_row[self._row_id] = copy.deepcopy(
                             {
-                                "tokens_in": usage["in"],
-                                "tokens_out": usage["out"],
+                                **model_call_token_counts(calls),
                                 "cost": model_calls_cost_actual(calls),
                                 "model_calls": calls,
                             }
                         )
+                        # The invocation owns stable OCR facts now. Do not let
+                        # the row error handler mint them again as LLM facts.
+                        if failure is not None and usage.get("_wire_calls"):
+                            recorded = {id(call) for call in usage["_wire_calls"]}
+                            failure.wire_calls = [
+                                call
+                                for call in getattr(failure, "wire_calls", ())
+                                if id(call) not in recorded
+                            ]
                 if selected_page is not None and len(pages) != 1:
                     raise RuntimeError("page-scoped OCR must return exactly one page")
                 owner._check_open()
@@ -518,7 +542,8 @@ class _BoundOcrReader:
                 for index, page in enumerate(pages, 1):
                     physical_page = selected_page or index
                     positions = _page_coordinate_frame(
-                        page, required=bool(positioned_generic)
+                        page,
+                        required=bool(positioned_generic and not page.get("error")),
                     )
                     page_fact = copy.deepcopy(page)
                     page_fact["page_number"] = physical_page
@@ -533,7 +558,11 @@ class _BoundOcrReader:
                     if positions:
                         fact_block["positions"] = positions
                     fact_blocks.append(fact_block)
-                text = "\n\n".join(str(page.get("text") or "") for page in pages)
+                text = "\n\n".join(
+                    str(page.get("text") or "")
+                    for page in pages
+                    if not page.get("error")
+                )
                 fact = {
                     "kind": "ocr_read",
                     "call_id": uuid.uuid4().hex,
@@ -625,6 +654,7 @@ class _BoundOcrReader:
             dpi=self._owner._options["dpi"],
             page_count=page_count,
             report_progress=self._report_page_progress,
+            ctx=self._ctx,
         )
         self._owner._check_open()
         images = {}

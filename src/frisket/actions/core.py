@@ -211,6 +211,8 @@ from frisket.actions.types import (
     SourcePoller,
     SheetRefresher,
     RunBackfiller,
+    RetainedResultPublisher,
+    ReappliedResults,
     BackfilledRun,
     PreparedBackfill,
     RefreshedSheet,
@@ -233,7 +235,7 @@ from frisket.actions.types import (
     discover_references,
 )
 from frisket.actions.document_extract import PositionedDocumentReader
-from frisket.features.temporal_values import TimelinePointsValue, TimelineRangesValue
+from frisket.contracts.temporal_values import TimelinePointsValue, TimelineRangesValue
 from frisket.actions.types import (
     EmbeddingIndexPolicy,
     DeletedEmbeddingIndex,
@@ -861,6 +863,17 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         requires_confirmation=True,
     ),
     _project_capability(
+        RetainedResultPublisher,
+        ReappliedResults,
+        ReappliedResults,
+        _project_errors(
+            ("invalid_params", "Saved result selection is invalid."),
+            write_failure="Saved results could not be published.",
+        ),
+        ("write_edits",),
+        cost_kind="none",
+    ),
+    _project_capability(
         RunBackfiller,
         PreparedBackfill,
         BackfilledRun,
@@ -1066,16 +1079,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                 "ambiguous_import_keys",
                 "Duplicate exact keys make this update ambiguous.",
             ),
-            (
-                "stale_import_preview",
-                "The reviewed import preview is no longer current.",
-            ),
             ("sheet_not_found", "The destination sheet was not found or is hidden."),
-            (
-                "derived_update_unsupported",
-                "Derived sheets cannot receive imported updates.",
-            ),
-            ("output_column_busy", "An update column is in use by another action."),
             *_TEMPORAL_PROJECT_ERRORS,
             write_failure="The imported updates and receipt could not be written.",
         ),
@@ -1162,15 +1166,6 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         ReviewDecision,
         ReviewDecisionActionOutput,
         _project_errors(
-            ("review_value_required", "Edit decisions require a replacement value."),
-            (
-                "review_value_too_large",
-                "The replacement value exceeds the Review edit limit.",
-            ),
-            (
-                "review_value_truncated",
-                "A value shown only as an excerpt cannot be edited in Review.",
-            ),
             ("review_target_not_found", "The current result cell was not found."),
             ("review_complete", "Reopen this review to make more decisions."),
             ("output_column_busy", "The result column is claimed by a running action."),
@@ -1894,6 +1889,7 @@ class CreateSheet(Generic[P, OutputT]):
 _ROW_SCOPED_PROJECT_CAPABILITIES = frozenset(
     {
         RunBackfiller,
+        RetainedResultPublisher,
         EnclosureMaterializer,
         TemporalExtractor,
         PageCapturer,
@@ -1906,6 +1902,7 @@ _ROW_SCOPED_PROJECT_CAPABILITIES = frozenset(
 )
 _OUTPUT_NAMING_PROJECT_CAPABILITIES = frozenset(
     {
+        RetainedResultPublisher,
         TemporalExtractor,
         PageCapturer,
         ValueClusterer,
@@ -1915,7 +1912,7 @@ _OUTPUT_NAMING_PROJECT_CAPABILITIES = frozenset(
 )
 _SHEET_CREATING_PROJECT_CAPABILITIES = frozenset({GroupSummarizer, FindScanner})
 _DYNAMIC_OUTPUT_PROJECT_CAPABILITIES = frozenset(
-    {TemporalExtractor, PageCapturer, FindScanner}
+    {TemporalExtractor, PageCapturer, FindScanner, RetainedResultPublisher}
 )
 
 
@@ -3456,6 +3453,15 @@ class RegisteredAction:
     _example_requests: tuple[str, ...] = field(init=False, repr=False)
 
     @property
+    def required_credentials(self) -> tuple[str, ...]:
+        terminal = self.definition.run
+        if routed_capability(terminal) is CensusDemographics:
+            return ("CENSUS_API_KEY",)
+        if OpenCorporates in getattr(terminal, "capabilities", ()):
+            return ("OPENCORPORATES_API_TOKEN",)
+        return ()
+
+    @property
     def required_capabilities(self) -> tuple[str, ...]:
         """Declared execution requirements, without building presentation schemas."""
         terminal = self.definition.run
@@ -3624,6 +3630,7 @@ class RegisteredAction:
         if (
             isinstance(terminal, _ProjectAction)
             and terminal.capabilities == (EnclosureMaterializer,)
+            and scope.selection is None
             and (scope.row_ids is None or not 1 <= len(scope.row_ids) <= 500)
         ):
             raise ValueError(
@@ -3634,6 +3641,7 @@ class RegisteredAction:
             and SemanticMatchReader in terminal.capabilities
             and isinstance(scope, SheetRows)
             and scope.row_ids is None
+            and scope.selection is None
         ):
             raise ValueError("semantic match tables require an explicit row selection")
         if (
@@ -3643,7 +3651,7 @@ class RegisteredAction:
                 and terminal.capabilities == (ValueClusterer,)
             )
             and self.definition.row_scope is RowScope.ALL_ROWS
-            and scope.row_ids is not None
+            and (scope.row_ids is not None or scope.selection is not None)
         ):
             raise ValueError("action requires all rows")
         validated, output_fields = self.bind_params(
@@ -3662,7 +3670,8 @@ class RegisteredAction:
             or isinstance(terminal, _ProjectAction)
             and terminal.capabilities == (TemporalExtractor,)
         ):
-            validate_transcript_selection_scope(validated, scope)
+            if not isinstance(scope, SheetRows) or scope.selection is None:
+                validate_transcript_selection_scope(validated, scope)
         return validated, output_fields
 
     def bind_params(
@@ -3740,9 +3749,15 @@ class RegisteredAction:
             and request.sheet_name is not None
         ):
             raise ValueError("sheet_name is accepted only by create_sheet actions")
-        if request.replace_existing and isinstance(
-            self.definition.run,
-            (ColumnTransform, CreateSheet, _ProjectAction, GoogleSheetsExport),
+        if (
+            request.replace_existing
+            and isinstance(
+                self.definition.run,
+                (ColumnTransform, CreateSheet, _ProjectAction, GoogleSheetsExport),
+            )
+            and not _is_single_project_capability(
+                self.definition.run, {RetainedResultPublisher}
+            )
         ):
             raise ValueError(
                 f"{type(self.definition.run).__name__} does not support replace_existing"
@@ -3835,11 +3850,7 @@ class RegisteredAction:
                 and definition.run.callable_host
                 else compile_output_schema(definition.run.output_model)
             ),
-            "required_credentials": ["CENSUS_API_KEY"]
-            if routed is CensusDemographics
-            else ["OPENCORPORATES_API_TOKEN"]
-            if opencorporates
-            else [],
+            "required_credentials": list(self.required_credentials),
             "errors": [
                 {"code": code, "message": message}
                 for code, message in (
@@ -4177,7 +4188,7 @@ class RegisteredAction:
                     else "model_metered"
                     if model_backed or semantic
                     else "unknown"
-                    if agent_backed or http or fetch
+                    if agent_backed or http
                     else "external_metered"
                     if external or routed is not None or opencorporates
                     else "none"
@@ -4192,7 +4203,6 @@ class RegisteredAction:
                     or routed is not None
                     or http
                     or opencorporates
-                    or fetch
                 ),
             },
             "idempotency": {

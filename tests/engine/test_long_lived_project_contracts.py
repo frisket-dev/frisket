@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import sqlite3
@@ -351,7 +352,9 @@ def test_resuming_empty_run_scope_does_not_pick_up_late_rows(tmp_path: Path) -> 
         initial = asyncio.run(
             run_with_output_claim(
                 MapRunner(
-                    project, ModelRouter(), authority=UnroutedOnlyAuthority(project)
+                    project,
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+                    authority=UnroutedOnlyAuthority(project),
                 ),
                 spec,
                 program=program,
@@ -374,7 +377,9 @@ def test_resuming_empty_run_scope_does_not_pick_up_late_rows(tmp_path: Path) -> 
             asyncio.run(
                 run_with_output_claim(
                     MapRunner(
-                        project, ModelRouter(), authority=UnroutedOnlyAuthority(project)
+                        project,
+                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+                        authority=UnroutedOnlyAuthority(project),
                     ),
                     resume_spec,
                     program=program,

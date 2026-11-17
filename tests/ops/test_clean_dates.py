@@ -1,6 +1,7 @@
 """Behavioral coverage for the typed ``map.clean_dates`` action."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import datetime as dt
 from pathlib import Path
@@ -69,7 +70,10 @@ def test_exact_format_selects_field_order_and_rejects_mismatch() -> None:
 def _runner(project: Project, router: Any | None) -> MapRunner:
     return MapRunner(
         project,
-        router or ModelRouter(cache=None, cache_mode="off"),
+        router
+        or ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 

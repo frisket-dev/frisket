@@ -32,7 +32,7 @@ function mountCard(selectedRowIds: readonly string[] = []) {
   const onSelectSheet = vi.fn();
   const onFindSimilar = vi.fn();
   const apiPort = {
-    runEmbeddingIndexAnalysis: runAnalysis, listLenses: vi.fn().mockResolvedValue([]),
+    runEmbeddingIndexAnalysis: runAnalysis, listViews: vi.fn().mockResolvedValue([]),
   } as unknown as EmbeddingApiPort;
   render(<OpenLensContext.Provider value={vi.fn()}>
     <EmbeddingIndexCard apiPort={apiPort} index={index} busy={false}

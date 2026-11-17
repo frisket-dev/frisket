@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.contracts.action import (
     ActionError,
     ActionIdentity,
@@ -218,19 +219,21 @@ def _model_call_provider_use(
                 "provider": str(call["provider"]),
                 "model": str(call["engine"]),
                 "model_call_count": 0,
-                "tokens_in": 0,
-                "tokens_out": 0,
                 "_calls": [],
             },
         )
         item["model_call_count"] += 1
         item["_calls"].append(call)
-        units = _model_call_units(call)
-        item["tokens_in"] += int(units.get("tokens_in") or 0)
-        item["tokens_out"] += int(units.get("tokens_out") or 0)
     provider_use: list[dict[str, Any]] = []
     for item in grouped.values():
-        item["cost_actual"] = _model_calls_cost_actual(item.pop("_calls"))
+        calls = item.pop("_calls")
+        item.update(
+            model_call_token_counts(
+                {"capability": call["capability"], "units": _model_call_units(call)}
+                for call in calls
+            )
+        )
+        item["cost_actual"] = _model_calls_cost_actual(calls)
         provider_use.append(item)
     return provider_use
 

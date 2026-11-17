@@ -113,7 +113,15 @@ def trigger_source_materialized_watches(
             evaluation = run_watch_evaluation(project, watch)
         except WatchBindingError as exc:
             if exc.code != "search_index_not_ready" or not _is_keyword_watch(watch):
-                raise
+                out.append(
+                    {
+                        "watch_id": int(watch["id"]),
+                        "status": "error",
+                        "error_code": exc.code,
+                        "error": str(exc),
+                    }
+                )
+                continue
             # A writer may land after the standalone drain. Retry only this
             # watch once; previous successful watches must not emit twice.
             from frisket.search import drain_index
@@ -165,7 +173,7 @@ def affected_enabled_watches(
     sheet_id = int(materialization["sheet_id"])
     out: list[Any] = []
     for watch in project.watches():
-        if not bool(watch["enabled"]):
+        if not bool(watch["enabled"]) or watch["schedule"] is None:
             continue
         # embedding_similarity watches are evaluated AFTER their index refresh job
         # completes (jobs/watches.py), not inline on the source poll — evaluating
@@ -180,32 +188,26 @@ def affected_enabled_watches(
 
 
 def _is_embedding_similarity_watch(watch: Any) -> bool:
-    query = watch_query(watch)
-    return str(query.get("kind") or "").strip().lower() == "embedding_similarity"
+    try:
+        return bool(watch_query(watch).get("similarity"))
+    except WatchBindingError:
+        return False
 
 
 def _is_keyword_watch(watch: Any) -> bool:
-    query = watch_query(watch)
-    return str(query.get("kind") or "").strip().lower() in {"fts", "search.fts"}
+    try:
+        return bool(watch_query(watch).get("search"))
+    except WatchBindingError:
+        return False
 
 
 def _watch_may_be_affected(watch: Any, *, sheet_id: int) -> bool:
-    scope = str(watch["scope"] or "project").strip().lower()
-    query = watch_query(watch)
-    query_scope = query.get("scope") if isinstance(query.get("scope"), dict) else {}
-    query_scope_kind = str(query_scope.get("kind") or "").strip().lower()
-    query_kind = str(query.get("kind") or "").strip().lower()
-    query_sheet_id = _as_positive_int(
-        query.get("sheet_id") or query_scope.get("sheet_id")
-    )
-    if scope == "project":
-        if query_scope_kind == "sheet" or query_kind == "sheet.filter":
-            return query_sheet_id == sheet_id
+    try:
+        scope = watch_query(watch)["scope"]
+        return scope["kind"] == "project" or scope.get("sheet_id") == sheet_id
+    except WatchBindingError:
+        # Keep polling unavailable definitions; restoration can make them usable.
         return True
-    if scope == "sheet":
-        watch_sheet_id = _as_positive_int(watch["sheet_id"])
-        return watch_sheet_id == sheet_id
-    return False
 
 
 def _receipt_refs(receipt: dict[str, Any]) -> list[dict[str, Any]]:

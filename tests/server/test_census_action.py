@@ -1,6 +1,7 @@
 """Public Census admission keeps key, consent, preview and queued replay gates."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -33,7 +34,9 @@ def census_client(tmp_path, monkeypatch):
             200, json=json.loads((FIXTURES / "acs_2024_dc_tracts.json").read_text())
         )
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     client = TestClient(
         create_app(
@@ -128,3 +131,63 @@ def test_preview_of_free_external_effects_is_write_free(census_client):
     assert response.status_code == 202, response.text
     assert not calls
     assert len(project.columns(sheet_id)) == 1
+
+
+def test_completed_direct_replay_does_not_require_current_network_or_key(
+    census_client, monkeypatch
+):
+    from frisket.engine.executor import run_action_spec
+
+    client, project_id, project, _, calls, body = census_client
+    response = client.post(f"/api/projects/{project_id}/actions/v1/run", json=body)
+    assert response.status_code == 200, response.text
+    queued = response.json()
+    drain_queue(client)
+    receipt = ReceiptStore(project).parsed_by_id(queued["receipt_id"])
+    assert receipt.status == "completed"
+    monkeypatch.delenv("CENSUS_API_KEY", raising=False)
+    project.set_network_policy(mode="off")
+    replay = run_action_spec(project, body, project_id=project_id)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == queued["receipt_id"]
+    assert len(calls) == 2
+    fresh = run_action_spec(
+        project, {**body, "idempotency_key": "new-census"}, project_id=project_id
+    )
+    assert fresh.status == "failed"
+    assert fresh.errors[0].code in {"missing_action_credential", "network_disabled"}
+    assert len(calls) == 2
+
+
+def test_http_completed_replay_precedes_changed_deployment_policy(
+    census_client, monkeypatch
+):
+    from frisket.actions.core import RegisteredAction
+
+    client, project_id, project, _, calls, body = census_client
+    url = f"/api/projects/{project_id}/actions/v1/run"
+    response = client.post(url, json=body)
+    drain_queue(client)
+    assert (
+        ReceiptStore(project).parsed_by_id(response.json()["receipt_id"]).status
+        == "completed"
+    )
+    original = RegisteredAction.required_capabilities
+    monkeypatch.setattr(
+        RegisteredAction,
+        "required_capabilities",
+        property(
+            lambda self: (
+                ("unsafe:local_code",)
+                if self.action_id == body["action_id"]
+                else original.fget(self)
+            )
+        ),
+    )
+    monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
+    replay = client.post(url, json=body)
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["receipt_id"] == response.json()["receipt_id"]
+    fresh = client.post(url, json={**body, "idempotency_key": "new-disabled-census"})
+    assert fresh.json()["errors"][0]["code"] == "code_action_disabled"
+    assert len(calls) == 2

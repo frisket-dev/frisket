@@ -7,6 +7,8 @@ spec, then resumes that run inside a worker process.
 
 from __future__ import annotations
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import contextlib
 import json
@@ -51,7 +53,6 @@ from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
-from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.worker_version import code_version
 from frisket.execution.credential_use import ActionCredentialResolver
@@ -465,6 +466,9 @@ def build_run_search_service(
 
     return configured_search_service(
         workspace_root,
+        credential_source="org_byok"
+        if isinstance(handler_context.trusted_job_org_id, int)
+        else "local",
         effective_keys=resolve_run_search_credentials(
             workspace_root,
             handler_context=handler_context,
@@ -582,9 +586,9 @@ def _router_for(
                 if local_endpoints is None and router is not None
                 else local_endpoints or ()
             ),
-            model_call_policy=(
-                router.model_call_policy if router is not None else None
-            ),
+            model_call_policy=router.model_call_policy
+            if router is not None
+            else LOCAL_PURCHASE_POLICY,
         )
     cache = (
         cast(ResponseCache | None, response_cache)
@@ -592,6 +596,7 @@ def _router_for(
         else ResponseCache(project.path / "project.cache.db")
     )
     return ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys=keys,
         key_sources=dict.fromkeys(keys or {}, "local"),
         env_key_source="local",
@@ -605,7 +610,7 @@ def _router_for(
 def project_scoped_router(project: Project, router: ModelRouter | None) -> ModelRouter:
     """THE way an executor composes a router for one project's work.
 
-    Every map-runner factory used to spell this ``router or ModelRouter()``.
+    Every map-runner factory used to spell this ``router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)``.
     A bare ``ModelRouter`` reads the process env and nothing else, so a
     project whose provider key was configured in Settings > AI Providers had
     that key silently bypassed on every router-less entry point (``frisket
@@ -633,7 +638,10 @@ def project_scoped_router(project: Project, router: ModelRouter | None) -> Model
     """
     if router is not None:
         return router
-    return _router_for(project, ModelRouter(env_key_source="local"))
+    return _router_for(
+        project,
+        ModelRouter(env_key_source="local", model_call_policy=LOCAL_PURCHASE_POLICY),
+    )
 
 
 def _project_model_keys(project: Project) -> dict[str, str]:
@@ -685,15 +693,14 @@ def register_project_run_handler(
     """Register the project-run handler.
 
     Edition policy arrives as ports (`worker_ports`), never as an import: the
-    open default admits every run, settles nothing, and resolves org BYOK keys
+    open default admits every run and resolves org BYOK keys
     from the open identity control plane. An external composition injects its
-    own admission + settlement ports.
+    own admission and credential ports.
     """
 
     ports = coerce_worker_ports(worker_ports)
     credentials = ports.credentials()
     admission = ports.admission_port
-    settlement = ports.settlement_port
     root = Path(workspace_root)
     composition_factory = execution_composition_factory or open_execution_composition
     uses_open_composition = execution_composition_factory is None
@@ -723,31 +730,6 @@ def register_project_run_handler(
             credentials=credentials,
             control_database_url=db_url,
         )
-        key_providers = set(keys or {})
-
-        def settle() -> None:
-            """Hand the run's outcome to the settlement port, if any. The open
-            editions have none — they meter nothing and charge nobody."""
-            if settlement is None:
-                return
-            terminal_row = run_store.get_run(run_id)
-            terminal_status = (
-                None if terminal_row is None else str(terminal_row["status"])
-            )
-            if terminal_status not in {"completed", "failed", "cancelled"}:
-                raise RuntimeError(
-                    "settlement requires the run's durable terminal posture; "
-                    f"run {run_id} is {terminal_status!r}"
-                )
-            settlement.settle_run(
-                project=project,
-                project_id=project_id,
-                run_id=run_id,
-                trusted_job_org_id=handler_context.trusted_job_org_id,
-                control_database_url=db_url,
-                key_providers=key_providers,
-                terminal_status=terminal_status,
-            )
 
         run_store = RunResultStore(project)
         # Stamp the claiming process's code identity onto the run record itself
@@ -767,7 +749,6 @@ def register_project_run_handler(
         try:
             row = run_store.get_run(run_id)
             if row is not None and row["status"] != "running":
-                settle()
                 result = {
                     "project_id": project_id,
                     "run_id": run_id,
@@ -860,10 +841,12 @@ def register_project_run_handler(
                 )
             if pre_run_error is None:
                 pre_run_error = queued_v1_pre_run_error(project, payload)
-            if pre_run_error is not None:
-                # Preparation can cooperatively stop its child before dispatch.
-                # Its transport error must not override durable cancellation.
-                cancel_requested = cancelled(run_id)
+            cancel_requested = cancelled(run_id)
+            if pre_run_error is not None or cancel_requested:
+                # Cancellation must dominate preparation too: starting the
+                # Change again is forbidden once its durable intent is set.
+                # The existing owner-aware kernel handles admitted, abandoned,
+                # or never-dispatched attempts without inventing writer rights.
                 terminal_status = "cancelled" if cancel_requested else "failed"
                 action_result = queued_v1_terminal_receipt_result(
                     project,
@@ -872,9 +855,8 @@ def register_project_run_handler(
                     run_id=run_id,
                     status=terminal_status,
                     error=None if cancel_requested else pre_run_error,
-                    never_dispatched=True,
+                    require_cancel_intent=cancel_requested,
                 )
-                settle()
                 _enqueue_search_index_after_completion(
                     project,
                     queue=queue,
@@ -1080,6 +1062,9 @@ def register_project_run_handler(
                         else None
                     ),
                     "search_service_factory": search_service_factory,
+                    "service_operation_policy": getattr(
+                        effective_router, "model_call_policy", None
+                    ),
                 },
                 allow_action_lifecycle_only_recipes=(
                     queued_v1_run_authorizes_action_lifecycle(
@@ -1118,27 +1103,38 @@ def register_project_run_handler(
                 action_envelope = replace(
                     action_envelope, runner_spec=dict(payload["spec"])
                 )
+            terminal_run = run_store.get_run(progress.run_id)
+            cooperative_cancel = bool(
+                progress.cancel_requested
+                and progress.cancelled
+                and terminal_run["status"] == "running"
+            )
             provider_error = _resumable_provider_error(
                 project,
                 run_id=progress.run_id,
                 action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
                 spec=spec,
             )
-            if provider_error is not None:
-                if not defer_attempt_close:
-                    run_store.finish_run(progress.run_id, "failed")
-                action_result = queued_v1_terminal_failure_result(
+            if provider_error is not None and not cooperative_cancel:
+                # Ordinary maps have already sealed their generation and closed
+                # the run. Project the provider error onto the still-live receipt;
+                # only a deferred publisher retains current-writer authority.
+                action_result = queued_v1_terminal_receipt_result(
                     project,
                     payload,
                     project_id=project_id,
                     run_id=progress.run_id,
                     error=provider_error,
+                    status="failed",
+                    repair_terminal_run_receipt=not defer_attempt_close,
+                    terminal_run_status=(
+                        terminal_run["status"] if not defer_attempt_close else None
+                    ),
                     writer_attempt_id=(
                         progress.writer_attempt_id if defer_attempt_close else None
                     ),
                     claim_token=(claim_token if defer_attempt_close else None),
                 )
-                settle()
                 _enqueue_search_index_after_completion(
                     project,
                     queue=queue,
@@ -1150,17 +1146,12 @@ def register_project_run_handler(
                 return {
                     "project_id": project_id,
                     "run_id": progress.run_id,
-                    "status": "failed",
+                    "status": run_store.get_run(progress.run_id)["status"],
                     "completed": progress.completed,
                     "failed": progress.failed,
                     "action_result": action_result.model_dump(mode="json"),
                 }
             row = run_store.get_run(run_id)
-            cooperative_cancel = bool(
-                progress.cancel_requested
-                and progress.cancelled
-                and progress.completed < progress.total
-            )
             if cooperative_cancel:
                 action_result = queued_v1_terminal_receipt_result(
                     project,
@@ -1177,8 +1168,6 @@ def register_project_run_handler(
                         claim_token if progress.writer_attempt_claimed else None
                     ),
                 )
-                row = run_store.get_run(run_id)
-                settle()
             else:
                 action_result = queued_v1_finalize_action_result(
                     project,
@@ -1191,7 +1180,7 @@ def register_project_run_handler(
                     ),
                     claim_token=(claim_token if defer_attempt_close else None),
                 )
-                settle()
+            row = run_store.get_run(run_id)
             result = {
                 "project_id": project_id,
                 "run_id": progress.run_id,
@@ -1237,24 +1226,28 @@ def register_project_run_handler(
             # completes with a failed result (mirroring the pre_run_error
             # path), so nothing retries into the same refusal.
             row = run_store.get_run(run_id)
-            action_result = queued_v1_terminal_failure_result(
+            cancel_requested = run_store.cancellation_requested(run_id)
+            terminal_status = "cancelled" if cancel_requested else "failed"
+            action_result = queued_v1_terminal_receipt_result(
                 project,
                 payload,
                 project_id=project_id,
                 run_id=run_id,
-                error=ActionError(
+                status=terminal_status,
+                error=None
+                if cancel_requested
+                else ActionError(
                     code=exc.code,
                     message=str(exc),
                     action_kind=str(payload.get("action_kind") or RUN_PROJECT_KIND),
                 ),
-                never_dispatched=True,
+                require_cancel_intent=cancel_requested,
             )
-            settle()
             row = run_store.get_run(run_id)
             return {
                 "project_id": project_id,
                 "run_id": run_id,
-                "status": "failed",
+                "status": terminal_status,
                 "total": row["total_rows"] if row is not None else 0,
                 "completed": row["completed_rows"] if row is not None else 0,
                 "failed": row["failed_rows"] if row is not None else 0,
@@ -1281,7 +1274,6 @@ def register_project_run_handler(
                 claim_token=claim_token,
                 publication_refusal=exc,
             )
-            settle()
             row = run_store.get_run(run_id)
             return {
                 "project_id": project_id,
@@ -1324,7 +1316,6 @@ def register_project_run_handler(
                     # halt atomically. Preserve the action-specific typed
                     # receipt, then re-raise so the queue job still records
                     # the strict infrastructure failure and never auto-retries.
-                    settle()
                     queued_v1_finalize_action_result(
                         project,
                         payload,
@@ -1333,9 +1324,8 @@ def register_project_run_handler(
                         envelope=action_envelope,
                     )
                 else:
-                    if row and row["status"] == "running":
-                        run_store.finish_run(run_id, "failed")
-                    settle()
+                    # The terminalizer owns run, receipt, attempt and claim;
+                    # never stamp a terminal run before proving that authority.
                     queued_v1_worker_exception_failure_result(
                         project,
                         payload,
@@ -1384,9 +1374,7 @@ def register_action_run_handler(
     terminalizes the reserved (run_id=None) receipt.
 
     The admission port (if the composition injected one) decides whether an
-    action may execute at all; the open editions admit everything. A terminal
-    runless receipt is handed to the same edition settlement port used for
-    project runs.
+    action may execute at all; the open editions admit everything.
     """
 
     from frisket.engine.executor.action_jobs import (
@@ -1402,7 +1390,6 @@ def register_action_run_handler(
     _ = router  # executors that need a router pull it from their own ctx/gateway
     ports = coerce_worker_ports(worker_ports)
     admission = ports.admission_port
-    settlement = ports.settlement_port
 
     def handle(payload: dict, handler_context: JobHandlerContext) -> dict:
         project_id, project_root, project_path = claimed_project_location(
@@ -1481,22 +1468,6 @@ def register_action_run_handler(
                         )
                     ),
                 )
-            if envelope is not None and settlement is not None:
-                stored = ReceiptStore(project).find_by_id(envelope.receipt_id)
-                if (
-                    stored is not None
-                    and stored.parsed().status in FINISHED_RECEIPT_STATUSES
-                ):
-                    settlement.settle_action_receipt(
-                        project=project,
-                        project_id=project_id,
-                        receipt_id=envelope.receipt_id,
-                        trusted_job_org_id=handler_context.trusted_job_org_id,
-                        control_database_url=(
-                            control_database_url
-                            or os.environ.get("FRISKET_DATABASE_URL")
-                        ),
-                    )
             _enqueue_search_index_after_completion(
                 project,
                 queue=queue,

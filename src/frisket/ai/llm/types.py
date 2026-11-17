@@ -26,9 +26,9 @@ ModelTrace = list[ModelTraceEvent]
 class ModelRouterTransport(Protocol):
     """The typed call boundary shared by routing, structured output, and tracing."""
 
-    def adapter_for(self, provider: str) -> Any: ...
+    def has_provider(self, provider: str) -> bool: ...
 
-    def resolve_local_model(self, model: str) -> tuple[Any, Any, str]: ...
+    def local_endpoint_identity(self, model: str) -> tuple[str, str]: ...
 
     async def complete(
         self,
@@ -150,9 +150,15 @@ class LLMActualAccounting:
             self.receipts, tuple
         ):
             raise TypeError("actual LLM accounting facts must be immutable tuples")
-        if not self.model_calls or len(self.model_calls) != len(self.receipts):
+        pending = sum(
+            call.get("units", {}).get("cloud_accounting_status") == "pending"
+            for call in self.model_calls
+        )
+        if not self.model_calls or len(self.model_calls) - pending != len(
+            self.receipts
+        ):
             raise ValueError(
-                "actual LLM accounting requires one receipt per model-call fact"
+                "actual LLM accounting requires a receipt or pending Cloud obligation per fact"
             )
         if not all(isinstance(item, dict) for item in self.model_calls + self.receipts):
             raise TypeError("actual LLM accounting entries must be dictionaries")
@@ -163,11 +169,15 @@ class LLMActualAccounting:
         *,
         cost: float | None,
         model_call: dict[str, Any],
-        receipt: dict[str, Any],
+        receipt: dict[str, Any] | None,
     ) -> LLMActualAccounting:
         """Build the common one-execution carrier without a listly call site."""
 
-        return cls(cost=cost, model_calls=(model_call,), receipts=(receipt,))
+        return cls(
+            cost=cost,
+            model_calls=(model_call,),
+            receipts=() if receipt is None else (receipt,),
+        )
 
 
 @dataclass
@@ -211,6 +221,28 @@ class LLMResponse:
     # authority. Generic consumers use this fact verbatim instead of deriving
     # payer, provider cost, or charge from the requested model.
     actual_accounting: LLMActualAccounting | None = None
+    # Earlier returned purchases from this bounded transport invocation. These
+    # are flat leaf responses, never cached content or an aggregate/self.
+    prior_wire_calls: tuple[LLMResponse, ...] = field(
+        default=(), repr=False, compare=False
+    )
+
+    # Explicit numeric-count constructors represent observed usage by default.
+    # Wire adapters set False when a provider omitted its counters: the integer
+    # display defaults must never become evidence for a zero-cost purchase.
+    usage_available: bool = True
+
+
+def wire_responses(responses) -> list[LLMResponse]:
+    """Expand bounded retry carriers into their original, unique leaf facts."""
+    result = []
+    seen = set()
+    for response in responses:
+        for wire in (*response.prior_wire_calls, response):
+            if id(wire) not in seen:
+                seen.add(id(wire))
+                result.append(wire)
+    return result
 
 
 def provider_from_model_id(model: str) -> str:
@@ -238,6 +270,7 @@ class LLMError(Exception):
         provider_code: str | None = None,
         transport_kind: TransportKind | None = None,
         post_egress_ambiguous: bool = False,
+        purchase_dispatched: bool | None = None,
     ):
         super().__init__(message)
         self.status = status
@@ -259,6 +292,7 @@ class LLMError(Exception):
         # ``retryable``: the latter means a later operator-driven resume may
         # succeed, not that an immediate identical wire call is safe.
         self.post_egress_ambiguous = bool(post_egress_ambiguous)
+        self.purchase_dispatched = purchase_dispatched
 
 
 class SchemaViolation(LLMError):

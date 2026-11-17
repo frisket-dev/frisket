@@ -67,7 +67,7 @@ def test_project_provider_keys_are_redacted_and_used_by_project_router(
     assert row is not None
     assert decrypt_secret(str(row["encrypted"])) == "sk-project-openai"
     assert (
-        client.app.state.workspace.router_for(project).adapter_for("openai").api_key
+        client.app.state.workspace.router_for(project).configured_keys()["openai"]
         == "sk-project-openai"
     )
 

@@ -4,9 +4,10 @@ import math
 import sqlite3
 
 import pytest
+from helpers import stored_output_descriptor
 
 from frisket.engine.store import Project
-from frisket.engine.store.bundle_open import _TYPED_VALUES_FROM_DIGEST
+from frisket.upgrades.project.chain import _TYPED_VALUES_FROM_DIGEST
 from frisket.engine.store.cell_writes import (
     BaseCellWrite,
     EditCellWrite,
@@ -14,20 +15,21 @@ from frisket.engine.store.cell_writes import (
     initialize_base_cells,
     insert_edits,
 )
+from frisket.engine.store.current_cells import register_current_cell_functions
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.review_stats_migration import REVIEW_STATS_FROM_DIGEST
+from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DIGEST
 from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST_META_KEY
-from frisket.engine.store.typed_storage_migration import (
+from frisket.upgrades.project.typed_storage_migration import (
     TYPED_VALUES_TO_DIGEST,
     migrate_typed_values,
 )
 from frisket.engine.store.value_codec import (
     decode_stored_value,
     encode_stored_value,
-    migrate_legacy_json_value,
     repair_unicode_text,
     repair_unicode_value,
 )
+from frisket.upgrades.project.typed_storage_migration import migrate_legacy_json_value
 from frisket.search import drain_index, search_project
 from frisket.search_index import index_needs_work
 from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
@@ -36,6 +38,7 @@ from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 def _database() -> sqlite3.Connection:
     db = sqlite3.connect(":memory:")
     db.row_factory = sqlite3.Row
+    register_current_cell_functions(db)
     db.executescript(SCHEMA)
     db.execute("INSERT INTO sheets (id,name) VALUES (1,'Sheet')")
     db.execute("INSERT INTO columns (id,sheet_id,name) VALUES (10,1,'value')")
@@ -216,7 +219,7 @@ def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:
     db.execute(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) "
-        "VALUES (20,10,'value','text','create','active','claim')"
+        "VALUES (20,10,'value','text','create','active','claim')",
     )
     db.execute(
         "INSERT INTO results "
@@ -341,22 +344,27 @@ def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
 
 def test_current_cell_values_join_flattens_to_exact_head_key() -> None:
     db = _database()
+    from frisket.engine.store.current_read_sql import current_values_sql
+
+    db.execute("BEGIN")
+    values_sql = current_values_sql(db, [10])
     plan = "\n".join(
         str(row[3])
         for row in db.execute(
             "EXPLAIN QUERY PLAN "
             "SELECT r.id,live.value FROM rows AS r "
-            "LEFT JOIN current_cell_values AS live "
+            f"LEFT JOIN {values_sql} AS live "
             "ON live.column_id=10 AND live.row_id=r.id "
             "WHERE r.sheet_id=1 ORDER BY r.position"
         )
     )
     assert (
-        "SEARCH head USING INDEX idx_current_cells_column_row "
+        "SEARCH current_cells USING INDEX idx_current_cells_column_row "
         "(column_id=? AND row_id=?)" in plan
     )
     assert "MATERIALIZE current_cell_values" not in plan
     assert "SCAN head" not in plan
+    assert "SCAN current_cells" not in plan
 
 
 class _Project:
@@ -372,8 +380,9 @@ def test_decoded_result_rows_batches_coordinates_and_preserves_metadata() -> Non
     )
     db.execute(
         "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) "
-        "VALUES (20,10,'value','test','create','active','claim')"
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
+        "VALUES (20,10,'value','test','create','active','claim',?)",
+        (stored_output_descriptor(db, 10),),
     )
     number_kind, number_value = encode_stored_value(4.5)
     null_kind, null_value = encode_stored_value(None)
@@ -412,8 +421,9 @@ def test_tolerant_historical_rows_decode_valid_legacy_json_and_keep_malformed_ra
     )
     db.execute(
         "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token) "
-        "VALUES (20,10,'value','test','create','active','claim')"
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
+        "VALUES (20,10,'value','test','create','active','claim',?)",
+        (stored_output_descriptor(db, 10),),
     )
     db.executemany(
         "INSERT INTO results "

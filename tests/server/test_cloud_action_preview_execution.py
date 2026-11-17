@@ -1,9 +1,11 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import io
 import json
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from pypdf import PdfWriter
@@ -39,6 +41,12 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server.app import create_app
 from tests.deterministic_time import controlled_time
+
+
+@pytest.fixture(autouse=True)
+def explicit_cloud_confirmation(monkeypatch):
+    # These tests exercise exact quote confirmation, above standing coverage.
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
 
 
 def _png() -> bytes:
@@ -152,7 +160,7 @@ class _Transport:
             result = CloudOCRResult(
                 pages=[CloudOCRPage(page=1, text="Cloud OCR", blocks=[])]
             )
-            usage = CloudOCRUsage(kind="ocr", pages=1)
+            usage = CloudOCRUsage(kind="ocr", meter="pages", pages=1)
             charge = 2500
         else:
             result = CloudDocumentConvertResult(
@@ -201,7 +209,9 @@ class _Transport:
                 else {}
             )
             route = _route("vision_ocr")
-            usage = CloudOCRUsage(kind="ocr", tokens_in=12, tokens_out=4)
+            usage = CloudOCRUsage(
+                kind="ocr", meter="tokens", tokens_in=12, tokens_out=4
+            )
         else:
             data = {"value": "Cloud result"} if repaired else {}
             route = _route("llm")
@@ -263,7 +273,12 @@ def _client(tmp_path) -> tuple[TestClient, _Transport]:
     transport = _Transport()
     app = create_app(
         tmp_path / "workspace",
-        router=ModelRouter(use_env_keys=False, cache_mode="off", max_retries=0),
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            use_env_keys=False,
+            cache_mode="off",
+            max_retries=0,
+        ),
         cloud_connection_store=store,
         cloud_connection_client=cloud_client,
         cloud_execution_transport=transport,
@@ -289,6 +304,83 @@ def _select_cloud(client: TestClient, project_id: str) -> None:
             cloud_execution_preference="cloud_first",
         ),
     )
+
+
+def test_summarize_http_estimate_matches_cloud_run_confirmation(tmp_path) -> None:
+    client, transport = _client(tmp_path)
+    with client:
+        project_id = client.post(
+            "/api/projects", json={"name": "Cloud estimate"}
+        ).json()["id"]
+        _select_cloud(client, project_id)
+        project = client.app.state.workspace.get(project_id)
+        sheet_id = project.add_sheet("Sources")
+        source_id = project.add_column(sheet_id, "source")
+        project.add_rows(
+            sheet_id,
+            [{"source": "First source."}, {"source": "Second source."}],
+            {"source": source_id},
+        )
+        action = {
+            "action_id": "map.summarize",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+            "params": {"source": ["source"], "model": "openai/gpt-5-mini"},
+            "idempotency_key": "cloud-summarize-estimate",
+        }
+        quoted = client.post(
+            f"/api/projects/{project_id}/actions/v1/estimate", json={"action": action}
+        )
+        assert quoted.status_code == 200, quoted.text
+        estimate = quoted.json()["estimate"]
+        assert 0 < estimate["billed_cost"] < 500_000
+        assert estimate["cost_source"] == "cloud_route_quote"
+        # Zero standing coverage requires the same confirmation at both seams.
+        assert estimate["requires_confirmation"] is True
+        challenge = client.post(
+            f"/api/projects/{project_id}/actions/v1/run", json=action
+        )
+        assert challenge.status_code == 402, challenge.text
+        details = challenge.json()["errors"][0]["details"]
+        assert details["estimate"] == estimate
+        assert details["promise_set_hash"] == estimate["promise_set_hash"]
+        assert details["claims"] == estimate["claims"]
+    assert transport.llm_calls == []
+
+
+def test_summarize_http_estimate_honors_selected_cloud_payer_preapproval(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "2")
+    client, transport = _client(tmp_path)
+    with client:
+        project_id = client.post(
+            "/api/projects", json={"name": "Preapproved Cloud"}
+        ).json()["id"]
+        _select_cloud(client, project_id)
+        project = client.app.state.workspace.get(project_id)
+        sheet_id = project.add_sheet("Sources")
+        source_id = project.add_column(sheet_id, "source")
+        project.add_rows(sheet_id, [{"source": "A source."}], {"source": source_id})
+        quoted = client.post(
+            f"/api/projects/{project_id}/actions/v1/estimate",
+            json={
+                "action": {
+                    "action_id": "map.summarize",
+                    "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                    "params": {
+                        "source": ["source"],
+                        "model": "openai/gpt-5-mini",
+                    },
+                    "idempotency_key": "cloud-preapproved-estimate",
+                }
+            },
+        )
+        assert quoted.status_code == 200, quoted.text
+        estimate = quoted.json()["estimate"]
+        assert 0 < estimate["billed_cost"] < 2_000_000
+        assert estimate["requires_confirmation"] is False
+        assert not estimate.get("claims")
+    assert transport.llm_calls == []
 
 
 def _poll(client: TestClient, project_id: str, preview_id: str) -> dict[str, Any]:

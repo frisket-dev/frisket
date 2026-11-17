@@ -1,6 +1,7 @@
 """Default, fail-open model-call trace behavior."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import gzip
 import json
@@ -9,6 +10,7 @@ import math
 import pytest
 from fastapi.testclient import TestClient
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.engine.jobs import Worker
@@ -54,7 +56,12 @@ class _StubAdapter:
 
 
 def _client(adapter: _StubAdapter, tmp_path) -> TestClient:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return TestClient(create_app(tmp_path / "ws", router=router))
 
@@ -105,10 +112,72 @@ def _run(client: TestClient, pid: str, action: dict) -> int:
     return run_id
 
 
+@pytest.mark.parametrize("mixed", [False, True])
+def test_missing_provider_usage_remains_unknown_in_cells_run_and_trace(tmp_path, mixed):
+    from frisket.server.run_payloads import action_run_rows_payload, run_tokens
+    from frisket.engine.store.receipts import ReceiptStore
+
+    class UnknownUsage(_StubAdapter):
+        async def complete(self, req, client):
+            response = await super().complete(req, client)
+            if mixed and self.calls == 1:
+                return response
+            response.tokens_in = response.tokens_out = 0
+            response.usage_available = False
+            response.cost = None
+            return response
+
+    with _client(UnknownUsage({"beat": "a"}), tmp_path) as client:
+        pid, sid = _seed(client)
+        run_id = _run(client, pid, _action(sid))
+        project = client.app.state.workspace.get(pid)
+        run_rows = action_run_rows_payload(project, run_id)["rows"]
+        assert sum(row["tokens_in"] == 50 for row in run_rows) == int(mixed)
+        assert run_tokens(project, run_id, "tokens_in") is None
+        assert run_tokens(project, run_id, "tokens_out") is None
+        debug = client.get(f"/api/projects/{pid}/debug").json()
+        totals = next(item for item in debug["results"] if item["run_id"] == run_id)
+        assert totals["tokens_in"] is None and totals["tokens_out"] is None
+        for row in run_rows:
+            if mixed and row["tokens_in"] == 50:
+                continue
+            assert row["tokens_in"] is None and row["tokens_out"] is None
+            assert all(cell["tokens_in"] is None for cell in row["cells"])
+        traces = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/trace").json()[
+            "trace"
+        ]
+        for row in traces["rows"]:
+            if mixed and row["tokens_in"] == 50:
+                continue
+            assert row["tokens_in"] is None and row["tokens_out"] is None
+            for call in row["calls"]:
+                assert call["tokens_in"] is None and call["tokens_out"] is None
+        receipt_id = project.db.execute(
+            "SELECT id FROM receipts WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        receipt = ReceiptStore(project).parsed_by_id(receipt_id)
+        for provider_use in receipt.provider_use:
+            assert (
+                provider_use["tokens_in"] is None and provider_use["tokens_out"] is None
+            )
+        model_evidence = next(
+            item.ref
+            for item in receipt.evidence
+            if item.ref.get("kind") == "model_rows_model_calls"
+        )
+        assert (
+            model_evidence["tokens_in"] is None and model_evidence["tokens_out"] is None
+        )
+
+
 def test_model_run_traces_by_default_and_threads_trace_id(tmp_path):
     client = _client(_StubAdapter({"beat": "a"}), tmp_path)
     pid, sid = _seed(client)
     rid = _run(client, pid, _action(sid))
+    from frisket.server.run_payloads import run_tokens
+
+    assert run_tokens(client.app.state.workspace.get(pid), rid, "tokens_in") == 100
+    assert run_tokens(client.app.state.workspace.get(pid), rid, "tokens_out") == 100
 
     response = client.get(f"/api/projects/{pid}/actions/runs/{rid}/trace")
     assert response.status_code == 200, response.text
@@ -353,7 +422,7 @@ def test_tracing_router_redacts_selected_adapter_key_from_prompt_and_response(
         api_key = secret
 
     class Inner:
-        def adapter_for(self, provider):  # noqa: ANN001
+        def has_provider(self, provider):  # noqa: ANN001
             assert provider == "anthropic"
             return Adapter()
 
@@ -409,7 +478,7 @@ def test_tracing_router_final_record_resolves_observed_models_without_key_cache(
             "openai": Adapter(borrowed_secret),
         }
 
-        def adapter_for(self, provider):  # noqa: ANN001
+        def has_provider(self, provider):  # noqa: ANN001
             return self.adapters.get(provider)
 
         def secret_values_for_model(self, model):  # noqa: ANN001
@@ -435,7 +504,7 @@ def test_tracing_router_final_record_resolves_observed_models_without_key_cache(
                 model="anthropic/test", messages=[{"role": "user", "content": "x"}]
             )
         )
-        assert router.adapter_for("openai") is not None
+        assert router.has_provider("openai")
         assert router._observed_models == ["anthropic/test", "openai"]  # noqa: SLF001
         assert not hasattr(router, "_observed_secret_values")
         return router.record(data={"first": first_secret, "borrowed": borrowed_secret})
@@ -447,7 +516,7 @@ def test_tracing_router_final_record_resolves_observed_models_without_key_cache(
 
     no_call_row = RowTrace(row_id=2, trace_id="trace")
     no_call_router = TracingRouter(Inner(), no_call_row)
-    assert no_call_router.adapter_for("openai") is not None
+    assert no_call_router.has_provider("openai")
     assert no_call_router._observed_models == ["openai"]  # noqa: SLF001
     assert not hasattr(no_call_router, "_observed_secret_values")
 
@@ -492,7 +561,12 @@ def test_trace_records_retry_attempts_with_errors(tmp_path, monkeypatch):
     cols = {"story": p.add_column(sheet, "story")}
     p.add_rows(sheet, [{"story": "Mayor Reyes met Quayle."}], cols)
 
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = _StubAdapter(  # noqa: SLF001
         {"beat": "a"}, fail_first=1
     )
@@ -597,6 +671,7 @@ def test_router_trace_collects_cache_and_attempt_events(tmp_path):
     from frisket.ai.llm.cache import ResponseCache
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "k"},
         cache=ResponseCache(tmp_path / "c.db"),
         cache_mode="replay",
@@ -606,9 +681,9 @@ def test_router_trace_collects_cache_and_attempt_events(tmp_path):
 
     async def run() -> tuple[list[dict], list[dict]]:
         miss_events: list[dict] = []
-        await router.complete(req, trace=miss_events)
+        await router.for_execution(STANDALONE).complete(req, trace=miss_events)
         hit_events: list[dict] = []
-        await router.complete(req, trace=hit_events)
+        await router.for_execution(STANDALONE).complete(req, trace=hit_events)
         await router.aclose()
         return miss_events, hit_events
 
@@ -617,3 +692,35 @@ def test_router_trace_collects_cache_and_attempt_events(tmp_path):
     assert ("cache", False, None) in kinds
     assert ("attempt", None, "ok") in kinds
     assert hit_events[0]["event"] == "cache" and hit_events[0]["hit"] is True
+
+
+def test_tracing_execution_view_preserves_calls_secrets_and_owner():
+    import asyncio
+    from frisket.execution.dispatch_control import TransientDispatch
+
+    async def run():
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "provider-key"},
+            cache=None,
+        )
+        router._adapters["anthropic"] = _StubAdapter({"answer": "ok"})
+        row = RowTrace(row_id=1, trace_id="bound-row")
+        traced = TracingRouter(router.for_execution(STANDALONE), row)
+        traced.add_secret_values(["selected-row-secret"])
+        bound = traced.for_execution(STANDALONE)
+        await bound.complete(
+            LLMRequest(
+                model="anthropic/test", messages=[{"role": "user", "content": "hello"}]
+            )
+        )
+        # The outer row owner finalizes the same trace after an inner adapter
+        # borrows a bound view, including its selected redaction values.
+        record = traced.record(data={"secret": "selected-row-secret"})
+        assert len(record["calls"]) == 1
+        assert "selected-row-secret" not in json.dumps(record)
+        with pytest.raises(ValueError, match="cannot change execution owner"):
+            bound.for_execution(TransientDispatch(lambda: False))
+        await router.aclose()
+
+    asyncio.run(run())

@@ -146,3 +146,46 @@ def test_success_after_injection_removed_applies_cleanly(tmp_path) -> None:
     assert receipt.counts == {"sheets": 1, "columns": 1, "rows": 1}
     sheet_id = project.sheets()[0]["id"]
     assert project.row_count(sheet_id) == 1
+
+
+@pytest.mark.parametrize("contents", ["sheet", "empty_table", "null_cell", "value"])
+@pytest.mark.parametrize("nested", [False, True])
+def test_table_plan_owns_one_closed_undoable_change(tmp_path, contents, nested):
+    project = _project(tmp_path)
+    ops = [{"op": "create_sheet", "sheet_ref": "s", "name": "People"}]
+    if contents != "sheet":
+        ops.append(
+            {"op": "create_column", "sheet_ref": "s", "column_ref": "c", "name": "Name"}
+        )
+    if contents in {"null_cell", "value"}:
+        ops.append(
+            {
+                "op": "append_rows",
+                "sheet_ref": "s",
+                "rows": [{"c": None if contents == "null_cell" else "Ada"}],
+            }
+        )
+    if nested:
+        project.db.execute("BEGIN IMMEDIATE")
+    receipt = apply_write_plan(
+        project,
+        {"schema_version": WRITE_PLAN_SCHEMA_VERSION, "ops": ops},
+        plugin_id="example",
+        manifest_sha="sha",
+        declared_capabilities=(PROJECT_WRITES_CAPABILITY,),
+    )
+    assert project.db.in_transaction is nested
+    change = project.db.execute(
+        "SELECT change_order,publication_closed FROM ops WHERE id=?", (receipt.op_id,)
+    ).fetchone()
+    assert change["change_order"] is not None
+    assert change["publication_closed"] == 1
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM structural_changes WHERE op_id=?", (receipt.op_id,)
+    ).fetchone()[0] == sum(receipt.counts.values())
+    if nested:
+        project.db.commit()
+    assert project.undo() == receipt.op_id
+    assert project.sheets() == []
+    assert project.redo() == receipt.op_id
+    assert [sheet["name"] for sheet in project.sheets()] == ["People"]

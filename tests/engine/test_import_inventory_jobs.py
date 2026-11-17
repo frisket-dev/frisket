@@ -33,7 +33,7 @@ from frisket.server.services import import_sessions as import_sessions_module
 from frisket.server.services import search_preparation as preparation_module
 from frisket.server.services.import_sessions import ImportSessionService
 from frisket.server.services.search_preparation import SearchPreparationService
-from frisket.server.services.sheet_grid import SheetGridService
+from frisket.server.services.sheet_grid import SheetGridService, SheetGridRouteError
 
 REF = "import-" + "a" * 32
 
@@ -102,6 +102,58 @@ def enqueue(queue, through):
         IMPORT_FILES_PAGE_KIND,
         {"project_id": "files", "import_ref": REF, "through": through},
     )
+
+
+def test_destination_refusal_does_not_start_a_receipt_without_a_session(tmp_path):
+    envelope, directory = setup_import(tmp_path, sealed=True)
+    write_import_header(
+        directory,
+        replace(read_import_header(directory), destination_sheet_id=987654),
+    )
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        worker = Worker(queue, registry_for(tmp_path, queue))
+        first = enqueue(queue, 5)
+        run_until_attempted(worker, queue, first)
+        assert queue.get(first).error
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            assert ImportSessionStore(project).get(REF) is None
+            assert (
+                ReceiptStore(project).find_by_id(envelope.receipt_id).status == "queued"
+            )
+            assert project.db.execute("SELECT count(*) FROM ops").fetchone()[0] == 0
+        write_import_header(
+            directory,
+            replace(read_import_header(directory), destination_sheet_id=None),
+        )
+        retry = enqueue(queue, 5)
+        run_until_settled(worker, queue, retry)
+        assert queue.get(retry).status == "done", queue.get(retry).error
+        with closing(Project(tmp_path / "files.frisket")) as project:
+            session = ImportSessionStore(project).get(REF)
+            assert session.state == "completed"
+            assert session.committed_rows == 5
+            assert (
+                ReceiptStore(project).find_by_id(envelope.receipt_id).status
+                == "completed"
+            )
+
+
+def test_cancel_before_first_page_never_starts_an_import_session(tmp_path):
+    envelope, directory = setup_import(tmp_path, sealed=True)
+    write_import_header(
+        directory, replace(read_import_header(directory), cancel_requested=True)
+    )
+    with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
+        worker = Worker(queue, registry_for(tmp_path, queue))
+        job_id = enqueue(queue, 5)
+        run_until_settled(worker, queue, job_id)
+        assert queue.get(job_id).status == "done", queue.get(job_id).error
+    with closing(Project(tmp_path / "files.frisket")) as project:
+        assert ImportSessionStore(project).get(REF) is None
+        assert (
+            ReceiptStore(project).find_by_id(envelope.receipt_id).status == "cancelled"
+        )
+        assert project.db.execute("SELECT count(*) FROM ops").fetchone()[0] == 0
 
 
 def test_worker_consumes_uploaded_cursor_then_seal_finalizes_same_receipt(tmp_path):
@@ -470,14 +522,43 @@ def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
                     == "partial"
                 )
             else:
+                # Remove is a reversible Change: the new sheet disappears,
+                # while its rows are retained for an explicit Restore.
+                assert project.sheets() == []
                 assert project.row_count(session.sheet_id) == 0
-                removed = browser.document_page(
-                    "files",
-                    session.sheet_id,
-                    source_column_id=source_column,
-                    limit=100,
+                assert (
+                    project.db.execute(
+                        "SELECT count(*) FROM rows WHERE sheet_id=?",
+                        (session.sheet_id,),
+                    ).fetchone()[0]
+                    == 512
                 )
-                assert removed["items"] == []
+                with pytest.raises(SheetGridRouteError) as unavailable:
+                    browser.document_page(
+                        "files",
+                        session.sheet_id,
+                        source_column_id=source_column,
+                        limit=100,
+                    )
+                assert unavailable.value.status_code == 404
+                from frisket.engine.store.op_log import step_operation
+
+                with project.db:
+                    project.db.execute("BEGIN IMMEDIATE")
+                    step_operation(project, "restore", op_id=session.op_id)
+                assert project.row_count(session.sheet_id) == 512
+                assert (
+                    len(
+                        browser.document_page(
+                            "files",
+                            session.sheet_id,
+                            source_column_id=source_column,
+                            limit=100,
+                        )["items"]
+                    )
+                    == 100
+                )
+                assert ImportSessionStore(project).get(REF).state == "removed"
                 assert (
                     ReceiptStore(project).find_by_id(envelope.receipt_id).status
                     == "cancelled"

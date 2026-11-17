@@ -263,6 +263,7 @@ ACCEPTED_EXECUTION_OUTLIERS: Mapping[str, str] = MappingProxyType({})
 _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
     {
         "media.extract_document",
+        "run.reapply",
         "cell.edit",
         "cell.edit_query",
         "column.add",
@@ -301,6 +302,8 @@ _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
         # still participate in the complete public run-coordinate partition.
         "operation.redo",
         "operation.undo",
+        "operation.revert",
+        "operation.restore",
         "plugin.load",
         "query.preview",
         "replay.accept",
@@ -376,6 +379,9 @@ _QUEUED_PROJECT_RUN_KINDS: frozenset[str] = frozenset(
 # dispatch through the generic action.run job.
 _QUEUED_ACTION_JOB_KINDS: frozenset[str] = frozenset(
     {
+        "import.update_rows",
+        "import.update_csv",
+        "import.update_xlsx",
         "media.extract_document",
         "embedding.index_refresh",
         "temporal.extract_range",
@@ -397,9 +403,6 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
         "import.append_csv": "Bounded local CSV append publishes rows and its receipt in-request.",
         "import.append_rows": "Bounded row append publishes rows and its receipt in-request.",
         "import.append_xlsx": "Bounded local XLSX append publishes rows and its receipt in-request.",
-        "import.update_csv": "Bounded local CSV update publishes cell edits and its receipt in-request.",
-        "import.update_rows": "Bounded row update publishes cell edits and its receipt in-request.",
-        "import.update_xlsx": "Bounded local XLSX update publishes cell edits and its receipt in-request.",
         "plugin.load": "Bounded local package validation and receipt without activation or network.",
         # -- direct row/column/cell CRUD: local sheet mutation, no network ---
         "cell.edit": "Single-cell write is local, bounded, and synchronous.",
@@ -587,6 +590,8 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
         "operation.redo": (
             "Redo applies one local op-log transition and receipt synchronously."
         ),
+        "operation.revert": "Revert one selected Change transactionally without moving navigation.",
+        "operation.restore": "Restore one selected Change transactionally without resuming work.",
         # join.semantic joined _QUEUED_PROJECT_RUN_KINDS above; it is no
         # longer declared here.
         # -- source.*: source metadata/monitor mutation, not project.run -----
@@ -605,6 +610,8 @@ _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
             "Grouped reduce uses reduce-family aggregation/receipt semantics "
             "rather than project.run queue ownership in v1."
         ),
+        "run.retry": "Retry resolves unfinished original scope through the existing run-control owner.",
+        "run.reapply": "Reapply publishes retained results as a local Change without purchasing provider work.",
         "run.backfill": (
             "Backfill is tied to existing column run/retry controls; direct "
             "until run-control queue semantics are admitted separately."

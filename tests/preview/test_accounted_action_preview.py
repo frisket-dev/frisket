@@ -1,5 +1,7 @@
 """Paid previews share normal confirmation, execution and actual-call accounting."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import json
 import threading
@@ -51,7 +53,12 @@ class _Adapter:
 
 
 def _runner(project, adapter):
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
     coverage = ConsentCoverage(instance_principal(project), Decimal("0"))
     authority = replace(
@@ -172,8 +179,30 @@ def test_real_model_preview_accounts_success_failure_and_cancel(tmp_path, mode):
         assert _outputs(project) == before
 
 
+def test_cancel_before_json_repair_retains_returned_purchase_once(tmp_path):
+    with closing(Project.create(tmp_path / "preview.frisket")) as project:
+        sheet, row_ids, _ = _seed(project, ["alpha"])
+        cancelled = threading.Event()
+        adapter = _Adapter(cancel=cancelled, invalid=True)
+        runner = _runner(project, adapter)
+        plan = resolve_map_preview(project, _summarize_action(sheet, row_ids=row_ids))
+        before = _outputs(project)
+        spec, attempt = _admit(runner, plan)
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(
+                runner.preview(
+                    spec, program=plan.program, attempt=attempt, cancel_event=cancelled
+                )
+            )
+        facts = runner.run_store.model_calls(receipt_id=attempt.receipt_id)
+        assert len(adapter.calls) == len(facts) == 1
+        assert facts[0]["provider_cost_usd"] == pytest.approx(0.01)
+        assert facts[0]["attempt_id"] == attempt.attempt_id
+        assert _outputs(project) == before
+
+
 @pytest.mark.parametrize("drift", ["scope", "source"])
-def test_paid_preview_gate_does_not_accept_confirmation_or_attempt_for_other_work(
+def test_paid_preview_binds_scope_but_reads_current_source(
     tmp_path,
     drift,
 ):
@@ -197,12 +226,26 @@ def test_paid_preview_gate_does_not_accept_confirmation_or_attempt_for_other_wor
             replace_test_source_cell(
                 project, row_id=rows[0], column_id=column, value="omega"
             )
-        with pytest.raises((validation.CostGate, StaleAttemptWriter)):
-            asyncio.run(runner.preview(altered, program=plan.program, attempt=attempt))
-        assert adapter.calls == []
+        if drift == "scope":
+            with pytest.raises((validation.CostGate, StaleAttemptWriter)):
+                asyncio.run(
+                    runner.preview(altered, program=plan.program, attempt=attempt)
+                )
+            assert adapter.calls == []
+        else:
+            result = asyncio.run(
+                runner.preview(altered, program=plan.program, attempt=attempt)
+            )
+            assert len(adapter.calls) == len(rows)
+            assert "omega" in str(adapter.calls[0].messages)
+            assert "alpha" not in str(adapter.calls[0].messages)
+            assert set(result.values) == set(rows)
+            assert len(runner.run_store.model_calls()) == len(rows)
 
 
-@pytest.mark.parametrize("terminal", ["success", "failure", "cancel", "fatal"])
+@pytest.mark.parametrize(
+    "terminal", ["success", "failure", "cancel", "task_cancel", "fatal"]
+)
 def test_real_ocr_preview_retains_returned_capability_facts(
     source, monkeypatch, terminal
 ):
@@ -233,8 +276,11 @@ def test_real_ocr_preview_retains_returned_capability_facts(
                 duration_ms=5,
             ).as_dict()
         ]
-        if terminal == "cancel":
+        if terminal in {"cancel", "task_cancel"}:
             cancelled.set()
+            if terminal == "task_cancel":
+                asyncio.current_task().cancel()
+                await asyncio.sleep(0)
             raise asyncio.CancelledError
         if terminal == "failure":
             raise ValueError("provider returned before decoding failed")
@@ -261,8 +307,8 @@ def test_real_ocr_preview_retains_returned_capability_facts(
     )
     before = _outputs(project)
     spec, attempt = _admit(runner, plan)
-    if terminal in {"cancel", "fatal"}:
-        error = asyncio.CancelledError if terminal == "cancel" else SandboxTeardownError
+    if terminal in {"cancel", "task_cancel", "fatal"}:
+        error = SandboxTeardownError if terminal == "fatal" else asyncio.CancelledError
         with pytest.raises(error):
             asyncio.run(
                 runner.preview(
@@ -438,7 +484,7 @@ def test_priced_transcription_preview_settles_only_completed_quoted_rows(
     coverage = ConsentCoverage(instance_principal(project), Decimal("0"))
     runner = MapRunner(
         project,
-        ModelRouter(),
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         concurrency=1,
         authority=AttemptAuthority(
             project, composition=composition, consent_coverage=coverage

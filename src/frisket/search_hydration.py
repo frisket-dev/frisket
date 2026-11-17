@@ -116,7 +116,6 @@ def bounded_snippet(snippet: str, *, start_marker: str, end_marker: str) -> str:
 
 
 def native_snippets(
-    db: sqlite3.Connection,
     query: str,
     candidates: list[Mapping[str, Any]],
     *,
@@ -132,7 +131,9 @@ def native_snippets(
         )
     if not candidates:
         return {}
-    db.execute(f"DROP TABLE IF EXISTS {_SNIPPET_TABLE}")
+    # The source reader may be a pinned query-only connection. Tokenization is
+    # disposable work over already-hydrated text, never part of project storage.
+    db = sqlite3.connect(":memory:")
     try:
         db.execute(f"CREATE VIRTUAL TABLE {_SNIPPET_TABLE} USING fts5(content)")
         db.executemany(
@@ -160,4 +161,4 @@ def native_snippets(
             if row[1] is not None
         }
     finally:
-        db.execute(f"DROP TABLE IF EXISTS {_SNIPPET_TABLE}")
+        db.close()

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ProjectInfo, SavedView, SheetMeta, GridSortDirection } from '../api/open';
 import { canEditProject } from '../api/projectRole';
-import type { ColumnGroupViewSpec } from '../grid/SheetGrid';
+import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useProjectDataResource } from '../bind/useRouteHandle';
@@ -10,12 +10,13 @@ import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
 import { useWatchRunLinkHandle } from '../bind/useWatchRunLinkHandle';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { applySavedViewTransition } from '../state/workspaceTransitions';
+import { applySavedViewTransition, clearViewSelectionTransition } from '../state/workspaceTransitions';
 import { SAVED_VIEWS_CONTRIBUTION_ID, WATCHES_CONTRIBUTION_ID } from './contributionIds';
 import {
   normalizeGridFilterSpec, normalizeGridSortSpec, normalizeColumnOrder,
   exactViewHiddenColumns, columnOrderKey, hiddenColumnsKey,
 } from './gridColumnState';
+import { gridFromSelection, sameViewDefinition, presentationFromGrid, gridFromPresentation } from './viewDefinition';
 import { groupManagedHiddenColumnNames } from './workspaceColumnVisibility';
 import type { useWorkspaceChromeState } from './useWorkspaceChromeState';
 import type { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
@@ -31,16 +32,15 @@ export function useWorkspaceSavedViewsController({
   visibility: Pick<ReturnType<typeof useWorkbenchContributionVisibility>, 'isContributionHidden' | 'revealContribution'>;
   showError: (message: string) => void;
 }) {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, route } = useWorkspaceStores();
+  const openGeneration = useRef(0);
+  useEffect(() => () => { openGeneration.current += 1; }, [sheet?.id]);
   const projectData = useProjectDataResource();
   const savedViews = useSavedViewsHandle();
   const gridView = useGridViewHandle();
   const detail = useDetailHandle();
   const selection = useSelectionHandle();
   const watchRunLink = useWatchRunLinkHandle();
-  const activeGridFilter = useSelector(gridView.store, (state) => state.applied.filter);
-  const activeGridSort = useSelector(gridView.store, (state) => state.applied.sort);
-  const scopeRowIds = useSelector(gridView.store, (state) => state.applied.scopeRowIds ?? null);
   const columnGroupSpecs = useSelector(gridView.store, (state) => state.columnGroupSpecs);
   const { openDiscover } = chromeState;
   const { isContributionHidden, revealContribution } = visibility;
@@ -68,7 +68,7 @@ export function useWorkspaceSavedViewsController({
       const storeSheetId = Number.isFinite(numericSheetId) ? numericSheetId : sheetId;
       const token = savedViews.beginViewsLoad(storeSheetId);
       try {
-        const loadedViews = await projectApi.listViews(sheetId);
+        const loadedViews = (await projectApi.listViews()).filter((view) => view.sheet_id === null || String(view.sheet_id) === sheetId);
         savedViews.receiveViews(storeSheetId, token, loadedViews);
       } catch (error: unknown) {
         if (savedViews.isViewsLoadCurrent(storeSheetId, token)) {
@@ -90,6 +90,12 @@ export function useWorkspaceSavedViewsController({
     );
     void loadViewsForSheet(currentSavedViewsSheetId);
   }, [currentSavedViewsSheetId, loadViewsForSheet, savedViews]);
+
+  useEffect(() => {
+    const refresh = () => { if (currentSavedViewsSheetId) void loadViewsForSheet(currentSavedViewsSheetId); };
+    window.addEventListener('frisket:views-changed', refresh);
+    return () => window.removeEventListener('frisket:views-changed', refresh);
+  }, [currentSavedViewsSheetId, loadViewsForSheet]);
 
   const ensureViewsLoaded = useCallback(() => {
     if (currentSavedViewsSheetId === null) return Promise.resolve();
@@ -126,32 +132,17 @@ export function useWorkspaceSavedViewsController({
     [canCreateSavedView, openSavedViews, startCreatingSavedView],
   );
 
-  const currentViewInput = useCallback(
-    (name: string, sheetId: string | number) => ({
-      name,
-      sheetId,
-      filter: activeGridFilter ?? {},
-      scope_row_ids: scopeRowIds,
-      sort: activeGridSort ?? null,
-      columns: currentViewColumns,
-      column_groups: columnGroupSpecs.length > 0 ? columnGroupSpecs : null,
-    }),
-    [activeGridFilter, activeGridSort, columnGroupSpecs, currentViewColumns, scopeRowIds],
-  );
-
-  // Definition replacement is intentionally a complete capture.  Unlike
-  // creation's convenience defaults, this shape has no omitted field whose
-  // old persisted value could accidentally survive an explicit update.
-  const currentViewDefinition = useCallback(
-    () => ({
-      filter: activeGridFilter ?? {},
-      scope_row_ids: scopeRowIds,
-      sort: activeGridSort ?? null,
-      columns: currentViewColumns,
-      column_groups: columnGroupSpecs.length > 0 ? columnGroupSpecs : null,
-    }),
-    [activeGridFilter, activeGridSort, columnGroupSpecs, currentViewColumns, scopeRowIds],
-  );
+  const currentSelection = useCurrentViewSelection(sheet);
+  const currentViewDefinition = useCallback(() => {
+    if (!currentSelection || !sheet) throw new Error('Choose a sheet first.');
+    return {
+      selection: currentSelection,
+      presentation: presentationFromGrid(sheet, currentViewColumns, columnGroupSpecs),
+    };
+  }, [currentSelection, currentViewColumns, columnGroupSpecs, sheet]);
+  const activeView = views.find((view) => view.id === activeSavedViewId);
+  const currentDefinition = useMemo(() => sheet ? currentViewDefinition() : null, [sheet, currentViewDefinition]);
+  const viewModified = !!activeView?.spec && !!currentDefinition && !sameViewDefinition(activeView.spec, currentDefinition);
 
   const saveCurrentView = useCallback(() => {
     const name = viewName.trim();
@@ -159,7 +150,7 @@ export function useWorkspaceSavedViewsController({
     const ticket = savedViews.beginEditorMutation();
     if (!ticket) return;
     void projectApi
-      .saveView(currentViewInput(name, sheet.id))
+      .saveView({ name, ...currentViewDefinition() })
       .then((saved) => {
         savedViews.completeEditorMutation(ticket, saved);
       })
@@ -167,7 +158,7 @@ export function useWorkspaceSavedViewsController({
         savedViews.failEditorMutation(ticket);
         showError(e.message);
       });
-  }, [currentViewInput, projectApi, savedViews, sheet, showError, viewName]);
+  }, [currentViewDefinition, projectApi, savedViews, sheet, showError, viewName]);
 
   const renameSavedView = useCallback(() => {
     const name = viewName.trim();
@@ -213,10 +204,10 @@ export function useWorkspaceSavedViewsController({
 
   const startSavedViewDelete = useCallback(
     (view: SavedView) => {
-      if (!canCreateSavedView || view.sheet_id === null || String(view.sheet_id) !== sheet?.id) return;
+      if (!canEditProject(project)) return;
       savedViews.openDeleteConfirmation(view);
     },
-    [canCreateSavedView, savedViews, sheet?.id],
+    [project, savedViews],
   );
 
   const deleteView = useCallback(() => {
@@ -237,36 +228,31 @@ export function useWorkspaceSavedViewsController({
       });
   }, [canCreateSavedView, projectApi, savedViews]);
 
-  const addWatchForCurrentView = useCallback(() => {
+  const addWatchForCurrentView = useCallback(async () => {
     if (!sheet || !canEditProject(project)) return;
-    const definition = currentViewInput('', sheet.id);
-    const sheetId = Number(definition.sheetId);
-    watchRunLink.setPendingCreateDraft({
-      query: {
-        kind: 'filter',
-        sheet_id: sheetId,
-        filter: definition.filter,
-      },
-      scope: { kind: 'sheet', sheet_id: sheetId },
-      name: `Watch: ${sheet.name}`,
-    });
-    if (isContributionHidden(WATCHES_CONTRIBUTION_ID)) {
-      revealContribution(WATCHES_CONTRIBUTION_ID);
-    }
-    openDiscover('Watches');
-  }, [currentViewInput, isContributionHidden, openDiscover, project, revealContribution, sheet, watchRunLink]);
+    try {
+      // Alerts follow a saved definition, never a copied transient filter.
+      const view = activeView ?? await projectApi.saveView({ name: `View: ${sheet.name}`, ...currentViewDefinition() });
+      await ensureViewsLoaded();
+      const existing = (await projectApi.listWatches()).some((watch) => watch.viewId === view.id);
+      if (existing) watchRunLink.clearPendingCreateDraft();
+      else watchRunLink.setPendingCreateDraft({ view_id: view.id, sheet_id: view.sheet_id, name: view.name });
+      if (isContributionHidden(WATCHES_CONTRIBUTION_ID)) revealContribution(WATCHES_CONTRIBUTION_ID);
+      openDiscover('Watches');
+    } catch (error) { showError(error instanceof Error ? error.message : String(error)); }
+  }, [activeView, currentViewDefinition, ensureViewsLoaded, isContributionHidden, openDiscover, project, projectApi, revealContribution, sheet, showError, watchRunLink]);
 
   const applySavedView = useCallback(
     (view: SavedView) => {
+      openGeneration.current += 1;
       if (!sheet || String(view.sheet_id) !== sheet.id) return;
-      const filter = normalizeGridFilterSpec(view.spec.filter);
-      const sort = normalizeGridSortSpec(view.spec.sort);
-      const rawColumns = Array.isArray(view.spec.columns)
-        ? view.spec.columns.filter((name): name is string => typeof name === 'string')
-        : null;
-      const groups = Array.isArray(view.spec.column_groups)
-        ? (view.spec.column_groups as ColumnGroupViewSpec[])
-        : [];
+      if (view.unavailable_reason || !view.spec) { showError(view.unavailable_reason ?? 'This view is unavailable.'); return; }
+      let grid;
+      try { grid = gridFromSelection(sheet, view.spec.selection); }
+      catch (error) { showError(error instanceof Error ? error.message : String(error)); return; }
+      const filter = normalizeGridFilterSpec(grid.filter);
+      const sort = normalizeGridSortSpec(grid.sort);
+      const { columns: rawColumns, groups } = gridFromPresentation(sheet, view.spec.presentation);
       const layouts = Object.fromEntries(
         groups.map((group) => [
           String(group.run_id),
@@ -310,7 +296,8 @@ export function useWorkspaceSavedViewsController({
       applySavedViewTransition({ gridView, detail, selection }, sheet.id, {
         viewId: view.id,
         sheetId: sheet.id,
-        scopeRowIds: view.spec.scope_row_ids as number[] | undefined,
+        scopeRowIds: view.spec.selection.scope.kind === 'sheet' ? view.spec.selection.scope.row_ids : undefined,
+        selection: view.spec.selection,
         filter,
         sort,
         draftSortColumn,
@@ -321,20 +308,44 @@ export function useWorkspaceSavedViewsController({
       });
       projectData.invalidate();
     },
-    [detail, gridView, project.id, projectData, selection, sheet],
+    [detail, gridView, project.id, projectData, selection, sheet, showError],
   );
 
+  const openSavedView = useCallback(async (viewId: number) => {
+    const token = ++openGeneration.current;
+    const openingSheet = sheet?.id;
+    const isCurrent = () => token === openGeneration.current && route.store.get().sheetId === openingSheet;
+    try {
+      const view = (await projectApi.listViews(openingSheet)).find((item) => item.id === viewId);
+      if (!isCurrent()) return;
+      if (!view) throw new Error('This view is unavailable.');
+      applySavedView(view);
+      await ensureViewsLoaded();
+    } catch (error) { if (isCurrent()) showError(error instanceof Error ? error.message : String(error)); }
+  }, [projectApi, sheet?.id, route, applySavedView, ensureViewsLoaded, showError]);
+
+  const clearViewSelection = useCallback(() => {
+    openGeneration.current += 1;
+    if (sheet) clearViewSelectionTransition({ gridView, detail, selection }, sheet.id);
+  }, [gridView, detail, selection, sheet]);
+
+  const updateViewSelection = useCallback((next: import('../api/types').ViewSelection) => {
+    if (next.order.every((item) => 'score' in item)) gridView.clearSort();
+    gridView.setSelection(next);
+  }, [gridView]);
+
   return useMemo(() => ({
-    views, viewName, savedViewsEditor, savedViewsSaving, savedViewsConfirmation,
+    views, viewName, viewModified, currentDefinition,
+    updateViewSelection, clearViewSelection, savedViewsEditor, savedViewsSaving, savedViewsConfirmation,
     savedViewsConfirmationError, savedViewsLastPublication, activeSavedViewId, canCreateSavedView,
     ensureViewsLoaded, startCreatingSavedView, openSavedViews, openNewSavedView, saveCurrentView,
     renameSavedView, startSavedViewDefinitionUpdate, replaceSavedViewDefinition,
-    startSavedViewDelete, deleteView, addWatchForCurrentView, applySavedView,
+    startSavedViewDelete, deleteView, addWatchForCurrentView, applySavedView, openSavedView,
   }), [
-    views, viewName, savedViewsEditor, savedViewsSaving, savedViewsConfirmation,
+    views, viewName, viewModified, currentDefinition, updateViewSelection, clearViewSelection, savedViewsEditor, savedViewsSaving, savedViewsConfirmation,
     savedViewsConfirmationError, savedViewsLastPublication, activeSavedViewId, canCreateSavedView,
     ensureViewsLoaded, startCreatingSavedView, openSavedViews, openNewSavedView, saveCurrentView,
     renameSavedView, startSavedViewDefinitionUpdate, replaceSavedViewDefinition,
-    startSavedViewDelete, deleteView, addWatchForCurrentView, applySavedView,
+    startSavedViewDelete, deleteView, addWatchForCurrentView, applySavedView, openSavedView,
   ]);
 }

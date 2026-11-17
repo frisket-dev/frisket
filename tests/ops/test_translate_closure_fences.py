@@ -193,7 +193,11 @@ async def test_opus_mt_execution_writes_explicit_source_as_detected(monkeypatch)
             "output_name": "es",
             "save_detected_language": True,
         },
-        OpContext(project=None, http=None),
+        OpContext(
+            project=None,
+            http=None,
+            extras={"preview": True, "cancelled": lambda: False},
+        ),
     )
     assert out == {"translation": "Hola Mundo.", "detected_language": "en"}
 

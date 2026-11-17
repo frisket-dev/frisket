@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Callable, Collection, Iterator
+from collections.abc import Callable, Collection, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import Any
@@ -181,7 +181,14 @@ def _group_row_errors(
 # Expected data failures stay failed/retryable, without treating a bad row as
 # evidence of an unexpected systemic failure or hiding its diagnostic column.
 EXPECTED_ROW_ERROR = "row_error"
-FAILURE_OUTCOMES = ("model_error", "invalid_output", EXPECTED_ROW_ERROR)
+# Historical retry/filter bucket: includes unavailable work that was never
+# attempted. Failed-row accounting excludes that state below.
+FAILURE_OUTCOMES = (
+    "model_error",
+    "invalid_output",
+    EXPECTED_ROW_ERROR,
+    "not_completed",
+)
 # terminal = produced its final state, never re-run by backfill.
 # `unverified_memory`: a produced answer the model gave from parametric memory
 # with NO external source (research.answer), kept but marked -- terminal and
@@ -206,9 +213,12 @@ def outcome_sql_list(outcomes: tuple[str, ...]) -> str:
 # "done" for run-completion / backfill scoping: terminal successes AND terminal
 # failures — neither is ever re-run automatically.
 _DONE_OUTCOMES_SQL = outcome_sql_list(TERMINAL_OUTCOMES + TERMINAL_FAILURE_OUTCOMES)
-# "failed" for failed_rows accounting: auto-retryable failures AND terminal
-# failures — an empty_output row is failed honestly, not silently green.
-_FAILED_OUTCOMES_SQL = outcome_sql_list(FAILURE_OUTCOMES + TERMINAL_FAILURE_OUTCOMES)
+# Unavailable inputs remain retryable, but are not failed attempts. Keep the
+# failed-row projection consistent with receipts that report not_completed apart.
+_FAILED_OUTCOMES_SQL = outcome_sql_list(
+    tuple(outcome for outcome in FAILURE_OUTCOMES if outcome != "not_completed")
+    + TERMINAL_FAILURE_OUTCOMES
+)
 # Produced cells still eligible for the human review queue (accept/reject/edit).
 # `unverified_memory` is a kept answer with no source, so it is at least as
 # review-worthy as an `ok` cell — never silently drop it from the queue. Single
@@ -292,6 +302,7 @@ class RunResultStore:
         model: str | None = None,
         prompt_hash: str | None = None,
         params: dict | None = None,
+        execution_root_run_id: int | None = None,
         total_rows: int = 0,
         cost_estimate: float | None = None,
         row_ids: list[int] | None = None,
@@ -299,14 +310,16 @@ class RunResultStore:
     ) -> int:
         if action_kind != action_kind.strip() or "." not in action_kind:
             raise ValueError(f"action kind {action_kind!r} is not canonical")
+        stored_params = dict(params or {})
+        stored_params.pop("execution_root_run_id", None)
         try:
             if commit:
                 self.db.execute("BEGIN IMMEDIATE")
             cur = self.db.execute(
                 "INSERT INTO runs (op_id, sheet_id, action_kind, action_version, "
                 "model, prompt_hash, params, total_rows, "
-                "cost_estimate) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "cost_estimate,execution_root_run_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (
                     op_id,
                     sheet_id,
@@ -314,9 +327,10 @@ class RunResultStore:
                     action_version,
                     model,
                     prompt_hash,
-                    json.dumps(params or {}, sort_keys=True),
+                    json.dumps(stored_params, sort_keys=True),
                     total_rows,
                     cost_estimate,
+                    execution_root_run_id,
                 ),
             )
             run_id = int(cur.lastrowid)
@@ -782,6 +796,25 @@ class RunResultStore:
         if commit:
             self.db.commit()
 
+    def retain_unpublished_result(
+        self, run_id: int, row_id: int, column_id: int
+    ) -> None:
+        """Keep the working cell while retaining the returned result for reapply.
+
+        Called inside result publication, before that transaction projects heads.
+        Already-published values cannot be rewritten through this evidence seam.
+        """
+        if not self.db.in_transaction:
+            raise RuntimeError("result retention requires its publication transaction")
+        self._require_run_sheet_mutable(run_id)
+        updated = self.db.execute(
+            "UPDATE results SET publication_effect='retain' "
+            "WHERE run_id=? AND row_id=? AND column_id=? AND published=0",
+            (run_id, row_id, column_id),
+        )
+        if updated.rowcount != 1:
+            raise ValueError("only an unpublished result can retain its working cell")
+
     def withhold_result_value(
         self,
         run_id: int,
@@ -939,6 +972,19 @@ class RunResultStore:
         """
         if not batch:
             return
+        if any(item.get("model_calls") for item in batch):
+            # Returned provider usage is owned by its admitted attempt, not by
+            # the output claim. Record it before entering the result savepoint
+            # so Undo or a released name can refuse only the cell publication.
+            self.write_returned_call_accounting(
+                run_id,
+                batch,
+                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                commit=not self.db.in_transaction,
+            )
         started_transaction = not self.db.in_transaction
         if started_transaction:
             # Releasing an outermost SQLite savepoint commits it.  Start an
@@ -957,11 +1003,28 @@ class RunResultStore:
                 authorized_attempt_id=authorized_attempt_id,
                 project_heads=project_heads,
             )
-        except BaseException:
+        except BaseException as exc:
             self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             if commit and started_transaction:
                 self.db.rollback()
+            from frisket.engine.store.changes import ChangePublicationClosed
+
+            if isinstance(exc, ChangePublicationClosed):
+                # Provider usage is historical fact even when Undo closed the
+                # Change while its request was in flight. Reinsert it after
+                # rolling back the result savepoint so only cells/heads are
+                # refused. Call IDs make this safe when a caller already
+                # persisted the returned usage before attempting publication.
+                self.write_returned_call_accounting(
+                    run_id,
+                    batch,
+                    writer_attempt_id=authorized_attempt_id or writer_attempt_id,
+                    claim_token=claim_token,
+                    claimless_direct_effect=claimless_direct_effect,
+                    authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                    commit=bool(commit and started_transaction),
+                )
             raise
         self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
         if commit:
@@ -991,6 +1054,18 @@ class RunResultStore:
         """
         if checkpoint is not None and not checkpoint_action_kind:
             raise ValueError("checkpoint publication requires its action kind")
+        # A replay's immutable fact owner is read by checkpoint consumption;
+        # the current output writer must never re-own that earlier purchase.
+        if checkpoint is None and any(item.get("model_calls") for item in batch):
+            self.write_returned_call_accounting(
+                run_id,
+                batch,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                commit=not self.db.in_transaction,
+            )
 
         def write(commit: bool) -> None:
             project_heads = not defer_generation_seal and evidence_writer is None
@@ -1049,10 +1124,21 @@ class RunResultStore:
             self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
             if started_transaction:
                 self.db.rollback()
-            if isinstance(exc, DocumentTextPublicationRefused):
+            from frisket.engine.store.changes import ChangePublicationClosed
+            from frisket.engine.store.purge import PurgedMaterialUnavailable
+
+            if isinstance(
+                exc,
+                (
+                    DocumentTextPublicationRefused,
+                    ChangePublicationClosed,
+                    PurgedMaterialUnavailable,
+                ),
+            ):
                 # Publication can refuse a known source mismatch after the
-                # provider returned. Its facts and spend remain historical
-                # truth even though no result/evidence/head may land.
+                # provider returned, or Undo can close the Change during the
+                # request. Facts and spend remain historical truth even though
+                # no result/evidence/head may land.
                 fact_owner = authorized_attempt_id or writer_attempt_id
                 if checkpoint is not None:
                     checkpoint_id, checkpoint_row_id, checkpoint_identity = checkpoint
@@ -1069,7 +1155,7 @@ class RunResultStore:
                 self.write_returned_call_accounting(
                     run_id,
                     batch,
-                    writer_attempt_id=writer_attempt_id,
+                    writer_attempt_id=fact_owner,
                     claim_token=claim_token,
                     claimless_direct_effect=claimless_direct_effect,
                     authorized_attempt_id=fact_owner,
@@ -1301,20 +1387,15 @@ class RunResultStore:
             claimless_direct_effect=claimless_direct_effect,
             renew_claim=True,
         )
-        from frisket.engine.store.result_generations import ResultGenerationStore
-
-        ResultGenerationStore(self.project).require_effect_batch_publishable(
-            run_id, batch
-        )
         fact_owner_attempt_id = authorized_attempt_id or writer_attempt_id
         fact_attempt_id, terminal_outcomes = self._attempt_row_outcomes_for_batch(
             run_id,
             batch,
             authorized_attempt_id=fact_owner_attempt_id,
         )
-        rows_in_batch, before_states = self._insert_result_values_uncommitted(
-            run_id, batch
-        )
+        # Keep the returned provider facts adjacent to the publication attempt:
+        # if the Change was undone while the network call was outstanding, the
+        # following publication check rejects only values and heads.
         self.write_model_calls(
             run_id,
             batch,
@@ -1323,6 +1404,14 @@ class RunResultStore:
             claimless_direct_effect=claimless_direct_effect,
             authorized_attempt_id=fact_owner_attempt_id,
             _renew_claim=False,
+        )
+        from frisket.engine.store.result_generations import ResultGenerationStore
+
+        ResultGenerationStore(self.project).require_effect_batch_publishable(
+            run_id, batch
+        )
+        rows_in_batch, before_states = self._insert_result_values_uncommitted(
+            run_id, batch
         )
         self._write_attempt_row_outcomes(fact_attempt_id, terminal_outcomes)
         self._finalize_result_values_uncommitted(
@@ -1407,8 +1496,7 @@ class RunResultStore:
         from frisket.engine.store.result_generations import ResultGenerationStore
 
         after_states = self.result_row_failure_states(run_id, rows_in_batch)
-        new_rows = set(after_states) - set(before_states)
-        completed_delta = len(new_rows)
+        completed_delta = len(after_states) - len(before_states)
         failed_delta = sum(after_states.values()) - sum(before_states.values())
         # runs.cost_actual is NOT touched here: it is a projection of this
         # run's model_calls facts, maintained by write_model_calls (the one
@@ -1425,10 +1513,9 @@ class RunResultStore:
                 run_id,
             ),
         )
-        # Generation-managed fresh outputs remain progressive: the exact
-        # result, accounting facts, counters, and head move share this batch's
-        # savepoint. Staged replacement generations intentionally do nothing
-        # here and publish only in ResultGenerationStore.seal().
+        # Every output family publishes progressively in this same savepoint:
+        # returned facts, evidence, publication permission, and cache refresh
+        # cannot be observed halfway through a row.
         if project_heads:
             ResultGenerationStore(self.project)._project_written_results_uncommitted(
                 run_id,
@@ -1625,74 +1712,17 @@ class RunResultStore:
             claimless_direct_effect=claimless_direct_effect,
             authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
             receipt_id=receipt_id,
+            _require_current_writer=False,
         )
         if commit:
             self.db.commit()
         return cost_delta
-
-    def carry_forward_results_outside_scope(
-        self,
-        run_id: int,
-        column_ids: list[int],
-        *,
-        commit: bool = True,
-    ) -> int:
-        """Preserve an exactly reused output family's untargeted cells.
-
-        A column pointer selects one run for the whole column. A targeted rerun
-        of an atomic output family therefore has to materialize the prior
-        pointer's cells outside the new run's immutable ``run_rows`` scope
-        before moving that pointer. These are display-state carry-forwards, not
-        work performed by the new run: usage/model-call facts and run counters
-        stay with the original run.
-
-        Existing rows in ``run_id`` always win, even if a malformed caller put
-        one outside the declared scope. Manual edits need no copying because
-        their overlay is independent of run pointers.
-        """
-
-        ordered_column_ids = sorted({int(column_id) for column_id in column_ids})
-        if not ordered_column_ids:
-            return 0
-        if not self.has_run_row_scope(run_id):
-            return 0
-
-        placeholders = ",".join("?" for _ in ordered_column_ids)
-        columns = self.db.execute(
-            "SELECT id,current_run_id FROM columns "
-            f"WHERE id IN ({placeholders}) ORDER BY id",
-            ordered_column_ids,
-        ).fetchall()
-        carried = 0
-        for column in columns:
-            source_run_id = column["current_run_id"]
-            column_id = int(column["id"])
-            if source_run_id is None or int(source_run_id) == int(run_id):
-                continue
-            inserted = self.db.execute(
-                "INSERT OR IGNORE INTO results "
-                "(run_id,row_id,column_id,value_kind,value,tokens_in,tokens_out,confidence,"
-                "justification,error,error_code,review_state,outcome) "
-                "SELECT ?,prior.row_id,prior.column_id,prior.value_kind,prior.value,NULL,NULL,"
-                "prior.confidence,prior.justification,prior.error,prior.error_code,"
-                "prior.review_state,prior.outcome FROM results prior "
-                "WHERE prior.run_id=? AND prior.column_id=? "
-                "AND NOT EXISTS (SELECT 1 FROM run_rows scope "
-                "WHERE scope.run_id=? AND scope.row_id=prior.row_id)",
-                (run_id, int(source_run_id), column_id, run_id),
-            )
-            carried += int(inserted.rowcount)
-        if commit:
-            self.db.commit()
-        return carried
 
     def result_row_failure_states(
         self, run_id: int, row_ids: set[int]
     ) -> dict[int, bool]:
         if not row_ids:
             return {}
-        ordered_row_ids = sorted(row_ids)
-        placeholders = ",".join("?" for _ in ordered_row_ids)
         return {
             int(row["row_id"]): bool(row["failed"])
             for row in self.db.execute(
@@ -1700,9 +1730,9 @@ class RunResultStore:
                 f"MAX(CASE WHEN outcome IN ({_FAILED_OUTCOMES_SQL}) "
                 "THEN 1 ELSE 0 END) AS failed "
                 "FROM results "
-                f"WHERE run_id=? AND row_id IN ({placeholders}) "
-                "GROUP BY row_id",
-                (run_id, *ordered_row_ids),
+                "WHERE run_id=? AND row_id IN (SELECT value FROM json_each(?)) "
+                "GROUP BY row_id HAVING MAX(outcome <> 'not_completed')",
+                (run_id, json.dumps(sorted(row_ids))),
             )
         }
 
@@ -1921,6 +1951,7 @@ class RunResultStore:
         authorized_attempt_id: str | None = None,
         _renew_claim: bool = True,
         receipt_id: str | None = None,
+        _require_current_writer: bool = True,
     ) -> float:
         """Persist one batch of provider facts, its spend, and the run cost.
 
@@ -1952,6 +1983,7 @@ class RunResultStore:
                 authorized_attempt_id=authorized_attempt_id,
                 renew_claim=_renew_claim,
                 receipt_id=receipt_id,
+                require_current_writer=_require_current_writer,
             )
 
     @contextmanager
@@ -1995,6 +2027,7 @@ class RunResultStore:
         authorized_attempt_id: str | None = None,
         renew_claim: bool = True,
         receipt_id: str | None = None,
+        require_current_writer: bool = True,
     ) -> float:
         receipt_attempt = None
         if receipt_id is not None:
@@ -2007,7 +2040,7 @@ class RunResultStore:
             receipt_attempt = self._fence_receipt_accounting(
                 receipt_id, writer_attempt_id, batch
             )
-        else:
+        elif require_current_writer:
             self._fence_effect_write(
                 run_id,
                 batch,
@@ -2016,6 +2049,20 @@ class RunResultStore:
                 claimless_direct_effect=claimless_direct_effect,
                 renew_claim=renew_claim,
             )
+        else:
+            if run_id is None or writer_attempt_id is None:
+                raise RuntimeError(
+                    "publication-independent run accounting requires its admitted attempt"
+                )
+            owner_attempt_id = authorized_attempt_id or writer_attempt_id
+            if owner_attempt_id != writer_attempt_id:
+                raise RuntimeError(
+                    "publication-independent accounting must use the actual writer attempt"
+                )
+            self._attempt_for_fact_write(run_id, owner_attempt_id)
+            from frisket.execution.attempt import require_returned_attempt
+
+            require_returned_attempt(self.project, run_id, owner_attempt_id)
         rows: list[tuple[Any, ...]] = []
         candidate_calls: list[dict[str, Any]] = []
         fact_attempt_id = self._attempt_for_fact_write(
@@ -2531,6 +2578,7 @@ class RunResultStore:
         action_kind: str,
         identity: str,
         authorized_attempt_id: str | None,
+        consumed_capture: Mapping[str, Any] | None = None,
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
@@ -2545,6 +2593,11 @@ class RunResultStore:
             action_kind=action_kind,
             identity=identity,
             authorized_attempt_id=authorized_attempt_id,
+            payload=(
+                {"__consumed_sources": dict(consumed_capture)}
+                if consumed_capture is not None
+                else None
+            ),
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,
@@ -2603,29 +2656,138 @@ class RunResultStore:
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
             )
-            cost = self.write_returned_call_accounting(
-                int(run_id),
-                accounting_batch,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
-                commit=False,
-            )
+            # Child calls can predate this row's recovery attempt. Their own
+            # checkpoint is the immutable accounting authority, never the new
+            # parent or current writer that happens to publish the result.
+            cost = 0.0
+            child_call_ids = set()
+            effects = self._effect_store()
             for child in child_checkpoints:
-                self._effect_store().consume_and_retire(
+                returned = effects.returned_for_replay(
+                    family=MODEL_CALL_CHECKPOINT_FAMILY,
+                    group_key=child.group_key,
+                    unit_key=child.unit_key,
+                    action_kind=child.action_kind,
+                    identity=child.identity,
+                )
+                if returned["id"] != child.checkpoint_id:
+                    raise RuntimeError("returned child checkpoint identity changed")
+                call_id = returned["payload"]["response"]["execution_id"]
+                selected = [
+                    {**entry, "model_calls": calls}
+                    for entry in accounting_batch
+                    if (
+                        calls := [
+                            call
+                            for call in entry.get("model_calls", ())
+                            if call.get("id") == call_id
+                        ]
+                    )
+                ]
+                owner = returned["authorized_attempt_id"]
+                owner_run = self.db.execute(
+                    "SELECT run_id,head_route_id FROM execution_attempts WHERE id=?",
+                    (owner,),
+                ).fetchone()
+                if owner_run is None or owner_run[0] is None or not selected:
+                    raise RuntimeError(
+                        "returned child accounting has no original run owner or facts"
+                    )
+                original_run = int(owner_run[0])
+                if owner_run["head_route_id"] is not None:
+                    from frisket.engine.store.execution_routes import route_row_by_id
+                    from frisket.execution.runtime_binding import bind_fact_to_route
+
+                    route = route_row_by_id(self.db, owner_run["head_route_id"])
+                    if route is None:
+                        raise RuntimeError(
+                            "returned child lost its original execution route"
+                        )
+                    selected = [
+                        {
+                            **entry,
+                            "model_calls": [
+                                bind_fact_to_route(route, call)
+                                for call in entry["model_calls"]
+                            ],
+                        }
+                        for entry in selected
+                    ]
+                if original_run != run_id:
+                    selected = [{**entry, "column_id": None} for entry in selected]
+
+                def accrue_child(
+                    _verified, selected=selected, owner=owner, original_run=original_run
+                ):
+                    return self.write_returned_call_accounting(
+                        original_run,
+                        selected,
+                        writer_attempt_id=owner,
+                        authorized_attempt_id=owner,
+                        claimless_direct_effect=True,
+                        commit=False,
+                    )
+
+                child_cost = effects.account_returned(
                     child.checkpoint_id,
                     family=MODEL_CALL_CHECKPOINT_FAMILY,
                     group_key=child.group_key,
                     unit_key=child.unit_key,
                     action_kind=child.action_kind,
                     identity=child.identity,
-                    run_id=run_id,
-                    writer_attempt_id=writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
+                    payload=returned["payload"],
+                    accrue=accrue_child,
+                    run_id=original_run,
+                    writer_attempt_id=owner,
+                    claimless_direct_effect=True,
                     commit=False,
                 )
+                if original_run == run_id:
+                    cost += child_cost
+                effects.consume_and_retire(
+                    child.checkpoint_id,
+                    family=MODEL_CALL_CHECKPOINT_FAMILY,
+                    group_key=child.group_key,
+                    unit_key=child.unit_key,
+                    action_kind=child.action_kind,
+                    identity=child.identity,
+                    run_id=original_run,
+                    writer_attempt_id=owner,
+                    claimless_direct_effect=True,
+                    commit=False,
+                )
+                child_call_ids.add(call_id)
+            parent_batch = [
+                {
+                    **entry,
+                    "model_calls": [
+                        call
+                        for call in entry.get("model_calls", ())
+                        if call.get("id") not in child_call_ids
+                    ],
+                }
+                for entry in accounting_batch
+            ]
+            cost += self.write_returned_call_accounting(
+                int(run_id),
+                parent_batch,
+                writer_attempt_id=checkpoint["authorized_attempt_id"],
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=checkpoint["authorized_attempt_id"],
+                commit=False,
+            )
+            # These durable facts already belong to their child, possibly in an
+            # earlier attempt/run. Result replay must not reassign them to this
+            # parent's attempt. Their original call history remains queryable.
+            for payload in replay_response.values():
+                if not child_call_ids or "model_calls" not in payload:
+                    continue
+                payload["model_calls"] = [
+                    call
+                    for call in payload.get("model_calls", ())
+                    if call.get("id") not in child_call_ids
+                ]
             return cost
 
         cost = self._effect_store().complete(
@@ -2943,8 +3105,14 @@ class RunResultStore:
 
         old_units = json.loads(existing["units"])
         incoming_units = dict(call.get("units") or {})
-        if any(incoming_units.get(key) != value for key, value in old_units.items()):
+        if any(
+            value is not None and incoming_units.get(key) != value
+            for key, value in old_units.items()
+        ):
             raise RuntimeError(f"model-call reconciliation meter drift for {call_id!r}")
+        # Unknown applicable meters may become known. A partial observation
+        # must retain the other explicit unknown keys, not erase applicability.
+        incoming_units = {**old_units, **incoming_units}
 
         # duration_ms is enriched via COALESCE: the accepted row's NULL may be
         # filled in exactly once by the terminal poll's bracketed elapsed
@@ -3132,28 +3300,156 @@ class RunResultStore:
         ).fetchall()
 
     def finish_run(
-        self, run_id: int, status: str = "completed", *, commit: bool = True
+        self,
+        run_id: int,
+        status: str = "completed",
+        *,
+        commit: bool = True,
+        writer_attempt_id: str | None = None,
+        claim_token: str | None = None,
+        claimless_direct_effect: bool = False,
+        prepared_attempt_id: str | None = None,
     ) -> None:
-        # Whole-action previews may bind their running receipt to a published
-        # run after provider accounting. Keep fact ownership immutable and
-        # project its recorded cost through that explicit receipt link.
-        self._project_cost_actual(run_id)
-        self.db.execute(
-            "UPDATE runs SET status=?, finished_at=datetime('now') WHERE id=?",
-            (status, run_id),
-        )
-        from .review_stats import mark_run_review_stats_dirty, rebuild_run_review_stats
+        """Terminalize a running run under its existing publication owner.
 
-        mark_run_review_stats_dirty(self.db, run_id)
-        if commit:
-            rebuild_run_review_stats(self.db, run_id)
-            self.db.commit()
+        Dispatching attempts require the exact current writer. A synchronous
+        local publisher may use its exact active output claim; a pre-dispatch
+        finalizer may name its exact created/admitted attempt. Unclaimed closes
+        are accepted only when the durable run has no live attempt or claim.
+        Coupled publishers call this only after sealing and materializing their
+        output family in the same transaction.
+        """
+        from frisket.execution.attempt import StaleAttemptWriter
+
+        if status not in {"completed", "partial", "failed", "cancelled"}:
+            raise ValueError(f"unsupported terminal run status: {status}")
+        if writer_attempt_id is not None and prepared_attempt_id is not None:
+            raise ValueError(
+                "a terminal run cannot have both prepared and current writers"
+            )
+        owns_transaction = not self.db.in_transaction
+        if commit and owns_transaction:
+            self.db.execute("BEGIN IMMEDIATE")
+        elif not commit and owns_transaction:
+            raise RuntimeError("finish_run(commit=False) requires a caller transaction")
+        try:
+            run = self.db.execute(
+                "SELECT run.status,run.current_attempt_id,run.cancel_requested_at "
+                "FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
+                (int(run_id),),
+            ).fetchone()
+            if run is None:
+                raise ValueError(f"unknown run {int(run_id)}")
+            if str(run["status"]) != "running":
+                raise StaleAttemptWriter(
+                    f"run {int(run_id)} is {run['status']!r}, not running"
+                )
+            if run["cancel_requested_at"] is not None and status != "cancelled":
+                raise StaleAttemptWriter(
+                    "a run with cancellation intent cannot finish successfully"
+                )
+
+            if writer_attempt_id is not None:
+                from .run_lifecycle import require_terminal_writer
+
+                generation_columns = frozenset(
+                    int(row[0])
+                    for row in self.db.execute(
+                        "SELECT column_id FROM run_output_generations WHERE run_id=?",
+                        (int(run_id),),
+                    ).fetchall()
+                )
+                require_terminal_writer(
+                    self.project,
+                    run_id=int(run_id),
+                    writer_attempt_id=writer_attempt_id,
+                    claim_token=claim_token,
+                    terminal_status=status,
+                    claimless_direct_effect=claimless_direct_effect,
+                    output_column_ids=generation_columns,
+                )
+            else:
+                if claimless_direct_effect:
+                    raise StaleAttemptWriter(
+                        "claimless terminalization requires its exact current attempt"
+                    )
+                if run["current_attempt_id"] is not None:
+                    raise StaleAttemptWriter(
+                        "terminalization requires the run's current writer"
+                    )
+                attempts = self.db.execute(
+                    "SELECT id,state FROM execution_attempts WHERE run_id=?",
+                    (int(run_id),),
+                ).fetchall()
+                open_attempts = {
+                    str(row["id"]): str(row["state"])
+                    for row in attempts
+                    if str(row["state"]) in {"created", "admitted", "dispatching"}
+                }
+                if prepared_attempt_id is None:
+                    if open_attempts:
+                        raise StaleAttemptWriter(
+                            "pre-dispatch terminalization requires its exact prepared attempt"
+                        )
+                elif set(open_attempts) != {prepared_attempt_id} or open_attempts.get(
+                    prepared_attempt_id
+                ) not in {"created", "admitted"}:
+                    raise StaleAttemptWriter(
+                        "prepared terminalization does not own the only open attempt"
+                    )
+                active_claims = self.db.execute(
+                    "SELECT claim_token FROM output_column_claims "
+                    "WHERE run_id=? AND status='active'",
+                    (int(run_id),),
+                ).fetchall()
+                if active_claims and (
+                    not claim_token
+                    or any(row["claim_token"] != claim_token for row in active_claims)
+                ):
+                    raise StaleAttemptWriter(
+                        "terminalization does not own the active output claim"
+                    )
+                if claim_token and not active_claims:
+                    raise StaleAttemptWriter(
+                        "terminalization output claim is no longer active"
+                    )
+
+            # Whole-action previews may bind their running receipt to a
+            # published run after provider accounting. Keep fact ownership
+            # immutable and project its recorded cost through that receipt link.
+            self._project_cost_actual(run_id)
+            updated = self.db.execute(
+                "UPDATE runs SET status=?, finished_at=datetime('now') "
+                "WHERE id=? AND status='running'",
+                (status, int(run_id)),
+            )
+            if updated.rowcount != 1:
+                raise StaleAttemptWriter(
+                    "run terminal status changed before completion"
+                )
+            from .run_lifecycle import close_run_change
+
+            close_run_change(self.project, run_id)
+            from .review_stats import (
+                mark_run_review_stats_dirty,
+                rebuild_run_review_stats,
+            )
+
+            mark_run_review_stats_dirty(self.db, run_id)
+            if commit:
+                rebuild_run_review_stats(self.db, run_id)
+                self.db.commit()
+        except Exception:
+            if commit and owns_transaction:
+                self.db.rollback()
+            raise
 
     def request_cancel(self, run_id: int, *, commit: bool = True) -> bool:
         """Durably request cooperative cancellation of a live run.
 
-        The request is an intent, not a terminal status transition. Repeated
-        requests preserve the first timestamp and remain successful while the
+        The request closes publication but leaves execution running until its
+        owner drains returned facts. Repeated requests preserve the first
+        timestamp and remain successful while the
         run is still live; a terminal run refuses a new request.
         """
 
@@ -3163,6 +3459,12 @@ class RunResultStore:
             "WHERE id=? AND status='running'",
             (run_id,),
         )
+        if requested.rowcount == 1:
+            # Stop withdraws publication immediately; the exact attempt still
+            # owns returned facts and terminal drain, like source deletion.
+            from .run_lifecycle import close_run_change
+
+            close_run_change(self.project, run_id)
         if commit:
             self.db.commit()
         return requested.rowcount == 1
@@ -3198,11 +3500,10 @@ class RunResultStore:
     ) -> RunResumeAdmission:
         """Atomically reopen a genuine resume and clear prior halt metadata.
 
-        A direct ``run.backfill`` may intentionally resume any terminal run. A
-        queue worker may resume only the already-running attempt or a cancelled
-        invocation carrying an allowlisted internal-halt marker. The status,
-        marker, and update are evaluated under one write transaction so a
-        terminal transition racing admission cannot be erased accidentally.
+        Recovery continues only an eligible, still-open Change. Explicit Retry
+        owns a new Change; it never clears cancellation on this old owner. The
+        status, marker, and update are evaluated under one write transaction so
+        a terminal transition racing admission cannot be erased accidentally.
 
         Returns the admission decision TOGETHER with the exact pre-resume run
         state observed under that transaction, so a caller whose pre-dispatch
@@ -3217,8 +3518,11 @@ class RunResultStore:
             if commit:
                 self.db.execute("BEGIN IMMEDIATE")
             row = self.db.execute(
-                "SELECT status, finished_at, params, cancel_requested_at, "
-                "halted_code, halted_reason FROM runs WHERE id=?",
+                "SELECT run.status,run.finished_at,run.params,run.cancel_requested_at, "
+                "run.halted_code,run.halted_reason,op.status AS change_status, "
+                "op.change_order,op.publication_closed "
+                "FROM runs run JOIN ops op ON op.id=run.op_id "
+                "WHERE run.id=?",
                 (run_id,),
             ).fetchone()
             if row is None:
@@ -3254,6 +3558,18 @@ class RunResultStore:
                 prior_halted_code=row["halted_code"],
                 prior_halted_reason=row["halted_reason"],
             )
+            # Recovery resumes the same still-open Change. Once Undo or any
+            # terminal path closes publication, continuing this run would
+            # reuse an owner that can never publish; callers must create an
+            # explicit Retry as a new Change instead.
+            if (
+                row["change_status"] != "applied"
+                or row["cancel_requested_at"] is not None
+                or (row["change_order"] is not None and bool(row["publication_closed"]))
+            ):
+                if commit:
+                    self.db.commit()
+                return prior
             from frisket.engine.store.result_generations import ResultGenerationStore
 
             if any(

@@ -119,6 +119,11 @@ def _acquire_output_claims_for_runner(
     output_names = [str(field["name"]) for field in output_fields]
     if not output_names:
         return None
+    execution_root = runner_spec.get("execution_root_run_id")
+    if execution_root is not None:
+        from frisket.engine.store.execution_groups import execution_runs
+
+        execution_root, _ = execution_runs(project, int(execution_root))
     _claims, conflict = OutputColumnClaimStore(project).acquire(
         sheet_id=sheet_id,
         output_names=output_names,
@@ -128,6 +133,11 @@ def _acquire_output_claims_for_runner(
         lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),
         details={
             "idempotency_key": action.idempotency_key,
+            **(
+                {"execution_root_run_id": execution_root}
+                if execution_root is not None
+                else {}
+            ),
             # Freeze the producer descriptors with the claim. Queue recovery
             # must not rebuild a compatibility key from whatever recipe code
             # happens to be installed later.
@@ -472,6 +482,101 @@ def _running_receipt_is_stale(created_at: Any) -> bool:
     return age.total_seconds() >= RUNNING_RECEIPT_STALE_AFTER_SECONDS
 
 
+def _recover_stale_receipt_attempt(project, receipt, params_hash):
+    """Retry admission repairs a dead owner; read-only peeks never mutate it."""
+    if (
+        receipt is None
+        or _row_value(receipt, "status") != "running"
+        or _row_value(receipt, "params_hash") != params_hash
+        or _row_value(receipt, "run_id") is None
+    ):
+        return receipt
+    run_id = int(_row_value(receipt, "run_id"))
+    owns_transaction = not project.db.in_transaction
+    abandon_stale_dispatching_attempts(project, run_id, commit=owns_transaction)
+    run = project.db.execute(
+        "SELECT status,cancel_requested_at FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    if (
+        run is not None
+        and run["status"] == "running"
+        and run["cancel_requested_at"] is not None
+    ):
+        from .project_run_terminalization import (
+            AbandonedRunRecoveryAuthority,
+            terminalize_project_run,
+        )
+
+        # A stopped Change cannot resume. Its abandoned exact run may still
+        # close the receipt and claims; returned facts remain intact. The
+        # owner refuses live writers and ambiguous reserved effects itself.
+        terminalize_project_run(
+            project,
+            run_id=run_id,
+            receipt_id=str(_row_value(receipt, "id")),
+            status="cancelled",
+            authority=AbandonedRunRecoveryAuthority(require_cancel_intent=True),
+            commit=owns_transaction,
+        )
+    return ReceiptStore(project).find_by_id(str(_row_value(receipt, "id")))
+
+
+def _running_receipt_has_live_owner(project: Any, receipt: Any) -> bool:
+    """Keep stale-looking reservations while their durable owner can still act."""
+    receipt_id = str(_row_value(receipt, "id"))
+    run_id = _row_value(receipt, "run_id")
+    run = None
+    if run_id is not None:
+        run = project.db.execute(
+            "SELECT status,current_attempt_id FROM runs WHERE id=?", (int(run_id),)
+        ).fetchone()
+        # A terminal run with a still-running receipt belongs to terminal
+        # repair, not age-based reservation cleanup.
+        if run is None or str(run["status"]) != "running":
+            return True
+
+    from frisket.engine.store.leases import lease_held
+
+    if any(
+        lease_held(
+            row["claim_token"], row["lease_expires_at"], datetime.now(timezone.utc)
+        )
+        for row in project.db.execute(
+            "SELECT claim_token,lease_expires_at FROM output_column_claims WHERE status='active' AND "
+            "(receipt_id=? OR run_id=?)",
+            (receipt_id, run_id),
+        )
+    ):
+        return True
+
+    if run_id is not None:
+        attempts = project.db.execute(
+            "SELECT id,state FROM execution_attempts WHERE run_id=?",
+            (int(run_id),),
+        ).fetchall()
+        current_attempt_id = (
+            None
+            if run["current_attempt_id"] is None
+            else str(run["current_attempt_id"])
+        )
+        states = {str(row["id"]): str(row["state"]) for row in attempts}
+        if current_attempt_id is not None:
+            # Only an abandoned attempt is eligible for the existing stale
+            # retry path. Missing or otherwise terminal-but-unsettled current
+            # attempts require normal run recovery.
+            return states.get(current_attempt_id) != "abandoned"
+        if any(
+            state in {"created", "admitted", "dispatching"} for state in states.values()
+        ):
+            return True
+        return False
+
+    attempts = project.db.execute(
+        "SELECT state FROM execution_attempts WHERE receipt_id=?", (receipt_id,)
+    ).fetchall()
+    return any(str(row["state"]) not in {"abandoned", "superseded"} for row in attempts)
+
+
 def _running_receipt_stale_result(
     project: Any,
     existing: Any,
@@ -498,6 +603,29 @@ def _running_receipt_stale_result(
         ):
             project.db.rollback()
             return None
+        current = _recover_stale_receipt_attempt(project, current, params_hash)
+        if current["status"] != "running":
+            project.db.commit()
+            return _result_from_receipt(current.parsed())
+        stopped = project.db.execute(
+            "SELECT 1 FROM runs WHERE id=? AND cancel_requested_at IS NOT NULL",
+            (current["run_id"],),
+        ).fetchone()
+        if stopped is not None:
+            # Live or ambiguous stopped ownership belongs to terminal repair,
+            # never deletion of its receipt and accounting lineage.
+            project.db.commit()
+            return None
+        if _running_receipt_has_live_owner(project, current):
+            project.db.commit()
+            return None
+        # No live attempt or lease remains. Release the expired reservation's
+        # claims with its receipt so a new admission can actually acquire them.
+        project.db.execute(
+            "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
+            "WHERE status='active' AND (receipt_id=? OR run_id=?)",
+            (receipt_id, current["run_id"]),
+        )
         receipts.delete_if_status(receipt_id, "running", commit=False)
         project.db.commit()
     except Exception as exc:
@@ -600,7 +728,7 @@ def _reserve_running_action_receipt(
     params_hash: str,
     project_id: str,
     reservation_kind: str,
-    result_from_existing_fn: Callable[..., ActionResult] | None = None,
+    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
     params_model: type[BaseModel] | None = None,
     edition_run_context: Mapping[str, Any] | None = None,
@@ -645,12 +773,19 @@ def _reserve_running_action_receipt(
             }
             if params_model is not None:
                 kwargs["params"] = params_model.model_validate(action.params)
-            if replay_error_fn is not None:
-                return _reserved_receipt_result_from_existing(
-                    project, existing, **kwargs, replay_error_fn=replay_error_fn
-                )
-            assert result_from_existing_fn is not None
-            return result_from_existing_fn(project, existing, **kwargs)
+            if result_from_existing_fn is not None:
+                replay = result_from_existing_fn(project, existing, **kwargs)
+                if replay is None:
+                    return {
+                        "action_id": str(_row_value(existing, "action_id")),
+                        "receipt_id": str(_row_value(existing, "id")),
+                        "reservation_reused": "true",
+                    }
+                return replay
+            assert replay_error_fn is not None
+            return _reserved_receipt_result_from_existing(
+                project, existing, **kwargs, replay_error_fn=replay_error_fn
+            )
         ReceiptStore(project).insert_running(
             receipt,
             edition_run_context=edition_run_context,
@@ -919,11 +1054,11 @@ def _local_endpoint_bindings_for_runner_spec(
 
     bindings: dict[str, str] = {}
     for model_id in sorted(local_model_ids):
-        endpoint, _adapter, _bare_model = router.resolve_local_model(model_id)
-        previous_origin = bindings.setdefault(endpoint.endpoint_id, endpoint.origin)
-        if previous_origin != endpoint.origin:
+        endpoint_id, origin = router.local_endpoint_identity(model_id)
+        previous_origin = bindings.setdefault(endpoint_id, origin)
+        if previous_origin != origin:
             raise RuntimeError(
-                f"local endpoint {endpoint.endpoint_id!r} resolved to two origins"
+                f"local endpoint {endpoint_id!r} resolved to two origins"
             )
     return [
         {"endpoint_id": endpoint_id, "origin": origin}
@@ -1605,7 +1740,7 @@ def _finalize_reserved_action_receipt(
     receipt: Receipt,
     reservation_lost_message: str,
     update_failed_message: str,
-    result_from_existing_fn: Callable[..., ActionResult] | None = None,
+    result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
     result_from_existing_kwargs: dict[str, Any] | None = None,
     require_running_status: bool = True,
@@ -1648,7 +1783,7 @@ def _finalize_reserved_action_receipt(
                     **kwargs,
                 )
             assert result_from_existing_fn is not None
-            return result_from_existing_fn(
+            existing_result = result_from_existing_fn(
                 project,
                 existing,
                 params_hash=params_hash,
@@ -1656,6 +1791,17 @@ def _finalize_reserved_action_receipt(
                 action=action,
                 **kwargs,
             )
+            if existing_result is None:
+                return _failed_result(
+                    project_id=project_id,
+                    action_kind=action.kind,
+                    error=ActionError(
+                        code="project_write_failed",
+                        message=reservation_lost_message,
+                        action_kind=action.kind,
+                    ),
+                )
+            return existing_result
         if existing["params_hash"] != params_hash:
             if commit:
                 project.db.rollback()
@@ -1669,9 +1815,17 @@ def _finalize_reserved_action_receipt(
                     field="idempotency_key",
                 ),
             )
-        updated = ReceiptStore(project).update_body_status(
+        if existing["status"] not in {"queued", "running"}:
+            # Re-delivery may project the run again, but a completed receipt is
+            # the durable answer. Explicit resume must reopen it first.
+            stored = ReceiptStore(project).parsed_by_id(receipt.receipt_id)
+            assert stored is not None
+            if commit:
+                project.db.rollback()
+            return _result_from_receipt(stored)
+        updated = ReceiptStore(project).update_if_status_in(
             receipt,
-            require_status="running" if require_running_status else None,
+            {"running"} if require_running_status else {"queued", "running"},
             commit=False,
         )
         if not updated:
@@ -1748,7 +1902,81 @@ def _finalize_direct_reserved_action_receipt(
 
 def _reserved_maprunner_result_from_existing(
     spec: _ReservedMaprunnerActionSpec,
-) -> Callable[..., ActionResult]:
+) -> Callable[..., ActionResult | None]:
+    def resumable_direct_run(
+        project: Any, existing: Any, *, params_hash: str, action: ActionSpec
+    ) -> bool:
+        """Whether this resume-capable action left an exact owned run idle.
+
+        Only an explicitly halted last attempt, no active claims, and a
+        missing current-writer pointer allow continuing the still-running
+        receipt. The normal reservation and MapRunner resume path then opens
+        a fresh attempt under its own claim.
+        """
+        if (
+            spec.resume_run_id_fn is None
+            or _row_value(existing, "status") != "running"
+            or _row_value(existing, "params_hash") != params_hash
+        ):
+            return False
+        try:
+            receipt = Receipt.model_validate(json.loads(_row_value(existing, "body")))
+        except (TypeError, ValueError):
+            return False
+        if (
+            receipt.receipt_id != str(_row_value(existing, "id"))
+            or receipt.run_id is None
+            or receipt.run_id != _row_value(existing, "run_id")
+            or receipt.action_kind != action.kind
+        ):
+            return False
+        run_id = int(receipt.run_id)
+        run = project.db.execute(
+            "SELECT runs.status,runs.current_attempt_id,runs.action_kind,ops.spec "
+            "FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+            (run_id,),
+        ).fetchone()
+        if (
+            run is None
+            or run["status"] != "running"
+            or run["current_attempt_id"] is not None
+            or run["action_kind"] != action.kind
+        ):
+            return False
+        try:
+            persisted_spec = json.loads(run["spec"] or "{}")
+        except (TypeError, ValueError):
+            return False
+        if persisted_spec.get("idempotency_key") != action.idempotency_key:
+            return False
+        attempts = project.db.execute(
+            "SELECT id,state,handler_authority_id FROM execution_attempts "
+            "WHERE run_id=? ORDER BY seq",
+            (run_id,),
+        ).fetchall()
+        if not attempts or str(attempts[-1]["state"]) != "halted":
+            return False
+        if any(
+            str(attempt["state"]) in {"created", "admitted", "dispatching"}
+            for attempt in attempts
+        ):
+            return False
+        if project.db.execute(
+            "SELECT 1 FROM output_column_claims WHERE status='active' "
+            "AND (receipt_id=? OR run_id=?) LIMIT 1",
+            (receipt.receipt_id, run_id),
+        ).fetchone():
+            return False
+        last_attempt = attempts[-1]
+        if last_attempt["handler_authority_id"] is not None:
+            from frisket.engine.store.output_claims import OutputColumnClaimStore
+
+            if not OutputColumnClaimStore(project).attempt_handler_execution_stopped(
+                str(last_attempt["id"])
+            ):
+                return False
+        return True
+
     def result_from_existing(
         project: Any,
         existing: Any,
@@ -1757,7 +1985,11 @@ def _reserved_maprunner_result_from_existing(
         project_id: str,
         action: ActionSpec,
         params: Any | None = None,
-    ) -> ActionResult:
+    ) -> ActionResult | None:
+        if resumable_direct_run(
+            project, existing, params_hash=params_hash, action=action
+        ):
+            return None
         typed_params = (
             params
             if params is not None

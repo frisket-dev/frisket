@@ -374,7 +374,7 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
     "source_type,page", [("file", 0), ("file", "2"), ("file", False), ("image", 1)]
 )
 @pytest.mark.parametrize("deferred", [False, True])
-def test_publication_refuses_invalid_source_page_without_replacing_text(
+def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
     tmp_path: Path, source_type: str, page: object, deferred: bool
 ) -> None:
     project, sheet_id, row_id, source_id, text_id = _project_with_selection(
@@ -434,18 +434,28 @@ def test_publication_refuses_invalid_source_page_without_replacing_text(
                 RunResultStore(project).write_results(
                     run_id, result, **authority.kwargs()
                 )
+        # Progressive work masks its scope, but explicitly deferred work
+        # leaves the old prepared reference visible until successful sealing.
+        assert project.db.execute(
+            "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
+            (text_id,),
+        ).fetchone()[0] == (previous_ref if deferred else None)
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?", (text_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        from frisket.engine.store.op_log import step_operation
+
+        with project.transaction_scope():
+            step_operation(project, "revert", op_id=op_id)
         assert (
             project.db.execute(
                 "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
                 (text_id,),
             ).fetchone()[0]
             == previous_ref
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?", (text_id,)
-            ).fetchone()[0]
-            == 0
         )
     finally:
         project.close()

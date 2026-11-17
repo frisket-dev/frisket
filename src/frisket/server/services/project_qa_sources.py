@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.cell_reference import (
+    evidence_subject_ref_json,
+    current_value_ref,
+)
+
 import json
 import sqlite3
 import threading
@@ -32,7 +37,7 @@ _FROM = (
     " FROM current_cell_values c JOIN rows r ON r.id=c.row_id "
     "JOIN columns col ON col.id=c.column_id JOIN sheets s ON s.id=r.sheet_id "
     "WHERE r.sheet_id=? AND r.id=? AND c.column_id=? "
-    "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.hidden=0 AND s.hidden=0"
+    "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.active=1 AND s.hidden=0"
 )
 
 
@@ -69,11 +74,14 @@ def _metadata(
 ) -> tuple[dict[str, Any], CurrentTextMetadata | None]:
     row = db.execute(
         "SELECT c.origin_kind,c.origin_op_id,c.origin_run_id,c.base_producer_id,"
-        "c.validity,col.type AS column_type FROM current_cells c "
+        "c.validity,c.outcome,copy.source_run_id AS copied_run_id,copy.source_row_id AS copied_row_id,"
+        "copy.source_column_id AS copied_column_id,col.type AS column_type FROM effective_current_cells c "
+        "LEFT JOIN copied_result_outcomes copy ON c.origin_kind='copied_result' "
+        "AND copy.op_id=c.origin_op_id AND copy.row_id=c.row_id AND copy.column_id=c.column_id "
         "JOIN rows r ON r.id=c.row_id JOIN columns col ON col.id=c.column_id "
         "JOIN sheets s ON s.id=r.sheet_id "
         "WHERE r.sheet_id=? AND r.id=? AND c.column_id=? "
-        "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.hidden=0 AND s.hidden=0",
+        "AND col.sheet_id=r.sheet_id AND r.hidden=0 AND col.active=1 AND s.hidden=0",
         cell,
     ).fetchone()
     if row is None:
@@ -92,19 +100,11 @@ def _metadata(
                 text_meta = None
         except (CurrentValueNotTextual, CurrentValueUnavailable):
             pass
-    ref = {
-        "kind": row["origin_kind"],
-        "op_id": row["origin_op_id"],
-        "row_id": cell[1],
-        "column_id": cell[2],
-        "run_id": row["origin_run_id"],
-        "validity": row["validity"],
-        **(
-            {"prepared_ref_id": text_meta.prepared_ref_id}
-            if text_meta is not None and text_meta.prepared_ref_id is not None
-            else {}
-        ),
-    }
+    ref = current_value_ref(
+        row, row_id=cell[1], column_id=cell[2], include_validity=True
+    )
+    if text_meta is not None and text_meta.prepared_ref_id is not None:
+        ref["prepared_ref_id"] = text_meta.prepared_ref_id
     warnings = (
         prepared_coverage_warnings(db, [text_meta.prepared_ref_id])
         if text_meta is not None and text_meta.prepared_ref_id is not None
@@ -286,7 +286,7 @@ def resolve_prepared_source(
         if source_meta["version"] != expected_version:
             raise ValueError("source_changed: reopen this source before reading it")
         try:
-            selected = resolve_document_text_selection(db, cell)
+            selected = resolve_document_text_selection(db, cell, allow_hidden=True)
         except DocumentTextUnavailable as error:
             raise SourceUnavailableError(str(error)) from error
         if selected is not None:
@@ -314,9 +314,7 @@ def resolve_prepared_source(
                 + " ORDER BY link.id LIMIT 1",
                 [
                     *selected.text_cell,
-                    json.dumps(
-                        ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-                    ),
+                    evidence_subject_ref_json(ref),
                     selected.source_artifact_id,
                     *link_params,
                 ],
@@ -384,9 +382,7 @@ def resolve_prepared_source(
                 for key, value in prepared_meta["value_ref"].items()
                 if key != "validity"
             }
-            if candidate["subject_ref_json"] != json.dumps(
-                prepared_ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-            ):
+            if candidate["subject_ref_json"] != evidence_subject_ref_json(prepared_ref):
                 continue
             return {
                 "cell": prepared_cell,
@@ -444,9 +440,7 @@ def read_prepared_passages(
         ref = {
             key: value for key, value in meta["value_ref"].items() if key != "validity"
         }
-        ref_json = json.dumps(
-            ref, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-        )
+        ref_json = evidence_subject_ref_json(ref)
         conditions = [
             "l.sheet_id=?",
             "l.row_id=?",

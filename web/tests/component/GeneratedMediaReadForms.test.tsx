@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
@@ -71,7 +71,7 @@ function saved(kind: MediaAction, params: Record<string, unknown>, output_names:
 }
 async function run() {
   await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
-  fireEvent.click(screen.getByTestId('generated-action-run'));
+  await act(async () => { fireEvent.click(screen.getByTestId('generated-action-run')); });
 }
 async function choose(engine: EngineOption) {
   await chooseActionSelector(engine.id);
@@ -477,7 +477,7 @@ describe('typed OCR/transcription forms', () => {
   it.each(['media.ocr', 'media.transcribe'] as const)('previews the same named request without confirmation for free %s', async (kind) => {
     const { onExecute } = form(kind);
     await waitFor(() => expect(screen.getByTestId('generated-action-preview')).toBeEnabled());
-    fireEvent.click(screen.getByTestId('generated-action-preview'));
+    await act(async () => { fireEvent.click(screen.getByTestId('generated-action-preview')); });
     await run();
     const [preview, intent] = onExecute.mock.calls[0];
     expect(intent).toBe('preview');

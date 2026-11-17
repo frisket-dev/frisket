@@ -1,3 +1,4 @@
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import pytest
 from fastapi.testclient import TestClient
 
@@ -96,7 +97,9 @@ def test_typed_program_estimates_use_catalog(tmp_path, monkeypatch):
             spec,
             plan.program,
             composition=open_execution_composition(
-                project, ModelRouter(), ExecutionCompositionContext.direct()
+                project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+                ExecutionCompositionContext.direct(),
             ),
         )
         assert resolved is not None and not isinstance(resolved, Refusal), resolved

@@ -165,7 +165,7 @@ async def test_exact_approval_survives_client_return_and_stop_interrupts_waiter(
 
     async def runner(project, router, turn, store):
         session = service._research_sessions[(project, turn["id"])]
-        original = session.store.update
+        original = session.store.publish_approval
         loop = asyncio.get_running_loop()
 
         def publish(*args, **kwargs):
@@ -174,7 +174,7 @@ async def test_exact_approval_survives_client_return_and_stop_interrupts_waiter(
                 loop.call_soon_threadsafe(published.set)
             return result
 
-        session.store.update = publish
+        session.store.publish_approval = publish
         answers.append(
             await session.pause({"kind": "action", "title": "Extract fields"})
         )

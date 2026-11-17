@@ -1,3 +1,4 @@
+import type { ViewSelection } from '../api/types';
 import type { ExpectedProjection } from '../api/evaluation';
 import '../workspace/gridMenus.css';
 import '../components/PanelPrimitives.css';
@@ -297,9 +298,10 @@ const EMPTY_EXPECTED_ROWS: ExpectedProjection['rows'] = {};
 
 export interface SheetGridProps {
   scopeRowIds?: number[] | null;
+  viewSelection?: ViewSelection | null;
   citationColumnId?: string | null;
   sheet: SheetMeta;
-  /** Bump to hard-invalidate the cache (undo/redo, review edits). */
+  /** Bump to revalidate cached rows (undo/redo, review edits, completed runs). */
   dataVersion: number;
   /** Progress of a run touching this sheet, for soft refresh while it streams. */
   liveRun: RunProgress | null;
@@ -1352,7 +1354,7 @@ function useSheetGridController({
   sheet, dataVersion, liveRun, backgroundLiveRun = null, priorityReadingRowId = null,
   pendingImportRowCount = 0, importRowRefreshKey = null,
   rowHeight, wrapText, childSheet, parentRowFilter,
-  activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, citationColumnId,
+  activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, viewSelection, citationColumnId,
   previewColumns, previewCells,
   rowDrawerOpen = false, frozenColumnCount = 1, columnGroupsStorageScope, columnGroupsVersion,
   hiddenColumnNames = EMPTY_COLUMN_NAMES, userHiddenColumnNames = EMPTY_COLUMN_NAMES,
@@ -1393,13 +1395,14 @@ function useSheetGridController({
         parentRowId: parentRowFilter?.parentRowId,
         filter: activeFilter,
         scopeRowIds,
+        selection: viewSelection,
         sort: activeSort,
         lensRowIds: lensActive ? (lensRowIdsKey ? lensRowIdsKey.split(',').map(Number) : []) : null,
       }),
       columnIds: projectedColumnIds,
       valueMode: 'bounded',
     }),
-    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey, scopeRowIds, projectedColumnIds],
+    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey, scopeRowIds, projectedColumnIds, viewSelection],
   );
   const fallbackRowCacheStore = useMemo(() => createRowCacheStore(), []);
   const cache = useRowCache(
@@ -1526,7 +1529,7 @@ function useSheetGridController({
     || (backgroundRunActive && isStreamingRunStatus(backgroundLiveRun?.status));
   useLiveRunRefresh(runActive || backgroundRunActive, liveActive, cache);
   const hasNativeColumnGroups = columnGroups.groups.length > 0;
-  const gridReady = realRowCount === 0 || cache.getRow(0) !== undefined;
+  const gridReady = realRowCount === 0 || cache.ready;
   const headerHandlers = useGridHeaderHandlers(
     sheet.id,
     columns,
@@ -1717,6 +1720,9 @@ function useSheetGridController({
       }
       const originalRow = cache.getRow(rowIdx);
       const expected = expectedById.get(def.id);
+      if (!expected && originalRow?.loadedColumnIds && !originalRow.loadedColumnIds.includes(def.id)) {
+        return { kind: GridCellKind.Loading, allowOverlay: false };
+      }
       const projected = originalRow && expected ? expectedRows[originalRow.id]?.[def.id] : undefined;
       if (expected && originalRow && !projected) return expectedSettled
         ? { kind: GridCellKind.Text, data: '', displayData: 'Unavailable', allowOverlay: false, readonly: true }
@@ -1739,7 +1745,7 @@ function useSheetGridController({
             pendingLabel: backgroundPending
               ? row?.id === priorityReadingRowId ? 'Reading text now' : 'Waiting for OCR'
               : undefined,
-            editable: cellEditability(def),
+            editable: cellEditability(def) && cache.getFreshRow(rowIdx) !== undefined,
             gridCellPalette,
             expandEntityMentions: Boolean(
               entityMentionCellKey && expandedEntityMentionCells.has(entityMentionCellKey),
@@ -2272,7 +2278,7 @@ function useSheetGridController({
       const [col, rowIdx] = item;
       const def = gridColumns[col];
       if (!def || def.ai) return;
-      const row = cache.getRow(rowIdx);
+      const row = cache.getFreshRow(rowIdx);
       const value = editableValue(newValue);
       const expected = expectedById.get(def.id);
       if (expected) {
@@ -2281,7 +2287,7 @@ function useSheetGridController({
         void onExpectedEdit(row.id, expected, source, value).then(() => { setExpectedResult(null); cache.refresh(); }, () => cache.refresh());
         return;
       }
-      if (!row || row.boundedValues?.[def.id] || value === undefined) return;
+      if (!row || (row.loadedColumnIds && !row.loadedColumnIds.includes(def.id)) || row.boundedValues?.[def.id] || value === undefined) return;
       void onCellEdit(row, def, value).then(
         () => cache.refresh(),
         () => cache.refresh(),

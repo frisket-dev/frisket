@@ -16,18 +16,16 @@ from frisket.contracts.http.document_extraction import (
     ExtractionTemplateSave,
 )
 from frisket.engine.store import Project
+from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import extraction_layouts as layouts
-from frisket.engine.store import extraction_layouts_migration as migration
-from frisket.engine.store.extraction_layouts_migration import (
+from frisket.upgrades.project import extraction_layouts_migration as migration
+from frisket.upgrades.project.extraction_layouts_migration import (
     EXTRACTION_LAYOUTS_FROM_DIGEST,
 )
-from frisket.engine.store.schema import (
-    SCALAR_CURRENT_CELL_VALUES_SQL,
-    SCHEMA_DIGEST,
-    SCHEMA_DIGEST_META_KEY,
-)
+from frisket.upgrades.project.historical_schema import SCALAR_CURRENT_CELL_VALUES_SQL
+from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.server.services.document_extraction import DocumentExtractionService
-from frisket.server.extraction_layouts_upgrade import (
+from frisket.upgrades.project.extraction_recipes import (
     LEGACY_EXTRACTION_LAYOUTS_META_KEY,
     LEGACY_EXTRACTION_LAYOUTS_VERSION,
 )
@@ -355,6 +353,7 @@ def test_hidden_legacy_source_keeps_upgrade_pending_until_next_open(tmp_path):
 
 
 def _restore_layout_predecessor(db):
+    restore_pre_domain_schema(db)
     _remove_extraction_layouts(db)
     db.execute("DROP VIEW current_cell_values")
     _remove_prepared_content(db)
@@ -432,7 +431,10 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):
         path = project.path
         values = project.get_values(sheet, column)
         history = [
-            tuple(row) for row in project.db.execute("SELECT * FROM ops ORDER BY id")
+            tuple(row)
+            for row in project.db.execute(
+                "SELECT id,kind,label,spec,undo_info,status,created_at FROM ops ORDER BY id"
+            )
         ]
     with sqlite3.connect(path / "project.db") as db:
         _restore_layout_predecessor(db)
@@ -444,7 +446,38 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):
         assert upgraded.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert upgraded.get_values(sheet, column) == values
         assert [
-            tuple(row) for row in upgraded.db.execute("SELECT * FROM ops ORDER BY id")
+            tuple(row)
+            for row in upgraded.db.execute(
+                "SELECT id,kind,label,spec,undo_info,status,created_at FROM ops ORDER BY id"
+            )
         ] == history
         assert layouts.list_layouts(upgraded, sheet, column) == []
         assert save(upgraded, sheet, template)["name"] == "Layout 1"
+
+
+def test_current_view_extraction_scope_preserves_limit_and_order(tmp_path):
+    with closing(Project.create(tmp_path / "view.frisket", name="Views")) as project:
+        sheet, column, rows, _template = seed(project, count=4)
+        selection = {
+            "scope": {"kind": "sheet", "sheet_id": sheet, "row_ids": rows[1:]},
+            "filters": [],
+            "order": [],
+            "limit": 2,
+        }
+        scope = ExtractionScope(kind="filter", selection=selection)
+        assert (
+            layouts.resolve_document_scope(
+                project, sheet_id=sheet, source="document", scope=scope
+            )
+            == rows[1:3]
+        )
+        with project.read_snapshot() as snapshot:
+            assert (
+                layouts.count_document_scope(
+                    snapshot, sheet_id=sheet, source="document", scope=scope
+                )
+                == 2
+            )
+            assert snapshot.db.execute("SELECT 1").fetchone()[0] == 1
+        with pytest.raises(ValueError, match="replaces"):
+            ExtractionScope(kind="filter", selection=selection, scope_row_ids=rows)

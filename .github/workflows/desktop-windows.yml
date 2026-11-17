@@ -85,8 +85,14 @@ jobs:
         run: npm --prefix desktop test
       - name: Native Windows guardian console proof
         env:
-          PYTHONPATH: src
-        run: uv run --no-project --with pytest==9.0.3 python -m pytest --confcutdir tests/runtime -o addopts= -q tests/runtime/test_windows_guard.py
+          PYTHONPATH: desktop/resources/python
+          # Native guardian tests require only pytest's built-in fixtures.
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        # Exercise the built wheel with its exported, locked application dependencies.
+        run: >-
+          uv run --no-project --with-requirements desktop/resources/requirements.txt
+          --with pytest==9.0.3 python -m pytest --confcutdir tests/runtime
+          -o addopts= -q tests/runtime/test_windows_guard.py
       - name: Package unsigned Windows installer
         run: npm --prefix desktop run package:win
       - name: Install the NSIS artifact for this user
@@ -205,8 +211,14 @@ jobs:
         run: npm --prefix desktop test
       - name: Native Windows guardian console proof
         env:
-          PYTHONPATH: src
-        run: uv run --no-project --with pytest==9.0.3 python -m pytest --confcutdir tests/runtime -o addopts= -q tests/runtime/test_windows_guard.py
+          PYTHONPATH: desktop/resources/python
+          # Native guardian tests require only pytest's built-in fixtures.
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        # Exercise the built wheel with its exported, locked application dependencies.
+        run: >-
+          uv run --no-project --with-requirements desktop/resources/requirements.txt
+          --with pytest==9.0.3 python -m pytest --confcutdir tests/runtime
+          -o addopts= -q tests/runtime/test_windows_guard.py
       - name: Azure login with GitHub OIDC
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
         with:

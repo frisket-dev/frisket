@@ -49,40 +49,45 @@ test('model guidance follows real selector loading, setup and recovery states', 
   });
   const form = page.getByTestId('generated-action-form');
   const run = page.getByTestId('generated-action-run');
-  const capture = async (name: string, message: string | null) => {
+  const capture = async (name: string, state: State) => {
     await expect(form).toBeVisible();
     await expect(run).toBeVisible();
-    if (message) {
-      await expect(form.getByText(message, { exact: true }).first()).toBeVisible();
+    const field = form.locator('[data-tour="action-engine-selector"]');
+    if (state !== 'ready') {
       await expect(run).toBeDisabled();
-    } else {
-      await expect(form.getByText('Setup needed', { exact: true })).toHaveCount(0);
-      await expect(form.getByText('Loading models…', { exact: true })).toHaveCount(0);
     }
+    if (state === 'loading') {
+      await expect(field.getByTestId('engine-selector')).toHaveAttribute('aria-busy', 'true');
+      await expect(field.getByRole('button')).toBeDisabled();
+    } else if (state === 'choose') await expect(field.getByText('Choose model', { exact: true })).toBeVisible();
+    else if (state === 'empty') await expect(field).toContainText('No choices are available for this field.');
+    else if (state === 'setup') await expect(field.getByText('Setup needed', { exact: true })).toBeVisible();
+    else if (state === 'working') await expect(field.locator('.engine-selector__status--working')).toBeVisible();
+    else if (state === 'unavailable') await expect(field).toContainText('This model is unavailable on this server.');
+    else if (state === 'error') await expect(field).toContainText('Could not load choices.');
+    else await expect(field.getByTestId('engine-selector')).not.toHaveAttribute('aria-busy');
+    await expect(form.getByText('Loading models…', { exact: true })).toHaveCount(0);
+    await expect(form.getByText('Loading choices…', { exact: true })).toHaveCount(0);
     await page.evaluate(() => document.fonts.ready);
     await page.locator('.action-drawer').screenshot({ path: path.join(output, `${name}.png`) });
   };
   const url = `/p/${pid}/s/${sid}/action/map.summarize`;
   await page.goto(url);
-  await capture('01-loading', 'Loading models…');
+  await capture('01-loading', 'loading');
   state = 'choose';
   release?.();
-  await capture('02-choose', 'Choose a model');
-  for (const [next, message] of [
-    ['empty', 'No models available'], ['setup', 'Setup needed'],
-    ['working', 'Model setup in progress…'],
-    ['unavailable', 'This model is unavailable on this server.'],
-    ['error', 'Couldn’t load models'],
-  ] as const) {
+  await capture('02-choose', 'choose');
+  for (const next of ['empty', 'setup', 'working', 'unavailable', 'error'] as const) {
     state = next;
     await page.goto(url);
-    await capture(`${next}`, message);
+    await capture(`${next}`, next);
   }
   state = 'ready';
   await form.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(form.getByTestId('engine-selector')).toBeVisible();
   await expect(form.getByText('Couldn’t load models', { exact: true })).toHaveCount(0);
-  await capture('08-ready', null);
+  await form.getByTestId('text-source-mode-all').click();
+  await capture('08-ready', 'ready');
   await expect(run).toBeEnabled();
   await page.screenshot({ path: path.join(output, '09-ready-context.png') });
   expect(errors).toEqual([]);

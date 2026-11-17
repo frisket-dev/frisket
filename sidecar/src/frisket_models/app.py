@@ -278,6 +278,26 @@ def create_app(
         except RuntimeError as e:
             raise HTTPException(status_code=503, detail=str(e)) from None
 
+    @api.post("/engines/{name}/retry")
+    async def retry_engine(name: str, route: str) -> dict:
+        """Authenticated, deliberate recovery of one resident engine load.
+
+        Route is required because one model may serve several adapters. A
+        loaded adapter is retained, so recovery never unloads live inference.
+        """
+        try:
+            engine = registry.get(name, route=route)
+        except KeyError:
+            raise HTTPException(
+                status_code=400, detail="unknown engine route"
+            ) from None
+        with _slot(limiter):
+            try:
+                await run_in_threadpool(engine.retry_load)
+            except RuntimeError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from None
+        return engine.describe()
+
     @api.get("/capabilities")
     async def capabilities() -> dict:
         """Report unavailable extras and loader failures truthfully."""

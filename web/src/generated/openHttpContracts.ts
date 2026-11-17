@@ -613,15 +613,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.create_lens.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/lenses",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.create_local_endpoint.post",
       "method": "POST",
       "path": "/api/providers/local-endpoints",
@@ -1396,15 +1387,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.import_csv_update_preview.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/csv/update/preview",
-      "request": {
-        "mediaType": "multipart/form-data",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.import_files.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/files",
@@ -1459,15 +1441,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.import_update_preview.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/rows/update/preview",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.import_urls.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/urls",
@@ -1495,15 +1468,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.import_xlsx_update_preview.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/xlsx/update/preview",
-      "request": {
-        "mediaType": "multipart/form-data",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.list_column_types.get",
       "method": "GET",
       "path": "/api/column-types",
@@ -1519,12 +1483,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "id": "tenant.list_import_sessions.get",
       "method": "GET",
       "path": "/api/projects/{pid}/import/files/sessions",
-      "request": null
-    },
-    {
-      "id": "tenant.list_lenses.get",
-      "method": "GET",
-      "path": "/api/projects/{pid}/lenses",
       "request": null
     },
     {
@@ -2035,9 +1993,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.resolve_lens.get",
+      "id": "tenant.resolve_view.get",
       "method": "GET",
-      "path": "/api/projects/{pid}/lenses/{lens_id}/resolve",
+      "path": "/api/projects/{pid}/views/{view_id}/resolve",
       "request": null
     },
     {
@@ -2374,15 +2332,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.update_csv.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/csv/update",
-      "request": {
-        "mediaType": "multipart/form-data",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.update_local_endpoint.patch",
       "method": "PATCH",
       "path": "/api/providers/local-endpoints/{endpoint_id}",
@@ -2487,15 +2436,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "path": "/api/projects/{pid}/import/table-imports/{draft_id}/settings",
       "request": {
         "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
-      "id": "tenant.update_xlsx.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/xlsx/update",
-      "request": {
-        "mediaType": "multipart/form-data",
         "required": true
       }
     },
@@ -3138,6 +3078,7 @@ type HttpActionJob_ActionJobProgress = ({
   "preparation"?: (((HttpActionJob_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionJob_ActionRunQueue)) | ((HttpActionJob_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpActionJob_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
@@ -3329,6 +3270,7 @@ type HttpActionJobsPage_ActionJobProgress = ({
   "preparation"?: (((HttpActionJobsPage_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionJobsPage_ActionRunQueue)) | ((HttpActionJobsPage_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpActionJobsPage_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
@@ -3744,6 +3686,11 @@ type HttpActionRunStatus_ActionFileWorkProgress = ({
   "total": (number);
 });
 
+type HttpActionRunStatus_ActionJobColumn = ({
+  "id": (number);
+  "name": (string);
+});
+
 type HttpActionRunStatus_ActionPreparationHint = ({
   "message": (string);
 });
@@ -3768,6 +3715,7 @@ type HttpActionRunStatus_ActionRunPublicStatus = ({
   "preparation"?: (((HttpActionRunStatus_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpActionRunStatus_ActionRunQueue)) | ((HttpActionRunStatus_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpActionRunStatus_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "skipped": (number);
@@ -3807,6 +3755,7 @@ type HttpActionRunStatus_ActionRunStatusRun = ({
   "cost_estimate": (((number)) | ((null)));
   "failed_rows": (number);
   "id": (number);
+  "output_columns"?: (Array<(HttpActionRunStatus_ActionJobColumn)>);
   "public_status": (HttpActionRunStatus_ActionRunPublicStatus);
   "row_errors"?: (((HttpActionRunStatus_RunRowErrorSummary)) | ((null)));
   "sheet_id": (number);
@@ -6952,6 +6901,7 @@ type HttpExtractionPreviewRequest_ExtractionScope = ({
   "parent_row_id"?: (((number)) | ((null)));
   "row_id"?: (((number)) | ((null)));
   "scope_row_ids"?: (((Array<(number)>)) | ((null)));
+  "selection"?: (((HttpExtractionPreviewRequest_ViewSelection)) | ((null)));
 });
 
 type HttpExtractionPreviewRequest_ExtractionTemplate = ({
@@ -6969,6 +6919,8 @@ type HttpExtractionPreviewRequest_ExtractionTemplate = ({
 type HttpExtractionPreviewRequest_IgnoreBand = ({
   "box": (HttpExtractionPreviewRequest_Box);
 });
+
+type HttpExtractionPreviewRequest_JsonValue = JsonValue;
 
 type HttpExtractionPreviewRequest_PagePosition = ({
   "page": (number);
@@ -6990,6 +6942,51 @@ type HttpExtractionPreviewRequest_RepeatedSection = ({
   "id": (string);
   "name"?: (string);
   "rest": (HttpExtractionPreviewRequest_PageSpan);
+});
+
+type HttpExtractionPreviewRequest_ViewColumnOrder = ({
+  "column_id": (number);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type HttpExtractionPreviewRequest_ViewFilter = ({
+  "column_id": (number);
+  "condition": ({
+  [key: string]: (HttpExtractionPreviewRequest_JsonValue);
+});
+});
+
+type HttpExtractionPreviewRequest_ViewProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type HttpExtractionPreviewRequest_ViewScoreOrder = ({
+  "dir"?: ("asc" | "desc") & (string);
+  "score": ("search" | "similarity") & (string);
+});
+
+type HttpExtractionPreviewRequest_ViewSearch = ({
+  "text": (string);
+});
+
+type HttpExtractionPreviewRequest_ViewSelection = ({
+  "filters"?: (Array<(HttpExtractionPreviewRequest_ViewFilter)>);
+  "limit"?: (((number)) | ((null)));
+  "order"?: (Array<(((HttpExtractionPreviewRequest_ViewColumnOrder)) | ((HttpExtractionPreviewRequest_ViewScoreOrder)))>);
+  "rank_constant"?: (((number)) | ((null)));
+  "ranking"?: ((("hybrid") & (string)) | ((null)));
+  "scope": (((HttpExtractionPreviewRequest_ViewSheetScope)) | ((HttpExtractionPreviewRequest_ViewProjectScope)));
+  "search"?: (((HttpExtractionPreviewRequest_ViewSearch)) | ((null)));
+  "similarity"?: ((({
+  [key: string]: (HttpExtractionPreviewRequest_JsonValue);
+})) | ((null)));
+});
+
+type HttpExtractionPreviewRequest_ViewSheetScope = ({
+  "kind": ("sheet") & (string);
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
 });
 
 export type HttpExtractionPreviewRequest = ({
@@ -7117,6 +7114,53 @@ export type HttpExtractionSavedLayout = ({
   "source_column_id": (number);
 });
 
+type HttpExtractionScopeCountsRequest_JsonValue = JsonValue;
+
+type HttpExtractionScopeCountsRequest_ViewColumnOrder = ({
+  "column_id": (number);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type HttpExtractionScopeCountsRequest_ViewFilter = ({
+  "column_id": (number);
+  "condition": ({
+  [key: string]: (HttpExtractionScopeCountsRequest_JsonValue);
+});
+});
+
+type HttpExtractionScopeCountsRequest_ViewProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type HttpExtractionScopeCountsRequest_ViewScoreOrder = ({
+  "dir"?: ("asc" | "desc") & (string);
+  "score": ("search" | "similarity") & (string);
+});
+
+type HttpExtractionScopeCountsRequest_ViewSearch = ({
+  "text": (string);
+});
+
+type HttpExtractionScopeCountsRequest_ViewSelection = ({
+  "filters"?: (Array<(HttpExtractionScopeCountsRequest_ViewFilter)>);
+  "limit"?: (((number)) | ((null)));
+  "order"?: (Array<(((HttpExtractionScopeCountsRequest_ViewColumnOrder)) | ((HttpExtractionScopeCountsRequest_ViewScoreOrder)))>);
+  "rank_constant"?: (((number)) | ((null)));
+  "ranking"?: ((("hybrid") & (string)) | ((null)));
+  "scope": (((HttpExtractionScopeCountsRequest_ViewSheetScope)) | ((HttpExtractionScopeCountsRequest_ViewProjectScope)));
+  "search"?: (((HttpExtractionScopeCountsRequest_ViewSearch)) | ((null)));
+  "similarity"?: ((({
+  [key: string]: (HttpExtractionScopeCountsRequest_JsonValue);
+})) | ((null)));
+});
+
+type HttpExtractionScopeCountsRequest_ViewSheetScope = ({
+  "kind": ("sheet") & (string);
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
 export type HttpExtractionScopeCountsRequest = ({
   "filter"?: ((({
   [key: string]: JsonValue;
@@ -7125,6 +7169,7 @@ export type HttpExtractionScopeCountsRequest = ({
   "parent_row_id"?: (((number)) | ((null)));
   "row_id"?: (((number)) | ((null)));
   "scope_row_ids"?: (((Array<(number)>)) | ((null)));
+  "selection"?: (((HttpExtractionScopeCountsRequest_ViewSelection)) | ((null)));
   "sheet_id": (number);
   "source": (string);
 });
@@ -7394,12 +7439,13 @@ type HttpHistoryPage_HistoryOperation = ({
   "at_cursor": (boolean);
   "barrier": (boolean);
   "created_at": (string);
+  "executable": (boolean);
   "id": (number);
   "index": (number);
   "kind": (string);
   "label": (((string)) | ((null)));
   "run": (((HttpHistoryPage_HistoryRun)) | ((null)));
-  "status": (string);
+  "status": ("applied" | "undone" | "discarded") & (string);
 });
 
 type HttpHistoryPage_HistoryOutputColumn = ({
@@ -7529,7 +7575,7 @@ export type HttpImportFilesResponse = ({
   "sheet_id": (number);
 });
 
-type HttpImportPasteConfirmBody_ImportUpdatePreviewColumn = ({
+type HttpImportPasteConfirmBody_ImportPasteColumn = ({
   "format"?: (((string)) | ((null)));
   "name"?: (((string)) | ((null)));
   "source_name": (string);
@@ -7538,15 +7584,16 @@ type HttpImportPasteConfirmBody_ImportUpdatePreviewColumn = ({
 });
 
 export type HttpImportPasteConfirmBody = ({
-  "columns": (Array<(HttpImportPasteConfirmBody_ImportUpdatePreviewColumn)>);
-  "confirmation"?: (((string)) | ((null)));
+  "columns": (Array<(HttpImportPasteConfirmBody_ImportPasteColumn)>);
   "destination_sheet_id"?: (((number)) | ((null)));
   "draft_id": (string);
   "keep_existing_on_blank"?: (boolean);
   "key_columns"?: (((Array<(string)>)) | ((null)));
   "raw": (string);
+  "relationship_id"?: (((string)) | ((null)));
   "sheet_name"?: (((string)) | ((null)));
-  [key: string]: JsonValue | (Array<(HttpImportPasteConfirmBody_ImportUpdatePreviewColumn)>) | (((string)) | ((null))) | (((number)) | ((null))) | (string) | (boolean) | (((Array<(string)>)) | ((null))) | undefined;
+  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
+  [key: string]: JsonValue | (Array<(HttpImportPasteConfirmBody_ImportPasteColumn)>) | (((number)) | ((null))) | (string) | (boolean) | (((Array<(string)>)) | ((null))) | (((string)) | ((null))) | ("keep_changes" | "incoming_wins") & (string) | undefined;
 });
 
 export type HttpImportPasteConfirmResponse = ({
@@ -7780,52 +7827,6 @@ export type HttpImportSessionStatus = ({
   "unreadable_total"?: (number);
 });
 
-type HttpImportUpdatePreviewBody_ImportUpdatePreviewColumn = ({
-  "format"?: (((string)) | ((null)));
-  "name"?: (((string)) | ((null)));
-  "source_name": (string);
-  "type": (string);
-  [key: string]: JsonValue | (((string)) | ((null))) | (string) | undefined;
-});
-
-export type HttpImportUpdatePreviewBody = ({
-  "columns": (Array<(HttpImportUpdatePreviewBody_ImportUpdatePreviewColumn)>);
-  "destination_sheet_id": (number);
-  "draft_id": (string);
-  "keep_existing_on_blank"?: (boolean);
-  "key_columns": (Array<(string)>);
-  "raw": (string);
-  [key: string]: JsonValue | (Array<(HttpImportUpdatePreviewBody_ImportUpdatePreviewColumn)>) | (number) | (string) | (boolean) | (Array<(string)>) | undefined;
-});
-
-type HttpImportUpdatePreviewResponse_ImportUpdatePreviewSample = ({
-  "after": ({
-  [key: string]: (HttpImportUpdatePreviewResponse_JsonValue);
-});
-  "before": ({
-  [key: string]: (HttpImportUpdatePreviewResponse_JsonValue);
-});
-  "key": ({
-  [key: string]: (HttpImportUpdatePreviewResponse_JsonValue);
-});
-  "source_row": (number);
-  "status": ("matched" | "unmatched" | "blank_key" | "ambiguous") & (string);
-  "target_row_id": (((number)) | ((null)));
-});
-
-type HttpImportUpdatePreviewResponse_JsonValue = JsonValue;
-
-export type HttpImportUpdatePreviewResponse = ({
-  "ambiguous": (number);
-  "blank_keys": (number);
-  "changed_cells": (number);
-  "cleared_cells": (number);
-  "confirmation": (string);
-  "matched": (number);
-  "samples": (Array<(HttpImportUpdatePreviewResponse_ImportUpdatePreviewSample)>);
-  "unmatched": (number);
-});
-
 export type HttpImportUrlsBody = ({
   "column"?: (string);
   "sheet_name"?: (((string)) | ((null)));
@@ -7959,6 +7960,21 @@ export type HttpInline_1711c9a82655e546 = ({
   "run_id"?: (((number)) | ((null)));
 });
 
+export type HttpInline_176b8105887ae602 = ({
+  "column_ids"?: (string);
+  "filter"?: (string);
+  "include_scope_metadata"?: (boolean);
+  "limit"?: (number);
+  "offset"?: (number);
+  "parent_row_id"?: (number);
+  "row_ids"?: (string);
+  "scope_row_ids"?: (string);
+  "selection"?: (((string)) | ((null)));
+  "sort"?: (string);
+  "value_mode"?: ("exact" | "bounded") & (string);
+  "view_id"?: (((number)) | ((null)));
+});
+
 export type HttpInline_17d43befabd8bea4 = ({
   "job_id": (string);
   "pid": (string);
@@ -7981,6 +7997,16 @@ export type HttpInline_1f4a92d17785b699 = ({
   "citation_id": (string);
   "pid": (string);
   "thread_id": (string);
+});
+
+export type HttpInline_1f8de0f008cb81bf = ({
+  "filter"?: (((string)) | ((null)));
+  "force"?: (boolean);
+  "parent_row_id"?: (((number)) | ((null)));
+  "scope_row_ids"?: (((string)) | ((null)));
+  "selection"?: (((string)) | ((null)));
+  "sort"?: (((string)) | ((null)));
+  "view_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_1f9be32fb968425b = ({
@@ -8118,15 +8144,18 @@ export type HttpInline_3e1cc7c95e01e7fa = ({
   "state"?: (string);
 });
 
-export type HttpInline_3eeec944bc84ce8c = ({
-  "cursor"?: (((number)) | ((null)));
-  "field_id"?: (((number)) | ((null)));
-  "include_reviewed"?: (boolean);
+export type HttpInline_3e68b314eff9727c = ({
+  "anchor_row_id"?: (((number)) | ((null)));
+  "cursor"?: (((string)) | ((null)));
+  "filter"?: (((string)) | ((null)));
   "limit"?: (number);
-  "offset"?: (number);
-  "order"?: ("confidence" | "row") & (string);
-  "run_id"?: (((number)) | ((null)));
-  "sheet_id"?: (((number)) | ((null)));
+  "parent_row_id"?: (((number)) | ((null)));
+  "q"?: (((string)) | ((null)));
+  "scope_row_ids"?: (((string)) | ((null)));
+  "selection"?: (((string)) | ((null)));
+  "sort"?: (((string)) | ((null)));
+  "source_column_id": (number);
+  "title_column_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_44136fa355b3678a = JsonValue;
@@ -8225,6 +8254,17 @@ export type HttpInline_4b0663e5e5e7d871 = ({
   "plan_id": (string);
 });
 
+export type HttpInline_4f6b33f41c3e2dad = ({
+  "filter"?: (((string)) | ((null)));
+  "page_size"?: (number);
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((string)) | ((null)));
+  "scope_row_ids"?: (((string)) | ((null)));
+  "selection"?: (((string)) | ((null)));
+  "sort"?: (((string)) | ((null)));
+  "view_id"?: (((number)) | ((null)));
+});
+
 export type HttpInline_51b94bce8350ab16 = ({
   "limit"?: (number);
   "revision"?: (((number)) | ((null)));
@@ -8293,59 +8333,6 @@ export type HttpInline_54bdb2fee442259f = ({
   "route_id": (number);
 });
 
-type HttpInline_56badbd0ec8f0959_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_56badbd0ec8f0959_ActionIdentity = ({
-  "action_id": (string);
-  "kind": (string);
-});
-
-type HttpInline_56badbd0ec8f0959_ActionOutput = (HttpInline_56badbd0ec8f0959_ActionOutputPayload);
-
-type HttpInline_56badbd0ec8f0959_ActionOutputPayload = ({
-  "column_id"?: (((number)) | ((null)));
-  "kind": (string);
-  "name"?: (((string)) | ((null)));
-  "ref"?: ({
-  [key: string]: JsonValue;
-});
-  "row_ids"?: (Array<(number)>);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
-type HttpInline_56badbd0ec8f0959_ActionResult = ({
-  "action": (HttpInline_56badbd0ec8f0959_ActionIdentity);
-  "errors"?: (Array<(HttpInline_56badbd0ec8f0959_ActionError)>);
-  "job_id"?: (((number)) | ((null)));
-  "op_ids"?: (Array<(number)>);
-  "outputs"?: (Array<(HttpInline_56badbd0ec8f0959_ActionOutput)>);
-  "project_id": (string);
-  "receipt_id"?: (((string)) | ((null)));
-  "run_id"?: (((number)) | ((null)));
-  "schema_version"?: ("frisket.action_result.v1") & (string);
-  "status": ("needs_confirmation" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
-  "value"?: (((HttpInline_56badbd0ec8f0959_JsonValue)) | ((null)));
-  "warnings"?: (Array<(string)>);
-});
-
-type HttpInline_56badbd0ec8f0959_HttpError = ({
-  "detail": (HttpInline_56badbd0ec8f0959_JsonValue);
-});
-
-type HttpInline_56badbd0ec8f0959_JsonValue = JsonValue;
-
-export type HttpInline_56badbd0ec8f0959 = (((HttpInline_56badbd0ec8f0959_HttpError)) | ((HttpInline_56badbd0ec8f0959_ActionResult)));
-
 type HttpInline_58109fdeddf40756_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -8398,59 +8385,6 @@ type HttpInline_58109fdeddf40756_HttpError = ({
 type HttpInline_58109fdeddf40756_JsonValue = JsonValue;
 
 export type HttpInline_58109fdeddf40756 = (((HttpInline_58109fdeddf40756_HttpError)) | ((HttpInline_58109fdeddf40756_ActionResult)));
-
-type HttpInline_5a665aadb5efda0c_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_5a665aadb5efda0c_ActionIdentity = ({
-  "action_id": (string);
-  "kind": (string);
-});
-
-type HttpInline_5a665aadb5efda0c_ActionOutput = (HttpInline_5a665aadb5efda0c_ActionOutputPayload);
-
-type HttpInline_5a665aadb5efda0c_ActionOutputPayload = ({
-  "column_id"?: (((number)) | ((null)));
-  "kind": (string);
-  "name"?: (((string)) | ((null)));
-  "ref"?: ({
-  [key: string]: JsonValue;
-});
-  "row_ids"?: (Array<(number)>);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
-type HttpInline_5a665aadb5efda0c_ActionResult = ({
-  "action": (HttpInline_5a665aadb5efda0c_ActionIdentity);
-  "errors"?: (Array<(HttpInline_5a665aadb5efda0c_ActionError)>);
-  "job_id"?: (((number)) | ((null)));
-  "op_ids"?: (Array<(number)>);
-  "outputs"?: (Array<(HttpInline_5a665aadb5efda0c_ActionOutput)>);
-  "project_id": (string);
-  "receipt_id"?: (((string)) | ((null)));
-  "run_id"?: (((number)) | ((null)));
-  "schema_version"?: ("frisket.action_result.v1") & (string);
-  "status": ("needs_confirmation" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
-  "value"?: (((HttpInline_5a665aadb5efda0c_JsonValue)) | ((null)));
-  "warnings"?: (Array<(string)>);
-});
-
-type HttpInline_5a665aadb5efda0c_HttpError = ({
-  "detail": (HttpInline_5a665aadb5efda0c_JsonValue);
-});
-
-type HttpInline_5a665aadb5efda0c_JsonValue = JsonValue;
-
-export type HttpInline_5a665aadb5efda0c = (((HttpInline_5a665aadb5efda0c_HttpError)) | ((HttpInline_5a665aadb5efda0c_ActionResult)));
 
 export type HttpInline_5d79bc8e9b419e6f = ({
   "category": ("text" | "suspicious" | "missing" | "image" | "other" | "unreadable" | "unchecked") & (string);
@@ -8555,29 +8489,6 @@ export type HttpInline_756f1f7585dc30e8 = ({
   "pid": (string);
 });
 
-export type HttpInline_766f205ee1bdd9db = ({
-  "limit"?: (number);
-  "offset"?: (number);
-});
-
-export type HttpInline_7d6bd08839bc6472 = ({
-  "anchor_row_id"?: (((number)) | ((null)));
-  "cursor"?: (((string)) | ((null)));
-  "filter"?: (((string)) | ((null)));
-  "limit"?: (number);
-  "parent_row_id"?: (((number)) | ((null)));
-  "q"?: (((string)) | ((null)));
-  "scope_row_ids"?: (((string)) | ((null)));
-  "sort"?: (((string)) | ((null)));
-  "source_column_id": (number);
-  "title_column_id"?: (((number)) | ((null)));
-});
-
-export type HttpInline_7daea3dbdfe86f78 = ({
-  "lens_id": (number);
-  "pid": (string);
-});
-
 type HttpInline_7e61aaa5675023bc_ActionError = ({
   "action_kind"?: (((string)) | ((null)));
   "code": (string);
@@ -8630,59 +8541,6 @@ type HttpInline_7e61aaa5675023bc_HttpError = ({
 type HttpInline_7e61aaa5675023bc_JsonValue = JsonValue;
 
 export type HttpInline_7e61aaa5675023bc = (((HttpInline_7e61aaa5675023bc_HttpError)) | ((HttpInline_7e61aaa5675023bc_ActionResult)));
-
-type HttpInline_7f887d7b9f6e59a8_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_7f887d7b9f6e59a8_ActionIdentity = ({
-  "action_id": (string);
-  "kind": (string);
-});
-
-type HttpInline_7f887d7b9f6e59a8_ActionOutput = (HttpInline_7f887d7b9f6e59a8_ActionOutputPayload);
-
-type HttpInline_7f887d7b9f6e59a8_ActionOutputPayload = ({
-  "column_id"?: (((number)) | ((null)));
-  "kind": (string);
-  "name"?: (((string)) | ((null)));
-  "ref"?: ({
-  [key: string]: JsonValue;
-});
-  "row_ids"?: (Array<(number)>);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
-type HttpInline_7f887d7b9f6e59a8_ActionResult = ({
-  "action": (HttpInline_7f887d7b9f6e59a8_ActionIdentity);
-  "errors"?: (Array<(HttpInline_7f887d7b9f6e59a8_ActionError)>);
-  "job_id"?: (((number)) | ((null)));
-  "op_ids"?: (Array<(number)>);
-  "outputs"?: (Array<(HttpInline_7f887d7b9f6e59a8_ActionOutput)>);
-  "project_id": (string);
-  "receipt_id"?: (((string)) | ((null)));
-  "run_id"?: (((number)) | ((null)));
-  "schema_version"?: ("frisket.action_result.v1") & (string);
-  "status": ("needs_confirmation" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
-  "value"?: (((HttpInline_7f887d7b9f6e59a8_JsonValue)) | ((null)));
-  "warnings"?: (Array<(string)>);
-});
-
-type HttpInline_7f887d7b9f6e59a8_HttpError = ({
-  "detail": (HttpInline_7f887d7b9f6e59a8_JsonValue);
-});
-
-type HttpInline_7f887d7b9f6e59a8_JsonValue = JsonValue;
-
-export type HttpInline_7f887d7b9f6e59a8 = (((HttpInline_7f887d7b9f6e59a8_HttpError)) | ((HttpInline_7f887d7b9f6e59a8_ActionResult)));
 
 export type HttpInline_82725dbbd3ae1c27 = ({
   "limit"?: (number);
@@ -8797,20 +8655,22 @@ export type HttpInline_96a5d2705cf3cbbb = ({
 });
 
 type HttpInline_9886baa4a5a5ff4c_ReviewRowsRequest = ({
+  "copied_op_id"?: (((number)) | ((null)));
   "field_id"?: (((number)) | ((null)));
   "include_reviewed"?: (boolean);
   "kind": ("rows") & (string);
   "row_ids": (Array<(number)>);
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
 });
 
 type HttpInline_9886baa4a5a5ff4c_ReviewSampleRequest = ({
+  "copied_op_id"?: (((number)) | ((null)));
   "exclude_row_ids"?: (Array<(number)>);
   "field_id"?: (((number)) | ((null)));
   "include_reviewed"?: (boolean);
   "kind": ("sample") & (string);
   "limit"?: (number);
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_9886baa4a5a5ff4c = (((HttpInline_9886baa4a5a5ff4c_ReviewSampleRequest)) | ((HttpInline_9886baa4a5a5ff4c_ReviewRowsRequest)));
@@ -9190,21 +9050,20 @@ export type HttpInline_a5c066f1e650ddc3 = ({
   "pid": (string);
 });
 
-export type HttpInline_a6247dddcbd3bdf2 = ({
-  "column_ids"?: (string);
-  "filter"?: (string);
-  "include_scope_metadata"?: (boolean);
-  "limit"?: (number);
-  "offset"?: (number);
-  "parent_row_id"?: (number);
-  "row_ids"?: (string);
-  "scope_row_ids"?: (string);
-  "sort"?: (string);
-  "value_mode"?: ("exact" | "bounded") & (string);
-});
-
 export type HttpInline_a84ebabaf698eacd = ({
   "include_stale"?: (boolean);
+});
+
+export type HttpInline_a9196f16735a20ed = ({
+  "copied_op_id"?: (((number)) | ((null)));
+  "cursor"?: (((number)) | ((null)));
+  "field_id"?: (((number)) | ((null)));
+  "include_reviewed"?: (boolean);
+  "limit"?: (number);
+  "offset"?: (number);
+  "order"?: ("confidence" | "row") & (string);
+  "run_id"?: (((number)) | ((null)));
+  "sheet_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_a95e0d1832ce1bc0 = ({
@@ -9335,6 +9194,14 @@ export type HttpInline_b4fba50c46a3827d = ({
   "sheet_id": (number);
 });
 
+export type HttpInline_b598bc6015ad36bc = ({
+  "copied_op_id"?: (((number)) | ((null)));
+  "limit"?: (number);
+  "offset"?: (number);
+  "run_id"?: (((number)) | ((null)));
+  "sheet_id"?: (((number)) | ((null)));
+});
+
 export type HttpInline_b782b1851b85e75a = ({
   "sample_id": (string);
 });
@@ -9458,13 +9325,6 @@ export type HttpInline_c9a2f2dc803f9a8b = ({
 
 export type HttpInline_c9f18fae6ecff1c4 = ({
   "email": (string);
-});
-
-export type HttpInline_ca8048e52b1f7635 = ({
-  "limit"?: (number);
-  "offset"?: (number);
-  "run_id"?: (((number)) | ((null)));
-  "sheet_id"?: (((number)) | ((null)));
 });
 
 export type HttpInline_cd5e2492515e7874 = ({
@@ -9598,14 +9458,6 @@ export type HttpInline_ea344a672c4198f0 = ({
   "node_size_column_id"?: (((number)) | ((null)));
 });
 
-export type HttpInline_eabc0e7195ba3d01 = ({
-  "filter"?: (((string)) | ((null)));
-  "force"?: (boolean);
-  "parent_row_id"?: (((number)) | ((null)));
-  "scope_row_ids"?: (((string)) | ((null)));
-  "sort"?: (((string)) | ((null)));
-});
-
 export type HttpInline_ec5c454245a08c93 = ({
   "skill_id": (string);
 });
@@ -9648,62 +9500,14 @@ export type HttpInline_eefa27bb2810a1d9 = ({
   "encoding"?: (((string)) | ((null)));
 });
 
-type HttpInline_f106ec7345e46bb8_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_f106ec7345e46bb8_ActionIdentity = ({
-  "action_id": (string);
-  "kind": (string);
-});
-
-type HttpInline_f106ec7345e46bb8_ActionOutput = (HttpInline_f106ec7345e46bb8_ActionOutputPayload);
-
-type HttpInline_f106ec7345e46bb8_ActionOutputPayload = ({
-  "column_id"?: (((number)) | ((null)));
-  "kind": (string);
-  "name"?: (((string)) | ((null)));
-  "ref"?: ({
-  [key: string]: JsonValue;
-});
-  "row_ids"?: (Array<(number)>);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
-type HttpInline_f106ec7345e46bb8_ActionResult = ({
-  "action": (HttpInline_f106ec7345e46bb8_ActionIdentity);
-  "errors"?: (Array<(HttpInline_f106ec7345e46bb8_ActionError)>);
-  "job_id"?: (((number)) | ((null)));
-  "op_ids"?: (Array<(number)>);
-  "outputs"?: (Array<(HttpInline_f106ec7345e46bb8_ActionOutput)>);
-  "project_id": (string);
-  "receipt_id"?: (((string)) | ((null)));
-  "run_id"?: (((number)) | ((null)));
-  "schema_version"?: ("frisket.action_result.v1") & (string);
-  "status": ("needs_confirmation" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
-  "value"?: (((HttpInline_f106ec7345e46bb8_JsonValue)) | ((null)));
-  "warnings"?: (Array<(string)>);
-});
-
-type HttpInline_f106ec7345e46bb8_HttpError = ({
-  "detail": (HttpInline_f106ec7345e46bb8_JsonValue);
-});
-
-type HttpInline_f106ec7345e46bb8_JsonValue = JsonValue;
-
-export type HttpInline_f106ec7345e46bb8 = (((HttpInline_f106ec7345e46bb8_HttpError)) | ((HttpInline_f106ec7345e46bb8_ActionResult)));
-
 export type HttpInline_f1d457c20e1408b0 = ({
   "pid": (string);
   "plugin_id": (string);
+});
+
+export type HttpInline_f261ecab124bee39 = ({
+  "limit"?: (number);
+  "offset"?: (number);
 });
 
 export type HttpInline_f3d1f0a8a5bb42df = ({
@@ -9718,15 +9522,6 @@ export type HttpInline_f5786d802e3fc311 = ({
 export type HttpInline_f77fe33af308beb7 = ({
   "column_id": (number);
   "pid": (string);
-});
-
-export type HttpInline_f7cbd8861ad808a4 = ({
-  "filter"?: (((string)) | ((null)));
-  "page_size"?: (number);
-  "parent_row_id"?: (((number)) | ((null)));
-  "row_ids"?: (((string)) | ((null)));
-  "scope_row_ids"?: (((string)) | ((null)));
-  "sort"?: (((string)) | ((null)));
 });
 
 export type HttpInline_f7ec914a3915e01f = ({
@@ -11656,6 +11451,8 @@ export type HttpPdfPacketPageResponse = ({
   "thumbnail_url": (string);
 });
 
+type HttpPdfPacketSheetCreateRequest_JsonValue = JsonValue;
+
 type HttpPdfPacketSheetCreateRequest_PdfPacketCachedAnchor = ({
   "index": (number);
   "row_id": (number);
@@ -11664,6 +11461,51 @@ type HttpPdfPacketSheetCreateRequest_PdfPacketCachedAnchor = ({
 type HttpPdfPacketSheetCreateRequest_PdfPacketIndexRange = ({
   "end": (number);
   "start": (number);
+});
+
+type HttpPdfPacketSheetCreateRequest_ViewColumnOrder = ({
+  "column_id": (number);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type HttpPdfPacketSheetCreateRequest_ViewFilter = ({
+  "column_id": (number);
+  "condition": ({
+  [key: string]: (HttpPdfPacketSheetCreateRequest_JsonValue);
+});
+});
+
+type HttpPdfPacketSheetCreateRequest_ViewProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type HttpPdfPacketSheetCreateRequest_ViewScoreOrder = ({
+  "dir"?: ("asc" | "desc") & (string);
+  "score": ("search" | "similarity") & (string);
+});
+
+type HttpPdfPacketSheetCreateRequest_ViewSearch = ({
+  "text": (string);
+});
+
+type HttpPdfPacketSheetCreateRequest_ViewSelection = ({
+  "filters"?: (Array<(HttpPdfPacketSheetCreateRequest_ViewFilter)>);
+  "limit"?: (((number)) | ((null)));
+  "order"?: (Array<(((HttpPdfPacketSheetCreateRequest_ViewColumnOrder)) | ((HttpPdfPacketSheetCreateRequest_ViewScoreOrder)))>);
+  "rank_constant"?: (((number)) | ((null)));
+  "ranking"?: ((("hybrid") & (string)) | ((null)));
+  "scope": (((HttpPdfPacketSheetCreateRequest_ViewSheetScope)) | ((HttpPdfPacketSheetCreateRequest_ViewProjectScope)));
+  "search"?: (((HttpPdfPacketSheetCreateRequest_ViewSearch)) | ((null)));
+  "similarity"?: ((({
+  [key: string]: (HttpPdfPacketSheetCreateRequest_JsonValue);
+})) | ((null)));
+});
+
+type HttpPdfPacketSheetCreateRequest_ViewSheetScope = ({
+  "kind": ("sheet") & (string);
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
 });
 
 export type HttpPdfPacketSheetCreateRequest = ({
@@ -11678,8 +11520,56 @@ export type HttpPdfPacketSheetCreateRequest = ({
   "scope_row_ids"?: (((Array<(number)>)) | ((null)));
   "selected_index_ranges"?: (((Array<(HttpPdfPacketSheetCreateRequest_PdfPacketIndexRange)>)) | ((null)));
   "selected_row_ids"?: (((Array<(number)>)) | ((null)));
+  "selection"?: (((HttpPdfPacketSheetCreateRequest_ViewSelection)) | ((null)));
   "sheet_id": (number);
   "sort"?: (((string)) | ((null)));
+});
+
+type HttpPdfPacketSheetScopeRequest_JsonValue = JsonValue;
+
+type HttpPdfPacketSheetScopeRequest_ViewColumnOrder = ({
+  "column_id": (number);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type HttpPdfPacketSheetScopeRequest_ViewFilter = ({
+  "column_id": (number);
+  "condition": ({
+  [key: string]: (HttpPdfPacketSheetScopeRequest_JsonValue);
+});
+});
+
+type HttpPdfPacketSheetScopeRequest_ViewProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type HttpPdfPacketSheetScopeRequest_ViewScoreOrder = ({
+  "dir"?: ("asc" | "desc") & (string);
+  "score": ("search" | "similarity") & (string);
+});
+
+type HttpPdfPacketSheetScopeRequest_ViewSearch = ({
+  "text": (string);
+});
+
+type HttpPdfPacketSheetScopeRequest_ViewSelection = ({
+  "filters"?: (Array<(HttpPdfPacketSheetScopeRequest_ViewFilter)>);
+  "limit"?: (((number)) | ((null)));
+  "order"?: (Array<(((HttpPdfPacketSheetScopeRequest_ViewColumnOrder)) | ((HttpPdfPacketSheetScopeRequest_ViewScoreOrder)))>);
+  "rank_constant"?: (((number)) | ((null)));
+  "ranking"?: ((("hybrid") & (string)) | ((null)));
+  "scope": (((HttpPdfPacketSheetScopeRequest_ViewSheetScope)) | ((HttpPdfPacketSheetScopeRequest_ViewProjectScope)));
+  "search"?: (((HttpPdfPacketSheetScopeRequest_ViewSearch)) | ((null)));
+  "similarity"?: ((({
+  [key: string]: (HttpPdfPacketSheetScopeRequest_JsonValue);
+})) | ((null)));
+});
+
+type HttpPdfPacketSheetScopeRequest_ViewSheetScope = ({
+  "kind": ("sheet") & (string);
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
 });
 
 export type HttpPdfPacketSheetScopeRequest = ({
@@ -11688,6 +11578,7 @@ export type HttpPdfPacketSheetScopeRequest = ({
   "ranked_row_ids"?: (((Array<(number)>)) | ((null)));
   "scope": ("selected" | "filtered" | "all") & (string);
   "scope_row_ids"?: (((Array<(number)>)) | ((null)));
+  "selection"?: (((HttpPdfPacketSheetScopeRequest_ViewSelection)) | ((null)));
   "sheet_id": (number);
   "sort"?: (((string)) | ((null)));
 });
@@ -13101,14 +12992,16 @@ type HttpReviewBundlesPage_ReviewBundle = ({
   "action_kind": (string);
   "action_name": (string);
   "confidence": (((number)) | ((null)));
+  "copied_op_id"?: (((number)) | ((null)));
   "evidence": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
+  "execution_run_id"?: (((number)) | ((null)));
   "fields": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
   "id": (string);
   "items": (Array<(HttpReviewBundlesPage_ReviewBundleItem)>);
   "model": (((string)) | ((null)));
   "review_note"?: (((string)) | ((null)));
   "row_id": (number);
-  "run_id": (number);
+  "run_id": (((number)) | ((null)));
   "sheet_id": (number);
   "sheet_name": (string);
   "source": ({
@@ -13118,6 +13011,7 @@ type HttpReviewBundlesPage_ReviewBundle = ({
 });
 
 type HttpReviewBundlesPage_ReviewBundleItem = ({
+  "applied"?: (boolean);
   "bounded_justification"?: (((HttpReviewBundlesPage_ReviewBoundedText)) | ((null)));
   "bounded_value"?: (((HttpReviewBundlesPage_ReviewBoundedText)) | ((null)));
   "can_edit": (boolean);
@@ -13127,6 +13021,7 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
   "column_name": (string);
   "column_type": (string);
   "confidence": (((number)) | ((null)));
+  "copied_op_id"?: (((number)) | ((null)));
   "error": (((string)) | ((null)));
   "format"?: (((string)) | ((null)));
   "justification": (((string)) | ((null)));
@@ -13136,7 +13031,7 @@ type HttpReviewBundlesPage_ReviewBundleItem = ({
   "review_state": (((string)) | ((null)));
   "role": ("field" | "evidence") & (string);
   "row_id": (number);
-  "run_id": (number);
+  "run_id": (((number)) | ((null)));
   "semantic_type"?: (((string)) | ((null)));
   "sheet_id": (number);
   "value": (HttpReviewBundlesPage_JsonValue);
@@ -13190,11 +13085,15 @@ type HttpReviewRunsPage_ReviewDecisionCounts = ({
 type HttpReviewRunsPage_ReviewRun = ({
   "action_kind": (string);
   "action_name": (string);
+  "copied_op_id"?: (((number)) | ((null)));
   "fields": (Array<(HttpReviewRunsPage_ReviewRunField)>);
   "model": (((string)) | ((null)));
+  "outputs"?: (Array<(HttpReviewRunsPage_ReviewSavedOutput)>);
+  "retry_supported"?: (boolean);
   "review_completed_at": (((string)) | ((null)));
   "review_status": ("open" | "complete") & (string);
-  "run_id": (number);
+  "run_id"?: (((number)) | ((null)));
+  "running"?: (boolean);
   "sheet_id": (number);
   "sheet_name": (string);
   "started_at": (string);
@@ -13211,6 +13110,13 @@ type HttpReviewRunsPage_ReviewRunField = ({
   "incorrect_count": (number);
   "reviewed_count": (number);
   "unreviewed_count": (number);
+});
+
+type HttpReviewRunsPage_ReviewSavedOutput = ({
+  "column_id": (number);
+  "column_name": (string);
+  "column_type": (string);
+  "key": (string);
 });
 
 export type HttpReviewRunsPage = ({
@@ -13279,6 +13185,7 @@ export type HttpRowSourceDocumentsResponse = ({
   "ancestry_found": (boolean);
   "documents": (Array<(HttpRowSourceDocumentsResponse_RowSourceDocument)>);
   "evidence_links": (Array<(HttpRowSourceDocumentsResponse_EvidenceLinkSummary)>);
+  "lineage_freshness"?: ((("synced" | "stale" | "unknown" | "checking") & (string)) | ((null)));
   "lineage_stale": (boolean);
   "row_id": (number);
   "schema_version": ("frisket.row_source_documents.v1") & (string);
@@ -13581,84 +13488,6 @@ export type HttpSavedComparisons = ({
   "items": (Array<(HttpSavedComparisons_SavedComparisonSummary)>);
 });
 
-type HttpSavedLens_JsonValue = JsonValue;
-
-export type HttpSavedLens = ({
-  "created_at": (string);
-  "id": (number);
-  "name": (string);
-  "op_id": (((number)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "spec": ({
-  [key: string]: (HttpSavedLens_JsonValue);
-});
-  "updated_at": (string);
-});
-
-type HttpSavedLensCreateRequest_JsonValue = JsonValue;
-
-export type HttpSavedLensCreateRequest = ({
-  "name": (string);
-  "presentation"?: ((({
-  [key: string]: (HttpSavedLensCreateRequest_JsonValue);
-})) | ((null)));
-  "query": ({
-  [key: string]: (HttpSavedLensCreateRequest_JsonValue);
-});
-  [key: string]: JsonValue | (string) | ((({
-  [key: string]: (HttpSavedLensCreateRequest_JsonValue);
-})) | ((null))) | ({
-  [key: string]: (HttpSavedLensCreateRequest_JsonValue);
-}) | undefined;
-});
-
-type HttpSavedLensList_JsonValue = JsonValue;
-
-type HttpSavedLensList_SavedLens = ({
-  "created_at": (string);
-  "id": (number);
-  "name": (string);
-  "op_id": (((number)) | ((null)));
-  "sheet_id": (((number)) | ((null)));
-  "spec": ({
-  [key: string]: (HttpSavedLensList_JsonValue);
-});
-  "updated_at": (string);
-});
-
-export type HttpSavedLensList = (Array<(HttpSavedLensList_SavedLens)>);
-
-type HttpSavedLensResolved_JsonValue = JsonValue;
-
-type HttpSavedLensResolved_SavedLensResolveEvaluator = ({
-  "kind": (string);
-  "version": (string);
-});
-
-type HttpSavedLensResolved_SavedLensResolveScore = ({
-  "distance": (((number)) | ((null)));
-  "score": (((number)) | ((null)));
-});
-
-export type HttpSavedLensResolved = ({
-  "evaluator": (HttpSavedLensResolved_SavedLensResolveEvaluator);
-  "lens_id": (number);
-  "limit": (number);
-  "offset": (number);
-  "query": ({
-  [key: string]: (HttpSavedLensResolved_JsonValue);
-});
-  "query_hash": (string);
-  "row_count": (number);
-  "row_ids": (Array<(number)>);
-  "schema_version": ("frisket.query_preview.v1") & (string);
-  "scores": ({
-  [key: string]: (HttpSavedLensResolved_SavedLensResolveScore);
-});
-  "sheet_id": (number);
-  "total": (number);
-});
-
 type HttpSavedView_JsonValue = JsonValue;
 
 export type HttpSavedView = ({
@@ -13666,37 +13495,121 @@ export type HttpSavedView = ({
   "id": (number);
   "name": (string);
   "op_id": (((number)) | ((null)));
-  "sheet_id": (number);
+  "sheet_id": (((number)) | ((null)));
   "spec": ({
   [key: string]: (HttpSavedView_JsonValue);
 });
+  "unavailable_reason": (((string)) | ((null)));
   "updated_at": (string);
 });
 
 type HttpSavedViewCreateRequest_JsonValue = JsonValue;
 
-export type HttpSavedViewCreateRequest = ({
-  "column_groups"?: (((Array<(HttpSavedViewCreateRequest_JsonValue)>)) | ((null)));
-  "columns"?: (((Array<(HttpSavedViewCreateRequest_JsonValue)>)) | ((null)));
-  "filter": ({
+type HttpSavedViewCreateRequest_ViewColumnOrder = ({
+  "column_id": (number);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type HttpSavedViewCreateRequest_ViewFilter = ({
+  "column_id": (number);
+  "condition": ({
   [key: string]: (HttpSavedViewCreateRequest_JsonValue);
 });
-  "name": (string);
-  "scope_row_ids"?: (((Array<(number)>)) | ((null)));
+});
+
+type HttpSavedViewCreateRequest_ViewProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type HttpSavedViewCreateRequest_ViewScoreOrder = ({
+  "dir"?: ("asc" | "desc") & (string);
+  "score": ("search" | "similarity") & (string);
+});
+
+type HttpSavedViewCreateRequest_ViewSearch = ({
+  "text": (string);
+});
+
+type HttpSavedViewCreateRequest_ViewSelection = ({
+  "filters"?: (Array<(HttpSavedViewCreateRequest_ViewFilter)>);
+  "limit"?: (((number)) | ((null)));
+  "order"?: (Array<(((HttpSavedViewCreateRequest_ViewColumnOrder)) | ((HttpSavedViewCreateRequest_ViewScoreOrder)))>);
+  "rank_constant"?: (((number)) | ((null)));
+  "ranking"?: ((("hybrid") & (string)) | ((null)));
+  "scope": (((HttpSavedViewCreateRequest_ViewSheetScope)) | ((HttpSavedViewCreateRequest_ViewProjectScope)));
+  "search"?: (((HttpSavedViewCreateRequest_ViewSearch)) | ((null)));
+  "similarity"?: ((({
+  [key: string]: (HttpSavedViewCreateRequest_JsonValue);
+})) | ((null)));
+});
+
+type HttpSavedViewCreateRequest_ViewSheetScope = ({
+  "kind": ("sheet") & (string);
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((Array<(number)>)) | ((null)));
   "sheet_id": (number);
-  "sort"?: (((Array<(HttpSavedViewCreateRequest_JsonValue)>)) | ((null)));
+});
+
+export type HttpSavedViewCreateRequest = ({
+  "name": (string);
+  "presentation"?: ((({
+  [key: string]: (HttpSavedViewCreateRequest_JsonValue);
+})) | ((null)));
+  "selection": (HttpSavedViewCreateRequest_ViewSelection);
 });
 
 type HttpSavedViewDefinitionReplaceRequest_JsonValue = JsonValue;
 
-export type HttpSavedViewDefinitionReplaceRequest = ({
-  "column_groups": (((Array<(HttpSavedViewDefinitionReplaceRequest_JsonValue)>)) | ((null)));
-  "columns": (((Array<(HttpSavedViewDefinitionReplaceRequest_JsonValue)>)) | ((null)));
-  "filter": ({
+type HttpSavedViewDefinitionReplaceRequest_ViewColumnOrder = ({
+  "column_id": (number);
+  "dir"?: ("asc" | "desc") & (string);
+});
+
+type HttpSavedViewDefinitionReplaceRequest_ViewFilter = ({
+  "column_id": (number);
+  "condition": ({
   [key: string]: (HttpSavedViewDefinitionReplaceRequest_JsonValue);
 });
-  "scope_row_ids"?: (((Array<(number)>)) | ((null)));
-  "sort": (((Array<(HttpSavedViewDefinitionReplaceRequest_JsonValue)>)) | ((null)));
+});
+
+type HttpSavedViewDefinitionReplaceRequest_ViewProjectScope = ({
+  "kind": ("project") & (string);
+});
+
+type HttpSavedViewDefinitionReplaceRequest_ViewScoreOrder = ({
+  "dir"?: ("asc" | "desc") & (string);
+  "score": ("search" | "similarity") & (string);
+});
+
+type HttpSavedViewDefinitionReplaceRequest_ViewSearch = ({
+  "text": (string);
+});
+
+type HttpSavedViewDefinitionReplaceRequest_ViewSelection = ({
+  "filters"?: (Array<(HttpSavedViewDefinitionReplaceRequest_ViewFilter)>);
+  "limit"?: (((number)) | ((null)));
+  "order"?: (Array<(((HttpSavedViewDefinitionReplaceRequest_ViewColumnOrder)) | ((HttpSavedViewDefinitionReplaceRequest_ViewScoreOrder)))>);
+  "rank_constant"?: (((number)) | ((null)));
+  "ranking"?: ((("hybrid") & (string)) | ((null)));
+  "scope": (((HttpSavedViewDefinitionReplaceRequest_ViewSheetScope)) | ((HttpSavedViewDefinitionReplaceRequest_ViewProjectScope)));
+  "search"?: (((HttpSavedViewDefinitionReplaceRequest_ViewSearch)) | ((null)));
+  "similarity"?: ((({
+  [key: string]: (HttpSavedViewDefinitionReplaceRequest_JsonValue);
+})) | ((null)));
+});
+
+type HttpSavedViewDefinitionReplaceRequest_ViewSheetScope = ({
+  "kind": ("sheet") & (string);
+  "parent_row_id"?: (((number)) | ((null)));
+  "row_ids"?: (((Array<(number)>)) | ((null)));
+  "sheet_id": (number);
+});
+
+export type HttpSavedViewDefinitionReplaceRequest = ({
+  "presentation"?: ((({
+  [key: string]: (HttpSavedViewDefinitionReplaceRequest_JsonValue);
+})) | ((null)));
+  "selection": (HttpSavedViewDefinitionReplaceRequest_ViewSelection);
 });
 
 export type HttpSavedViewDelete = ({
@@ -13711,10 +13624,11 @@ type HttpSavedViewList_SavedView = ({
   "id": (number);
   "name": (string);
   "op_id": (((number)) | ((null)));
-  "sheet_id": (number);
+  "sheet_id": (((number)) | ((null)));
   "spec": ({
   [key: string]: (HttpSavedViewList_JsonValue);
 });
+  "unavailable_reason": (((string)) | ((null)));
   "updated_at": (string);
 });
 
@@ -13722,6 +13636,23 @@ export type HttpSavedViewList = (Array<(HttpSavedViewList_SavedView)>);
 
 export type HttpSavedViewRenameRequest = ({
   "name": (string);
+});
+
+type HttpSavedViewResolved_ViewRowRef = ({
+  "relevance_score": (((number)) | ((null)));
+  "row_id": (number);
+  "search_score": (((number)) | ((null)));
+  "sheet_id": (number);
+  "similarity_score": (((number)) | ((null)));
+});
+
+export type HttpSavedViewResolved = ({
+  "limit": (number);
+  "offset": (number);
+  "query_hash": (string);
+  "refs": (Array<(HttpSavedViewResolved_ViewRowRef)>);
+  "total": (number);
+  "view_id": (number);
 });
 
 type HttpSearchPreparationBatch_ActionFileWorkProgress = ({
@@ -13746,6 +13677,7 @@ type HttpSearchPreparationBatch_ActionJobProgress = ({
   "preparation"?: (((HttpSearchPreparationBatch_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpSearchPreparationBatch_ActionRunQueue)) | ((HttpSearchPreparationBatch_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpSearchPreparationBatch_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
@@ -13889,6 +13821,7 @@ type HttpSearchPreparationBatchList_ActionJobProgress = ({
   "preparation"?: (((HttpSearchPreparationBatchList_ActionPreparationHint)) | ((null)));
   "queue"?: (((HttpSearchPreparationBatchList_ActionRunQueue)) | ((HttpSearchPreparationBatchList_ActionRunMissingQueue)) | ((null)));
   "remaining": (number);
+  "retry_supported"?: (boolean);
   "row_errors"?: (((HttpSearchPreparationBatchList_RunRowErrorSummary)) | ((null)));
   "run_id": (number);
   "sheet_id": (number);
@@ -14362,6 +14295,12 @@ export type HttpSheet = ({
 
 type HttpSheetData_JsonValue = JsonValue;
 
+type HttpSheetData_RetainedResultRef = ({
+  "column_id": (number);
+  "row_id": (number);
+  "run_id": (number);
+});
+
 type HttpSheetData_SheetDataBoundedValue = ({
   "manual_edit_byte_limit": (65536) & (number);
   "manual_editable": (false) & (boolean);
@@ -14433,7 +14372,10 @@ type HttpSheetData_SheetDataValueRef = ({
   "column_id": (number);
   "kind": (string);
   "op_id": (((number)) | ((null)));
+  "outcome"?: ((("completed" | "pending" | "failed" | "not_completed") & (string)) | ((null)));
   "prepared_ref_id"?: (((number)) | ((null)));
+  "producer_id"?: (((number)) | ((null)));
+  "retained_result"?: (((HttpSheetData_RetainedResultRef)) | ((null)));
   "row_id": (number);
   "run_id": (((number)) | ((null)));
 });
@@ -14700,6 +14642,14 @@ type HttpTableImportDestinationRequest_TableImportExistingColumnTarget = ({
 type HttpTableImportDestinationRequest_TableImportExistingDestination = ({
   "kind": ("existing") & (string);
   "sheet_id": (number);
+  "update"?: (((HttpTableImportDestinationRequest_TableImportKeyedUpdate)) | ((null)));
+});
+
+type HttpTableImportDestinationRequest_TableImportKeyedUpdate = ({
+  "keep_existing_on_blank"?: (boolean);
+  "key_source_indices": (Array<(number)>);
+  "policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 type HttpTableImportDestinationRequest_TableImportMappingRequest = ({
@@ -14798,6 +14748,7 @@ type HttpTableImportDraft_TableImportDestination = ({
   "configuration": (((HttpTableImportDraft_TableImportNewDestination)) | ((HttpTableImportDraft_TableImportExistingDestination)));
   "dedup": (HttpTableImportDraft_TableImportDedup);
   "mappings": (Array<(HttpTableImportDraft_TableImportMapping)>);
+  "update_relationships"?: (Array<(HttpTableImportDraft_TableImportUpdateRelationship)>);
 });
 
 type HttpTableImportDraft_TableImportDestinationComparison = ({
@@ -14819,6 +14770,7 @@ type HttpTableImportDraft_TableImportExistingColumnTarget = ({
 type HttpTableImportDraft_TableImportExistingDestination = ({
   "kind": ("existing") & (string);
   "sheet_id": (number);
+  "update"?: (((HttpTableImportDraft_TableImportKeyedUpdate)) | ((null)));
 });
 
 type HttpTableImportDraft_TableImportIssueCounts = ({
@@ -14826,6 +14778,13 @@ type HttpTableImportDraft_TableImportIssueCounts = ({
   "malformed_records"?: (number);
   "missing_values"?: (number);
   "unreadable_cells"?: (number);
+});
+
+type HttpTableImportDraft_TableImportKeyedUpdate = ({
+  "keep_existing_on_blank"?: (boolean);
+  "key_source_indices": (Array<(number)>);
+  "policy"?: ("keep_changes" | "incoming_wins") & (string);
+  "relationship_id"?: (((string)) | ((null)));
 });
 
 type HttpTableImportDraft_TableImportMapping = ({
@@ -14936,6 +14895,12 @@ type HttpTableImportDraft_TableImportSourceColumn = ({
   "name": (string);
   "name_status": ("original" | "duplicate" | "missing") & (string);
   "original_name": (((string)) | ((null)));
+});
+
+type HttpTableImportDraft_TableImportUpdateRelationship = ({
+  "key_column_ids": (Array<(number)>);
+  "label": (string);
+  "relationship_id": (string);
 });
 
 export type HttpTableImportDraft = ({
@@ -15480,14 +15445,10 @@ export type HttpWatch = ({
   "last_status": (((string)) | ((null)));
   "latest_run": (((HttpWatch_WatchRun)) | ((null)));
   "name": (string);
-  "query": ({
-  [key: string]: (HttpWatch_JsonValue);
-});
-  "query_hash": (((string)) | ((null)));
-  "query_version": (((string)) | ((null)));
-  "scope": (string);
+  "schedule": (((string)) | ((null)));
   "sheet_id": (((number)) | ((null)));
   "updated_at": (string);
+  "view_id": (number);
 });
 
 type HttpWatchCreateRequest_JsonValue = JsonValue;
@@ -15498,12 +15459,8 @@ export type HttpWatchCreateRequest = ({
 })) | ((null)));
   "enabled"?: (boolean);
   "name": (string);
-  "query": ({
-  [key: string]: (HttpWatchCreateRequest_JsonValue);
-});
-  "scope"?: ((({
-  [key: string]: (HttpWatchCreateRequest_JsonValue);
-})) | ((null)));
+  "schedule"?: (((string)) | ((null)));
+  "view_id": (number);
 });
 
 export type HttpWatchDelete = ({
@@ -15525,14 +15482,10 @@ type HttpWatchList_Watch = ({
   "last_status": (((string)) | ((null)));
   "latest_run": (((HttpWatchList_WatchRun)) | ((null)));
   "name": (string);
-  "query": ({
-  [key: string]: (HttpWatchList_JsonValue);
-});
-  "query_hash": (((string)) | ((null)));
-  "query_version": (((string)) | ((null)));
-  "scope": (string);
+  "schedule": (((string)) | ((null)));
   "sheet_id": (((number)) | ((null)));
   "updated_at": (string);
+  "view_id": (number);
 });
 
 type HttpWatchList_WatchRun = ({
@@ -15555,9 +15508,15 @@ type HttpWatchList_WatchRun = ({
 
 export type HttpWatchList = (Array<(HttpWatchList_Watch)>);
 
+type HttpWatchPatchRequest_JsonValue = JsonValue;
+
 export type HttpWatchPatchRequest = ({
+  "detection_policy"?: ((({
+  [key: string]: (HttpWatchPatchRequest_JsonValue);
+})) | ((null)));
   "enabled"?: (((boolean)) | ((null)));
   "name"?: (((string)) | ((null)));
+  "schedule"?: (((string)) | ((null)));
 });
 
 type HttpWatchRunEventsPage_JsonValue = JsonValue;
@@ -15611,14 +15570,10 @@ type HttpWatchRunResult_Watch = ({
   "last_status": (((string)) | ((null)));
   "latest_run": (((HttpWatchRunResult_WatchRun)) | ((null)));
   "name": (string);
-  "query": ({
-  [key: string]: (HttpWatchRunResult_JsonValue);
-});
-  "query_hash": (((string)) | ((null)));
-  "query_version": (((string)) | ((null)));
-  "scope": (string);
+  "schedule": (((string)) | ((null)));
   "sheet_id": (((number)) | ((null)));
   "updated_at": (string);
+  "view_id": (number);
 });
 
 type HttpWatchRunResult_WatchHit = ({
@@ -16798,7 +16753,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.browse_sheet_documents.get": {
     readonly pathParams: HttpInline_fa1495952891aea0;
-    readonly query: HttpInline_7d6bd08839bc6472;
+    readonly query: HttpInline_3e68b314eff9727c;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpDocumentPage;
@@ -16969,7 +16924,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.column_stats.get": {
     readonly pathParams: HttpInline_9b0ab189ab042a9c;
-    readonly query: HttpInline_eabc0e7195ba3d01;
+    readonly query: HttpInline_1f8de0f008cb81bf;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpColumnStats;
@@ -17093,21 +17048,6 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "507": HttpError;
-    };
-  };
-  readonly "tenant.create_lens.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpSavedLensCreateRequest;
-    readonly responses: {
-      readonly "200": HttpSavedLens;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
     };
   };
   readonly "tenant.create_local_endpoint.post": {
@@ -17315,6 +17255,7 @@ export type HttpContractOperationMap = {
     readonly request: HttpSavedViewCreateRequest;
     readonly responses: {
       readonly "200": HttpSavedView;
+      readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
@@ -17492,6 +17433,7 @@ export type HttpContractOperationMap = {
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSavedViewDelete;
+      readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
@@ -18598,21 +18540,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.import_csv_update_preview.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_eefa27bb2810a1d9;
-    readonly request: FormData;
-    readonly responses: {
-      readonly "200": HttpImportUpdatePreviewResponse;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "413": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "tenant.import_files.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_9c1f78de9747e7df;
@@ -18702,20 +18629,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpInline_d89a2ac461d6e692;
     };
   };
-  readonly "tenant.import_update_preview.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpImportUpdatePreviewBody;
-    readonly responses: {
-      readonly "200": HttpImportUpdatePreviewResponse;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "tenant.import_urls.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -18763,21 +18676,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.import_xlsx_update_preview.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: FormData;
-    readonly responses: {
-      readonly "200": HttpImportUpdatePreviewResponse;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "413": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "tenant.list_column_types.get": {
     readonly pathParams: HttpInline_d746974fa9afd5e9;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -18811,20 +18709,6 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "507": HttpError;
-    };
-  };
-  readonly "tenant.list_lenses.get": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_ed465fdc9da8ce19;
-    readonly request: undefined;
-    readonly responses: {
-      readonly "200": HttpSavedLensList;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
     };
   };
   readonly "tenant.list_mcp_servers.get": {
@@ -19036,6 +18920,7 @@ export type HttpContractOperationMap = {
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSavedViewList;
+      readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
@@ -19098,7 +18983,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.locate_sheet_row.get": {
     readonly pathParams: HttpInline_38aa6fedb0c0d4ef;
-    readonly query: HttpInline_f7cbd8861ad808a4;
+    readonly query: HttpInline_4f6b33f41c3e2dad;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSheetRowLocation;
@@ -19256,6 +19141,7 @@ export type HttpContractOperationMap = {
     readonly request: HttpSavedViewRenameRequest;
     readonly responses: {
       readonly "200": HttpSavedView;
+      readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
@@ -19729,6 +19615,7 @@ export type HttpContractOperationMap = {
     readonly request: HttpSavedViewDefinitionReplaceRequest;
     readonly responses: {
       readonly "200": HttpSavedView;
+      readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;
       readonly "404": HttpError;
@@ -19787,12 +19674,12 @@ export type HttpContractOperationMap = {
       readonly "507": HttpError;
     };
   };
-  readonly "tenant.resolve_lens.get": {
-    readonly pathParams: HttpInline_7daea3dbdfe86f78;
-    readonly query: HttpInline_766f205ee1bdd9db;
+  readonly "tenant.resolve_view.get": {
+    readonly pathParams: HttpInline_4790cdea41e01e69;
+    readonly query: HttpInline_f261ecab124bee39;
     readonly request: undefined;
     readonly responses: {
-      readonly "200": HttpSavedLensResolved;
+      readonly "200": HttpSavedViewResolved;
       readonly "400": HttpError;
       readonly "401": HttpError;
       readonly "403": HttpError;
@@ -19852,7 +19739,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.review_bundles_ep.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_3eeec944bc84ce8c;
+    readonly query: HttpInline_a9196f16735a20ed;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpReviewBundlesPage;
@@ -19891,7 +19778,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.review_runs_ep.get": {
     readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_ca8048e52b1f7635;
+    readonly query: HttpInline_b598bc6015ad36bc;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpReviewRunsPage;
@@ -20204,7 +20091,7 @@ export type HttpContractOperationMap = {
   };
   readonly "tenant.sheet_data.get": {
     readonly pathParams: HttpInline_fa1495952891aea0;
-    readonly query: HttpInline_a6247dddcbd3bdf2;
+    readonly query: HttpInline_176b8105887ae602;
     readonly request: undefined;
     readonly responses: {
       readonly "200": HttpSheetData;
@@ -20434,23 +20321,6 @@ export type HttpContractOperationMap = {
       readonly "503": HttpError;
     };
   };
-  readonly "tenant.update_csv.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_eefa27bb2810a1d9;
-    readonly request: FormData;
-    readonly responses: {
-      readonly "200": HttpImportCsvResponse;
-      readonly "400": HttpInline_56badbd0ec8f0959;
-      readonly "401": HttpError;
-      readonly "402": HttpActionResult;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpActionResult;
-      readonly "413": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpInline_7f887d7b9f6e59a8;
-    };
-  };
   readonly "tenant.update_local_endpoint.patch": {
     readonly pathParams: HttpInline_847173c14adf5b62;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -20627,23 +20497,6 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "503": HttpError;
-    };
-  };
-  readonly "tenant.update_xlsx.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: FormData;
-    readonly responses: {
-      readonly "200": HttpImportXlsxResponse;
-      readonly "400": HttpInline_f106ec7345e46bb8;
-      readonly "401": HttpError;
-      readonly "402": HttpActionResult;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpActionResult;
-      readonly "413": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpInline_5a665aadb5efda0c;
     };
   };
   readonly "tenant.upload_import_session_files.post": {

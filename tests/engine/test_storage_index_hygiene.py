@@ -6,11 +6,14 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store import bundle_open
+from frisket.upgrades.project import chain as bundle_open
 from frisket.engine.store.bundle_io import export_database
 from frisket.engine.store.project import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
-from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
+from tests.engine.test_bundle_schema_fence import (
+    _restore_legacy_authorities,
+    _restore_pre_hygiene_indexes,
+)
 
 
 _PRIOR_DIGEST = "frisket.schema.v1:f2d652e33a1633c4367813af3c2d3746"
@@ -40,13 +43,16 @@ def _seed_ledgers(project: Project) -> None:
         "INSERT INTO source_runs(id,source_id,status,started_at) "
         "VALUES(1,1,'ok','2026-10-02')"
     )
-    project.db.execute(
+    project.db.commit()
+
+
+def _seed_legacy_source_item(db: sqlite3.Connection) -> None:
+    db.execute(
         "INSERT INTO source_items("
         "id,source_id,source_item_id,dedupe_key,item_hash,"
         "first_seen_run_id,last_seen_run_id"
         ") VALUES(1,1,'item-1','dedupe-1','hash-1',1,1)"
     )
-    project.db.commit()
 
 
 def _index_names(db: sqlite3.Connection) -> set[str]:
@@ -56,17 +62,6 @@ def _index_names(db: sqlite3.Connection) -> set[str]:
             "SELECT name FROM sqlite_master WHERE type='index'"
         ).fetchall()
     }
-
-
-def _restore_redundant_indexes(db: sqlite3.Connection) -> None:
-    db.executescript(
-        "CREATE INDEX IF NOT EXISTS idx_execution_attempts_run "
-        "ON execution_attempts(run_id,seq DESC);"
-        "CREATE INDEX IF NOT EXISTS idx_source_items_source_dedupe "
-        "ON source_items(source_id,dedupe_key);"
-        "CREATE INDEX IF NOT EXISTS idx_source_runs_source "
-        "ON source_runs(source_id);"
-    )
 
 
 def _plan(db: sqlite3.Connection, query: str, params: tuple[object, ...]) -> str:
@@ -82,10 +77,11 @@ def _assert_runtime_access_paths(project: Project) -> None:
         "SELECT id FROM execution_attempts WHERE run_id=? ORDER BY seq DESC",
         (1,),
     )
-    assert "sqlite_autoindex_source_items_1" in _plan(
-        project.db,
-        "SELECT id FROM source_items WHERE source_id=? AND dedupe_key=?",
-        (1, "dedupe-1"),
+    assert (
+        project.db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_items'"
+        ).fetchone()
+        is None
     )
     assert "idx_source_runs_source_started" in _plan(
         project.db,
@@ -102,14 +98,25 @@ def _assert_uniqueness(project: Project) -> None:
             ") VALUES('attempt-duplicate',1,1,'created','other','[]','2026-10-02')"
         )
     project.db.rollback()
+
+
+def _assert_legacy_source_item(db: sqlite3.Connection) -> None:
+    assert db.execute(
+        "SELECT id,item_hash FROM source_items WHERE source_id=1 AND dedupe_key='dedupe-1'"
+    ).fetchall() == [(1, "hash-1")]
+    assert "sqlite_autoindex_source_items_1" in _plan(
+        db,
+        "SELECT id FROM source_items WHERE source_id=? AND dedupe_key=?",
+        (1, "dedupe-1"),
+    )
     with pytest.raises(sqlite3.IntegrityError):
-        project.db.execute(
+        db.execute(
             "INSERT INTO source_items("
             "source_id,source_item_id,dedupe_key,item_hash,"
             "first_seen_run_id,last_seen_run_id"
             ") VALUES(1,'item-duplicate','dedupe-1','other',1,1)"
         )
-    project.db.rollback()
+    db.rollback()
 
 
 def test_fresh_bundle_uses_constraint_and_composite_indexes(tmp_path) -> None:
@@ -132,13 +139,18 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
     db = sqlite3.connect(path / "project.db")
     db.execute("PRAGMA foreign_keys=OFF")
     _restore_legacy_authorities(db)
-    _restore_redundant_indexes(db)
+    _restore_pre_hygiene_indexes(db)
+    _seed_legacy_source_item(db)
     before_indexes = _index_names(db)
     db.execute(
         "UPDATE meta SET value=? WHERE key=?",
         (_PRIOR_DIGEST, SCHEMA_DIGEST_META_KEY),
     )
     db.commit()
+    # Index cleanup itself preserves the historical ledger and its constraint.
+    bundle_open._migrate_index_hygiene(db)
+    assert not (_index_names(db) & _REDUNDANT_INDEXES)
+    _assert_legacy_source_item(db)
     db.close()
 
     migrated = Project(path)
@@ -151,13 +163,6 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
             "SELECT id,seq FROM execution_attempts WHERE run_id=1"
         ).fetchall()
     ] == [("attempt-1", 1)]
-    assert [
-        tuple(row)
-        for row in migrated.db.execute(
-            "SELECT id,item_hash FROM source_items "
-            "WHERE source_id=1 AND dedupe_key='dedupe-1'"
-        ).fetchall()
-    ] == [(1, "hash-1")]
     assert [
         tuple(row)
         for row in migrated.db.execute(
@@ -178,7 +183,13 @@ def test_known_bundle_upgrade_preserves_ledgers_reopen_and_export(tmp_path) -> N
     assert (
         export_db.execute("SELECT COUNT(*) FROM execution_attempts").fetchone()[0] == 1
     )
-    assert export_db.execute("SELECT COUNT(*) FROM source_items").fetchone()[0] == 1
+    assert (
+        export_db.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='source_items'"
+        ).fetchone()
+        is None
+    )
+    assert export_db.execute("SELECT COUNT(*) FROM source_runs").fetchone()[0] == 1
     export_db.close()
 
 
@@ -189,7 +200,8 @@ def test_index_hygiene_upgrade_rolls_back_all_changes_on_failure(tmp_path) -> No
     project.close()
 
     db = sqlite3.connect(path / "project.db")
-    _restore_redundant_indexes(db)
+    _restore_pre_hygiene_indexes(db)
+    _seed_legacy_source_item(db)
     db.execute(
         "UPDATE meta SET value=? WHERE key=?",
         (_PRIOR_DIGEST, SCHEMA_DIGEST_META_KEY),

@@ -187,13 +187,15 @@ if modal is not None:
         .workdir("/opt/frisket-models")
         .run_commands(
             "uv export --frozen --no-dev --no-emit-project "
-            "--extra convert --extra ner "
+            "--extra convert --extra ner --extra ocr-lighton "
             "--extra transcribe --output-file /tmp/requirements.txt",
             "uv pip install --system --requirements /tmp/requirements.txt",
             "uv pip install --system --no-deps /opt/frisket-models",
             "uv pip check --system",
             "python -c 'import frisket_models.modal_service; import faster_whisper; "
-            "import gliner; from docling.document_converter import DocumentConverter'",
+            "import gliner; import torchvision; "
+            "from transformers import Qwen3_5ForConditionalGeneration; "
+            "from docling.document_converter import DocumentConverter'",
         )
         .env(model_runtime_environment())
     )

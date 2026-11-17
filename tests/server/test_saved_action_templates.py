@@ -7,6 +7,7 @@ publish(saved_action_id)/import(save_recipe) flows build on it directly via
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import re
 from typing import Any
@@ -33,7 +34,12 @@ def _client(tmp_path) -> TestClient:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     return TestClient(
-        create_app(workspace, router=ModelRouter(cache=None, cache_mode="off"))
+        create_app(
+            workspace,
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
+        )
     )
 
 

@@ -13,7 +13,7 @@ export type ExtractionPreview = Omit<HttpExtractionPreviewResponse, 'documents'>
 export type ExtractionRequest = HttpExtractionPreviewRequest;
 export type SavedExtractionTemplate = HttpExtractionSavedLayout;
 export type ExtractionScope = ExtractionRequest['scope'];
-export type ExtractionScopeFilter = Pick<ExtractionScope, 'filter' | 'parent_row_id' | 'scope_row_ids'>;
+export type ExtractionScopeFilter = Pick<ExtractionScope, 'filter' | 'parent_row_id' | 'scope_row_ids' | 'selection'>;
 
 export const documentExtractionApi = {
   document: (projectId: string, sheetId: string, columnId: string, rowId: string, signal?: AbortSignal) =>

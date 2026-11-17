@@ -1,8 +1,7 @@
 """Sheet/column/row store and cell value resolution for a project bundle.
 
 Normal reads use the transactionally maintained current-cell projection.
-Explicit candidate reads omit manual edits, resolving exact result heads
-over source cells.
+Replay discovers candidate identities separately and reads their saved results.
 
 Also hosts the replay preserve+surface derivation (hand-edited ai_generated
 cells whose current-run value differs) and the column type/format registries.
@@ -10,6 +9,8 @@ Free functions over the facade's per-thread SQLite connection; ``project``
 stays duck-typed (``Any``) so this leaf never re-imports the facade module."""
 
 from __future__ import annotations
+
+from .cell_reference import current_value_ref
 
 import hashlib
 import json
@@ -25,7 +26,6 @@ from frisket.engine.store.cell_writes import (
     initialize_base_cells,
 )
 from frisket.engine.store.current_cells import (
-    decoded_cell_validity,
     refresh_current_cells,
 )
 from frisket.engine.store.current_value_windows import prepared_text_sizes
@@ -103,7 +103,7 @@ def replay_generated_snapshot(
     if run_id is None:
         return {"run_id": None}
     head_join = (
-        "JOIN cell_result_heads head ON head.column_id=res.column_id "
+        "JOIN generated_result_candidates head ON head.column_id=res.column_id "
         "AND head.row_id=res.row_id AND head.run_id=res.run_id "
         if managed
         else ""
@@ -155,15 +155,32 @@ def add_sheet(
     parent_op_id: int | None = None,
     *,
     commit: bool = True,
+    close_change: bool = True,
 ) -> int:
-    cur = project.db.execute(
-        "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
-        "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), ?, ?)",
-        (name, parent_sheet_id, parent_op_id),
+    owns_transaction = bool(
+        parent_op_id is not None and commit and not project.db.in_transaction
     )
-    if commit:
-        project.db.commit()
-    return cur.lastrowid
+    if owns_transaction:
+        project.db.execute("BEGIN IMMEDIATE")
+    try:
+        if parent_op_id is not None:
+            from .changes import close_change as _close_change, start_change
+
+            start_change(project.db, int(parent_op_id), writing=True)
+        cur = project.db.execute(
+            "INSERT INTO sheets (name, position, parent_sheet_id, parent_op_id) "
+            "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), ?, ?)",
+            (name, parent_sheet_id, parent_op_id),
+        )
+        if parent_op_id is not None and close_change:
+            _close_change(project.db, int(parent_op_id))
+        if commit:
+            project.db.commit()
+        return cur.lastrowid
+    except BaseException:
+        if owns_transaction:
+            project.db.rollback()
+        raise
 
 
 def sheets(project: Any, include_hidden: bool = False) -> list[sqlite3.Row]:
@@ -335,56 +352,56 @@ def set_column_default_hidden(
 
 
 def set_column_type(
-    project: Any, column_id: int, type: str, *, commit: bool = True
-) -> None:
-    """Retype a column onto any REGISTERED type (core or plugin)."""
+    project, column_id, type, *, op_id=None, initialize=False, commit=True
+):
+    """Retype a column through a Change, retaining the previous descriptor."""
     if not column_types.is_registered(type):
         raise ValueError(f"unknown column type: {type}")
-    cur = project.db.execute("UPDATE columns SET type=? WHERE id=?", (type, column_id))
-    if cur.rowcount == 0:
-        raise KeyError(f"no column {column_id}")
-    refresh_current_cells(project.db, column_ids=[column_id])
-    if commit:
-        project.db.commit()
+    from .column_descriptors import set_descriptor
+
+    set_descriptor(
+        project,
+        column_id,
+        "type",
+        type,
+        op_id=op_id,
+        initialize=initialize,
+        commit=commit,
+    )
 
 
 def set_column_format(
-    project: Any,
-    column_id: int,
-    format: str | None,
-    *,
-    commit: bool = True,
-) -> None:
-    """Set (or clear, with None) a column's display-format hint."""
+    project, column_id, format, *, op_id=None, initialize=False, commit=True
+):
     if format is not None and format not in COLUMN_FORMATS:
         raise ValueError(f"unknown column format: {format}")
-    cur = project.db.execute(
-        "UPDATE columns SET format=? WHERE id=?", (format, column_id)
+    from .column_descriptors import set_descriptor
+
+    set_descriptor(
+        project,
+        column_id,
+        "format",
+        format,
+        op_id=op_id,
+        initialize=initialize,
+        commit=commit,
     )
-    if cur.rowcount == 0:
-        raise KeyError(f"no column {column_id}")
-    if commit:
-        project.db.commit()
 
 
 def set_column_semantic_type(
-    project: Any,
-    column_id: int,
-    semantic_type: str | None,
-    *,
-    commit: bool = True,
-) -> None:
-    """Set (or clear, with None) a column's explicit semantic-contract marker.
+    project, column_id, semantic_type, *, op_id=None, initialize=False, commit=True
+):
+    from .column_descriptors import set_descriptor
 
-    Never inferred — callers (recipe output-field declarations, currently)
-    are the only writers."""
-    cur = project.db.execute(
-        "UPDATE columns SET semantic_type=? WHERE id=?", (semantic_type, column_id)
+    set_descriptor(
+        project,
+        column_id,
+        "semantic_type",
+        semantic_type,
+        op_id=op_id,
+        initialize=initialize,
+        commit=commit,
     )
-    if cur.rowcount == 0:
-        raise KeyError(f"no column {column_id}")
-    if commit:
-        project.db.commit()
 
 
 def add_rows(
@@ -405,6 +422,7 @@ def add_rows(
     """
     if not records:
         return []
+    owned_op = producer_id is None
     db = project.db
     nested = db.in_transaction
     savepoint = "add_rows"
@@ -443,7 +461,26 @@ def add_rows(
             producer_id = create_base_cell_producer(
                 db, stage_id=f"op:{op_id}", op_id=op_id
             )
+        from .changes import start_change
+        from .structural_changes import note_row_additions
+
+        owner = db.execute(
+            "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
+        ).fetchone()
+        if owner is not None and owner[0] is not None:
+            start_change(db, int(owner[0]), writing=True)
         initialize_base_cells(db, producer_id=producer_id, cells=cell_writes)
+        note_row_additions(
+            db,
+            sheet_id,
+            row_ids,
+            initialized_columns={cell.column_id for cell in cell_writes},
+        )
+        if owned_op:
+            from .changes import ChangeStore
+
+            ChangeStore(project).start(op_id)
+            ChangeStore(project).close(op_id)
         if nested:
             db.execute(f"RELEASE SAVEPOINT {savepoint}")
         if commit and not nested:
@@ -476,7 +513,6 @@ def add_row_with_undo(
             (sheet_id, base + 1, None),
         )
         row_id = cur.lastrowid
-        cur.execute("UPDATE ops SET status='discarded' WHERE status='undone'")
         cur.execute(
             "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
             "VALUES (?, ?, ?, ?, 0)",
@@ -490,7 +526,11 @@ def add_row_with_undo(
             ),
         )
         op_id = cur.lastrowid
-        cur.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+        from .changes import start_change
+        from .structural_changes import record_structural_changes
+
+        start_change(project.db, op_id, writing=True)
+        record_structural_changes(project.db, op_id, {"created_rows": [row_id]})
         producer_id = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
         )
@@ -503,6 +543,21 @@ def add_row_with_undo(
                 if name in column_ids and value is not None
             ),
         )
+        from .structural_changes import note_row_additions
+
+        note_row_additions(
+            project.db,
+            sheet_id,
+            [row_id],
+            initialized_columns={
+                column_ids[name]
+                for name, value in record.items()
+                if name in column_ids and value is not None
+            },
+        )
+        from .changes import ChangeStore
+
+        ChangeStore(project).close(op_id)
         if owns_transaction:
             project.db.commit()
         return row_id
@@ -566,7 +621,14 @@ def _current_cell_rows(
     )
     fields = "r.id, c.value_kind, c.value, COALESCE(c.validity, 'missing') AS validity"
     if with_refs:
-        fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id, c.prepared_ref_id"
+        fields += ", c.origin_kind, c.origin_op_id, c.origin_run_id, c.prepared_ref_id, c.base_producer_id, c.outcome"
+        fields += ", copy.source_run_id AS copied_run_id, copy.source_row_id AS copied_row_id, copy.source_column_id AS copied_column_id"
+    copy_join = (
+        " LEFT JOIN copied_result_outcomes copy ON c.origin_kind='copied_result' "
+        "AND copy.op_id=c.origin_op_id AND copy.row_id=r.id AND copy.column_id=c.column_id "
+        if with_refs
+        else " "
+    )
     for chunk in chunks:
         params: list[Any] = [column_id, sheet_id]
         row_filter = ""
@@ -574,10 +636,14 @@ def _current_cell_rows(
             row_filter = f" AND r.id IN ({','.join('?' * len(chunk))})"
             params.extend(chunk)
         rows_source = "rows r NOT INDEXED" if chunk is not None else "rows r"
+        from .current_read_sql import current_values_sql
+
+        relation = current_values_sql(project.db, [column_id], chunk)
         yield from project.db.execute(
-            f"SELECT {fields} FROM {rows_source} LEFT JOIN current_cell_values c "
+            f"SELECT {fields} FROM {rows_source} LEFT JOIN {relation} c "
             "ON c.column_id=? AND c.row_id=r.id "
-            f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
+            + copy_join
+            + f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
             params,
         )
 
@@ -588,20 +654,14 @@ def get_values_with_refs(
     column_id: int,
     row_ids: list[int] | None = None,
     *,
-    apply_edits: bool = True,
     tolerate_decode_errors: bool = False,
     preserve_invalid: bool = False,
     include_validity: bool = False,
 ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
-    """Read current values, or the explicit generated candidate beneath edits.
+    """Read current values and their exact winning contribution references.
 
     The resolver is row-page aware: callers that pass row_ids should never
     scan full-run result/edit history to answer a viewport-sized request.
-
-    ``apply_edits=False`` drops the manual-edit overlay layer, resolving to
-    the underlying source-cell/current-run-result value the run wrote — the
-    "fresh generated value" beneath a human edit (replay-accept-surface-v1;
-    the read-time pending derivation compares this against the live value).
 
     ``tolerate_decode_errors=True`` treats malformed/non-strict source and
     edit JSON as null at its normal precedence. Ordinary callers keep the
@@ -612,139 +672,25 @@ def get_values_with_refs(
     surfaces such as the grid and exports; ``include_validity=True`` annotates
     refs with the projection classification.
     """
-    if apply_edits:
-        values: dict[int, Any] = {}
-        refs: dict[int, dict[str, Any]] = {}
-        for row in _current_cell_rows(
-            project, sheet_id, column_id, row_ids, with_refs=True
-        ):
-            row_id = int(row["id"])
-            values[row_id] = decode_stored_value(
-                None
-                if row["validity"] == "invalid" and not preserve_invalid
-                else row["value_kind"],
-                None
-                if row["validity"] == "invalid" and not preserve_invalid
-                else row["value"],
-                tolerate_errors=tolerate_decode_errors,
-            )
-            refs[row_id] = {
-                "kind": row["origin_kind"] or "missing",
-                "op_id": row["origin_op_id"],
-                "row_id": row_id,
-                "column_id": column_id,
-                "run_id": row["origin_run_id"],
-                **(
-                    {"prepared_ref_id": int(row["prepared_ref_id"])}
-                    if row["prepared_ref_id"] is not None
-                    else {}
-                ),
-                **({"validity": row["validity"]} if include_validity else {}),
-            }
-        return values, refs
-    if row_ids is not None and not row_ids:
-        return {}, {}
-    if row_ids is not None and len(row_ids) > _SQLITE_ID_CHUNK_SIZE:
-        out: dict[int, Any] = {}
-        refs: dict[int, dict[str, Any]] = {}
-        for offset in range(0, len(row_ids), _SQLITE_ID_CHUNK_SIZE):
-            chunk_out, chunk_refs = get_values_with_refs(
-                project,
-                sheet_id,
-                column_id,
-                row_ids=row_ids[offset : offset + _SQLITE_ID_CHUNK_SIZE],
-                apply_edits=apply_edits,
-                tolerate_decode_errors=tolerate_decode_errors,
-                preserve_invalid=preserve_invalid,
-                include_validity=include_validity,
-            )
-            out.update(chunk_out)
-            refs.update(chunk_refs)
-        return out, refs
-    generation_store = ResultGenerationStore(project)
-    descriptor = project.db.execute(
-        "SELECT type FROM columns WHERE id=? AND sheet_id=?", (column_id, sheet_id)
-    ).fetchone()
-    if descriptor is None:
-        return {}, {}
-    column_type = str(descriptor["type"])
-    generation_managed = generation_store.is_generation_managed(column_id)
-    out: dict[int, Any] = {}
+    values: dict[int, Any] = {}
     refs: dict[int, dict[str, Any]] = {}
-    params: list[Any] = [column_id, sheet_id]
-    row_filter = ""
-    if row_ids is not None:
-        row_filter = f" AND r.id IN ({','.join('?' * len(row_ids))})"
-        params.extend(row_ids)
-    rows_source = "rows r NOT INDEXED" if row_ids is not None else "rows r"
-    # 3) source cells
-    for r in project.db.execute(
-        f"SELECT r.id, c.row_id AS source_row_id, c.value_kind, c.value "
-        f"FROM {rows_source} LEFT JOIN cells c "
-        f"ON c.row_id = r.id AND c.column_id = ? "
-        f"WHERE r.sheet_id=? AND r.hidden=0{row_filter}",
-        params,
+    for row in _current_cell_rows(
+        project, sheet_id, column_id, row_ids, with_refs=True
     ):
-        out[r["id"]] = decode_logical_value(
-            project.db,
-            r["value_kind"],
-            r["value"],
+        row_id = int(row["id"])
+        values[row_id] = decode_stored_value(
+            None
+            if row["validity"] == "invalid" and not preserve_invalid
+            else row["value_kind"],
+            None
+            if row["validity"] == "invalid" and not preserve_invalid
+            else row["value"],
             tolerate_errors=tolerate_decode_errors,
         )
-        if r["source_row_id"] is not None:
-            refs[r["id"]] = {
-                "kind": "source_cell",
-                "op_id": None,
-                "row_id": r["id"],
-                "column_id": column_id,
-                "run_id": None,
-                **(
-                    {"prepared_ref_id": int(r["value"])}
-                    if r["value_kind"] == "prepared_content_ref"
-                    else {}
-                ),
-            }
-    # 2) exact active heads for generated columns. Head existence is
-    # authoritative even when the published effect is null or error: the head
-    # read model deliberately returns ``value=None`` for both, so an older
-    # result or source cell can never bleed through.
-    if generation_managed:
-        for row_id, head in generation_store.read_cell_heads(
-            column_id,
-            row_ids=row_ids,
-        ).items():
-            if row_id not in out:
-                continue
-            out[row_id] = head.value
-            refs[row_id] = {
-                "kind": "run_result",
-                "op_id": head.op_id,
-                "row_id": row_id,
-                "column_id": column_id,
-                "run_id": head.run_id,
-                **(
-                    {"prepared_ref_id": head.prepared_ref_id}
-                    if head.prepared_ref_id is not None
-                    else {}
-                ),
-            }
-    for rid in out:
-        validity = decoded_cell_validity(column_type, out[rid])
-        if validity == "invalid" and not preserve_invalid:
-            out[rid] = None
-        refs.setdefault(
-            rid,
-            {
-                "kind": "missing",
-                "op_id": None,
-                "row_id": rid,
-                "column_id": column_id,
-                "run_id": None,
-            },
+        refs[row_id] = current_value_ref(
+            row, row_id=row_id, column_id=column_id, include_validity=include_validity
         )
-        if include_validity:
-            refs[rid]["validity"] = validity
-    return out, refs
+    return values, refs
 
 
 def get_values(
@@ -753,38 +699,24 @@ def get_values(
     column_id: int,
     row_ids: list[int] | None = None,
     *,
-    apply_edits: bool = True,
     tolerate_decode_errors: bool = False,
     preserve_invalid: bool = False,
 ) -> dict[int, Any]:
-    """Read current values without building unused provenance dictionaries.
-
-    ``apply_edits=False`` drops the manual-edit overlay (see
-    ``get_values_with_refs``)."""
-    if apply_edits:
-        return {
-            int(row["id"]): decode_stored_value(
-                None
-                if row["validity"] == "invalid" and not preserve_invalid
-                else row["value_kind"],
-                None
-                if row["validity"] == "invalid" and not preserve_invalid
-                else row["value"],
-                tolerate_errors=tolerate_decode_errors,
-            )
-            for row in _current_cell_rows(
-                project, sheet_id, column_id, row_ids, with_refs=False
-            )
-        }
-    out, _refs = project.get_values_with_refs(
-        sheet_id,
-        column_id,
-        row_ids=row_ids,
-        apply_edits=apply_edits,
-        tolerate_decode_errors=tolerate_decode_errors,
-        preserve_invalid=preserve_invalid,
-    )
-    return out
+    """Read current values without building unused provenance dictionaries."""
+    return {
+        int(row["id"]): decode_stored_value(
+            None
+            if row["validity"] == "invalid" and not preserve_invalid
+            else row["value_kind"],
+            None
+            if row["validity"] == "invalid" and not preserve_invalid
+            else row["value"],
+            tolerate_errors=tolerate_decode_errors,
+        )
+        for row in _current_cell_rows(
+            project, sheet_id, column_id, row_ids, with_refs=False
+        )
+    }
 
 
 def apply_edits(
@@ -1020,7 +952,7 @@ def _replay_candidate_query(
         return None
     run_id = int(source_run_id)
     head_join = (
-        "JOIN cell_result_heads head ON head.column_id=res.column_id "
+        "JOIN generated_result_candidates head ON head.column_id=res.column_id "
         "AND head.row_id=res.row_id AND head.run_id=res.run_id "
         if generation_managed
         else ""
@@ -1034,7 +966,7 @@ def _replay_candidate_query(
         "FROM results res "
         + head_join
         + "JOIN rows rr ON rr.id = res.row_id AND rr.sheet_id = ? AND rr.hidden = 0 "
-        "JOIN current_cells current ON current.row_id=res.row_id "
+        "JOIN effective_current_cells current ON current.row_id=res.row_id "
         "AND current.column_id=res.column_id AND current.origin_kind='manual_edit' "
         "JOIN edits e ON e.op_id=current.origin_op_id "
         "AND e.row_id=current.row_id AND e.column_id=current.column_id "

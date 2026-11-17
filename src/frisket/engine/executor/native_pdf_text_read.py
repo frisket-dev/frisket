@@ -209,13 +209,6 @@ class _BoundNativePdfTextReader:
         if callable(self._owner._cancelled) and self._owner._cancelled():
             raise RowError("action_cancelled", "PDF text reading was cancelled")
         text = "\n\n".join(page["text"] for page in prepared_pages)
-        if not text.strip():
-            message = (
-                f"PDF page {selected_page} has no native text"
-                if selected_page is not None
-                else "PDF has no native text"
-            )
-            raise RowError("needs_ocr", message)
         source_ref["page_count"] = page_count
         call = {
             # Reuse the exact-text prepared-content publication seam.
@@ -229,7 +222,9 @@ class _BoundNativePdfTextReader:
             "blocks": blocks,
             "pages": prepared_pages,
             "page_images": page_images,
-            "warnings": [
+            "warnings": ["No searchable text. Try OCR."]
+            if not text.strip()
+            else [
                 f"{textless_pages} of {len(prepared_pages)} pages have no embedded text. "
                 "If they contain scanned text, re-scan with OCR to include it."
             ]

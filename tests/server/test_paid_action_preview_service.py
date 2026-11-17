@@ -1,5 +1,7 @@
 """Normal preview confirmation and receipt accounting across the real job host."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import hashlib
 import io
@@ -12,7 +14,6 @@ from pypdf import PdfWriter
 from frisket.ai.llm import ModelRouter
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.contracts.http.action_preview_runs import ActionPreviewStatusResponse
-from frisket.engine.executor.table_preview import TablePreviewResult
 from frisket.engine.runner import MapRunner
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -26,7 +27,12 @@ from tests.engine.test_ocr_read import _png
 
 
 def _fixture(tmp_path, adapter):
-    router = ModelRouter(keys={"anthropic": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter
     workspace = Workspace(
         tmp_path / "workspace", router=router, enable_local_model_pull=False
@@ -172,8 +178,9 @@ def test_paid_preview_ordinary_confirmation_and_terminal_facts(
         project.close()
 
 
-def test_cancel_joins_returned_paid_call_before_receipt_settlement(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("invalid", [False, True])
+def test_cancel_joins_returned_paid_call_before_receipt_completion(
+    tmp_path, monkeypatch, invalid
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     entered = threading.Event()
@@ -185,52 +192,61 @@ def test_cancel_joins_returned_paid_call_before_receipt_settlement(
             await asyncio.to_thread(release.wait)
             return await super().complete(request, client)
 
-    adapter = Adapter()
+    # Hold the other row at its dispatch boundary until Stop. Its refused
+    # purchase must not cancel the sibling already inside the provider.
+    import frisket.engine.runner.preview as preview_module
+
+    second_waiting = threading.Event()
+    release_second = threading.Event()
+    second_rejected = threading.Event()
+    original_execute_row = preview_module.execute_row
+
+    async def execute_with_second_row_barrier(*args, **kwargs):
+        if kwargs["row_id"] == 2:
+            second_waiting.set()
+            await asyncio.to_thread(release_second.wait)
+            try:
+                return await original_execute_row(*args, **kwargs)
+            except asyncio.CancelledError:
+                second_rejected.set()
+                raise
+        return await original_execute_row(*args, **kwargs)
+
+    monkeypatch.setattr(preview_module, "execute_row", execute_with_second_row_barrier)
+
+    adapter = Adapter(invalid=invalid)
     service, project, body = _fixture(tmp_path, adapter)
     before = _outputs(project)
-    settled = []
-
-    class Settlement:
-        def settle_action_receipt(self, *, project, project_id, receipt_id):
-            receipt = ReceiptStore(project).parsed_by_id(receipt_id)
-            calls = RunResultStore(project).model_calls(receipt_id=receipt_id)
-            assert receipt.status == "cancelled"
-            assert calls and release.is_set()
-            assert (
-                project.db.execute(
-                    "SELECT COUNT(*) FROM execution_attempts WHERE state='dispatching'"
-                ).fetchone()[0]
-                == 0
-            )
-            settled.append(receipt_id)
-
-    service._workspace.direct_action_receipt_settlement_port = Settlement()
     try:
         started = service.start_preview("paid", _confirm(service, body))
         assert started.status_code == 202, started.payload
         preview_id = started.payload["preview_id"]
         assert entered.wait(10)
+        assert second_waiting.wait(10)
         service.cancel_preview("paid", preview_id)
         pending = service.get_preview("paid", preview_id).payload
         assert pending["status"] == "running"
         assert pending["accounting"]["status"] == "running"
-        assert not settled
+        release_second.set()
+        assert second_rejected.wait(10)
         release.set()
         result = _wait(service, preview_id)
         assert result["status"] == "cancelled" and "result" not in result
         assert result["accounting"]["status"] == "cancelled"
-        assert result["accounting"]["cost_actual"] > 0
-        assert settled == [result["accounting"]["receipt_id"]]
+        assert result["accounting"]["cost_actual"] == pytest.approx(0.01)
+        assert len(adapter.calls) == 1
+        receipt_id = result["accounting"]["receipt_id"]
+        assert ReceiptStore(project).parsed_by_id(receipt_id).status == "cancelled"
+        assert RunResultStore(project).model_calls(receipt_id=receipt_id)
         assert _outputs(project) == before
     finally:
+        release_second.set()
         release.set()
         service._registry.shutdown()
         project.close()
 
 
-def test_scratch_teardown_error_survives_receipt_settlement_failure(
-    tmp_path, monkeypatch
-):
+def test_scratch_teardown_error_preserves_receipt_failure(tmp_path, monkeypatch):
     from frisket.engine.sandbox.shim import SandboxTeardownError
 
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -248,11 +264,6 @@ def test_scratch_teardown_error_survives_receipt_settlement_failure(
     async def fail_after_teardown(_context):
         raise fatal
 
-    class FailedSettlement:
-        def settle_action_receipt(self, **_kwargs):
-            raise RuntimeError("settlement unavailable after fatal teardown")
-
-    service._workspace.direct_action_receipt_settlement_port = FailedSettlement()
     try:
         estimate = service.scratch_estimate("paid", plan)
         started = service.start_scratch_preview(
@@ -269,71 +280,6 @@ def test_scratch_teardown_error_survives_receipt_settlement_failure(
         assert result["accounting"]["status"] == "failed"
         with pytest.raises(SandboxTeardownError, match="scratch sandbox teardown"):
             service._registry.start("paid", 0, lambda *_args: None)
-    finally:
-        service._registry.shutdown()
-        project.close()
-
-
-@pytest.mark.parametrize("provider_fails", [True, False])
-def test_scratch_preview_preserves_primary_failure_when_settlement_also_fails(
-    tmp_path, monkeypatch, caplog, provider_fails
-):
-    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    service, project, _ = _fixture(tmp_path, _Adapter())
-    plan, _source, router, composition, execution_context = service.prepare_ocr_scratch(
-        "paid",
-        _png(),
-        {
-            "engine": "anthropic/claude-haiku-4-5",
-            "filename": "scan.png",
-        },
-    )
-    provider_error = RuntimeError("provider failed after accepting the preview")
-    settlement_error = RuntimeError("settlement could not price provider usage")
-
-    async def fail_after_provider_accepts(_context):
-        raise provider_error
-
-    async def succeed_before_settlement(_context):
-        return TablePreviewResult([], [], 0)
-
-    class FailedSettlement:
-        def settle_action_receipt(self, **_kwargs):
-            raise settlement_error
-
-    service._workspace.direct_action_receipt_settlement_port = FailedSettlement()
-    plan = replace(
-        plan,
-        run=fail_after_provider_accepts
-        if provider_fails
-        else succeed_before_settlement,
-    )
-    try:
-        estimate = service.scratch_estimate("paid", plan)
-        started = service.start_scratch_preview(
-            "paid",
-            plan,
-            confirmation=estimate["promise_set_hash"],
-            router=router,
-            composition=composition,
-            execution_context=execution_context,
-        )
-        assert started.status_code == 202, started.payload
-        result = _wait(service, started.payload["preview_id"])
-        service._registry.shutdown()
-
-        assert result["status"] == "error"
-        expected_error = provider_error if provider_fails else settlement_error
-        assert result["error"]["message"] == str(expected_error)
-        [failure_record] = [
-            record
-            for record in caplog.records
-            if getattr(record, "event", None) == "action_preview_job_failed"
-            and getattr(record, "preview_id", None) == started.payload["preview_id"]
-        ]
-        raised = failure_record.exc_info[1]
-        assert raised is expected_error
-        assert raised.__cause__ is (settlement_error if provider_fails else None)
     finally:
         service._registry.shutdown()
         project.close()
@@ -386,13 +332,6 @@ def test_actual_ocr_preview_keeps_scope_finalizer_facts(tmp_path, monkeypatch, m
         return [{"text": "Paid OCR", "blocks": []}]
 
     monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
-    if mode == "fatal":
-
-        class FailedSettlement:
-            def settle_action_receipt(self, **kwargs):
-                raise RuntimeError("settlement unavailable after fatal teardown")
-
-        service._workspace.direct_action_receipt_settlement_port = FailedSettlement()
     before = _outputs(project)
     try:
         confirmed = _confirm(service, body)
@@ -426,16 +365,12 @@ def test_actual_ocr_preview_keeps_scope_finalizer_facts(tmp_path, monkeypatch, m
         project.close()
 
 
-def test_late_cancel_during_settlement_keeps_completed_result_and_snapshot(
-    tmp_path, monkeypatch
-):
+def test_late_cancel_keeps_completed_result_and_snapshot(tmp_path, monkeypatch):
     import json
     from dataclasses import replace
     from types import SimpleNamespace
     from frisket.execution.provider import ExecutionCompositionContext
 
-    entered = threading.Event()
-    release = threading.Event()
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     service, project, body = _fixture(tmp_path, _Adapter())
     context = SimpleNamespace(
@@ -447,20 +382,6 @@ def test_late_cancel_during_settlement_keeps_completed_result_and_snapshot(
         )
     )
 
-    class Settlement:
-        def settle_action_receipt(self, *, project, project_id, receipt_id):
-            stored = project.db.execute(
-                "SELECT status, edition_run_context FROM receipts WHERE id=?",
-                (receipt_id,),
-            ).fetchone()
-            assert stored["status"] == "completed"
-            assert json.loads(stored["edition_run_context"]) == {
-                "funding": "trusted-preview"
-            }
-            entered.set()
-            assert release.wait(10)
-
-    service._workspace.direct_action_receipt_settlement_port = Settlement()
     try:
         quote = service.start_preview("paid", body, request_context=context)
         assert quote.status_code == 402
@@ -471,14 +392,19 @@ def test_late_cancel_during_settlement_keeps_completed_result_and_snapshot(
         started = service.start_preview("paid", confirmed, request_context=context)
         assert started.status_code == 202, started.payload
         preview_id = started.payload["preview_id"]
-        assert entered.wait(10)
-        service.cancel_preview("paid", preview_id)
-        release.set()
         result = _wait(service, preview_id)
+        service.cancel_preview("paid", preview_id)
+        result = service.get_preview("paid", preview_id).payload
         assert result["status"] == "done" and result["result"]["rows"]
         assert result["accounting"]["status"] == "completed"
+        stored = project.db.execute(
+            "SELECT edition_run_context FROM receipts WHERE id=?",
+            (result["accounting"]["receipt_id"],),
+        ).fetchone()
+        assert json.loads(stored["edition_run_context"]) == {
+            "funding": "trusted-preview"
+        }
     finally:
-        release.set()
         service._registry.shutdown()
         project.close()
 

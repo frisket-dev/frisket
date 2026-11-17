@@ -136,7 +136,7 @@ def _column_is_current(
         "SELECT EXISTS("
         "SELECT 1 FROM json_each(?) requested "
         "LEFT JOIN rows row_def ON row_def.id=requested.value "
-        "LEFT JOIN current_cells cell ON cell.row_id=requested.value "
+        "LEFT JOIN effective_current_cells cell ON cell.row_id=requested.value "
         "AND cell.column_id=? "
         "WHERE row_def.id IS NULL OR row_def.sheet_id!=? OR row_def.hidden!=0 "
         "OR cell.row_id IS NULL OR cell.origin_kind!='run_result' "

@@ -127,6 +127,10 @@
 .workbench-mainView-tab-syncDot[data-sync-state='stale'] {
   background: var(--amber);
 }
+.workbench-mainView-tab-syncDot[data-sync-state='unknown'],
+.workbench-mainView-tab-syncDot[data-sync-state='checking'] {
+  background: var(--text-muted);
+}
 .workbench-mainView-tab-info {
   flex: 0 0 auto;
   display: inline-flex;

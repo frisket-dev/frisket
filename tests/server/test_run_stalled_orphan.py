@@ -322,3 +322,32 @@ def test_cancel_cancels_queued_job_as_well_as_run_row(tmp_path):
     assert job is not None and job.status == "cancelled"
     status = _action_run_public_status(client, pid, run_id)
     assert status["status"] == "cancelled"
+
+
+def test_queued_status_retains_declared_column_identity_after_rename_and_name_reuse(
+    tmp_path,
+):
+    client = _client(tmp_path)
+    pid, sheet_id, run_id, job_id = _seed_queued_action_run(client)
+    project = client.app.state.workspace.get(pid)
+    binding = project.db.execute(
+        "SELECT column_id FROM run_output_generations WHERE run_id=?", (run_id,)
+    ).fetchone()
+    assert binding is not None
+    output_id = int(binding["column_id"])
+    project.db.execute(
+        "UPDATE columns SET name='Renamed output' WHERE id=?", (output_id,)
+    )
+    project.db.commit()
+    replacement_id = project.add_column(sheet_id, "display")
+    assert replacement_id != output_id
+
+    # A new HTTP read has no browser launch context or row results to borrow.
+    status = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status")
+    assert status.status_code == 200, status.text
+    assert status.json()["run"]["public_status"]["status"] == "queued"
+    expected = [{"id": output_id, "name": "Renamed output"}]
+    assert status.json()["run"]["output_columns"] == expected
+    detail = client.get(f"/api/projects/{pid}/actions/jobs/{job_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["context"]["output_columns"] == expected

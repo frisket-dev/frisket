@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import time
@@ -6,6 +7,8 @@ import time
 import httpx
 import pytest
 
+from frisket.execution.purchases import PurchaseAdmission
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMError, LLMRequest, SchemaViolation
 
@@ -63,7 +66,9 @@ class _ScriptedFailThenSucceed:
 
 
 def _router_with(adapter, *, max_retries=3) -> ModelRouter:
-    router = ModelRouter(keys={}, max_retries=max_retries)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=max_retries
+    )
     router._adapters["mock"] = adapter  # noqa: SLF001
     return router
 
@@ -92,37 +97,50 @@ def test_transport_retry_recovers_a_provably_pre_egress_connect_fault():
     router = _router_with(adapter, max_retries=3)
 
     async def run():
-        return await router.complete(req())
+        return await router.for_execution(STANDALONE).complete(req())
 
     resp = asyncio.run(run())
     assert resp.content == "ok"
     assert adapter.calls == 2  # 1 failure + 1 recovery -- retry happened
 
 
-def test_post_egress_ambiguous_failure_is_not_blind_retried():
-    """A retryable flag alone cannot prove another paid call is safe.
-
-    The adapter accepted the request, then lost the response body.  A second
-    identical call may buy the same completion twice, so the router must
-    return the ambiguous failure to the row-effect checkpoint instead of
-    hiding it behind an automatic retry.
-    """
+def test_retry_is_a_new_purchase_and_preserves_unknown_prior_outcome():
     adapter = _ScriptedFailThenSucceed(
-        lambda: LLMError(
-            "provider accepted work but the response body was lost",
-            status=502,
-            retryable=True,
-        ),
+        lambda: LLMError("response body was lost", status=502, retryable=True),
         fail_times=1,
     )
-    router = _router_with(adapter, max_retries=3)
+    events = []
+
+    class Policy:
+        def prepare(self, request, credential_source):
+            return request
+
+        def admit_purchase(self, request):
+            events.append(("admit", None))
+            return PurchaseAdmission("metered", f"attempt-{len(events)}")
+
+        def fail_purchase(self, request, admission, error):
+            events.append(("failed", error))
+
+        def record_purchase(self, request, admission, observation):
+            events.append(("returned", observation.result))
+
+    router = _router_with(adapter, max_retries=1)
+    router.model_call_policy = Policy()
 
     async def run():
-        with pytest.raises(LLMError, match="response body was lost"):
-            await router.complete(req())
+        try:
+            assert (
+                await router.for_execution(STANDALONE).complete(req())
+            ).content == "ok"
+        finally:
+            await router.aclose()
 
     asyncio.run(run())
-    assert adapter.calls == 1
+    assert adapter.calls == 2
+    assert [event for event, _ in events] == ["admit", "failed", "admit", "returned"]
+    assert events[1][1].post_egress_ambiguous is True
+    assert events[3][1]["tokens_in"] == 1
 
 
 def test_schema_violation_is_never_retried_by_transport_regardless_of_max_retries():
@@ -139,7 +157,7 @@ def test_schema_violation_is_never_retried_by_transport_regardless_of_max_retrie
     async def run():
         t0 = time.perf_counter()
         with pytest.raises(SchemaViolation):
-            await router.complete(req())
+            await router.for_execution(STANDALONE).complete(req())
         return time.perf_counter() - t0
 
     elapsed = asyncio.run(run())
@@ -151,7 +169,7 @@ def test_schema_violation_is_never_retried_by_transport_regardless_of_max_retrie
 @pytest.mark.parametrize(
     "status, transport_kind", [(502, None), (429, None), (None, "connect")]
 )
-def test_explicit_ambiguous_provider_outcome_survives_router(
+def test_explicit_ambiguous_provider_outcome_survives_retry_exhaustion(
     retryable, status, transport_kind
 ):
     adapter = _ScriptedFailThenSucceed(
@@ -164,12 +182,12 @@ def test_explicit_ambiguous_provider_outcome_survives_router(
         ),
         fail_times=1,
     )
-    router = _router_with(adapter)
+    router = _router_with(adapter, max_retries=0)
 
     async def run():
         try:
             with pytest.raises(LLMError) as caught:
-                await router.complete(req())
+                await router.for_execution(STANDALONE).complete(req())
             assert caught.value.post_egress_ambiguous is True
             assert caught.value.retryable is retryable
             assert caught.value.status == status
@@ -181,28 +199,28 @@ def test_explicit_ambiguous_provider_outcome_survives_router(
 
 
 @pytest.mark.parametrize(
-    "exception_class, expected_kind",
+    "exception_class, expected_kind, ambiguous",
     [
-        (httpx.ReadTimeout, "timeout"),
-        (httpx.WriteTimeout, "timeout"),
-        (httpx.ConnectTimeout, "timeout"),
-        (httpx.ReadError, "read"),
-        (httpx.WriteError, "write"),
-        (httpx.RemoteProtocolError, "protocol"),
+        (httpx.ReadTimeout, "timeout", True),
+        (httpx.WriteTimeout, "timeout", True),
+        (httpx.ConnectTimeout, "connect", False),
+        (httpx.ReadError, "read", True),
+        (httpx.WriteError, "write", True),
+        (httpx.RemoteProtocolError, "protocol", True),
     ],
 )
-def test_provider_transport_diagnostics_keep_kind_without_retry(
-    exception_class, expected_kind
+def test_provider_transport_diagnostics_keep_kind_at_retry_limit(
+    exception_class, expected_kind, ambiguous
 ):
     adapter = _ScriptedFailThenSucceed(lambda: exception_class(""), fail_times=1)
-    router = _router_with(adapter)
+    router = _router_with(adapter, max_retries=0)
 
     async def run():
         try:
             with pytest.raises(LLMError) as caught:
-                await router.complete(req())
+                await router.for_execution(STANDALONE).complete(req())
             assert caught.value.transport_kind == expected_kind
-            assert caught.value.post_egress_ambiguous is True
+            assert caught.value.post_egress_ambiguous is ambiguous
         finally:
             await router.aclose()
 

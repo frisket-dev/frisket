@@ -194,7 +194,7 @@ class _BoundResearcher:
                 router=router,
                 recipe_version="1",
                 search=self._search,
-                fetch=lambda url: fetch_page_result(url, ctx.http),
+                fetch=self._fetch,
                 recorder=recorder,
                 secret_values=search_secrets,
             )
@@ -260,20 +260,19 @@ class _BoundResearcher:
             if include_sources:
                 output.root["sources"] = Outcome.ok(result.sources)
             return output
-        except LLMError as exc:
+        except BaseException as exc:
+            # The capability already owns these durable call IDs. Preserve the
+            # exception type, but do not let row-level Stop/halt handling remint
+            # the same returned purchases from structured repair history.
             router.retain_unrecorded_error_calls(exc)
-            raise
-        except (
-            asyncio.CancelledError,
-            RecipeInvocationHalt,
-            RowError,
-            HostedEngineError,
-        ):
-            raise
-        except Exception as exc:
-            raise RowError(
-                "research_failed", str(exc)[:500] or "Research failed"
-            ) from exc
+            if not isinstance(exc, Exception) or isinstance(
+                exc, (LLMError, RecipeInvocationHalt, RowError, HostedEngineError)
+            ):
+                raise
+            failure = RowError("research_failed", str(exc)[:500] or "Research failed")
+            failure.accounting = getattr(exc, "accounting", None)
+            failure.wire_calls = getattr(exc, "wire_calls", ())
+            raise failure from exc
         finally:
             try:
                 router.set_research(recorder.snapshot())
@@ -283,3 +282,9 @@ class _BoundResearcher:
     async def _search(self, query):
         response = await self._searcher.search_response(query, max_results=6)
         return search_observation(query, response)
+
+    async def _fetch(self, url):
+        from frisket.execution.dispatch_control import dispatch_for_context
+
+        dispatch_for_context(self._ctx).check()
+        return await fetch_page_result(url, self._ctx.http)

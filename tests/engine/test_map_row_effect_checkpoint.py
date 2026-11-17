@@ -7,10 +7,12 @@ attempt that authorized the original egress.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 import asyncio
+import json
 import wave
 
 import pytest
@@ -26,7 +28,6 @@ from frisket.engine.runner.validation import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
-from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 from frisket.ops.base import Recipe
@@ -157,7 +158,11 @@ def test_resume_replays_returned_row_without_buying_it_again(
         spec, program = _bound(_spec(sheet))
 
         provider = _ReturnedProviderCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -206,6 +211,19 @@ def test_resume_replays_returned_row_without_buying_it_again(
         assert checkpoint["state"] == "returned"
         assert checkpoint["authorized_attempt_id"] == first_attempt_id
         assert checkpoint["response"]
+        saved_capture = next(iter(json.loads(checkpoint["response"]).values()))[
+            "__consumed_sources"
+        ]
+        [input_row] = project.visible_row_ids(sheet)
+        project.apply_edits(
+            [
+                {
+                    "row_id": input_row,
+                    "column_id": columns["text"],
+                    "value": "one billable row",
+                }
+            ]
+        )
 
         # Model the queue's bounded orphan recovery after both the attempt and
         # its last metered heartbeat have been silent past the cutoff.
@@ -224,6 +242,16 @@ def test_resume_replays_returned_row_without_buying_it_again(
         assert resumed.done is True
         assert resumed.completed == 1
         assert provider.calls == 1
+        from frisket.engine.store.consumed_sources import row_input_state
+
+        persisted = project.db.execute(
+            "SELECT capture_json FROM consumed_source_bundles WHERE run_id=? AND row_id=?",
+            (run_id, input_row),
+        ).fetchone()
+        assert json.loads(persisted[0]) == saved_capture
+        assert row_input_state(project, run_id, input_row) == "stale"
+        project.undo()
+        assert row_input_state(project, run_id, input_row) == "fresh"
         call = project.db.execute(
             "SELECT attempt_id, provider_cost_usd FROM model_calls WHERE run_id=?",
             (run_id,),
@@ -268,6 +296,7 @@ def test_returned_checkpoint_accounts_spend_before_result_commit(
         project.add_rows(sheet, [{"text": "cross the cap"}], columns)
         provider = _ReturnedProviderCall()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "sk-ant-test"},
             key_sources={"anthropic": "project_key"},
             cache_mode="off",
@@ -335,7 +364,11 @@ def test_returned_checkpoint_replays_every_structured_wire_ordinal(
         project.add_rows(sheet, [{"text": "repair me"}], columns)
         spec, program = _bound(_spec(sheet))
         provider = _RepairThenReturn()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -400,7 +433,11 @@ def test_identical_prompts_keep_distinct_row_effect_identities(
         )
         spec, program = _bound(_spec(sheet))
         provider = _ReturnedProviderCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -497,7 +534,7 @@ class _AcceptedThenResponseLost:
         )
 
 
-def test_router_ambiguous_failure_keeps_row_effect_reserved_for_reconciliation(
+def test_model_retry_retains_known_usage_without_inventing_lost_response_cost(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -508,6 +545,7 @@ def test_router_ambiguous_failure_keeps_row_effect_reserved_for_reconciliation(
         project.add_rows(sheet, [{"text": "unknown accepted outcome"}], columns)
         provider = _AcceptedThenResponseLost()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test"},
             cache_mode="off",
             max_retries=3,
@@ -528,17 +566,34 @@ def test_router_ambiguous_failure_keeps_row_effect_reserved_for_reconciliation(
             )
         )
 
-        assert halted.halted_code == "external_effect_reconciliation_required"
-        assert halted.completed == 0
-        assert provider.calls == 1
-        checkpoint = project.db.execute(
-            "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
-            "AND group_key=CAST(? AS TEXT)",
+        assert halted.halted_code is None
+        assert halted.completed == 1
+        assert provider.calls == 2
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect' "
+                "AND group_key=CAST(? AS TEXT)",
+                (run_id,),
+            ).fetchone()[0]
+            == 0
+        )
+        # The lost response carries no known usage. Only the returned successful
+        # request contributes cost; retries cannot fabricate or double its usage.
+        assert project.db.execute(
+            "SELECT cost_actual FROM runs WHERE id=?",
             (run_id,),
-        ).fetchone()
-        assert checkpoint is not None
-        assert checkpoint["state"] == "reserved"
-        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 0
+        ).fetchone()[0] == pytest.approx(0.0001)
+        assert project.db.execute(
+            "SELECT SUM(provider_cost_usd) FROM model_calls WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0] == pytest.approx(0.0001)
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?",
+                (run_id,),
+            ).fetchone()[0]
+            == 1
+        )
     finally:
         project.close()
 
@@ -554,7 +609,11 @@ def test_ambiguous_reserved_effect_refuses_resume_instead_of_recalling(
         project.add_rows(sheet, [{"text": "unknown outcome"}], columns)
         spec, program = _bound(_spec(sheet))
         provider = _KilledInFlightCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -632,7 +691,7 @@ def test_ambiguous_reserved_effect_refuses_resume_instead_of_recalling(
         project.close()
 
 
-def test_cancelled_return_requires_fresh_generation_without_changing_old_accounting(
+def test_cancel_retains_unpublished_return_and_fresh_run_buys_new_work(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -643,7 +702,11 @@ def test_cancelled_return_requires_fresh_generation_without_changing_old_account
         project.add_rows(sheet, [{"text": "cancel after return"}], columns)
         spec, program = _bound(_spec(sheet))
         provider = _ReturnedProviderCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         first = _runner(project, router)
         confirmed = _confirmed_spec(first, spec, program)
@@ -669,23 +732,33 @@ def test_cancelled_return_requires_fresh_generation_without_changing_old_account
         assert cancelled.cancelled is True
         assert provider.calls == 1
         checkpoint = project.db.execute(
-            "SELECT state, accounting_persisted FROM effect_checkpoints "
+            "SELECT state, accounting_persisted, payload FROM effect_checkpoints "
             "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
             (run_id,),
         ).fetchone()
         assert checkpoint is not None
-        assert dict(checkpoint) == {"state": "returned", "accounting_persisted": 1}
-
-        with pytest.raises(GenerationSealedError, match="fresh explicitly scoped"):
-            asyncio.run(
-                _runner(project, router).run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
-            )
+        assert (checkpoint["state"], checkpoint["accounting_persisted"]) == (
+            "returned",
+            1,
+        )
+        retained = json.loads(checkpoint["payload"])
+        assert retained["relevance"]["value"] == 7
+        # Stop closes publication before the returned response reaches the
+        # result writer; its value survives in the paid-effect checkpoint.
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?",
+                (run_id,),
+            ).fetchone()[0]
+            == 0
+        )
+        assert first.run_store.get_run(run_id)["status"] == "cancelled"
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 0
+        )
 
         assert provider.calls == 1
         run = project.db.execute(
@@ -720,6 +793,19 @@ def test_cancelled_return_requires_fresh_generation_without_changing_old_account
         assert recovery.run_id != run_id
         assert recovery.completed == 1
         assert provider.calls == 2
+        assert project.db.execute(
+            "SELECT COUNT(*),SUM(provider_cost_usd) FROM model_calls"
+        ).fetchone()[:] == pytest.approx((2, 0.0002))
+        assert (
+            json.loads(
+                project.db.execute(
+                    "SELECT payload FROM effect_checkpoints WHERE family='row_effect' "
+                    "AND group_key=CAST(? AS TEXT)",
+                    (run_id,),
+                ).fetchone()[0]
+            )
+            == retained
+        )
     finally:
         project.close()
 
@@ -738,7 +824,11 @@ def test_row_refresh_cannot_erase_unreconciled_external_effect(
         row_id = int(project.db.execute("SELECT id FROM rows").fetchone()[0])
         spec, program = _bound(_spec(sheet))
         provider = _ReturnedProviderCall()
-        router = ModelRouter(keys={"anthropic": "test"}, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = provider  # noqa: SLF001
         runner = _runner(project, router)
         confirmed = _confirmed_spec(runner, spec, program)
@@ -823,6 +913,7 @@ def test_free_local_llm_row_checkpoint_is_consumed(tmp_path) -> None:
 
         provider = _FreeLocalCall()
         router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
             cache_mode="off",
             use_env_keys=False,
             local_endpoints=(

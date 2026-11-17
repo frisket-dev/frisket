@@ -234,7 +234,7 @@ def reserve_typed_find_action_job(
     return replace(envelope, resolved_snapshot=admission)
 
 
-def run_typed_find_action_job(project, envelope, *, deps=None):
+def run_typed_find_action_job(project, envelope, *, execution, deps=None):
     from frisket.ai.llm.router import model_call_cannot_go_live
     from frisket.ai.llm.types import provider_from_model_id
     from frisket.engine.jobs.runs import project_scoped_router
@@ -303,7 +303,10 @@ def run_typed_find_action_job(project, envelope, *, deps=None):
                 action_kind=envelope.action_kind,
             ),
         )
-    router = project_scoped_router(project, getattr(deps, "router", None))
+    execution.check()
+    router = project_scoped_router(
+        project, getattr(deps, "router", None)
+    ).for_execution(execution)
     if not model_call_cannot_go_live(router):
         if (
             project.effective_network_policy() == "off"
@@ -334,7 +337,19 @@ def run_typed_find_action_job(project, envelope, *, deps=None):
                     details=dict(exc.details),
                 ),
             )
-    result = asyncio.run(scan_find_plans(prepared.operation, scan.plans, router=router))
+    from frisket.engine.store.runs import RunResultStore
+
+    def record_calls(calls):
+        RunResultStore(project).write_unscoped_model_calls(
+            calls, row_id=None, column_id=None
+        )
+
+    result = asyncio.run(
+        scan_find_plans(
+            prepared.operation, scan.plans, router=router, record_calls=record_calls
+        )
+    )
+    execution.check()
     action = _TypedProjectEnvelope(
         bound.action.action_id, bound.request.idempotency_key, bound.request.params
     )
@@ -347,7 +362,7 @@ def run_typed_find_action_job(project, envelope, *, deps=None):
             action_id=envelope.action_id,
             receipt_id=envelope.receipt_id,
             params_hash=envelope.params_hash,
-            wire_calls=result.wire_calls,
+            calls=result.model_calls,
             error=ActionError(
                 code="incomplete_scan",
                 message="No grounded findings could be published because the scan was incomplete",

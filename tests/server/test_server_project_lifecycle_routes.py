@@ -153,14 +153,19 @@ def test_project_lifecycle_routes_preserve_http_contract(tmp_path) -> None:
     ] == ["Facts"]
 
     derived_id = project.add_sheet("Derived", parent_sheet_id=sheet_id)
-    blocked_sheet = client.delete(f"/api/projects/{pid}/sheets/{sheet_id}")
-    assert blocked_sheet.status_code == 409, blocked_sheet.text
-    assert "used by Derived" in blocked_sheet.json()["detail"]
+    derived_column = project.add_column(derived_id, "retained")
+    derived_row = project.add_rows(
+        derived_id, [{"retained": "independent output"}], {"retained": derived_column}
+    )[0]
+    deleted_source = client.delete(f"/api/projects/{pid}/sheets/{sheet_id}")
+    assert deleted_source.status_code == 200, deleted_source.text
     dependencies = client.get(f"/api/projects/{pid}/sheets").json()
-    facts = next(sheet for sheet in dependencies if sheet["id"] == sheet_id)
-    assert facts["dependent_sheet_ids"] == [derived_id]
+    assert all(sheet["id"] != sheet_id for sheet in dependencies)
     derived = next(sheet for sheet in dependencies if sheet["id"] == derived_id)
     assert derived["refreshable"] is False
+    assert project.get_values(derived_id, derived_column) == {
+        derived_row: "independent output"
+    }
 
     retention = client.get(f"/api/projects/{pid}/retention")
     assert retention.status_code == 200, retention.text

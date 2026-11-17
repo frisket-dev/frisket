@@ -1,5 +1,7 @@
 """Scratch estimates preserve unknown prices through the HTTP contract."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import json
 from decimal import Decimal
 
@@ -37,6 +39,7 @@ def test_scratch_compare_estimate_preserves_nullable_costs(
         lambda *args, **kwargs: {"kind": "audio", "duration_seconds": 15.0},
     )
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"gemini": "test-key", "openai": "test-key"},
         cache=None,
         cache_mode="off",
@@ -103,7 +106,12 @@ def test_ocr_scratch_uses_real_estimate_for_preapproval(tmp_path, monkeypatch, l
     monkeypatch.setattr(
         "frisket.ops.ocr_engines.OcrEngines.run_engine_on_pages", recognize
     )
-    router = ModelRouter(keys={"gemini": "test-key"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"gemini": "test-key"},
+        cache=None,
+        cache_mode="off",
+    )
     app = create_app(
         tmp_path / "workspace",
         router=router,

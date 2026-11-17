@@ -61,13 +61,9 @@ def test_typed_media_input_admission_precedes_execution(
             project_id="p",
         )
         if failure == "empty":
-            # Typed media follows the common row host: an empty local/free run
-            # is a no-op; unknown-cost fetching still requires its normal consent.
-            assert result.status == (
-                "needs_confirmation"
-                if action_id in {"media.fetch_url", "media.ytdlp_download"}
-                else "completed"
-            ), result.errors
+            # Empty typed media work is a no-op, including known-free local
+            # downloads. Admission still runs before any transport dispatch.
+            assert result.status == "completed", result.errors
             assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
             assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
             return

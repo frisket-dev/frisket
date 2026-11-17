@@ -24,6 +24,8 @@ from __future__ import annotations
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 import pytest
+
+from frisket.ops.base import RecipeInvocationHalt
 from helpers import replace_test_source_cell
 
 from frisket.engine.store import Project
@@ -495,7 +497,6 @@ def test_admission_refuses_no_live_target_when_the_pin_is_dead(project):
 def test_dispatch_separates_availability_from_confirmed_fact_drift(project):
     from frisket.execution.attempt_authority import admit_routed
     from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
-    from frisket.ops.base import RecipeInvocationHalt
 
     route = _persist_route(project, 42)
 
@@ -595,7 +596,6 @@ def test_dispatch_preserves_direct_work_scope_authorization(project):
     )
     from frisket.execution.resolver import RouteRowFacts
     from frisket.execution.scope_identity import canonical_work_scope_binding
-    from frisket.ops.base import RecipeInvocationHalt
 
     sheet_id = project.add_sheet("Scoped")
     column_id = project.add_column(sheet_id, "media", type="audio")
@@ -688,17 +688,16 @@ def test_dispatch_preserves_direct_work_scope_authorization(project):
         value="changed-audio-revision",
     )
 
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
-        admit_routed(
-            project,
-            run_id,
-            spec,
-            composition=_composition(provider),
-            recipe=recipe,
-            scope=(row_id,),
-        )
-    assert exc_info.value.code == "promise_violation"
-    assert "work scope" in str(exc_info.value)
+    updated = admit_routed(
+        project,
+        run_id,
+        spec,
+        composition=_composition(provider),
+        recipe=recipe,
+        scope=(row_id,),
+    )
+    assert updated.route.id == admitted.route.id
+    assert updated.route.subject_id == str(run_id)
 
 
 def test_route_and_binding_are_one_value_not_two_extras_keys(project):

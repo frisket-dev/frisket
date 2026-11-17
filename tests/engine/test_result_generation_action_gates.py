@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from pathlib import Path
 
@@ -287,7 +288,7 @@ def test_runner_rechecks_document_text_role_before_adopting_generation_free_targ
         project.db.commit()
         runner = MapRunner(
             project,
-            ModelRouter(keys={}),
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             authority=UnroutedOnlyAuthority(project),
             allow_action_lifecycle_only_recipes=True,
         )
@@ -353,9 +354,12 @@ def test_managed_resume_only_accepts_exact_open_recovery(
         project.close()
 
 
-def test_managed_sheet_refresh_refuses_before_rows_or_receipts_change(
+def test_managed_sheet_refresh_retains_history_and_never_overwrites_newer_changes(
     tmp_path: Path,
 ) -> None:
+    from frisket.engine.store.op_log import RestorationUnavailable, step_operation
+    from test_result_generation_store import _seal, _write
+
     project, _parent_id, _source_column_id, child_id, _parent_row_ids = _build(tmp_path)
     column_id = int(
         project.db.execute(
@@ -363,64 +367,96 @@ def test_managed_sheet_refresh_refuses_before_rows_or_receipts_change(
             (child_id,),
         ).fetchone()[0]
     )
-    row_ids = [
+    old_rows = [
         int(row[0])
         for row in project.db.execute(
-            "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (child_id,)
-        ).fetchall()
+            "SELECT id FROM rows WHERE sheet_id=? AND hidden=0 ORDER BY position",
+            (child_id,),
+        )
     ]
     claimed_run = _start_claimed_run(
         project,
         sheet_id=child_id,
         output_column_id=column_id,
-        row_ids=row_ids,
-        label="refresh gate generation",
+        row_ids=old_rows,
+        label="generated edits before refresh",
     )
-    _declare(
-        ResultGenerationStore(project),
-        claimed_run,
-        column_id,
-        write_mode="create",
-    )
+    generations = ResultGenerationStore(project)
+    _declare(generations, claimed_run, column_id, write_mode="create")
     try:
-        before = (
-            _mutation_snapshot(project),
-            tuple(
-                tuple(row)
-                for row in project.db.execute(
-                    "SELECT id,position,hidden FROM rows WHERE sheet_id=? "
-                    "ORDER BY position",
-                    (child_id,),
-                ).fetchall()
-            ),
-            project.op_cursor,
+        _write(
+            project,
+            claimed_run,
+            [
+                {
+                    "row_id": row,
+                    "column_id": column_id,
+                    "value": f"generated {row}",
+                    "outcome": "ok",
+                    "publication_effect": "publish_value",
+                }
+                for row in old_rows
+            ],
         )
+        _seal(generations, claimed_run, column_id)
+        RunResultStore(project).finish_run(
+            claimed_run.run_id,
+            status="completed",
+            **claimed_run.authority.terminal_kwargs(),
+        )
+        _release(project, claimed_run)
+        before_refresh = project.get_values(child_id, column_id)
         result = run_action_spec(
             project,
             _refresh(sheet_id=child_id, key="managed-refresh@sha256:test"),
             project_id="p-ref",
         )
-        assert result.status == "failed"
-        assert result.errors[0].code == "refresh_unsupported"
-        assert result.errors[0].details == {
-            "sheet_id": child_id,
-            "column_id": column_id,
-            "column_name": "vendor",
-            "reason": "generation_managed_rows",
-        }
-        after = (
-            _mutation_snapshot(project),
-            tuple(
-                tuple(row)
-                for row in project.db.execute(
-                    "SELECT id,position,hidden FROM rows WHERE sheet_id=? "
-                    "ORDER BY position",
-                    (child_id,),
-                ).fetchall()
-            ),
-            project.op_cursor,
+        assert result.status == "completed", result.errors
+        refresh_op = int(
+            project.db.execute(
+                "SELECT id FROM ops WHERE kind='sheet.refresh' ORDER BY id DESC LIMIT 1"
+            ).fetchone()[0]
         )
-        assert after == before
+        # Unkeyed list occurrences are replaced, never matched by their values.
+        refreshed = project.get_values(child_id, column_id)
+        assert set(refreshed).isdisjoint(old_rows)
+        assert list(refreshed.values()) == ["Acme", "Globex", "Initech"]
+        assert project.db.execute(
+            "SELECT count(*) FROM results WHERE run_id=?", (claimed_run.run_id,)
+        ).fetchone()[0] == len(old_rows)
+        first_new_row = next(iter(refreshed))
+        project.apply_edits(
+            [
+                {
+                    "row_id": first_new_row,
+                    "column_id": column_id,
+                    "value": "newer correction",
+                }
+            ]
+        )
+        newest = project.get_values(child_id, column_id)
+        assert newest[first_new_row] == "newer correction"
+        order = project.db.execute(
+            "SELECT change_order FROM ops WHERE id IN (?,?) ORDER BY change_order",
+            (claimed_run.op_id, refresh_op),
+        ).fetchall()
+        assert order[0][0] < order[1][0]
+        with project.transaction_scope():
+            step_operation(project, "revert", op_id=claimed_run.op_id)
+        assert project.get_values(child_id, column_id) == newest
+        # Restore cannot resurrect removed destinations as a side effect.
+        with pytest.raises(RestorationUnavailable, match="restore it first"):
+            with project.transaction_scope():
+                step_operation(project, "restore", op_id=claimed_run.op_id)
+        assert project.get_values(child_id, column_id) == newest
+        # Reverting refresh restores membership; the old generated values can
+        # then be restored. Neither operation discards the newer manual edit.
+        with project.transaction_scope():
+            step_operation(project, "revert", op_id=refresh_op)
+            step_operation(project, "restore", op_id=claimed_run.op_id)
+        assert project.get_values(child_id, column_id) == before_refresh
+        with project.transaction_scope():
+            step_operation(project, "restore", op_id=refresh_op)
+        assert project.get_values(child_id, column_id) == newest
     finally:
-        _release(project, claimed_run)
         project.close()

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import sqlite3
@@ -79,7 +80,14 @@ def test_outcome_constants_partition_failure_and_terminal() -> None:
     assert "withheld_unverified" in TERMINAL_OUTCOMES
     # a kept-but-uncited research answer: terminal, NOT a failure, value kept.
     assert "unverified_memory" in TERMINAL_OUTCOMES
-    assert set(FAILURE_OUTCOMES) == {"model_error", "invalid_output", "row_error"}
+    # This legacy bucket drives retry/filter eligibility, not failed-row counts:
+    # unavailable inputs can be tried later without claiming a failed attempt.
+    assert set(FAILURE_OUTCOMES) == {
+        "model_error",
+        "invalid_output",
+        "row_error",
+        "not_completed",
+    }
     assert set(TERMINAL_FAILURE_OUTCOMES) == {"empty_output"}
 
 
@@ -182,12 +190,16 @@ def test_missing_outputs_publish_explicit_null_or_error(tmp_path: Path) -> None:
         row_cells = asyncio.run(
             execute_row(
                 project,
-                ModelRouter(keys={}),
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                 AdaptiveThrottle(),
                 _LegacyOmissionRecipe(),
                 {"seed": "value"},
                 {"action_kind": "map.extract", "with_error": True},
-                OpContext(project=project, http=None, extras={}),
+                OpContext(
+                    project=project,
+                    http=None,
+                    extras={"preview": True, "cancelled": lambda: False},
+                ),
                 output_field_names=("present", "missing"),
                 required_output_field_names=frozenset({"present", "missing"}),
                 managed_publication=True,

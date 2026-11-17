@@ -14,6 +14,8 @@ from frisket.engine.executor.census_capability import (
     CensusGeo,
 )
 from frisket.execution.credential_use import CredentialUseContext
+from frisket.execution.dispatch_control import STANDALONE
+from frisket.execution.purchases import PurchaseAdmission, PurchasePolicyRequired
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "census"
@@ -105,7 +107,8 @@ def _capability(handler, row_ids=(1, 2, 3), *, cancelled=None):
         http=client,
         extras={
             **_routed_extras(row_ids),
-            **({"cancelled": cancelled} if cancelled else {}),
+            "preview": True,
+            "cancelled": cancelled or (lambda: False),
         },
         credential_use_context=CredentialUseContext.open(),
     )
@@ -297,7 +300,7 @@ def test_caches_are_local_and_bounded_and_preserve_grouping(monkeypatch):
             calls.append(("GET", params["in"]))
             return httpx.Response(200, json=_fixture_json("acs_2024_dc_tracts.json"))
 
-    ctx = OpContext(http=HTTP())
+    ctx = OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
     capability = AdmittedCensusDemographics(ctx)
     points = {i: (float(i), 0.0) for i in range(1, 6)}
     geos = asyncio.run(capability._lookup_geographies(points, "tract", ctx))
@@ -329,7 +332,7 @@ def test_block_group_acs_groups_by_tract_and_cache_is_bounded(monkeypatch):
             assert "B01003_001M" in params["get"]
             return httpx.Response(200, json=[])
 
-    ctx = OpContext(http=HTTP())
+    ctx = OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
     capability = AdmittedCensusDemographics(ctx)
     geos = [
         CensusGeo("11", "001", "980000", "1000"),
@@ -455,7 +458,7 @@ def test_acs_errors_do_not_leak_credential(error_kind):
                 503 if error_kind == "status" else 200, text=f"unexpected {secret}"
             )
 
-    ctx = OpContext(http=HTTP())
+    ctx = OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
     capability = AdmittedCensusDemographics(ctx)
     with pytest.raises(RuntimeError) as caught:
         asyncio.run(
@@ -573,7 +576,7 @@ def test_census_acs_non_json_key_error_is_readable():
                 "tract",
                 "2024",
                 False,
-                OpContext(http=HTTP()),
+                OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
             )
         )
 
@@ -599,7 +602,7 @@ def test_census_acs_non_json_missing_key_error_is_readable():
                 "tract",
                 "2024",
                 False,
-                OpContext(http=HTTP()),
+                OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
             )
         )
 
@@ -620,7 +623,7 @@ def test_census_acs_block_group_fixture_parses():
             "block_group",
             "2024",
             False,
-            OpContext(http=HTTP()),
+            OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
         )
     )
 
@@ -635,3 +638,80 @@ def test_census_acs_block_group_fixture_parses():
     assert formatted.demo_area_id == "110019800001"
     assert formatted.demo_population == 17
     assert formatted.demo_bachelors_plus_rate == 100
+
+
+@pytest.mark.parametrize("outcome", ["success", "malformed", "cancelled"])
+def test_census_purchase_owner_records_each_batch_before_result_validation(
+    monkeypatch, outcome
+):
+    monkeypatch.setenv("CENSUS_API_KEY", "test-census-key")
+    admitted = []
+    observed = []
+    calls = []
+    cancelled = False
+
+    class Policy:
+        def admit_purchase(self, request):
+            assert request.provider == "us-census"
+            assert request.capability == "census_demographics"
+            assert request.estimated_cost_usd == 0.0
+            assert "test-census-key" not in str(request.prepared)
+            admitted.append(request)
+            return PurchaseAdmission("included")
+
+        def record_purchase(self, request, admission, observation):
+            assert admission.disposition == "included"
+            observed.append(observation)
+
+        def fail_purchase(self, request, admission, error):
+            pytest.fail("Returned free-provider work must be recorded before parsing")
+
+    def handler(request):
+        nonlocal cancelled
+        calls.append(request)
+        assert len(admitted) == len(calls)
+        if request.method == "POST":
+            if outcome == "cancelled":
+                cancelled = True
+            return httpx.Response(
+                200, text=_fixture_text("coordinatesbatch_dedupe.csv")
+            )
+        if outcome == "malformed":
+            return httpx.Response(200, text="not JSON")
+        return httpx.Response(200, json=_fixture_json("acs_2024_dc_tracts.json"))
+
+    capability = _capability(handler, cancelled=lambda: cancelled)
+    capability.ctx.extras["service_operation_policy"] = Policy()
+    points = {
+        1: GeoPoint(lat=38.9, lon=-77.03),
+        2: GeoPoint(lat=38.9, lon=-77.03),
+        3: GeoPoint(lat=38.91, lon=-77.04),
+    }
+    if outcome == "malformed":
+        with pytest.raises(RuntimeError, match="non-JSON"):
+            _lookup(capability, points)
+    else:
+        result = _lookup(capability, points)
+        if outcome == "cancelled":
+            assert all(row.code == "cancelled" for row in result.values())
+        else:
+            assert all(isinstance(row, CensusRecord) for row in result.values())
+    assert len(calls) == len(admitted) == len(observed) == (1 if cancelled else 2)
+    assert all(item.provider_cost_micro == 0 for item in observed)
+    assert all(item.usage == {"requests": 1} for item in observed)
+
+
+def test_census_refused_purchase_never_reaches_provider(monkeypatch):
+    monkeypatch.setenv("CENSUS_API_KEY", "test-census-key")
+    calls = []
+
+    class Policy:
+        def admit_purchase(self, request):
+            raise PurchasePolicyRequired("Hosted execution requires a purchase policy")
+
+    capability = _capability(lambda request: calls.append(request))
+    capability.ctx.extras["service_operation_policy"] = Policy()
+    with pytest.raises(PurchasePolicyRequired):
+        _lookup(capability, {1: GeoPoint(lat=38.9, lon=-77.03)})
+    assert calls == []
+    assert capability.request_count == 0

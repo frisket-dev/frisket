@@ -12,6 +12,11 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
+from frisket.execution.action_admission import (
+    missing_action_credential_error as missing_action_credential_error,
+    network_disabled_error,
+)
+from frisket.engine.store.import_sessions import ImportExecutionOwner
 from frisket.actions.types import RowError
 from frisket.engine.executor.action_support import _row_input_action_error
 
@@ -83,26 +88,6 @@ from frisket.execution.provider import (
 MISSING_ACTION_CREDENTIAL_ERROR_CODE = "missing_action_credential"
 
 
-def missing_action_credential_error(
-    action_kind: str,
-    missing: list[str],
-) -> ActionError:
-    joined = ", ".join(missing)
-    return ActionError(
-        code=MISSING_ACTION_CREDENTIAL_ERROR_CODE,
-        message=(
-            f"'{action_kind}' requires {joined} to run. Add it in "
-            "Settings → Secrets, then try again."
-        ),
-        action_kind=action_kind,
-        details={
-            "missing_credentials": missing,
-            "settings_scope": "project",
-            "settings_section": "secrets",
-        },
-    )
-
-
 # Shared shape for a keyless-model-provider refusal — code + message match
 # the pre-existing
 # MissingProviderKey exception handlers below and in
@@ -146,18 +131,6 @@ def provider_key_refusal_error(
 # capability. status="failed", never "needs_confirmation" — off is off, not a
 # confirm-and-proceed gate. The classification is server-derived only.
 NETWORK_DISABLED_ERROR_CODE = "network_disabled"
-
-
-def network_disabled_error(action_kind: str, capability: str) -> ActionError:
-    return ActionError(
-        code=NETWORK_DISABLED_ERROR_CODE,
-        message=(
-            f"this project's network setting is off; it blocks {capability}. "
-            "Turn network on in the project settings to run this."
-        ),
-        action_kind=action_kind,
-        details={"capability": capability},
-    )
 
 
 def missing_model_key_error_for_request(
@@ -221,7 +194,7 @@ def missing_model_key_error_for_request(
     cache_can_serve_replay = router.cache_mode == "replay" and router.cache is not None
     if model_call_cannot_go_live(router) or cache_can_serve_replay:
         return None
-    if router.adapter_for(provider) is not None:
+    if router.has_provider(provider):
         return None
     return missing_provider_key_error(action_kind, provider)
 
@@ -272,6 +245,7 @@ class QueuedV1ActionRunContext:
     request_executor_deps: Callable[[], ExecutorDeps] = ExecutorDeps
     trusted_consent_authorizer: TrustedConsentAuthorizer | None = None
     trusted_consent_principal: str | None = None
+    import_owner: ImportExecutionOwner | None = None
 
 
 def attach_run_edition_run_context(
@@ -516,6 +490,9 @@ def _queue_v1_project_run_request(
                 execution_context.edition_snapshot,
                 commit=not atomic_publication,
             )
+            if ctx.import_owner is not None:
+                with project.transaction_scope():
+                    ctx.import_owner.bind_run(project, progress.run_id)
             if atomic_publication:
                 project.db.commit()
         except CostGate as exc:
@@ -670,6 +647,9 @@ def _queue_v1_project_run_request(
                     reservation_snapshot=reservation_snapshot,
                     commit=False,
                 )
+            if ctx.import_owner is not None:
+                with project.transaction_scope():
+                    ctx.import_owner.bind_run(project, progress.run_id)
             if atomic_publication:
                 attach_run_edition_run_context(
                     project,
@@ -797,14 +777,30 @@ def queue_v1_action_run(
                 action_kind=kind,
                 error=ActionError(code="source_poll_invalid", message=str(exc)),
             )
+    from frisket.engine.executor.import_update_admission import UPDATE_ACTIONS
+
+    if kind in UPDATE_ACTIONS:
+        from frisket.server.import_update_enqueue import queue_import_update
+
+        try:
+            return queue_import_update(project, project_id, dict(action_body), ctx)
+        except (KeyError, TypeError, ValueError, OSError) as exc:
+            return _failed_result(
+                project_id=project_id,
+                action_kind=kind,
+                error=ActionError(code="import_update_failed", message=str(exc)),
+            )
     if installed is not None:
         from frisket.actions.core import CreateSheet
+        from frisket.actions.types import RowsUpdater
 
         if installed.action.catalog_entry()["async_mode"] != "queued":
             return None
         placement = (
             PlacementPolicy.QUEUED_ACTION_JOB
             if isinstance(installed.action.definition.run, CreateSheet)
+            or getattr(installed.action.definition.run, "capabilities", ())
+            == (RowsUpdater,)
             else PlacementPolicy.QUEUED_PROJECT_RUN
         )
     if installed is None:
@@ -825,6 +821,11 @@ def queue_v1_action_run(
 
         try:
             bound = installed or typed_action_for_request(dict(action_body))
+            from frisket.engine.executor.selection_scope import resolve_action_selection
+
+            bound = resolve_action_selection(
+                project, bound, replay_before_resolution=True
+            )
             from frisket.actions.core import GoogleSheetsExport
             from frisket.actions.find_types import FindScanner
 
@@ -917,6 +918,9 @@ def queue_v1_action_run(
         replay = typed_map_rows_replay_result(project, project_id, bound)
         if replay is not None:
             return replay
+        from frisket.engine.executor.selection_scope import resolve_action_selection
+
+        bound = resolve_action_selection(project, bound)
         recovering_prepared = (
             ReceiptStore(project).find_by_idempotency_key(bound.request.idempotency_key)
             is not None

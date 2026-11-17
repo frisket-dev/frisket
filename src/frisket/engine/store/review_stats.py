@@ -11,7 +11,7 @@ from .runs import REVIEWABLE_OUTCOMES
 
 
 _SQL_ALIAS = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_INCORRECT_DECISIONS = frozenset({"edit", "reject", "reject_clear"})
+_INCORRECT_DECISIONS = frozenset({"reject", "reject_clear"})
 
 
 def _require_alias(alias: str) -> str:
@@ -21,32 +21,25 @@ def _require_alias(alias: str) -> str:
 
 
 def current_review_run_predicate(
-    run_alias: str = "runs", *, terminal_only: bool = True
+    run_alias: str = "runs", *, terminal_only: bool = False
 ) -> str:
-    """SQL predicate for a run with a still-current output on a visible sheet.
-
-    Managed outputs are current only through exact result heads. The legacy
-    column pointer fallback explicitly excludes every managed column, so a
-    stale pointer cannot retain a fully replaced managed run.
-    """
+    """A saved result still belonging to a visible output, ignoring ordinary edits."""
+    from .current_read_sql import generated_result_coordinate_sql
 
     run = _require_alias(run_alias)
+    heads = generated_result_coordinate_sql("review_result")
     terminal = f"{run}.status <> 'running' AND " if terminal_only else ""
     return (
         f"{terminal}"
-        f"EXISTS (SELECT 1 FROM ops review_op WHERE review_op.id={run}.op_id "
-        "AND review_op.status='applied') AND ("
-        "EXISTS (SELECT 1 FROM cell_result_heads review_head "
-        "JOIN columns review_column ON review_column.id=review_head.column_id "
+        "EXISTS (SELECT 1 FROM results review_result "
+        "JOIN columns review_column ON review_column.id=review_result.column_id "
         "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
-        f"WHERE review_head.run_id={run}.id AND review_column.active=1 "
-        "AND review_sheet.hidden=0) OR "
-        "EXISTS (SELECT 1 FROM columns review_column "
-        "JOIN sheets review_sheet ON review_sheet.id=review_column.sheet_id "
-        f"WHERE review_column.current_run_id={run}.id "
-        "AND review_column.active=1 AND review_sheet.hidden=0 AND NOT EXISTS ("
-        "SELECT 1 FROM run_output_generations review_generation "
-        "WHERE review_generation.column_id=review_column.id)))"
+        f"WHERE review_result.run_id={run}.id AND review_result.published=1 "
+        "AND review_column.active=1 AND review_sheet.hidden=0 "
+        f"AND EXISTS (SELECT 1 FROM {heads} review_head "
+        "WHERE review_head.column_id=review_result.column_id "
+        "AND review_head.row_id=review_result.row_id "
+        "AND review_head.run_id=review_result.run_id AND review_head.outcome IN ('completed','failed')))"
     )
 
 
@@ -61,8 +54,8 @@ def _is_resolved(state: object, decision: object) -> bool:
     return state != "unreviewed" or decision is not None
 
 
-def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
-    """Rebuild one run's stable aggregate without reclassifying known fields."""
+def ensure_run_review_fields(db: sqlite3.Connection, run_id: int) -> None:
+    """Ensure the saved output roster without reading or recounting result values."""
 
     run_id = int(run_id)
     run = db.execute(
@@ -120,6 +113,12 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
                 is_primary,
             ),
         )
+
+
+def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
+    """Rebuild one run's stable aggregate without reclassifying known fields."""
+    run_id = int(run_id)
+    ensure_run_review_fields(db, run_id)
 
     db.execute(
         "UPDATE run_review_fields SET eligible_count=0,reviewed_count=0,"
@@ -191,13 +190,13 @@ def rebuild_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
 
 
 def ensure_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
-    """Heal a missing/dirty terminal summary; live runs remain writer-owned."""
+    """Heal a missing/dirty summary in the same serialized database snapshot."""
 
     run_id = int(run_id)
     row = db.execute(
         "SELECT status,review_stats_ready FROM runs WHERE id=?", (run_id,)
     ).fetchone()
-    if row is None or row["status"] == "running":
+    if row is None:
         return
     if bool(row["review_stats_ready"]):
         return
@@ -214,11 +213,7 @@ def ensure_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
         row = db.execute(
             "SELECT status,review_stats_ready FROM runs WHERE id=?", (run_id,)
         ).fetchone()
-        if (
-            row is not None
-            and row["status"] != "running"
-            and not bool(row["review_stats_ready"])
-        ):
+        if row is not None and not bool(row["review_stats_ready"]):
             rebuild_run_review_stats(db, run_id)
         db.commit()
     except BaseException:

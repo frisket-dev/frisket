@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from helpers import stored_output_descriptor
 
 from frisket.actions.system import root_action_catalog_payload
 from frisket.engine.store import Project
@@ -102,6 +103,13 @@ class _ResearchStore:
         self.run["revision"] += 1
         return dict(self.run)
 
+    def add_output_grant(self, research_id: str, receipt_id: str):
+        assert research_id == self.run["id"]
+        grants = self.run.setdefault("output_grants", [])
+        if receipt_id not in grants:
+            grants.append(receipt_id)
+        return dict(self.run)
+
 
 class _Session:
     id = "research-1"
@@ -119,7 +127,7 @@ class _Session:
     async def check_authority(self) -> None:
         self.authority_checks += 1
 
-    async def pause(self, approval: dict[str, Any]) -> str:
+    async def pause(self, approval: dict[str, Any], *, recheck=None) -> str:
         self.pauses.append(dict(approval))
         return self.decisions.pop(0)
 
@@ -693,9 +701,17 @@ async def test_replacement_respects_write_mode_at_frozen_target(
     project.db.execute(
         "INSERT INTO run_output_generations "
         "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token,terminal_disposition,sealed_at) "
-        "VALUES (?,?,?,?,?,'sealed',?,'completed',datetime('now'))",
-        (run_id, greeting_column, "rendered", "text", "create", "prior-claim"),
+        "claim_token,terminal_disposition,sealed_at,output_descriptor_json) "
+        "VALUES (?,?,?,?,?,'sealed',?,'completed',datetime('now'),?)",
+        (
+            run_id,
+            greeting_column,
+            "rendered",
+            "text",
+            "create",
+            "prior-claim",
+            stored_output_descriptor(project.db, greeting_column),
+        ),
     )
     project.db.commit()
     if decision is not None:

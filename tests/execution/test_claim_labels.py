@@ -14,7 +14,7 @@ from frisket.execution.claim_labels import (
 from frisket.execution.commercial import CommercialPresentation
 from frisket.execution.resolve_for_action import gate_claims_payload
 from frisket.execution.resolver import RouteRowFacts
-from frisket.execution.promises import EGRESS_ORDER_REF, Promise
+from frisket.execution.promises import EGRESS_ORDER_REF, Promise, promise_set_hash
 
 TRUST_LABEL_GOLDENS = {
     ("none", "self", "operator_borne"): "Media stays on this machine.",
@@ -106,6 +106,36 @@ def _facts(egress: str, operator: str, posture: str) -> RouteRowFacts:
         credential_source="local",
         cost_posture=posture,
     )
+
+
+def test_gate_cost_copy_uses_rated_purchase_including_zero_and_unknown():
+    cost = Promise.make(
+        "cost",
+        "unbounded",
+        None,
+        basis={"unit_rate": "1", "estimated_quantity": "1.25"},
+        audience="user_claim",
+    )
+    facts = _facts("frisket_shared", "frisket", "platform_metered")
+    original_hash = promise_set_hash([cost])
+    for billed, expected in (
+        (2_500_000, "Estimated cost $2.50;"),
+        (0, "Estimated cost $0.00;"),
+        (None, "Cost cannot be estimated for this run"),
+    ):
+        claims = gate_claims_payload(
+            [cost],
+            facts,
+            has_cost_claim=True,
+            rated_estimate={
+                "cost": 1.25,
+                "billed_cost": billed,
+                "policy_id": "test.retail.v1",
+            },
+        )
+        assert claims[0]["display"].startswith(expected)
+        assert "$1.25" not in claims[0]["display"]
+        assert promise_set_hash([cost]) == original_hash
 
 
 def test_egress_claim_display_golden():
@@ -227,3 +257,44 @@ def test_trust_label_open_family_fallback():
         "Media is handled by an execution venue of class 'future_class'."
     )
     assert cost_posture_label("future_posture") == "cost posture 'future_posture'"
+
+
+def test_uncapped_compiled_cost_retains_known_estimate_without_authority():
+    from dataclasses import replace
+    from frisket.execution.promise_compiler import (
+        PricedCostBasis,
+        compile_route_promises,
+    )
+
+    facts = _facts("third_party_api", "acme-ai", "operator_borne")
+    basis = PricedCostBasis(
+        pricing_key="acme.page",
+        unit_rate="0.02",
+        estimated_quantity="75",
+        quantity_unit="page",
+        terms_version=None,
+        quantity_rounding_mode="exact",
+        quantity_rounding_decimal_places=None,
+        meter_key="pages",
+        meter_units_per_quantity_unit="1",
+        ceiling_mode="none",
+        row_settlement_mode="all_metered",
+        charge_authority="acme",
+    )
+    for quantity, amount in (("75", "$1.50"), ("0", "$0.00"), (None, None)):
+        promises = compile_route_promises(
+            facts, replace(basis, estimated_quantity=quantity)
+        )
+        [cost] = [p for p in promises.promises if p.field == "cost"]
+        assert cost.op == "unbounded"
+        assert cost.value is None
+        assert cost.basis["estimated_quantity"] == quantity
+        assert cost.basis["unit_rate"] == "0.02"
+        assert cost.basis["ceiling_mode"] == "none"
+        display = claim_display(cost, facts)
+        if amount is None:
+            assert "cannot be estimated" in display
+        else:
+            assert amount in display
+            assert "not a spending cap" in display
+        assert "Maximum" not in display

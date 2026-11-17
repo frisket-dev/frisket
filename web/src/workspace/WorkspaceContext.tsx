@@ -53,7 +53,7 @@ export interface WorkspaceShellHandle {
   closeRoutePanel: WorkspaceViewModel['closeRoutePanel'];
   openRowInDocumentView: WorkspaceViewModel['openRowInDocumentView'];
   openDocumentRef: WorkspaceViewModel['openDocumentRef'];
-  applyLens: WorkspaceViewModel['applyLens'];
+  openSavedView: WorkspaceViewModel['openSavedView'];
   leftSidebarPluginPanelDescriptors: WorkspaceViewModel['leftSidebarPluginPanelDescriptors'];
   openEvidenceViewer: WorkspaceViewModel['openEvidenceViewer'];
   openRowRef: WorkspaceViewModel['openRowRef'];
@@ -79,7 +79,8 @@ export interface WorkspaceShellHandle {
   openOcrCompareTab: WorkspaceViewModel['openOcrCompareTab'];
   openActionCompare: WorkspaceViewModel['openActionCompare'];
   returnToActionCompare: WorkspaceViewModel['returnToActionCompare'];
-  doStepTo: WorkspaceViewModel['doStepTo'];
+  doRevert: WorkspaceViewModel['doRevert'];
+  doRestore: WorkspaceViewModel['doRestore'];
   loadHistoryPage: WorkspaceViewModel['loadHistoryPage'];
   pluginManagerOperations: WorkspaceViewModel['pluginManagerOperations'];
   selectBottomDockTab: WorkspaceViewModel['selectBottomDockTab'];

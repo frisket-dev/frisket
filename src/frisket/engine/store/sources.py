@@ -89,6 +89,9 @@ class SourceStore:
             self.db.commit()
 
     def delete_source(self, source_id: int, *, commit: bool = True) -> None:
+        self.db.execute(
+            "DELETE FROM keyed_relationships WHERE id=?", (f"source:{source_id}",)
+        )
         self.db.execute("DELETE FROM sources WHERE id=?", (source_id,))
         if commit:
             self.db.commit()
@@ -193,70 +196,6 @@ class SourceStore:
                     int(row["source_id"]),
                 ),
             )
-        if commit:
-            self.db.commit()
-
-    def source_item_for_dedupe(
-        self,
-        source_id: int,
-        dedupe_key: str,
-    ) -> sqlite3.Row | None:
-        return self.db.execute(
-            "SELECT * FROM source_items WHERE source_id=? AND dedupe_key=?",
-            (source_id, dedupe_key),
-        ).fetchone()
-
-    def upsert_source_item(
-        self,
-        *,
-        source_id: int,
-        source_item_id: str,
-        dedupe_key: str,
-        item_hash: str,
-        row_id: int | None,
-        source_run_id: int,
-        revision: int | None = None,
-        raw_ref: dict[str, Any] | None = None,
-        commit: bool = True,
-    ) -> None:
-        """Write the ledger entry for one (source_id, dedupe_key).
-
-        The database decides whether this is an insert or an update, via the
-        real ``UNIQUE(source_id, dedupe_key)`` constraint. A prior SELECT would
-        only be advisory: two calls for the same key inside one transaction --
-        or two writers racing -- can both read "absent" and both insert. Here a
-        second row for a key is unrepresentable; the conflict resolves to the
-        update arm. ``first_seen_run_id`` is deliberately absent from the
-        update arm, so it keeps recording the first sighting.
-        """
-        self.db.execute(
-            "INSERT INTO source_items (source_id, source_item_id, dedupe_key, "
-            "item_hash, row_id, first_seen_run_id, last_seen_run_id, "
-            "revision, raw_ref_json) "
-            "VALUES (:source_id, :source_item_id, :dedupe_key, :item_hash, "
-            ":row_id, :source_run_id, :source_run_id, "
-            "COALESCE(:revision, 0), :raw_ref_json) "
-            "ON CONFLICT(source_id, dedupe_key) DO UPDATE SET "
-            "source_item_id=excluded.source_item_id, "
-            "item_hash=excluded.item_hash, "
-            "row_id=excluded.row_id, "
-            "last_seen_run_id=excluded.last_seen_run_id, "
-            # An omitted revision means "leave the ledger's count alone", which
-            # excluded.revision (already COALESCEd to 0) cannot express.
-            "revision=COALESCE(:revision, source_items.revision), "
-            "raw_ref_json=excluded.raw_ref_json, "
-            "updated_at=datetime('now')",
-            {
-                "source_id": source_id,
-                "source_item_id": source_item_id,
-                "dedupe_key": dedupe_key,
-                "item_hash": item_hash,
-                "row_id": row_id,
-                "source_run_id": source_run_id,
-                "revision": None if revision is None else int(revision),
-                "raw_ref_json": json.dumps(raw_ref or {}, sort_keys=True),
-            },
-        )
         if commit:
             self.db.commit()
 

@@ -7,6 +7,13 @@ import importlib.util
 from typing import Any
 
 from frisket.actions.types import Row, RowError
+from frisket.execution.dispatch_control import dispatch_for_context
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+    policy_for_context,
+)
 from frisket.ops.ner_local import LocalNerExtractor
 
 
@@ -63,8 +70,26 @@ class _BoundNerExtractor:
         owner._check_active(self._ctx)
         if not 0 <= threshold <= 1:
             raise ValueError("NER threshold must be between zero and one")
+        if not text.strip():
+            return []
         if owner._spacy_session is not None:
-            extraction = owner._spacy_session.extract(text, labels)
+            extraction = execute_purchase(
+                PurchaseRequest(
+                    provider="local",
+                    capability="ner",
+                    engine="spacy",
+                    credential_source="none",
+                    prepared={"labels": labels},
+                    context=self._ctx,
+                    quantity={"input_count": 1},
+                ),
+                policy=policy_for_context(self._ctx),
+                dispatch=dispatch_for_context(self._ctx),
+                invoke=lambda: owner._spacy_session.extract(text, labels),
+                observe=lambda result: PurchaseObservation(
+                    result, {"input_count": 1}, 0
+                ),
+            )
         else:
             extractor = LocalNerExtractor(owner._engine, self._ctx)
             extraction = extractor.extract(text, labels=labels, threshold=threshold)

@@ -67,15 +67,16 @@ SELECT source_column.sheet_id AS source_sheet_id,
        content.source_artifact_id AS source_artifact_id,
        ref.page_number AS ref_page_number,
        artifact.page_count AS page_count,
+       source_column.hidden AS source_hidden,
        text_column.hidden AS text_hidden
 FROM document_text_column_roles role
 JOIN columns source_column ON source_column.id=role.source_column_id
 JOIN columns text_column ON text_column.id=role.text_column_id
-JOIN current_cells source_head ON source_head.column_id=role.source_column_id
+JOIN effective_current_cells source_head ON source_head.column_id=role.source_column_id
 JOIN current_cell_values source_live
   ON source_live.column_id=source_head.column_id
  AND source_live.row_id=source_head.row_id
-JOIN current_cells text_head
+JOIN effective_current_cells text_head
   ON text_head.column_id=role.text_column_id
  AND text_head.row_id=source_head.row_id
 JOIN current_cell_values text_live
@@ -94,7 +95,6 @@ WHERE source_column.sheet_id=text_column.sheet_id
   AND source_column.type IN ('file','image')
   AND text_column.type='text'
   AND source_column.active=1
-  AND source_column.hidden=0
   AND text_column.active=1
   AND source_live.validity='valid'
   AND source_live.value_kind='json'
@@ -126,6 +126,8 @@ WHERE source_column.sheet_id=text_column.sheet_id
           AND source_span.page_start=ref.page_number
           AND source_span.page_end=ref.page_number
           AND source_link.status='active'
+          AND (source_link.op_id IS NULL OR EXISTS (SELECT 1 FROM ops evidence_owner
+            WHERE evidence_owner.id=source_link.op_id AND evidence_owner.status='applied'))
           AND source_link.link_role='primary_support'
           AND source_link.subject_kind='cell_value'
           AND source_link.sheet_id=source_column.sheet_id
@@ -135,6 +137,11 @@ WHERE source_column.sheet_id=text_column.sheet_id
     )
   );
 """
+
+# Historical adoption upgrades run before the ordered authority exists.
+LEGACY_DOCUMENT_TEXT_SELECTION_VIEW_SQL = DOCUMENT_TEXT_SELECTION_VIEW_SQL.replace(
+    "effective_current_cells", "current_cells"
+)
 
 
 class DocumentTextRoleError(ValueError):
@@ -354,7 +361,7 @@ def is_generation_free_document_text_target(
     ):
         return False
     stale_or_unpinned = db.execute(
-        "SELECT 1 FROM current_cells head "
+        "SELECT 1 FROM effective_current_cells head "
         "JOIN current_cell_values live "
         "ON live.row_id=head.row_id AND live.column_id=head.column_id "
         "WHERE head.column_id=? AND live.value_kind IS NOT NULL "
@@ -434,7 +441,7 @@ def resolve_document_text_selection(
     """Resolve the fresh selected Text value for one File cell.
 
     ``None`` means the File column has no configured role.  A configured role
-    that is hidden, stale, empty, or lacks prepared provenance raises
+    that is hidden, stale, unavailable, or lacks prepared provenance raises
     :class:`DocumentTextUnavailable` so callers cannot silently choose another
     text candidate.
     """
@@ -456,7 +463,11 @@ def resolve_document_text_selection(
             source_cell=source_cell,
             text_column_id=role.text_column_id,
         )
-    if not role.source_active or role.source_hidden or not role.text_active:
+    if (
+        not role.source_active
+        or not role.text_active
+        or (role.source_hidden and not allow_hidden)
+    ):
         raise DocumentTextUnavailable(
             "role_unavailable",
             source_cell=source_cell,
@@ -594,6 +605,10 @@ def _prepared_result_matches_source_sql(result_alias: str) -> str:
                 AND source_span.page_start=ref.page_number
                 AND source_span.page_end=ref.page_number
                 AND source_link.status='active'
+                AND (source_link.op_id IS NULL OR EXISTS (
+                  SELECT 1 FROM ops evidence_owner
+                  WHERE evidence_owner.id=source_link.op_id
+                    AND evidence_owner.status='applied'))
                 AND source_link.link_role='primary_support'
                 AND source_link.subject_kind='cell_value'
                 AND source_link.sheet_id=source_column.sheet_id

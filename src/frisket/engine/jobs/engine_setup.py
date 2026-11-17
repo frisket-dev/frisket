@@ -325,9 +325,9 @@ def run_engine_setup(
 def _install_speech_runtime(
     engine_id: str, *, engine, pull_id: int, should_cancel: Callable[[], bool]
 ) -> None:
-    from frisket.runtime.speech_install import install_speech, runtime_present
+    from frisket.runtime.speech_install import host_present, install_speech
 
-    if not runtime_present(engine_id):
+    if not host_present(engine_id):
         model_pull_store.update_progress(
             engine,
             pull_id,
@@ -576,11 +576,13 @@ def _run_language_setup(
 
     if spacy:
         from frisket.runtime.spacy_install import (
+            host_present,
             install_spacy as install,
             runtime_present,
         )
     else:
         from frisket.runtime.translation_install import (
+            host_present,
             install_translation as install,
             runtime_present,
         )
@@ -602,7 +604,7 @@ def _run_language_setup(
     try:
         if should_cancel():
             raise ModelInstallCancelled
-        if not runtime_present():
+        if not host_present():
             progress(f"Installing {label} components")
             install(should_cancel=should_cancel, progress=progress)
         if should_cancel():
@@ -614,8 +616,6 @@ def _run_language_setup(
             from frisket.ai.models.artifact_manifest import spacy_model_artifact
             from frisket.ai.models.spacy_model import (
                 ensure_loadable_model_path,
-                model_state,
-                wheel_path,
             )
             from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
 
@@ -630,10 +630,6 @@ def _run_language_setup(
                 artifact_license=pinned.license,
                 artifact_manifest_version=pinned.manifest_version,
             )
-            # The worker-local downloader fast-paths by size. Remove a wheel
-            # that failed its checksum so an explicit retry can repair it.
-            if model_state(include_python_package=False).status == "hash_mismatch":
-                wheel_path().unlink(missing_ok=True)
             progress("Downloading spaCy model")
             with httpx.Client() as client:
                 provision_pinned(
@@ -642,6 +638,7 @@ def _run_language_setup(
                     cache_root=None,
                     client=client,
                     should_cancel=should_cancel,
+                    verify_existing=True,
                 )
             if should_cancel():
                 raise ModelInstallCancelled
@@ -710,6 +707,7 @@ def _run_docling_setup(
     from frisket.runtime.model_server import (
         LOCAL_MODELS_TOKEN_ENV,
         LOCAL_MODELS_URL_ENV,
+        retry_failed_engine,
         wait_until_ready,
     )
 
@@ -728,6 +726,7 @@ def _run_docling_setup(
         engine, pull_id, phase="provisioning", total_bytes=None, completed_bytes=0
     )
     installed = False
+    server_ready = False
     try:
         install_docling(should_cancel=should_cancel, progress=lambda _message: None)
         installed = True
@@ -739,6 +738,12 @@ def _run_docling_setup(
             if should_cancel():
                 raise ModelInstallCancelled
             raise RuntimeError("installed model server did not become ready")
+        server_ready = True
+        retry_failed_engine(
+            url, token, name="docling", route="/to-markdown", stopped=should_cancel
+        )
+        if should_cancel():
+            raise ModelInstallCancelled
     except ModelInstallCancelled:
         model_pull_store.mark_cancelled(engine, pull_id)
         return {"status": "cancelled"}
@@ -747,10 +752,17 @@ def _run_docling_setup(
             engine,
             pull_id,
             error_code=(
-                "model_server_start_failed" if installed else "engine_setup_unavailable"
+                "engine_load_failed"
+                if server_ready
+                else "model_server_start_failed"
+                if installed
+                else "engine_setup_unavailable"
             ),
             message=(
-                "Docling is installed, but its local server did not start. "
+                "Docling is installed and its server is ready, but the model could not load. "
+                "Retry setup; check the local server log if it persists."
+                if server_ready
+                else "Docling is installed, but its local server did not start. "
                 "Restart Frisket and retry; check the local server log if it persists."
                 if installed
                 else "could not install the native Docling model server"

@@ -105,7 +105,7 @@ def _missing_source(seeded: dict[str, Any]) -> dict[str, Any]:
 
 def _output_collision(seeded: dict[str, Any]) -> dict[str, Any]:
     return _action(
-        seeded["sheet_id"], key="research-web-search@collision", output_name="country"
+        seeded["sheet_id"], key="research-web-search@collision", output_name="region"
     )
 
 

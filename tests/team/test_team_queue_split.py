@@ -263,7 +263,9 @@ class TestQueueSplitEndToEnd:
         with engine.begin() as cx:
             cx.execute(sa.text("DROP TABLE IF EXISTS jobs CASCADE"))
             cx.execute(sa.text("DROP TABLE IF EXISTS worker_heartbeats CASCADE"))
-            cx.execute(sa.text("DROP TABLE IF EXISTS frisket_queue_migrations CASCADE"))
+            cx.execute(
+                sa.text("DROP TABLE IF EXISTS frisket_queue_schema_migrations CASCADE")
+            )
         engine.dispose()
         _standalone_worker_claims_and_completes(
             tmp_path,

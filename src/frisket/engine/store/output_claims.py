@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -93,7 +94,7 @@ class OutputColumnClaimStore:
             for name in names:
                 column = self.db.execute(
                     "SELECT column.id, "
-                    "(SELECT MAX(head.run_id) FROM cell_result_heads head "
+                    "(SELECT MAX(head.run_id) FROM published_result_bases head "
                     " WHERE head.column_id=column.id) AS current_head_run_id "
                     "FROM columns column WHERE column.sheet_id=? AND column.name=? "
                     "AND column.active=1",
@@ -519,18 +520,28 @@ class OutputColumnClaimStore:
                 "a caller-owned transaction"
             )
         try:
+            has_claim = (
+                self.db.execute(
+                    "SELECT 1 FROM output_column_claims WHERE run_id=? "
+                    "AND status='active' LIMIT 1",
+                    (run_id,),
+                ).fetchone()
+                is not None
+            )
+            stopped_job = not has_claim and self._run_job_execution_stopped(run_id)
             cursor = self.db.execute(
                 "UPDATE execution_attempts SET state='abandoned' "
-                "WHERE run_id=? AND state='dispatching' AND created_at < ? "
+                "WHERE run_id=? AND state='dispatching' "
                 "AND ("
-                "NOT EXISTS (SELECT 1 FROM output_column_claims c "
-                "WHERE c.run_id=execution_attempts.run_id "
-                "AND c.status='active') "
-                "OR NOT EXISTS (SELECT 1 FROM output_column_claims live "
+                "(? AND NOT EXISTS (SELECT 1 FROM output_column_claims c "
+                "WHERE c.run_id=execution_attempts.run_id AND c.status='active')) "
+                "OR (created_at < ? AND EXISTS (SELECT 1 FROM output_column_claims c "
+                "WHERE c.run_id=execution_attempts.run_id AND c.status='active') "
+                "AND NOT EXISTS (SELECT 1 FROM output_column_claims live "
                 "WHERE live.run_id=execution_attempts.run_id "
-                "AND live.status='active' AND live.lease_expires_at > ?)"
+                "AND live.status='active' AND live.lease_expires_at > ?))"
                 ")",
-                (run_id, cutoff, lease_cutoff),
+                (run_id, stopped_job, cutoff, lease_cutoff),
             )
             if cursor.rowcount:
                 self.db.execute(
@@ -857,39 +868,107 @@ class OutputColumnClaimStore:
                 return str(row["status"]) in _RUN_TERMINAL_STATUSES
         return False
 
-    def _queued_job_status(self, job_id: int) -> str | None:
-        """Read the owning job's status from the active run queue.
+    @contextmanager
+    def _run_queue(self):
+        """Borrow the attached queue, or the same explicit/local queue fallback."""
+        from frisket.execution.handler_lineage import current_handler_lineage
 
-        Local source checkouts use the sibling `<workspace>/.queue.db`; hosted
-        workspaces attach their shared app.state.run_queue to the Project, or
-        pass it directly here. The explicit `FRISKET_RUN_QUEUE_DATABASE_URL`
-        fallback is for non-Workspace callers; never infer the queue from the
-        hosted control-plane `FRISKET_DATABASE_URL`.
-        """
-        path = getattr(self.project, "path", None)
-        if path is None:
-            return None
-        queue = self.queue or getattr(self.project, "_frisket_run_queue", None)
+        handler = current_handler_lineage()
+        queue = (
+            self.queue
+            or getattr(self.project, "_frisket_run_queue", None)
+            or (handler.queue if handler is not None else None)
+        )
         should_close = False
-        from frisket.engine.jobs.queue import open_queue
-
         try:
             if queue is None:
+                path = getattr(self.project, "path", None)
+                if path is None:
+                    yield None
+                    return
+                from frisket.engine.jobs.queue import open_queue
+
                 queue = open_queue(
                     workspace=path.parent,
                     database_url=os.environ.get("FRISKET_RUN_QUEUE_DATABASE_URL"),
                 )
                 should_close = True
-            job = queue.get(job_id)
-        except Exception:
-            return None
+            yield queue
         finally:
             if should_close and queue is not None:
-                try:
-                    queue.close()
-                except Exception:
-                    pass
-        return job.status if job is not None else None
+                queue.close()
+
+    def _queued_job_status(self, job_id: int) -> str | None:
+        try:
+            with self._run_queue() as queue:
+                job = queue.get(job_id) if queue is not None else None
+                return job.status if job is not None else None
+        except Exception:
+            return None
+
+    def _run_job_execution_stopped(self, run_id: int) -> bool:
+        original = self.db.execute(
+            "SELECT id FROM execution_attempts WHERE run_id=? AND state='dispatching'",
+            (run_id,),
+        ).fetchone()
+        return original is not None and self.attempt_handler_execution_stopped(
+            original[0]
+        )
+
+    def attempt_handler_execution_stopped(self, attempt_id: str) -> bool:
+        """Prove original handler exit, independently of attempt/job state.
+
+        Recovery callers may inspect an already-abandoned attempt too; that
+        state is not itself evidence that the original executable code stopped.
+        """
+        original = self.db.execute(
+            "SELECT run_id,job_id,handler_authority_id FROM execution_attempts WHERE id=?",
+            (attempt_id,),
+        ).fetchone()
+        if original is None:
+            return False
+        if (
+            original["job_id"] is not None
+            or original["handler_authority_id"] is not None
+        ):
+            if original["job_id"] is None or not original["handler_authority_id"]:
+                return False
+            try:
+                with self._run_queue() as queue:
+                    return queue is not None and queue.handler_execution_stopped(
+                        int(original["job_id"]), str(original["handler_authority_id"])
+                    )
+            except Exception:
+                return False
+        # Older/non-worker attempts have no exact handler identity. Their
+        # existing receipt association requires the stronger whole-job proof.
+        run_id = original["run_id"]
+        if run_id is None:
+            return False
+        job_ids = {
+            int(row[0])
+            for row in self.db.execute(
+                "SELECT job_id FROM output_column_claims WHERE run_id=? "
+                "AND job_id IS NOT NULL UNION "
+                "SELECT json_extract(e.value, '$.ref.job_id') "
+                "FROM receipts r, json_each(r.body, '$.evidence') e "
+                "WHERE r.run_id=? "
+                "AND json_type(e.value, '$.ref.job_id')='integer' "
+                "AND (json_extract(e.value, '$.ref.queue_kind')='project.run' "
+                "OR json_extract(e.value, '$.ref.kind')='queued_action_job_enqueued')",
+                (run_id, run_id),
+            )
+        }
+        if not job_ids:
+            return False
+        try:
+            with self._run_queue() as queue:
+                return queue is not None and all(
+                    queue.job_execution_stopped(job_id) for job_id in job_ids
+                )
+        except Exception:
+            # Missing/unavailable scheduling evidence cannot revoke a writer.
+            return False
 
     def release_stale(
         self,

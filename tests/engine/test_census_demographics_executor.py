@@ -1,6 +1,7 @@
 """Census typed lifecycle against real routing and replayed provider responses."""
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -66,7 +67,9 @@ def env(tmp_path, monkeypatch):
             200, json=json.loads((FIXTURES / "acs_2024_dc_tracts.json").read_text())
         )
 
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     deps = ExecutorDeps(
         execution_composition=open_execution_composition(
@@ -270,18 +273,27 @@ def test_requested_moe_materializes_with_output_naming(env):
     assert "demo_population_moe" not in names
 
 
-def test_invalid_point_fails_only_its_row(env):
+def test_missing_point_remains_not_completed_without_provider_failure(env):
     project, sheet_id, _, _, run = env
     column = next(c for c in project.columns(sheet_id) if c["name"] == "point")
-    project.add_rows(sheet_id, [{"point": None}], {"point": column["id"]})
+    [missing_row] = project.add_rows(
+        sheet_id, [{"point": None}], {"point": column["id"]}
+    )
     result, _ = _confirmed(run, _request(sheet_id))
     row = project.db.execute(
-        "SELECT completed_rows, failed_rows FROM runs WHERE id=?", (result.run_id,)
+        "SELECT total_rows, completed_rows, failed_rows FROM runs WHERE id=?",
+        (result.run_id,),
     ).fetchone()
-    # The run counter is processed rows (including its independently failed row).
-    assert row["completed_rows"] == 4
-    assert row["failed_rows"] == 1
-    assert result.status == "partial"
+    # Missing required input is unavailable, not a completed computation.
+    assert row["completed_rows"] == 3
+    outcomes = project.db.execute(
+        "SELECT DISTINCT outcome,error_code FROM results WHERE run_id=? AND row_id=?",
+        (result.run_id, missing_row),
+    ).fetchall()
+    assert [tuple(item) for item in outcomes] == [("not_completed", "input_missing")]
+    assert row["failed_rows"] == 0
+    assert row["total_rows"] - row["completed_rows"] == 1
+    assert result.status == "completed"
 
 
 def test_undo_then_new_invocation_does_fresh_provider_work(env):

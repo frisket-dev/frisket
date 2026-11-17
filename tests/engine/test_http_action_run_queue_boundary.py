@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from quick_search_helpers import patch_quick_search_model
 
@@ -199,15 +200,18 @@ def test_ytdlp_download_wire_kind_uses_queued_placement(tmp_path) -> None:
         "output_names": {"video": "media"},
         "idempotency_key": "ytdlp-download@queued-placement",
     }
-    _, response = _post_after_exact_confirmation(
-        client,
+    # Local yt-dlp is operator-borne work: even zero preapproval must queue
+    # the first request without a purchase/confirmation retry.
+    _pin_zero_preapproval(client)
+    response = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
-        action=action_body,
+        json=action_body,
     )
 
     assert response.status_code == 200, response.text
     result = ActionResult.model_validate(response.json())
     assert result.status == "queued"
+    assert result.errors == []
     assert result.action.kind == "media.ytdlp_download"
     assert result.run_id is not None
     assert result.job_id is not None
@@ -226,8 +230,7 @@ def test_ytdlp_download_wire_kind_uses_queued_placement(tmp_path) -> None:
         .fetchone()
     )
     assert receipt_row is not None
-    # Confirmation is outside typed request identity, so an exact-token retry
-    # retains the first submission's receipt.
+    # The first submission records the typed request identity directly.
     assert receipt_row["params_hash"] == typed_request_hash(bound)
 
     replay = client.post(
@@ -557,7 +560,12 @@ class _SequenceAdapter:
 def _stub_router(
     reply: dict[str, object] | None = None,
 ) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _StubAdapter(reply)
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -565,7 +573,10 @@ def _stub_router(
 
 def _judge_router() -> tuple[ModelRouter, _SequenceAdapter]:
     router = ModelRouter(
-        keys={"anthropic": "k", "openai": "k"}, cache=None, cache_mode="off"
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k", "openai": "k"},
+        cache=None,
+        cache_mode="off",
     )
     adapter = _SequenceAdapter(
         [
@@ -626,7 +637,12 @@ class _ResearchAdapter:
 
 
 def _research_router() -> tuple[ModelRouter, _ResearchAdapter]:
-    router = ModelRouter(keys={"anthropic": "k"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "k"},
+        cache=None,
+        cache_mode="off",
+    )
     adapter = _ResearchAdapter()
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     return router, adapter
@@ -678,7 +694,9 @@ class _NerSidecarHttp:
 
 
 def _ner_router_with_http(http: Any) -> ModelRouter:
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     router._client = http  # noqa: SLF001
     return router
 
@@ -3087,14 +3105,19 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
     details = project.get_values(
         sheet_id, details_id, row_ids=[target_row, untargeted_row]
     )
-    raw_details = project.get_values(
-        sheet_id,
-        details_id,
-        row_ids=[target_row, untargeted_row],
-        apply_edits=False,
-    )
+    raw_details = {
+        row_id: result["value"]
+        for (_, row_id, _), result in RunResultStore(project)
+        .decoded_result_rows(
+            [
+                (new_run_id, target_row, details_id),
+                (prior_run_id, untargeted_row, details_id),
+            ]
+        )
+        .items()
+    }
     assert raw_details[target_row]["normalized"]["filename"] == "queued-after.png"
-    assert details[target_row] == target_manual_value
+    assert details[target_row] == raw_details[target_row]
     assert details[untargeted_row] == manual_value
 
     receipt = json.loads(
@@ -3119,11 +3142,12 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
     )
     assert details_ref["value_hash"] == output_column_result_value_hash(
         project,
+        run_id=new_run_id,
         sheet_id=sheet_id,
         column_id=details_id,
         row_ids=[target_row],
     )
-    assert details_ref["value_hash"] != output_column_value_hash(
+    assert details_ref["value_hash"] == output_column_value_hash(
         project,
         sheet_id=sheet_id,
         column_id=details_id,

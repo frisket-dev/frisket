@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -62,7 +63,6 @@ def _review_action(
     run_id: int,
     row_id: int,
     column_id: int,
-    value: int,
     key: str = "review_join_row_id@sha256:v1",
 ) -> dict[str, Any]:
     return {
@@ -72,8 +72,7 @@ def _review_action(
             "run_id": run_id,
             "row_id": row_id,
             "column_id": column_id,
-            "decision": "edit",
-            "value": value,
+            "decision": "accept",
         },
         "idempotency_key": key,
     }
@@ -144,7 +143,9 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             project,
             action,
             project_id="project-derive-link-table",
-            router=ModelRouter(cache=None, cache_mode="off"),
+            router=ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+            ),
         )
 
     def embed(texts):
@@ -185,7 +186,6 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             run_id=join_result.run_id,
             row_id=source_row_ids[2],
             column_id=target_row_id_column,
-            value=target_row_ids[2],
             key="undone_review_join_row_id@sha256:v1",
         ),
     )
@@ -204,10 +204,28 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
             run_id=join_result.run_id,
             row_id=source_row_ids[2],
             column_id=target_row_id_column,
-            value=target_row_ids[2],
         ),
     )
     assert review_result.status == "completed", review_result.errors
+    # Review judges the saved result independently. An ordinary cell edit owns
+    # the corrected current match used by link materialization.
+    corrected = run(
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {
+                        "row_id": source_row_ids[2],
+                        "column_id": target_row_id_column,
+                        "value": target_row_ids[2],
+                    }
+                ]
+            },
+            "idempotency_key": "correct-current-match",
+        }
+    )
+    assert corrected.status == "completed", corrected.errors
 
     return {
         "source_sheet_id": source_sheet_id,
@@ -327,7 +345,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
         "Globex LLC",
         "Initech Inc",
     ]
-    # the third edge exists only because the live review filled the match in
+    # The explicit cell edit supplies the third edge; Review owns its judgment.
     assert list(derived_target_row_ids.values()) == target_row_ids
 
     receipt_row = project.db.execute(
@@ -501,7 +519,20 @@ def test_link_table_review_selection_uses_exact_result_and_applied_op(
             row_id: int,
             column_id: int,
         ) -> int:
-            op_id = project.append_op("review_decision")
+            from frisket.engine.store.changes import ChangeStore, start_change
+            from frisket.engine.store.review_judgments import record_judgment_changes
+            from frisket.engine.store.op_log import append_op
+
+            target = f"{run_id}:{row_id}:{column_id}"
+            info = {
+                "review_metadata": {target: {"decision": None}},
+                "review_metadata_after": {target: {"decision": "accept"}},
+            }
+            op_id = append_op(project, "review.decision", undo_info=info)
+            with project.transaction_scope():
+                start_change(project.db, op_id)
+                record_judgment_changes(project.db, op_id, info)
+                ChangeStore(project).close(op_id)
             ReceiptStore(project).insert(
                 Receipt(
                     receipt_id=receipt_id,
@@ -531,7 +562,10 @@ def test_link_table_review_selection_uses_exact_result_and_applied_op(
         add_review("same-row-wrong-column", run_id=7, row_id=100, column_id=99)
         add_review("wrong-row", run_id=7, row_id=101, column_id=10)
         undone_op = add_review("undone-exact", run_id=7, row_id=100, column_id=11)
-        assert project.undo() == undone_op
+        from frisket.engine.store.changes import ChangeStore
+
+        with project.transaction_scope():
+            ChangeStore(project).revert(undone_op)
 
         review_refs = _derive_link_table_review_refs(
             project,

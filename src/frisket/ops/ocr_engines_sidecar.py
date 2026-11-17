@@ -6,6 +6,8 @@ from pathlib import Path
 
 import httpx
 
+from frisket.execution.dispatch_control import dispatch_for_context
+
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ops._sidecar import sidecar_post
@@ -33,6 +35,7 @@ async def ocr_sidecar(engine: str, pages: list[Path], ctx: OpContext) -> list[di
     body = await sidecar_post(
         ctx,
         "/ocr",
+        dispatch=dispatch_for_context(ctx),
         files=files,
         data={"engine": engine},
         op="ocr",
@@ -45,4 +48,7 @@ async def ocr_sidecar(engine: str, pages: list[Path], ctx: OpContext) -> list[di
         ),
         connection=connection,
     )
-    return body["pages"]
+    returned_pages = body.get("pages") if isinstance(body, dict) else None
+    if not isinstance(returned_pages, list):
+        raise ValueError("OCR sidecar response must contain a pages list")
+    return returned_pages

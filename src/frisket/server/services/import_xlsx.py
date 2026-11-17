@@ -10,13 +10,11 @@ from typing import Any, BinaryIO
 from openpyxl import load_workbook
 
 from frisket.actions.import_xlsx import ImportXlsxParams, UpdateXlsxParams, import_xlsx
-from frisket.actions.types import TableError
 from frisket.engine.executor import BoundLocalFile, ExecutorDeps
 from frisket.engine.executor.import_sources import (
     bind_import_sources,
     open_local_file_reader,
 )
-from frisket.engine.store.artifact_timeline import TimelineError
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_runs import v1_action_result_http_status
 from frisket.server.services.import_inference import infer_column_type, sniff_markdown
@@ -24,9 +22,7 @@ from frisket.server.services.import_tabular import (
     decode_destination_mapping,
     materialized_sheet_output,
     mutation_row_count,
-    plan_tabular_update,
     run_tabular_action,
-    update_preview_payload,
     workload_limit_result,
 )
 from frisket.server.services.import_uploads import AdmittedUpload
@@ -118,6 +114,8 @@ def _xlsx_params(
     columns: list[dict[str, Any]] | None = None,
     key_columns: tuple[str, ...] | None = None,
     keep_existing_on_blank: bool = False,
+    update_policy: str = "keep_changes",
+    relationship_id: str | None = None,
 ) -> ImportXlsxParams | UpdateXlsxParams:
     values: dict[str, Any] = {
         "source": {"kind": "file", "path": source_path, "label": scan.logical_path},
@@ -126,7 +124,10 @@ def _xlsx_params(
     }
     if key_columns is not None:
         values.update(
-            key_columns=list(key_columns), keep_existing_on_blank=keep_existing_on_blank
+            key_columns=list(key_columns),
+            keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
         )
         return UpdateXlsxParams.model_validate(values)
     return ImportXlsxParams.model_validate(values)
@@ -176,73 +177,6 @@ class ImportXlsxUploadService:
             "truncated": scan.row_count > len(preview_rows),
         }
 
-    def preview_xlsx_update(
-        self,
-        project_id: str,
-        *,
-        upload: AdmittedUpload,
-        destination_sheet_id: int,
-        column_mapping: str,
-        key_columns: str,
-        keep_existing_on_blank: bool,
-        deps: ExecutorDeps | None = None,
-    ) -> dict[str, Any]:
-        project = self._workspace.get(project_id)
-        scan = self._scan(upload)
-        try:
-            mapping = decode_destination_mapping(
-                project,
-                sheet_id=destination_sheet_id,
-                source_names=scan.headers,
-                column_mapping=column_mapping,
-                key_columns=key_columns,
-            )
-            params = _xlsx_params(
-                scan,
-                source_path=_source_path(upload),
-                columns=[
-                    column.model_dump(exclude_unset=True) for column in mapping.columns
-                ],
-                key_columns=mapping.key_columns,
-                keep_existing_on_blank=keep_existing_on_blank,
-            )
-            assert isinstance(params, UpdateXlsxParams)
-            with open_local_file_reader(
-                {
-                    _source_path(upload): BoundLocalFile(
-                        upload.source, f"sha256:{upload.sha256}"
-                    )
-                }
-            ) as reader:
-                produced = import_xlsx(params, reader)
-                max_rows = (
-                    deps.import_workload_limits.max_rows
-                    if deps and deps.import_workload_limits
-                    else None
-                )
-                plan = plan_tabular_update(
-                    project,
-                    sheet_id=destination_sheet_id,
-                    columns=params.columns,
-                    key_columns=params.key_columns,
-                    rows=(row.output.root for row in produced.rows),
-                    keep_existing_on_blank=keep_existing_on_blank,
-                    max_rows=max_rows,
-                )
-        except OverflowError as exc:
-            max_rows = (
-                deps.import_workload_limits.max_rows
-                if deps and deps.import_workload_limits
-                else None
-            )
-            raise ImportXlsxRouteError(
-                400,
-                f"import.update_xlsx row count exceeds the deployment limit of {max_rows}",
-            ) from exc
-        except (TableError, LookupError, TimelineError, ValueError) as exc:
-            raise ImportXlsxRouteError(400, str(exc)) from exc
-        return update_preview_payload(plan)
-
     def upload_xlsx(
         self,
         project_id: str,
@@ -255,7 +189,8 @@ class ImportXlsxUploadService:
         column_mapping: str | None = None,
         update_key_columns: str | None = None,
         keep_existing_on_blank: bool = False,
-        confirmation: str | None = None,
+        update_policy: str = "keep_changes",
+        relationship_id: str | None = None,
     ) -> ImportXlsxUploadResponse:
         project = self._workspace.get(project_id)
         executor_deps = deps or ExecutorDeps()
@@ -327,6 +262,8 @@ class ImportXlsxUploadService:
             columns=columns,
             key_columns=keys,
             keep_existing_on_blank=keep_existing_on_blank,
+            update_policy=update_policy,
+            relationship_id=relationship_id,
         )
         result = run_tabular_action(
             project,
@@ -343,7 +280,6 @@ class ImportXlsxUploadService:
             ),
             sheet_name=name if destination_sheet_id is None else None,
             destination_sheet_id=destination_sheet_id,
-            confirmation=confirmation,
             router=self._workspace.router_for(project),
         )
         if result.status != "completed":

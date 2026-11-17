@@ -6,6 +6,7 @@ only the sandbox worker, sidecar POST, and Datalab client are stubbed.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import io
@@ -103,7 +104,9 @@ def _run_convert(
     ctx = OpContext(
         project=project,
         http=http,
-        extras=extras if extras is not None else {"row_id": row_id, "run_id": 1},
+        extras=extras
+        if extras is not None
+        else {"row_id": row_id, "preview": True, "cancelled": lambda: False},
         credential_use_context=credential_ctx,
         execution_limits=limits,
     )
@@ -428,7 +431,9 @@ def test_datalab_halts_without_credential_consent(project, monkeypatch):
     value = _datalab_pdf(project)
     sheet, cid, row_id = _seed(project, value, coltype="file")
     # Admit real org-BYOK terms; dispatch must not borrow the deployment key.
-    router = ModelRouter(cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
     organization = CredentialOwner.organization("document-org")
     composition = ExecutionComposition(
         facts=CompositionFacts(
@@ -500,7 +505,10 @@ def test_actual_renamed_source_column_is_selected_by_argument(project, monkeypat
 def test_wrong_source_argument_refuses(project, monkeypatch):
     _stub_markitdown(monkeypatch)
     sheet, cid, row_id = _seed(project, HTML, name="renamed")
-    ctx = OpContext(project=project, extras={"row_id": row_id, "run_id": 1})
+    ctx = OpContext(
+        project=project,
+        extras={"row_id": row_id, "preview": True, "cancelled": lambda: False},
+    )
     conv = AdmittedDocumentConverter(ctx, engine="markitdown")
     row = Row({"renamed": HTML})
 
@@ -600,7 +608,10 @@ def test_missing_file_cell_refuses_before_document_conversion(project):
 def test_stale_source_value_refuses(project, monkeypatch):
     _stub_markitdown(monkeypatch)
     sheet, cid, row_id = _seed(project, HTML)
-    ctx = OpContext(project=project, extras={"row_id": row_id, "run_id": 1})
+    ctx = OpContext(
+        project=project,
+        extras={"row_id": row_id, "preview": True, "cancelled": lambda: False},
+    )
     conv = AdmittedDocumentConverter(ctx, engine="markitdown")
     row = Row({"doc": HTML})
 
@@ -748,3 +759,116 @@ def test_errored_row_writes_no_document_link(project, monkeypatch):
         "SELECT COUNT(*) FROM evidence_links WHERE column_id=?", (md_col,)
     ).fetchone()[0]
     assert link == 0
+
+
+@pytest.mark.parametrize("engine", ["docling", "lightonocr-3-0.8b"])
+def test_sidecar_conversion_persists_actual_page_meter(project, monkeypatch, engine):
+    """Native hosted billing needs returned page units, including non-OCR pages."""
+    monkeypatch.setenv("FRISKET_MODELS_URL", "http://gateway-a:9000")
+    monkeypatch.setenv("FRISKET_MODELS_TOKEN", "synthetic-token")
+
+    async def fake_post(ctx, route, **kwargs):
+        assert route == "/to-markdown"
+        return {
+            "documents": [
+                {"markdown": "# Three pages", "ocr_used": [True, False, True]}
+            ]
+        }
+
+    monkeypatch.setattr(module, "sidecar_post", fake_post)
+    value = _datalab_pdf(project)
+    sheet, _, _ = _seed(project, value, coltype="file")
+    result = _execute(project, sheet, engine)
+    assert result.status == "completed", result.errors
+    calls = RunResultStore(project).model_calls(result.run_id)
+    assert len(calls) == 1, "Sidecar conversion returned without a durable usage fact"
+    assert calls[0]["capability"] == "document.convert"
+    assert calls[0]["engine"] == engine
+    assert json.loads(calls[0]["units"])["pages"] == 3
+    assert json.loads(calls[0]["units"])["requests"] == 1
+
+
+@pytest.mark.parametrize(
+    "outcome", ["success", "returned_after_cancel", "http_failure"]
+)
+def test_sidecar_conversion_policy_brackets_actual_returned_usage(
+    tmp_path, monkeypatch, outcome
+):
+    from types import SimpleNamespace
+    import httpx
+
+    events = []
+    cancelled = [False]
+
+    from frisket.execution.purchases import PurchaseAdmission
+    from frisket.ops import _sidecar
+
+    class Policy:
+        def admit_purchase(self, request):
+            events.append("admit")
+            assert request.engine == "lightonocr-3-0.8b"
+            assert request.quantity["pages"] == 1
+            return PurchaseAdmission("metered", "conversion-operation")
+
+        def record_purchase(self, request, admission, observation):
+            events.append("finish")
+            assert admission.operation_id == "conversion-operation"
+            assert observation.result["documents"][0]["markdown"] == "# Returned"
+            assert observation.usage == {"pages": 3}
+
+        def fail_purchase(self, request, admission, error):
+            events.append("fail")
+            assert admission.operation_id == "conversion-operation"
+            assert isinstance(error, httpx.HTTPStatusError)
+
+    async def post(ctx, route, **kwargs):
+        events.append("post")
+        if outcome == "http_failure":
+            response = httpx.Response(
+                503,
+                request=httpx.Request(
+                    "POST", "https://gateway.example.test/to-markdown"
+                ),
+            )
+            response.raise_for_status()
+        if outcome == "returned_after_cancel":
+            cancelled[0] = True
+        return {
+            "documents": [{"markdown": "# Returned", "ocr_used": [True, False, True]}]
+        }
+
+    monkeypatch.setattr(_sidecar, "_sidecar_post_transport", post)
+    ctx = OpContext(
+        project=None,
+        http=object(),
+        extras={
+            "service_operation_policy": Policy(),
+            "cancelled": lambda: cancelled[0],
+            "row_id": 1,
+            "preview": True,
+        },
+    )
+    owner = AdmittedDocumentConverter(ctx, engine="lightonocr-3-0.8b")
+    bound = module._BoundDocumentConverter(owner, Row({}), 1, 1, {}, ctx)
+    monkeypatch.setattr(
+        bound,
+        "_route_connection",
+        lambda: SimpleNamespace(
+            base_url="https://gateway.example.test", token="test-token"
+        ),
+    )
+    source = tmp_path / "scan.png"
+    source.write_bytes(b"fixture image")
+    if outcome == "http_failure":
+        with pytest.raises(httpx.HTTPStatusError):
+            asyncio.run(bound._convert_sidecar("lightonocr-3-0.8b", source))
+    else:
+        assert asyncio.run(bound._convert_sidecar("lightonocr-3-0.8b", source)) == (
+            "# Returned",
+            [True, False, True],
+        )
+    assert events == [
+        "admit",
+        "post",
+        "fail" if outcome == "http_failure" else "finish",
+    ]

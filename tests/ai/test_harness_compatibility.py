@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 from pathlib import Path
@@ -21,6 +22,7 @@ from pydantic_ai_harness.compaction import SummarizingCompaction, TieredCompacti
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.structured import FrisketRouterModel
 from frisket.ai.llm.types import LLMResponse
+from frisket.execution.dispatch_control import STANDALONE
 
 
 MODEL_ID = "gemini/gemini-3.5-flash"
@@ -72,7 +74,11 @@ def _router_with_responses(
         return httpx.Response(200, json=responses[len(requests) - 1])
 
     router = ModelRouter(
-        keys={"gemini": "test-key"}, cache=None, cache_mode="off", max_retries=0
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"gemini": "test-key"},
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
     )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
     return router, requests
@@ -96,7 +102,7 @@ async def test_skills_load_over_gemini_and_messages_round_trip(tmp_path: Path) -
             _text_response("The source-check skill is loaded."),
         ]
     )
-    model = FrisketRouterModel(router, MODEL_ID)
+    model = FrisketRouterModel(router.for_execution(STANDALONE), MODEL_ID)
     agent = Agent(
         model,
         output_type=str,
@@ -131,7 +137,9 @@ async def test_tiered_compaction_uses_router_and_accounts_summary_call() -> None
     async def on_response(response: LLMResponse) -> None:
         accounted.append(response)
 
-    model = FrisketRouterModel(router, MODEL_ID, on_response=on_response)
+    model = FrisketRouterModel(
+        router.for_execution(STANDALONE), MODEL_ID, on_response=on_response
+    )
     assert model.model_id == "gemini:gemini-3.5-flash"
     assert model.context_window == 1_000_000
     agent = Agent(
@@ -186,7 +194,9 @@ async def test_budget_refusal_before_final_request_makes_no_extra_wire_call() ->
         if admitted_requests > 1:
             raise BudgetPaused
 
-    model = FrisketRouterModel(router, MODEL_ID, before_request=admit_request)
+    model = FrisketRouterModel(
+        router.for_execution(STANDALONE), MODEL_ID, before_request=admit_request
+    )
     agent = Agent(
         model,
         output_type=str,
@@ -229,7 +239,7 @@ async def test_deferred_action_messages_serialize_and_resume_with_same_call_id()
             _text_response("The action completed with 12 entities."),
         ]
     )
-    model = FrisketRouterModel(router, MODEL_ID)
+    model = FrisketRouterModel(router.for_execution(STANDALONE), MODEL_ID)
     agent = Agent(model, output_type=[str, DeferredToolRequests])
 
     @agent.tool_plain

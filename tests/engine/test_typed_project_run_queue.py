@@ -271,8 +271,8 @@ def test_queued_replacement_snapshots_new_sibling_output_after_prepare(
         binding.output_role: binding.column_id
         for binding in ResultGenerationStore(project).bindings_for_run(queued.run_id)
     } == {
-        "Search text": int(existing_text["id"]),
-        "Search positions": int(positions["id"]),
+        "text": int(existing_text["id"]),
+        "blocks": int(positions["id"]),
     }
     envelope = queued_v1_payload_envelope(job.payload, project=project)
     assert envelope is not None

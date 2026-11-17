@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+from frisket.ai.models.usage_counts import model_call_token_counts
+
+from frisket.execution.purchases import (
+    PurchaseRequest,
+    PurchaseObservation,
+    execute_purchase,
+    cost_micro,
+    policy_for_context,
+)
+from frisket.execution.dispatch_control import dispatch_for_context
+
 import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -57,29 +68,75 @@ async def parse_with_context(
         if on_accounting:
             on_accounting(accounting)
 
-    try:
-        return await parse_document(
-            ctx.http,
-            path=path,
-            engine=engine,
-            api_key=credential.value,
+    from hashlib import sha256
+    from frisket.opendocrouter_catalog import find_model
+    from frisket.ops.integrations.opendocrouter import input_details
+
+    mime, page_count = input_details(path)
+    model = find_model(engine)
+    if model is None:
+        raise HostedEngineError("bad_request", "OpenDocRouter model is unavailable")
+
+    async def invoke():
+        try:
+            return await parse_document(
+                ctx.http,
+                path=path,
+                engine=engine,
+                api_key=credential.value,
+                capability=capability,
+                credential_source=credential.source,
+                layout=layout,
+                should_cancel=(ctx.extras or {}).get("cancelled"),
+                on_accounting=record,
+            )
+        except HostedEngineError as exc:
+            # A halted/cancelled job has no returned-row writer. Preserve a final
+            # charge learned during cancellation reconciliation before propagating.
+            if (
+                exc.provider_job_accepted or exc.post_egress_ambiguous
+            ) and exc.accounting:
+                try:
+                    persist_hosted_accepted_accounting(ctx, exc.accounting)
+                except Exception as persistence_error:
+                    # Keep the accepted-effect marker even when the ledger cannot
+                    # be written: an ordinary row failure could be resubmitted.
+                    raise exc from persistence_error
+            raise
+
+    return await execute_purchase(
+        PurchaseRequest(
+            provider="opendocrouter",
             capability=capability,
+            engine=engine,
             credential_source=credential.source,
-            layout=layout,
-            should_cancel=(ctx.extras or {}).get("cancelled"),
-            on_accounting=record,
-        )
-    except HostedEngineError as exc:
-        # A halted/cancelled job has no returned-row writer. Preserve a final
-        # charge learned during cancellation reconciliation before propagating.
-        if (exc.provider_job_accepted or exc.post_egress_ambiguous) and exc.accounting:
-            try:
-                persist_hosted_accepted_accounting(ctx, exc.accounting)
-            except Exception as persistence_error:
-                # Keep the accepted-effect marker even when the ledger cannot
-                # be written: an ordinary row failure could be resubmitted.
-                raise exc from persistence_error
-        raise
+            prepared={
+                "document_digest": sha256(path.read_bytes()).hexdigest(),
+                "mime": mime,
+                "pages": page_count,
+                "layout": layout,
+                "engine": engine,
+            },
+            estimated_cost_usd=page_count
+            * (
+                model.max_charge_per_page_usd
+                if model.max_charge_per_page_usd is not None
+                else model.avg_charge_per_page_usd
+            ),
+            context=ctx,
+        ),
+        policy=policy_for_context(ctx),
+        dispatch=dispatch_for_context(ctx),
+        invoke=invoke,
+        observe=lambda result: PurchaseObservation(
+            result=result[0],
+            usage={
+                "pages": len(result[0]),
+                "model_calls": result[1].get("model_calls", []),
+            },
+            provider_cost_micro=cost_micro(result[1].get("cost")),
+        ),
+    )
 
 
 def ocr_page(page: dict, size: tuple[int, int] | None) -> dict:
@@ -169,13 +226,14 @@ async def ocr_pages(
     def record(accounting):
         for fact in accounting["model_calls"]:
             facts[fact["id"]] = fact
+        tokens = model_call_token_counts(facts.values())
         usage.update(
             model_calls=list(facts.values()),
             calls=len(facts),
             cost=provider_cost_total(f["provider_cost_usd"] for f in facts.values()),
             **{
-                "in": sum(f["units"].get("input_tokens", 0) for f in facts.values()),
-                "out": sum(f["units"].get("output_tokens", 0) for f in facts.values()),
+                "in": tokens["tokens_in"],
+                "out": tokens["tokens_out"],
             },
         )
 

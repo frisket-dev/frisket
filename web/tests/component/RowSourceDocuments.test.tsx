@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 
@@ -22,6 +22,7 @@ beforeAll(() => installPopoverPolyfill());
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.useRealTimers();
 });
 
 const document = (
@@ -43,6 +44,35 @@ const document = (
 });
 
 describe('row source documents', () => {
+  it('shows unknown freshness even without document ancestry', async () => {
+    mocks.getRowSourceDocuments.mockResolvedValue({
+      schema_version: 'frisket.row_source_documents.v1', sheet_id: 1, row_id: 1,
+      ancestry_found: false, lineage_stale: false, lineage_freshness: 'unknown',
+      unavailable_source_count: 0, truncated: false, evidence_links: [], documents: [],
+    });
+    render(<RowSourceDocuments rowId="1" onOpenDocument={() => {}} />);
+    expect(await screen.findByTestId('row-source-documents-freshness')).toHaveTextContent('have not been checked');
+    expect(screen.queryByTestId('row-source-documents-stale')).not.toBeInTheDocument();
+  });
+
+  it('polls a viewed checking result and stops once verification finishes', async () => {
+    vi.useFakeTimers();
+    const payload = {
+      schema_version: 'frisket.row_source_documents.v1', sheet_id: 1, row_id: 1,
+      ancestry_found: false, lineage_stale: false,
+      unavailable_source_count: 0, truncated: false, evidence_links: [], documents: [],
+    };
+    mocks.getRowSourceDocuments.mockResolvedValueOnce({ ...payload, lineage_freshness: 'checking' })
+      .mockResolvedValue({ ...payload, lineage_freshness: 'synced' });
+    await act(async () => { render(<RowSourceDocuments rowId="1" onOpenDocument={() => {}} />); });
+    expect(screen.getByTestId('row-source-documents-freshness')).toHaveTextContent('Checking source changes');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(mocks.getRowSourceDocuments).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('row-source-documents-freshness')).not.toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    expect(mocks.getRowSourceDocuments).toHaveBeenCalledTimes(2);
+  });
+
   it('offers every discovered original in the shared menu and opens the chosen document', async () => {
     mocks.getRowSourceDocuments.mockResolvedValue({
       schema_version: 'frisket.row_source_documents.v1',

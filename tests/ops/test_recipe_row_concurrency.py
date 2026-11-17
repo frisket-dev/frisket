@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from pathlib import Path
@@ -134,7 +135,9 @@ def test_durable_run_applies_recipe_cap_and_preserves_uncapped_concurrency(
     project, sheet_id, _row_ids = _project(tmp_path)
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         concurrency=4,
         authority=UnroutedOnlyAuthority(project),
     )
@@ -176,7 +179,9 @@ def test_preview_applies_recipe_cap_and_preserves_uncapped_concurrency(
     project, sheet_id, row_ids = _project(tmp_path)
     runner = MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         concurrency=4,
         authority=UnroutedOnlyAuthority(project),
     )

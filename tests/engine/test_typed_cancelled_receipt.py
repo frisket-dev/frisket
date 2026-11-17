@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
 
@@ -110,7 +111,12 @@ def test_cancelled_typed_receipt_owns_only_produced_rows_and_replays_exact_heads
                 project,
                 "project-1",
                 bound,
-                ModelRouter(cache=None, cache_mode="off", use_env_keys=False),
+                ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                    use_env_keys=False,
+                ),
                 runner_factory,
             )
 
@@ -149,11 +155,16 @@ def test_cancelled_typed_receipt_owns_only_produced_rows_and_replays_exact_heads
         assert refs[0]["kind"] == "map_result_column"
         assert refs[0]["run_id"] == cancelled.run_id
         assert refs[0]["row_ids"] == rows[:1]
-        # The selected-but-unproduced row and unselected row retain old heads;
-        # neither is evidence of this cancelled replacement invocation.
+        # The selected-but-unproduced row is explicitly not completed; only
+        # the unselected row retains its old head. Neither is evidence of a
+        # produced answer from this cancelled replacement invocation.
         heads = ResultGenerationStore(project).read_cell_heads(output["id"])
         assert heads[rows[0]].run_id == cancelled.run_id
-        assert heads[rows[1]].run_id == heads[rows[2]].run_id == seed.run_id
+        assert rows[1] not in heads
+        assert heads[rows[2]].run_id == seed.run_id
+        values, refs = project.get_values_with_refs(sheet, output["id"], row_ids=rows)
+        assert values[rows[1]] is None
+        assert refs[rows[1]]["outcome"] == "not_completed"
 
         def forbidden_runner(*_args):
             raise AssertionError("same-key replay must not create a runner")

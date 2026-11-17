@@ -1,5 +1,7 @@
 """Actual cluster queue authority and paid-failure recovery boundaries."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import copy
 
 
@@ -18,7 +20,12 @@ from test_typed_cluster_action import cluster_project as cluster_project
 
 
 def test_real_cluster_queue_payload_roundtrips_and_finishes(tmp_path):
-    with TestClient(create_app(tmp_path / "workspace", router=ModelRouter())) as client:
+    with TestClient(
+        create_app(
+            tmp_path / "workspace",
+            router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+        )
+    ) as client:
         pid = client.post("/api/projects", json={"name": "Review"}).json()["id"]
         imported = client.post(
             f"/api/projects/{pid}/import/csv",

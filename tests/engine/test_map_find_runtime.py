@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import io
@@ -10,6 +11,7 @@ import pytest
 from PIL import Image
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.map.find_source import AddressedUnit
 from frisket.ai.vision.region_locator import prepare_image_asset
 from frisket.actions.types import ActionRequest
@@ -96,7 +98,12 @@ def _queued_find(project, request, *, project_id):
 
 
 def _run_queued_find(project, envelope, adapter):
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
     bindings = action_job_bindings(
         executor_deps_factory=lambda _project_id, _run_id: ExecutorDeps(router=router)
@@ -181,6 +188,7 @@ def test_queued_find_network_off_allows_only_configured_local_model(tmp_path, lo
 
     adapter = Adapter()
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"anthropic": "stub"},
         cache=None,
         cache_mode="off",
@@ -420,11 +428,23 @@ def test_scan_locates_distinct_occurrences_and_dedupes_exact_locations(
                 },
             ],
         )
-        router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         plans = plan_find_scan(params, sources)
 
-        scan = asyncio.run(scan_find_plans(params, plans, router=router))
+        scan = asyncio.run(
+            scan_find_plans(
+                params,
+                plans,
+                router=router.for_execution(STANDALONE),
+                record_calls=lambda calls: None,
+            )
+        )
         estimate = estimate_find_scan_cost(params, plans)
 
         assert [match.candidate.match for match in scan.matches] == [
@@ -494,11 +514,21 @@ def test_scan_keeps_distinct_occurrences_sharing_one_positive_span() -> None:
             },
         ],
     )
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router.for_execution(STANDALONE),
+            record_calls=lambda calls: None,
+        )
     )
 
     assert [match.candidate.match for match in scan.matches] == [
@@ -556,11 +586,21 @@ def test_scan_orders_multi_unit_citations_by_resolved_match_position() -> None:
             },
         ],
     )
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router.for_execution(STANDALONE),
+            record_calls=lambda calls: None,
+        )
     )
 
     assert [match.candidate.match for match in scan.matches] == ["EARLY", "LATE"]
@@ -610,11 +650,21 @@ def test_scan_exact_duplicate_retains_earliest_cited_evidence() -> None:
             },
         ],
     )
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router.for_execution(STANDALONE),
+            record_calls=lambda calls: None,
+        )
     )
 
     assert len(scan.matches) == 1
@@ -677,11 +727,21 @@ def test_scan_globally_orders_matches_across_overlap_windows() -> None:
             ],
         ],
     )
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router.for_execution(STANDALONE),
+            record_calls=lambda calls: None,
+        )
     )
 
     assert [match.candidate.match for match in scan.matches] == ["MIDDLE", "LATE"]
@@ -735,11 +795,21 @@ def test_scan_preserves_visual_region_page_order() -> None:
             },
         ]
     )
-    router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache=None,
+        cache_mode="off",
+    )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
 
     scan = asyncio.run(
-        scan_find_plans(params, plan_find_scan(params, (source,)), router=router)
+        scan_find_plans(
+            params,
+            plan_find_scan(params, (source,)),
+            router=router.for_execution(STANDALONE),
+            record_calls=lambda calls: None,
+        )
     )
 
     assert all(isinstance(match, VisualFindMatch) for match in scan.matches)
@@ -798,7 +868,12 @@ def test_find_action_job_writes_one_grounded_row_per_match(tmp_path: Path) -> No
         admitted = dict(envelope.resolved_snapshot)
 
         adapter = _FindAdapter(str(sources[0].units[0].unit_id))
-        router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         bindings = action_job_bindings(
             executor_deps_factory=lambda _project_id, _run_id: ExecutorDeps(
@@ -1011,7 +1086,12 @@ def test_find_action_job_locates_raw_image_regions_with_same_call_details(
         )
 
         adapter = _VisualFindAdapter()
-        router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         bindings = action_job_bindings(
             executor_deps_factory=lambda _project_id, _run_id: ExecutorDeps(
@@ -1212,7 +1292,12 @@ def test_uncited_sibling_is_withheld_and_result_is_partial(tmp_path: Path) -> No
         reserved = {"receipt_id": envelope.receipt_id, "action_id": envelope.action_id}
 
         adapter = _FindAdapter(str(sources[0].units[0].unit_id), include_uncited=True)
-        router = ModelRouter(keys={"anthropic": "test"}, cache=None, cache_mode="off")
+        router = ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache=None,
+            cache_mode="off",
+        )
         router._adapters["anthropic"] = adapter  # noqa: SLF001
         bindings = action_job_bindings(
             executor_deps_factory=lambda _project_id, _run_id: ExecutorDeps(
@@ -1270,7 +1355,10 @@ def test_uncited_sibling_is_withheld_and_result_is_partial(tmp_path: Path) -> No
             ],
         )
         failed_router = ModelRouter(
-            keys={"anthropic": "test"}, cache=None, cache_mode="off"
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            keys={"anthropic": "test"},
+            cache=None,
+            cache_mode="off",
         )
         failed_router._adapters["anthropic"] = invalid_adapter  # noqa: SLF001
         failed_bindings = action_job_bindings(

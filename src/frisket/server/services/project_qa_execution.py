@@ -72,7 +72,12 @@ class ResearchSessionLike(Protocol):
 
     async def check_authority(self) -> None: ...
 
-    async def pause(self, approval: dict[str, Any]) -> str: ...
+    async def pause(
+        self,
+        approval: dict[str, Any],
+        *,
+        recheck: Callable[[], Awaitable[bool]] | None = None,
+    ) -> str: ...
 
     async def admit(
         self,
@@ -109,8 +114,9 @@ class ResearchActionResult(TypedDict):
 
 
 class _ActionApprovalRequired(Exception):
-    def __init__(self, approval: dict[str, Any]) -> None:
+    def __init__(self, approval: dict[str, Any], authority: Mapping[str, Any]) -> None:
         self.approval = approval
+        self.authority = authority
         super().__init__("action approval required")
 
 
@@ -352,7 +358,8 @@ class ProjectQAExecutionService:
                     "catalog_effects": list(effects),
                     "estimate": dict(authority["quote"]["estimate"]),
                     "reason": reason,
-                }
+                },
+                authority,
             )
         self._launch_identities[str(authority.get("dispatch_id") or "")] = identity
         approval: dict[str, Any] = {"payload_identity": identity}
@@ -395,7 +402,22 @@ class ProjectQAExecutionService:
                 )
                 launch_cancelled = launch_cancelled or cancelled
             except _ActionApprovalRequired as required:
-                decision = await self.research.pause(required.approval)
+                # Re-evaluate the same payload against current policy if a
+                # different operation changed preferences while we waited.
+                authority = required.authority
+
+                async def still_requires_approval():
+                    try:
+                        await await_thread_worker(self._authorize_for_policy, authority)
+                    except _ActionApprovalRequired:
+                        return True
+                    return False
+
+                decision = await self.research.pause(
+                    required.approval, recheck=still_requires_approval
+                )
+                if decision == "continue":
+                    continue
                 if decision != "approve":
                     raise ResearchActionSkipped("research action was not approved")
                 self._approved_payloads.add(required.approval["payload_identity"])
@@ -600,23 +622,9 @@ class ProjectQAExecutionService:
         if receipt_id is None:
             return
 
-        def save() -> dict[str, Any]:
-            current = self.research.store.get(self.research.id)
-            grants = [
-                str(value)
-                for value in current.get("output_grants", [])
-                if isinstance(value, str) and value
-            ]
-            if receipt_id in grants:
-                return current
-            grants.append(receipt_id)
-            return self.research.store.update(
-                self.research.id,
-                expected_revision=current["revision"],
-                output_grants=grants,
-            )
-
-        await await_thread_worker(save)
+        await await_thread_worker(
+            self.research.store.add_output_grant, self.research.id, receipt_id
+        )
 
     @staticmethod
     def _receipt_id(outcome: ChildRunOutcome) -> str | None:

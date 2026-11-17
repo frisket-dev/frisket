@@ -1,5 +1,7 @@
 """Claude JSON output, exercised through real adapters without provider calls."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 import asyncio
 import copy
 import json
@@ -8,6 +10,7 @@ import httpx
 import pytest
 from jsonschema import Draft202012Validator
 
+from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.adapters import AnthropicAdapter, _anthropic_schema
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.structured import (
@@ -54,10 +57,12 @@ def run_complete(
 
     async def go():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            router = ModelRouter(keys={}, max_retries=0)
+            router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=0
+            )
             router._client = client
             router._adapters["anthropic"] = AnthropicAdapter("test")
-            return await StructuredCompleter(router).complete(
+            return await StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model=model,
                     schema=schema,
@@ -295,10 +300,12 @@ def test_anthropic_schema_400_is_not_blindly_retried():
 
     async def go():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            router = ModelRouter(keys={}, max_retries=3)
+            router = ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=3
+            )
             router._client = client
             router._adapters["anthropic"] = AnthropicAdapter("test")
-            await StructuredCompleter(router).complete(
+            await StructuredCompleter(router.for_execution(STANDALONE)).complete(
                 StructuredRequest(
                     model="anthropic/claude-sonnet-5-5",
                     schema=SCHEMA,

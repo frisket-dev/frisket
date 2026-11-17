@@ -1,5 +1,7 @@
 """Classification routes carry egress, credential and token tariff facts."""
 
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
 from dataclasses import asdict
 from decimal import Decimal
 from types import SimpleNamespace
@@ -250,7 +252,9 @@ def test_classify_quote_measures_selected_text_and_questions(
             plan.spec_dict(),
             plan.program,
             composition=open_execution_composition(
-                project, ModelRouter(), ExecutionCompositionContext.direct()
+                project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+                ExecutionCompositionContext.direct(),
             ),
         )
         assert resolved is not None and not isinstance(resolved, Refusal)

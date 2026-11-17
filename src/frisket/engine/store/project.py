@@ -8,22 +8,22 @@ Layout:
       project.cache.db    (sidecar: response cache, rebuildable)
       blobs/ab/abcd1234...
 
-Value resolution for a cell, highest precedence first:
-    1. latest applied manual edit (edits joined to applied ops)
-    2. the column's exact generated-result head
-    3. source cells
-Undo/redo move op-log pointers and column run-pointers; nothing is copied.
+Current cells resolve the latest applied Change at each coordinate. Source
+versions, results and edits keep immutable producer references; pending run
+scopes mask earlier values. Cached heads are disposable and dirty scopes read
+canonical winners until bounded repair completes.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
+import tempfile
 import threading
 import uuid
 import weakref
 from collections.abc import Mapping
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Collection, Iterator
 
@@ -101,12 +101,15 @@ class ProjectReadSnapshot:
     Callers must still use it serially and close it when the read completes.
     """
 
+    is_read_snapshot = True
+
     def __init__(self, owner: Project):
         self.path = owner.path
         self.db_path = owner.db_path
         self.blob_store = owner.blob_store
         self._close_lock = threading.Lock()
         self._connection: sqlite3.Connection | None = None
+        self._read_resources = ExitStack()
 
         connection = sqlite3.connect(
             self.db_path,
@@ -115,6 +118,9 @@ class ProjectReadSnapshot:
         )
         try:
             connection.row_factory = sqlite3.Row
+            from .current_cells import register_current_cell_functions
+
+            register_current_cell_functions(connection)
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("PRAGMA busy_timeout=10000")
             connection.execute("PRAGMA query_only=ON")
@@ -130,6 +136,19 @@ class ProjectReadSnapshot:
         if connection is None:
             raise RuntimeError("project read snapshot is closed")
         return connection
+
+    def read_snapshot(self) -> AbstractContextManager[ProjectReadSnapshot]:
+        """Borrow this same read scope without closing its owner's connection."""
+        self.db  # Refuse borrowing an already closed snapshot.
+        return nullcontext(self)
+
+    def pending_replay_values(
+        self, sheet_id: int, column_id: int, row_ids: list[int] | None = None
+    ) -> dict[int, dict[str, Any]]:
+        return cells.pending_replay_values(self, sheet_id, column_id, row_ids)
+
+    def pending_replay_count(self, sheet_id: int, column_id: int) -> int:
+        return cells.pending_replay_count(self, sheet_id, column_id)
 
     def columns(self, sheet_id: int, include_hidden: bool = False) -> list[sqlite3.Row]:
         return cells.columns(self, sheet_id, include_hidden)
@@ -151,7 +170,6 @@ class ProjectReadSnapshot:
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
         include_validity: bool = False,
@@ -161,7 +179,6 @@ class ProjectReadSnapshot:
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
             include_validity=include_validity,
@@ -173,7 +190,6 @@ class ProjectReadSnapshot:
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
     ) -> dict[int, Any]:
@@ -182,7 +198,6 @@ class ProjectReadSnapshot:
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
         )
@@ -191,6 +206,15 @@ class ProjectReadSnapshot:
         self, sheet_id: int, row_ids: list[int] | None = None
     ) -> list[int]:
         return cells.visible_row_ids(self, sheet_id, row_ids)
+
+    def temporary_directory(self, *, prefix: str = "frisket-read-") -> Path:
+        """Retain attached temporary databases until this connection is closed."""
+        self.db  # Refuse resources after the snapshot lifetime ends.
+        return Path(
+            self._read_resources.enter_context(
+                tempfile.TemporaryDirectory(prefix=prefix)
+            )
+        )
 
     def close(self) -> None:
         with self._close_lock:
@@ -208,12 +232,17 @@ class ProjectReadSnapshot:
                 connection.close()
             except sqlite3.Error:
                 pass
+            finally:
+                self._read_resources.close()
 
     def __enter__(self) -> ProjectReadSnapshot:
         return self
 
     def __exit__(self, *_exc: object) -> None:
         self.close()
+
+
+_UNCHANGED_WATCH_SCHEDULE = watches.UNCHANGED_SCHEDULE
 
 
 class Project:
@@ -225,9 +254,11 @@ class Project:
         bundle_path: str | Path,
         *,
         blob_store: ProjectBlobStore | None = None,
+        maintenance: bool = False,
     ):
         self.path = Path(bundle_path)
         self.db_path = self.path / "project.db"
+        self.maintenance = bool(maintenance)
         self.blob_store: ProjectBlobStore = (
             blob_store
             if blob_store is not None
@@ -236,11 +267,16 @@ class Project:
         if not self.db_path.exists():
             raise FileNotFoundError(f"not a frisket bundle: {self.path}")
         self._local = threading.local()
+        self._purge_result_delete_scope = threading.local()
         self._connections: weakref.WeakSet[_ThreadConnection] = weakref.WeakSet()
         self._connections_lock = threading.Lock()
         self._closed = False
         _ = self.db  # open the creating thread's connection eagerly
-        bundle_open.open_bundle(self)
+        try:
+            bundle_open.open_bundle(self, maintenance=maintenance)
+        except BaseException:
+            self.close()
+            raise
 
     @property
     def db(self) -> sqlite3.Connection:
@@ -255,6 +291,25 @@ class Project:
         if thread_connection is None:
             conn = sqlite3.connect(self.db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
+            from .current_cells import register_current_cell_functions
+
+            register_current_cell_functions(conn)
+            purge_delete_scope = self._purge_result_delete_scope
+            maintenance = self.maintenance
+
+            def purge_result_delete_authorized(run_id, row_id, column_id):
+                scope = getattr(purge_delete_scope, "keys", None)
+                return int(
+                    maintenance
+                    and scope is not None
+                    and (int(run_id), int(row_id), int(column_id)) in scope
+                )
+
+            conn.create_function(
+                "frisket_purge_result_delete_authorized",
+                3,
+                purge_result_delete_authorized,
+            )
             conn.executescript(
                 "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; "
                 "PRAGMA busy_timeout=10000;"
@@ -563,6 +618,7 @@ class Project:
         parent_op_id: int | None = None,
         *,
         commit: bool = True,
+        close_change: bool = True,
     ) -> int:
         return cells.add_sheet(
             self,
@@ -570,6 +626,7 @@ class Project:
             parent_sheet_id,
             parent_op_id,
             commit=commit,
+            close_change=close_change,
         )
 
     def sheets(self, include_hidden: bool = False) -> list[sqlite3.Row]:
@@ -624,30 +681,46 @@ class Project:
         cells.set_column_default_hidden(self, column_id, hidden, commit=commit)
 
     def set_column_type(
-        self, column_id: int, type: str, *, commit: bool = True
+        self,
+        column_id: int,
+        type: str,
+        *,
+        op_id: int | None = None,
+        initialize: bool = False,
+        commit: bool = True,
     ) -> None:
-        cells.set_column_type(self, column_id, type, commit=commit)
+        cells.set_column_type(
+            self, column_id, type, op_id=op_id, initialize=initialize, commit=commit
+        )
 
     def set_column_format(
         self,
         column_id: int,
         format: str | None,
         *,
+        op_id: int | None = None,
+        initialize: bool = False,
         commit: bool = True,
     ) -> None:
-        cells.set_column_format(self, column_id, format, commit=commit)
+        cells.set_column_format(
+            self, column_id, format, op_id=op_id, initialize=initialize, commit=commit
+        )
 
     def set_column_semantic_type(
         self,
         column_id: int,
         semantic_type: str | None,
         *,
+        op_id: int | None = None,
+        initialize: bool = False,
         commit: bool = True,
     ) -> None:
         cells.set_column_semantic_type(
             self,
             column_id,
             semantic_type,
+            op_id=op_id,
+            initialize=initialize,
             commit=commit,
         )
 
@@ -690,7 +763,6 @@ class Project:
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
         include_validity: bool = False,
@@ -700,7 +772,6 @@ class Project:
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
             include_validity=include_validity,
@@ -712,7 +783,6 @@ class Project:
         column_id: int,
         row_ids: list[int] | None = None,
         *,
-        apply_edits: bool = True,
         tolerate_decode_errors: bool = False,
         preserve_invalid: bool = False,
     ) -> dict[int, Any]:
@@ -721,7 +791,6 @@ class Project:
             sheet_id,
             column_id,
             row_ids,
-            apply_edits=apply_edits,
             tolerate_decode_errors=tolerate_decode_errors,
             preserve_invalid=preserve_invalid,
         )
@@ -892,7 +961,7 @@ class Project:
         name: str,
         spec: dict[str, Any] | None = None,
         *,
-        sheet_id: int,
+        sheet_id: int | None = None,
         commit: bool = True,
     ) -> int:
         return saved_views.add_view(self, name, spec, sheet_id=sheet_id, commit=commit)
@@ -908,33 +977,6 @@ class Project:
     def delete_view(self, view_id: int) -> None:
         saved_views.delete_view(self, view_id)
 
-    def lenses(self, sheet_id: int | None = None) -> list[sqlite3.Row]:
-        return saved_views.lenses(self, sheet_id)
-
-    def get_lens(self, lens_id: int) -> sqlite3.Row | None:
-        return saved_views.get_lens(self, lens_id)
-
-    def add_lens(
-        self,
-        name: str,
-        spec: dict[str, Any],
-        sheet_id: int | None = None,
-    ) -> int:
-        return saved_views.add_lens(self, name, spec, sheet_id)
-
-    def update_lens(
-        self,
-        lens_id: int,
-        name: str | None = None,
-        spec: dict[str, Any] | None = None,
-    ) -> None:
-        saved_views.update_lens(self, lens_id, name, spec)
-
-    def delete_lens(self, lens_id: int) -> None:
-        saved_views.delete_lens(self, lens_id)
-
-    # ----- saved lenses -----
-
     # ---------- watchlists ----------
 
     def watches(self) -> list[sqlite3.Row]:
@@ -947,21 +989,19 @@ class Project:
         self,
         name: str,
         *,
-        scope: str,
-        query: dict[str, Any],
-        sheet_id: int | None = None,
+        view_id: int,
         detection_policy: dict[str, Any] | None = None,
         enabled: bool = True,
+        schedule: str | None = "@hourly",
         commit: bool = True,
     ) -> int:
         return watches.add_watch(
             self,
             name,
-            scope=scope,
-            query=query,
-            sheet_id=sheet_id,
+            view_id=view_id,
             detection_policy=detection_policy,
             enabled=enabled,
+            schedule=schedule,
             commit=commit,
         )
 
@@ -971,12 +1011,16 @@ class Project:
         *,
         name: str | None = None,
         enabled: bool | None = None,
+        detection_policy: dict[str, Any] | None = None,
+        schedule: str | None | object = _UNCHANGED_WATCH_SCHEDULE,
     ) -> sqlite3.Row | None:
         return watches.update_watch(
             self,
             watch_id,
             name=name,
             enabled=enabled,
+            detection_policy=detection_policy,
+            schedule=schedule,
         )
 
     def delete_watch(self, watch_id: int) -> bool:
@@ -1046,6 +1090,8 @@ class Project:
         resolved_query: dict[str, Any] | None = None,
         error_code: str | None = None,
         advance_cursor: bool = True,
+        observation_project: Any | None = None,
+        expected_watch: Any | None = None,
     ) -> int:
         return watches.record_watch_run(
             self,
@@ -1059,6 +1105,8 @@ class Project:
             resolved_query=resolved_query,
             error_code=error_code,
             advance_cursor=advance_cursor,
+            observation_project=observation_project,
+            expected_watch=expected_watch,
         )
 
     # ---------- notifications ----------
@@ -1580,9 +1628,10 @@ class Project:
         request_id: int,
         *,
         last_error: str | None,
-    ) -> dict[str, Any]:
+        commit: bool = True,
+    ) -> bool:
         return notifications.record_notification_delivery_request_error(
-            self, request_id, last_error=last_error
+            self, request_id, last_error=last_error, commit=commit
         )
 
     def terminalize_notification_delivery_request(
@@ -1592,13 +1641,15 @@ class Project:
         status: str,
         last_error: str | None = None,
         provider_ref: str | None = None,
-    ) -> dict[str, Any]:
+        commit: bool = True,
+    ) -> bool:
         return notifications.terminalize_notification_delivery_request(
             self,
             request_id,
             status=status,
             last_error=last_error,
             provider_ref=provider_ref,
+            commit=commit,
         )
 
     def processing_notification_delivery_requests(self) -> list[sqlite3.Row]:
@@ -1614,6 +1665,7 @@ class Project:
         provider_ref: str | None = None,
         error: str | None = None,
         response_meta: dict[str, Any] | None = None,
+        commit: bool = True,
     ) -> dict[str, Any]:
         return notifications.record_notification_delivery_attempt(
             self,
@@ -1624,6 +1676,7 @@ class Project:
             provider_ref=provider_ref,
             error=error,
             response_meta=response_meta,
+            commit=commit,
         )
 
     def notification_delivery_attempt(self, attempt_id: int) -> dict[str, Any]:

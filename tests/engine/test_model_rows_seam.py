@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 from typing import Any
@@ -284,6 +285,7 @@ def test_dynamic_request_is_shared_by_estimate_cache_and_execution(source, tmp_p
     from frisket.ai.llm.cache import request_key
     from frisket.engine.runner import MapRunner
     from frisket.engine.runner.row_execution import AdaptiveThrottle, llm_row
+    from frisket.execution.dispatch_control import STANDALONE
     from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
     project, _, column, row_id = source
@@ -298,7 +300,12 @@ def test_dynamic_request_is_shared_by_estimate_cache_and_execution(source, tmp_p
     values = row_values(project, plan.program, spec, {"body": column}, row_id)
     rendered = plan.program.render(values, spec)
     cache = ResponseCache(tmp_path / "responses.db")
-    router = ModelRouter(cache=cache, cache_mode="replay_strict", use_env_keys=False)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=cache,
+        cache_mode="replay_strict",
+        use_env_keys=False,
+    )
     try:
         runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
         assert isinstance(
@@ -324,7 +331,13 @@ def test_dynamic_request_is_shared_by_estimate_cache_and_execution(source, tmp_p
         )
         assert runner.exact_replay_available(spec, program=plan.program)
         data, facts = asyncio.run(
-            llm_row(router, AdaptiveThrottle(), plan.program, values, spec)
+            llm_row(
+                router.for_execution(STANDALONE),
+                AdaptiveThrottle(),
+                plan.program,
+                values,
+                spec,
+            )
         )
         assert data == {"score": 2}
         assert facts["cost"] == 0

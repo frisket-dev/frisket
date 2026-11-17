@@ -35,6 +35,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore, StoredReceipt
 from frisket.server.route_errors import RouteError
 from frisket.search import SearchIndexNotReady
+from frisket.execution.dispatch_control import STANDALONE
 
 
 EMBEDDING_SIMILARITY_PREVIEW_SCHEMA = "frisket.embedding_similarity_preview.v1"
@@ -63,7 +64,10 @@ class EmbeddingRouteService:
     def similarity_preview(self, project_id: str, query: dict[str, Any]) -> dict:
         project = self._workspace.get(project_id)
         self._check_search_freshness(project, query)
-        gateway = EmbeddingGateway(router=self._workspace.router_for(project))
+        router = self._workspace.router_for(project)
+        gateway = EmbeddingGateway(
+            router=router.for_execution(STANDALONE) if router is not None else None
+        )
         try:
             result = resolve_embedding_similarity(project, query, gateway=gateway)
         except SimilarityError as exc:
@@ -75,7 +79,10 @@ class EmbeddingRouteService:
         schedule = getattr(project, "_frisket_schedule_search_index", None)
         if schedule is not None:
             schedule()
-        gateway = EmbeddingGateway(router=self._workspace.router_for(project))
+        router = self._workspace.router_for(project)
+        gateway = EmbeddingGateway(
+            router=router.for_execution(STANDALONE) if router is not None else None
+        )
         for attempt in range(2):
             try:
                 with project.read_snapshot() as snapshot:

@@ -20,6 +20,12 @@ from frisket.contracts.actions.schemas._engines import (
     execution_alias_map,
 )
 from frisket.execution.attempt import routed_admission_in_scope
+from frisket.execution.purchases import (
+    PurchaseObservation,
+    PurchaseRequest,
+    execute_purchase,
+    policy_for_context,
+)
 from frisket.execution.definitions import build_static_targets
 from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.resolver import (
@@ -188,11 +194,30 @@ async def run_transcription_engine(
     media: Any = None,
 ) -> TranscriptionEngineResult:
     """Run one materialized file through the shared preview/durable path."""
+    from frisket.execution.dispatch_control import dispatch_for_context
+
+    dispatch_for_context(ctx).check()
     canonical = canonical_transcription_engine(engine)
     selected_transport = transport or transcription_transport(canonical, spec, ctx)
     adapter = _adapter_for(canonical, selected_transport)
     if isinstance(adapter, FasterWhisperAdapter | ParakeetAdapter):
-        out = await adapter.transcribe(path, spec, should_cancel=should_cancel)
+        out = await execute_purchase(
+            PurchaseRequest(
+                provider="local",
+                capability="transcribe",
+                engine=canonical,
+                credential_source="none",
+                prepared={
+                    "options": project_transcription_engine_options(canonical, spec)
+                },
+                context=ctx,
+                quantity={"input_count": 1},
+            ),
+            policy=policy_for_context(ctx),
+            dispatch=dispatch_for_context(ctx),
+            invoke=lambda: adapter.transcribe(path, spec, should_cancel=should_cancel),
+            observe=lambda result: PurchaseObservation(result, {"input_count": 1}, 0),
+        )
     elif isinstance(adapter, TranscriptionV1Adapter):
         out = await adapter.transcribe(
             canonical, path, spec, ctx, light_engine="faster_whisper"

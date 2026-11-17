@@ -41,6 +41,20 @@ class PythonRuntime:
         return path.resolve()
 
 
+def optional_runtime_root(argv: list[str]) -> Path | None:
+    """Identify an app-owned private interpreter before resource wrappers."""
+    if not argv:
+        return None
+    from frisket.runtime.model_install import _runtime_python, runtime_dir
+
+    executable = Path(argv[0])
+    root = executable.parent.parent.parent
+    base = runtime_dir()
+    if executable == _runtime_python(root) and (root == base or root.parent == base):
+        return root
+    return None
+
+
 def worker_argv(
     kind: str, *args: str, runtime: PythonRuntime | None = None
 ) -> list[str]:

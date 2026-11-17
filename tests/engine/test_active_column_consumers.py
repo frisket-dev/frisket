@@ -9,6 +9,7 @@ from frisket.engine.executor.page_capture import (
 )
 from frisket.contracts.action import ActionError
 from frisket.engine.store import Project
+from frisket.engine.store.changes import start_change
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.output_families import OutputFamilyStore
 from frisket.engine.store.op_log import append_op
@@ -27,6 +28,9 @@ def project(tmp_path):
 def _undone_column(project, sheet, name, *, type="text"):
     old = project.add_column(sheet, name, type=type, ai_generated=True)
     op = append_op(project, "add_column", undo_info={"created_columns": [old]})
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        start_change(project.db, op)
     assert project.undo() == op
     return old
 

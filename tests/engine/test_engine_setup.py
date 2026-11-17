@@ -244,7 +244,7 @@ def test_classifier_setup_installs_runtime_then_selected_weights(
 
 def test_engine_setup_uses_existing_row_and_marks_done(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "frisket.runtime.speech_install.runtime_present", lambda engine: True
+        "frisket.runtime.speech_install.host_present", lambda engine: True
     )
     queue = open_queue(workspace=tmp_path)
     try:
@@ -296,7 +296,7 @@ def test_speech_setup_installs_components_before_weights_and_reuses_runtime(
 
     steps = []
     monkeypatch.setattr(
-        speech_install, "runtime_present", lambda engine: runtime_state == "present"
+        speech_install, "host_present", lambda engine: runtime_state == "present"
     )
 
     def install(**kwargs):
@@ -508,7 +508,7 @@ def test_engine_setup_cancel_is_terminal_without_resolver(
         queue.close()
 
 
-@pytest.mark.parametrize("readiness", ["ready", "failed", "cancelled"])
+@pytest.mark.parametrize("readiness", ["ready", "failed", "load_failed", "cancelled"])
 def test_docling_engine_setup_waits_for_server_before_marking_done(
     tmp_path, monkeypatch, readiness
 ) -> None:
@@ -539,10 +539,21 @@ def test_docling_engine_setup_waits_for_server_before_marking_done(
             assert seen == {"cancelled": False}
             assert store.get(queue.engine, row.id).status != store.STATUS_DONE
             cancelled = readiness == "cancelled"
-            return readiness == "ready"
+            return readiness in {"ready", "load_failed"}
 
         monkeypatch.setattr(
             "frisket.runtime.model_server.wait_until_ready", wait_until_ready
+        )
+        recoveries = []
+
+        def recover(url, token, **kwargs):
+            recoveries.append((url, token, kwargs))
+            if readiness == "load_failed":
+                raise RuntimeError("model loader failed again")
+
+        monkeypatch.setattr(
+            "frisket.runtime.model_server.retry_failed_engine",
+            recover,
         )
         kwargs = dict(
             engine=queue.engine,
@@ -550,12 +561,19 @@ def test_docling_engine_setup_waits_for_server_before_marking_done(
             should_cancel=lambda: cancelled,
             is_final_attempt=True,
         )
-        if readiness == "failed":
-            with pytest.raises(RuntimeError, match="model_server_start_failed"):
+        if readiness in {"failed", "load_failed"}:
+            code = (
+                "engine_load_failed"
+                if readiness == "load_failed"
+                else "model_server_start_failed"
+            )
+            with pytest.raises(RuntimeError, match=code):
                 engine_setup.run_engine_setup(**kwargs)
             failed = store.get(queue.engine, row.id)
             assert failed.status == store.STATUS_FAILED
             assert "Docling is installed" in failed.error_message
+            if readiness == "load_failed":
+                assert "server is ready" in failed.error_message
         else:
             result = engine_setup.run_engine_setup(**kwargs)
             expected = "done" if readiness == "ready" else "cancelled"
@@ -563,6 +581,11 @@ def test_docling_engine_setup_waits_for_server_before_marking_done(
             assert store.get(queue.engine, row.id).status == expected
 
         assert seen == {"cancelled": False}
+        assert len(recoveries) == (1 if readiness in {"ready", "load_failed"} else 0)
+        if recoveries:
+            assert recoveries[0][:2] == ("http://127.0.0.1:1234", "private-test-token")
+            assert recoveries[0][2]["name"] == "docling"
+            assert recoveries[0][2]["route"] == "/to-markdown"
     finally:
         queue.close()
 
@@ -598,6 +621,7 @@ def test_language_setup_installs_runtime_before_ready(
         steps.append("wheel")
 
     monkeypatch.setattr(module, "runtime_present", lambda: ready)
+    monkeypatch.setattr(module, "host_present", lambda: False)
     monkeypatch.setattr(
         module, "install_spacy" if spacy else "install_translation", install
     )
@@ -642,6 +666,7 @@ def test_spacy_setup_never_publishes_unusable_wheel(tmp_path, monkeypatch, outco
     from frisket.engine.jobs import artifact_pull
 
     monkeypatch.setattr(spacy_install, "runtime_present", lambda: True)
+    monkeypatch.setattr(spacy_install, "host_present", lambda: True)
 
     def provision(*args, **kwargs):
         if outcome == "cancelled":
@@ -686,6 +711,7 @@ def test_language_setup_reuses_installed_runtime(tmp_path, monkeypatch, spacy):
 
     module = spacy_install if spacy else translation_install
     monkeypatch.setattr(module, "runtime_present", lambda: True)
+    monkeypatch.setattr(module, "host_present", lambda: True)
 
     def unexpected_install(**kwargs):
         raise AssertionError("installed components must not be reinstalled")
@@ -714,45 +740,5 @@ def test_language_setup_reuses_installed_runtime(tmp_path, monkeypatch, spacy):
             is_final_attempt=True,
         ) == {"status": "done"}
         assert calls == (["wheel", "extract"] if spacy else [])
-    finally:
-        queue.close()
-
-
-def test_spacy_setup_repairs_checksum_invalid_managed_wheel(tmp_path, monkeypatch):
-    from types import SimpleNamespace
-
-    from frisket.ai.models import spacy_model
-    from frisket.engine.jobs import artifact_pull
-    from frisket.runtime import spacy_install
-
-    wheel = tmp_path / "invalid.whl"
-    wheel.write_bytes(b"invalid")
-    monkeypatch.setattr(spacy_install, "runtime_present", lambda: True)
-    monkeypatch.setattr(
-        spacy_model, "model_state", lambda **kw: SimpleNamespace(status="hash_mismatch")
-    )
-    monkeypatch.setattr(spacy_model, "wheel_path", lambda: wheel)
-
-    def provision(*args, **kwargs):
-        assert not wheel.exists()
-        wheel.write_bytes(b"repaired")
-
-    monkeypatch.setattr(artifact_pull, "provision_pinned", provision)
-    monkeypatch.setattr(spacy_model, "ensure_loadable_model_path", lambda: tmp_path)
-    queue = open_queue(workspace=tmp_path)
-    try:
-        row, _ = store.create_or_get_active(
-            queue.engine,
-            workspace_root=str(tmp_path),
-            model_ref=engine_setup.SPACY_SETUP_REF,
-        )
-        store.mark_running(queue.engine, row.id, job_id=1)
-        assert engine_setup.run_engine_setup(
-            engine=queue.engine,
-            pull_id=row.id,
-            should_cancel=lambda: False,
-            is_final_attempt=True,
-        ) == {"status": "done"}
-        assert wheel.read_bytes() == b"repaired"
     finally:
         queue.close()

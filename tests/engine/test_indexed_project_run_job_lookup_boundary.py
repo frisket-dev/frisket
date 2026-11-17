@@ -19,27 +19,6 @@ from tests.http_test_helpers import v1_action_from_canonical_run_spec
 # the indexed-query pin follows the referent to its new home.
 
 CSV = "note\nCall 212-555-0123\nNo phone\n"
-OLD_JOBS_SCHEMA = """
-CREATE TABLE jobs (
-  id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL,
-  payload TEXT NOT NULL DEFAULT '{}',
-  status TEXT NOT NULL DEFAULT 'queued',
-  attempts INTEGER NOT NULL DEFAULT 0,
-  max_attempts INTEGER NOT NULL DEFAULT 3,
-  locked_by TEXT,
-  locked_at TEXT,
-  lease_expires_at TEXT,
-  available_at TEXT NOT NULL,
-  created_at TEXT NOT NULL,
-  started_at TEXT,
-  finished_at TEXT,
-  result TEXT,
-  error TEXT
-);
-CREATE INDEX idx_jobs_claim ON jobs(status, available_at, id);
-CREATE INDEX idx_jobs_lease ON jobs(status, lease_expires_at);
-"""
 
 
 def _seed_project(client: TestClient) -> tuple[str, int]:
@@ -184,44 +163,3 @@ def test_queue_schema_and_product_paths_have_structured_ref_boundary(
     assert hasattr(queue, "list_project_jobs")
     assert hasattr(PostgresJobQueue, "get_project_run_job")
     assert hasattr(PostgresJobQueue, "list_project_jobs")
-
-
-def test_existing_sqlite_queue_rows_are_migrated_and_backfilled(
-    tmp_path: Path,
-) -> None:
-    db_path = tmp_path / ".queue.db"
-    now = "2026-06-19T12:00:00.000000+00:00"
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(OLD_JOBS_SCHEMA)
-        conn.execute(
-            "INSERT INTO jobs (kind, payload, max_attempts, available_at, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (
-                RUN_PROJECT_KIND,
-                json.dumps(
-                    {
-                        "project_id": "migrated-project",
-                        "run_id": 77,
-                        "action_kind": "map.regex_extract",
-                        "v1_receipt_id": "receipt_migrated",
-                    }
-                ),
-                1,
-                now,
-                now,
-            ),
-        )
-
-    queue = SqliteJobQueue(db_path)
-    try:
-        job = queue.get_project_run_job("migrated-project", 77)
-        assert job is not None
-        assert job.project_id == "migrated-project"
-        assert job.run_id == 77
-        assert job.action_kind == "map.regex_extract"
-        assert job.receipt_id == "receipt_migrated"
-        assert queue.list_project_jobs("migrated-project", kind=RUN_PROJECT_KIND) == [
-            job
-        ]
-    finally:
-        queue.close()

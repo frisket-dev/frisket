@@ -1,4 +1,5 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import uuid
@@ -75,7 +76,9 @@ def _seed(project: Project) -> tuple[dict[str, Any], list[int]]:
 def _runner(project: Project, **kwargs: Any) -> MapRunner:
     return MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
         **kwargs,
     )

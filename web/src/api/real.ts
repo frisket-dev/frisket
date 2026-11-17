@@ -5,9 +5,8 @@
 // Interface mismatches handled here:
 // - getRunProgress(): GET /actions/runs/{id}/status, supplemented with run
 //   context remembered from the runAction() call that started it.
-// - stepTo(globalIndex): the backend has single-step operation controls, so the
-//   history/review owner walks the cursor with operation.undo/operation.redo v1
-//   actions; reviewItem() posts v1 review.decision beside the bundles reads.
+// - History exposes ordinary Undo/Redo and explicit selective Revert/Restore.
+//   reviewItem() posts v1 review.decision beside the bundles reads.
 
 import {
   cancelRunContract,
@@ -206,9 +205,7 @@ import type {
   EmbeddingProvider,
   EmbeddingComposedQuery,
   EmbeddingSimilarityResult,
-  Lens,
-  LensSaveInput,
-  LensResolved,
+  ViewResolved,
   ColumnDef,
   ColumnPatch,
   ColumnRunsInfo,
@@ -1030,19 +1027,8 @@ class RealApi implements FrisketApi {
     return this.viewsLensesApi.deleteView(viewId);
   }
 
-  listLenses(sheetId?: number | string): Promise<Lens[]> {
-    return this.viewsLensesApi.listLenses(sheetId);
-  }
-
-  saveLens(input: LensSaveInput): Promise<Lens> {
-    return this.viewsLensesApi.saveLens(input);
-  }
-
-  async resolveLens(
-    lensId: number,
-    opts?: { limit?: number; offset?: number },
-  ): Promise<LensResolved> {
-    return this.viewsLensesApi.resolveLens(lensId, opts);
+  resolveView(viewId: number, opts?: { limit?: number; offset?: number }): Promise<ViewResolved> {
+    return this.viewsLensesApi.resolveView(viewId, opts);
   }
 
   async listWatches(): Promise<WatchInfo[]> {
@@ -1778,6 +1764,7 @@ class RealApi implements FrisketApi {
       ?? result.runs[0];
     if (selectedRun) {
       this.actionRuns.rememberColumnRunInfo(projectId, columnId, {
+        runId: selectedRun.runId,
         actionName: selectedRun.actionName,
         prompt: promptFromRunSpec(selectedRun.spec),
         model: selectedRun.model,
@@ -1875,8 +1862,12 @@ class RealApi implements FrisketApi {
     return this.historyReview.redo();
   }
 
-  async stepTo(opIndex: number): Promise<HistoryState> {
-    return this.historyReview.stepTo(opIndex);
+  async revertOperation(opId: string): Promise<HistoryState> {
+    return this.historyReview.revertOperation(opId);
+  }
+
+  async restoreOperation(opId: string): Promise<HistoryState> {
+    return this.historyReview.restoreOperation(opId);
   }
 
   async startPreview(req: ActionExecutionRequest): Promise<PreviewStartResult> {

@@ -1,10 +1,13 @@
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
 import sqlite3
+import threading
 from array import array
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +63,7 @@ def _remote_embedding_router():
     from frisket.ai.llm import ModelRouter
 
     router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "sk-project-openai"},
         key_sources={"openai": "project_key"},
         cache=None,
@@ -352,17 +356,17 @@ def _run_remote_cluster_with_exact_confirmation(
 def _recover_abandoned_cluster(project, action, *, router, project_id):
     """Model a dead process through the existing stale-lease recovery path."""
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
-    from frisket.execution.attempt import abandon_stale_dispatching_attempts
 
     project.db.execute(
         "UPDATE receipts SET created_at='2000-01-01T00:00:00Z' WHERE status='running'"
     )
     project.db.commit()
-    cleared = run_action_spec(project, action, project_id=project_id, router=router)
-    assert cleared.errors[0].code == "idempotency_stale_running", cleared.model_dump()
     live = run_action_spec(project, action, project_id=project_id, router=router)
-    assert live.errors[0].code == "output_column_busy", live.model_dump()
+    assert live.errors[0].code == "idempotency_in_progress", live.model_dump()
+
+    # Receipt age by itself does not prove its writer is dead. Expire the
+    # attempt and its output leases before asking the normal retry path to
+    # recover the checkpoint.
     project.db.execute(
         "UPDATE execution_attempts SET created_at='2000-01-01T00:00:00Z' WHERE state='dispatching'"
     )
@@ -370,16 +374,8 @@ def _recover_abandoned_cluster(project, action, *, router, project_id):
         "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' WHERE status='active'"
     )
     project.db.commit()
-    run_id = project.db.execute("SELECT id FROM runs").fetchone()[0]
-    assert abandon_stale_dispatching_attempts(project, run_id) == 1
-    claims = OutputColumnClaimStore(project)
-    for claim in project.db.execute(
-        "SELECT id FROM output_column_claims WHERE run_id=? AND status='active'",
-        (run_id,),
-    ).fetchall():
-        claims.release_stale(
-            claim_id=claim["id"], reason="test: expired abandoned writer"
-        )
+    recovered = run_action_spec(project, action, project_id=project_id, router=router)
+    assert recovered.status in {"completed", "failed"}, recovered.model_dump()
 
 
 @pytest.mark.parametrize("source", ["missing", "numeric"])
@@ -641,6 +637,65 @@ def test_semantic_cluster_persists_remote_fact_and_receipts_the_provider_cost(
         assert provider_use[0]["external_api"] is True
         assert provider_use[0]["model_call_count"] == len(adapter.calls)
         assert provider_use[0]["cost_actual"] == expected_cost
+    finally:
+        project.close()
+
+
+def test_cluster_replay_does_not_finalize_a_live_completed_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from frisket.engine.executor import cluster_action
+    from frisket.engine.executor.actions import run_action_spec
+
+    project = Project.create(tmp_path / "cluster-values-live-replay.frisket")
+    try:
+        seeded = _seed(project, tmp_path)
+        action = _cluster_action(
+            seeded["sheet_id"],
+            idempotency_key="cluster_values@sha256:live-completed-writer",
+            method="fingerprint",
+        )
+        original_finalize = cluster_action.finalize_cluster_action
+        replay_results = []
+        replayed = False
+
+        def replay_during_live_finalize(current_project, *args, **kwargs):
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                replay_results.append(
+                    run_action_spec(
+                        current_project,
+                        action,
+                        project_id="cluster-values-live-replay",
+                    )
+                )
+                owner = current_project.db.execute(
+                    "SELECT state FROM execution_attempts WHERE id=?",
+                    (kwargs["writer_attempt_id"],),
+                ).fetchone()
+                assert owner is not None and owner["state"] == "dispatching"
+            return original_finalize(current_project, *args, **kwargs)
+
+        monkeypatch.setattr(
+            cluster_action, "finalize_cluster_action", replay_during_live_finalize
+        )
+        result = run_action_spec(
+            project,
+            action,
+            project_id="cluster-values-live-replay",
+        )
+
+        assert replayed
+        assert result.status == "completed", result.model_dump()
+        assert len(replay_results) == 1
+        assert replay_results[0].status == "failed"
+        assert replay_results[0].errors[0].code == "idempotency_in_progress"
+        run = project.db.execute(
+            "SELECT status,current_attempt_id FROM runs WHERE id=?",
+            (result.run_id,),
+        ).fetchone()
+        assert tuple(run) == ("completed", None)
     finally:
         project.close()
 
@@ -1014,7 +1069,8 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.engine.executor import cluster_action as host
+    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.receipts import ReceiptStore
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
@@ -1045,19 +1101,19 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             "funding_account_id": 17,
             "reservation_id": "atomic-transfer",
         }
-        original_finalize = host._finalize_reserved_action_receipt
+        original_update = ReceiptStore.update_if_status_in
         fail_next = True
 
-        def fail_first_receipt_update(*args, **kwargs):
+        def fail_first_receipt_update(self, *args, **kwargs):
             nonlocal fail_next
-            result = original_finalize(*args, **kwargs)
+            result = original_update(self, *args, **kwargs)
             if fail_next:
                 fail_next = False
                 raise sqlite3.OperationalError("injected receipt update failure")
             return result
 
         monkeypatch.setattr(
-            host, "_finalize_reserved_action_receipt", fail_first_receipt_update
+            ReceiptStore, "update_if_status_in", fail_first_receipt_update
         )
 
         with pytest.raises(
@@ -1072,9 +1128,11 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             )
         assert len(adapter.calls) == 1
         receipt = project.db.execute(
-            "SELECT status,edition_run_context FROM receipts"
+            "SELECT id,run_id,status,edition_run_context FROM receipts"
         ).fetchone()
         assert receipt["status"] == "running"
+        original_receipt_id = str(receipt["id"])
+        original_run_id = int(receipt["run_id"])
         assert json.loads(receipt["edition_run_context"]) == original_context
         assert (
             project.db.execute("SELECT COUNT(*) FROM cell_result_heads").fetchone()[0]
@@ -1091,7 +1149,75 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             ).fetchone()
             is None
         )
+        claims = OutputColumnClaimStore(project)
+        _, conflict = claims.acquire(
+            sheet_id=seeded["sheet_id"],
+            output_names=["name_canonical"],
+            action_kind="test.foreign_writer",
+            claim_token="test:foreign-cluster-output",
+        )
+        assert conflict is None
+        refused = run_action_spec(
+            project,
+            confirmed,
+            project_id="cluster-values-receipt-atomic",
+            router=router,
+        )
+        assert refused.status == "failed"
+        assert refused.errors[0].code == "output_column_busy"
+        stored_receipt = project.db.execute(
+            "SELECT id,run_id,status FROM receipts WHERE id=?",
+            (original_receipt_id,),
+        ).fetchone()
+        assert stored_receipt is not None
+        assert stored_receipt["run_id"] == original_run_id
+        assert stored_receipt["status"] == "running"
+        claims.release(claim_token="test:foreign-cluster-output", status="released")
 
+        # Both retries pass the idle receipt check before either reaches the
+        # output claim CAS. Hold the winner's claim until the competing retry
+        # has observed the conflict, proving it cannot delete the reused receipt.
+        acquire_barrier = threading.Barrier(2)
+        competing_refusal = threading.Event()
+        original_acquire = OutputColumnClaimStore.acquire
+
+        def synchronize_resume_claim(self, **kwargs):
+            if (
+                kwargs.get("receipt_id") == original_receipt_id
+                and kwargs.get("claim_token") == f"output-claim:{original_receipt_id}"
+            ):
+                acquire_barrier.wait(timeout=10)
+                result = original_acquire(self, **kwargs)
+                if result[1] is None:
+                    assert competing_refusal.wait(timeout=10)
+                return result
+            return original_acquire(self, **kwargs)
+
+        monkeypatch.setattr(OutputColumnClaimStore, "acquire", synchronize_resume_claim)
+
+        def resume():
+            result = run_action_spec(
+                project,
+                confirmed,
+                project_id="cluster-values-receipt-atomic",
+                router=router,
+                edition_run_context={"reservation_id": "replacement-must-not-win"},
+            )
+            if result.status == "failed":
+                competing_refusal.set()
+            return result
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            resumptions = [pool.submit(resume) for _ in range(2)]
+            results = [future.result(timeout=30) for future in resumptions]
+
+        completed = [result for result in results if result.status == "completed"]
+        refused = [result for result in results if result.status == "failed"]
+        assert len(completed) == 1
+        assert len(refused) == 1
+        assert refused[0].errors[0].code == "output_column_busy"
+        assert completed[0].receipt_id == original_receipt_id
+        assert len(adapter.calls) == 1
         replay = run_action_spec(
             project,
             confirmed,
@@ -1099,9 +1225,8 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
             router=router,
             edition_run_context={"reservation_id": "replacement-must-not-win"},
         )
-
         assert replay.status == "completed", replay.errors
-        assert len(adapter.calls) == 1
+        assert replay.receipt_id == original_receipt_id
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
@@ -1110,7 +1235,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
         )
         receipt = project.db.execute(
             "SELECT edition_run_context FROM receipts WHERE id=?",
-            (replay.receipt_id,),
+            (original_receipt_id,),
         ).fetchone()
         assert json.loads(receipt["edition_run_context"]) == original_context
     finally:

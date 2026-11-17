@@ -36,7 +36,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
   const fileColumn = fileColumnId ? sheet.columns.find((column) => column.id === fileColumnId && column.type === 'file') : sheet.columns.find((column) => column.type === 'file');
   const admittedFileColumnId = fileColumn?.id ?? null;
   const hasSelection = selection.rowIds.length > 0 || selection.rowIndexes.length > 0;
-  const hasFilter = Boolean(view.filter_);
+  const hasFilter = Boolean(view.filter_ || view.selection);
   const scopeInputKey = useMemo(() => JSON.stringify({ selection, view }), [selection, view]);
   const idempotencyKey = useRef(crypto.randomUUID());
   const [scope, setScope] = useState<'selected' | 'filtered' | 'all'>(hasSelection ? 'selected' : hasFilter ? 'filtered' : 'all');
@@ -86,7 +86,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     const controller = new AbortController();
     let admitted: ScopeSnapshot | null = null;
     const frozen = JSON.parse(scopeInputKey) as { selection: SelectedGridRows; view: typeof view };
-    const base: PdfPacketSheetScopeRequest = { ...frozen.view, sheet_id: Number(sheet.id), file_column_id: Number(admittedFileColumnId), organization, scope: frozen.view.filter_ ? 'filtered' : 'all' };
+    const base: PdfPacketSheetScopeRequest = { ...(scope === 'all' ? {} : frozen.view), sheet_id: Number(sheet.id), file_column_id: Number(admittedFileColumnId), organization, scope };
     void (async () => {
       await Promise.resolve();
       if (controller.signal.aborted) return;
@@ -101,7 +101,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
             const token = await getPdfPacketSheetScopeToken(projectId, {
               sheet_id: base.sheet_id, scope: 'selected', filter_: base.filter_, sort: base.sort,
               parent_row_id: base.parent_row_id, scope_row_ids: base.scope_row_ids,
-              ranked_row_ids: base.ranked_row_ids,
+              ranked_row_ids: base.ranked_row_ids, selection: base.selection,
             }, { signal: controller.signal });
             admitted = await createPdfPacketSplitFromSheet(projectId, {
               ...base, scope, ...chosen, expected_order_hash: token.order_hash,

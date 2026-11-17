@@ -1,11 +1,13 @@
 """Save disagreement answers into ordinary, visible, project-local sheets."""
 
+import json
+
 from frisket.authoring import column_types
 from frisket.contracts.http.evaluation import ExpectedAnswerRequest
 from frisket.engine.executor.joined_table import _pair_mode
 from frisket.engine.store import evaluation as store
 from frisket.engine.store.artifact_timeline import TimelineError
-from frisket.features.temporal_ingress import preflight_typed_rows_for_persistence
+from frisket.engine.store.temporal_ingress import preflight_typed_rows_for_persistence
 from frisket.server.route_errors import RouteError
 from frisket.server.services import evaluation_links as links
 from frisket.server.services.evaluation_values import full_column
@@ -89,6 +91,8 @@ def save_expected_answer(service, pid, raw):
     if link is None and body["value"] in (None, ""):
         raise RouteError(422, "Save a nonblank expected answer first")
     with store.write_transaction(project):
+        created_sheets = []
+        created_columns = []
         if link is not None:
             links.link_payload(project, link)
         if link is None:
@@ -99,6 +103,7 @@ def save_expected_answer(service, pid, raw):
                 name = f"{base} {index}"
                 index += 1
             expected_sheet = project.add_sheet(name, commit=False)
+            created_sheets.append(expected_sheet)
             row_key = project.add_column(
                 expected_sheet,
                 "_target_row_id",
@@ -109,6 +114,7 @@ def save_expected_answer(service, pid, raw):
             expected_column = project.add_column(
                 expected_sheet, output["current_name"], commit=False
             )
+            created_columns.extend([row_key, expected_column])
             link = {
                 "target_sheet_id": sheet_id,
                 "expected_sheet_id": expected_sheet,
@@ -142,6 +148,7 @@ def save_expected_answer(service, pid, raw):
                 "hidden": False,
                 "source": "disagreements",
             }
+            created_columns.append(field["expected_column_id"])
             link["fields"].append(field)
             store.save_link(project, link, link["id"])
         mapping, preview = links.row_matches(project, link)
@@ -231,11 +238,24 @@ def save_expected_answer(service, pid, raw):
                 raise RouteError(
                     409, "Converted expected key does not match the target row"
                 )
-            inserted = True
         else:
-            inserted = False
-    if not inserted:
-        service._edit_cell(
-            pid, project, source_row, field["expected_column_id"], body["value"]
-        )
+            service._edit_cell(
+                pid, project, source_row, field["expected_column_id"], body["value"]
+            )
+        # The ordinary value mutation owns its newly-created structure too.
+        # Nested typed edits and row creation retain this transaction.
+        if created_sheets or created_columns:
+            owner = project.op_cursor
+            info = json.loads(
+                project.db.execute(
+                    "SELECT undo_info FROM ops WHERE id=?", (owner,)
+                ).fetchone()[0]
+                or "{}"
+            )
+            if created_sheets:
+                info["created_sheets"] = created_sheets
+            if created_columns:
+                info["created_columns"] = created_columns
+            project.set_undo_info(owner, info, commit=False)
+
     return links.link_payload(project, store.link(project, link["id"]))

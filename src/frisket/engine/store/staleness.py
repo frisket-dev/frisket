@@ -1,236 +1,149 @@
-"""Lazy, pull-computed derived-sheet staleness (Workbench IA increment 7).
-
-Derived sheets are LIVE: when an ancestor changes, the child is *stale* until it
-is refreshed. Staleness is computed at READ time (sheets-list / lineage endpoint)
-from a watermark, mirroring the FTS sidecar idiom (``fts_state.indexed_at_op`` vs
-``project.op_cursor`` in ``frisket.search``) -- NOT pushed from mutation sites,
-whose incomplete coverage is the documented failure mode
-(``store/evidence.py`` ``mark_evidence_stale_for_cell_refs`` fires from only 2 of
-many mutation sites).
-
-Watermark: ``sheets.last_verified_op_cursor`` -- the op_cursor a derived sheet was
-last materialized/refreshed against. NULL (never refreshed) falls back to
-``parent_op_id`` (the create op). A derived sheet is stale iff some APPLIED op with
-id greater than the watermark touched one of its ancestors. "Applied" is the key:
-undo/redo move ``op_cursor`` backward and flip ops to ``undone``/``discarded``, so
-an undone edit no longer counts -- the resolver recomputes from live op status
-every read and never trusts a stored flag across a cursor rewind (survey risk 2).
-
-The sheet forest is append-only (``parent_sheet_id`` is write-once), so ancestry
-has no cycles. Multi-parent sheets (join/resolve/reduce) contribute extra
-ancestors through ``materialized_row_sources.source_sheet_id``; stale detection
-covers all of them.
-"""
+"""Derived-sheet freshness from actual consumed sources, never op cursors."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
+from collections.abc import Sequence
+
+from frisket.engine.store.consumed_sources import bundle_state
+
 
 STALE_REASON_PARENT_CHANGED = "parent_changed"
+_PRIORITY = {"fresh": 0, "unknown": 1, "checking": 2, "stale": 3}
 
 
-def _placeholders(n: int) -> str:
-    return ",".join("?" * n)
+def compute_sync_states(
+    project: Any, *, verify: bool = True, sheet_ids: Sequence[int] | None = None
+) -> dict[int, dict[str, str | None]]:
+    """Cheap cached reads; expensive changed captures are requested on demand.
 
-
-def _ancestor_sheet_ids(
-    sheet_id: int,
-    parent_of: dict[int, int | None],
-    sources_of: dict[int, set[int]],
-) -> set[int]:
-    """Transitive ancestor sheet ids of ``sheet_id`` (excluding itself).
-
-    Union of the single-parent chain (``parent_sheet_id``) and every
-    multi-parent source sheet (``materialized_row_sources``). Guarded against
-    accidental cycles even though the forest is structurally acyclic.
+    Old derived outputs without an actual source capture are unknown. Neither
+    queueing nor an operation cursor invents the inputs they consumed.
     """
-    seen: set[int] = set()
-    frontier: list[int] = [sheet_id]
-    while frontier:
-        current = frontier.pop()
-        parents: set[int] = set()
-        direct = parent_of.get(current)
-        if direct is not None:
-            parents.add(int(direct))
-        parents |= sources_of.get(current, set())
-        for parent in parents:
-            if parent == sheet_id or parent in seen:
-                continue
-            seen.add(parent)
-            frontier.append(parent)
-    seen.discard(sheet_id)
-    return seen
-
-
-def _ancestor_changed(project: Any, ancestors: set[int], watermark: int) -> bool:
-    """True if any APPLIED op after ``watermark`` mutated an ancestor sheet.
-
-    Attribution joins through the tables that carry BOTH a sheet link and an op
-    link -- never ``ops.spec`` parsing, whose keys differ per kind:
-
-    * ``edits`` -> ``rows.sheet_id``: manual cell edits AND review reject/edit
-      (both write an edit overlay row keyed by op_id).
-    * ``runs.sheet_id``: AI-column runs, imports, and any run-producing op.
-    * ``review.decision`` verify flips write no edit overlay; they are attributed
-      via the op's ``undo_info`` review-state keys -> ``run_id`` -> sheet.
-      Review-state flips mark descendants stale like any data edit —
-      a downstream action can filter on ``review_state='verified'``, so a flip
-      changes what it would consume.
-    """
-    if not ancestors:
-        return False
-    ids = sorted(ancestors)
-    ph = _placeholders(len(ids))
-    refresh_hit = project.db.execute(
-        f"SELECT 1 FROM sheets s JOIN ops o ON o.id=s.last_verified_op_cursor "
-        f"WHERE s.id IN ({ph}) AND s.last_verified_op_cursor > ? "
-        f"AND o.kind='sheet.refresh' AND o.status='applied' LIMIT 1",
-        (*ids, watermark),
-    ).fetchone()
-    if refresh_hit is not None:
-        return True
-    edit_hit = project.db.execute(
-        f"SELECT 1 FROM edits e "
-        f"JOIN rows r ON e.row_id = r.id "
-        f"JOIN ops o ON e.op_id = o.id "
-        f"WHERE o.status='applied' AND e.op_id > ? AND r.sheet_id IN ({ph}) "
-        f"LIMIT 1",
-        (watermark, *ids),
-    ).fetchone()
-    if edit_hit is not None:
-        return True
-    run_hit = project.db.execute(
-        f"SELECT 1 FROM runs run "
-        f"JOIN ops o ON run.op_id = o.id "
-        f"WHERE o.status='applied' AND run.op_id > ? AND run.sheet_id IN ({ph}) "
-        f"LIMIT 1",
-        (watermark, *ids),
-    ).fetchone()
-    if run_hit is not None:
-        return True
-    return _review_verify_touched_ancestor(project, ids, watermark)
-
-
-def _review_verify_touched_ancestor(
-    project: Any, ancestor_ids: list[int], watermark: int
-) -> bool:
-    review_ops = project.db.execute(
-        "SELECT undo_info FROM ops "
-        "WHERE kind='review.decision' AND status='applied' AND id > ?",
-        (watermark,),
+    sheets = project.db.execute(
+        "SELECT id,parent_sheet_id FROM sheets WHERE hidden=0"
     ).fetchall()
-    if not review_ops:
-        return False
-    ancestor_set = set(ancestor_ids)
-    for row in review_ops:
-        try:
-            info = json.loads(row["undo_info"] or "{}")
-        except (ValueError, TypeError):
-            continue
-        states = info.get("review_states") or info.get("review_states_after") or {}
-        for key in states:
-            run_id = str(key).split(":", 1)[0]
-            if not run_id.isdigit():
-                continue
-            sheet_row = project.db.execute(
-                "SELECT sheet_id FROM runs WHERE id=?", (int(run_id),)
-            ).fetchone()
-            if sheet_row is not None and int(sheet_row["sheet_id"]) in ancestor_set:
-                return True
-    return False
-
-
-def compute_sync_states(project: Any) -> dict[int, dict[str, str | None]]:
-    """Lazy staleness for every visible DERIVED sheet.
-
-    Returns ``{sheet_id: {"sync_state": "synced"|"stale", "stale_reason": str|None}}``
-    for derived sheets only (``parent_sheet_id`` NOT NULL). ROOT sheets are absent
-    entirely -- syncState is meaningless for a sheet with no parent.
-
-    Fast paths keep the sheets-list read cheap: a project with no derived sheets
-    returns ``{}`` immediately (root-only projects pay nothing), and a derived
-    sheet whose watermark equals the global op_cursor is ``synced`` without any
-    ancestor scan (nothing changed anywhere since it was materialized).
-    """
-    rows = project.db.execute(
-        "SELECT id, parent_sheet_id, parent_op_id, last_verified_op_cursor "
-        "FROM sheets WHERE hidden=0"
-    ).fetchall()
-    derived = [r for r in rows if r["parent_sheet_id"] is not None]
+    parents = {int(row["id"]): row["parent_sheet_id"] for row in sheets}
+    derived = {identity for identity, parent in parents.items() if parent is not None}
     if not derived:
         return {}
-
-    cursor = project.op_cursor
-    parent_of: dict[int, int | None] = {
-        int(r["id"]): (
-            int(r["parent_sheet_id"]) if r["parent_sheet_id"] is not None else None
-        )
-        for r in rows
-    }
-    sources_of = _multi_parent_sources(project, [int(r["id"]) for r in derived])
-
-    out: dict[int, dict[str, str | None]] = {}
-    for sheet in derived:
-        sheet_id = int(sheet["id"])
-        watermark = sheet["last_verified_op_cursor"]
-        if watermark is None:
-            watermark = sheet["parent_op_id"]
-        watermark = int(watermark or 0)
-        if watermark >= cursor:
-            out[sheet_id] = {"sync_state": "synced", "stale_reason": None}
+    request = getattr(project, "_frisket_request_source_verification", None)
+    own: dict[int, str] = {}
+    sources: dict[int, set[int]] = {}
+    requested = (
+        derived if sheet_ids is None else derived.intersection(map(int, sheet_ids))
+    )
+    pending = set(requested)
+    while pending:
+        sheet_id = pending.pop()
+        if sheet_id in own:
             continue
-        ancestors = _ancestor_sheet_ids(sheet_id, parent_of, sources_of)
-        if _ancestor_changed(project, ancestors, watermark):
-            out[sheet_id] = {
-                "sync_state": "stale",
-                "stale_reason": STALE_REASON_PARENT_CHANGED,
-            }
-        else:
-            out[sheet_id] = {"sync_state": "synced", "stale_reason": None}
-    return out
+        # A grouped recovery may consume several source versions under the same
+        # owning Change. Shared inputs count only when the deriving Change
+        # actually published a row that references them.
+        bundles = project.db.execute(
+            "SELECT b.id,b.owner_op_id,b.capture_json,o.kind,o.spec FROM consumed_source_bundles b "
+            "JOIN ops o ON o.id=b.owner_op_id "
+            "JOIN sheets target ON target.id=b.output_sheet_id "
+            "LEFT JOIN ops materializer ON materializer.id=target.parent_op_id "
+            "WHERE b.output_sheet_id=? AND b.kind='aggregate' AND o.status='applied' "
+            "AND (b.row_id IS NULL OR "
+            "json_extract(o.spec,'$.derived_refresh.relationship_id')="
+            "json_extract(materializer.spec,'$.derived_refresh.relationship_id')) "
+            "AND (instr(b.capture_key,':shared:')=0 OR ("
+            "(o.id=target.parent_op_id OR "
+            "json_extract(o.spec,'$.derived_refresh.relationship_id')="
+            "json_extract(materializer.spec,'$.derived_refresh.relationship_id')) "
+            "AND EXISTS(SELECT 1 FROM consumed_source_bundles row_input "
+            "JOIN json_each(row_input.capture_json,'$.shared_inputs') ref "
+            "WHERE row_input.owner_op_id=b.owner_op_id AND row_input.kind='row' "
+            "AND ref.value=b.input_fingerprint))) "
+            "AND o.change_order IS NOT NULL "
+            "ORDER BY o.change_order DESC,b.id",
+            (sheet_id,),
+        ).fetchall()
+        latest_owner = int(bundles[0]["owner_op_id"]) if bundles else None
+        states = []
+        owner_spec = json.loads(bundles[0]["spec"]) if bundles else {}
+        if bundles and (
+            bundles[0]["kind"] == "sheet.refresh" or "refresh_receipt_id" in owner_spec
+        ):
+            receipt = project.db.execute(
+                "SELECT status,body FROM receipts WHERE id=?",
+                (owner_spec.get("refresh_receipt_id"),),
+            ).fetchone()
+            if (
+                receipt is None
+                or receipt["status"] != "completed"
+                or latest_owner not in json.loads(receipt["body"]).get("op_ids", ())
+            ):
+                # Inputs may have been read completely while only some output
+                # batches committed. The exact owning receipt proves coverage.
+                states.append("unknown")
+        source_ids = {int(parents[sheet_id])}
+        for bundle in bundles:
+            if int(bundle["owner_op_id"]) != latest_owner:
+                break
+            states.append(
+                bundle_state(
+                    project,
+                    int(bundle["id"]),
+                    request_verification=request,
+                    allow_inline=verify,
+                )
+            )
+            capture = json.loads(bundle["capture_json"])
+            source_ids.update(
+                int(scope["sheet_id"]) for scope in capture.get("scopes", ())
+            )
+        own[sheet_id] = max(states, key=_PRIORITY.__getitem__) if states else "unknown"
+        sources[sheet_id] = source_ids
+        pending.update(source_ids.intersection(derived).difference(own))
+
+    resolved: dict[int, str] = {}
+
+    def state(sheet_id: int, visiting: frozenset[int] = frozenset()) -> str:
+        if sheet_id in resolved:
+            return resolved[sheet_id]
+        if sheet_id in visiting:
+            return "unknown"
+        candidates = [own[sheet_id]]
+        for source_id in sources[sheet_id]:
+            if source_id in own:
+                candidates.append(state(source_id, visiting | {sheet_id}))
+        result = max(candidates, key=_PRIORITY.__getitem__)
+        resolved[sheet_id] = result
+        return result
+
+    return {
+        sheet_id: {
+            "sync_state": "synced"
+            if (result := state(sheet_id)) == "fresh"
+            else result,
+            "stale_reason": {
+                "fresh": None,
+                "stale": STALE_REASON_PARENT_CHANGED,
+                "unknown": "source_capture_unknown",
+                "checking": "checking_source_changes",
+            }[result],
+        }
+        for sheet_id in sorted(requested)
+    }
 
 
-def _multi_parent_sources(project: Any, derived_ids: list[int]) -> dict[int, set[int]]:
-    """Map each derived sheet id to the extra source sheets that feed it via
-    ``materialized_row_sources`` (join/resolve/reduce membership)."""
-    if not derived_ids:
-        return {}
-    ph = _placeholders(len(derived_ids))
-    rows = project.db.execute(
-        f"SELECT DISTINCT r.sheet_id AS child_sheet_id, mrs.source_sheet_id "
-        f"FROM materialized_row_sources mrs "
-        f"JOIN rows r ON mrs.materialized_row_id = r.id "
-        f"WHERE r.sheet_id IN ({ph})",
-        tuple(derived_ids),
-    ).fetchall()
-    out: dict[int, set[int]] = {}
-    for row in rows:
-        child = int(row["child_sheet_id"])
-        src = int(row["source_sheet_id"])
-        out.setdefault(child, set()).add(src)
-    from frisket.engine.store.sheet_lifecycle import materialized_source_sheets
-
-    for child, sources in materialized_source_sheets(project).items():
-        if child in derived_ids:
-            out.setdefault(child, set()).update(sources)
-    return out
+def sheet_freshness(project: Any, sheet_id: int, *, verify: bool = True) -> str:
+    sheet = project.db.execute(
+        "SELECT parent_sheet_id FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
+    ).fetchone()
+    if sheet is None or sheet[0] is None:
+        return "synced"
+    entry = compute_sync_states(project, verify=verify, sheet_ids=[sheet_id]).get(
+        int(sheet_id)
+    )
+    return str(entry["sync_state"]) if entry is not None else "synced"
 
 
 def sheet_is_stale(project: Any, sheet_id: int) -> bool:
-    """Convenience single-sheet check (used by refresh precondition tests)."""
-    sheet = project.db.execute(
-        "SELECT parent_sheet_id,parent_op_id,last_verified_op_cursor "
-        "FROM sheets WHERE id=? AND hidden=0",
-        (int(sheet_id),),
-    ).fetchone()
-    if sheet is None or sheet["parent_sheet_id"] is None:
-        return False
-    watermark = sheet["last_verified_op_cursor"]
-    if watermark is None:
-        watermark = sheet["parent_op_id"]
-    if int(watermark or 0) >= project.op_cursor:
-        return False
-    states = compute_sync_states(project)
-    entry = states.get(int(sheet_id))
-    return entry is not None and entry["sync_state"] == "stale"
+    """Return the stale warning; callers can separately expose unknown/checking."""
+    return sheet_freshness(project, sheet_id) == "stale"

@@ -17,6 +17,7 @@ preparation tuple rolls back.
 """
 
 from __future__ import annotations
+from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import sqlite3
 from dataclasses import dataclass
@@ -99,7 +100,9 @@ def _seed(project: Project) -> tuple[int, list[int]]:
 def _runner(project: Project) -> MapRunner:
     return MapRunner(
         project,
-        ModelRouter(cache=None, cache_mode="off"),
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
         authority=UnroutedOnlyAuthority(project),
     )
 

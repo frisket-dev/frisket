@@ -12,7 +12,8 @@ const view: SavedView = {
   id: 17,
   name: 'Open rows',
   sheet_id: 1,
-  spec: { filter: { status: { eq: 'open' } } },
+  spec: { selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [{ column_id: 2, condition: { eq: 'open' } }], order: [], limit: null }, presentation: {} },
+  unavailable_reason: null,
   op_id: null,
 };
 

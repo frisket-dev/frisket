@@ -1,3 +1,4 @@
+import { toWireJsonObject } from '../api/viewsLenses';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   MAX_LENS_VIEW_ROWS,
@@ -266,27 +267,13 @@ export function usePaletteSearch(
     const similarity = selectedIndex?.sheetId != null && selectedRowId != null;
     setWatchBusy(true);
     setWatchStatus(null);
-    void projectApi
-      .createWatch(similarity
-        ? {
-            name: `Similar to ${anchorLabel ?? `row ${selectedRowId}`}`,
-            scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId },
-            query: {
-              kind: 'embedding_similarity',
-              embedding_index_id: selectedIndex.indexId,
-              anchor: { kind: 'row', row_id: selectedRowId },
-            },
-          }
-        : {
-            name: `Search: ${trimmedQuery}`,
-            scope: { kind: 'project' },
-            query: {
-              kind: 'fts',
-              q: trimmedQuery,
-              mode: 'keyword',
-              rerank: rerank ? 'auto' : 'off',
-            },
-          })
+    const selection: import('../api/types').ViewSelection = similarity
+      ? { scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId! }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: MAX_LENS_VIEW_ROWS,
+          similarity: { kind: 'embedding_similarity', sheet_id: selectedIndex.sheetId!, embedding_index_id: selectedIndex.indexId, anchor: { kind: 'row', row_id: selectedRowId } } }
+      : { scope: { kind: 'project' }, filters: [], order: [{ score: 'search', dir: 'desc' }], limit: null, search: { text: trimmedQuery } };
+    const name = similarity ? `Similar to ${anchorLabel ?? `row ${selectedRowId}`}` : `Search: ${trimmedQuery}`;
+    void projectApi.saveView({ name, selection, presentation: {} })
+      .then((view) => projectApi.createWatch({ name, view_id: view.id }))
       .then(() => {
         window.dispatchEvent(new Event('frisket:watches-changed'));
         onClose();
@@ -341,10 +328,20 @@ export function usePaletteSearch(
     }
     setSaveBusy(true);
     setSaveStatus(null);
-    void projectApi.saveLens({ name: lensName, query: lensQuery })
+    const selection: import('../api/types').ViewSelection = { scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: MAX_LENS_VIEW_ROWS };
+    if (lensQuery.kind === 'embedding_hybrid') {
+      selection.search = { text: trimmedQuery };
+      selection.similarity = { kind: 'embedding_similarity', sheet_id: selectedIndex.sheetId, embedding_index_id: selectedIndex.indexId, anchor: { kind: 'manual_text_query', text: trimmedQuery } };
+      selection.ranking = 'hybrid';
+      selection.order = [];
+    } else {
+      delete lensQuery.limit;
+      selection.similarity = toWireJsonObject(lensQuery);
+    }
+    void projectApi.saveView({ name: lensName, selection, presentation: {} })
       .then(() => {
         setSaveStatus('Saved view');
-        window.dispatchEvent(new Event('frisket:lenses-changed'));
+        window.dispatchEvent(new Event('frisket:views-changed'));
       })
       .catch((error: Error) => setSaveStatus(error.message))
       .finally(() => setSaveBusy(false));

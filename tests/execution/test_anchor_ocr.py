@@ -22,6 +22,7 @@ the durable consent between preparation and worker admission.
 
 from __future__ import annotations
 
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 import json
@@ -102,9 +103,10 @@ def rapidocr_stub(monkeypatch):
 
 
 class _NullRouter:
-    """A router that can hand out an http client and nothing else: the local
-    OCR engines need neither, and MapRunner reads ``router.client`` for every
-    run."""
+    """An HTTP-only router with the real borrowed execution view."""
+
+    def for_execution(self, execution):
+        return ExecutionModelRouter(self, execution)
 
     client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda r: httpx.Response(500, json={}))
@@ -276,7 +278,7 @@ def test_cloud_pdf_companion_uploads_original_without_local_rasters(
                 calls.append(attempt)
                 assert attempt.payer.account_id == 41
                 assert attempt.payer.route_revision == route.route_revision
-                assert attempt.quote_authority.maximum_charge_micro == 2500 * count
+                assert attempt.quote_authority.maximum_charge_micro is None
                 [upload] = request["uploads"]
                 uploaded = upload.stream.read()
                 assert upload.content_type == "application/pdf"
@@ -314,7 +316,7 @@ def test_cloud_pdf_companion_uploads_original_without_local_rasters(
                         engine=route.engine,
                         charge_micro=2500 * count,
                         provider_cost_micro=2000 * count,
-                        usage=CloudOCRUsage(kind="ocr", pages=count),
+                        usage=CloudOCRUsage(kind="ocr", meter="pages", pages=count),
                     ),
                 )
 
@@ -355,7 +357,7 @@ def test_cloud_pdf_companion_uploads_original_without_local_rasters(
         assert len(calls) == 1
         outputs = {output.name: output.column_id for output in result.outputs}
         assert project.get_values(sheet, outputs["ocr_text"])[row_id] == (
-            "Page 1" if selected_page else "Page 1\n\n\n\nPage 3"
+            "Page 1" if selected_page else "Page 1\n\nPage 3"
         )
         blocks = project.get_values(sheet, outputs["ocr_text_blocks"])[row_id]
         assert [item["page"] for item in blocks] == (
@@ -366,8 +368,10 @@ def test_cloud_pdf_companion_uploads_original_without_local_rasters(
         ).fetchall()
         prepared = PreparedContentStore(project).resolve(reference[0])
         assert [pin.page_number for pin in prepared.pins] == (
-            [2] if selected_page else [1, 2, 3]
+            [2] if selected_page else [1, 3]
         )
+        assert prepared.covered_pages == ((2,) if selected_page else (1, 3))
+        assert prepared.complete is bool(selected_page)
         for pin in prepared.pins:
             if selected_page or pin.page_number != 2:
                 assert (pin.positions["width"], pin.positions["height"]) == (200, 400)
@@ -497,7 +501,7 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path):
             assert checkpoint["state"] == "reserved"
             assert attempt.request_id.startswith("cloud_row_")
             assert attempt.request_id != checkpoint["id"]
-            assert attempt.quote_authority.maximum_charge_micro == 2_500
+            assert attempt.quote_authority.maximum_charge_micro is None
             self.calls.append((attempt, request))
             return CloudExecutionResponse(
                 execution_id="cloud-ocr-1",
@@ -531,7 +535,7 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path):
                     engine=engine,
                     charge_micro=2_500,
                     provider_cost_micro=2_000,
-                    usage=CloudOCRUsage(kind="ocr", pages=1),
+                    usage=CloudOCRUsage(kind="ocr", meter="pages", pages=1),
                 ),
             )
 
@@ -662,7 +666,7 @@ def test_cloud_ocr_recovery_retires_key_before_intentional_third_run(
                     engine=engine,
                     charge_micro=2_500,
                     provider_cost_micro=2_000,
-                    usage=CloudOCRUsage(kind="ocr", pages=1),
+                    usage=CloudOCRUsage(kind="ocr", meter="pages", pages=1),
                 ),
             )
 
@@ -850,7 +854,7 @@ def test_cloud_ocr_terminal_failure_records_charge_and_allows_fresh_purchase(
                     engine="datalab",
                     charge_micro=2_500,
                     provider_cost_micro=2_000,
-                    usage=CloudOCRUsage(kind="ocr", pages=1),
+                    usage=CloudOCRUsage(kind="ocr", meter="pages", pages=1),
                 ),
                 error=CloudErrorResponse(
                     error="provider_failed",
@@ -1009,6 +1013,9 @@ def _datalab_stub(monkeypatch):
         return httpx.Response(200, json=complete)
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     return StubRouter()
@@ -1072,12 +1079,13 @@ def test_anchor_ocr_hosted_run_compiles_both_claims_gates_and_binds(
         assert route.egress_class == "third_party_api"
         assert route.operator == "datalab"
 
-        # The consented set carries a PER-PAGE cost claim: the price book's
-        # first non-audio unit, quoted over the pages the run actually
-        # selected, bounded and scoreable at the run-start fence.
+        # Ordinary work retains its per-page pricing basis without making
+        # the pre-run estimate an enforceable quantity or spending ceiling.
         promises = [Promise.from_row(row) for row in head_set.promises]
         [cost] = [p for p in promises if p.field == "cost"]
-        assert cost.op == "le"
+        assert cost.op == "unbounded"
+        assert cost.basis["ceiling_mode"] == "none"
+        assert cost.basis["unit_rate"] == "0.01"
         assert cost.basis["quantity_unit"] == "page"
         assert cost.basis["pricing_key"] == "datalab.ocr.page"
         assert cost.basis["estimated_quantity"] == "1"
@@ -1108,30 +1116,35 @@ def test_anchor_ocr_hosted_run_compiles_both_claims_gates_and_binds(
         project.close()
 
 
-def test_anchor_ocr_accepted_job_is_durable_when_cancelled_before_poll(
+def test_anchor_ocr_accepted_job_finishes_accounting_after_cancellation(
     tmp_path, monkeypatch
 ):
     """Provider acceptance outranks the later cancellation fence.
 
     The POST returns a real Datalab job id and flips the run's cooperative
-    cancel signal before the client can issue its first poll.  There is no
-    completed cell and no trustworthy charge amount, but the accepted request
-    is already an immutable, attempt-owned, route-bound ledger fact.
+    cancel signal. Retrieval of that purchase continues, without a second
+    purchase. Returned usage remains attempt-owned even when publication stops.
     """
     monkeypatch.setenv("DATALAB_API_KEY", "env-key")
     project, sheet_id, row_id = _ocr_project(tmp_path)
     submit = json.loads((DATALAB_FIXTURES / "ocr_submit.json").read_text())
+    complete = json.loads((DATALAB_FIXTURES / "ocr_complete.json").read_text())
     cancelled = False
     requests: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal cancelled
         requests.append(request.method)
-        assert request.method == "POST", "cancellation must win before polling"
-        cancelled = True
-        return httpx.Response(200, json=submit)
+        if request.method == "POST":
+            assert requests == ["POST"], "cancellation must prevent a second purchase"
+            cancelled = True
+            return httpx.Response(200, json=submit)
+        return httpx.Response(200, json=complete)
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     try:
@@ -1150,12 +1163,12 @@ def test_anchor_ocr_accepted_job_is_durable_when_cancelled_before_poll(
         progress = run_action_spec(
             project, request, router=router, deps=deps, project_id="ocr-anchor"
         )
-        assert progress.status == "failed", progress.errors
+        assert progress.status == "cancelled", progress.errors
         run = project.db.execute(
             "SELECT status FROM runs WHERE id=?", (progress.run_id,)
         ).fetchone()
         assert run is not None and run["status"] == "cancelled"
-        assert requests == ["POST"]
+        assert requests == ["POST", "GET"]
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM results WHERE run_id=?", (progress.run_id,)
@@ -1168,9 +1181,9 @@ def test_anchor_ocr_accepted_job_is_durable_when_cancelled_before_poll(
         assert fact["provider"] == "datalab"
         assert fact["capability"] == "ocr"
         assert fact["request_id"] == submit["request_id"]
-        assert fact["provider_cost_usd"] is None
-        assert fact["cost_source"] == "unknown"
-        assert json.loads(fact["units"])["requests"] == 1
+        assert fact["provider_cost_usd"] == pytest.approx(0.01)
+        assert fact["cost_source"] == "pricing_data"
+        assert json.loads(fact["units"])["pages"] == 1
         assert fact["epoch_id"] is not None
         assert fact["attempt_id"] is not None
         assert RouteStore.for_run(project, progress.run_id).violations() == []
@@ -1183,8 +1196,8 @@ def test_anchor_ocr_expensive_hosted_run_gates_on_the_cost_claim_too(
 ):
     """The cost half of the hosted gate, shown at a price the standing sub-$1
     threshold cannot cover: the operator's own per-page rate is raised, and the
-    gate now carries BOTH claims with the dollar bound rendered from the
-    per-page basis.
+    gate carries BOTH claims with a dollar estimate rendered from the
+    per-page basis, without an enforceable spending ceiling.
 
     Nothing about this is OCR-specific except the unit — it is the same
     threshold, the same coverage rule, and the same claim renderer a hosted
@@ -1207,7 +1220,8 @@ def test_anchor_ocr_expensive_hosted_run_gates_on_the_cost_claim_too(
             for claim in gate.errors[0].details["claims"]
         }
         assert set(claims) == {"cost", "egress_class"}
-        assert "$2.5" in claims["cost"]
+        assert "$2.50" in claims["cost"]
+        assert "not a spending cap" in claims["cost"]
         assert "billed to your own account" in claims["cost"]
     finally:
         project.close()
@@ -1284,6 +1298,9 @@ def test_anchor_ocr_org_byok_consent_refuses_the_deployments_env_key(
         return httpx.Response(200, json=complete)
 
     class StubRouter:
+        def for_execution(self, execution):
+            return ExecutionModelRouter(self, execution)
+
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     # The hosted org composition, resolved for real: the resolver pins

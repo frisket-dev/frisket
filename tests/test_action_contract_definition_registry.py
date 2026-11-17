@@ -143,6 +143,7 @@ def test_action_job_binding_registry_invariants() -> None:
     assert tuple(inspect.signature(rows["export.google_sheets"]).parameters) == (
         "project",
         "envelope",
+        "execution",
     )
     assert not hasattr(action_job_bindings, "cache_clear")
 
@@ -173,6 +174,7 @@ def test_action_job_binding_registry_invariants() -> None:
     assert tuple(inspect.signature(rows["map.find"]).parameters) == (
         "project",
         "envelope",
+        "execution",
     )
     assert (
         ACTION_REGISTRY.get("export.google_sheets").action_id == "export.google_sheets"
@@ -193,6 +195,9 @@ def test_google_sheets_action_job_binding_resolves_composition_deps_lazily(
     factory_calls: list[tuple[str, object | None, str]] = []
     executor_calls: list[tuple[object, object, ExecutorDeps]] = []
     sentinel = object()
+    from frisket.execution.dispatch_control import STANDALONE
+
+    dispatch_owner = STANDALONE
 
     def factory_for(label: str, deps: ExecutorDeps):
         def factory(project_id: str, request: object | None) -> ExecutorDeps:
@@ -206,7 +211,9 @@ def test_google_sheets_action_job_binding_resolves_composition_deps_lazily(
         received_envelope: object,
         *,
         deps: ExecutorDeps,
+        execution,
     ) -> object:
+        assert execution is dispatch_owner
         executor_calls.append((received_project, received_envelope, deps))
         return sentinel
 
@@ -229,10 +236,11 @@ def test_google_sheets_action_job_binding_resolves_composition_deps_lazily(
     assert tuple(inspect.signature(first_operation).parameters) == (
         "project",
         "envelope",
+        "execution",
     )
-    assert first_operation(project, envelope) is sentinel
-    assert second_operation(project, envelope) is sentinel
-    assert first_operation(project, envelope) is sentinel
+    assert first_operation(project, envelope, execution=dispatch_owner) is sentinel
+    assert second_operation(project, envelope, execution=dispatch_owner) is sentinel
+    assert first_operation(project, envelope, execution=dispatch_owner) is sentinel
     assert factory_calls == [
         ("project-action-06c", None, "first"),
         ("project-action-06c", None, "second"),
@@ -248,9 +256,9 @@ def test_google_sheets_action_job_binding_resolves_composition_deps_lazily(
         executor_deps_factory=lambda _project_id, _request: None
     )["export.google_sheets"]
     bare = action_bindings.action_job_bindings()["export.google_sheets"]
-    none_factory(project, envelope)
-    bare(project, envelope)
-    bare(project, envelope)
+    none_factory(project, envelope, execution=dispatch_owner)
+    bare(project, envelope, execution=dispatch_owner)
+    bare(project, envelope, execution=dispatch_owner)
     fallback_deps = [call[2] for call in executor_calls[-3:]]
     assert all(isinstance(deps, ExecutorDeps) for deps in fallback_deps)
     assert fallback_deps[0] is not fallback_deps[1]

@@ -8,11 +8,6 @@ import sqlalchemy as sa
 from frisket.engine.jobs import SqliteJobQueue
 from frisket.engine.jobs.queue import job_handler_authorities_table
 from frisket.engine.jobs.queue_health import queue_health_payload
-from frisket.engine.jobs.queue_migrations import (
-    QUEUE_SCHEMA_LEDGER,
-    QUEUE_SCHEMA_VERSION,
-    validate_queue_schema,
-)
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
 
 
@@ -35,6 +30,8 @@ def test_cancel_does_not_release_claimed_handler_authority(tmp_path) -> None:
 
         assert queue.cancel(job_id) is True
         assert queue.get(job_id).status == "cancelled"
+        assert not queue.job_execution_stopped(job_id)
+        assert not queue.job_execution_stopped(job_id + 1000)
         assert queue.has_active_project_handler("alpha", storage_org_id=17)
 
         assert (
@@ -52,6 +49,7 @@ def test_cancel_does_not_release_claimed_handler_authority(tmp_path) -> None:
             authority_id=claimed.handler_authority_id,
         )
         assert not queue.has_active_project_handler("alpha", storage_org_id=17)
+        assert queue.job_execution_stopped(job_id)
     finally:
         queue.close()
 
@@ -154,92 +152,6 @@ def test_worker_finally_releases_authority_after_cancelled_handler_exits(
         release.set()
         thread.join(timeout=10)
         queue.close()
-
-
-def test_v8_adds_handler_authority_table_to_a_v7_queue(tmp_path) -> None:
-    path = tmp_path / "queue.db"
-    queue = SqliteJobQueue(path)
-    job_id = queue.enqueue("echo", {"preserved": True})
-    with queue.engine.begin() as connection:
-        job_handler_authorities_table.drop(connection)
-        connection.execute(
-            sa.text(f"DELETE FROM {QUEUE_SCHEMA_LEDGER} WHERE version >= 8")
-        )
-    queue.close()
-
-    migrated = SqliteJobQueue(path)
-    try:
-        assert migrated.get(job_id).payload == {"preserved": True}
-        assert sa.inspect(migrated.engine).has_table(job_handler_authorities_table.name)
-        validate_queue_schema(migrated.engine)
-        with migrated.engine.connect() as connection:
-            versions = connection.execute(
-                sa.text(f"SELECT version FROM {QUEUE_SCHEMA_LEDGER} ORDER BY version")
-            ).scalars()
-            assert list(versions) == list(range(1, QUEUE_SCHEMA_VERSION + 1))
-    finally:
-        migrated.close()
-
-
-def test_v8_backfills_running_project_handler_until_explicit_recovery(
-    tmp_path,
-) -> None:
-    """A v7 worker may already be executing when the v8 table appears.
-
-    Its running queue row is the migration's only durable evidence.  Losing
-    that evidence would let hosted project deletion purge under the old
-    handler, so v8 must conservatively mint an authority that ordinary lease
-    recovery/cancellation cannot erase.
-    """
-
-    path = tmp_path / "queue.db"
-    now = [datetime(2026, 7, 27, 10, tzinfo=UTC)]
-    queue = SqliteJobQueue(path, clock=lambda: now[0])
-    project_job_id = queue.enqueue("action.run", _project_payload())
-    unscoped_job_id = queue.enqueue("echo", {"preserved": True})
-    claimed = queue.claim("v7-worker", lease_seconds=1)
-    assert claimed is not None and claimed.id == project_job_id
-    with queue.engine.begin() as connection:
-        job_handler_authorities_table.drop(connection)
-        connection.execute(
-            sa.text(f"DELETE FROM {QUEUE_SCHEMA_LEDGER} WHERE version >= 8")
-        )
-    queue.close()
-
-    migrated = SqliteJobQueue(path, clock=lambda: now[0])
-    try:
-        assert migrated.get(project_job_id).status == "running"
-        assert migrated.get(unscoped_job_id).status == "queued"
-        assert migrated.has_active_project_handler("alpha", storage_org_id=17)
-        with migrated.engine.connect() as connection:
-            rows = connection.execute(
-                sa.select(job_handler_authorities_table)
-            ).fetchall()
-        assert len(rows) == 1
-        authority = rows[0]
-        assert authority.job_id == project_job_id
-        assert authority.worker_id == "v7-worker"
-        assert authority.storage_org_id == 17
-        assert authority.project_id == "alpha"
-        claimed_at = authority.claimed_at
-        if claimed_at.tzinfo is None:
-            claimed_at = claimed_at.replace(tzinfo=UTC)
-        assert claimed_at == now[0]
-
-        now[0] += timedelta(seconds=2)
-        assert migrated.recover_expired() == 1
-        assert migrated.cancel_queued(project_job_id)
-        assert migrated.has_active_project_handler("alpha", storage_org_id=17)
-
-        abandoned = migrated.abandon_stopped_worker_handler_authorities(
-            "v7-worker",
-            heartbeat_cutoff=now[0],
-        )
-        assert abandoned.abandoned_authorities == 1
-        assert abandoned.live_worker is False
-        assert not migrated.has_active_project_handler("alpha", storage_org_id=17)
-    finally:
-        migrated.close()
 
 
 def test_atomic_abandon_refuses_fresh_worker_without_releasing_authority(

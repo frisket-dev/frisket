@@ -119,7 +119,8 @@ export interface HistoryReviewDomainApi {
   setReviewRunStatus(runId: string, status: ReviewRunStatus): Promise<ReviewRunStatusResult>;
   undo(): Promise<HistoryState>;
   redo(): Promise<HistoryState>;
-  stepTo(opIndex: number): Promise<HistoryState>;
+  revertOperation(opId: string): Promise<HistoryState>;
+  restoreOperation(opId: string): Promise<HistoryState>;
   setReviewNote(runId: string, rowId: string, note: string | null): Promise<void>;
   reviewItem(
     itemId: string,
@@ -145,6 +146,16 @@ type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type OperationActionId = 'operation.undo' | 'operation.redo';
 type OperationStepActionParams = GeneratedActionParams[OperationActionId];
 type ReviewDecisionActionParams = GeneratedActionParams['review.decision'];
+
+function reviewOwner(sourceId?: string) {
+  return sourceId?.startsWith('copy:')
+    ? { copied_op_id: Number(sourceId.slice(5)) }
+    : { run_id: sourceId === undefined ? undefined : Number(sourceId) };
+}
+
+function reviewSourceId(owner: { run_id?: number | null; copied_op_id?: number | null }): string {
+  return owner.copied_op_id != null ? `copy:${owner.copied_op_id}` : String(owner.run_id);
+}
 
 export function createHistoryReviewApi(
   errorFactory: ContractErrorFactory,
@@ -210,7 +221,7 @@ export function createHistoryReviewApi(
     ) {
       if (bundleOptions.order === 'shuffle') {
         const shared = {
-          run_id: Number(runId),
+          ...reviewOwner(runId),
           field_id: bundleOptions.fieldId === undefined ? undefined : Number(bundleOptions.fieldId),
           include_reviewed: includeReviewed,
         };
@@ -241,7 +252,7 @@ export function createHistoryReviewApi(
           query: {
             offset,
             limit,
-            run_id: runId === undefined ? undefined : Number(runId),
+            ...reviewOwner(runId),
             include_reviewed: includeReviewed || undefined,
             field_id: bundleOptions.fieldId === undefined ? undefined : Number(bundleOptions.fieldId),
             order: bundleOptions.order,
@@ -276,7 +287,7 @@ export function createHistoryReviewApi(
             offset,
             limit,
             sheet_id: runOptions.sheetId === undefined ? undefined : Number(runOptions.sheetId),
-            run_id: runOptions.runId === undefined ? undefined : Number(runOptions.runId),
+            ...reviewOwner(runOptions.runId),
           },
           signal: options.signal,
           headers: options.headers,
@@ -449,6 +460,8 @@ function mapHistoryOp(wire: HistoryWire['ops'][number]): HistoryOp {
   return {
     id: String(wire.id),
     index: wire.index,
+    status: wire.status,
+    executable: wire.executable,
     label: wire.label ?? wire.kind,
     kind: toHistoryKind(wire.kind),
     at: toHistoryIso(wire.created_at),
@@ -500,8 +513,10 @@ function mapReviewBundleField(
   wire: ReviewBundlesWire['bundles'][number]['fields'][number],
 ): ReviewBundleField {
   return {
-    id: `${wire.run_id}:${wire.row_id}:${wire.column_id}`,
-    runId: String(wire.run_id),
+    id: `${reviewSourceId(wire)}:${wire.row_id}:${wire.column_id}`,
+    sourceId: reviewSourceId(wire),
+    runId: wire.run_id == null ? null : String(wire.run_id),
+    copiedOpId: wire.copied_op_id == null ? null : String(wire.copied_op_id),
     sheetId: String(wire.sheet_id),
     rowId: String(wire.row_id),
     columnId: String(wire.column_id),
@@ -556,7 +571,9 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
     }));
     return {
       id: bundle.id,
-      runId: String(bundle.run_id),
+      sourceId: reviewSourceId(bundle),
+      runId: bundle.run_id == null ? null : String(bundle.run_id),
+      copiedOpId: bundle.copied_op_id == null ? null : String(bundle.copied_op_id),
       sheetId: String(bundle.sheet_id),
       sheetName: bundle.sheet_name ?? `sheet ${bundle.sheet_id}`,
       rowId: String(bundle.row_id),
@@ -616,16 +633,24 @@ function mapReviewRuns(wire: ReviewRunsWire): ReviewRunsPage {
     hasMore: wire.has_more,
     nextOffset: wire.next_offset,
     runs: wire.runs.map((run): ReviewRun => ({
-      runId: String(run.run_id),
+      sourceId: reviewSourceId(run),
+      runId: run.run_id == null ? null : String(run.run_id),
+      copiedOpId: run.copied_op_id == null ? null : String(run.copied_op_id),
       sheetId: String(run.sheet_id),
       sheetName: run.sheet_name,
       actionKind: run.action_kind,
       actionName: run.action_name,
       model: run.model,
       startedAt: run.started_at,
+      running: run.running ?? false,
       reviewStatus: run.review_status,
+      retrySupported: run.retry_supported,
       reviewCompletedAt: run.review_completed_at,
       total: mapReviewRunCounts(run.total),
+      outputs: (run.outputs ?? []).map((output) => ({
+        key: output.key, columnId: String(output.column_id),
+        columnName: output.column_name, columnType: output.column_type as ColumnType,
+      })),
       fields: run.fields.map((field) => ({
         columnId: String(field.column_id),
         columnName: field.column_name,
@@ -644,11 +669,6 @@ function mapReviewRunStatus(wire: ReviewRunStatusWire): ReviewRunStatusResult {
     reviewCompletedAt: wire.review_completed_at,
   };
 }
-
-/** The cursor walk is bounded: the backend only exposes single-step operation
- * controls, so a stepTo() that never reaches its target stops rather than
- * posting forever. */
-const MAX_HISTORY_WALK_STEPS = 100;
 
 /** Outcomes the server reports for a step that simply did not happen (the
  * cursor moved underneath us, the operation is gone, or it is irreversible).
@@ -716,25 +736,21 @@ export function createHistoryReviewDomainApi(
     );
   };
 
-  const walkHistoryTo = async (
-    opIndex: number,
-    hist: HistoryState,
-    invocation: ResolvedRunActionInvocation,
-    guard = 0,
+  const transitionOperation = async (
+    direction: 'revert' | 'restore', opRef: string,
   ): Promise<HistoryState> => {
-    if (hist.cursorIndex === opIndex || guard >= MAX_HISTORY_WALK_STEPS) return hist;
-    const target = hist.cursorIndex > opIndex ? hist.undoTarget : hist.redoTarget;
-    if (!target) return hist;
-    const moved = hist.cursorIndex > opIndex
-      ? await runOperationStepAction('operation.undo', target.id, invocation)
-      : await runOperationStepAction('operation.redo', target.id, invocation);
-    if (!moved) return hist;
-    return walkHistoryTo(
-      opIndex,
-      await historyForInvocation(invocation, null, hist.limit),
-      invocation,
-      guard + 1,
+    const opId = Number(opRef);
+    if (!Number.isSafeInteger(opId) || opId <= 0) {
+      throw new ApiError(400, `Operation ${opRef} is not a valid operation ref`);
+    }
+    const invocation = resolveRunActionInvocation(undefined, projectId);
+    const spec = v1ActionSession.registeredProjectActionSpec(
+      `operation.${direction}`, { op_id: opId }, invocation.projectId, invocation.signal,
     );
+    await v1ActionSession.withV1ActionResult(spec, (out) => {
+      v1ActionSession.assertCompletedV1ActionResult(out, `Could not ${direction} this change`);
+    }, { postMode: 'operation', operationInvocation: invocation });
+    return historyForInvocation(invocation);
   };
 
   return {
@@ -790,43 +806,32 @@ export function createHistoryReviewDomainApi(
       return historyForInvocation(invocation);
     },
 
-    async stepTo(opIndex) {
-      const invocation = resolveRunActionInvocation(undefined, projectId);
-      return walkHistoryTo(
-        opIndex,
-        await historyForInvocation(invocation),
-        invocation,
-      );
-    },
+    revertOperation: (opId) => transitionOperation('revert', opId),
+    restoreOperation: (opId) => transitionOperation('restore', opId),
 
     async setReviewNote(runId, rowId, note) {
-      const ids = [Number(runId), Number(rowId)];
-      if (!ids.every((id) => Number.isInteger(id) && id > 0)) throw new ApiError(400, 'Invalid review row reference');
-      const spec = v1ActionSession.registeredProjectActionSpec('review.note', { run_id: ids[0], row_id: ids[1], note });
+      const owner = reviewOwner(runId);
+      const ids = [owner.run_id ?? owner.copied_op_id, Number(rowId)];
+      if (!ids.every((id) => Number.isInteger(id) && (id ?? 0) > 0)) throw new ApiError(400, 'Invalid review row reference');
+      const params: GeneratedActionParams['review.note'] = { ...owner, row_id: Number(rowId), note };
+      const spec = v1ActionSession.registeredProjectActionSpec('review.note', params);
       await v1ActionSession.withV1ActionResult(spec, (out) => {
         v1ActionSession.assertCompletedV1ActionResult(out, 'Review note could not be saved');
       });
     },
 
-    async reviewItem(itemId, action, editedValue, note) {
+    async reviewItem(itemId, action, _editedValue, note) {
       const itemRef = itemId.split(':');
-      const [runId, rowId, colId] = itemRef.map(Number);
-      if (
-        itemRef.length !== 3 ||
-        ![runId, rowId, colId].every((id) => Number.isInteger(id) && id > 0)
-      ) {
-        throw new ApiError(400, `Review item ${itemId} is not a valid v1 result-cell ref`);
+      const copied = itemRef[0] === 'copy';
+      if (copied) itemRef.shift();
+      const [ownerId, rowId, colId] = itemRef.map(Number);
+      if (itemRef.length !== 3 || ![ownerId, rowId, colId].every((id) => Number.isInteger(id) && id > 0)) {
+        throw new ApiError(400, `Invalid review result reference: ${itemId}`);
       }
+      if (action === 'edit') throw new ApiError(400, 'Use cell editing to change a value');
       const params: ReviewDecisionActionParams = {
-        run_id: runId,
-        row_id: rowId,
-        column_id: colId,
-        decision: action,
-        // An edit carries its value (null when cleared); the two rejection
-        // decisions name their persistence semantics themselves.
-        ...(action === 'edit'
-          ? { value: (editedValue ?? null) as ReviewDecisionActionParams['value'] }
-          : {}),
+        ...(copied ? { copied_op_id: ownerId } : { run_id: ownerId }),
+        row_id: rowId, column_id: colId, decision: action,
         ...(note !== undefined ? { note } : {}),
       };
       const spec = v1ActionSession.registeredProjectActionSpec('review.decision', params);
