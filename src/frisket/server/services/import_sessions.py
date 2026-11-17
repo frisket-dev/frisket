@@ -1150,14 +1150,5 @@ class ImportSessionService:
             dedupe_key=import_page_dedupe_key(project_id, ref, through, sealed),
         )
 
-    def _latest_page_job(self, project_id: str, ref: str, through: int, sealed: bool):
-        project = self._workspace.get(project_id)
-        header = self._validated_header(
-            project, project_id, import_intake_dir(project.path, ref)
-        )
-        return self._latest_provider_job(
-            project_id, ref, through, sealed, header=header
-        )
-
 
 __all__ = ["ImportSessionService", "import_page_dedupe_key"]
