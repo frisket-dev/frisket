@@ -116,7 +116,6 @@ HAND_WRITTEN_TRANSACTIONS = frozenset(
         "src/frisket/engine/store/blob_metadata.py",
         "src/frisket/engine/store/cells.py",
         "src/frisket/engine/store/column_descriptors.py",
-        "src/frisket/engine/store/effect_checkpoints.py",
         "src/frisket/engine/store/evaluation.py",
         "src/frisket/engine/store/execution_routes.py",
         "src/frisket/engine/store/project_blobs.py",

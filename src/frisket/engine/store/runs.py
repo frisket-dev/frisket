@@ -312,9 +312,7 @@ class RunResultStore:
             raise ValueError(f"action kind {action_kind!r} is not canonical")
         stored_params = dict(params or {})
         stored_params.pop("execution_root_run_id", None)
-        try:
-            if commit:
-                self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(self.db, commit=commit, what="start_run(commit=False)"):
             cur = self.db.execute(
                 "INSERT INTO runs (op_id, sheet_id, action_kind, action_version, "
                 "model, prompt_hash, params, total_rows, "
@@ -336,13 +334,7 @@ class RunResultStore:
             run_id = int(cur.lastrowid)
             if row_ids is not None:
                 self.record_run_row_scope(run_id, row_ids)
-            if commit:
-                self.db.commit()
             return run_id
-        except Exception:
-            if commit:
-                self.db.rollback()
-            raise
 
     def get_run(self, run_id: int) -> sqlite3.Row | None:
         return self.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
@@ -436,9 +428,9 @@ class RunResultStore:
         stored_code = halted_code
         stored_reason = halted_reason if halted_code is None else halted_reason or ""
 
-        try:
-            if commit:
-                self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(
+            self.db, commit=commit, what="set_run_halt(commit=False)"
+        ):
             row = self.db.execute(
                 "SELECT params FROM runs WHERE id=?", (run_id,)
             ).fetchone()
@@ -465,12 +457,6 @@ class RunResultStore:
                 "UPDATE runs SET params=? WHERE id=?",
                 (json.dumps(params, sort_keys=True), run_id),
             )
-            if commit:
-                self.db.commit()
-        except Exception:
-            if commit:
-                self.db.rollback()
-            raise
 
     def set_worker_version(
         self, run_id: int, worker_version: str, *, commit: bool = True
@@ -3273,9 +3259,9 @@ class RunResultStore:
         admission actually saw, not what a racing writer left behind.
         """
 
-        try:
-            if commit:
-                self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(
+            self.db, commit=commit, what="begin_run_resume(commit=False)"
+        ):
             row = self.db.execute(
                 "SELECT run.status,run.finished_at,run.params,run.cancel_requested_at, "
                 "run.halted_code,run.halted_reason,op.status AS change_status, "
@@ -3285,8 +3271,6 @@ class RunResultStore:
                 (run_id,),
             ).fetchone()
             if row is None:
-                if commit:
-                    self.db.commit()
                 return RunResumeAdmission(admitted=False)
             try:
                 params = json.loads(row["params"] or "{}")
@@ -3326,8 +3310,6 @@ class RunResultStore:
                 or row["cancel_requested_at"] is not None
                 or (row["change_order"] is not None and bool(row["publication_closed"]))
             ):
-                if commit:
-                    self.db.commit()
                 return prior
             from frisket.engine.store.result_generations import ResultGenerationStore
 
@@ -3337,15 +3319,11 @@ class RunResultStore:
                     run_id
                 )
             ):
-                if commit:
-                    self.db.commit()
                 return prior
             queued_resume_admitted = status == "running" or (
                 status == "cancelled" and is_internal_halt
             )
             if not reopen_operator_cancelled and not queued_resume_admitted:
-                if commit:
-                    self.db.commit()
                 return prior
             params.pop("halted_code", None)
             params.pop("halted_reason", None)
@@ -3359,18 +3337,12 @@ class RunResultStore:
                 "halted_reason=NULL WHERE id=?",
                 (transient_params, transient_cancel_requested_at, run_id),
             )
-            if commit:
-                self.db.commit()
             return replace(
                 prior,
                 admitted=True,
                 transient_params=transient_params,
                 transient_cancel_requested_at=transient_cancel_requested_at,
             )
-        except Exception:
-            if commit:
-                self.db.rollback()
-            raise
 
     def revert_run_resume(
         self, run_id: int, admission: RunResumeAdmission, *, commit: bool = True

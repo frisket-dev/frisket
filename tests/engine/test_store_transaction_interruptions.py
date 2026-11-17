@@ -231,3 +231,95 @@ def test_finish_run_rolls_back_interrupted_terminal_write(
     assert caught.value is error
     assert not db.in_transaction
     assert _snapshot(db) == before
+
+
+@pytest.mark.parametrize("failure", INTERRUPTS)
+def test_start_run_rolls_back_interrupted_run_insert(project, monkeypatch, failure):
+    from frisket.engine.store.runs import RunResultStore
+
+    sheet_id = project.db.execute("SELECT id FROM sheets").fetchone()[0]
+    op_id = project.append_op("map", {"recipe": "template"})
+    before = _snapshot(project.db)
+    error = failure("interrupted after the run INSERT")
+    db = _interrupt_project_db(project, monkeypatch, "INSERT INTO runs", error)
+
+    with pytest.raises(failure) as caught:
+        RunResultStore(project).start_run(op_id, sheet_id, "map.template")
+
+    assert caught.value is error
+    assert not db.in_transaction
+    assert _snapshot(db) == before
+
+
+@pytest.mark.parametrize("failure", INTERRUPTS)
+def test_set_run_halt_rolls_back_interrupted_halt_write(project, monkeypatch, failure):
+    from frisket.engine.store.runs import RunResultStore
+
+    run_id = _running_run(project)
+    before = _snapshot(project.db)
+    error = failure("interrupted after the halt UPDATE")
+    db = _interrupt_project_db(project, monkeypatch, "UPDATE runs SET halted", error)
+
+    with pytest.raises(failure) as caught:
+        RunResultStore(project).set_run_halt(run_id, "source_changed", "x")
+
+    assert caught.value is error
+    assert not db.in_transaction
+    assert _snapshot(db) == before
+
+
+@pytest.mark.parametrize("failure", INTERRUPTS)
+def test_begin_run_resume_rolls_back_interrupted_reopen(project, monkeypatch, failure):
+    from frisket.engine.store.runs import RunResultStore
+
+    run_id = _running_run(project)
+    project.db.execute(
+        "UPDATE runs SET status='cancelled', finished_at=datetime('now') WHERE id=?",
+        (run_id,),
+    )
+    project.db.commit()
+    before = _snapshot(project.db)
+    error = failure("interrupted after the resume UPDATE")
+    db = _interrupt_project_db(
+        project, monkeypatch, "UPDATE runs SET status='running'", error
+    )
+
+    with pytest.raises(failure) as caught:
+        RunResultStore(project).begin_run_resume(run_id)
+
+    assert caught.value is error
+    assert not db.in_transaction
+    assert _snapshot(db) == before
+
+
+@pytest.mark.parametrize("failure", INTERRUPTS)
+def test_consume_group_retained_rolls_back_interrupted_consumption(project, failure):
+    from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+
+    unit = {
+        "family": "test_family",
+        "group_key": "group-1",
+        "unit_key": "unit-1",
+        "action_kind": "classify",
+        "identity": "identity-digest-1",
+    }
+    store = EffectCheckpointStore(project.db)
+    assert store.reserve("cp-1", **unit) is True
+    store.complete("cp-1", **unit, payload={"envelope": "raw"})
+    before = _snapshot(project.db)
+    error = failure("interrupted after the consume UPDATE")
+    db = project.db
+
+    with pytest.raises(failure) as caught:
+        EffectCheckpointStore(
+            _InterruptAfter(db, "UPDATE effect_checkpoints SET state='consumed'", error)
+        ).consume_group_retained(
+            family=unit["family"],
+            group_key=unit["group_key"],
+            action_kind=unit["action_kind"],
+            audit=lambda raw: {"sha_of": raw},
+        )
+
+    assert caught.value is error
+    assert not db.in_transaction
+    assert _snapshot(db) == before

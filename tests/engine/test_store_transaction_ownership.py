@@ -213,18 +213,16 @@ def test_review_write_commit_false_requires_caller_transaction(
 # -- start_run, set_run_halt, begin_run_resume -------------------------------
 
 
-def test_start_run_commit_false_without_transaction_leaves_the_insert_pending(
-    project,
-):
+def test_start_run_commit_false_requires_caller_transaction(project):
     op_id = project.append_op("map", {"recipe": "template"})
 
-    run_id = RunResultStore(project).start_run(
-        op_id, _sheet_id(project), "map.template", commit=False
-    )
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        RunResultStore(project).start_run(
+            op_id, _sheet_id(project), "map.template", commit=False
+        )
 
-    assert project.db.in_transaction
-    assert _committed_run_status(project, run_id) is None
-    project.db.rollback()
+    assert not project.db.in_transaction
+    assert _committed(project, "SELECT COUNT(*) FROM runs")[0][0] == 0
 
 
 def test_start_run_commit_false_joins_caller_transaction(project):
@@ -259,16 +257,16 @@ def _committed_halt(project, run_id):
     )
 
 
-def test_set_run_halt_commit_false_without_transaction_leaves_the_update_pending(
-    project,
-):
+def test_set_run_halt_commit_false_requires_caller_transaction(project):
     run_id = _running_run(project)
 
-    RunResultStore(project).set_run_halt(run_id, "source_changed", "x", commit=False)
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        RunResultStore(project).set_run_halt(
+            run_id, "source_changed", "x", commit=False
+        )
 
-    assert project.db.in_transaction
+    assert not project.db.in_transaction
     assert _committed_halt(project, run_id) == (None, None)
-    project.db.rollback()
 
 
 def test_set_run_halt_commit_false_joins_caller_transaction(project):
@@ -302,17 +300,14 @@ def test_begin_run_resume_owns_its_transaction_when_none_is_open(project):
     assert _committed_run_status(project, run_id) == "running"
 
 
-def test_begin_run_resume_commit_false_without_transaction_leaves_the_update_pending(
-    project,
-):
+def test_begin_run_resume_commit_false_requires_caller_transaction(project):
     run_id = _cancelled_run(project)
 
-    admission = RunResultStore(project).begin_run_resume(run_id, commit=False)
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        RunResultStore(project).begin_run_resume(run_id, commit=False)
 
-    assert admission.admitted
-    assert project.db.in_transaction
+    assert not project.db.in_transaction
     assert _committed_run_status(project, run_id) == "cancelled"
-    project.db.rollback()
 
 
 # -- consume_group_retained ---------------------------------------------------
@@ -357,14 +352,14 @@ def test_consume_group_retained_owns_its_transaction_when_none_is_open(
     assert _committed_checkpoint_state(project) == "consumed"
 
 
-def test_consume_group_retained_commit_false_without_transaction_leaves_it_pending(
+def test_consume_group_retained_commit_false_requires_caller_transaction(
     project, returned_checkpoint
 ):
-    assert _consume_group(returned_checkpoint, commit=False) == 1
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        _consume_group(returned_checkpoint, commit=False)
 
-    assert project.db.in_transaction
+    assert not project.db.in_transaction
     assert _committed_checkpoint_state(project) == "returned"
-    project.db.rollback()
 
 
 # -- blob metadata ----------------------------------------------------------

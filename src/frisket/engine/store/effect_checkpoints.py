@@ -728,9 +728,9 @@ class EffectCheckpointStore:
         reconciliation record.  With ``commit=False`` this joins the caller's
         surrounding transaction (e.g. a terminal receipt write)."""
 
-        try:
-            if commit:
-                self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(
+            self.db, commit=commit, what="consume_group_retained(commit=False)"
+        ):
             rows = self.db.execute(
                 "SELECT id, payload, authorized_attempt_id FROM effect_checkpoints "
                 "WHERE family=? AND group_key=? AND action_kind=? "
@@ -753,13 +753,7 @@ class EffectCheckpointStore:
                     "WHERE id=? AND state='returned'",
                     (replacement, str(row["id"])),
                 ).rowcount
-            if commit:
-                self.db.commit()
             return consumed
-        except BaseException:
-            if commit:
-                self.db.rollback()
-            raise
 
     def discard_reserved(
         self,
