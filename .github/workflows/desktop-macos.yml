@@ -141,7 +141,9 @@ jobs:
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.relevant == 'true'
     runs-on: macos-15
-    timeout-minutes: 60
+    # A healthy run takes 6-11 minutes; the per-step bounds below stop a hung
+    # launch or proof early enough for the evidence upload to still run.
+    timeout-minutes: 40
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       # This job has no signing secrets; explicitly permit the ad-hoc PR build.
@@ -193,10 +195,14 @@ jobs:
           ditto "$mount_path/Frisket Desktop.app" "$FRISKET_DESKTOP_APP"
           codesign --verify --deep --strict "$FRISKET_DESKTOP_APP"
       - name: First launch with an empty profile and cache (no Retry)
+        # Two bounded launch attempts plus the script's 15-minute startup wait.
+        timeout-minutes: 20
         run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
+        timeout-minutes: 10
         run: node desktop/scripts/prewarm.mjs --browser
       - name: Installed app and native engines (no new external connections)
+        timeout-minutes: 15
         run: python3 desktop/scripts/test-installed.py
       - name: Verify installed app signature after use
         run: codesign --verify --deep --strict --verbose=4 "$FRISKET_DESKTOP_APP"
