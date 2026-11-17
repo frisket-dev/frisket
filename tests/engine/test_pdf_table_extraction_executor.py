@@ -408,7 +408,7 @@ def test_pdf_table_replay_preserves_identity_rejections_and_named_result_toleran
         assert error.message == expected_message, defect
 
 
-def test_pdf_table_action_catalog_validation_and_snippet_gate(tmp_path) -> None:
+def test_pdf_table_action_catalog_validation_and_snippet_gate(make_project) -> None:
     entry = ACTION_REGISTRY.get("media.extract_pdf_tables").catalog_entry()
     assert isinstance(
         ACTION_REGISTRY.get("media.extract_pdf_tables").definition.run, MapRows
@@ -420,21 +420,18 @@ def test_pdf_table_action_catalog_validation_and_snippet_gate(tmp_path) -> None:
     assert PdfTablesParams.model_validate({"source": "pdf"}).mode == "extract_table"
     with pytest.raises(ValidationError):
         PdfTablesParams.model_validate({"source": "pdf", "mode": "natural_pdf_snippet"})
-    project = Project.create(tmp_path / "catalog.frisket")
-    try:
-        sheet_id, _, _, _ = _seed_pdf_rows(project)
-        missing = _extract_pdf_tables_action(sheet_id)
-        missing.pop("idempotency_key")
-        result = run_action_spec(project, missing, project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert "idempotency_key" in result.errors[0].message
-        old = {**_extract_pdf_tables_action(sheet_id), "action_id": "derive.pdf_tables"}
-        result = run_action_spec(project, old, project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-    finally:
-        project.close()
+    project = make_project("catalog")
+    sheet_id, _, _, _ = _seed_pdf_rows(project)
+    missing = _extract_pdf_tables_action(sheet_id)
+    missing.pop("idempotency_key")
+    result = run_action_spec(project, missing, project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert "idempotency_key" in result.errors[0].message
+    old = {**_extract_pdf_tables_action(sheet_id), "action_id": "derive.pdf_tables"}
+    result = run_action_spec(project, old, project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
 
 
 def test_pdf_table_queue_inventory_is_owned_by_typed_map_rows() -> None:
@@ -466,7 +463,7 @@ def test_table_mode_accepts_natural_pdf_vocabulary_and_rejects_unknown() -> None
 
 
 def test_pdf_table_extraction_direct_typed_handler_has_no_empty_feed(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[natural_pdf.PdfTableExtractRequest] = []
 
@@ -477,25 +474,22 @@ def test_pdf_table_extraction_direct_typed_handler_has_no_empty_feed(
         return []
 
     monkeypatch.setattr(natural_pdf, "extract_pdf_tables", fake_extract)
-    project = Project.create(tmp_path / "direct.frisket", name="Direct")
-    try:
-        sheet_id, row_ids, _pdf_col, _hashes = _seed_pdf_rows(project)
-        result = run_action_spec(
-            project,
-            _extract_pdf_tables_action(
-                sheet_id,
-                row_ids=[row_ids[0]],
-                key="media_extract_pdf_tables_direct@sha256:v1",
-            ),
-            project_id="direct-project",
-        )
+    project = make_project("Direct")
+    sheet_id, row_ids, _pdf_col, _hashes = _seed_pdf_rows(project)
+    result = run_action_spec(
+        project,
+        _extract_pdf_tables_action(
+            sheet_id,
+            row_ids=[row_ids[0]],
+            key="media_extract_pdf_tables_direct@sha256:v1",
+        ),
+        project_id="direct-project",
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "pdf_table_extract_failed"
-        assert len(calls) == 1
-        assert all(output.kind != "named_result" for output in result.outputs)
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "pdf_table_extract_failed"
+    assert len(calls) == 1
+    assert all(output.kind != "named_result" for output in result.outputs)
 
 
 def test_pdf_table_extraction_processes_501_explicit_source_rows(

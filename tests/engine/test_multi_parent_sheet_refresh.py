@@ -486,76 +486,69 @@ def test_refresh_join_receipt_carries_fresh_match_stats(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_refresh_join_fanout_guard_reconfirms(tmp_path: Path) -> None:
+def test_refresh_join_fanout_guard_reconfirms(make_project) -> None:
     """A refresh whose fresh projection exceeds ``max_output_rows`` must
     re-confirm, not silently blow past the guard."""
-    project = Project.create(tmp_path / "fanout.frisket", name="Fan-out refresh")
-    try:
-        left_id = project.add_sheet("L")
-        left_cols = {"k": project.add_column(left_id, "k", type="integer")}
-        project.add_rows(left_id, [{"k": 1}, {"k": 1}], left_cols)
-        right_id = project.add_sheet("R")
-        right_cols = {"k": project.add_column(right_id, "k", type="integer")}
-        project.add_rows(right_id, [{"k": 1}, {"k": 1}], right_cols)
-        project.db.commit()
+    project = make_project("Fan-out refresh")
+    left_id = project.add_sheet("L")
+    left_cols = {"k": project.add_column(left_id, "k", type="integer")}
+    project.add_rows(left_id, [{"k": 1}, {"k": 1}], left_cols)
+    right_id = project.add_sheet("R")
+    right_cols = {"k": project.add_column(right_id, "k", type="integer")}
+    project.add_rows(right_id, [{"k": 1}, {"k": 1}], right_cols)
+    project.db.commit()
 
-        # Original run: 2x2 = 4 fan-out rows, cap 4 -> fits (no confirmation).
-        join = _run(
-            project,
-            {
-                "action_id": "derive.join",
-                "scope": {"kind": "sheet_rows", "sheet_id": left_id},
-                "sheet_name": "Fan",
-                "params": {
-                    "right": {"sheet_id": right_id},
-                    "join_keys": [{"left_column": "k", "right_column": "k"}],
-                    "how": "inner",
-                    "max_output_rows": 4,
-                },
-                "idempotency_key": "seed_fanout@1",
+    # Original run: 2x2 = 4 fan-out rows, cap 4 -> fits (no confirmation).
+    join = _run(
+        project,
+        {
+            "action_id": "derive.join",
+            "scope": {"kind": "sheet_rows", "sheet_id": left_id},
+            "sheet_name": "Fan",
+            "params": {
+                "right": {"sheet_id": right_id},
+                "join_keys": [{"left_column": "k", "right_column": "k"}],
+                "how": "inner",
+                "max_output_rows": 4,
             },
-        )
-        assert join.status == "completed", [e.model_dump() for e in join.errors]
-        child_id = int(
-            project.db.execute(
-                "SELECT id FROM sheets WHERE name='Fan' AND hidden=0"
-            ).fetchone()["id"]
-        )
-        assert _row_count(project, child_id) == 4
+            "idempotency_key": "seed_fanout@1",
+        },
+    )
+    assert join.status == "completed", [e.model_dump() for e in join.errors]
+    child_id = int(
+        project.db.execute(
+            "SELECT id FROM sheets WHERE name='Fan' AND hidden=0"
+        ).fetchone()["id"]
+    )
+    assert _row_count(project, child_id) == 4
 
-        # Grow the right side: now 2x3 = 6 > cap 4.
-        project.add_rows(right_id, [{"k": 1}], right_cols)
-        project.db.commit()
+    # Grow the right side: now 2x3 = 6 > cap 4.
+    project.add_rows(right_id, [{"k": 1}], right_cols)
+    project.db.commit()
 
-        gated = _run(project, _refresh(sheet_id=child_id, key="refresh_fanout@1"))
-        assert gated.status == "needs_confirmation", gated.status
-        assert gated.errors[0].code == "join_fanout_requires_confirmation"
-        promise_set_hash = gated.errors[0].details.get("promise_set_hash")
-        assert isinstance(promise_set_hash, str)
-        assert len(promise_set_hash) == 64
-        # Child rows untouched by the gated refresh.
-        assert _row_count(project, child_id) == 4
+    gated = _run(project, _refresh(sheet_id=child_id, key="refresh_fanout@1"))
+    assert gated.status == "needs_confirmation", gated.status
+    assert gated.errors[0].code == "join_fanout_requires_confirmation"
+    promise_set_hash = gated.errors[0].details.get("promise_set_hash")
+    assert isinstance(promise_set_hash, str)
+    assert len(promise_set_hash) == 64
+    # Child rows untouched by the gated refresh.
+    assert _row_count(project, child_id) == 4
 
-        bare_confirmed = _run(
-            project, _refresh(sheet_id=child_id, key="refresh_fanout@2")
-        )
-        assert bare_confirmed.status == "needs_confirmation"
-        assert _row_count(project, child_id) == 4
+    bare_confirmed = _run(project, _refresh(sheet_id=child_id, key="refresh_fanout@2"))
+    assert bare_confirmed.status == "needs_confirmation"
+    assert _row_count(project, child_id) == 4
 
-        confirmed = _run(
-            project,
-            _refresh(
-                sheet_id=child_id,
-                key="refresh_fanout@3",
-                confirmation=promise_set_hash,
-            ),
-        )
-        assert confirmed.status == "completed", [
-            e.model_dump() for e in confirmed.errors
-        ]
-        assert _row_count(project, child_id) == 6
-    finally:
-        project.close()
+    confirmed = _run(
+        project,
+        _refresh(
+            sheet_id=child_id,
+            key="refresh_fanout@3",
+            confirmation=promise_set_hash,
+        ),
+    )
+    assert confirmed.status == "completed", [e.model_dump() for e in confirmed.errors]
+    assert _row_count(project, child_id) == 6
 
 
 # ---------------------------------------------------------------------------
@@ -563,66 +556,63 @@ def test_refresh_join_fanout_guard_reconfirms(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_single_parent_table_from_list_refresh_still_works(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "single.frisket", name="Single")
-    try:
-        parent_id = project.add_sheet("Filings")
-        cols = {
-            "title": project.add_column(parent_id, "title", type="text"),
-            "rows_json": project.add_column(parent_id, "rows_json", type="json"),
-        }
-        rows = project.add_rows(
-            parent_id,
-            [{"title": "Q1", "rows_json": [{"vendor": "Acme"}]}],
-            cols,
-        )
-        project.db.commit()
+def test_single_parent_table_from_list_refresh_still_works(make_project) -> None:
+    project = make_project("Single")
+    parent_id = project.add_sheet("Filings")
+    cols = {
+        "title": project.add_column(parent_id, "title", type="text"),
+        "rows_json": project.add_column(parent_id, "rows_json", type="json"),
+    }
+    rows = project.add_rows(
+        parent_id,
+        [{"title": "Q1", "rows_json": [{"vendor": "Acme"}]}],
+        cols,
+    )
+    project.db.commit()
 
-        derive = _run(
-            project,
-            {
-                "action_id": "derive.table_from_list",
-                "scope": {"kind": "project"},
-                "sheet_name": "Vendors",
-                "params": {
-                    "source": {
-                        "kind": "column",
-                        "sheet_id": parent_id,
-                        "column_id": cols["rows_json"],
-                    },
+    derive = _run(
+        project,
+        {
+            "action_id": "derive.table_from_list",
+            "scope": {"kind": "project"},
+            "sheet_name": "Vendors",
+            "params": {
+                "source": {
+                    "kind": "column",
+                    "sheet_id": parent_id,
+                    "column_id": cols["rows_json"],
                 },
-                "idempotency_key": "single_derive@1",
             },
-        )
-        assert derive.status == "completed", [e.model_dump() for e in derive.errors]
-        child_id = int(
-            project.db.execute("SELECT id FROM sheets WHERE name='Vendors'").fetchone()[
-                "id"
-            ]
-        )
-
-        _run(
-            project,
-            _cell_edit(
-                row_id=rows[0],
-                column_id=cols["rows_json"],
-                value=[{"vendor": "Acme"}, {"vendor": "NewCo"}],
-                key="single_edit@1",
-            ),
-        )
-        result = _run(project, _refresh(sheet_id=child_id, key="single_refresh@1"))
-        assert result.status == "completed", [e.model_dump() for e in result.errors]
-        vendor_col = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='vendor'", (child_id,)
-            ).fetchone()["id"]
-        )
-        assert list(project.get_values(child_id, vendor_col).values()) == [
-            "Acme",
-            "NewCo",
+            "idempotency_key": "single_derive@1",
+        },
+    )
+    assert derive.status == "completed", [e.model_dump() for e in derive.errors]
+    child_id = int(
+        project.db.execute("SELECT id FROM sheets WHERE name='Vendors'").fetchone()[
+            "id"
         ]
-    finally:
-        project.close()
+    )
+
+    _run(
+        project,
+        _cell_edit(
+            row_id=rows[0],
+            column_id=cols["rows_json"],
+            value=[{"vendor": "Acme"}, {"vendor": "NewCo"}],
+            key="single_edit@1",
+        ),
+    )
+    result = _run(project, _refresh(sheet_id=child_id, key="single_refresh@1"))
+    assert result.status == "completed", [e.model_dump() for e in result.errors]
+    vendor_col = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='vendor'", (child_id,)
+        ).fetchone()["id"]
+    )
+    assert list(project.get_values(child_id, vendor_col).values()) == [
+        "Acme",
+        "NewCo",
+    ]
 
 
 # ---------------------------------------------------------------------------

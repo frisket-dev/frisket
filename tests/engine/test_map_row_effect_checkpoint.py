@@ -147,90 +147,38 @@ def _prepare_claimed_run(
 
 
 def test_resume_replays_returned_row_without_buying_it_again(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = Project.create(tmp_path / "returned-row.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "one billable row"}], columns)
-        spec, program = _bound(_spec(sheet))
+    project = make_project("returned-row")
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "one billable row"}], columns)
+    spec, program = _bound(_spec(sheet))
 
-        provider = _ReturnedProviderCall()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "test"},
-            cache_mode="off",
-        )
-        router._adapters["anthropic"] = provider  # noqa: SLF001
-        first = _runner(project, router)
-        confirmed = _confirmed_spec(first, spec, program)
-        run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
+    provider = _ReturnedProviderCall()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
+    router._adapters["anthropic"] = provider  # noqa: SLF001
+    first = _runner(project, router)
+    confirmed = _confirmed_spec(first, spec, program)
+    run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
 
-        class InjectedProcessDeath(RuntimeError):
-            pass
+    class InjectedProcessDeath(RuntimeError):
+        pass
 
-        def die_before_result_commit(*_args, **_kwargs) -> None:
-            raise InjectedProcessDeath("after provider return")
+    def die_before_result_commit(*_args, **_kwargs) -> None:
+        raise InjectedProcessDeath("after provider return")
 
-        # This is the exact vulnerable boundary: the adapter has returned,
-        # but the normal result + provider-fact transaction has not begun.
-        first.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
-        with pytest.raises(InjectedProcessDeath, match="after provider return"):
-            asyncio.run(
-                first.run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
-            )
-
-        first_attempt_id = str(
-            project.db.execute(
-                "SELECT id FROM execution_attempts WHERE run_id=? ORDER BY seq",
-                (run_id,),
-            ).fetchone()[0]
-        )
-        assert provider.calls == 1
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
-            == 0
-        )
-        checkpoint = project.db.execute(
-            "SELECT state, authorized_attempt_id, payload AS response "
-            "FROM effect_checkpoints WHERE family='row_effect' "
-            "AND group_key=CAST(? AS TEXT)",
-            (run_id,),
-        ).fetchone()
-        assert checkpoint is not None
-        assert checkpoint["state"] == "returned"
-        assert checkpoint["authorized_attempt_id"] == first_attempt_id
-        assert checkpoint["response"]
-        saved_capture = next(iter(json.loads(checkpoint["response"]).values()))[
-            "__consumed_sources"
-        ]
-        [input_row] = project.visible_row_ids(sheet)
-        project.apply_edits(
-            [
-                {
-                    "row_id": input_row,
-                    "column_id": columns["text"],
-                    "value": "one billable row",
-                }
-            ]
-        )
-
-        # Model the queue's bounded orphan recovery after both the attempt and
-        # its last metered heartbeat have been silent past the cutoff.
-        _age_silent_attempt(project, first_attempt_id)
-
-        resumed = asyncio.run(
-            _runner(project, router).run(
+    # This is the exact vulnerable boundary: the adapter has returned,
+    # but the normal result + provider-fact transaction has not begun.
+    first.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
+    with pytest.raises(InjectedProcessDeath, match="after provider return"):
+        asyncio.run(
+            first.run(
                 confirmed,
                 program=program,
                 confirmed=True,
@@ -239,99 +187,145 @@ def test_resume_replays_returned_row_without_buying_it_again(
             )
         )
 
-        assert resumed.done is True
-        assert resumed.completed == 1
-        assert provider.calls == 1
-        from frisket.engine.store.consumed_sources import row_input_state
-
-        persisted = project.db.execute(
-            "SELECT capture_json FROM consumed_source_bundles WHERE run_id=? AND row_id=?",
-            (run_id, input_row),
-        ).fetchone()
-        assert json.loads(persisted[0]) == saved_capture
-        assert row_input_state(project, run_id, input_row) == "stale"
-        project.undo()
-        assert row_input_state(project, run_id, input_row) == "fresh"
-        call = project.db.execute(
-            "SELECT attempt_id, provider_cost_usd FROM model_calls WHERE run_id=?",
+    first_attempt_id = str(
+        project.db.execute(
+            "SELECT id FROM execution_attempts WHERE run_id=? ORDER BY seq",
             (run_id,),
-        ).fetchone()
-        assert call is not None
-        assert call["attempt_id"] == first_attempt_id
-        assert call["provider_cost_usd"] == pytest.approx(0.0001)
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM execution_attempts WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
-            == 2
+        ).fetchone()[0]
+    )
+    assert provider.calls == 1
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    checkpoint = project.db.execute(
+        "SELECT state, authorized_attempt_id, payload AS response "
+        "FROM effect_checkpoints WHERE family='row_effect' "
+        "AND group_key=CAST(? AS TEXT)",
+        (run_id,),
+    ).fetchone()
+    assert checkpoint is not None
+    assert checkpoint["state"] == "returned"
+    assert checkpoint["authorized_attempt_id"] == first_attempt_id
+    assert checkpoint["response"]
+    saved_capture = next(iter(json.loads(checkpoint["response"]).values()))[
+        "__consumed_sources"
+    ]
+    [input_row] = project.visible_row_ids(sheet)
+    project.apply_edits(
+        [
+            {
+                "row_id": input_row,
+                "column_id": columns["text"],
+                "value": "one billable row",
+            }
+        ]
+    )
+
+    # Model the queue's bounded orphan recovery after both the attempt and
+    # its last metered heartbeat have been silent past the cutoff.
+    _age_silent_attempt(project, first_attempt_id)
+
+    resumed = asyncio.run(
+        _runner(project, router).run(
+            confirmed,
+            program=program,
+            confirmed=True,
+            resume_run_id=run_id,
+            claim_token=claim_token,
         )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints "
-                "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
-                (run_id,),
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    )
+
+    assert resumed.done is True
+    assert resumed.completed == 1
+    assert provider.calls == 1
+    from frisket.engine.store.consumed_sources import row_input_state
+
+    persisted = project.db.execute(
+        "SELECT capture_json FROM consumed_source_bundles WHERE run_id=? AND row_id=?",
+        (run_id, input_row),
+    ).fetchone()
+    assert json.loads(persisted[0]) == saved_capture
+    assert row_input_state(project, run_id, input_row) == "stale"
+    project.undo()
+    assert row_input_state(project, run_id, input_row) == "fresh"
+    call = project.db.execute(
+        "SELECT attempt_id, provider_cost_usd FROM model_calls WHERE run_id=?",
+        (run_id,),
+    ).fetchone()
+    assert call is not None
+    assert call["attempt_id"] == first_attempt_id
+    assert call["provider_cost_usd"] == pytest.approx(0.0001)
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM execution_attempts WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        == 2
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints "
+            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
+            (run_id,),
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_returned_checkpoint_accounts_spend_before_result_commit(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     """The provider invoice becomes cap truth before the result crash window."""
 
-    project = Project.create(tmp_path / "returned-row-cap.frisket")
-    try:
-        project.set_provider_key(
-            provider="anthropic",
-            encrypted=encrypt_secret("sk-ant-test"),
-            hint=key_hint("sk-ant-test"),
-            spend_cap_micro=50,
-        )
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "cross the cap"}], columns)
-        provider = _ReturnedProviderCall()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "sk-ant-test"},
-            key_sources={"anthropic": "project_key"},
-            cache_mode="off",
-        )
-        router._adapters["anthropic"] = provider  # noqa: SLF001
-        runner = _runner(project, router)
-        spec, program = _bound(_spec(sheet))
-        confirmed = _confirmed_spec(runner, spec, program)
-        run_id, claim_token = _prepare_claimed_run(runner, confirmed, program)
+    project = make_project("returned-row-cap")
+    project.set_provider_key(
+        provider="anthropic",
+        encrypted=encrypt_secret("sk-ant-test"),
+        hint=key_hint("sk-ant-test"),
+        spend_cap_micro=50,
+    )
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "cross the cap"}], columns)
+    provider = _ReturnedProviderCall()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "sk-ant-test"},
+        key_sources={"anthropic": "project_key"},
+        cache_mode="off",
+    )
+    router._adapters["anthropic"] = provider  # noqa: SLF001
+    runner = _runner(project, router)
+    spec, program = _bound(_spec(sheet))
+    confirmed = _confirmed_spec(runner, spec, program)
+    run_id, claim_token = _prepare_claimed_run(runner, confirmed, program)
 
-        def die_before_result_commit(*_args, **_kwargs) -> None:
-            raise RuntimeError("after accounted provider return")
+    def die_before_result_commit(*_args, **_kwargs) -> None:
+        raise RuntimeError("after accounted provider return")
 
-        runner.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
-        with pytest.raises(RuntimeError, match="after accounted provider return"):
-            asyncio.run(
-                runner.run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
+    runner.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="after accounted provider return"):
+        asyncio.run(
+            runner.run(
+                confirmed,
+                program=program,
+                confirmed=True,
+                resume_run_id=run_id,
+                claim_token=claim_token,
             )
+        )
 
-        # The exact provider fact and spend must already be durable even though
-        # no result cell committed. Otherwise another launch can buy work while
-        # this returned checkpoint remains invisible to the cap.
-        assert provider.calls == 1
-        assert project.provider_spend_state("anthropic").spent_micro == 100
-        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
-        with pytest.raises(ProviderSpendCapExceeded):
-            assert_provider_spend_cap(project, "anthropic")
-    finally:
-        project.close()
+    # The exact provider fact and spend must already be durable even though
+    # no result cell committed. Otherwise another launch can buy work while
+    # this returned checkpoint remains invisible to the cap.
+    assert provider.calls == 1
+    assert project.provider_spend_state("anthropic").spent_micro == 100
+    assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
+    with pytest.raises(ProviderSpendCapExceeded):
+        assert_provider_spend_cap(project, "anthropic")
 
 
 class _RepairThenReturn:
@@ -352,52 +346,34 @@ class _RepairThenReturn:
 
 
 def test_returned_checkpoint_replays_every_structured_wire_ordinal(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     """A corrective retry is one row effect containing two paid wire facts."""
 
-    project = Project.create(tmp_path / "returned-repair.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "repair me"}], columns)
-        spec, program = _bound(_spec(sheet))
-        provider = _RepairThenReturn()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "test"},
-            cache_mode="off",
-        )
-        router._adapters["anthropic"] = provider  # noqa: SLF001
-        first = _runner(project, router)
-        confirmed = _confirmed_spec(first, spec, program)
-        run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
+    project = make_project("returned-repair")
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "repair me"}], columns)
+    spec, program = _bound(_spec(sheet))
+    provider = _RepairThenReturn()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
+    router._adapters["anthropic"] = provider  # noqa: SLF001
+    first = _runner(project, router)
+    confirmed = _confirmed_spec(first, spec, program)
+    run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
 
-        def die_before_result_commit(*_args, **_kwargs) -> None:
-            raise RuntimeError("after repaired provider return")
+    def die_before_result_commit(*_args, **_kwargs) -> None:
+        raise RuntimeError("after repaired provider return")
 
-        first.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
-        with pytest.raises(RuntimeError, match="after repaired provider return"):
-            asyncio.run(
-                first.run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
-            )
-        first_attempt_id = str(
-            project.db.execute(
-                "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
-        )
-        assert provider.calls == 2
-        _age_silent_attempt(project, first_attempt_id)
-
-        resumed = asyncio.run(
-            _runner(project, router).run(
+    first.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="after repaired provider return"):
+        asyncio.run(
+            first.run(
                 confirmed,
                 program=program,
                 confirmed=True,
@@ -405,68 +381,65 @@ def test_returned_checkpoint_replays_every_structured_wire_ordinal(
                 claim_token=claim_token,
             )
         )
+    first_attempt_id = str(
+        project.db.execute(
+            "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+    )
+    assert provider.calls == 2
+    _age_silent_attempt(project, first_attempt_id)
 
-        assert resumed.completed == 1
-        assert provider.calls == 2
-        calls = project.db.execute(
-            "SELECT attempt_id FROM model_calls WHERE run_id=? ORDER BY id",
-            (run_id,),
-        ).fetchall()
-        assert len(calls) == 2
-        assert {call["attempt_id"] for call in calls} == {first_attempt_id}
-    finally:
-        project.close()
+    resumed = asyncio.run(
+        _runner(project, router).run(
+            confirmed,
+            program=program,
+            confirmed=True,
+            resume_run_id=run_id,
+            claim_token=claim_token,
+        )
+    )
+
+    assert resumed.completed == 1
+    assert provider.calls == 2
+    calls = project.db.execute(
+        "SELECT attempt_id FROM model_calls WHERE run_id=? ORDER BY id",
+        (run_id,),
+    ).fetchall()
+    assert len(calls) == 2
+    assert {call["attempt_id"] for call in calls} == {first_attempt_id}
 
 
 def test_identical_prompts_keep_distinct_row_effect_identities(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = Project.create(tmp_path / "identical-rows.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(
-            sheet,
-            [{"text": "same prompt"}, {"text": "same prompt"}],
-            columns,
-        )
-        spec, program = _bound(_spec(sheet))
-        provider = _ReturnedProviderCall()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "test"},
-            cache_mode="off",
-        )
-        router._adapters["anthropic"] = provider  # noqa: SLF001
-        first = _runner(project, router)
-        confirmed = _confirmed_spec(first, spec, program)
-        run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
+    project = make_project("identical-rows")
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(
+        sheet,
+        [{"text": "same prompt"}, {"text": "same prompt"}],
+        columns,
+    )
+    spec, program = _bound(_spec(sheet))
+    provider = _ReturnedProviderCall()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
+    router._adapters["anthropic"] = provider  # noqa: SLF001
+    first = _runner(project, router)
+    confirmed = _confirmed_spec(first, spec, program)
+    run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
 
-        def die_before_first_result(*_args, **_kwargs) -> None:
-            raise RuntimeError("first identical row returned")
+    def die_before_first_result(*_args, **_kwargs) -> None:
+        raise RuntimeError("first identical row returned")
 
-        first.run_store.write_results = die_before_first_result  # type: ignore[method-assign]
-        with pytest.raises(RuntimeError, match="first identical row returned"):
-            asyncio.run(
-                first.run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
-            )
-        first_attempt_id = str(
-            project.db.execute(
-                "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
-        )
-        assert provider.calls == 1
-        _age_silent_attempt(project, first_attempt_id)
-
-        resumed = asyncio.run(
-            _runner(project, router).run(
+    first.run_store.write_results = die_before_first_result  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="first identical row returned"):
+        asyncio.run(
+            first.run(
                 confirmed,
                 program=program,
                 confirmed=True,
@@ -474,20 +447,35 @@ def test_identical_prompts_keep_distinct_row_effect_identities(
                 claim_token=claim_token,
             )
         )
+    first_attempt_id = str(
+        project.db.execute(
+            "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+    )
+    assert provider.calls == 1
+    _age_silent_attempt(project, first_attempt_id)
 
-        # One replay plus one genuinely different row effect: the prompt text
-        # is identical, but provider/cache/request hashes are not row identity.
-        assert resumed.completed == 2
-        assert provider.calls == 2
-        assert (
-            project.db.execute(
-                "SELECT COUNT(DISTINCT row_id) FROM model_calls WHERE run_id=?",
-                (run_id,),
-            ).fetchone()[0]
-            == 2
+    resumed = asyncio.run(
+        _runner(project, router).run(
+            confirmed,
+            program=program,
+            confirmed=True,
+            resume_run_id=run_id,
+            claim_token=claim_token,
         )
-    finally:
-        project.close()
+    )
+
+    # One replay plus one genuinely different row effect: the prompt text
+    # is identical, but provider/cache/request hashes are not row identity.
+    assert resumed.completed == 2
+    assert provider.calls == 2
+    assert (
+        project.db.execute(
+            "SELECT COUNT(DISTINCT row_id) FROM model_calls WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0]
+        == 2
+    )
 
 
 class SimulatedProcessKill(BaseException):
@@ -535,184 +523,87 @@ class _AcceptedThenResponseLost:
 
 
 def test_model_retry_retains_known_usage_without_inventing_lost_response_cost(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = Project.create(tmp_path / "ambiguous-router-row.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "unknown accepted outcome"}], columns)
-        provider = _AcceptedThenResponseLost()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "test"},
-            cache_mode="off",
-            max_retries=3,
-        )
-        router._adapters["anthropic"] = provider  # noqa: SLF001
-        runner = _runner(project, router)
-        spec, program = _bound(_spec(sheet))
-        confirmed = _confirmed_spec(runner, spec, program)
-        run_id, claim_token = _prepare_claimed_run(runner, confirmed, program)
+    project = make_project("ambiguous-router-row")
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "unknown accepted outcome"}], columns)
+    provider = _AcceptedThenResponseLost()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+        max_retries=3,
+    )
+    router._adapters["anthropic"] = provider  # noqa: SLF001
+    runner = _runner(project, router)
+    spec, program = _bound(_spec(sheet))
+    confirmed = _confirmed_spec(runner, spec, program)
+    run_id, claim_token = _prepare_claimed_run(runner, confirmed, program)
 
-        halted = asyncio.run(
-            runner.run(
-                confirmed,
-                program=program,
-                confirmed=True,
-                resume_run_id=run_id,
-                claim_token=claim_token,
-            )
+    halted = asyncio.run(
+        runner.run(
+            confirmed,
+            program=program,
+            confirmed=True,
+            resume_run_id=run_id,
+            claim_token=claim_token,
         )
+    )
 
-        assert halted.halted_code is None
-        assert halted.completed == 1
-        assert provider.calls == 2
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect' "
-                "AND group_key=CAST(? AS TEXT)",
-                (run_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        # The lost response carries no known usage. Only the returned successful
-        # request contributes cost; retries cannot fabricate or double its usage.
-        assert project.db.execute(
-            "SELECT cost_actual FROM runs WHERE id=?",
+    assert halted.halted_code is None
+    assert halted.completed == 1
+    assert provider.calls == 2
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect' "
+            "AND group_key=CAST(? AS TEXT)",
             (run_id,),
-        ).fetchone()[0] == pytest.approx(0.0001)
-        assert project.db.execute(
-            "SELECT SUM(provider_cost_usd) FROM model_calls WHERE run_id=?",
+        ).fetchone()[0]
+        == 0
+    )
+    # The lost response carries no known usage. Only the returned successful
+    # request contributes cost; retries cannot fabricate or double its usage.
+    assert project.db.execute(
+        "SELECT cost_actual FROM runs WHERE id=?",
+        (run_id,),
+    ).fetchone()[0] == pytest.approx(0.0001)
+    assert project.db.execute(
+        "SELECT SUM(provider_cost_usd) FROM model_calls WHERE run_id=?",
+        (run_id,),
+    ).fetchone()[0] == pytest.approx(0.0001)
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?",
             (run_id,),
-        ).fetchone()[0] == pytest.approx(0.0001)
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?",
-                (run_id,),
-            ).fetchone()[0]
-            == 1
-        )
-    finally:
-        project.close()
+        ).fetchone()[0]
+        == 1
+    )
 
 
 def test_ambiguous_reserved_effect_refuses_resume_instead_of_recalling(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = Project.create(tmp_path / "ambiguous-row.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "unknown outcome"}], columns)
-        spec, program = _bound(_spec(sheet))
-        provider = _KilledInFlightCall()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "test"},
-            cache_mode="off",
-        )
-        router._adapters["anthropic"] = provider  # noqa: SLF001
-        first = _runner(project, router)
-        confirmed = _confirmed_spec(first, spec, program)
-        run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
-        with pytest.raises(SimulatedProcessKill, match="outcome unknown"):
-            asyncio.run(
-                first.run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
-            )
-        first_attempt_id = str(
-            project.db.execute(
-                "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
-        )
-        checkpoint = project.db.execute(
-            "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
-            "AND group_key=CAST(? AS TEXT)",
-            (run_id,),
-        ).fetchone()
-        assert checkpoint is not None and checkpoint["state"] == "reserved"
-        project.db.execute(
-            "UPDATE execution_attempts SET created_at="
-            "datetime('now', '-7 hours') WHERE id=?",
-            (first_attempt_id,),
-        )
-        project.db.commit()
-
-        with pytest.raises(ExecutionRouteVerificationFailed) as refusal:
-            asyncio.run(
-                _runner(project, router).run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
-            )
-
-        assert refusal.value.code == "stale_head"
-        assert "ONE dispatch at a time" in str(refusal.value)
-        assert provider.calls == 1
-        assert (
-            project.db.execute(
-                "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
-                "AND group_key=CAST(? AS TEXT)",
-                (run_id,),
-            ).fetchone()[0]
-            == "reserved"
-        )
-        run = project.db.execute(
-            "SELECT status, current_attempt_id FROM runs WHERE id=?",
-            (run_id,),
-        ).fetchone()
-        assert tuple(run) == ("running", first_attempt_id)
-        assert (
-            project.db.execute(
-                "SELECT state FROM execution_attempts WHERE id=?",
-                (first_attempt_id,),
-            ).fetchone()[0]
-            == "dispatching"
-        )
-        assert (
-            project.db.execute(
-                "SELECT status FROM output_column_claims WHERE claim_token=?",
-                (claim_token,),
-            ).fetchone()[0]
-            == "active"
-        )
-    finally:
-        project.close()
-
-
-def test_cancel_retains_unpublished_return_and_fresh_run_buys_new_work(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = Project.create(tmp_path / "cancelled-return.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "cancel after return"}], columns)
-        spec, program = _bound(_spec(sheet))
-        provider = _ReturnedProviderCall()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "test"},
-            cache_mode="off",
-        )
-        router._adapters["anthropic"] = provider  # noqa: SLF001
-        first = _runner(project, router)
-        confirmed = _confirmed_spec(first, spec, program)
-        run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
-        first.should_cancel = lambda _run_id: provider.calls >= 1
-        cancelled = asyncio.run(
+    project = make_project("ambiguous-row")
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "unknown outcome"}], columns)
+    spec, program = _bound(_spec(sheet))
+    provider = _KilledInFlightCall()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
+    router._adapters["anthropic"] = provider  # noqa: SLF001
+    first = _runner(project, router)
+    confirmed = _confirmed_spec(first, spec, program)
+    run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
+    with pytest.raises(SimulatedProcessKill, match="outcome unknown"):
+        asyncio.run(
             first.run(
                 confirmed,
                 program=program,
@@ -721,274 +612,352 @@ def test_cancel_retains_unpublished_return_and_fresh_run_buys_new_work(
                 claim_token=claim_token,
             )
         )
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="cancelled"
-        )
-        original_attempt = str(
-            project.db.execute(
-                "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
-        )
-        assert cancelled.cancelled is True
-        assert provider.calls == 1
-        checkpoint = project.db.execute(
-            "SELECT state, accounting_persisted, payload FROM effect_checkpoints "
-            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
-            (run_id,),
-        ).fetchone()
-        assert checkpoint is not None
-        assert (checkpoint["state"], checkpoint["accounting_persisted"]) == (
-            "returned",
-            1,
-        )
-        retained = json.loads(checkpoint["payload"])
-        assert retained["relevance"]["value"] == 7
-        # Stop closes publication before the returned response reaches the
-        # result writer; its value survives in the paid-effect checkpoint.
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?",
-                (run_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert first.run_store.get_run(run_id)["status"] == "cancelled"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
-            == 0
-        )
+    first_attempt_id = str(
+        project.db.execute(
+            "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+    )
+    checkpoint = project.db.execute(
+        "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
+        "AND group_key=CAST(? AS TEXT)",
+        (run_id,),
+    ).fetchone()
+    assert checkpoint is not None and checkpoint["state"] == "reserved"
+    project.db.execute(
+        "UPDATE execution_attempts SET created_at="
+        "datetime('now', '-7 hours') WHERE id=?",
+        (first_attempt_id,),
+    )
+    project.db.commit()
 
-        assert provider.calls == 1
-        run = project.db.execute(
-            "SELECT cost_actual FROM runs WHERE id=?", (run_id,)
-        ).fetchone()
-        calls = project.db.execute(
-            "SELECT attempt_id FROM model_calls WHERE run_id=?", (run_id,)
-        ).fetchall()
-        assert run["cost_actual"] == pytest.approx(0.0001)
-        assert len(calls) == 1
-        assert calls[0]["attempt_id"] == original_attempt
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints "
-                "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
-                (run_id,),
-            ).fetchone()[0]
-            == 1
-        )
-
-        row_id = int(
-            project.db.execute(
-                "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
-            ).fetchone()[0]
-        )
-        recovery = asyncio.run(
-            run_with_exact_confirmation(
-                _runner(project, router),
-                {**spec, "row_ids": [row_id], "replace_existing": True},
-            )
-        )
-        assert recovery.run_id != run_id
-        assert recovery.completed == 1
-        assert provider.calls == 2
-        assert project.db.execute(
-            "SELECT COUNT(*),SUM(provider_cost_usd) FROM model_calls"
-        ).fetchone()[:] == pytest.approx((2, 0.0002))
-        assert (
-            json.loads(
-                project.db.execute(
-                    "SELECT payload FROM effect_checkpoints WHERE family='row_effect' "
-                    "AND group_key=CAST(? AS TEXT)",
-                    (run_id,),
-                ).fetchone()[0]
-            )
-            == retained
-        )
-    finally:
-        project.close()
-
-
-def test_row_refresh_cannot_erase_unreconciled_external_effect(
-    tmp_path, monkeypatch
-) -> None:
-    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    """Physical row replacement must not cascade-delete money-path evidence."""
-
-    project = Project.create(tmp_path / "refreshed-return.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "soon replaced"}], columns)
-        row_id = int(project.db.execute("SELECT id FROM rows").fetchone()[0])
-        spec, program = _bound(_spec(sheet))
-        provider = _ReturnedProviderCall()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "test"},
-            cache_mode="off",
-        )
-        router._adapters["anthropic"] = provider  # noqa: SLF001
-        runner = _runner(project, router)
-        confirmed = _confirmed_spec(runner, spec, program)
-        run_id, claim_token = _prepare_claimed_run(runner, confirmed, program)
-
-        def die_before_result_commit(*_args, **_kwargs) -> None:
-            raise RuntimeError("returned before refresh")
-
-        runner.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
-        with pytest.raises(RuntimeError, match="returned before refresh"):
-            asyncio.run(
-                runner.run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=claim_token,
-                )
-            )
-        assert provider.calls == 1
-        assert (
-            project.db.execute(
-                "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
-                "AND group_key=CAST(? AS TEXT) AND unit_key=CAST(? AS TEXT)",
-                (run_id, row_id),
-            ).fetchone()[0]
-            == "returned"
-        )
-
-        # sheet_refresh replaces physical source rows with this same DELETE.
-        project.db.execute("DELETE FROM rows WHERE sheet_id=?", (sheet,))
-        project.db.commit()
-
-        checkpoint = project.db.execute(
-            "SELECT state, payload AS response FROM effect_checkpoints "
-            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT) "
-            "AND unit_key=CAST(? AS TEXT)",
-            (run_id, row_id),
-        ).fetchone()
-        assert checkpoint is not None
-        assert checkpoint["state"] == "returned"
-        assert checkpoint["response"]
-    finally:
-        project.close()
-
-
-def test_free_local_llm_row_checkpoint_is_consumed(tmp_path) -> None:
-    """A local LLM adapter still follows classify's metered row-effect
-    contract: reserve once before the call, then atomically consume the
-    checkpoint when its $0 result lands so no stranded reservation remains."""
-    project = Project.create(tmp_path / "free-local-row.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "one free local row"}], columns)
-        spec, program = _bound(
-            {
-                **_spec(sheet),
-                # Deliberately absent from pricing_data.json: canonical local
-                # identity, not a model-name exception, proves the known zero.
-                "model": "ollama/@test-local/frisket-free-local-test",
-            }
-        )
-
-        class _FreeLocalCall(OpenAICompatAdapter):
-            def __init__(self) -> None:
-                super().__init__("test", "http://127.0.0.1:11434/v1")
-                self.calls = 0
-
-            async def complete(  # noqa: ANN001
-                self, request, _client, *, cost_model=None
-            ):
-                self.calls += 1
-                return LLMResponse(
-                    content='{"relevance": 3}',
-                    data={"relevance": 3},
-                    tokens_in=10,
-                    tokens_out=5,
-                    cost=cost_of(cost_model or request.model, 10, 5),
-                    model=request.model,
-                )
-
-        provider = _FreeLocalCall()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            cache_mode="off",
-            use_env_keys=False,
-            local_endpoints=(
-                LocalModelEndpointConfig(
-                    endpoint_id="test-local",
-                    display_name="Test local",
-                    origin="http://127.0.0.1:11434",
-                    source="local_file",
-                ),
-            ),
-        )
-        router._adapters["ollama"]._adapters["test-local"] = provider  # type: ignore[attr-defined]  # noqa: SLF001
-        runner = _runner(project, router)
-        run_id, claim_token = _prepare_claimed_run(
-            runner, spec, program, confirmed=False
-        )
-
-        reserve_calls = 0
-        durable_reserve = runner.run_store.reserve_row_effect_checkpoint
-
-        def counting_reserve(*args, **kwargs):  # noqa: ANN002, ANN003
-            nonlocal reserve_calls
-            reserve_calls += 1
-            return durable_reserve(*args, **kwargs)
-
-        runner.run_store.reserve_row_effect_checkpoint = counting_reserve  # type: ignore[method-assign]
-        progress = asyncio.run(
-            runner.run(
-                spec,
+    with pytest.raises(ExecutionRouteVerificationFailed) as refusal:
+        asyncio.run(
+            _runner(project, router).run(
+                confirmed,
                 program=program,
-                confirmed=False,
+                confirmed=True,
                 resume_run_id=run_id,
                 claim_token=claim_token,
             )
         )
 
-        assert progress.done is True
-        assert progress.completed == 1
-        assert progress.failed == 0
-        assert provider.calls == 1
-        run_id = progress.run_id
-        run = project.db.execute(
-            "SELECT cost_actual FROM runs WHERE id=?", (run_id,)
-        ).fetchone()
-        assert run["cost_actual"] == 0.0
-        call = project.db.execute(
-            "SELECT provider_cost_usd, cost_source FROM model_calls WHERE run_id=?",
+    assert refusal.value.code == "stale_head"
+    assert "ONE dispatch at a time" in str(refusal.value)
+    assert provider.calls == 1
+    assert (
+        project.db.execute(
+            "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
+            "AND group_key=CAST(? AS TEXT)",
             (run_id,),
-        ).fetchone()
-        assert call["provider_cost_usd"] == 0.0
-        assert call["cost_source"] == "free_local"
+        ).fetchone()[0]
+        == "reserved"
+    )
+    run = project.db.execute(
+        "SELECT status, current_attempt_id FROM runs WHERE id=?",
+        (run_id,),
+    ).fetchone()
+    assert tuple(run) == ("running", first_attempt_id)
+    assert (
+        project.db.execute(
+            "SELECT state FROM execution_attempts WHERE id=?",
+            (first_attempt_id,),
+        ).fetchone()[0]
+        == "dispatching"
+    )
+    assert (
+        project.db.execute(
+            "SELECT status FROM output_column_claims WHERE claim_token=?",
+            (claim_token,),
+        ).fetchone()[0]
+        == "active"
+    )
 
-        from frisket.server.provenance_payloads import provenance_manifest_payload
 
-        report = provenance_manifest_payload(project, "free-local-project")
-        assert report["has_unknown_costs"] is False
-        assert report["unknown_cost_runs"] == 0
-        assert report["runs"][0]["cost"] == 0.0
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
-            ).fetchone()[0]
-            == 1
+def test_cancel_retains_unpublished_return_and_fresh_run_buys_new_work(
+    make_project, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    project = make_project("cancelled-return")
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "cancel after return"}], columns)
+    spec, program = _bound(_spec(sheet))
+    provider = _ReturnedProviderCall()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
+    router._adapters["anthropic"] = provider  # noqa: SLF001
+    first = _runner(project, router)
+    confirmed = _confirmed_spec(first, spec, program)
+    run_id, claim_token = _prepare_claimed_run(first, confirmed, program)
+    first.should_cancel = lambda _run_id: provider.calls >= 1
+    cancelled = asyncio.run(
+        first.run(
+            confirmed,
+            program=program,
+            confirmed=True,
+            resume_run_id=run_id,
+            claim_token=claim_token,
         )
-        assert reserve_calls == 1
-        # Publication consumes the returned checkpoint in the same transaction
-        # that writes the result; the durable fence does not linger afterward.
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect'"
-            ).fetchone()[0]
-            == 0
+    )
+    OutputColumnClaimStore(project).release(claim_token=claim_token, status="cancelled")
+    original_attempt = str(
+        project.db.execute(
+            "SELECT id FROM execution_attempts WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+    )
+    assert cancelled.cancelled is True
+    assert provider.calls == 1
+    checkpoint = project.db.execute(
+        "SELECT state, accounting_persisted, payload FROM effect_checkpoints "
+        "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
+        (run_id,),
+    ).fetchone()
+    assert checkpoint is not None
+    assert (checkpoint["state"], checkpoint["accounting_persisted"]) == (
+        "returned",
+        1,
+    )
+    retained = json.loads(checkpoint["payload"])
+    assert retained["relevance"]["value"] == 7
+    # Stop closes publication before the returned response reaches the
+    # result writer; its value survives in the paid-effect checkpoint.
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert first.run_store.get_run(run_id)["status"] == "cancelled"
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM cell_result_heads WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        == 0
+    )
+
+    assert provider.calls == 1
+    run = project.db.execute(
+        "SELECT cost_actual FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    calls = project.db.execute(
+        "SELECT attempt_id FROM model_calls WHERE run_id=?", (run_id,)
+    ).fetchall()
+    assert run["cost_actual"] == pytest.approx(0.0001)
+    assert len(calls) == 1
+    assert calls[0]["attempt_id"] == original_attempt
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints "
+            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
+            (run_id,),
+        ).fetchone()[0]
+        == 1
+    )
+
+    row_id = int(
+        project.db.execute("SELECT id FROM rows WHERE sheet_id=?", (sheet,)).fetchone()[
+            0
+        ]
+    )
+    recovery = asyncio.run(
+        run_with_exact_confirmation(
+            _runner(project, router),
+            {**spec, "row_ids": [row_id], "replace_existing": True},
         )
-    finally:
-        project.close()
+    )
+    assert recovery.run_id != run_id
+    assert recovery.completed == 1
+    assert provider.calls == 2
+    assert project.db.execute(
+        "SELECT COUNT(*),SUM(provider_cost_usd) FROM model_calls"
+    ).fetchone()[:] == pytest.approx((2, 0.0002))
+    assert (
+        json.loads(
+            project.db.execute(
+                "SELECT payload FROM effect_checkpoints WHERE family='row_effect' "
+                "AND group_key=CAST(? AS TEXT)",
+                (run_id,),
+            ).fetchone()[0]
+        )
+        == retained
+    )
+
+
+def test_row_refresh_cannot_erase_unreconciled_external_effect(
+    make_project, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    """Physical row replacement must not cascade-delete money-path evidence."""
+
+    project = make_project("refreshed-return")
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "soon replaced"}], columns)
+    row_id = int(project.db.execute("SELECT id FROM rows").fetchone()[0])
+    spec, program = _bound(_spec(sheet))
+    provider = _ReturnedProviderCall()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        cache_mode="off",
+    )
+    router._adapters["anthropic"] = provider  # noqa: SLF001
+    runner = _runner(project, router)
+    confirmed = _confirmed_spec(runner, spec, program)
+    run_id, claim_token = _prepare_claimed_run(runner, confirmed, program)
+
+    def die_before_result_commit(*_args, **_kwargs) -> None:
+        raise RuntimeError("returned before refresh")
+
+    runner.run_store.write_results = die_before_result_commit  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="returned before refresh"):
+        asyncio.run(
+            runner.run(
+                confirmed,
+                program=program,
+                confirmed=True,
+                resume_run_id=run_id,
+                claim_token=claim_token,
+            )
+        )
+    assert provider.calls == 1
+    assert (
+        project.db.execute(
+            "SELECT state FROM effect_checkpoints WHERE family='row_effect' "
+            "AND group_key=CAST(? AS TEXT) AND unit_key=CAST(? AS TEXT)",
+            (run_id, row_id),
+        ).fetchone()[0]
+        == "returned"
+    )
+
+    # sheet_refresh replaces physical source rows with this same DELETE.
+    project.db.execute("DELETE FROM rows WHERE sheet_id=?", (sheet,))
+    project.db.commit()
+
+    checkpoint = project.db.execute(
+        "SELECT state, payload AS response FROM effect_checkpoints "
+        "WHERE family='row_effect' AND group_key=CAST(? AS TEXT) "
+        "AND unit_key=CAST(? AS TEXT)",
+        (run_id, row_id),
+    ).fetchone()
+    assert checkpoint is not None
+    assert checkpoint["state"] == "returned"
+    assert checkpoint["response"]
+
+
+def test_free_local_llm_row_checkpoint_is_consumed(make_project) -> None:
+    """A local LLM adapter still follows classify's metered row-effect
+    contract: reserve once before the call, then atomically consume the
+    checkpoint when its $0 result lands so no stranded reservation remains."""
+    project = make_project("free-local-row")
+    sheet = project.add_sheet("data")
+    columns = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "one free local row"}], columns)
+    spec, program = _bound(
+        {
+            **_spec(sheet),
+            # Deliberately absent from pricing_data.json: canonical local
+            # identity, not a model-name exception, proves the known zero.
+            "model": "ollama/@test-local/frisket-free-local-test",
+        }
+    )
+
+    class _FreeLocalCall(OpenAICompatAdapter):
+        def __init__(self) -> None:
+            super().__init__("test", "http://127.0.0.1:11434/v1")
+            self.calls = 0
+
+        async def complete(  # noqa: ANN001
+            self, request, _client, *, cost_model=None
+        ):
+            self.calls += 1
+            return LLMResponse(
+                content='{"relevance": 3}',
+                data={"relevance": 3},
+                tokens_in=10,
+                tokens_out=5,
+                cost=cost_of(cost_model or request.model, 10, 5),
+                model=request.model,
+            )
+
+    provider = _FreeLocalCall()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache_mode="off",
+        use_env_keys=False,
+        local_endpoints=(
+            LocalModelEndpointConfig(
+                endpoint_id="test-local",
+                display_name="Test local",
+                origin="http://127.0.0.1:11434",
+                source="local_file",
+            ),
+        ),
+    )
+    router._adapters["ollama"]._adapters["test-local"] = provider  # type: ignore[attr-defined]  # noqa: SLF001
+    runner = _runner(project, router)
+    run_id, claim_token = _prepare_claimed_run(runner, spec, program, confirmed=False)
+
+    reserve_calls = 0
+    durable_reserve = runner.run_store.reserve_row_effect_checkpoint
+
+    def counting_reserve(*args, **kwargs):  # noqa: ANN002, ANN003
+        nonlocal reserve_calls
+        reserve_calls += 1
+        return durable_reserve(*args, **kwargs)
+
+    runner.run_store.reserve_row_effect_checkpoint = counting_reserve  # type: ignore[method-assign]
+    progress = asyncio.run(
+        runner.run(
+            spec,
+            program=program,
+            confirmed=False,
+            resume_run_id=run_id,
+            claim_token=claim_token,
+        )
+    )
+
+    assert progress.done is True
+    assert progress.completed == 1
+    assert progress.failed == 0
+    assert provider.calls == 1
+    run_id = progress.run_id
+    run = project.db.execute(
+        "SELECT cost_actual FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    assert run["cost_actual"] == 0.0
+    call = project.db.execute(
+        "SELECT provider_cost_usd, cost_source FROM model_calls WHERE run_id=?",
+        (run_id,),
+    ).fetchone()
+    assert call["provider_cost_usd"] == 0.0
+    assert call["cost_source"] == "free_local"
+
+    from frisket.server.provenance_payloads import provenance_manifest_payload
+
+    report = provenance_manifest_payload(project, "free-local-project")
+    assert report["has_unknown_costs"] is False
+    assert report["unknown_cost_runs"] == 0
+    assert report["runs"][0]["cost"] == 0.0
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        == 1
+    )
+    assert reserve_calls == 1
+    # Publication consumes the returned checkpoint in the same transaction
+    # that writes the result; the durable fence does not linger afterward.
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='row_effect'"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def _wav(path) -> str:
@@ -1004,7 +973,7 @@ def _wav(path) -> str:
 
 
 def test_local_halt_discards_reservation_so_the_run_stays_recoverable(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ) -> None:
     """A metered-but-local row (no remote capability resolves) halting
     mid-session provably reached no provider; the meter fact books only at
@@ -1019,120 +988,115 @@ def test_local_halt_discards_reservation_so_the_run_stays_recoverable(
     )
     from pathlib import Path
 
-    project = Project.create(tmp_path / "local-halt.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"audio": project.add_column(sheet, "audio", type="audio")}
-        project.add_rows(
-            sheet,
-            [
-                {
-                    "audio": media_cell(
-                        project.add_blob(
-                            Path(_wav(tmp_path / f"row-{index}.wav")).read_bytes(),
-                            filename=f"row-{index}.wav",
-                            mime="audio/wav",
-                            metadata=owned_media_metadata_document(
-                                probe={"duration_seconds": 0.5, "kind": "audio"}
-                            ),
-                        ),
-                        mime="audio/wav",
-                        filename=f"row-{index}.wav",
-                    )
-                }
-                for index in range(2)
-            ],
-            columns,
-        )
-        action = {
-            "action_id": "media.transcribe",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "audio", "engine": "faster_whisper"},
-            "output_names": {"text": "transcript"},
-            "idempotency_key": "local-halt",
-        }
-        calls = 0
-        halt = True
-
-        async def halt_then_recover(self, path, spec, *, should_cancel=None):  # noqa: ANN001
-            nonlocal calls
-            del self, path, spec
-            calls += 1
-            if halt and calls == 2:
-                raise RecipeInvocationHalt(
-                    "local_session_failed", "session exited during row work"
-                )
-            return {
-                "text": f"transcript {calls}",
-                "segments": [{"start": 0.0, "end": 0.5, "text": f"transcript {calls}"}],
-                "language": "en",
-                "duration": 0.5,
-            }
-
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter, "transcribe", halt_then_recover
-        )
-        halted = run_action_spec(project, action, project_id="local-halt")
-        run_id = halted.run_id
-        assert halted.status == "failed", halted
-        assert any(error.code == "local_session_failed" for error in halted.errors)
-        assert calls == 2
-        # The halted row provably bought nothing; no reservation may survive
-        # to make the run permanently irrecoverable.
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints "
-                "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
-                (run_id,),
-            ).fetchone()[0]
-            == 0
-        )
-
-        halt = False
-        completed_rows = {
-            int(row[0])
-            for row in project.db.execute(
-                "SELECT DISTINCT row_id FROM results WHERE run_id=? AND outcome='ok'",
-                (run_id,),
-            ).fetchall()
-        }
-        pending_rows = [
-            int(row[0])
-            for row in project.db.execute(
-                "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet,)
-            ).fetchall()
-            if int(row[0]) not in completed_rows
-        ]
-        assert len(completed_rows) == 1
-        resumed = run_action_spec(
-            project,
+    project = make_project("local-halt")
+    sheet = project.add_sheet("data")
+    columns = {"audio": project.add_column(sheet, "audio", type="audio")}
+    project.add_rows(
+        sheet,
+        [
             {
-                **action,
-                "scope": {**action["scope"], "row_ids": pending_rows},
-                "replace_existing": True,
-                "idempotency_key": "local-recover",
-            },
-            project_id="local-halt",
-        )
+                "audio": media_cell(
+                    project.add_blob(
+                        Path(_wav(tmp_path / f"row-{index}.wav")).read_bytes(),
+                        filename=f"row-{index}.wav",
+                        mime="audio/wav",
+                        metadata=owned_media_metadata_document(
+                            probe={"duration_seconds": 0.5, "kind": "audio"}
+                        ),
+                    ),
+                    mime="audio/wav",
+                    filename=f"row-{index}.wav",
+                )
+            }
+            for index in range(2)
+        ],
+        columns,
+    )
+    action = {
+        "action_id": "media.transcribe",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"source": "audio", "engine": "faster_whisper"},
+        "output_names": {"text": "transcript"},
+        "idempotency_key": "local-halt",
+    }
+    calls = 0
+    halt = True
 
-        assert resumed.status == "completed", resumed
-        assert resumed.run_id != run_id
-        assert not resumed.errors
-        assert calls == 3
-        transcript = next(
-            c for c in project.columns(sheet) if c["name"] == "transcript"
-        )
-        assert sorted(project.get_values(sheet, transcript["id"]).values()) == [
-            "transcript 1",
-            "transcript 3",
-        ]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints "
-                "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
-                (run_id,),
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    async def halt_then_recover(self, path, spec, *, should_cancel=None):  # noqa: ANN001
+        nonlocal calls
+        del self, path, spec
+        calls += 1
+        if halt and calls == 2:
+            raise RecipeInvocationHalt(
+                "local_session_failed", "session exited during row work"
+            )
+        return {
+            "text": f"transcript {calls}",
+            "segments": [{"start": 0.0, "end": 0.5, "text": f"transcript {calls}"}],
+            "language": "en",
+            "duration": 0.5,
+        }
+
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter, "transcribe", halt_then_recover
+    )
+    halted = run_action_spec(project, action, project_id="local-halt")
+    run_id = halted.run_id
+    assert halted.status == "failed", halted
+    assert any(error.code == "local_session_failed" for error in halted.errors)
+    assert calls == 2
+    # The halted row provably bought nothing; no reservation may survive
+    # to make the run permanently irrecoverable.
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints "
+            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
+            (run_id,),
+        ).fetchone()[0]
+        == 0
+    )
+
+    halt = False
+    completed_rows = {
+        int(row[0])
+        for row in project.db.execute(
+            "SELECT DISTINCT row_id FROM results WHERE run_id=? AND outcome='ok'",
+            (run_id,),
+        ).fetchall()
+    }
+    pending_rows = [
+        int(row[0])
+        for row in project.db.execute(
+            "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet,)
+        ).fetchall()
+        if int(row[0]) not in completed_rows
+    ]
+    assert len(completed_rows) == 1
+    resumed = run_action_spec(
+        project,
+        {
+            **action,
+            "scope": {**action["scope"], "row_ids": pending_rows},
+            "replace_existing": True,
+            "idempotency_key": "local-recover",
+        },
+        project_id="local-halt",
+    )
+
+    assert resumed.status == "completed", resumed
+    assert resumed.run_id != run_id
+    assert not resumed.errors
+    assert calls == 3
+    transcript = next(c for c in project.columns(sheet) if c["name"] == "transcript")
+    assert sorted(project.get_values(sheet, transcript["id"]).values()) == [
+        "transcript 1",
+        "transcript 3",
+    ]
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints "
+            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
+            (run_id,),
+        ).fetchone()[0]
+        == 0
+    )

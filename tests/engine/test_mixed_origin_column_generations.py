@@ -4,7 +4,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 import json
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -124,7 +123,7 @@ def _assert_run_result_ref(
 
 
 def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The P3b existing-output vertical must not terminalize fresh outputs.
@@ -136,313 +135,297 @@ def test_regex_fresh_column_stays_progressive_then_subset_reuses_exact_heads(
     authority for the producer to reinterpret.
     """
 
-    project = Project.create(tmp_path / "regex-fresh-progress.frisket")
-    try:
-        sheet_id = project.add_sheet("Notes")
-        note_column = project.add_column(sheet_id, "note", type="text")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"note": "one 101"}, {"note": "two 202"}, {"note": "three 303"}],
-            {"note": note_column},
-        )
+    project = make_project("regex-fresh-progress")
+    sheet_id = project.add_sheet("Notes")
+    note_column = project.add_column(sheet_id, "note", type="text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"note": "one 101"}, {"note": "two 202"}, {"note": "three 303"}],
+        {"note": note_column},
+    )
 
-        observed_flushes: list[tuple[int, tuple[int, ...]]] = []
-        original_write_results = RunResultStore.publish_result_batch
+    observed_flushes: list[tuple[int, tuple[int, ...]]] = []
+    original_write_results = RunResultStore.publish_result_batch
 
-        def observe_fresh_flush(
-            store: RunResultStore,
-            run_id: int,
-            batch: list[dict[str, Any]],
-            **kwargs: Any,
-        ) -> None:
-            original_write_results(store, run_id, batch, **kwargs)
-            run = project.db.execute(
-                "SELECT action_kind, status, op_id FROM runs WHERE id=?", (run_id,)
-            ).fetchone()
-            if run is None or str(run["action_kind"]) != "map.python":
-                return
-            assert run["status"] == "running"
-            for result in batch:
-                row_id = int(result["row_id"])
-                column_id = int(result["column_id"])
-                values, refs = project.get_values_with_refs(
-                    sheet_id, column_id, row_ids=[row_id]
-                )
-                assert values[row_id] == result["value"]
-                _assert_run_result_ref(
-                    refs[row_id],
-                    run_id=run_id,
-                    op_id=int(run["op_id"]),
-                    row_id=row_id,
-                    column_id=column_id,
-                )
-            observed_flushes.append(
-                (run_id, tuple(sorted(int(item["row_id"]) for item in batch)))
-            )
-
-        monkeypatch.setattr(RunResultStore, "publish_result_batch", observe_fresh_flush)
-        result = _run_deterministic_extract(
-            project,
-            _deterministic_extract_spec(
-                sheet_id,
-                key="p3b-regex-fresh@sha256:v1",
-            ),
-        )
-
-        assert result.status == "completed", result.errors
-        assert observed_flushes
-        assert {rid for _run_id, batch in observed_flushes for rid in batch} == set(
-            row_ids
-        )
-        output = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='digits'", (sheet_id,)
+    def observe_fresh_flush(
+        store: RunResultStore,
+        run_id: int,
+        batch: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> None:
+        original_write_results(store, run_id, batch, **kwargs)
+        run = project.db.execute(
+            "SELECT action_kind, status, op_id FROM runs WHERE id=?", (run_id,)
         ).fetchone()
-        assert output is not None
-        assert project.get_values(sheet_id, int(output["id"])) == {
-            row_ids[0]: "101",
-            row_ids[1]: "202",
-            row_ids[2]: "303",
-        }
-
-        output_id = int(output["id"])
-        first_op_id = _run_op_id(project, result.run_id)
-        before = _column_snapshot(
-            project,
-            sheet_id=sheet_id,
-            column_id=output_id,
-            row_ids=row_ids,
-        )
-        for row_id in row_ids:
-            _assert_run_result_ref(
-                before[1][row_id],
-                run_id=result.run_id,
-                op_id=first_op_id,
-                row_id=row_id,
-                column_id=output_id,
+        if run is None or str(run["action_kind"]) != "map.python":
+            return
+        assert run["status"] == "running"
+        for result in batch:
+            row_id = int(result["row_id"])
+            column_id = int(result["column_id"])
+            values, refs = project.get_values_with_refs(
+                sheet_id, column_id, row_ids=[row_id]
             )
-
-        # This observer checked fresh-column row-family publication. The
-        # replacement contract is exercised separately below.
-        monkeypatch.setattr(
-            RunResultStore, "publish_result_batch", original_write_results
-        )
-        project.apply_edits(
-            [
-                {
-                    "row_id": row_ids[0],
-                    "column_id": note_column,
-                    "value": "changed 909",
-                },
-                {
-                    "row_id": row_ids[1],
-                    "column_id": note_column,
-                    "value": "no digits remain",
-                },
-            ],
-            label="change exact regex subset",
-        )
-        subset = _run_deterministic_extract(
-            project,
-            _deterministic_extract_spec(
-                sheet_id,
-                key="p3b-regex-subset@sha256:v1",
-                row_ids=row_ids[:2],
-                overwrite_existing=True,
-            ),
-        )
-
-        assert subset.status == "completed", subset.errors
-        assert (
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='digits'",
-                (sheet_id,),
-            ).fetchone()["id"]
-            == output_id
-        )
-        subset_result_rows = {
-            int(row["row_id"])
-            for row in project.db.execute(
-                "SELECT row_id FROM results WHERE run_id=? AND column_id=?",
-                (subset.run_id, output_id),
-            ).fetchall()
-        }
-        assert subset_result_rows == set(row_ids[:2])
-
-        after = _column_snapshot(
-            project,
-            sheet_id=sheet_id,
-            column_id=output_id,
-            row_ids=row_ids,
-        )
-        assert after[0] == {
-            row_ids[0]: "909",
-            row_ids[1]: None,
-            row_ids[2]: "303",
-        }
-        subset_op_id = _run_op_id(project, subset.run_id)
-        for row_id in row_ids[:2]:
+            assert values[row_id] == result["value"]
             _assert_run_result_ref(
-                after[1][row_id],
-                run_id=subset.run_id,
-                op_id=subset_op_id,
+                refs[row_id],
+                run_id=run_id,
+                op_id=int(run["op_id"]),
                 row_id=row_id,
-                column_id=output_id,
+                column_id=column_id,
             )
+        observed_flushes.append(
+            (run_id, tuple(sorted(int(item["row_id"]) for item in batch)))
+        )
+
+    monkeypatch.setattr(RunResultStore, "publish_result_batch", observe_fresh_flush)
+    result = _run_deterministic_extract(
+        project,
+        _deterministic_extract_spec(
+            sheet_id,
+            key="p3b-regex-fresh@sha256:v1",
+        ),
+    )
+
+    assert result.status == "completed", result.errors
+    assert observed_flushes
+    assert {rid for _run_id, batch in observed_flushes for rid in batch} == set(row_ids)
+    output = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='digits'", (sheet_id,)
+    ).fetchone()
+    assert output is not None
+    assert project.get_values(sheet_id, int(output["id"])) == {
+        row_ids[0]: "101",
+        row_ids[1]: "202",
+        row_ids[2]: "303",
+    }
+
+    output_id = int(output["id"])
+    first_op_id = _run_op_id(project, result.run_id)
+    before = _column_snapshot(
+        project,
+        sheet_id=sheet_id,
+        column_id=output_id,
+        row_ids=row_ids,
+    )
+    for row_id in row_ids:
         _assert_run_result_ref(
-            after[1][row_ids[2]],
+            before[1][row_id],
             run_id=result.run_id,
             op_id=first_op_id,
-            row_id=row_ids[2],
+            row_id=row_id,
             column_id=output_id,
         )
-        assert _active_origin_run_ids(
+
+    # This observer checked fresh-column row-family publication. The
+    # replacement contract is exercised separately below.
+    monkeypatch.setattr(RunResultStore, "publish_result_batch", original_write_results)
+    project.apply_edits(
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": note_column,
+                "value": "changed 909",
+            },
+            {
+                "row_id": row_ids[1],
+                "column_id": note_column,
+                "value": "no digits remain",
+            },
+        ],
+        label="change exact regex subset",
+    )
+    subset = _run_deterministic_extract(
+        project,
+        _deterministic_extract_spec(
+            sheet_id,
+            key="p3b-regex-subset@sha256:v1",
+            row_ids=row_ids[:2],
+            overwrite_existing=True,
+        ),
+    )
+
+    assert subset.status == "completed", subset.errors
+    assert (
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='digits'",
+            (sheet_id,),
+        ).fetchone()["id"]
+        == output_id
+    )
+    subset_result_rows = {
+        int(row["row_id"])
+        for row in project.db.execute(
+            "SELECT row_id FROM results WHERE run_id=? AND column_id=?",
+            (subset.run_id, output_id),
+        ).fetchall()
+    }
+    assert subset_result_rows == set(row_ids[:2])
+
+    after = _column_snapshot(
+        project,
+        sheet_id=sheet_id,
+        column_id=output_id,
+        row_ids=row_ids,
+    )
+    assert after[0] == {
+        row_ids[0]: "909",
+        row_ids[1]: None,
+        row_ids[2]: "303",
+    }
+    subset_op_id = _run_op_id(project, subset.run_id)
+    for row_id in row_ids[:2]:
+        _assert_run_result_ref(
+            after[1][row_id],
+            run_id=subset.run_id,
+            op_id=subset_op_id,
+            row_id=row_id,
+            column_id=output_id,
+        )
+    _assert_run_result_ref(
+        after[1][row_ids[2]],
+        run_id=result.run_id,
+        op_id=first_op_id,
+        row_id=row_ids[2],
+        column_id=output_id,
+    )
+    assert _active_origin_run_ids(
+        project,
+        sheet_id=sheet_id,
+        column_id=output_id,
+        row_ids=row_ids,
+    ) == {result.run_id, subset.run_id}
+
+    assert project.undo() == subset_op_id
+    assert (
+        _column_snapshot(
             project,
             sheet_id=sheet_id,
             column_id=output_id,
             row_ids=row_ids,
-        ) == {result.run_id, subset.run_id}
-
-        assert project.undo() == subset_op_id
-        assert (
-            _column_snapshot(
-                project,
-                sheet_id=sheet_id,
-                column_id=output_id,
-                row_ids=row_ids,
-            )
-            == before
         )
-    finally:
-        project.close()
+        == before
+    )
 
 
 def test_regex_backfill_reconstructs_action_from_requested_cell_head(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "regex-backfill-exact-head.frisket")
-    try:
-        sheet_id = project.add_sheet("Notes")
-        note_column = project.add_column(sheet_id, "note", type="text")
-        row_ids = project.add_rows(
+    project = make_project("regex-backfill-exact-head")
+    sheet_id = project.add_sheet("Notes")
+    note_column = project.add_column(sheet_id, "note", type="text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"note": "101"}, {"note": "202"}],
+        {"note": note_column},
+    )
+
+    first = _run_deterministic_extract(
+        project,
+        _deterministic_extract_spec(
             sheet_id,
-            [{"note": "101"}, {"note": "202"}],
-            {"note": note_column},
-        )
+            key="exact-head-digits@sha256:v1",
+        ),
+    )
+    assert first.status == "completed", first.errors
 
-        first = _run_deterministic_extract(
-            project,
-            _deterministic_extract_spec(
-                sheet_id,
-                key="exact-head-digits@sha256:v1",
-            ),
-        )
-        assert first.status == "completed", first.errors
+    project.apply_edits(
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": note_column,
+                "value": "letters",
+            }
+        ],
+        label="change subset to letters",
+    )
+    second = _run_deterministic_extract(
+        project,
+        _deterministic_extract_spec(
+            sheet_id,
+            key="exact-head-letters@sha256:v1",
+            pattern=r"[a-z]+",
+            row_ids=[row_ids[0]],
+            overwrite_existing=True,
+        ),
+    )
+    assert second.status == "completed", second.errors
 
-        project.apply_edits(
-            [
-                {
-                    "row_id": row_ids[0],
-                    "column_id": note_column,
-                    "value": "letters",
-                }
-            ],
-            label="change subset to letters",
-        )
-        second = _run_deterministic_extract(
-            project,
-            _deterministic_extract_spec(
-                sheet_id,
-                key="exact-head-letters@sha256:v1",
-                pattern=r"[a-z]+",
-                row_ids=[row_ids[0]],
-                overwrite_existing=True,
-            ),
-        )
-        assert second.status == "completed", second.errors
+    output = next(
+        column for column in project.columns(sheet_id) if column["name"] == "digits"
+    )
+    output_id = int(output["id"])
+    assert project.get_values(sheet_id, output_id) == {
+        row_ids[0]: "letters",
+        row_ids[1]: "202",
+    }
 
-        output = next(
-            column for column in project.columns(sheet_id) if column["name"] == "digits"
-        )
-        output_id = int(output["id"])
-        assert project.get_values(sheet_id, output_id) == {
-            row_ids[0]: "letters",
-            row_ids[1]: "202",
-        }
+    backfill = run_action_spec(
+        project,
+        _backfill_action(sheet_id, row_ids=[row_ids[1]]),
+        project_id="exact-head-backfill",
+    )
+    assert backfill.status == "completed", backfill.errors
+    assert backfill.run_id not in {first.run_id, second.run_id}
+    assert project.get_values(sheet_id, output_id) == {
+        row_ids[0]: "letters",
+        row_ids[1]: "202",
+    }
+    heads = ResultGenerationStore(project).read_cell_heads(output_id, row_ids)
+    assert heads[row_ids[0]].run_id == second.run_id
+    assert heads[row_ids[1]].run_id == backfill.run_id
+    params = json.loads(
+        project.db.execute(
+            "SELECT params FROM runs WHERE id=?", (backfill.run_id,)
+        ).fetchone()["params"]
+    )
+    assert params["action_kind"] == "map.python"
+    assert "isdigit" in params["params"]["code"]
 
-        backfill = run_action_spec(
-            project,
-            _backfill_action(sheet_id, row_ids=[row_ids[1]]),
-            project_id="exact-head-backfill",
-        )
-        assert backfill.status == "completed", backfill.errors
-        assert backfill.run_id not in {first.run_id, second.run_id}
-        assert project.get_values(sheet_id, output_id) == {
-            row_ids[0]: "letters",
-            row_ids[1]: "202",
-        }
-        heads = ResultGenerationStore(project).read_cell_heads(output_id, row_ids)
-        assert heads[row_ids[0]].run_id == second.run_id
-        assert heads[row_ids[1]].run_id == backfill.run_id
-        params = json.loads(
-            project.db.execute(
-                "SELECT params FROM runs WHERE id=?", (backfill.run_id,)
-            ).fetchone()["params"]
-        )
-        assert params["action_kind"] == "map.python"
-        assert "isdigit" in params["params"]["code"]
+    before_values, before_refs = project.get_values_with_refs(
+        sheet_id, output_id, row_ids=row_ids
+    )
+    run_count = int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
+    refused = run_action_spec(
+        project,
+        _backfill_action(
+            sheet_id,
+            row_ids=row_ids,
+            key="mixed-origin-backfill-refused@sha256:v1",
+        ),
+        project_id="exact-head-backfill",
+    )
+    assert refused.status == "failed"
+    assert [error.code for error in refused.errors] == [
+        "mixed_origin_column_unsupported"
+    ]
+    assert (
+        int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]) == run_count
+    )
+    assert project.get_values_with_refs(sheet_id, output_id, row_ids=row_ids) == (
+        before_values,
+        before_refs,
+    )
 
-        before_values, before_refs = project.get_values_with_refs(
-            sheet_id, output_id, row_ids=row_ids
-        )
-        run_count = int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
-        refused = run_action_spec(
-            project,
-            _backfill_action(
-                sheet_id,
-                row_ids=row_ids,
-                key="mixed-origin-backfill-refused@sha256:v1",
-            ),
-            project_id="exact-head-backfill",
-        )
-        assert refused.status == "failed"
-        assert [error.code for error in refused.errors] == [
-            "mixed_origin_column_unsupported"
-        ]
-        assert (
-            int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
-            == run_count
-        )
-        assert project.get_values_with_refs(sheet_id, output_id, row_ids=row_ids) == (
-            before_values,
-            before_refs,
-        )
-
-        new_row = project.add_rows(sheet_id, [{"note": "303"}], {"note": note_column})[
-            0
-        ]
-        run_count = int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
-        missing_source = run_action_spec(
-            project,
-            _backfill_action(
-                sheet_id,
-                row_ids=[new_row],
-                key="missing-head-backfill-refused@sha256:v1",
-            ),
-            project_id="exact-head-backfill",
-        )
-        assert missing_source.status == "failed"
-        assert [error.code for error in missing_source.errors] == [
-            "backfill_source_unavailable"
-        ]
-        assert (
-            int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
-            == run_count
-        )
-        assert (
-            ResultGenerationStore(project).read_cell_heads(output_id, [new_row]) == {}
-        )
-    finally:
-        project.close()
+    new_row = project.add_rows(sheet_id, [{"note": "303"}], {"note": note_column})[0]
+    run_count = int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
+    missing_source = run_action_spec(
+        project,
+        _backfill_action(
+            sheet_id,
+            row_ids=[new_row],
+            key="missing-head-backfill-refused@sha256:v1",
+        ),
+        project_id="exact-head-backfill",
+    )
+    assert missing_source.status == "failed"
+    assert [error.code for error in missing_source.errors] == [
+        "backfill_source_unavailable"
+    ]
+    assert (
+        int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]) == run_count
+    )
+    assert ResultGenerationStore(project).read_cell_heads(output_id, [new_row]) == {}
 
 
 @dataclass
@@ -616,7 +599,7 @@ def _active_origin_run_ids(
 
 
 def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One vertical proof for value/null/error, mixed state, and rare undo.
@@ -629,284 +612,274 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     """
 
     recipe = _install_mixed_kind_recipe(monkeypatch)
-    project = Project.create(tmp_path / "mixed-origin-vertical.frisket")
-    try:
-        sheet_id = project.add_sheet("Cases")
-        seed_column = project.add_column(sheet_id, "seed", type="integer")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"seed": 1}, {"seed": 2}, {"seed": 3}, {"seed": 4}],
-            {"seed": seed_column},
-        )
-        value_row, null_row, error_row, untargeted_row = row_ids
-        target_rows = [value_row, null_row, error_row]
+    project = make_project("mixed-origin-vertical")
+    sheet_id = project.add_sheet("Cases")
+    seed_column = project.add_column(sheet_id, "seed", type="integer")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"seed": 1}, {"seed": 2}, {"seed": 3}, {"seed": 4}],
+        {"seed": seed_column},
+    )
+    value_row, null_row, error_row, untargeted_row = row_ids
+    target_rows = [value_row, null_row, error_row]
 
-        first_blob_bytes = b"first generation image bytes"
-        first_blob = project.add_blob(
-            first_blob_bytes,
-            filename="first.png",
-            mime="image/png",
-            metadata={"generation": "first"},
-        )
-        second_blob = project.add_blob(
-            b"second generation image bytes",
-            filename="second.png",
-            mime="image/png",
-            metadata={"generation": "second"},
-        )
-        evidence_blob_bytes = b"independent first-generation evidence bytes"
-        evidence_blob = project.add_blob(
-            evidence_blob_bytes,
-            filename="evidence.png",
-            mime="image/png",
-            metadata={"role": "evidence"},
-        )
+    first_blob_bytes = b"first generation image bytes"
+    first_blob = project.add_blob(
+        first_blob_bytes,
+        filename="first.png",
+        mime="image/png",
+        metadata={"generation": "first"},
+    )
+    second_blob = project.add_blob(
+        b"second generation image bytes",
+        filename="second.png",
+        mime="image/png",
+        metadata={"generation": "second"},
+    )
+    evidence_blob_bytes = b"independent first-generation evidence bytes"
+    evidence_blob = project.add_blob(
+        evidence_blob_bytes,
+        filename="evidence.png",
+        mime="image/png",
+        metadata={"role": "evidence"},
+    )
 
-        first = _run_fixture(
+    first = _run_fixture(
+        project,
+        recipe,
+        sheet_id=sheet_id,
+        phase="first",
+        blob_hash=first_blob,
+    )
+    assert first.done and first.failed == 0
+    first_op_id = _run_op_id(project, first.run_id)
+    columns = _output_columns(project, sheet_id)
+    assert set(columns) == {
+        "generated_text",
+        "generated_number",
+        "generated_boolean",
+        "generated_json",
+        "generated_nullable",
+        "generated_image",
+    }
+    before = {
+        name: _column_snapshot(
             project,
-            recipe,
             sheet_id=sheet_id,
-            phase="first",
-            blob_hash=first_blob,
+            column_id=column_id,
+            row_ids=row_ids,
         )
-        assert first.done and first.failed == 0
-        first_op_id = _run_op_id(project, first.run_id)
-        columns = _output_columns(project, sheet_id)
-        assert set(columns) == {
-            "generated_text",
-            "generated_number",
-            "generated_boolean",
-            "generated_json",
-            "generated_nullable",
-            "generated_image",
-        }
-        before = {
-            name: _column_snapshot(
+        for name, column_id in columns.items()
+    }
+
+    prior_error_ref = before["generated_text"][1][error_row]
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="file",
+        media_type="image/png",
+        blob_hash=evidence_blob,
+        filename="evidence.png",
+    )
+    span = record_source_span(
+        project,
+        artifact_id=int(artifact["id"]),
+        span_kind="text",
+        quote="first generation evidence",
+    )
+    evidence_link = record_evidence_link(
+        project,
+        subject_kind="cell_value",
+        subject_ref=prior_error_ref,
+        spans=[{"span_id": int(span["id"])}],
+        sheet_id=sheet_id,
+        row_id=error_row,
+        column_id=columns["generated_text"],
+        run_id=first.run_id,
+        op_id=first_op_id,
+    )
+
+    # Same-descriptor replacements publish each completed row family.
+    # The publication boundary includes evidence, not just result storage.
+    original_write_results = RunResultStore.publish_result_batch
+    published_writes: set[tuple[int, int]] = set()
+
+    def observe_replacement_publication(
+        store: RunResultStore,
+        run_id: int,
+        batch: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> None:
+        original_write_results(store, run_id, batch, **kwargs)
+        for result in batch:
+            row_id = int(result["row_id"])
+            column_id = int(result["column_id"])
+            staged = _column_snapshot(
                 project,
                 sheet_id=sheet_id,
                 column_id=column_id,
-                row_ids=row_ids,
+                row_ids=[row_id],
             )
-            for name, column_id in columns.items()
-        }
+            assert staged[0][row_id] == result["value"]
+            _assert_run_result_ref(
+                staged[1][row_id],
+                run_id=run_id,
+                op_id=_run_op_id(project, run_id),
+                row_id=row_id,
+                column_id=column_id,
+                outcome="failed" if result.get("error") else "completed",
+            )
+            published_writes.add((row_id, column_id))
 
-        prior_error_ref = before["generated_text"][1][error_row]
-        artifact = record_source_artifact(
+    monkeypatch.setattr(
+        RunResultStore, "publish_result_batch", observe_replacement_publication
+    )
+    second = _run_fixture(
+        project,
+        recipe,
+        sheet_id=sheet_id,
+        phase="second",
+        blob_hash=second_blob,
+        row_ids=target_rows,
+        null_row_id=null_row,
+        error_row_id=error_row,
+    )
+    monkeypatch.setattr(RunResultStore, "publish_result_batch", original_write_results)
+    assert second.done and second.failed == 1
+    second_op_id = _run_op_id(project, second.run_id)
+    assert published_writes == {
+        (row_id, column_id) for row_id in target_rows for column_id in columns.values()
+    }
+
+    second_results = {
+        (int(row["row_id"]), int(row["column_id"]))
+        for row in project.db.execute(
+            "SELECT row_id, column_id FROM results WHERE run_id=?",
+            (second.run_id,),
+        ).fetchall()
+    }
+    assert second_results == {
+        (row_id, column_id) for row_id in target_rows for column_id in columns.values()
+    }
+    assert all(row_id != untargeted_row for row_id, _column_id in second_results)
+
+    after = {
+        name: _column_snapshot(
             project,
-            artifact_kind="file",
-            media_type="image/png",
-            blob_hash=evidence_blob,
-            filename="evidence.png",
-        )
-        span = record_source_span(
-            project,
-            artifact_id=int(artifact["id"]),
-            span_kind="text",
-            quote="first generation evidence",
-        )
-        evidence_link = record_evidence_link(
-            project,
-            subject_kind="cell_value",
-            subject_ref=prior_error_ref,
-            spans=[{"span_id": int(span["id"])}],
             sheet_id=sheet_id,
-            row_id=error_row,
-            column_id=columns["generated_text"],
+            column_id=column_id,
+            row_ids=row_ids,
+        )
+        for name, column_id in columns.items()
+    }
+
+    for name, column_id in columns.items():
+        assert after[name][0][untargeted_row] == before[name][0][untargeted_row]
+        _assert_run_result_ref(
+            after[name][1][untargeted_row],
             run_id=first.run_id,
             op_id=first_op_id,
+            row_id=untargeted_row,
+            column_id=column_id,
         )
-
-        # Same-descriptor replacements publish each completed row family.
-        # The publication boundary includes evidence, not just result storage.
-        original_write_results = RunResultStore.publish_result_batch
-        published_writes: set[tuple[int, int]] = set()
-
-        def observe_replacement_publication(
-            store: RunResultStore,
-            run_id: int,
-            batch: list[dict[str, Any]],
-            **kwargs: Any,
-        ) -> None:
-            original_write_results(store, run_id, batch, **kwargs)
-            for result in batch:
-                row_id = int(result["row_id"])
-                column_id = int(result["column_id"])
-                staged = _column_snapshot(
-                    project,
-                    sheet_id=sheet_id,
-                    column_id=column_id,
-                    row_ids=[row_id],
-                )
-                assert staged[0][row_id] == result["value"]
-                _assert_run_result_ref(
-                    staged[1][row_id],
-                    run_id=run_id,
-                    op_id=_run_op_id(project, run_id),
-                    row_id=row_id,
-                    column_id=column_id,
-                    outcome="failed" if result.get("error") else "completed",
-                )
-                published_writes.add((row_id, column_id))
-
-        monkeypatch.setattr(
-            RunResultStore, "publish_result_batch", observe_replacement_publication
-        )
-        second = _run_fixture(
-            project,
-            recipe,
-            sheet_id=sheet_id,
-            phase="second",
-            blob_hash=second_blob,
-            row_ids=target_rows,
-            null_row_id=null_row,
-            error_row_id=error_row,
-        )
-        monkeypatch.setattr(
-            RunResultStore, "publish_result_batch", original_write_results
-        )
-        assert second.done and second.failed == 1
-        second_op_id = _run_op_id(project, second.run_id)
-        assert published_writes == {
-            (row_id, column_id)
-            for row_id in target_rows
-            for column_id in columns.values()
-        }
-
-        second_results = {
-            (int(row["row_id"]), int(row["column_id"]))
-            for row in project.db.execute(
-                "SELECT row_id, column_id FROM results WHERE run_id=?",
-                (second.run_id,),
-            ).fetchall()
-        }
-        assert second_results == {
-            (row_id, column_id)
-            for row_id in target_rows
-            for column_id in columns.values()
-        }
-        assert all(row_id != untargeted_row for row_id, _column_id in second_results)
-
-        after = {
-            name: _column_snapshot(
-                project,
-                sheet_id=sheet_id,
-                column_id=column_id,
-                row_ids=row_ids,
-            )
-            for name, column_id in columns.items()
-        }
-
-        for name, column_id in columns.items():
-            assert after[name][0][untargeted_row] == before[name][0][untargeted_row]
-            _assert_run_result_ref(
-                after[name][1][untargeted_row],
-                run_id=first.run_id,
-                op_id=first_op_id,
-                row_id=untargeted_row,
-                column_id=column_id,
-            )
-            assert _active_origin_run_ids(
-                project,
-                sheet_id=sheet_id,
-                column_id=column_id,
-                row_ids=row_ids,
-            ) == {first.run_id, second.run_id}
-
-        assert after["generated_text"][0][value_row] == "second:1"
-        _assert_run_result_ref(
-            after["generated_text"][1][value_row],
-            run_id=second.run_id,
-            op_id=second_op_id,
-            row_id=value_row,
-            column_id=columns["generated_text"],
-        )
-        assert after["generated_number"][0][value_row] == 101
-        assert after["generated_boolean"][0][value_row] is True
-        assert after["generated_json"][0][value_row] == {
-            "phase": "second",
-            "seed": 1,
-            "items": [1],
-        }
-
-        assert after["generated_nullable"][0][null_row] is None
-        _assert_run_result_ref(
-            after["generated_nullable"][1][null_row],
-            run_id=second.run_id,
-            op_id=second_op_id,
-            row_id=null_row,
-            column_id=columns["generated_nullable"],
-        )
-
-        assert after["generated_text"][0][error_row] is None
-        _assert_run_result_ref(
-            after["generated_text"][1][error_row],
-            run_id=second.run_id,
-            op_id=second_op_id,
-            row_id=error_row,
-            column_id=columns["generated_text"],
-            outcome="failed",
-        )
-
-        grid = _sheet_data_payload(
-            project,
-            sheet_id,
-            project.columns(sheet_id),
-            row_ids,
-            total=len(row_ids),
-        )
-        error_grid_row = next(row for row in grid["rows"] if row["id"] == error_row)
-        text_key = str(columns["generated_text"])
-        assert error_grid_row["cells"][text_key] is None
-        assert error_grid_row["meta"][text_key]["state"] == "error"
-        assert "deliberate error" in error_grid_row["meta"][text_key]["error"]
-        _assert_run_result_ref(
-            error_grid_row["meta"][text_key]["current_value_ref"],
-            run_id=second.run_id,
-            op_id=second_op_id,
-            row_id=error_row,
-            column_id=columns["generated_text"],
-            outcome="failed",
-        )
-
-        while_error_active = list_cell_evidence(
+        assert _active_origin_run_ids(
             project,
             sheet_id=sheet_id,
-            row_id=error_row,
-            column_id=columns["generated_text"],
-        )
-        assert while_error_active["links"] == []
-        assert (
-            while_error_active["current_value_ref"]
-            == after["generated_text"][1][error_row]
-        )
+            column_id=column_id,
+            row_ids=row_ids,
+        ) == {first.run_id, second.run_id}
 
-        project.gc_blobs()
-        assert project.read_blob(first_blob) == first_blob_bytes
-        assert project.read_blob(evidence_blob) == evidence_blob_bytes
-        assert project.undo() == second_op_id
+    assert after["generated_text"][0][value_row] == "second:1"
+    _assert_run_result_ref(
+        after["generated_text"][1][value_row],
+        run_id=second.run_id,
+        op_id=second_op_id,
+        row_id=value_row,
+        column_id=columns["generated_text"],
+    )
+    assert after["generated_number"][0][value_row] == 101
+    assert after["generated_boolean"][0][value_row] is True
+    assert after["generated_json"][0][value_row] == {
+        "phase": "second",
+        "seed": 1,
+        "items": [1],
+    }
 
-        restored = {
-            name: _column_snapshot(
-                project,
-                sheet_id=sheet_id,
-                column_id=column_id,
-                row_ids=row_ids,
-            )
-            for name, column_id in columns.items()
-        }
-        assert restored == before
-        restored_evidence = list_cell_evidence(
+    assert after["generated_nullable"][0][null_row] is None
+    _assert_run_result_ref(
+        after["generated_nullable"][1][null_row],
+        run_id=second.run_id,
+        op_id=second_op_id,
+        row_id=null_row,
+        column_id=columns["generated_nullable"],
+    )
+
+    assert after["generated_text"][0][error_row] is None
+    _assert_run_result_ref(
+        after["generated_text"][1][error_row],
+        run_id=second.run_id,
+        op_id=second_op_id,
+        row_id=error_row,
+        column_id=columns["generated_text"],
+        outcome="failed",
+    )
+
+    grid = _sheet_data_payload(
+        project,
+        sheet_id,
+        project.columns(sheet_id),
+        row_ids,
+        total=len(row_ids),
+    )
+    error_grid_row = next(row for row in grid["rows"] if row["id"] == error_row)
+    text_key = str(columns["generated_text"])
+    assert error_grid_row["cells"][text_key] is None
+    assert error_grid_row["meta"][text_key]["state"] == "error"
+    assert "deliberate error" in error_grid_row["meta"][text_key]["error"]
+    _assert_run_result_ref(
+        error_grid_row["meta"][text_key]["current_value_ref"],
+        run_id=second.run_id,
+        op_id=second_op_id,
+        row_id=error_row,
+        column_id=columns["generated_text"],
+        outcome="failed",
+    )
+
+    while_error_active = list_cell_evidence(
+        project,
+        sheet_id=sheet_id,
+        row_id=error_row,
+        column_id=columns["generated_text"],
+    )
+    assert while_error_active["links"] == []
+    assert (
+        while_error_active["current_value_ref"] == after["generated_text"][1][error_row]
+    )
+
+    project.gc_blobs()
+    assert project.read_blob(first_blob) == first_blob_bytes
+    assert project.read_blob(evidence_blob) == evidence_blob_bytes
+    assert project.undo() == second_op_id
+
+    restored = {
+        name: _column_snapshot(
             project,
             sheet_id=sheet_id,
-            row_id=error_row,
-            column_id=columns["generated_text"],
+            column_id=column_id,
+            row_ids=row_ids,
         )
-        assert restored_evidence["current_value_ref"] == prior_error_ref
-        assert [link["stable_id"] for link in restored_evidence["links"]] == [
-            evidence_link["stable_id"]
-        ]
-        assert project.read_blob(first_blob) == first_blob_bytes
-        assert project.read_blob(evidence_blob) == evidence_blob_bytes
-        assert MediaBlobStore(project).metadata(first_blob) == {"generation": "first"}
-    finally:
-        project.close()
+        for name, column_id in columns.items()
+    }
+    assert restored == before
+    restored_evidence = list_cell_evidence(
+        project,
+        sheet_id=sheet_id,
+        row_id=error_row,
+        column_id=columns["generated_text"],
+    )
+    assert restored_evidence["current_value_ref"] == prior_error_ref
+    assert [link["stable_id"] for link in restored_evidence["links"]] == [
+        evidence_link["stable_id"]
+    ]
+    assert project.read_blob(first_blob) == first_blob_bytes
+    assert project.read_blob(evidence_blob) == evidence_blob_bytes
+    assert MediaBlobStore(project).metadata(first_blob) == {"generation": "first"}

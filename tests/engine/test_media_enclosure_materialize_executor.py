@@ -323,36 +323,33 @@ def _refusing_fetcher(reason: str) -> Any:
     return fetcher
 
 
-def test_fixed_enclosure_column_type_is_validated_before_fetch(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "wrong-enclosure-type.frisket", name="Media v1")
-    try:
-        sheet_id = project.add_sheet("Malformed RSS")
-        enclosure_col = project.add_column(sheet_id, "enclosure_url", type="integer")
-        (row_id,) = project.add_rows(
-            sheet_id,
-            [{"enclosure_url": 42}],
-            {"enclosure_url": enclosure_col},
-        )
+def test_fixed_enclosure_column_type_is_validated_before_fetch(make_project) -> None:
+    project = make_project("Media v1")
+    sheet_id = project.add_sheet("Malformed RSS")
+    enclosure_col = project.add_column(sheet_id, "enclosure_url", type="integer")
+    (row_id,) = project.add_rows(
+        sheet_id,
+        [{"enclosure_url": 42}],
+        {"enclosure_url": enclosure_col},
+    )
 
-        result = _run(
-            project,
-            _media_enclosure_action(sheet_id=sheet_id, row_ids=[row_id]),
-            _refusing_fetcher("invalid fixed enclosure column"),
-        )
+    result = _run(
+        project,
+        _media_enclosure_action(sheet_id=sheet_id, row_ids=[row_id]),
+        _refusing_fetcher("invalid fixed enclosure column"),
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_input_ref"
-        assert result.errors[0].field == "scope.sheet_id"
-        assert result.errors[0].details == {
-            "column": "enclosure_url",
-            "type": "integer",
-        }
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_input_ref"
+    assert result.errors[0].field == "scope.sheet_id"
+    assert result.errors[0].details == {
+        "column": "enclosure_url",
+        "type": "integer",
+    }
 
 
 def test_shared_reservation_recheck_executes_enclosure_callback_signature(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.contracts.action import Receipt, ReceiptIO
     from frisket.actions.system import typed_action_for_request
@@ -360,298 +357,283 @@ def test_shared_reservation_recheck_executes_enclosure_callback_signature(
     from frisket.engine.executor import enclosure_action as enclosure_materialize
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "reservation-recheck.frisket", name="Media v1")
-    try:
-        seeded = _seed(project, tmp_path)
-        action_payload = _make_action(seeded)
-        bound = typed_action_for_request(action_payload)
-        action = bound.request
-        params_hash = typed_request_hash(bound)
-        running = Receipt(
-            receipt_id="receipt_enclosure_concurrent",
-            project_id=PROJECT_ID,
-            action_id="act_enclosure_concurrent",
-            action_kind=action.action_id,
-            idempotency_key=action.idempotency_key,
-            params_hash=params_hash,
-            status="running",
-            inputs=[
-                ReceiptIO(
-                    name="idempotency",
-                    ref={
-                        "kind": "media_enclosure_idempotency_reservation",
-                        "params_hash": params_hash,
-                    },
-                )
-            ],
-        )
+    project = make_project("Media v1")
+    seeded = _seed(project, tmp_path)
+    action_payload = _make_action(seeded)
+    bound = typed_action_for_request(action_payload)
+    action = bound.request
+    params_hash = typed_request_hash(bound)
+    running = Receipt(
+        receipt_id="receipt_enclosure_concurrent",
+        project_id=PROJECT_ID,
+        action_id="act_enclosure_concurrent",
+        action_kind=action.action_id,
+        idempotency_key=action.idempotency_key,
+        params_hash=params_hash,
+        status="running",
+        inputs=[
+            ReceiptIO(
+                name="idempotency",
+                ref={
+                    "kind": "media_enclosure_idempotency_reservation",
+                    "params_hash": params_hash,
+                },
+            )
+        ],
+    )
 
-        def insert_between_reservation_checks(
-            checked_project: Project, key: str | None
-        ) -> None:
-            assert checked_project is project
-            assert key == action.idempotency_key
-            ReceiptStore(project).insert_running(running)
-            return None
+    def insert_between_reservation_checks(
+        checked_project: Project, key: str | None
+    ) -> None:
+        assert checked_project is project
+        assert key == action.idempotency_key
+        ReceiptStore(project).insert_running(running)
+        return None
 
-        monkeypatch.setattr(
-            enclosure_materialize,
-            "_receipt_for_idempotency",
-            insert_between_reservation_checks,
-        )
+    monkeypatch.setattr(
+        enclosure_materialize,
+        "_receipt_for_idempotency",
+        insert_between_reservation_checks,
+    )
 
-        result = _run(
-            project,
-            action_payload,
-            _refusing_fetcher("concurrent reservation recheck"),
-        )
+    result = _run(
+        project,
+        action_payload,
+        _refusing_fetcher("concurrent reservation recheck"),
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "idempotency_in_progress"
-        assert result.errors[0].details == {"receipt_id": running.receipt_id}
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "idempotency_in_progress"
+    assert result.errors[0].details == {"receipt_id": running.receipt_id}
 
 
-def test_replay_and_already_downloaded_rows_never_refetch(tmp_path: Path) -> None:
+def test_replay_and_already_downloaded_rows_never_refetch(
+    tmp_path: Path, make_project
+) -> None:
     """Replaying the receipt reuses stored blobs, and a NEW key over rows whose
     media is already materialized no-ops per row (already_downloaded, zero
     ops) — neither path may touch the network."""
-    project = Project.create(tmp_path / "enclosure.frisket", name="Media v1")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _make_action(seeded)
-        first = _run(project, action, _fetch)
-        assert first.status == "completed", first.errors
+    project = make_project("Media v1")
+    seeded = _seed(project, tmp_path)
+    action = _make_action(seeded)
+    first = _run(project, action, _fetch)
+    assert first.status == "completed", first.errors
 
-        replay = _run(project, action, _refusing_fetcher("replay"))
-        assert replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        assert replay.op_ids == first.op_ids
-        replay_rows = next(o for o in replay.outputs if o.kind == "rows")
-        assert replay_rows.row_ids == seeded["row_ids"]
+    replay = _run(project, action, _refusing_fetcher("replay"))
+    assert replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    assert replay.op_ids == first.op_ids
+    replay_rows = next(o for o in replay.outputs if o.kind == "rows")
+    assert replay_rows.row_ids == seeded["row_ids"]
 
-        already = _run(
-            project,
-            _media_enclosure_action(
-                sheet_id=seeded["sheet_id"],
-                row_ids=seeded["row_ids"],
-                idempotency_key="media_enclosure_materialize@sha256:already",
+    already = _run(
+        project,
+        _media_enclosure_action(
+            sheet_id=seeded["sheet_id"],
+            row_ids=seeded["row_ids"],
+            idempotency_key="media_enclosure_materialize@sha256:already",
+        ),
+        _refusing_fetcher("already-downloaded row"),
+    )
+    assert already.status == "completed"
+    assert already.op_ids == []
+    already_cells = [
+        ref
+        for ref in _receipt_refs(project, already.receipt_id)
+        if ref["kind"] == "media_cell"
+    ]
+    assert {ref["status"] for ref in already_cells} == {"already_downloaded"}
+
+
+def test_missing_local_blob_is_repaired_by_a_new_run(
+    tmp_path: Path, make_project
+) -> None:
+    project = make_project("Media v1")
+    seeded = _seed(project, tmp_path)
+    first = _run(project, _make_action(seeded), _fetch)
+    assert first.status == "completed", first.errors
+    media_2 = _cell(project, seeded["sheet_id"], seeded["row_ids"][1], "media")
+
+    repair_calls: list[str] = []
+
+    def repair_fetch(url: str) -> tuple[bytes, str, str, str | None]:
+        repair_calls.append(url)
+        name = url.rsplit("/", 1)[-1]
+        return (f"ID3-{name}".encode(), "audio/mpeg", name, None)
+
+    local_blob_path(project, media_2["blob"]).unlink()
+    repaired = _run(
+        project,
+        _media_enclosure_action(
+            sheet_id=seeded["sheet_id"],
+            row_ids=[seeded["row_ids"][1]],
+            idempotency_key=(
+                "media_enclosure_materialize@sha256:repair-stale-existing"
             ),
-            _refusing_fetcher("already-downloaded row"),
-        )
-        assert already.status == "completed"
-        assert already.op_ids == []
-        already_cells = [
-            ref
-            for ref in _receipt_refs(project, already.receipt_id)
-            if ref["kind"] == "media_cell"
-        ]
-        assert {ref["status"] for ref in already_cells} == {"already_downloaded"}
-    finally:
-        project.close()
-
-
-def test_missing_local_blob_is_repaired_by_a_new_run(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "repair.frisket", name="Media v1")
-    try:
-        seeded = _seed(project, tmp_path)
-        first = _run(project, _make_action(seeded), _fetch)
-        assert first.status == "completed", first.errors
-        media_2 = _cell(project, seeded["sheet_id"], seeded["row_ids"][1], "media")
-
-        repair_calls: list[str] = []
-
-        def repair_fetch(url: str) -> tuple[bytes, str, str, str | None]:
-            repair_calls.append(url)
-            name = url.rsplit("/", 1)[-1]
-            return (f"ID3-{name}".encode(), "audio/mpeg", name, None)
-
-        local_blob_path(project, media_2["blob"]).unlink()
-        repaired = _run(
-            project,
-            _media_enclosure_action(
-                sheet_id=seeded["sheet_id"],
-                row_ids=[seeded["row_ids"][1]],
-                idempotency_key=(
-                    "media_enclosure_materialize@sha256:repair-stale-existing"
-                ),
-            ),
-            repair_fetch,
-        )
-        assert repaired.status == "completed"
-        assert repair_calls == ["https://cdn.example/ep2.mp3"]
-        with project.materialize_blob(media_2["blob"]) as path:
-            assert path.exists()
-        repaired_cell = next(
-            ref
-            for ref in _receipt_refs(project, repaired.receipt_id)
-            if ref["kind"] == "media_cell"
-        )
-        assert repaired_cell["status"] == "downloaded"
-        assert repaired_cell["may_feed"] == ["media.transcribe"]
-    finally:
-        project.close()
+        ),
+        repair_fetch,
+    )
+    assert repaired.status == "completed"
+    assert repair_calls == ["https://cdn.example/ep2.mp3"]
+    with project.materialize_blob(media_2["blob"]) as path:
+        assert path.exists()
+    repaired_cell = next(
+        ref
+        for ref in _receipt_refs(project, repaired.receipt_id)
+        if ref["kind"] == "media_cell"
+    )
+    assert repaired_cell["status"] == "downloaded"
+    assert repaired_cell["may_feed"] == ["media.transcribe"]
 
 
 def test_existing_foreign_blob_is_replaced_with_current_enclosure(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """A media cell already holding an unrelated imported blob is re-downloaded
     from the row's current enclosure_url — provenance wins over presence."""
     from frisket.engine.store.media_blobs import media_cell
 
-    project = Project.create(tmp_path / "provenance.frisket", name="Media v1")
-    try:
-        sheet_id = project.add_sheet("Foreign Media")
-        cols = {
-            "enclosure_url": project.add_column(sheet_id, "enclosure_url", type="link"),
-            "enclosure_mime": project.add_column(
-                sheet_id, "enclosure_mime", type="text"
-            ),
-            "media": project.add_column(sheet_id, "media", type="audio"),
-        }
-        foreign_blob = project.add_blob(
-            b"unrelated imported media",
-            filename="imported.mp3",
-            mime="audio/mpeg",
-            source_url="https://uploads.example/imported.mp3",
-        )
-        row_id = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "enclosure_url": "https://cdn.example/current.mp3",
-                    "enclosure_mime": "audio/mpeg",
-                    "media": media_cell(
-                        foreign_blob, mime="audio/mpeg", filename="imported.mp3"
-                    ),
-                }
-            ],
-            cols,
-        )[0]
-        calls: list[str] = []
+    project = make_project("Media v1")
+    sheet_id = project.add_sheet("Foreign Media")
+    cols = {
+        "enclosure_url": project.add_column(sheet_id, "enclosure_url", type="link"),
+        "enclosure_mime": project.add_column(sheet_id, "enclosure_mime", type="text"),
+        "media": project.add_column(sheet_id, "media", type="audio"),
+    }
+    foreign_blob = project.add_blob(
+        b"unrelated imported media",
+        filename="imported.mp3",
+        mime="audio/mpeg",
+        source_url="https://uploads.example/imported.mp3",
+    )
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "enclosure_url": "https://cdn.example/current.mp3",
+                "enclosure_mime": "audio/mpeg",
+                "media": media_cell(
+                    foreign_blob, mime="audio/mpeg", filename="imported.mp3"
+                ),
+            }
+        ],
+        cols,
+    )[0]
+    calls: list[str] = []
 
-        def provenance_fetch(url: str) -> tuple[bytes, str, str, str | None]:
-            calls.append(url)
-            return (b"current enclosure bytes", "audio/mpeg", "current.mp3", None)
+    def provenance_fetch(url: str) -> tuple[bytes, str, str, str | None]:
+        calls.append(url)
+        return (b"current enclosure bytes", "audio/mpeg", "current.mp3", None)
 
-        result = _run(
-            project,
-            _media_enclosure_action(
-                sheet_id=sheet_id,
-                row_ids=[row_id],
-                idempotency_key="media_enclosure_materialize@sha256:provenance",
-            ),
-            provenance_fetch,
-        )
-        assert result.status == "completed"
-        assert calls == ["https://cdn.example/current.mp3"]
-        current_media = _cell(project, sheet_id, row_id, "media")
-        assert current_media["blob"] != foreign_blob
-        provenance_cell = next(
-            ref
-            for ref in _receipt_refs(project, result.receipt_id)
-            if ref["kind"] == "media_cell"
-        )
-        assert provenance_cell["status"] == "downloaded"
-        assert provenance_cell["blob_hash"] == current_media["blob"]
-        assert provenance_cell["may_feed"] == ["media.transcribe"]
-    finally:
-        project.close()
+    result = _run(
+        project,
+        _media_enclosure_action(
+            sheet_id=sheet_id,
+            row_ids=[row_id],
+            idempotency_key="media_enclosure_materialize@sha256:provenance",
+        ),
+        provenance_fetch,
+    )
+    assert result.status == "completed"
+    assert calls == ["https://cdn.example/current.mp3"]
+    current_media = _cell(project, sheet_id, row_id, "media")
+    assert current_media["blob"] != foreign_blob
+    provenance_cell = next(
+        ref
+        for ref in _receipt_refs(project, result.receipt_id)
+        if ref["kind"] == "media_cell"
+    )
+    assert provenance_cell["status"] == "downloaded"
+    assert provenance_cell["blob_hash"] == current_media["blob"]
+    assert provenance_cell["may_feed"] == ["media.transcribe"]
 
 
-def test_mixed_download_outcomes_produce_partial_status(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "mixed.frisket", name="Media v1")
-    try:
-        sheet_id, row_ids = _seed_enclosure_sheet(
-            project,
-            name="Mixed Downloads",
-            urls=[
-                "https://cdn.example/mixed-ok.mp3",
-                "https://cdn.example/mixed-error.mp3",
-            ],
-        )
+def test_mixed_download_outcomes_produce_partial_status(make_project) -> None:
+    project = make_project("Media v1")
+    sheet_id, row_ids = _seed_enclosure_sheet(
+        project,
+        name="Mixed Downloads",
+        urls=[
+            "https://cdn.example/mixed-ok.mp3",
+            "https://cdn.example/mixed-error.mp3",
+        ],
+    )
 
-        def mixed_fetch(url: str) -> tuple[bytes, str, str, str | None]:
-            if url.endswith("mixed-error.mp3"):
-                return b"", "", "", "download denied"
-            return b"mixed ok", "audio/mpeg", "mixed-ok.mp3", None
+    def mixed_fetch(url: str) -> tuple[bytes, str, str, str | None]:
+        if url.endswith("mixed-error.mp3"):
+            return b"", "", "", "download denied"
+        return b"mixed ok", "audio/mpeg", "mixed-ok.mp3", None
 
-        mixed = _run(
-            project,
-            _media_enclosure_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="media_enclosure_materialize@sha256:mixed",
-            ),
-            mixed_fetch,
-        )
-        assert mixed.status == "partial"
-        assert mixed.errors[0].code == "media_download_failed"
-        mixed_receipt = _receipt(project, mixed.receipt_id)
-        assert mixed_receipt.status == "partial"
-        feedable_cells = [
-            output.ref
-            for output in mixed_receipt.outputs
-            if output.ref["kind"] == "media_cell"
-        ]
-        assert [ref["row_id"] for ref in feedable_cells] == [row_ids[0]]
-        assert feedable_cells[0]["may_feed"] == ["media.transcribe"]
-        failed_cell = next(
-            ref
-            for ref in _receipt_refs(project, mixed.receipt_id)
-            if ref["kind"] == "media_cell" and ref["row_id"] == row_ids[1]
-        )
-        assert failed_cell["status"] == "error"
-        assert failed_cell["may_feed"] == []
-    finally:
-        project.close()
+    mixed = _run(
+        project,
+        _media_enclosure_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="media_enclosure_materialize@sha256:mixed",
+        ),
+        mixed_fetch,
+    )
+    assert mixed.status == "partial"
+    assert mixed.errors[0].code == "media_download_failed"
+    mixed_receipt = _receipt(project, mixed.receipt_id)
+    assert mixed_receipt.status == "partial"
+    feedable_cells = [
+        output.ref
+        for output in mixed_receipt.outputs
+        if output.ref["kind"] == "media_cell"
+    ]
+    assert [ref["row_id"] for ref in feedable_cells] == [row_ids[0]]
+    assert feedable_cells[0]["may_feed"] == ["media.transcribe"]
+    failed_cell = next(
+        ref
+        for ref in _receipt_refs(project, mixed.receipt_id)
+        if ref["kind"] == "media_cell" and ref["row_id"] == row_ids[1]
+    )
+    assert failed_cell["status"] == "error"
+    assert failed_cell["may_feed"] == []
 
 
 def test_all_rows_failing_yields_failed_receipt_with_error_trail(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "errors.frisket", name="Media v1")
-    try:
-        sheet_id, row_ids = _seed_enclosure_sheet(
-            project, name="Download Errors", urls=["https://cdn.example/error.mp3"]
-        )
-        failed = _run(
-            project,
-            _media_enclosure_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                idempotency_key="media_enclosure_materialize@sha256:download-error",
-            ),
-            lambda url: (b"", "", "", "blocked URL"),
-        )
-        assert failed.status == "failed"
-        assert failed.receipt_id is not None
-        assert failed.errors[0].code == "media_download_failed"
-        assert _cell(project, sheet_id, row_ids[0], "media_status") == "error"
-        assert "blocked URL" in _cell(project, sheet_id, row_ids[0], "media_error")
-        failed_receipt = _receipt(project, failed.receipt_id)
-        assert failed_receipt.status == "failed"
-        assert all(
-            output.ref["kind"] not in {"media_cell", "media_blob"}
-            for output in failed_receipt.outputs
-        )
-        failed_cell = next(
-            ref
-            for ref in _receipt_refs(project, failed.receipt_id)
-            if ref["kind"] == "media_cell"
-        )
-        assert failed_cell["status"] == "error"
-        assert failed_cell["error"] == "blocked URL"
-        assert failed_cell["column_id"] == _columns(project, sheet_id)["media"]
-        assert "media.transcribe" not in failed_cell["may_feed"]
-    finally:
-        project.close()
+    project = make_project("Media v1")
+    sheet_id, row_ids = _seed_enclosure_sheet(
+        project, name="Download Errors", urls=["https://cdn.example/error.mp3"]
+    )
+    failed = _run(
+        project,
+        _media_enclosure_action(
+            sheet_id=sheet_id,
+            row_ids=row_ids,
+            idempotency_key="media_enclosure_materialize@sha256:download-error",
+        ),
+        lambda url: (b"", "", "", "blocked URL"),
+    )
+    assert failed.status == "failed"
+    assert failed.receipt_id is not None
+    assert failed.errors[0].code == "media_download_failed"
+    assert _cell(project, sheet_id, row_ids[0], "media_status") == "error"
+    assert "blocked URL" in _cell(project, sheet_id, row_ids[0], "media_error")
+    failed_receipt = _receipt(project, failed.receipt_id)
+    assert failed_receipt.status == "failed"
+    assert all(
+        output.ref["kind"] not in {"media_cell", "media_blob"}
+        for output in failed_receipt.outputs
+    )
+    failed_cell = next(
+        ref
+        for ref in _receipt_refs(project, failed.receipt_id)
+        if ref["kind"] == "media_cell"
+    )
+    assert failed_cell["status"] == "error"
+    assert failed_cell["error"] == "blocked URL"
+    assert failed_cell["column_id"] == _columns(project, sheet_id)["media"]
+    assert "media.transcribe" not in failed_cell["may_feed"]
 
 
 def test_media_enclosure_receipt_write_failure_clears_reservation(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from frisket.contracts.action import ActionError, ActionIdentity, ActionResult
@@ -676,41 +658,36 @@ def test_media_enclosure_receipt_write_failure_clears_reservation(
             ],
         )
 
-    project = Project.create(tmp_path / "write-failure.frisket", name="Media v1")
-    try:
-        seeded = _seed(project, tmp_path)
-        monkeypatch.setattr(
-            media_enclosure_materialize,
-            "_write_media_enclosure_receipt",
-            failed_write,
-        )
-        action = _media_enclosure_action(
-            sheet_id=seeded["sheet_id"],
-            row_ids=[seeded["row_ids"][0]],
-            idempotency_key=(
-                "media_enclosure_materialize@sha256:write-failure-after-run"
-            ),
-        )
-        result = _run(
-            project,
-            action,
-            lambda url: (b"write failure media", "audio/mpeg", "wf.mp3", None),
-        )
-        assert result.status == "failed"
-        assert result.receipt_id is None
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM receipts WHERE idempotency_key=?",
-                (action["idempotency_key"],),
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            _cell(project, seeded["sheet_id"], seeded["row_ids"][0], "media_status")
-            == "downloaded"
-        )
-        assert isinstance(
-            _cell(project, seeded["sheet_id"], seeded["row_ids"][0], "media"), dict
-        )
-    finally:
-        project.close()
+    project = make_project("Media v1")
+    seeded = _seed(project, tmp_path)
+    monkeypatch.setattr(
+        media_enclosure_materialize,
+        "_write_media_enclosure_receipt",
+        failed_write,
+    )
+    action = _media_enclosure_action(
+        sheet_id=seeded["sheet_id"],
+        row_ids=[seeded["row_ids"][0]],
+        idempotency_key=("media_enclosure_materialize@sha256:write-failure-after-run"),
+    )
+    result = _run(
+        project,
+        action,
+        lambda url: (b"write failure media", "audio/mpeg", "wf.mp3", None),
+    )
+    assert result.status == "failed"
+    assert result.receipt_id is None
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM receipts WHERE idempotency_key=?",
+            (action["idempotency_key"],),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        _cell(project, seeded["sheet_id"], seeded["row_ids"][0], "media_status")
+        == "downloaded"
+    )
+    assert isinstance(
+        _cell(project, seeded["sheet_id"], seeded["row_ids"][0], "media"), dict
+    )

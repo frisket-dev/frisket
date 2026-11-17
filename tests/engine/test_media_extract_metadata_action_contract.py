@@ -84,36 +84,32 @@ def test_media_extract_metadata_is_registered_and_queued() -> None:
 
 
 def test_media_extract_metadata_runner_spec_has_canonical_action_and_inputs(
-    tmp_path,
+    make_project,
 ) -> None:
-    from frisket.engine.store import Project
 
-    project = Project.create(tmp_path / "plan.frisket")
-    try:
-        sheet_id = project.add_sheet("Assets")
-        source_id = project.add_column(sheet_id, "asset", type="file")
-        row_ids = project.add_rows(sheet_id, [{"asset": None}], {"asset": source_id})
-        request = _request(output_mode="columns", refresh=True)
-        request["scope"] = {
-            "kind": "sheet_rows",
-            "sheet_id": sheet_id,
-            "row_ids": row_ids,
-        }
-        request["output_names"] = {"details": "asset_meta_details"}
-        plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
-        spec = plan.spec_dict()
-        assert spec["action_kind"] == "media.extract_metadata"
-        assert spec["input_columns"] == ["asset"]
-        assert spec["row_ids"] == row_ids
-        assert spec["params"] == {
-            "source": "asset",
-            "output_mode": "columns",
-            "refresh": True,
-        }
-        assert spec["output_names"]["details"] == "asset_meta_details"
-        assert "recipe" not in spec and "output_prefix" not in spec
-    finally:
-        project.close()
+    project = make_project("plan")
+    sheet_id = project.add_sheet("Assets")
+    source_id = project.add_column(sheet_id, "asset", type="file")
+    row_ids = project.add_rows(sheet_id, [{"asset": None}], {"asset": source_id})
+    request = _request(output_mode="columns", refresh=True)
+    request["scope"] = {
+        "kind": "sheet_rows",
+        "sheet_id": sheet_id,
+        "row_ids": row_ids,
+    }
+    request["output_names"] = {"details": "asset_meta_details"}
+    plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
+    spec = plan.spec_dict()
+    assert spec["action_kind"] == "media.extract_metadata"
+    assert spec["input_columns"] == ["asset"]
+    assert spec["row_ids"] == row_ids
+    assert spec["params"] == {
+        "source": "asset",
+        "output_mode": "columns",
+        "refresh": True,
+    }
+    assert spec["output_names"]["details"] == "asset_meta_details"
+    assert "recipe" not in spec and "output_prefix" not in spec
 
 
 def test_media_extract_metadata_declares_stable_typed_output_families() -> None:
@@ -166,52 +162,48 @@ def test_projected_date_preserves_date_only_midnight_and_timezone(value) -> None
 
 
 def test_completed_key_uses_standard_idempotency_replay_without_reprobe(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import frisket.ops.media_metadata as metadata
     import frisket.engine.executor.media_metadata_read as reader_module
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.media_blobs import media_cell
-    from frisket.engine.store import Project
 
     payload = b"\x89PNG\r\n\x1a\n" + struct.pack(">I4sII", 13, b"IHDR", 5, 4)
-    project = Project.create(tmp_path / "metadata-replay.frisket", name="metadata")
-    try:
-        sheet_id = project.add_sheet("Assets")
-        column_id = project.add_column(sheet_id, "asset", type="image")
-        digest = project.add_blob(payload, filename="asset.png", mime="image/png")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"asset": media_cell(digest, mime="image/png", filename="asset.png")}],
-            {"asset": column_id},
-        )[0]
-        action = {
-            "action_id": "media.extract_metadata",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id, "row_ids": [row_id]},
-            "params": {"source": "asset", "output_mode": "object"},
-            "output_names": {"details": "meta"},
-            "idempotency_key": "metadata-standard-replay",
-        }
+    project = make_project("metadata")
+    sheet_id = project.add_sheet("Assets")
+    column_id = project.add_column(sheet_id, "asset", type="image")
+    digest = project.add_blob(payload, filename="asset.png", mime="image/png")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"asset": media_cell(digest, mime="image/png", filename="asset.png")}],
+        {"asset": column_id},
+    )[0]
+    action = {
+        "action_id": "media.extract_metadata",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id, "row_ids": [row_id]},
+        "params": {"source": "asset", "output_mode": "object"},
+        "output_names": {"details": "meta"},
+        "idempotency_key": "metadata-standard-replay",
+    }
 
-        monkeypatch.setattr(metadata, "_resolve_exiftool_path", lambda: None)
-        original_extract = reader_module.extract_media_metadata
-        probe_calls = 0
+    monkeypatch.setattr(metadata, "_resolve_exiftool_path", lambda: None)
+    original_extract = reader_module.extract_media_metadata
+    probe_calls = 0
 
-        def counted_extract(*args, **kwargs):
-            nonlocal probe_calls
-            probe_calls += 1
-            return original_extract(*args, **kwargs)
+    def counted_extract(*args, **kwargs):
+        nonlocal probe_calls
+        probe_calls += 1
+        return original_extract(*args, **kwargs)
 
-        monkeypatch.setattr(reader_module, "extract_media_metadata", counted_extract)
-        first = run_action_spec(project, action, project_id="metadata-replay")
-        assert first.status == "completed", first.errors
-        assert first.receipt_id is not None
-        assert probe_calls == 1
+    monkeypatch.setattr(reader_module, "extract_media_metadata", counted_extract)
+    first = run_action_spec(project, action, project_id="metadata-replay")
+    assert first.status == "completed", first.errors
+    assert first.receipt_id is not None
+    assert probe_calls == 1
 
-        replay = run_action_spec(project, action, project_id="metadata-replay")
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == first.receipt_id
-        assert replay.run_id == first.run_id
-        assert probe_calls == 1
-    finally:
-        project.close()
+    replay = run_action_spec(project, action, project_id="metadata-replay")
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == first.receipt_id
+    assert replay.run_id == first.run_id
+    assert probe_calls == 1

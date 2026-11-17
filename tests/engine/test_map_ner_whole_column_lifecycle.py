@@ -92,25 +92,22 @@ def _backfill_action(sheet_id: int, column: str, **params: Any) -> dict[str, Any
     }
 
 
-def test_map_ner_resolver_keeps_canonical_runner_scope_authoritative(tmp_path):
-    project = Project.create(tmp_path / "ner-resolve-scope.frisket")
-    try:
-        sheet = project.add_sheet("Transcripts")
-        project.add_column(sheet, "body", type="text")
-        plan = model_plan(
-            {
-                "action_kind": "map.ner",
-                "sheet_id": sheet,
-                "input_columns": ["body"],
-                "labels": ["person"],
-            },
-            project,
-        )
-        assert plan.spec["sheet_id"] == sheet
-        assert "row_ids" not in plan.spec
-        assert "row_ids" not in plan.request.params
-    finally:
-        project.close()
+def test_map_ner_resolver_keeps_canonical_runner_scope_authoritative(make_project):
+    project = make_project("ner-resolve-scope")
+    sheet = project.add_sheet("Transcripts")
+    project.add_column(sheet, "body", type="text")
+    plan = model_plan(
+        {
+            "action_kind": "map.ner",
+            "sheet_id": sheet,
+            "input_columns": ["body"],
+            "labels": ["person"],
+        },
+        project,
+    )
+    assert plan.spec["sheet_id"] == sheet
+    assert "row_ids" not in plan.spec
+    assert "row_ids" not in plan.request.params
 
 
 # ---------- selected scope writes a fresh partial column ----------

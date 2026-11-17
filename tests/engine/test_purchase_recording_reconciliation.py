@@ -11,16 +11,15 @@ from frisket.actions.types import ActionRequest, SheetRows
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.execution.purchases import PurchaseAdmission
 from runner_test_helpers import run_with_output_claim
 from tests.execution_composition_helpers import open_attempt_authority
 
 
 def test_accounting_failure_halts_without_automatic_repurchase_and_retains_usage(
-    tmp_path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "recording.frisket")
+    project = make_project("recording")
     calls, failures = [], []
 
     async def complete(request, client):
@@ -122,7 +121,7 @@ def test_accounting_failure_halts_without_automatic_repurchase_and_retains_usage
 
 @pytest.mark.parametrize("engine", ["datalab", "docling"])
 def test_native_document_accounting_failure_retains_one_returned_fact(
-    tmp_path, monkeypatch, engine
+    make_project, monkeypatch, engine
 ):
     import json
     from frisket.execution.purchases import LocalPurchasePolicy
@@ -155,7 +154,7 @@ def test_native_document_accounting_failure_retains_one_returned_fact(
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "fixture")
     monkeypatch.setattr("frisket.ops.integrations.datalab.datalab_convert", datalab)
     monkeypatch.setattr("frisket.ops._sidecar._sidecar_post_transport", sidecar)
-    project = Project.create(tmp_path / "native-recording.frisket")
+    project = make_project("native-recording")
     router = ModelRouter(model_call_policy=BrokenRecording(), cache_mode="off")
     try:
         digest = project.add_blob(

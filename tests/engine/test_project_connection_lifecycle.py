@@ -11,8 +11,8 @@ from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import FilesystemProjectBlobStore
 
 
-def test_retired_threads_release_their_project_connections(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "thread-churn.frisket")
+def test_retired_threads_release_their_project_connections(make_project) -> None:
+    project = make_project("thread-churn")
     errors: list[BaseException] = []
     retired_connections: list[sqlite3.Connection] = []
 
@@ -49,8 +49,8 @@ def test_retired_threads_release_their_project_connections(tmp_path: Path) -> No
         project.close()
 
 
-def test_live_threads_keep_distinct_project_connections(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "live-threads.frisket")
+def test_live_threads_keep_distinct_project_connections(make_project) -> None:
+    project = make_project("live-threads")
     release = threading.Event()
     ready = threading.Semaphore(0)
     connection_ids: list[int] = []
@@ -86,9 +86,9 @@ def test_live_threads_keep_distinct_project_connections(tmp_path: Path) -> None:
 
 
 def test_project_close_closes_live_connections_and_allows_reopen(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "close.frisket")
+    project = make_project("close")
     old_connection = project.db
 
     project.close()

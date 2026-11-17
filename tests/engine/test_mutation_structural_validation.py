@@ -27,7 +27,6 @@ from frisket.actions.system import typed_action_for_request
 from frisket.actions.types import EditedCells, QueryEditedCells, RetypedColumn
 from frisket.engine.executor import actions as executor_actions
 from frisket.engine.executor.map_rows_action import typed_request_hash
-from frisket.engine.store import Project
 
 _HASH = f"sha256:{'a' * 64}"
 
@@ -115,11 +114,11 @@ def test_valid_mutations_preserve_raw_params_and_hashes() -> None:
 
 
 def test_malformed_mutations_stop_before_executor_and_database(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     del monkeypatch
 
-    project = Project.create(tmp_path / "malformed.frisket")
+    project = make_project("malformed")
     tables = ("sheets", "columns", "rows", "runs", "results", "ops", "receipts")
 
     def counts() -> dict[str, int]:

@@ -259,12 +259,11 @@ def test_quote_uses_provider_usage_not_flat_token_settlement():
 
 @pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
 def test_action_confirms_executes_records_usage_and_replays(
-    tmp_path, monkeypatch, action_id
+    make_project, monkeypatch, action_id
 ):
     import asyncio
     from frisket.ai.llm import ModelRouter
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store import Project
     from frisket.engine.store.runs import RunResultStore
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-secret")
@@ -277,7 +276,7 @@ def test_action_confirms_executes_records_usage_and_replays(
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     monkeypatch.setattr(ModelRouter, "client", property(lambda _: client))
-    project = Project.create(tmp_path / "decisions.frisket")
+    project = make_project("decisions")
     try:
         sheet = project.add_sheet("Documents")
         column = project.add_column(sheet, "body", type="text")

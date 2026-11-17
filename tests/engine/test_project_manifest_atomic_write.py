@@ -60,9 +60,9 @@ def _sample_until(path: Path, stop: threading.Event) -> list[str]:
 
 
 def test_a_concurrent_reader_never_sees_a_half_written_manifest(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "sampled.frisket", name="Sampled")
+    project = make_project("Sampled")
     manifest_path = project.path / "manifest.json"
     stop = threading.Event()
     seen: list[str] = []
@@ -126,14 +126,14 @@ def test_a_concurrent_reader_never_sees_a_half_written_initial_manifest(
 
 
 def test_two_concurrent_writers_cannot_revert_each_others_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The read-modify-write is serialized, so neither merge is built on a
     stale read. Deterministic in both directions: the parked writer has read
     the manifest and is holding whatever exclusion the writer provides. If the
     second writer can get in and publish, the parked one's own publish reverts
     it — which is the lost-update this lock exists to prevent."""
-    project = Project.create(tmp_path / "contended.frisket", name="Contended")
+    project = make_project("Contended")
     parked_has_read = threading.Event()
     other_writer_done = threading.Event()
     real_read = project_meta._read_manifest

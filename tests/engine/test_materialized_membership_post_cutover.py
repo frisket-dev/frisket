@@ -138,48 +138,45 @@ def test_active_membership_reader_filters_hidden_rows_and_diagnostics(tmp_path: 
         project.close()
 
 
-def test_active_membership_reader_chunks_large_materialized_row_sets(tmp_path: Path):
-    project = Project.create(tmp_path / "large-membership.frisket", name="large")
-    try:
-        source_sheet = project.add_sheet("Source")
-        source_col = project.add_column(source_sheet, "name")
-        source_rows = project.add_rows(
-            source_sheet,
-            [{"name": f"row {idx}"} for idx in range(1100)],
-            {"name": source_col},
-        )
-        cur = project.db.cursor()
-        cur.execute("BEGIN IMMEDIATE")
-        write = write_aggregate_sheet(
-            cur,
-            AggregateSheetPlan(
-                action_kind="reduce.group_summary",
-                label="reduce.group_summary Large",
-                target_sheet_name="Large",
-                parent_sheet_id=source_sheet,
-                op_spec={"kind": "reduce.group_summary"},
-                columns=[AggregateColumnSpec("group", "text")],
-                rows=[
-                    AggregateMaterializedRow(
-                        values={"group": f"group {idx}"},
-                        source_row_ids=[source_row_id],
-                    )
-                    for idx, source_row_id in enumerate(source_rows)
-                ],
-            ),
-        )
-        project.db.commit()
+def test_active_membership_reader_chunks_large_materialized_row_sets(make_project):
+    project = make_project("large")
+    source_sheet = project.add_sheet("Source")
+    source_col = project.add_column(source_sheet, "name")
+    source_rows = project.add_rows(
+        source_sheet,
+        [{"name": f"row {idx}"} for idx in range(1100)],
+        {"name": source_col},
+    )
+    cur = project.db.cursor()
+    cur.execute("BEGIN IMMEDIATE")
+    write = write_aggregate_sheet(
+        cur,
+        AggregateSheetPlan(
+            action_kind="reduce.group_summary",
+            label="reduce.group_summary Large",
+            target_sheet_name="Large",
+            parent_sheet_id=source_sheet,
+            op_spec={"kind": "reduce.group_summary"},
+            columns=[AggregateColumnSpec("group", "text")],
+            rows=[
+                AggregateMaterializedRow(
+                    values={"group": f"group {idx}"},
+                    source_row_ids=[source_row_id],
+                )
+                for idx, source_row_id in enumerate(source_rows)
+            ],
+        ),
+    )
+    project.db.commit()
 
-        rows = active_materialized_row_sources(
-            project.db,
-            materialized_row_ids=write.row_ids,
-            roles=("aggregate_source",),
-        )
-        assert len(rows) == len(write.row_ids)
-        assert [row["materialized_row_id"] for row in rows] == write.row_ids
-        assert [row["source_row_id"] for row in rows] == source_rows
-    finally:
-        project.close()
+    rows = active_materialized_row_sources(
+        project.db,
+        materialized_row_ids=write.row_ids,
+        roles=("aggregate_source",),
+    )
+    assert len(rows) == len(write.row_ids)
+    assert [row["materialized_row_id"] for row in rows] == write.row_ids
+    assert [row["source_row_id"] for row in rows] == source_rows
 
 
 def test_archive_round_trip_preserves_membership_table_and_indexes(tmp_path: Path):
@@ -205,59 +202,56 @@ def test_archive_round_trip_preserves_membership_table_and_indexes(tmp_path: Pat
 
 
 def test_rowset_records_expose_active_aggregate_membership_without_fake_parent(
-    tmp_path: Path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "rowset.frisket", name="rowset")
-    try:
-        source_sheet = project.add_sheet("Source")
-        source_col = project.add_column(source_sheet, "name")
-        source_rows = project.add_rows(
-            source_sheet,
-            [{"name": "Alice"}, {"name": "Alicia"}],
-            {"name": source_col},
-        )
-        cur = project.db.cursor()
-        cur.execute("BEGIN IMMEDIATE")
-        write = write_aggregate_sheet(
-            cur,
-            AggregateSheetPlan(
-                action_kind="resolve.entities",
-                label="resolve.entities Entities",
-                target_sheet_name="Entities",
-                parent_sheet_id=source_sheet,
-                op_spec={"kind": "resolve.entities"},
-                columns=[AggregateColumnSpec("entity", "text")],
-                rows=[
-                    AggregateMaterializedRow(
-                        values={"entity": "Alice"},
-                        source_row_ids=source_rows,
-                    )
-                ],
-            ),
-        )
-        project.db.commit()
+    project = make_project("rowset")
+    source_sheet = project.add_sheet("Source")
+    source_col = project.add_column(source_sheet, "name")
+    source_rows = project.add_rows(
+        source_sheet,
+        [{"name": "Alice"}, {"name": "Alicia"}],
+        {"name": source_col},
+    )
+    cur = project.db.cursor()
+    cur.execute("BEGIN IMMEDIATE")
+    write = write_aggregate_sheet(
+        cur,
+        AggregateSheetPlan(
+            action_kind="resolve.entities",
+            label="resolve.entities Entities",
+            target_sheet_name="Entities",
+            parent_sheet_id=source_sheet,
+            op_spec={"kind": "resolve.entities"},
+            columns=[AggregateColumnSpec("entity", "text")],
+            rows=[
+                AggregateMaterializedRow(
+                    values={"entity": "Alice"},
+                    source_row_ids=source_rows,
+                )
+            ],
+        ),
+    )
+    project.db.commit()
 
-        rowset = resolve_investigative_rowset(
-            project,
-            {"kind": "materialized_sheet", "sheet_id": write.sheet_id},
-        )
-        record = rowset["records"][0]
-        assert record["lineage"]["parent_row_ref"] is None
-        assert record["materialized_membership"] == [
-            {
-                "materialized_row_id": write.row_ids[0],
-                "source_row_id": source_rows[0],
-                "source_sheet_id": source_sheet,
-                "op_id": write.op_id,
-                "role": "aggregate_source",
-            },
-            {
-                "materialized_row_id": write.row_ids[0],
-                "source_row_id": source_rows[1],
-                "source_sheet_id": source_sheet,
-                "op_id": write.op_id,
-                "role": "aggregate_source",
-            },
-        ]
-    finally:
-        project.close()
+    rowset = resolve_investigative_rowset(
+        project,
+        {"kind": "materialized_sheet", "sheet_id": write.sheet_id},
+    )
+    record = rowset["records"][0]
+    assert record["lineage"]["parent_row_ref"] is None
+    assert record["materialized_membership"] == [
+        {
+            "materialized_row_id": write.row_ids[0],
+            "source_row_id": source_rows[0],
+            "source_sheet_id": source_sheet,
+            "op_id": write.op_id,
+            "role": "aggregate_source",
+        },
+        {
+            "materialized_row_id": write.row_ids[0],
+            "source_row_id": source_rows[1],
+            "source_sheet_id": source_sheet,
+            "op_id": write.op_id,
+            "role": "aggregate_source",
+        },
+    ]
