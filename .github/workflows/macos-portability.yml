@@ -35,3 +35,42 @@ jobs:
       - name: Run local startup, import, blob, and locking contracts
         run: >-
           uv run --no-sync pytest -q tests/test_cli_main.py tests/runtime/test_model_server.py tests/runtime/test_model_install.py tests/runtime/test_model_recovery.py tests/runtime/test_environment_use.py tests/engine/test_blob_path_ingest.py tests/engine/test_import_csv_executor.py tests/engine/test_import_csv_typed_boundaries.py tests/server/test_server_import_bulk_routes.py tests/server/test_server_import_bulk_extensionless_email.py tests/server/test_server_import_bulk_email_parity.py tests/ai/test_store.py::TestBasics::test_create_open_roundtrip tests/ai/test_store.py::TestConcurrentOpen::test_a_knob_change_mints_one_successor_not_one_per_open tests/engine/test_store_leases.py
+
+  managed-python:
+    # Developer venvs run on uv-managed CPython, whose SQLite is built without
+    # SQLITE_USE_URI; the setup-python build above (and ubuntu's system Python
+    # in ci.yml) has it on. Code that ATTACHes a `file:` URI through a
+    # connection opened without uri=True passes there and fails here.
+    name: macos-managed-python
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      PYTHONUTF8: "1"
+      FRISKET_NO_WORKER: "1"
+      FRISKET_SECRETS_MASTER_KEY: "macos-portability-test-key-not-for-production"
+      UV_PYTHON_PREFERENCE: only-managed
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - run: uv sync --dev --locked
+      - name: Require the uv-managed interpreter and its SQLite build
+        run: |
+          set -euo pipefail
+          managed="$(uv python dir)"
+          base="$(uv run --no-sync python -c 'import sys; print(sys.base_prefix)')"
+          uv run --no-sync python -c 'import sqlite3; print("sqlite", sqlite3.sqlite_version, [o for o in sqlite3.connect(":memory:").execute("pragma compile_options").fetchall() if "URI" in o[0]])'
+          case "$base" in
+            "$managed"/*) echo "uv-managed interpreter: $base" ;;
+            *) echo "interpreter $base is not under uv's managed dir $managed"; exit 1 ;;
+          esac
+      - run: uv run --no-sync python scripts/build_vec1.py
+      - name: Run snapshot, retrieval and embedding-view tests
+        run: >-
+          uv run --no-sync pytest -q -n auto --dist loadfile
+          tests/engine/test_project_read_snapshot_uri_attach.py
+          tests/ai/test_embedding_lens.py
+          tests/ai/test_embedding_similarity_queryspec.py
+          tests/features/test_composed_view_selection.py
+          tests/retrieval
