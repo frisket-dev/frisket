@@ -1,0 +1,43 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema-jsonc.json",
+  "entry": [
+    "src/entries/local.tsx",
+    "src/entries/team.tsx",
+    "src/main.tsx",
+    // CLI tools and servers started by package scripts, CI, or the release build
+    "scripts/*.mjs",
+    "scripts/*.ts",
+    "doctor.config.ts",
+    "playwright/e2e-duration-server.mjs",
+    // consumer app compiled by scripts/test-frontend-host-package.mjs
+    "tests/fixtures/frontend-host-consumer/src/main.tsx"
+  ],
+  "playwright": {
+    "config": ["playwright/playwright*.config.ts"],
+    "entry": [
+      "tests/**/*.spec.ts",
+      "tests/**/*.setup.ts",
+      "playwright/*.global-setup.ts",
+      "tests/inventory/setup.ts"
+    ]
+  },
+  // run through package scripts by name (lint, doctor, storybook), not imported
+  "ignoreDependencies": ["@frisket/plugin-sdk", "dependency-cruiser", "react-doctor", "storybook"],
+  "ignoreIssues": {
+    // src/generated is emitted from the Python contract, not hand-maintained
+    "src/generated/**": ["exports", "types"],
+    // deckglNamespace is consumed as a module namespace by the geo plugin (ctx.libs.deckgl)
+    "src/components/map/deckglNamespace.ts": ["exports"],
+    // loaded through import() or read as source text by tests, which knip does not trace
+    "src/api/notifications.ts": ["exports"],
+    "src/api/watches.ts": ["exports"],
+    "src/grid/replayPending.ts": ["exports"],
+    "src/workbench/pluginPanelContext.ts": ["exports"],
+    "src/workbench/pluginProjectionViewContext.ts": ["exports"],
+    // types consumed only through import('...').T expressions, which knip does not trace
+    "src/api/mcpServers.ts": ["types"],
+    "src/api/projectSearch.ts": ["types"]
+  },
+  // python3 runs scripts/e2e/checklog.py; knip and storybook are devDependencies
+  "ignoreBinaries": ["python3", "knip", "storybook"]
+}
