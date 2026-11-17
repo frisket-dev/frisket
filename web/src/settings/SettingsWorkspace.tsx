@@ -325,7 +325,7 @@ function SettingsDisabledSection({
       testId={`settings-disabled-${definition.scope}-${definition.section}`}
       className="settings-section-disabled"
     >
-      {definition.visibility === 'project' && (
+      {definition.scope === 'project' && (
         <Button type="button" onClick={() => navigate({ kind: 'picker' })}>
           Open a project
         </Button>

@@ -11,7 +11,8 @@ import type { ComponentProps } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { McpServersSection } from '../../src/settings/McpServersSection';
-import { groupedSettingsNavItems } from '../../src/settings/settingsNav';
+import { groupedSettingsNavItems, settingsItemAvailability } from '../../src/settings/settingsNav';
+import { SETTINGS_SECTIONS } from '../../src/settings/settingsRegistry';
 
 afterEach(() => {
   cleanup();
@@ -136,6 +137,20 @@ describe('McpServersSection — Solo Project Settings', () => {
       },
     });
     expect(hosted).toBeUndefined();
+  });
+
+  it('needs an open project like every other Project Settings section', () => {
+    const definition = SETTINGS_SECTIONS.find((item) => item.id === 'project.mcp-servers')!;
+    const withoutProject = groupedSettingsNavItems({ identityMode: false })
+      .flatMap((group) => group.items)
+      .find((item) => item.definition.id === 'project.mcp-servers');
+
+    expect(withoutProject).toBeUndefined();
+    expect(settingsItemAvailability(definition, { identityMode: false })).toEqual({
+      disabled: true,
+      disabledReason: 'Open a project to manage project settings.',
+      path: '/p/%7BprojectId%7D/settings/project/mcp-servers',
+    });
   });
 
   it('lists configured servers with honest enabled and test status', () => {
