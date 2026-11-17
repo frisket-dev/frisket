@@ -20,7 +20,6 @@ dialog.modal-card::backdrop {
   font-weight: 700; font-size: 14px;
 }
 .modal-warn-icon { color: var(--amber); }
-.modal-danger-icon { color: var(--red); }
 .modal-body-text { color: var(--text-mid); margin: 8px 0 4px; line-height: 1.45; }
 
 .modal-card[data-size="wide"] { width: 720px; }
