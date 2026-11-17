@@ -164,8 +164,10 @@ def _drain_dirty(project) -> None:
         pass
 
 
-def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(tmp_path) -> None:
-    project = Project.create(tmp_path / "resume.frisket")
+def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(
+    make_project,
+) -> None:
+    project = make_project("resume")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
@@ -240,73 +242,67 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(tmp_path) ->
         project.close()
 
 
-def test_same_source_lexical_dispatch_replay_is_idempotent(tmp_path) -> None:
-    project = Project.create(tmp_path / "lexical-replay.frisket")
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        row_id = project.add_rows(
-            sheet_id, [{"body": "alpha beta"}], {"body": column_id}
-        )[0]
-        resolved = _source(project, sheet_id, column_id, row_id)
+def test_same_source_lexical_dispatch_replay_is_idempotent(make_project) -> None:
+    project = make_project("lexical-replay")
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    row_id = project.add_rows(sheet_id, [{"body": "alpha beta"}], {"body": column_id})[
+        0
+    ]
+    resolved = _source(project, sheet_id, column_id, row_id)
 
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, resolved)
-            dispatch_resolved_text_source(store, resolved)
-            assert (
-                store.db.execute(
-                    "SELECT count(*) FROM lexical_sources lexical "
-                    "JOIN sources source ON source.source_key=lexical.source_key "
-                    "WHERE source.source_id=?",
-                    (resolved.source.source_id,),
-                ).fetchone()[0]
-                == 1
-            )
-    finally:
-        project.close()
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_text_source(store, resolved)
+        dispatch_resolved_text_source(store, resolved)
+        assert (
+            store.db.execute(
+                "SELECT count(*) FROM lexical_sources lexical "
+                "JOIN sources source ON source.source_key=lexical.source_key "
+                "WHERE source.source_id=?",
+                (resolved.source.source_id,),
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_unsupported_media_is_scoped_unavailable_without_encoder(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "unsupported-media.frisket")
-    try:
-        sheet_id = project.add_sheet("Media")
-        column_id = project.add_column(sheet_id, "archive", type="file")
-        digest = project.add_blob(b"archive", mime="application/zip")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"archive": {"blob": digest, "mime": "application/zip"}}],
-            {"archive": column_id},
-        )[0]
-        with project.read_snapshot() as snapshot:
-            resolved = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-            )
-        assert resolved is not None
+    project = make_project("unsupported-media")
+    sheet_id = project.add_sheet("Media")
+    column_id = project.add_column(sheet_id, "archive", type="file")
+    digest = project.add_blob(b"archive", mime="application/zip")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"archive": {"blob": digest, "mime": "application/zip"}}],
+        {"archive": column_id},
+    )[0]
+    with project.read_snapshot() as snapshot:
+        resolved = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+        )
+    assert resolved is not None
 
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_blob_source(store, resolved)
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id="unsupported-media-v1",
-                channel=UNSUPPORTED_MEDIA_CHANNEL,
-            )
-            assert state is not None
-            assert state.status == "unavailable"
-            assert state.space_id is not None
-            assert "application/zip" in (state.error_message or "")
-    finally:
-        project.close()
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_blob_source(store, resolved)
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id="unsupported-media-v1",
+            channel=UNSUPPORTED_MEDIA_CHANNEL,
+        )
+        assert state is not None
+        assert state.status == "unavailable"
+        assert state.space_id is not None
+        assert "application/zip" in (state.error_message or "")
 
 
 def test_pdf_page_views_prepare_independently_and_follow_selector_edits(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "pdf-page-views.frisket")
+    project = make_project("pdf-page-views")
     encoder = _Encoder()
     try:
         sheet_id = project.add_sheet("Documents")
@@ -451,9 +447,9 @@ def test_pdf_page_views_prepare_independently_and_follow_selector_edits(
 
 
 def test_pdf_render_failure_marks_target_failed_and_releases_queue(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
-    project = Project.create(tmp_path / "bad-pdf.frisket")
+    project = make_project("bad-pdf")
 
     async def fail_render(*_args, **_kwargs):
         raise PdfRenderError("invalid PDF bytes")
@@ -567,9 +563,9 @@ def test_missing_canonical_blob_marks_native_preparation_failed(
 
 
 def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "repaired-corrupt-image.frisket")
+    project = make_project("repaired-corrupt-image")
     image_bytes = _tiny_png()
     try:
         sheet_id = project.add_sheet("Media")
@@ -640,54 +636,46 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
 
 
 def test_preparation_policy_persists_strategy_and_defaults_raw_audio_off(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "preparation-policy.frisket")
-    try:
-        assert DEFAULT_PREPARATION_POLICY.video_recipe is not None
-        assert DEFAULT_PREPARATION_POLICY.video_recipe.strategy == (
-            "shot_clips_ffmpeg_scene_v1"
-        )
-        assert DEFAULT_PREPARATION_POLICY.audio_recipe is None
-        policy = PreparationPolicy(video_recipe=None, audio_recipe=None)
+    project = make_project("preparation-policy")
+    assert DEFAULT_PREPARATION_POLICY.video_recipe is not None
+    assert DEFAULT_PREPARATION_POLICY.video_recipe.strategy == (
+        "shot_clips_ffmpeg_scene_v1"
+    )
+    assert DEFAULT_PREPARATION_POLICY.audio_recipe is None
+    policy = PreparationPolicy(video_recipe=None, audio_recipe=None)
 
-        write_preparation_policy(project, policy)
+    write_preparation_policy(project, policy)
 
-        assert read_preparation_policy(project) == policy
-        assert not index_needs_work(project)
-    finally:
-        project.close()
+    assert read_preparation_policy(project) == policy
+    assert not index_needs_work(project)
 
 
 def test_preparation_policy_partial_json_inherits_defaults_and_null_disables(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "partial-preparation-policy.frisket")
-    try:
-        project.set_meta(PREPARATION_POLICY_META_KEY, '{"image_enabled":false}')
-        partial = read_preparation_policy(project)
-        assert partial.image_enabled is False
-        assert partial.text_recipe == DEFAULT_PREPARATION_POLICY.text_recipe
-        assert partial.video_recipe == DEFAULT_PREPARATION_POLICY.video_recipe
+    project = make_project("partial-preparation-policy")
+    project.set_meta(PREPARATION_POLICY_META_KEY, '{"image_enabled":false}')
+    partial = read_preparation_policy(project)
+    assert partial.image_enabled is False
+    assert partial.text_recipe == DEFAULT_PREPARATION_POLICY.text_recipe
+    assert partial.video_recipe == DEFAULT_PREPARATION_POLICY.video_recipe
 
-        project.set_meta(
-            PREPARATION_POLICY_META_KEY,
-            '{"text_recipe":null,"video_recipe":null}',
-        )
-        disabled = read_preparation_policy(project)
-        assert disabled.text_recipe is None
-        assert disabled.video_recipe is None
-        assert (
-            disabled.transcript_recipe == DEFAULT_PREPARATION_POLICY.transcript_recipe
-        )
-    finally:
-        project.close()
+    project.set_meta(
+        PREPARATION_POLICY_META_KEY,
+        '{"text_recipe":null,"video_recipe":null}',
+    )
+    disabled = read_preparation_policy(project)
+    assert disabled.text_recipe is None
+    assert disabled.video_recipe is None
+    assert disabled.transcript_recipe == DEFAULT_PREPARATION_POLICY.transcript_recipe
 
 
 def test_policy_edit_during_index_claim_is_not_acknowledged_under_stale_policy(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
-    project = Project.create(tmp_path / "policy-edit-during-index.frisket")
+    project = make_project("policy-edit-during-index")
     concurrent = Project(project.path)
     old_policy = PreparationPolicy(
         text_recipe=TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
@@ -755,136 +743,129 @@ def test_preparation_policy_refuses_malformed_named_knob(
 
 
 def test_stored_future_policy_keys_are_ignored_without_enabling_paid_work(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "future-preparation-policy.frisket")
-    try:
-        project.set_meta(
-            PREPARATION_POLICY_META_KEY,
-            json.dumps(
-                {
-                    "future_top_level": {"remote_provider": "paid"},
-                    "text_recipe": {
-                        "strategy": "text_codepoint_windows",
-                        "max_codepoints": 256,
-                        "overlap_codepoints": 32,
-                        "future_boundary_mode": "semantic",
-                    },
-                    "video_recipe": {
-                        "strategy": "future_remote_video",
-                        "remote_provider": "paid",
-                    },
-                    "audio_recipe": {
-                        "strategy": "future_remote_audio",
-                        "remote_provider": "paid",
-                    },
-                }
-            ),
+    project = make_project("future-preparation-policy")
+    project.set_meta(
+        PREPARATION_POLICY_META_KEY,
+        json.dumps(
+            {
+                "future_top_level": {"remote_provider": "paid"},
+                "text_recipe": {
+                    "strategy": "text_codepoint_windows",
+                    "max_codepoints": 256,
+                    "overlap_codepoints": 32,
+                    "future_boundary_mode": "semantic",
+                },
+                "video_recipe": {
+                    "strategy": "future_remote_video",
+                    "remote_provider": "paid",
+                },
+                "audio_recipe": {
+                    "strategy": "future_remote_audio",
+                    "remote_provider": "paid",
+                },
+            }
+        ),
+    )
+
+    policy = read_preparation_policy(project)
+
+    assert policy.text_recipe == TextChunkRecipe(
+        max_codepoints=256, overlap_codepoints=32
+    )
+    assert policy.video_recipe is None
+    assert policy.audio_recipe is None
+
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    project.add_rows(sheet_id, [{"body": "future-safe"}], {"body": column_id})
+    assert drain_index(project, batch_size=10) == 1
+    assert not index_needs_work(project)
+
+
+def test_default_policy_records_raw_audio_as_scoped_unavailable(make_project) -> None:
+    project = make_project("audio-disabled")
+    sheet_id = project.add_sheet("Media")
+    column_id = project.add_column(sheet_id, "audio", type="audio")
+    digest = project.add_blob(b"audio", mime="audio/wav")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"audio": {"blob": digest, "mime": "audio/wav"}}],
+        {"audio": column_id},
+    )[0]
+    with project.read_snapshot() as snapshot:
+        resolved = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
         )
-
-        policy = read_preparation_policy(project)
-
-        assert policy.text_recipe == TextChunkRecipe(
-            max_codepoints=256, overlap_codepoints=32
-        )
-        assert policy.video_recipe is None
-        assert policy.audio_recipe is None
-
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        project.add_rows(sheet_id, [{"body": "future-safe"}], {"body": column_id})
-        assert drain_index(project, batch_size=10) == 1
-        assert not index_needs_work(project)
-    finally:
-        project.close()
-
-
-def test_default_policy_records_raw_audio_as_scoped_unavailable(tmp_path) -> None:
-    project = Project.create(tmp_path / "audio-disabled.frisket")
-    try:
-        sheet_id = project.add_sheet("Media")
-        column_id = project.add_column(sheet_id, "audio", type="audio")
-        digest = project.add_blob(b"audio", mime="audio/wav")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"audio": {"blob": digest, "mime": "audio/wav"}}],
-            {"audio": column_id},
-        )[0]
-        with project.read_snapshot() as snapshot:
-            resolved = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-            )
-        assert resolved is not None
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_blob_source(store, resolved)
-            row = store.db.execute(
-                "SELECT status,error_code,error_message FROM preparation "
-                "WHERE source_id=? AND channel=?",
-                (resolved.source.source_id, AUDIO_CHANNEL),
-            ).fetchone()
-            assert row["status"] == "unavailable"
-            assert row["error_code"] == "policy_disabled"
-            assert "disabled by project policy" in row["error_message"]
-            assert store.requeue_unavailable() == 0
-    finally:
-        project.close()
+    assert resolved is not None
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_blob_source(store, resolved)
+        row = store.db.execute(
+            "SELECT status,error_code,error_message FROM preparation "
+            "WHERE source_id=? AND channel=?",
+            (resolved.source.source_id, AUDIO_CHANNEL),
+        ).fetchone()
+        assert row["status"] == "unavailable"
+        assert row["error_code"] == "policy_disabled"
+        assert "disabled by project policy" in row["error_message"]
+        assert store.requeue_unavailable() == 0
 
 
 def test_video_audio_opt_in_fans_out_and_policy_disable_retires_recipe(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "video-audio-policy.frisket")
-    try:
-        sheet_id = project.add_sheet("Media")
-        column_id = project.add_column(sheet_id, "video", type="video")
-        digest = project.add_blob(b"video", mime="video/mp4")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"video": {"blob": digest, "mime": "video/mp4"}}],
-            {"video": column_id},
-        )[0]
-        with project.read_snapshot() as snapshot:
-            resolved = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-            )
-        assert resolved is not None
-        enabled = PreparationPolicy(audio_recipe=AudioWindowRecipe())
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_blob_source(store, resolved, policy=enabled)
-            channels = {
-                row["channel"]
-                for row in store.db.execute(
-                    "SELECT channel FROM preparation WHERE source_id=?",
-                    (resolved.source.source_id,),
-                )
-            }
-            assert channels == {"audio", "video"}
-
-            dispatch_resolved_blob_source(
-                store, resolved, policy=DEFAULT_PREPARATION_POLICY
-            )
-            audio = store.db.execute(
-                "SELECT recipe_id,status,error_code FROM preparation "
-                "WHERE source_id=? AND channel='audio'",
+    project = make_project("video-audio-policy")
+    sheet_id = project.add_sheet("Media")
+    column_id = project.add_column(sheet_id, "video", type="video")
+    digest = project.add_blob(b"video", mime="video/mp4")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"video": {"blob": digest, "mime": "video/mp4"}}],
+        {"video": column_id},
+    )[0]
+    with project.read_snapshot() as snapshot:
+        resolved = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+        )
+    assert resolved is not None
+    enabled = PreparationPolicy(audio_recipe=AudioWindowRecipe())
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_blob_source(store, resolved, policy=enabled)
+        channels = {
+            row["channel"]
+            for row in store.db.execute(
+                "SELECT channel FROM preparation WHERE source_id=?",
                 (resolved.source.source_id,),
-            ).fetchone()
-            assert tuple(audio) == (
-                "policy-disabled-audio-v1",
-                "unavailable",
-                "policy_disabled",
             )
-    finally:
-        project.close()
+        }
+        assert channels == {"audio", "video"}
+
+        dispatch_resolved_blob_source(
+            store, resolved, policy=DEFAULT_PREPARATION_POLICY
+        )
+        audio = store.db.execute(
+            "SELECT recipe_id,status,error_code FROM preparation "
+            "WHERE source_id=? AND channel='audio'",
+            (resolved.source.source_id,),
+        ).fetchone()
+        assert tuple(audio) == (
+            "policy-disabled-audio-v1",
+            "unavailable",
+            "policy_disabled",
+        )
 
 
-def test_transcript_preparation_resumes_derived_segments(tmp_path, monkeypatch) -> None:
-    project = Project.create(tmp_path / "transcript-preparation.frisket")
+def test_transcript_preparation_resumes_derived_segments(
+    make_project, monkeypatch
+) -> None:
+    project = make_project("transcript-preparation")
     sheet_id, binding = _current_binding(project)
     segment_texts = ("a" * 1200, "b" * 1200, "c" * 1200)
     transcript_text = "\n".join(segment_texts)
@@ -945,55 +926,56 @@ def test_transcript_preparation_resumes_derived_segments(tmp_path, monkeypatch) 
         project.close()
 
 
-def test_dirty_dispatch_prepares_real_timestamped_transcript_column(tmp_path) -> None:
+def test_dirty_dispatch_prepares_real_timestamped_transcript_column(
+    make_project,
+) -> None:
     from tests.engine.test_temporal_transcript_inheritance import _seed_source
 
-    project = Project.create(tmp_path / "typed-transcript-dispatch.frisket")
-    try:
-        _source, transcript_column_id, _link = _seed_source(project)
+    project = make_project("typed-transcript-dispatch")
+    _source, transcript_column_id, _link = _seed_source(project)
 
-        while not index_batch(project, batch_size=10).complete:
-            pass
+    while not index_batch(project, batch_size=10).complete:
+        pass
 
-        with RetrievalStore(project).open() as store:
-            work = store.next_preparation(channel=TRANSCRIPT_CHANNEL)
-            assert work is not None
-            binding = store.db.execute(
-                "SELECT binding.column_id FROM bindings binding "
-                "JOIN sources source ON source.source_key=binding.source_key "
-                "WHERE source.source_id=?",
-                (work.source_revision.source_id,),
-            ).fetchone()
-            assert int(binding["column_id"]) == transcript_column_id
+    with RetrievalStore(project).open() as store:
+        work = store.next_preparation(channel=TRANSCRIPT_CHANNEL)
+        assert work is not None
+        binding = store.db.execute(
+            "SELECT binding.column_id FROM bindings binding "
+            "JOIN sources source ON source.source_key=binding.source_key "
+            "WHERE source.source_id=?",
+            (work.source_revision.source_id,),
+        ).fetchone()
+        assert int(binding["column_id"]) == transcript_column_id
 
-        progress = process_evidence_preparation_batch(
-            project,
+    progress = process_evidence_preparation_batch(
+        project,
+        channel=TRANSCRIPT_CHANNEL,
+        encoder=_Encoder(),
+    )
+    assert progress.processed_parts == 1
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            work.source_revision.source_id,
+            recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
             channel=TRANSCRIPT_CHANNEL,
-            encoder=_Encoder(),
         )
-        assert progress.processed_parts == 1
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                work.source_revision.source_id,
-                recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
-                channel=TRANSCRIPT_CHANNEL,
-            )
-            assert state is not None and state.status == "ready"
-            locator = json.loads(
-                store.db.execute(
-                    "SELECT part.locator_json FROM parts part JOIN sources source "
-                    "ON source.source_key=part.source_key WHERE source.source_id=?",
-                    (work.source_revision.source_id,),
-                ).fetchone()[0]
-            )
-            assert locator["time"] == {"end_seconds": 6.0, "start_seconds": 1.0}
-            assert len(locator["source_span_ids"]) == 2
-    finally:
-        project.close()
+        assert state is not None and state.status == "ready"
+        locator = json.loads(
+            store.db.execute(
+                "SELECT part.locator_json FROM parts part JOIN sources source "
+                "ON source.source_key=part.source_key WHERE source.source_id=?",
+                (work.source_revision.source_id,),
+            ).fetchone()[0]
+        )
+        assert locator["time"] == {"end_seconds": 6.0, "start_seconds": 1.0}
+        assert len(locator["source_span_ids"]) == 2
 
 
-def test_ocr_preparation_keeps_authoritative_span_ids(tmp_path, monkeypatch) -> None:
-    project = Project.create(tmp_path / "ocr-preparation.frisket")
+def test_ocr_preparation_keeps_authoritative_span_ids(
+    make_project, monkeypatch
+) -> None:
+    project = make_project("ocr-preparation")
     sheet_id, binding = _current_binding(project)
     text = "page one words"
     source = SourceRevision(
@@ -1040,71 +1022,68 @@ def test_ocr_preparation_keeps_authoritative_span_ids(tmp_path, monkeypatch) -> 
 
 
 def test_media_cell_dispatches_native_blob_and_derived_ocr(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
-    project = Project.create(tmp_path / "media-ocr-fanout.frisket")
-    try:
-        sheet_id = project.add_sheet("Media")
-        column_id = project.add_column(sheet_id, "image", type="image")
-        digest = project.add_blob(b"image bytes", mime="image/png")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"image": {"blob": digest, "mime": "image/png"}}],
-            {"image": column_id},
-        )[0]
-        with project.read_snapshot() as snapshot:
-            blob = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-            )
-        assert blob is not None
-        text = "recognized words"
-        ocr_source = SourceRevision(
-            "ocr:evidence",
-            "ocr_text",
-            "evidence_snapshot",
-            "sha256:snapshot",
+    project = make_project("media-ocr-fanout")
+    sheet_id = project.add_sheet("Media")
+    column_id = project.add_column(sheet_id, "image", type="image")
+    digest = project.add_blob(b"image bytes", mime="image/png")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"image": {"blob": digest, "mime": "image/png"}}],
+        {"image": column_id},
+    )[0]
+    with project.read_snapshot() as snapshot:
+        blob = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+        )
+    assert blob is not None
+    text = "recognized words"
+    ocr_source = SourceRevision(
+        "ocr:evidence",
+        "ocr_text",
+        "evidence_snapshot",
+        "sha256:snapshot",
+        _text_hash(text),
+    )
+    ocr = ResolvedCellOcrTextSource(
+        sheet_id,
+        blob.binding,
+        text,
+        TextSurface(
+            ocr_source,
+            "ocr-surface",
             _text_hash(text),
-        )
-        ocr = ResolvedCellOcrTextSource(
-            sheet_id,
-            blob.binding,
             text,
-            TextSurface(
-                ocr_source,
-                "ocr-surface",
-                _text_hash(text),
-                text,
-                ("span:page",),
-            ),
-        )
-        monkeypatch.setattr(
-            "frisket.search_index.resolve_cell_ocr_text_source",
-            lambda *_args, **_kwargs: ocr,
-        )
+            ("span:page",),
+        ),
+    )
+    monkeypatch.setattr(
+        "frisket.search_index.resolve_cell_ocr_text_source",
+        lambda *_args, **_kwargs: ocr,
+    )
 
-        while not index_batch(project, batch_size=10).complete:
-            pass
+    while not index_batch(project, batch_size=10).complete:
+        pass
 
-        with RetrievalStore(project).open() as store:
-            rows = store.db.execute(
-                "SELECT source.source_kind,binding.binding_id "
-                "FROM bindings binding JOIN sources source "
-                "ON source.source_key=binding.source_key "
-                "WHERE binding.sheet_id=? AND binding.row_id=? "
-                "AND binding.column_id=? ORDER BY source.source_kind",
-                (sheet_id, row_id, column_id),
-            ).fetchall()
-            assert [row["source_kind"] for row in rows] == ["blob", "ocr_text"]
-            assert len({row["binding_id"] for row in rows}) == 2
-    finally:
-        project.close()
+    with RetrievalStore(project).open() as store:
+        rows = store.db.execute(
+            "SELECT source.source_kind,binding.binding_id "
+            "FROM bindings binding JOIN sources source "
+            "ON source.source_key=binding.source_key "
+            "WHERE binding.sheet_id=? AND binding.row_id=? "
+            "AND binding.column_id=? ORDER BY source.source_kind",
+            (sheet_id, row_id, column_id),
+        ).fetchall()
+        assert [row["source_kind"] for row in rows] == ["blob", "ocr_text"]
+        assert len({row["binding_id"] for row in rows}) == 2
 
 
-def test_missing_encoder_is_unavailable_until_explicit_requeue(tmp_path) -> None:
-    project = Project.create(tmp_path / "unavailable.frisket")
+def test_missing_encoder_is_unavailable_until_explicit_requeue(make_project) -> None:
+    project = make_project("unavailable")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     try:
@@ -1138,8 +1117,8 @@ def test_missing_encoder_is_unavailable_until_explicit_requeue(tmp_path) -> None
         project.close()
 
 
-def test_runtime_startup_model_miss_becomes_retryable_unavailable(tmp_path) -> None:
-    project = Project.create(tmp_path / "startup-miss.frisket")
+def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) -> None:
+    project = make_project("startup-miss")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _MissingAtStartEncoder()
@@ -1175,8 +1154,8 @@ def test_runtime_startup_model_miss_becomes_retryable_unavailable(tmp_path) -> N
         project.close()
 
 
-def test_preparation_reuses_project_representation_cache(tmp_path) -> None:
-    project = Project.create(tmp_path / "cache.frisket")
+def test_preparation_reuses_project_representation_cache(make_project) -> None:
+    project = make_project("cache")
     recipe = TextChunkRecipe(max_codepoints=32, overlap_codepoints=0)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
@@ -1221,9 +1200,9 @@ def test_preparation_reuses_project_representation_cache(tmp_path) -> None:
 
 
 def test_repeated_chunks_share_one_representation_with_distinct_locations(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "repeated-chunks.frisket")
+    project = make_project("repeated-chunks")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
@@ -1265,9 +1244,9 @@ def test_repeated_chunks_share_one_representation_with_distinct_locations(
 
 
 def test_invalid_image_does_not_block_later_blank_pdf_in_worker_quantum(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "isolated-media-failure.frisket")
+    project = make_project("isolated-media-failure")
     encoder = _RejectInvalidImageEncoder()
     try:
         sheet_id = project.add_sheet("Documents")
@@ -1332,28 +1311,25 @@ def test_invalid_image_does_not_block_later_blank_pdf_in_worker_quantum(
         project.close()
 
 
-def test_lexical_drain_leaves_semantic_preparation_pending(tmp_path) -> None:
-    project = Project.create(tmp_path / "lexical-only.frisket")
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        project.add_rows(sheet_id, [{"body": "searchable"}], {"body": column_id})
+def test_lexical_drain_leaves_semantic_preparation_pending(make_project) -> None:
+    project = make_project("lexical-only")
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    project.add_rows(sheet_id, [{"body": "searchable"}], {"body": column_id})
 
-        assert drain_index(project) == 1
+    assert drain_index(project) == 1
 
-        with RetrievalStore(project).open() as store:
-            state = store.db.execute(
-                "SELECT status,error_code FROM preparation WHERE channel=?",
-                (TEXT_CHANNEL,),
-            ).fetchone()
-            assert tuple(state) == ("pending", None)
-        assert preparation_work_marker(project.path) is not None
-    finally:
-        project.close()
+    with RetrievalStore(project).open() as store:
+        state = store.db.execute(
+            "SELECT status,error_code FROM preparation WHERE channel=?",
+            (TEXT_CHANNEL,),
+        ).fetchone()
+        assert tuple(state) == ("pending", None)
+    assert preparation_work_marker(project.path) is not None
 
 
-def test_edit_during_preparation_rejects_old_cursor_target(tmp_path) -> None:
-    project = Project.create(tmp_path / "edit.frisket")
+def test_edit_during_preparation_rejects_old_cursor_target(make_project) -> None:
+    project = make_project("edit")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     try:
@@ -1403,9 +1379,9 @@ def test_edit_during_preparation_rejects_old_cursor_target(tmp_path) -> None:
 
 @pytest.mark.parametrize("change_during_encoding", [False, True])
 def test_source_file_edit_retires_pending_text(
-    tmp_path, change_during_encoding
+    make_project, change_during_encoding
 ) -> None:
-    project = Project.create(tmp_path / "document-dependency.frisket")
+    project = make_project("document-dependency")
     space = EmbeddingGemma2Space(dimensions=128)
     try:
         sheet_id = project.add_sheet("Documents")
@@ -1499,35 +1475,32 @@ def test_source_file_edit_retires_pending_text(
         project.close()
 
 
-def test_dirty_dispatch_uses_only_unified_sidecar_and_recovers_deletion(tmp_path):
-    project = Project.create(tmp_path / "unified-index.frisket")
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        project.add_rows(
-            sheet_id,
-            [{"body": "alpha one"}, {"body": "alpha two"}],
-            {"body": column_id},
+def test_dirty_dispatch_uses_only_unified_sidecar_and_recovers_deletion(make_project):
+    project = make_project("unified-index")
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    project.add_rows(
+        sheet_id,
+        [{"body": "alpha one"}, {"body": "alpha two"}],
+        {"body": column_id},
+    )
+
+    first = index_batch(project, batch_size=1)
+    assert first.processed <= 1 and first.pending
+    assert drain_index(project, batch_size=1) == 2
+    assert not (project.path / "project.search.db").exists()
+    with RetrievalStore(project).open() as store:
+        assert (
+            store.db.execute(
+                "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'alpha'"
+            ).fetchone()[0]
+            == 2
         )
 
-        first = index_batch(project, batch_size=1)
-        assert first.processed <= 1 and first.pending
-        assert drain_index(project, batch_size=1) == 2
-        assert not (project.path / "project.search.db").exists()
-        with RetrievalStore(project).open() as store:
-            assert (
-                store.db.execute(
-                    "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'alpha'"
-                ).fetchone()[0]
-                == 2
-            )
-
-        (project.path / "project.retrieval.db").unlink()
-        assert index_needs_work(project)
-        assert drain_index(project, batch_size=1) == 2
-        assert not index_needs_work(project)
-    finally:
-        project.close()
+    (project.path / "project.retrieval.db").unlink()
+    assert index_needs_work(project)
+    assert drain_index(project, batch_size=1) == 2
+    assert not index_needs_work(project)
 
 
 def test_index_claim_runs_one_bounded_preparation_pass(monkeypatch) -> None:

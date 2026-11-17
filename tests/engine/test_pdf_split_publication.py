@@ -61,210 +61,191 @@ def _children(count):
 
 
 def test_null_split_membership_projects_selective_restore_after_later_deletion(
-    tmp_path,
+    make_project,
 ):
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "split-membership.frisket")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values)
-        children = writer.publish_source([{"file": None}] * 2, expected_cursor=0)
-        publication = writer.finalize(expected_cursor=1, stopped=True)
-        assert {
-            tuple(row)
-            for row in project.db.execute(
-                "SELECT object_id,before_visible,after_visible FROM structural_changes "
-                "WHERE op_id=? AND kind='row'",
-                (publication.op_id,),
-            )
-        } == {(rows[0], 1, 0), *((child, 0, 1) for child in children)}
-        assert project.undo() == publication.op_id
-        assert project.visible_row_ids(sheet) == rows
-        assert project.redo() == publication.op_id
-        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
-        deleted = run_action_spec(
-            project,
-            {
-                "action_id": "row.delete",
-                "scope": {"kind": "project"},
-                "params": {"sheet_id": sheet, "row_ids": [children[0]]},
-                "idempotency_key": "delete-split-child",
-            },
-            project_id="project",
+    project = make_project("split-membership")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values)
+    children = writer.publish_source([{"file": None}] * 2, expected_cursor=0)
+    publication = writer.finalize(expected_cursor=1, stopped=True)
+    assert {
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT object_id,before_visible,after_visible FROM structural_changes "
+            "WHERE op_id=? AND kind='row'",
+            (publication.op_id,),
         )
-        assert deleted.status == "completed", deleted.errors
-        for direction in ("revert", "restore"):
-            with project.transaction_scope():
-                op_log.step_operation(project, direction, op_id=publication.op_id)
-        # Restoring the split must respect the independent later deletion.
-        assert project.visible_row_ids(sheet) == [children[1], *rows[1:]]
-        assert project.undo() == deleted.op_ids[0]
-        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
-    finally:
-        project.close()
+    } == {(rows[0], 1, 0), *((child, 0, 1) for child in children)}
+    assert project.undo() == publication.op_id
+    assert project.visible_row_ids(sheet) == rows
+    assert project.redo() == publication.op_id
+    assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+    deleted = run_action_spec(
+        project,
+        {
+            "action_id": "row.delete",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": sheet, "row_ids": [children[0]]},
+            "idempotency_key": "delete-split-child",
+        },
+        project_id="project",
+    )
+    assert deleted.status == "completed", deleted.errors
+    for direction in ("revert", "restore"):
+        with project.transaction_scope():
+            op_log.step_operation(project, direction, op_id=publication.op_id)
+    # Restoring the split must respect the independent later deletion.
+    assert project.visible_row_ids(sheet) == [children[1], *rows[1:]]
+    assert project.undo() == deleted.op_ids[0]
+    assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
 
 
-def test_partial_split_is_one_fenced_operation_and_one_undo(tmp_path: Path):
-    project = Project.create(tmp_path / "partial.frisket", name="partial")
-    try:
-        sheet, column, rows, values = _seed(project)
-        before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
-        writer = _start(project, sheet, column, rows, values)
-        with pytest.raises(ImportInProgress):
-            project.add_rows(sheet, [{"file": values[2]}], {"file": column})
-        with pytest.raises(TableError, match="unavailable"):
-            require_action_sheet_readable(project, sheet)
-        children = writer.publish_source(_children(2), expected_cursor=0)
-        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
-        other = project.add_sheet("Other")
-        other_column = project.add_column(other, "note")
-        project.add_rows(other, [{"note": "independent"}], {"note": other_column})
-        project.undo()  # newer operations remain undoable while split is active
-        assert project.visible_row_ids(other) == []
-        project.redo()
-        cursor = project.op_cursor
-        writer.fail_source(expected_cursor=1, error="unreadable PDF")
-        publication = writer.finalize(expected_cursor=2)
+def test_partial_split_is_one_fenced_operation_and_one_undo(make_project):
+    project = make_project("partial")
+    sheet, column, rows, values = _seed(project)
+    before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    writer = _start(project, sheet, column, rows, values)
+    with pytest.raises(ImportInProgress):
+        project.add_rows(sheet, [{"file": values[2]}], {"file": column})
+    with pytest.raises(TableError, match="unavailable"):
         require_action_sheet_readable(project, sheet)
-        assert publication.receipt.status == "partial"
-        assert project.op_cursor == cursor
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
-            ).fetchone()[0]
-            == 1
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before + 2
-        )
-        project.undo()  # unrelated later append
-        project.undo()  # completed subset of split
-        assert project.visible_row_ids(sheet) == rows
-        project.redo()
-        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
-        info = json.loads(
-            project.db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
-            ).fetchone()[0]
-        )
-        assert info["replaced_rows_import_session_id"] == "split:one"
-        assert "deleted_rows" not in info
-        assert op_log.validate_operation_undo_info(info) is None
-        assert {
-            "kind": "import_session_rows",
-            "session_id": "split:one",
-            "membership": "replaced",
-        } in op_log.operation_affected_refs(info)
-    finally:
-        project.close()
+    children = writer.publish_source(_children(2), expected_cursor=0)
+    assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+    other = project.add_sheet("Other")
+    other_column = project.add_column(other, "note")
+    project.add_rows(other, [{"note": "independent"}], {"note": other_column})
+    project.undo()  # newer operations remain undoable while split is active
+    assert project.visible_row_ids(other) == []
+    project.redo()
+    cursor = project.op_cursor
+    writer.fail_source(expected_cursor=1, error="unreadable PDF")
+    publication = writer.finalize(expected_cursor=2)
+    require_action_sheet_readable(project, sheet)
+    assert publication.receipt.status == "partial"
+    assert project.op_cursor == cursor
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before + 2
+    project.undo()  # unrelated later append
+    project.undo()  # completed subset of split
+    assert project.visible_row_ids(sheet) == rows
+    project.redo()
+    assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+    info = json.loads(
+        project.db.execute(
+            "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+        ).fetchone()[0]
+    )
+    assert info["replaced_rows_import_session_id"] == "split:one"
+    assert "deleted_rows" not in info
+    assert op_log.validate_operation_undo_info(info) is None
+    assert {
+        "kind": "import_session_rows",
+        "session_id": "split:one",
+        "membership": "replaced",
+    } in op_log.operation_affected_refs(info)
 
 
-def test_source_failure_rolls_back_all_children_and_original(
-    tmp_path: Path, monkeypatch
-):
-    project = Project.create(tmp_path / "rollback.frisket", name="rollback")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values)
-        original = project.add_rows
+def test_source_failure_rolls_back_all_children_and_original(make_project, monkeypatch):
+    project = make_project("rollback")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values)
+    original = project.add_rows
 
-        def fail(*args, **kwargs):
-            original(*args, **kwargs)
-            raise RuntimeError("disk full")
+    def fail(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("disk full")
 
-        monkeypatch.setattr(project, "add_rows", fail)
-        with pytest.raises(RuntimeError, match="disk full"):
-            writer.publish_source(_children(2), expected_cursor=0)
-        assert project.visible_row_ids(sheet) == rows
-        assert writer.session.cursor == 0
-        assert writer.session.committed_rows == 0
-        monkeypatch.setattr(project, "add_rows", original)
+    monkeypatch.setattr(project, "add_rows", fail)
+    with pytest.raises(RuntimeError, match="disk full"):
         writer.publish_source(_children(2), expected_cursor=0)
-        with pytest.raises(ImportSessionConflict):
-            writer.publish_source(_children(2), expected_cursor=0)
-        publication = writer.finalize(expected_cursor=1, stopped=True)
-        assert publication.receipt.status == "partial"
-    finally:
-        project.close()
+    assert project.visible_row_ids(sheet) == rows
+    assert writer.session.cursor == 0
+    assert writer.session.committed_rows == 0
+    monkeypatch.setattr(project, "add_rows", original)
+    writer.publish_source(_children(2), expected_cursor=0)
+    with pytest.raises(ImportSessionConflict):
+        writer.publish_source(_children(2), expected_cursor=0)
+    publication = writer.finalize(expected_cursor=1, stopped=True)
+    assert publication.receipt.status == "partial"
 
 
-def test_new_sheet_keeps_sources_and_revalidates_file_cell(tmp_path: Path):
-    project = Project.create(tmp_path / "stale.frisket", name="stale")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values, replace=False)
-        project.apply_edits(
-            [{"row_id": rows[0], "column_id": column, "value": {"blob": "f" * 64}}]
-        )
-        with pytest.raises(ImportSessionConflict, match="source"):
-            writer.publish_source(_children(2), expected_cursor=0)
-        writer.fail_source(expected_cursor=0, error="source changed")
-        children = writer.publish_source(_children(3), expected_cursor=1)
-        publication = writer.finalize(expected_cursor=2)
-        assert publication.receipt.status == "partial"
-        assert project.visible_row_ids(sheet) == rows
-        assert project.visible_row_ids(writer.sheet_id) == children
-    finally:
-        project.close()
+def test_new_sheet_keeps_sources_and_revalidates_file_cell(make_project):
+    project = make_project("stale")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values, replace=False)
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": column, "value": {"blob": "f" * 64}}]
+    )
+    with pytest.raises(ImportSessionConflict, match="source"):
+        writer.publish_source(_children(2), expected_cursor=0)
+    writer.fail_source(expected_cursor=0, error="source changed")
+    children = writer.publish_source(_children(3), expected_cursor=1)
+    publication = writer.finalize(expected_cursor=2)
+    assert publication.receipt.status == "partial"
+    assert project.visible_row_ids(sheet) == rows
+    assert project.visible_row_ids(writer.sheet_id) == children
 
 
-def test_reservation_preserves_ties_hidden_rows_and_nested_undo(tmp_path: Path):
-    project = Project.create(tmp_path / "order.frisket", name="order")
-    try:
-        sheet, column, rows, values = _seed(project)
-        project.db.execute("UPDATE rows SET position=1 WHERE sheet_id=?", (sheet,))
-        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[2],))
-        project.db.commit()
-        writer = _start(project, sheet, column, rows, values)
-        first = writer.publish_source(_children(2), expected_cursor=0)
-        second = writer.publish_source(_children(3), expected_cursor=1)
-        writer.finalize(expected_cursor=2)
-        assert project.visible_row_ids(sheet) == [*first, *second, rows[3]]
-        nested = PdfSplitWriter.start(
-            project,
-            session_id="split:nested",
-            writer_authority="claim:nested",
-            sheet_id=sheet,
-            replace=True,
-            columns=[{"name": "file", "type": "file"}],
-            project_id="project",
-            idempotency_key="nested",
-            params_hash="nested",
-            action_id="act:nested",
-            receipt_id="receipt:nested",
-            sources=[
-                PdfSplitSource(
-                    source_id="nested",
-                    child_count=2,
-                    sheet_id=sheet,
-                    row_id=first[0],
-                    column_id=column,
-                    value={"blob": f"{10:064x}"},
-                )
-            ],
-        )
-        grandchildren = nested.publish_source(_children(2), expected_cursor=0)
-        nested.finalize(expected_cursor=1)
-        assert project.visible_row_ids(sheet) == [
-            *grandchildren,
-            first[1],
-            *second,
-            rows[3],
-        ]
-        project.undo()
-        project.undo()
-        assert project.visible_row_ids(sheet) == [rows[0], rows[1], rows[3]]
-        project.redo()
-        project.redo()
-        assert project.visible_row_ids(sheet) == [
-            *grandchildren,
-            first[1],
-            *second,
-            rows[3],
-        ]
-    finally:
-        project.close()
+def test_reservation_preserves_ties_hidden_rows_and_nested_undo(make_project):
+    project = make_project("order")
+    sheet, column, rows, values = _seed(project)
+    project.db.execute("UPDATE rows SET position=1 WHERE sheet_id=?", (sheet,))
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (rows[2],))
+    project.db.commit()
+    writer = _start(project, sheet, column, rows, values)
+    first = writer.publish_source(_children(2), expected_cursor=0)
+    second = writer.publish_source(_children(3), expected_cursor=1)
+    writer.finalize(expected_cursor=2)
+    assert project.visible_row_ids(sheet) == [*first, *second, rows[3]]
+    nested = PdfSplitWriter.start(
+        project,
+        session_id="split:nested",
+        writer_authority="claim:nested",
+        sheet_id=sheet,
+        replace=True,
+        columns=[{"name": "file", "type": "file"}],
+        project_id="project",
+        idempotency_key="nested",
+        params_hash="nested",
+        action_id="act:nested",
+        receipt_id="receipt:nested",
+        sources=[
+            PdfSplitSource(
+                source_id="nested",
+                child_count=2,
+                sheet_id=sheet,
+                row_id=first[0],
+                column_id=column,
+                value={"blob": f"{10:064x}"},
+            )
+        ],
+    )
+    grandchildren = nested.publish_source(_children(2), expected_cursor=0)
+    nested.finalize(expected_cursor=1)
+    assert project.visible_row_ids(sheet) == [
+        *grandchildren,
+        first[1],
+        *second,
+        rows[3],
+    ]
+    project.undo()
+    project.undo()
+    assert project.visible_row_ids(sheet) == [rows[0], rows[1], rows[3]]
+    project.redo()
+    project.redo()
+    assert project.visible_row_ids(sheet) == [
+        *grandchildren,
+        first[1],
+        *second,
+        rows[3],
+    ]
 
 
 def test_split_membership_survives_bundle_export_and_schema_upgrade(tmp_path: Path):
@@ -306,63 +287,55 @@ def test_split_membership_survives_bundle_export_and_schema_upgrade(tmp_path: Pa
 
 
 @pytest.mark.parametrize("stopped,status", [(True, "cancelled"), (False, "failed")])
-def test_zero_published_sources_never_report_completed(tmp_path: Path, stopped, status):
-    project = Project.create(tmp_path / "zero.frisket", name="zero")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values, replace=False)
-        if not stopped:
-            writer.fail_source(expected_cursor=0, error="corrupt source")
-            writer.fail_source(expected_cursor=1, error="corrupt source")
-        publication = writer.finalize(
-            expected_cursor=0 if stopped else 2, stopped=stopped
-        )
-        assert publication.receipt.status == status
-        assert publication.row_count == 0
-        assert project.visible_row_ids(sheet) == rows
-        assert (
-            project.db.execute(
-                "SELECT barrier FROM ops WHERE id=?", (publication.op_id,)
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+def test_zero_published_sources_never_report_completed(make_project, stopped, status):
+    project = make_project("zero")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values, replace=False)
+    if not stopped:
+        writer.fail_source(expected_cursor=0, error="corrupt source")
+        writer.fail_source(expected_cursor=1, error="corrupt source")
+    publication = writer.finalize(expected_cursor=0 if stopped else 2, stopped=stopped)
+    assert publication.receipt.status == status
+    assert publication.row_count == 0
+    assert project.visible_row_ids(sheet) == rows
+    assert (
+        project.db.execute(
+            "SELECT barrier FROM ops WHERE id=?", (publication.op_id,)
+        ).fetchone()[0]
+        == 0
+    )
 
 
-def test_upload_append_keeps_existing_rows_and_has_no_nested_row_parent(tmp_path: Path):
-    project = Project.create(tmp_path / "append.frisket", name="append")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = PdfSplitWriter.start(
-            project,
-            session_id="split:upload",
-            writer_authority="claim:upload",
-            sheet_id=sheet,
-            columns=[{"name": "file", "type": "file"}],
-            project_id="project",
-            idempotency_key="upload",
-            params_hash="upload",
-            action_id="act:upload",
-            receipt_id="receipt:upload",
-            sources=[PdfSplitSource(source_id="upload:one", child_count=2)],
+def test_upload_append_keeps_existing_rows_and_has_no_nested_row_parent(make_project):
+    project = make_project("append")
+    sheet, column, rows, values = _seed(project)
+    writer = PdfSplitWriter.start(
+        project,
+        session_id="split:upload",
+        writer_authority="claim:upload",
+        sheet_id=sheet,
+        columns=[{"name": "file", "type": "file"}],
+        project_id="project",
+        idempotency_key="upload",
+        params_hash="upload",
+        action_id="act:upload",
+        receipt_id="receipt:upload",
+        sources=[PdfSplitSource(source_id="upload:one", child_count=2)],
+    )
+    children = writer.publish_source(_children(2), expected_cursor=0)
+    writer.finalize(expected_cursor=1)
+    assert project.visible_row_ids(sheet) == [*rows, *children]
+    assert all(
+        row[0] is None
+        for row in project.db.execute(
+            "SELECT parent_row_id FROM rows WHERE id IN (?,?)",
+            children,
         )
-        children = writer.publish_source(_children(2), expected_cursor=0)
-        writer.finalize(expected_cursor=1)
-        assert project.visible_row_ids(sheet) == [*rows, *children]
-        assert all(
-            row[0] is None
-            for row in project.db.execute(
-                "SELECT parent_row_id FROM rows WHERE id IN (?,?)",
-                children,
-            )
-        )
-        project.undo()
-        assert project.visible_row_ids(sheet) == rows
-        project.redo()
-        assert project.visible_row_ids(sheet) == [*rows, *children]
-    finally:
-        project.close()
+    )
+    project.undo()
+    assert project.visible_row_ids(sheet) == rows
+    project.redo()
+    assert project.visible_row_ids(sheet) == [*rows, *children]
 
 
 def test_source_checkpoint_resumes_with_new_writer_authority(tmp_path: Path):
@@ -393,293 +366,258 @@ def test_source_checkpoint_resumes_with_new_writer_authority(tmp_path: Path):
         project.close()
 
 
-def test_stop_after_last_source_preserves_completed_outcome(tmp_path: Path):
-    project = Project.create(tmp_path / "stop-race.frisket", name="stop-race")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values)
-        writer.publish_source(_children(2), expected_cursor=0)
-        writer.publish_source(_children(3), expected_cursor=1)
-        publication = writer.finalize(expected_cursor=2, stopped=True)
-        assert publication.receipt.status == "completed"
-        assert not any(
-            "stopped" in warning.lower() for warning in publication.receipt.warnings
-        )
-        assert (
-            project.db.execute(
-                "SELECT state FROM import_sessions WHERE id='split:one'"
-            ).fetchone()[0]
-            == "completed"
-        )
-    finally:
-        project.close()
+def test_stop_after_last_source_preserves_completed_outcome(make_project):
+    project = make_project("stop-race")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values)
+    writer.publish_source(_children(2), expected_cursor=0)
+    writer.publish_source(_children(3), expected_cursor=1)
+    publication = writer.finalize(expected_cursor=2, stopped=True)
+    assert publication.receipt.status == "completed"
+    assert not any(
+        "stopped" in warning.lower() for warning in publication.receipt.warnings
+    )
+    assert (
+        project.db.execute(
+            "SELECT state FROM import_sessions WHERE id='split:one'"
+        ).fetchone()[0]
+        == "completed"
+    )
 
 
-def test_undo_redo_invalidates_bound_split_preparation_generation(tmp_path: Path):
+def test_undo_redo_invalidates_bound_split_preparation_generation(make_project):
     from frisket.engine.store.import_sessions import (
         import_session_generation_is_applied,
     )
 
-    project = Project.create(tmp_path / "generation.frisket", name="generation")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values)
-        bound = writer.session
+    project = make_project("generation")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values)
+    bound = writer.session
 
-        def is_current():
-            return import_session_generation_is_applied(
-                project.db,
-                session_id=bound.id,
-                writer_authority=bound.writer_authority,
-                op_id=bound.op_id,
-            )
+    def is_current():
+        return import_session_generation_is_applied(
+            project.db,
+            session_id=bound.id,
+            writer_authority=bound.writer_authority,
+            op_id=bound.op_id,
+        )
 
-        assert not is_current()  # automatic preparation waits for publication
-        children = writer.publish_source(_children(2), expected_cursor=0)
-        writer.finalize(expected_cursor=1, stopped=True)
-        assert is_current()
-        # An aborted history transaction must not invalidate admitted work.
-        project.db.execute("BEGIN IMMEDIATE")
-        op_log.step_operation(project, "undo", expected_op_id=bound.op_id)
-        assert not is_current()
-        project.db.rollback()
-        assert is_current()
-        project.undo()
-        assert not is_current()
-        rotated = project.db.execute(
+    assert not is_current()  # automatic preparation waits for publication
+    children = writer.publish_source(_children(2), expected_cursor=0)
+    writer.finalize(expected_cursor=1, stopped=True)
+    assert is_current()
+    # An aborted history transaction must not invalidate admitted work.
+    project.db.execute("BEGIN IMMEDIATE")
+    op_log.step_operation(project, "undo", expected_op_id=bound.op_id)
+    assert not is_current()
+    project.db.rollback()
+    assert is_current()
+    project.undo()
+    assert not is_current()
+    rotated = project.db.execute(
+        "SELECT writer_authority FROM import_sessions WHERE id=?",
+        (bound.id,),
+    ).fetchone()[0]
+    assert rotated != bound.writer_authority
+    project.redo()
+    assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+    assert not is_current()  # restoring rows never revives the old worker
+    assert (
+        project.db.execute(
             "SELECT writer_authority FROM import_sessions WHERE id=?",
             (bound.id,),
         ).fetchone()[0]
-        assert rotated != bound.writer_authority
-        project.redo()
-        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
-        assert not is_current()  # restoring rows never revives the old worker
-        assert (
-            project.db.execute(
-                "SELECT writer_authority FROM import_sessions WHERE id=?",
-                (bound.id,),
-            ).fetchone()[0]
-            == rotated
-        )
-    finally:
-        project.close()
+        == rotated
+    )
 
 
-def test_reservation_large_unrelated_sheet_is_metadata_only(tmp_path: Path, capsys):
-    project = Project.create(tmp_path / "scale.frisket", name="scale")
-    try:
-        sheet, column, rows, values = _seed(project)
+def test_reservation_large_unrelated_sheet_is_metadata_only(make_project, capsys):
+    project = make_project("scale")
+    sheet, column, rows, values = _seed(project)
+    project.db.execute(
+        "WITH RECURSIVE n(x) AS (VALUES(5) UNION ALL SELECT x+1 FROM n WHERE x<100004) "
+        "INSERT INTO rows(sheet_id,position) SELECT ?,x FROM n",
+        (sheet,),
+    )
+    project.db.commit()
+    cells_before = project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+    started = time.perf_counter()
+    writer = _start(project, sheet, column, rows, values)
+    elapsed = time.perf_counter() - started
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == cells_before
+    )
+    assert (
         project.db.execute(
-            "WITH RECURSIVE n(x) AS (VALUES(5) UNION ALL SELECT x+1 FROM n WHERE x<100004) "
-            "INSERT INTO rows(sheet_id,position) SELECT ?,x FROM n",
-            (sheet,),
-        )
-        project.db.commit()
-        cells_before = project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
-        started = time.perf_counter()
-        writer = _start(project, sheet, column, rows, values)
-        elapsed = time.perf_counter() - started
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
-            == cells_before
-        )
-        assert (
-            project.db.execute(
-                "SELECT MAX(position) FROM rows WHERE sheet_id=?", (sheet,)
-            ).fetchone()[0]
-            == 100009
-        )
-        assert project.visible_row_ids(sheet)[:4] == rows
-        writer.finalize(expected_cursor=0, stopped=True)
-        with capsys.disabled():
-            print(
-                f"\nPDF split reservation: 100,004 rows / 2 sources in {elapsed:.3f}s"
-            )
-    finally:
-        project.close()
+            "SELECT MAX(position) FROM rows WHERE sheet_id=?", (sheet,)
+        ).fetchone()[0]
+        == 100009
+    )
+    assert project.visible_row_ids(sheet)[:4] == rows
+    writer.finalize(expected_cursor=0, stopped=True)
+    with capsys.disabled():
+        print(f"\nPDF split reservation: 100,004 rows / 2 sources in {elapsed:.3f}s")
 
 
 @pytest.mark.parametrize("replace", [True, False])
-def test_split_source_sheet_remains_deletable(tmp_path: Path, replace):
-    project = Project.create(tmp_path / "delete.frisket", name="delete")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values, replace=replace)
-        writer.publish_source(_children(2), expected_cursor=0)
-        writer.finalize(expected_cursor=1, stopped=True)
-        project.delete_sheet(sheet)
-        assert all(entry["id"] != sheet for entry in project.sheets())
-    finally:
-        project.close()
+def test_split_source_sheet_remains_deletable(make_project, replace):
+    project = make_project("delete")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values, replace=replace)
+    writer.publish_source(_children(2), expected_cursor=0)
+    writer.finalize(expected_cursor=1, stopped=True)
+    project.delete_sheet(sheet)
+    assert all(entry["id"] != sheet for entry in project.sheets())
 
 
 @pytest.mark.parametrize("replace", [True, False])
-def test_stale_setup_never_adds_history_or_empty_sheet(tmp_path: Path, replace):
-    project = Project.create(tmp_path / "setup.frisket", name="setup")
-    try:
-        sheet, column, rows, values = _seed(project)
-        before_ops = project.db.execute(
+def test_stale_setup_never_adds_history_or_empty_sheet(make_project, replace):
+    project = make_project("setup")
+    sheet, column, rows, values = _seed(project)
+    before_ops = project.db.execute(
+        "SELECT COUNT(*) FROM ops WHERE status='applied'"
+    ).fetchone()[0]
+    stale = [*values]
+    stale[0] = {"blob": "f" * 64}
+    with pytest.raises(ImportSessionConflict):
+        _start(project, sheet, column, rows, stale, replace=replace)
+    assert [entry["id"] for entry in project.sheets()] == [sheet]
+    assert (
+        project.db.execute(
             "SELECT COUNT(*) FROM ops WHERE status='applied'"
         ).fetchone()[0]
-        stale = [*values]
-        stale[0] = {"blob": "f" * 64}
-        with pytest.raises(ImportSessionConflict):
-            _start(project, sheet, column, rows, stale, replace=replace)
-        assert [entry["id"] for entry in project.sheets()] == [sheet]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM ops WHERE status='applied'"
-            ).fetchone()[0]
-            == before_ops
-        )
-        assert project.visible_row_ids(sheet) == rows
-    finally:
-        project.close()
+        == before_ops
+    )
+    assert project.visible_row_ids(sheet) == rows
 
 
 def test_setup_recheck_race_discards_only_split_and_preserves_newer_edit(
-    tmp_path: Path, monkeypatch
+    make_project, monkeypatch
 ):
-    project = Project.create(tmp_path / "setup-race.frisket", name="setup-race")
-    try:
-        sheet, column, rows, values = _seed(project)
-        reserve = PdfSplitWriter._reserve_sources
-        later_cursor = None
+    project = make_project("setup-race")
+    sheet, column, rows, values = _seed(project)
+    reserve = PdfSplitWriter._reserve_sources
+    later_cursor = None
 
-        def edit_before_recheck(writer, sources, *, replace):
-            nonlocal later_cursor
-            project.apply_edits(
-                [{"row_id": rows[0], "column_id": column, "value": {"blob": "f" * 64}}]
-            )
-            later_cursor = project.op_cursor
-            return reserve(writer, sources, replace=replace)
-
-        monkeypatch.setattr(PdfSplitWriter, "_reserve_sources", edit_before_recheck)
-        with pytest.raises(ImportSessionConflict):
-            _start(project, sheet, column, rows, values, replace=False)
-        assert project.op_cursor == later_cursor
-        assert [entry["id"] for entry in project.sheets()] == [sheet]
-        assert project.get_values(sheet, column, [rows[0]])[rows[0]] == {
-            "blob": "f" * 64
-        }
-        assert (
-            project.db.execute(
-                "SELECT status FROM ops WHERE kind='pdf.split'"
-            ).fetchone()[0]
-            == "discarded"
+    def edit_before_recheck(writer, sources, *, replace):
+        nonlocal later_cursor
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": column, "value": {"blob": "f" * 64}}]
         )
-        project.undo()
-        assert project.get_values(sheet, column, [rows[0]])[rows[0]] == values[0]
-    finally:
-        project.close()
+        later_cursor = project.op_cursor
+        return reserve(writer, sources, replace=replace)
+
+    monkeypatch.setattr(PdfSplitWriter, "_reserve_sources", edit_before_recheck)
+    with pytest.raises(ImportSessionConflict):
+        _start(project, sheet, column, rows, values, replace=False)
+    assert project.op_cursor == later_cursor
+    assert [entry["id"] for entry in project.sheets()] == [sheet]
+    assert project.get_values(sheet, column, [rows[0]])[rows[0]] == {"blob": "f" * 64}
+    assert (
+        project.db.execute("SELECT status FROM ops WHERE kind='pdf.split'").fetchone()[
+            0
+        ]
+        == "discarded"
+    )
+    project.undo()
+    assert project.get_values(sheet, column, [rows[0]])[rows[0]] == values[0]
 
 
 @pytest.mark.parametrize("corruption", ["missing_source", "not_replaced"])
-def test_undo_refuses_incomplete_replacement_membership(tmp_path: Path, corruption):
-    project = Project.create(tmp_path / "membership.frisket", name="membership")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values)
-        children = writer.publish_source(_children(2), expected_cursor=0)
-        publication = writer.finalize(expected_cursor=1, stopped=True)
-        if corruption == "missing_source":
-            project.db.execute(
-                "DELETE FROM import_session_pdf_sources WHERE session_id='split:one' AND ordinal=0"
-            )
-        else:
-            project.db.execute(
-                "UPDATE import_session_pdf_sources SET replaced=0 WHERE session_id='split:one' AND ordinal=0"
-            )
-        project.db.commit()
-        with pytest.raises(ValueError, match="membership"):
-            project.undo()
-        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
-        assert (
-            project.db.execute(
-                "SELECT status FROM ops WHERE id=?", (publication.op_id,)
-            ).fetchone()[0]
-            == "applied"
+def test_undo_refuses_incomplete_replacement_membership(make_project, corruption):
+    project = make_project("membership")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values)
+    children = writer.publish_source(_children(2), expected_cursor=0)
+    publication = writer.finalize(expected_cursor=1, stopped=True)
+    if corruption == "missing_source":
+        project.db.execute(
+            "DELETE FROM import_session_pdf_sources WHERE session_id='split:one' AND ordinal=0"
         )
-    finally:
-        project.close()
+    else:
+        project.db.execute(
+            "UPDATE import_session_pdf_sources SET replaced=0 WHERE session_id='split:one' AND ordinal=0"
+        )
+    project.db.commit()
+    with pytest.raises(ValueError, match="membership"):
+        project.undo()
+    assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+    assert (
+        project.db.execute(
+            "SELECT status FROM ops WHERE id=?", (publication.op_id,)
+        ).fetchone()[0]
+        == "applied"
+    )
 
 
-def test_split_refuses_ordinary_import_finalize_and_removal(tmp_path: Path):
-    project = Project.create(tmp_path / "lifecycle.frisket", name="lifecycle")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values)
-        with pytest.raises(RuntimeError, match="split"):
-            writer.finalize_session(expected_cursor=0)
-        writer.cancel(expected_cursor=0)
-        with pytest.raises(RuntimeError, match="split"):
-            writer.remove_session(expected_cursor=0)
-        publication = writer.finalize(expected_cursor=0, stopped=True)
-        assert publication.receipt.status == "cancelled"
-        assert not any(
-            "completed sources were kept" in warning
-            for warning in publication.receipt.warnings
-        )
-    finally:
-        project.close()
+def test_split_refuses_ordinary_import_finalize_and_removal(make_project):
+    project = make_project("lifecycle")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values)
+    with pytest.raises(RuntimeError, match="split"):
+        writer.finalize_session(expected_cursor=0)
+    writer.cancel(expected_cursor=0)
+    with pytest.raises(RuntimeError, match="split"):
+        writer.remove_session(expected_cursor=0)
+    publication = writer.finalize(expected_cursor=0, stopped=True)
+    assert publication.receipt.status == "cancelled"
+    assert not any(
+        "completed sources were kept" in warning
+        for warning in publication.receipt.warnings
+    )
 
 
 def test_completed_split_pages_survive_source_deletion_while_remaining_work_stops(
-    tmp_path: Path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "deleted-source.frisket", name="deleted-source")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values, replace=False)
-        destination = writer.sheet_id
-        children = writer.publish_source(_children(2), expected_cursor=0)
-        project.delete_sheet(sheet)
-        with pytest.raises(ImportSessionConflict, match="stale"):
-            writer.publish_source(_children(3), expected_cursor=1)
-        assert ImportSessionStore(project).get("split:one").state == "cancelled"
-        publication = writer.finalize(expected_cursor=1, stopped=True)
-        assert publication.receipt.status == "partial"
-        assert publication.row_count == 2
-        assert project.visible_row_ids(destination) == children
-        facts = project.db.execute(
-            "SELECT sheet_id,row_id,column_id,state FROM import_session_pdf_sources WHERE session_id='split:one' ORDER BY ordinal"
-        ).fetchall()
-        assert [tuple(row) for row in facts] == [
-            (sheet, rows[0], column, "published"),
-            (sheet, rows[1], column, "pending"),
-        ]
-        # Selective reversion changes application authority, not saved payloads.
-        from frisket.engine.store.op_log import step_operation
+    project = make_project("deleted-source")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values, replace=False)
+    destination = writer.sheet_id
+    children = writer.publish_source(_children(2), expected_cursor=0)
+    project.delete_sheet(sheet)
+    with pytest.raises(ImportSessionConflict, match="stale"):
+        writer.publish_source(_children(3), expected_cursor=1)
+    assert ImportSessionStore(project).get("split:one").state == "cancelled"
+    publication = writer.finalize(expected_cursor=1, stopped=True)
+    assert publication.receipt.status == "partial"
+    assert publication.row_count == 2
+    assert project.visible_row_ids(destination) == children
+    facts = project.db.execute(
+        "SELECT sheet_id,row_id,column_id,state FROM import_session_pdf_sources WHERE session_id='split:one' ORDER BY ordinal"
+    ).fetchall()
+    assert [tuple(row) for row in facts] == [
+        (sheet, rows[0], column, "published"),
+        (sheet, rows[1], column, "pending"),
+    ]
+    # Selective reversion changes application authority, not saved payloads.
+    from frisket.engine.store.op_log import step_operation
 
-        project.db.execute("BEGIN IMMEDIATE")
-        step_operation(project, "revert", op_id=publication.op_id)
-        project.db.commit()
-        assert destination not in [row["id"] for row in project.sheets()]
-        project.db.execute("BEGIN IMMEDIATE")
-        step_operation(project, "restore", op_id=publication.op_id)
-        project.db.commit()
-        assert project.visible_row_ids(destination) == children
-    finally:
-        project.close()
+    project.db.execute("BEGIN IMMEDIATE")
+    step_operation(project, "revert", op_id=publication.op_id)
+    project.db.commit()
+    assert destination not in [row["id"] for row in project.sheets()]
+    project.db.execute("BEGIN IMMEDIATE")
+    step_operation(project, "restore", op_id=publication.op_id)
+    project.db.commit()
+    assert project.visible_row_ids(destination) == children
 
 
 def test_undo_active_split_stops_acquisition_and_redo_only_restores_saved_children(
-    tmp_path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "undo-live-split.frisket")
-    try:
-        sheet, column, rows, values = _seed(project)
-        writer = _start(project, sheet, column, rows, values)
-        children = writer.publish_source(_children(2), expected_cursor=0)
-        project.undo()
-        assert project.visible_row_ids(sheet) == rows
-        assert ImportSessionStore(project).get("split:one").state == "removed"
-        with pytest.raises(ImportSessionConflict):
-            writer.publish_source(_children(3), expected_cursor=1)
-        project.redo()
-        assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
-        assert ImportSessionStore(project).get("split:one").state == "removed"
-        with pytest.raises(ImportSessionConflict):
-            writer.publish_source(_children(3), expected_cursor=1)
-    finally:
-        project.close()
+    project = make_project("undo-live-split")
+    sheet, column, rows, values = _seed(project)
+    writer = _start(project, sheet, column, rows, values)
+    children = writer.publish_source(_children(2), expected_cursor=0)
+    project.undo()
+    assert project.visible_row_ids(sheet) == rows
+    assert ImportSessionStore(project).get("split:one").state == "removed"
+    with pytest.raises(ImportSessionConflict):
+        writer.publish_source(_children(3), expected_cursor=1)
+    project.redo()
+    assert project.visible_row_ids(sheet) == [*children, *rows[1:]]
+    assert ImportSessionStore(project).get("split:one").state == "removed"
+    with pytest.raises(ImportSessionConflict):
+        writer.publish_source(_children(3), expected_cursor=1)

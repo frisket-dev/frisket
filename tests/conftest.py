@@ -5,7 +5,7 @@ import os
 import re
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import route_adapter_cache
+from frisket.engine.store import Project
 from frisket.testing import ensure_isolated_llm_cache
 from deployment_env_helpers import _deployment_env_names
 from helpers import make_client, replay_router
@@ -101,6 +102,39 @@ def hermetic_deployment_env() -> None:
 def client(tmp_path: Path) -> TestClient:
     """Plain server client (local-tier default router)."""
     return make_client(tmp_path)
+
+
+@pytest.fixture
+def project_id(client: TestClient) -> str:
+    """Id of one project created through ``client``'s HTTP API."""
+    response = client.post("/api/projects", json={"name": "Project"})
+    assert response.status_code == 200, response.text
+    return response.json()["id"]
+
+
+@pytest.fixture
+def make_project(tmp_path: Path) -> Iterator[Callable[..., Project]]:
+    """Create bundles under the test's tmp dir; all are closed at teardown.
+
+    ``make_project("Left")`` creates ``<tmp_path>/Left.frisket`` named "Left";
+    keyword arguments pass through to ``Project.create``.
+    """
+    created: list[Project] = []
+
+    def make(name: str = "project", **kwargs: Any) -> Project:
+        project = Project.create(tmp_path / f"{name}.frisket", name=name, **kwargs)
+        created.append(project)
+        return project
+
+    yield make
+    for project in created:
+        project.close()
+
+
+@pytest.fixture
+def project(make_project: Callable[..., Project]) -> Project:
+    """One fresh, empty project bundle, closed at teardown."""
+    return make_project()
 
 
 @pytest.fixture(autouse=True)

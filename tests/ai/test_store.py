@@ -15,13 +15,6 @@ from frisket.engine.store.value_codec import decode_stored_value
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "test.frisket", name="test")
-    yield p
-    p.close()
-
-
 def make_sheet(p: Project, n_rows: int = 5) -> tuple[int, dict[str, int]]:
     sheet = p.add_sheet("data")
     cols = {"name": p.add_column(sheet, "name"), "text": p.add_column(sheet, "text")}

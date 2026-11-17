@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from pathlib import Path
 
-import pytest
 
 from frisket.ops.base import Recipe
 from frisket.actions.registry import ACTION_REGISTRY
@@ -22,13 +20,6 @@ from frisket.engine.runner.column_retirement import (
     retire_dropped_output_columns,
 )
 from frisket.engine.store import Project
-
-
-@pytest.fixture
-def project(tmp_path: Path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
 
 
 class _FakeRecipe(Recipe):

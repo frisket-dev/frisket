@@ -13,7 +13,6 @@ from dataclasses import replace
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.execution.commercial import (
     CommercialOffering,
@@ -67,13 +66,6 @@ class _Provider:
         if target_id != self.target.id:
             return None
         return ConnectionConfig(extra=self.connection_extra)
-
-
-@pytest.fixture
-def project(tmp_path):
-    value = Project.create(tmp_path / "offering-admission.frisket", name="test")
-    yield value
-    value.close()
 
 
 def _target(target_id: str):

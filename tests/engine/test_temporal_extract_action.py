@@ -221,264 +221,243 @@ def _run_extract(project, bound, *, project_id, stage_fn=None, **reservation):
         )
 
 
-def test_extract_projects_compatible_typed_annotations_only(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "extract-annotations.frisket")
-    try:
-        sheet_id, source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        row_id = row_ids[0]
-        marker_column_id = project.add_column(
-            sheet_id, "markers", type="timeline_points"
-        )
-        notes_column_id = project.add_column(sheet_id, "notes", type="text")
-        source = resolve_timeline(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=source_column_id,
-        )
-        project.apply_edits(
-            [
-                {
-                    "row_id": row_id,
-                    "column_id": marker_column_id,
-                    "value": {
-                        "schema_version": "frisket.timeline_points.v1",
-                        "timeline": source.anchor.wire_value(),
-                        "items": [
-                            {
-                                "id": "inside",
-                                "at_ms": 3_000,
-                                "label": "Keep",
-                                "metadata": {"source": "csv"},
-                            },
-                            {"id": "outside", "at_ms": 7_000},
-                        ],
-                    },
-                },
-                {
-                    "row_id": row_id,
-                    "column_id": notes_column_id,
-                    "value": "must not be copied",
-                },
-            ],
-            label="seed annotations",
-        )
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=[row_id],
-            selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
-            output_name="clip",
-            idempotency_key="extract-annotations",
-        )
-
-        def fake_stage(_project, source_plan, temporal_range, output_path):
-            output_path.write_bytes(b"derived-video")
-            return _fake_rendered_clip(
-                output_path,
-                start_ms=temporal_range.start_ms,
-                end_ms=temporal_range.end_ms,
-                media_kind=source_plan.lease.media_kind,
-            )
-
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-annotations",
-            stage_fn=fake_stage,
-        )
-
-        assert result.status == "completed"
-        assert {output.name for output in result.outputs} == {"clip", "clip_markers"}
-        marker_output = next(
-            output for output in result.outputs if output.name == "clip_markers"
-        )
-        projected = project.get_values(
-            sheet_id,
-            marker_output.column_id,
-            row_ids=[row_id],
-        )[row_id]
-        assert projected["timeline"]["duration_ms"] == 3_000
-        assert projected["items"] == [
+def test_extract_projects_compatible_typed_annotations_only(make_project) -> None:
+    project = make_project("extract-annotations")
+    sheet_id, source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    row_id = row_ids[0]
+    marker_column_id = project.add_column(sheet_id, "markers", type="timeline_points")
+    notes_column_id = project.add_column(sheet_id, "notes", type="text")
+    source = resolve_timeline(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=source_column_id,
+    )
+    project.apply_edits(
+        [
             {
-                "id": "inside",
-                "at_ms": 1_000,
-                "label": "Keep",
-                "metadata": {"source": "csv"},
-            }
-        ]
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None
-        assert any(
-            item.ref.get("kind") == "temporal_annotation_snapshot"
-            for item in receipt.inputs
+                "row_id": row_id,
+                "column_id": marker_column_id,
+                "value": {
+                    "schema_version": "frisket.timeline_points.v1",
+                    "timeline": source.anchor.wire_value(),
+                    "items": [
+                        {
+                            "id": "inside",
+                            "at_ms": 3_000,
+                            "label": "Keep",
+                            "metadata": {"source": "csv"},
+                        },
+                        {"id": "outside", "at_ms": 7_000},
+                    ],
+                },
+            },
+            {
+                "row_id": row_id,
+                "column_id": notes_column_id,
+                "value": "must not be copied",
+            },
+        ],
+        label="seed annotations",
+    )
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=[row_id],
+        selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
+        output_name="clip",
+        idempotency_key="extract-annotations",
+    )
+
+    def fake_stage(_project, source_plan, temporal_range, output_path):
+        output_path.write_bytes(b"derived-video")
+        return _fake_rendered_clip(
+            output_path,
+            start_ms=temporal_range.start_ms,
+            end_ms=temporal_range.end_ms,
+            media_kind=source_plan.lease.media_kind,
         )
-        assert any(
-            item.ref.get("kind") == "temporal_annotation_projection"
-            for item in receipt.evidence
-        )
-        output_columns = {output.column_id for output in result.outputs}
-        assert project.undo() == result.op_ids[0]
-        assert all(
-            project.get_column(column)["active"] == 0 for column in output_columns
-        )
-        assert project.redo() == result.op_ids[0]
-        assert all(
-            project.get_column(column)["active"] == 1 for column in output_columns
-        )
-    finally:
-        project.close()
+
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-annotations",
+        stage_fn=fake_stage,
+    )
+
+    assert result.status == "completed"
+    assert {output.name for output in result.outputs} == {"clip", "clip_markers"}
+    marker_output = next(
+        output for output in result.outputs if output.name == "clip_markers"
+    )
+    projected = project.get_values(
+        sheet_id,
+        marker_output.column_id,
+        row_ids=[row_id],
+    )[row_id]
+    assert projected["timeline"]["duration_ms"] == 3_000
+    assert projected["items"] == [
+        {
+            "id": "inside",
+            "at_ms": 1_000,
+            "label": "Keep",
+            "metadata": {"source": "csv"},
+        }
+    ]
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None
+    assert any(
+        item.ref.get("kind") == "temporal_annotation_snapshot"
+        for item in receipt.inputs
+    )
+    assert any(
+        item.ref.get("kind") == "temporal_annotation_projection"
+        for item in receipt.evidence
+    )
+    output_columns = {output.column_id for output in result.outputs}
+    assert project.undo() == result.op_ids[0]
+    assert all(project.get_column(column)["active"] == 0 for column in output_columns)
+    assert project.redo() == result.op_ids[0]
+    assert all(project.get_column(column)["active"] == 1 for column in output_columns)
 
 
 def test_extract_range_stages_then_atomically_publishes_lineage_and_replays(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "extract.frisket", name="Extract")
-    try:
-        sheet_id = project.add_sheet("Media")
-        source_column_id = project.add_column(sheet_id, "video", type="video")
-        source_hash = project.add_blob(
-            b"source-video",
-            filename="source.mp4",
-            mime="video/mp4",
-            metadata=owned_media_metadata_document(
-                probe={"kind": "video", "duration_seconds": 10.0}
-            ),
-        )
-        row_id = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "video": {
-                        "blob": source_hash,
-                        "filename": "source.mp4",
-                        "mime": "video/mp4",
-                    }
+    project = make_project("Extract")
+    sheet_id = project.add_sheet("Media")
+    source_column_id = project.add_column(sheet_id, "video", type="video")
+    source_hash = project.add_blob(
+        b"source-video",
+        filename="source.mp4",
+        mime="video/mp4",
+        metadata=owned_media_metadata_document(
+            probe={"kind": "video", "duration_seconds": 10.0}
+        ),
+    )
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "video": {
+                    "blob": source_hash,
+                    "filename": "source.mp4",
+                    "mime": "video/mp4",
                 }
-            ],
-            {"video": source_column_id},
-        )[0]
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=[row_id],
-            selection={"kind": "draft_range", "start_ms": 2000, "end_ms": 5000},
-            output_name="clip",
-            idempotency_key="extract-range-test@sha256:v1",
-        )
-        stage_calls: list[tuple[int, int]] = []
+            }
+        ],
+        {"video": source_column_id},
+    )[0]
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=[row_id],
+        selection={"kind": "draft_range", "start_ms": 2000, "end_ms": 5000},
+        output_name="clip",
+        idempotency_key="extract-range-test@sha256:v1",
+    )
+    stage_calls: list[tuple[int, int]] = []
 
-        def fake_stage(project_arg, source, temporal_range, output_path):
-            assert project_arg is project
-            assert project.db.in_transaction is False
-            stage_calls.append((temporal_range.start_ms, temporal_range.end_ms))
-            output_path.write_bytes(b"derived-video")
-            return _FakeRenderedClip(
-                path=output_path,
-                renderer_params={},
-                probe={"duration_ms": 3_000},
-            )
+    def fake_stage(project_arg, source, temporal_range, output_path):
+        assert project_arg is project
+        assert project.db.in_transaction is False
+        stage_calls.append((temporal_range.start_ms, temporal_range.end_ms))
+        output_path.write_bytes(b"derived-video")
+        return _FakeRenderedClip(
+            path=output_path,
+            renderer_params={},
+            probe={"duration_ms": 3_000},
+        )
 
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract",
-            stage_fn=fake_stage,
-        )
-        assert result.status == "completed"
-        assert stage_calls == [(2_000, 5_000)]
-        assert len(result.op_ids) == 1
-        output = result.outputs[0]
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None and receipt.status == "completed"
-        selection = next(
-            item.ref for item in receipt.inputs if item.name == "selection"
-        )
-        assert selection["value"]["item"]["start_ms"] == 2_000
-        assert selection["value"]["item"]["end_ms"] == 5_000
-        lineage = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "derived_temporal_artifact"
-        )
-        values = project.get_values(sheet_id, output.column_id, row_ids=[row_id])
-        assert values[row_id]["blob"] == lineage["blob_hash"]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM blob_derivations WHERE source_hash=?",
-                (source_hash,),
-            ).fetchone()[0]
-            == 1
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM artifact_timeline_segments WHERE receipt_id=?",
-                (result.receipt_id,),
-            ).fetchone()[0]
-            == 1
-        )
-        assert receipt.outputs[0].ref["kind"] == "materialized_column"
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract",
+        stage_fn=fake_stage,
+    )
+    assert result.status == "completed"
+    assert stage_calls == [(2_000, 5_000)]
+    assert len(result.op_ids) == 1
+    output = result.outputs[0]
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None and receipt.status == "completed"
+    selection = next(item.ref for item in receipt.inputs if item.name == "selection")
+    assert selection["value"]["item"]["start_ms"] == 2_000
+    assert selection["value"]["item"]["end_ms"] == 5_000
+    lineage = next(
+        item.ref
+        for item in receipt.evidence
+        if item.ref.get("kind") == "derived_temporal_artifact"
+    )
+    values = project.get_values(sheet_id, output.column_id, row_ids=[row_id])
+    assert values[row_id]["blob"] == lineage["blob_hash"]
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM blob_derivations WHERE source_hash=?",
+            (source_hash,),
+        ).fetchone()[0]
+        == 1
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM artifact_timeline_segments WHERE receipt_id=?",
+            (result.receipt_id,),
+        ).fetchone()[0]
+        == 1
+    )
+    assert receipt.outputs[0].ref["kind"] == "materialized_column"
 
-        replay = _run_extract(
-            project,
-            bound,
-            project_id="project-extract",
-            stage_fn=fake_stage,
-        )
-        assert replay.status == "completed", replay.model_dump(mode="json")
-        assert replay.receipt_id == result.receipt_id
-        assert len(replay.outputs) == 1
-        replay_output = replay.outputs[0]
-        assert replay_output.kind == "column"
-        assert replay_output.name == "clip"
-        assert replay_output.sheet_id == sheet_id
-        assert replay_output.column_id == output.column_id
-        assert replay_output.row_ids == [row_id]
-        assert replay_output.ref == output.ref
-        assert stage_calls == [(2_000, 5_000)]
-    finally:
-        project.close()
+    replay = _run_extract(
+        project,
+        bound,
+        project_id="project-extract",
+        stage_fn=fake_stage,
+    )
+    assert replay.status == "completed", replay.model_dump(mode="json")
+    assert replay.receipt_id == result.receipt_id
+    assert len(replay.outputs) == 1
+    replay_output = replay.outputs[0]
+    assert replay_output.kind == "column"
+    assert replay_output.name == "clip"
+    assert replay_output.sheet_id == sheet_id
+    assert replay_output.column_id == output.column_id
+    assert replay_output.row_ids == [row_id]
+    assert replay_output.ref == output.ref
+    assert stage_calls == [(2_000, 5_000)]
 
 
 def test_extract_range_reports_manual_draft_beyond_source_duration(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "extract-out-of-bounds.frisket")
-    try:
-        sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=[row_ids[0]],
-            selection={"kind": "draft_range", "start_ms": 9_000, "end_ms": 12_000},
-            output_name="clip",
-            idempotency_key="extract-out-of-bounds@sha256:v1",
-        )
-        stage_called = False
+    project = make_project("extract-out-of-bounds")
+    sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=[row_ids[0]],
+        selection={"kind": "draft_range", "start_ms": 9_000, "end_ms": 12_000},
+        output_name="clip",
+        idempotency_key="extract-out-of-bounds@sha256:v1",
+    )
+    stage_called = False
 
-        def fake_stage(*_args: Any, **_kwargs: Any) -> Any:
-            nonlocal stage_called
-            stage_called = True
-            raise AssertionError("out-of-bounds Extract must fail before staging")
+    def fake_stage(*_args: Any, **_kwargs: Any) -> Any:
+        nonlocal stage_called
+        stage_called = True
+        raise AssertionError("out-of-bounds Extract must fail before staging")
 
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-out-of-bounds",
-            stage_fn=fake_stage,
-        )
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-out-of-bounds",
+        stage_fn=fake_stage,
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "range_out_of_bounds"
-        assert "outside its timeline duration" in result.errors[0].message
-        assert stage_called is False
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "range_out_of_bounds"
+    assert "outside its timeline duration" in result.errors[0].message
+    assert stage_called is False
 
 
 def test_queued_extract_failure_uses_ordinary_action_run_terminalization(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor.action_jobs import (
         ActionJobEnvelope,
@@ -492,38 +471,33 @@ def test_queued_extract_failure_uses_ordinary_action_run_terminalization(
 
     registry = HandlerRegistry()
     register_action_job_binding_handlers(registry)
-    project = Project.create(tmp_path / "queued-extract-failure.frisket")
-    try:
-        sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=[row_ids[0]],
-            selection={"kind": "draft_range", "start_ms": 9_000, "end_ms": 11_000},
-            output_name="clip",
-            idempotency_key="queued-extract-failure@sha256:v1",
-            repeat_for_rows=True,
-        )
-        envelope = reserve_typed_action_job(
-            project, "project-queued-extract-failure", bound
-        )
-        assert isinstance(envelope, ActionJobEnvelope)
+    project = make_project("queued-extract-failure")
+    sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=[row_ids[0]],
+        selection={"kind": "draft_range", "start_ms": 9_000, "end_ms": 11_000},
+        output_name="clip",
+        idempotency_key="queued-extract-failure@sha256:v1",
+        repeat_for_rows=True,
+    )
+    envelope = reserve_typed_action_job(
+        project, "project-queued-extract-failure", bound
+    )
+    assert isinstance(envelope, ActionJobEnvelope)
 
-        result = run_action_run_job(
-            project,
-            {"action_job": envelope.to_json()},
-            executor_lookup=registry.action_executor,
-        )
+    result = run_action_run_job(
+        project,
+        {"action_job": envelope.to_json()},
+        executor_lookup=registry.action_executor,
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "range_out_of_bounds"
-        stored = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
-        assert stored is not None
-        assert stored.status == "failed"
-        assert stored.errors[0].code == "range_out_of_bounds"
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "range_out_of_bounds"
+    stored = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
+    assert stored is not None
+    assert stored.status == "failed"
+    assert stored.errors[0].code == "range_out_of_bounds"
 
 
 def test_extract_range_registers_its_action_job_binding() -> None:
@@ -882,12 +856,12 @@ def _insert_extract_failure_receipt(
     return receipt
 
 
-def test_extract_failure_preserves_error_facts_by_value(tmp_path: Path) -> None:
+def test_extract_failure_preserves_error_facts_by_value(make_project) -> None:
     from frisket.engine.executor.temporal_extract_publication import (
         _terminalize_extract_failure,
     )
 
-    project = Project.create(tmp_path / "extract-failure-error-facts.frisket")
+    project = make_project("extract-failure-error-facts")
     receipt_id = "receipt_extract_failure_error_facts"
     error = ActionError(
         code="extract_provider_declined",
@@ -956,13 +930,13 @@ def test_extract_failure_preserves_prior_terminal_receipt(
 
 
 def test_queued_extract_failure_leaves_worker_owned_receipt_untouched(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor.temporal_extract_publication import (
         _terminalize_extract_failure,
     )
 
-    project = Project.create(tmp_path / "queued-extract-owned-receipt.frisket")
+    project = make_project("queued-extract-owned-receipt")
     receipt_id = "receipt_queued_extract_owned_by_worker"
     error = ActionError(
         code="queued_extract_failure",
@@ -991,273 +965,253 @@ def test_queued_extract_failure_leaves_worker_owned_receipt_untouched(
 
 
 def test_extract_range_maps_one_acknowledged_literal_over_multiple_rows(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "extract-batch-literal.frisket")
-    try:
-        sheet_id, _source_column_id, row_ids, blob_hashes = _seed_two_media_rows(
-            project
+    project = make_project("extract-batch-literal")
+    sheet_id, _source_column_id, row_ids, blob_hashes = _seed_two_media_rows(project)
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=row_ids,
+        selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
+        output_name="clips",
+        idempotency_key="extract-batch-literal@sha256:v1",
+        repeat_for_rows=True,
+    )
+    stage_calls: list[tuple[int, int, int]] = []
+
+    def fake_stage(project_arg, source, temporal_range, output_path):
+        assert project_arg is project
+        assert not project.db.in_transaction
+        stage_calls.append(
+            (source.row_id, temporal_range.start_ms, temporal_range.end_ms)
         )
-        action, bound = _extract_action(
+        output_path.write_bytes(f"derived-{source.row_id}".encode())
+        return _fake_rendered_clip(
+            output_path,
+            start_ms=temporal_range.start_ms,
+            end_ms=temporal_range.end_ms,
+        )
+
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-batch-literal",
+        stage_fn=fake_stage,
+    )
+
+    assert result.status == "completed", result.model_dump(mode="json")
+    assert stage_calls == [
+        (row_ids[0], 2_000, 5_000),
+        (row_ids[1], 2_000, 5_000),
+    ]
+    assert len(result.outputs) == 1
+    output = result.outputs[0]
+    assert output.name == "clips"
+    assert output.row_ids == row_ids
+    assert output.ref["kind"] == "materialized_column"
+    assert output.ref["row_ids"] == row_ids
+    values = project.get_values(sheet_id, int(output.column_id), row_ids=row_ids)
+    assert all(values[row_id]["blob"] for row_id in row_ids)
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM blob_derivations WHERE source_hash IN (?, ?)",
+            blob_hashes,
+        ).fetchone()[0]
+        == 2
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM artifact_timeline_segments WHERE receipt_id=?",
+            (result.receipt_id,),
+        ).fetchone()[0]
+        == 2
+    )
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    assert {item.name for item in receipt.inputs} == {
+        f"source.{row_ids[0]}",
+        f"selection.{row_ids[0]}",
+        f"source.{row_ids[1]}",
+        f"selection.{row_ids[1]}",
+    }
+    summary = next(
+        item.ref
+        for item in receipt.evidence
+        if item.ref.get("kind") == "temporal_extract_summary"
+    )
+    assert summary["source_count"] == 2
+    assert summary["output_count"] == 2
+
+    replay = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-batch-literal",
+        stage_fn=fake_stage,
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == result.receipt_id
+    assert replay.outputs[0].row_ids == row_ids
+    assert len(stage_calls) == 2
+
+    reserved_replay = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-batch-literal",
+        reserved_action_id=result.action.action_id,
+        reserved_receipt_id=result.receipt_id,
+        stage_fn=lambda *_args: pytest.fail("terminal reserved replay must not stage"),
+    )
+    assert reserved_replay.status == "completed"
+    mismatched_reservation = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-batch-literal",
+        reserved_action_id="act_wrong",
+        reserved_receipt_id=result.receipt_id,
+        stage_fn=lambda *_args: pytest.fail(
+            "mismatched reserved replay must not stage"
+        ),
+    )
+    assert mismatched_reservation.status == "failed"
+    assert mismatched_reservation.errors[0].code == "idempotency_conflict"
+
+
+def test_extract_range_uses_each_rows_own_range_column_value(make_project) -> None:
+    project = make_project("extract-batch-column")
+    sheet_id, source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    range_column_id = project.add_column(
+        sheet_id, "reviewed_range", type="timeline_range"
+    )
+    ranges = [(1_000, 3_000), (4_000, 7_000)]
+    edits = []
+    for index, (row_id, (start_ms, end_ms)) in enumerate(
+        zip(row_ids, ranges, strict=True)
+    ):
+        lease = resolve_timeline(
+            project,
             sheet_id=sheet_id,
-            row_ids=row_ids,
-            selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
-            output_name="clips",
-            idempotency_key="extract-batch-literal@sha256:v1",
-            repeat_for_rows=True,
+            row_id=row_id,
+            column_id=source_column_id,
         )
-        stage_calls: list[tuple[int, int, int]] = []
-
-        def fake_stage(project_arg, source, temporal_range, output_path):
-            assert project_arg is project
-            assert not project.db.in_transaction
-            stage_calls.append(
-                (source.row_id, temporal_range.start_ms, temporal_range.end_ms)
-            )
-            output_path.write_bytes(f"derived-{source.row_id}".encode())
-            return _fake_rendered_clip(
-                output_path,
-                start_ms=temporal_range.start_ms,
-                end_ms=temporal_range.end_ms,
-            )
-
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-batch-literal",
-            stage_fn=fake_stage,
-        )
-
-        assert result.status == "completed", result.model_dump(mode="json")
-        assert stage_calls == [
-            (row_ids[0], 2_000, 5_000),
-            (row_ids[1], 2_000, 5_000),
-        ]
-        assert len(result.outputs) == 1
-        output = result.outputs[0]
-        assert output.name == "clips"
-        assert output.row_ids == row_ids
-        assert output.ref["kind"] == "materialized_column"
-        assert output.ref["row_ids"] == row_ids
-        values = project.get_values(sheet_id, int(output.column_id), row_ids=row_ids)
-        assert all(values[row_id]["blob"] for row_id in row_ids)
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM blob_derivations WHERE source_hash IN (?, ?)",
-                blob_hashes,
-            ).fetchone()[0]
-            == 2
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM artifact_timeline_segments WHERE receipt_id=?",
-                (result.receipt_id,),
-            ).fetchone()[0]
-            == 2
-        )
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        assert {item.name for item in receipt.inputs} == {
-            f"source.{row_ids[0]}",
-            f"selection.{row_ids[0]}",
-            f"source.{row_ids[1]}",
-            f"selection.{row_ids[1]}",
-        }
-        summary = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "temporal_extract_summary"
-        )
-        assert summary["source_count"] == 2
-        assert summary["output_count"] == 2
-
-        replay = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-batch-literal",
-            stage_fn=fake_stage,
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == result.receipt_id
-        assert replay.outputs[0].row_ids == row_ids
-        assert len(stage_calls) == 2
-
-        reserved_replay = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-batch-literal",
-            reserved_action_id=result.action.action_id,
-            reserved_receipt_id=result.receipt_id,
-            stage_fn=lambda *_args: pytest.fail(
-                "terminal reserved replay must not stage"
-            ),
-        )
-        assert reserved_replay.status == "completed"
-        mismatched_reservation = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-batch-literal",
-            reserved_action_id="act_wrong",
-            reserved_receipt_id=result.receipt_id,
-            stage_fn=lambda *_args: pytest.fail(
-                "mismatched reserved replay must not stage"
-            ),
-        )
-        assert mismatched_reservation.status == "failed"
-        assert mismatched_reservation.errors[0].code == "idempotency_conflict"
-    finally:
-        project.close()
-
-
-def test_extract_range_uses_each_rows_own_range_column_value(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "extract-batch-column.frisket")
-    try:
-        sheet_id, source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        range_column_id = project.add_column(
-            sheet_id, "reviewed_range", type="timeline_range"
-        )
-        ranges = [(1_000, 3_000), (4_000, 7_000)]
-        edits = []
-        for index, (row_id, (start_ms, end_ms)) in enumerate(
-            zip(row_ids, ranges, strict=True)
-        ):
-            lease = resolve_timeline(
-                project,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=source_column_id,
-            )
-            edits.append(
-                {
-                    "row_id": row_id,
-                    "column_id": range_column_id,
-                    "value": {
-                        "schema_version": "frisket.timeline_range.v1",
-                        "timeline": lease.anchor.wire_value(),
-                        "item": {
-                            "id": f"range-{index}",
-                            "start_ms": start_ms,
-                            "end_ms": end_ms,
-                            "metadata": {},
-                        },
+        edits.append(
+            {
+                "row_id": row_id,
+                "column_id": range_column_id,
+                "value": {
+                    "schema_version": "frisket.timeline_range.v1",
+                    "timeline": lease.anchor.wire_value(),
+                    "item": {
+                        "id": f"range-{index}",
+                        "start_ms": start_ms,
+                        "end_ms": end_ms,
+                        "metadata": {},
                     },
-                }
-            )
-        project.apply_edits(edits)
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=row_ids,
-            selection={"kind": "column", "column": "reviewed_range"},
-            output_name="excerpt",
-            idempotency_key="extract-batch-column@sha256:v1",
+                },
+            }
         )
-        stage_calls: list[tuple[int, int, int]] = []
+    project.apply_edits(edits)
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=row_ids,
+        selection={"kind": "column", "column": "reviewed_range"},
+        output_name="excerpt",
+        idempotency_key="extract-batch-column@sha256:v1",
+    )
+    stage_calls: list[tuple[int, int, int]] = []
 
-        def fake_stage(_project, source, temporal_range, output_path):
-            stage_calls.append(
-                (source.row_id, temporal_range.start_ms, temporal_range.end_ms)
-            )
-            output_path.write_bytes(f"column-derived-{source.row_id}".encode())
-            return _fake_rendered_clip(
-                output_path,
-                start_ms=temporal_range.start_ms,
-                end_ms=temporal_range.end_ms,
-            )
-
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-batch-column",
-            stage_fn=fake_stage,
+    def fake_stage(_project, source, temporal_range, output_path):
+        stage_calls.append(
+            (source.row_id, temporal_range.start_ms, temporal_range.end_ms)
+        )
+        output_path.write_bytes(f"column-derived-{source.row_id}".encode())
+        return _fake_rendered_clip(
+            output_path,
+            start_ms=temporal_range.start_ms,
+            end_ms=temporal_range.end_ms,
         )
 
-        assert result.status == "completed", result.model_dump(mode="json")
-        assert stage_calls == [
-            (row_ids[0], 1_000, 3_000),
-            (row_ids[1], 4_000, 7_000),
-        ]
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        selections = [
-            item.ref["value"]["item"]
-            for item in receipt.inputs
-            if item.name.startswith("selection.")
-        ]
-        assert [
-            (
-                item["start_ms"],
-                item["end_ms"],
-            )
-            for item in selections
-        ] == ranges
-    finally:
-        project.close()
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-batch-column",
+        stage_fn=fake_stage,
+    )
+
+    assert result.status == "completed", result.model_dump(mode="json")
+    assert stage_calls == [
+        (row_ids[0], 1_000, 3_000),
+        (row_ids[1], 4_000, 7_000),
+    ]
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    selections = [
+        item.ref["value"]["item"]
+        for item in receipt.inputs
+        if item.name.startswith("selection.")
+    ]
+    assert [
+        (
+            item["start_ms"],
+            item["end_ms"],
+        )
+        for item in selections
+    ] == ranges
 
 
 def test_extract_range_mid_stage_failure_publishes_no_partial_outputs(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "extract-batch-failure.frisket")
-    try:
-        sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=row_ids,
-            selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
-            output_name="clips",
-            idempotency_key="extract-batch-failure@sha256:v1",
-            repeat_for_rows=True,
-        )
-        initial_blob_count = project.db.execute(
-            "SELECT COUNT(*) FROM blobs"
-        ).fetchone()[0]
-        stage_calls = 0
+    project = make_project("extract-batch-failure")
+    sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=row_ids,
+        selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
+        output_name="clips",
+        idempotency_key="extract-batch-failure@sha256:v1",
+        repeat_for_rows=True,
+    )
+    initial_blob_count = project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
+    stage_calls = 0
 
-        def fail_second_stage(_project, source, temporal_range, output_path):
-            nonlocal stage_calls
-            stage_calls += 1
-            if stage_calls == 2:
-                raise RuntimeError("renderer failed after first staged clip")
-            output_path.write_bytes(f"staged-{source.row_id}".encode())
-            return _fake_rendered_clip(
-                output_path,
-                start_ms=temporal_range.start_ms,
-                end_ms=temporal_range.end_ms,
-            )
-
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-batch-failure",
-            stage_fn=fail_second_stage,
+    def fail_second_stage(_project, source, temporal_range, output_path):
+        nonlocal stage_calls
+        stage_calls += 1
+        if stage_calls == 2:
+            raise RuntimeError("renderer failed after first staged clip")
+        output_path.write_bytes(f"staged-{source.row_id}".encode())
+        return _fake_rendered_clip(
+            output_path,
+            start_ms=temporal_range.start_ms,
+            end_ms=temporal_range.end_ms,
         )
 
-        assert result.status == "failed"
-        assert stage_calls == 2
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM columns WHERE sheet_id=? AND name='clips'",
-                (sheet_id,),
-            ).fetchone()
-            is None
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
-            == initial_blob_count
-        )
-        assert result.receipt_id is not None
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None and receipt.status == "failed"
-    finally:
-        project.close()
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-batch-failure",
+        stage_fn=fail_second_stage,
+    )
+
+    assert result.status == "failed"
+    assert stage_calls == 2
+    assert (
+        project.db.execute(
+            "SELECT 1 FROM columns WHERE sheet_id=? AND name='clips'",
+            (sheet_id,),
+        ).fetchone()
+        is None
+    )
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
+    )
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
+        == initial_blob_count
+    )
+    assert result.receipt_id is not None
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None and receipt.status == "failed"
 
 
 @pytest.mark.parametrize(
@@ -1348,392 +1302,374 @@ def test_extract_range_revalidates_source_and_collision_after_staging(
 
 
 def test_extract_range_publication_failure_rolls_back_every_project_output_fact(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project = Project.create(tmp_path / "extract-publication-rollback.frisket")
-    try:
-        sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        initial_blob_rows = project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[
-            0
-        ]
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=[row_ids[0]],
-            selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
-            output_name="clips",
-            idempotency_key="extract-publication-rollback@sha256:v1",
-        )
-        original_update = ReceiptStore.update_body_status
-        completed_update_attempts = 0
+    project = make_project("extract-publication-rollback")
+    sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    initial_blob_rows = project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=[row_ids[0]],
+        selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
+        output_name="clips",
+        idempotency_key="extract-publication-rollback@sha256:v1",
+    )
+    original_update = ReceiptStore.update_body_status
+    completed_update_attempts = 0
 
-        def fail_completed_publication(self, receipt, **kwargs):
-            nonlocal completed_update_attempts
-            if receipt.status == "completed" and completed_update_attempts == 0:
-                completed_update_attempts += 1
-                raise RuntimeError("inject failure after complete output publication")
-            return original_update(self, receipt, **kwargs)
+    def fail_completed_publication(self, receipt, **kwargs):
+        nonlocal completed_update_attempts
+        if receipt.status == "completed" and completed_update_attempts == 0:
+            completed_update_attempts += 1
+            raise RuntimeError("inject failure after complete output publication")
+        return original_update(self, receipt, **kwargs)
 
-        monkeypatch.setattr(
-            ReceiptStore,
-            "update_body_status",
-            fail_completed_publication,
-        )
+    monkeypatch.setattr(
+        ReceiptStore,
+        "update_body_status",
+        fail_completed_publication,
+    )
 
-        def fake_stage(_project, source, temporal_range, output_path):
-            assert not project.db.in_transaction
-            output_path.write_bytes(b"derived-before-publication-rollback")
-            return _fake_rendered_clip(
-                output_path,
-                start_ms=temporal_range.start_ms,
-                end_ms=temporal_range.end_ms,
-            )
-
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-publication-rollback",
-            stage_fn=fake_stage,
+    def fake_stage(_project, source, temporal_range, output_path):
+        assert not project.db.in_transaction
+        output_path.write_bytes(b"derived-before-publication-rollback")
+        return _fake_rendered_clip(
+            output_path,
+            start_ms=temporal_range.start_ms,
+            end_ms=temporal_range.end_ms,
         )
 
-        assert completed_update_attempts == 1
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM columns WHERE sheet_id=? AND name='clips'",
-                (sheet_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
-            == initial_blob_rows
-        )
-        # Immutable object-file residue is deliberately outside DB atomicity;
-        # the existing restore/object-GC policy owns it.
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM artifact_timeline_segments WHERE receipt_id=?",
-                (result.receipt_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM evidence_links WHERE receipt_id=?",
-                (result.receipt_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM ops WHERE kind='temporal.extract_range'"
-            ).fetchone()[0]
-            == 0
-        )
-        stored = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert stored is not None and stored.status == "failed"
-        assert stored.outputs == []
-    finally:
-        project.close()
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-publication-rollback",
+        stage_fn=fake_stage,
+    )
+
+    assert completed_update_attempts == 1
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM columns WHERE sheet_id=? AND name='clips'",
+            (sheet_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
+        == initial_blob_rows
+    )
+    # Immutable object-file residue is deliberately outside DB atomicity;
+    # the existing restore/object-GC policy owns it.
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM artifact_timeline_segments WHERE receipt_id=?",
+            (result.receipt_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM evidence_links WHERE receipt_id=?",
+            (result.receipt_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM ops WHERE kind='temporal.extract_range'"
+        ).fetchone()[0]
+        == 0
+    )
+    stored = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert stored is not None and stored.status == "failed"
+    assert stored.outputs == []
 
 
-def test_extract_range_rejects_output_collision_before_staging(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "extract-output-collision.frisket")
-    try:
-        sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        project.add_column(sheet_id, "clips", type="video")
-        action, bound = _extract_action(
-            sheet_id=sheet_id,
-            row_ids=row_ids,
-            selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
-            output_name="clips",
-            idempotency_key="extract-output-collision@sha256:v1",
-            repeat_for_rows=True,
-        )
+def test_extract_range_rejects_output_collision_before_staging(make_project) -> None:
+    project = make_project("extract-output-collision")
+    sheet_id, _source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    project.add_column(sheet_id, "clips", type="video")
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=row_ids,
+        selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
+        output_name="clips",
+        idempotency_key="extract-output-collision@sha256:v1",
+        repeat_for_rows=True,
+    )
 
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-output-collision",
-            stage_fn=lambda *_args: pytest.fail("collision must fail before staging"),
-        )
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-output-collision",
+        stage_fn=lambda *_args: pytest.fail("collision must fail before staging"),
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_input_ref"
-        assert result.receipt_id is None
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_input_ref"
+    assert result.receipt_id is None
 
 
 def test_extract_batch_projects_every_compatible_current_transcript(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor.action_jobs import reserve_typed_action_job
 
-    project = Project.create(tmp_path / "extract-batch-transcripts.frisket")
-    try:
-        sheet_id, source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(
-            project
-        )
-        transcript_column_id = project.add_column(
-            sheet_id,
-            "transcript",
-            type="timestamped_transcript",
-            ai_generated=True,
-        )
-        alternate_column_id = project.add_column(
-            sheet_id,
-            "alternate_transcript",
-            type="timestamped_transcript",
-            ai_generated=True,
-        )
-        runs = RunResultStore(project)
-        transcript_op_id = project.append_op(
-            "media.transcribe",
-            {"kind": "media.transcribe", "params": {"output_name": "transcript"}},
-            label="transcribe transcript",
-        )
-        transcript_run_id = runs.start_run(
-            transcript_op_id,
-            sheet_id,
-            "media.transcribe",
-            params={"output_name": "transcript"},
-            total_rows=2,
-            row_ids=row_ids,
-        )
-        write_claimed_test_results(
-            project,
-            transcript_run_id,
-            [
-                {
-                    "row_id": row_ids[0],
-                    "column_id": transcript_column_id,
-                    "value": "First row transcript.",
-                },
-                {
-                    "row_id": row_ids[1],
-                    "column_id": transcript_column_id,
-                    "value": "Second row transcript.",
-                },
-            ],
-        )
-        runs.finish_run(transcript_run_id)
-        runs.point_column_at_run(
-            transcript_op_id,
-            transcript_column_id,
-            transcript_run_id,
-        )
-        alternate_op_id = project.append_op(
-            "media.transcribe",
+    project = make_project("extract-batch-transcripts")
+    sheet_id, source_column_id, row_ids, _blob_hashes = _seed_two_media_rows(project)
+    transcript_column_id = project.add_column(
+        sheet_id,
+        "transcript",
+        type="timestamped_transcript",
+        ai_generated=True,
+    )
+    alternate_column_id = project.add_column(
+        sheet_id,
+        "alternate_transcript",
+        type="timestamped_transcript",
+        ai_generated=True,
+    )
+    runs = RunResultStore(project)
+    transcript_op_id = project.append_op(
+        "media.transcribe",
+        {"kind": "media.transcribe", "params": {"output_name": "transcript"}},
+        label="transcribe transcript",
+    )
+    transcript_run_id = runs.start_run(
+        transcript_op_id,
+        sheet_id,
+        "media.transcribe",
+        params={"output_name": "transcript"},
+        total_rows=2,
+        row_ids=row_ids,
+    )
+    write_claimed_test_results(
+        project,
+        transcript_run_id,
+        [
             {
-                "kind": "media.transcribe",
-                "params": {"output_name": "alternate_transcript"},
+                "row_id": row_ids[0],
+                "column_id": transcript_column_id,
+                "value": "First row transcript.",
             },
-            label="transcribe alternate transcript",
-        )
-        alternate_run_id = runs.start_run(
-            alternate_op_id,
-            sheet_id,
-            "media.transcribe",
-            params={"output_name": "alternate_transcript"},
-            total_rows=1,
-            row_ids=[row_ids[1]],
-        )
-        write_claimed_test_results(
-            project,
-            alternate_run_id,
-            [
-                {
-                    "row_id": row_ids[1],
-                    "column_id": alternate_column_id,
-                    "value": "Conflicting second row transcript.",
-                },
-            ],
-        )
-        runs.finish_run(alternate_run_id)
-        runs.point_column_at_run(
-            alternate_op_id,
+            {
+                "row_id": row_ids[1],
+                "column_id": transcript_column_id,
+                "value": "Second row transcript.",
+            },
+        ],
+    )
+    runs.finish_run(transcript_run_id)
+    runs.point_column_at_run(
+        transcript_op_id,
+        transcript_column_id,
+        transcript_run_id,
+    )
+    alternate_op_id = project.append_op(
+        "media.transcribe",
+        {
+            "kind": "media.transcribe",
+            "params": {"output_name": "alternate_transcript"},
+        },
+        label="transcribe alternate transcript",
+    )
+    alternate_run_id = runs.start_run(
+        alternate_op_id,
+        sheet_id,
+        "media.transcribe",
+        params={"output_name": "alternate_transcript"},
+        total_rows=1,
+        row_ids=[row_ids[1]],
+    )
+    write_claimed_test_results(
+        project,
+        alternate_run_id,
+        [
+            {
+                "row_id": row_ids[1],
+                "column_id": alternate_column_id,
+                "value": "Conflicting second row transcript.",
+            },
+        ],
+    )
+    runs.finish_run(alternate_run_id)
+    runs.point_column_at_run(
+        alternate_op_id,
+        alternate_column_id,
+        alternate_run_id,
+    )
+    for row_id, column_id, quote, run_id, op_id in [
+        (
+            row_ids[0],
+            transcript_column_id,
+            "First row transcript.",
+            transcript_run_id,
+            transcript_op_id,
+        ),
+        (
+            row_ids[1],
+            transcript_column_id,
+            "Second row transcript.",
+            transcript_run_id,
+            transcript_op_id,
+        ),
+        (
+            row_ids[1],
             alternate_column_id,
+            "Conflicting second row transcript.",
             alternate_run_id,
-        )
-        for row_id, column_id, quote, run_id, op_id in [
-            (
-                row_ids[0],
-                transcript_column_id,
-                "First row transcript.",
-                transcript_run_id,
-                transcript_op_id,
-            ),
-            (
-                row_ids[1],
-                transcript_column_id,
-                "Second row transcript.",
-                transcript_run_id,
-                transcript_op_id,
-            ),
-            (
-                row_ids[1],
-                alternate_column_id,
-                "Conflicting second row transcript.",
-                alternate_run_id,
-                alternate_op_id,
-            ),
-        ]:
-            lease = resolve_timeline(
-                project,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=source_column_id,
-            )
-            span = record_source_span(
-                project,
-                artifact_id=lease.anchor.artifact_id,
-                span_kind="temporal",
-                start_ms=2_000,
-                end_ms=5_000,
-                quote=quote,
-                selector={"segment_index": 0},
-            )
-            _values, refs = project.get_values_with_refs(
-                sheet_id, column_id, row_ids=[row_id]
-            )
-            record_evidence_link(
-                project,
-                subject_kind="cell",
-                subject_ref=refs[row_id],
-                spans=[{"span_id": span["id"], "rank": 0}],
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-                run_id=run_id,
-                op_id=op_id,
-                link_role="media_transcribe_temporal",
-                producer={"action_kind": "media.transcribe"},
-                metadata={
-                    "schema_version": (TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION),
-                    "semantic_type": "timestamped_transcript",
-                },
-            )
-
-        action, bound = _extract_action(
+            alternate_op_id,
+        ),
+    ]:
+        lease = resolve_timeline(
+            project,
             sheet_id=sheet_id,
-            row_ids=row_ids,
-            selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
-            output_name="clips",
-            idempotency_key="extract-batch-transcripts@sha256:v1",
-            output_names={
-                "clip_transcript": "clips_transcript",
-                "clip_alternate_transcript": "clips_alternate_transcript",
+            row_id=row_id,
+            column_id=source_column_id,
+        )
+        span = record_source_span(
+            project,
+            artifact_id=lease.anchor.artifact_id,
+            span_kind="temporal",
+            start_ms=2_000,
+            end_ms=5_000,
+            quote=quote,
+            selector={"segment_index": 0},
+        )
+        _values, refs = project.get_values_with_refs(
+            sheet_id, column_id, row_ids=[row_id]
+        )
+        record_evidence_link(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"], "rank": 0}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": (TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION),
+                "semantic_type": "timestamped_transcript",
             },
-            repeat_for_rows=True,
         )
 
-        def fake_stage(_project, source, temporal_range, output_path):
-            output_path.write_bytes(f"transcript-derived-{source.row_id}".encode())
-            return _fake_rendered_clip(
-                output_path,
-                start_ms=temporal_range.start_ms,
-                end_ms=temporal_range.end_ms,
-            )
+    action, bound = _extract_action(
+        sheet_id=sheet_id,
+        row_ids=row_ids,
+        selection={"kind": "draft_range", "start_ms": 2_000, "end_ms": 5_000},
+        output_name="clips",
+        idempotency_key="extract-batch-transcripts@sha256:v1",
+        output_names={
+            "clip_transcript": "clips_transcript",
+            "clip_alternate_transcript": "clips_alternate_transcript",
+        },
+        repeat_for_rows=True,
+    )
 
-        result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-batch-transcripts",
-            stage_fn=fake_stage,
+    def fake_stage(_project, source, temporal_range, output_path):
+        output_path.write_bytes(f"transcript-derived-{source.row_id}".encode())
+        return _fake_rendered_clip(
+            output_path,
+            start_ms=temporal_range.start_ms,
+            end_ms=temporal_range.end_ms,
         )
 
-        assert result.status == "completed", result.model_dump(mode="json")
-        assert result.warnings == []
-        by_name = {output.name: output for output in result.outputs}
-        assert by_name["clips_transcript"].row_ids == row_ids
-        assert by_name["clips_alternate_transcript"].row_ids == [row_ids[1]]
-        transcript_column = project.db.execute(
-            "SELECT type FROM columns WHERE id=?",
-            (by_name["clips_transcript"].column_id,),
-        ).fetchone()
-        assert transcript_column["type"] == "timestamped_transcript"
-        transcript_values = project.get_values(
-            sheet_id,
-            int(by_name["clips_transcript"].column_id),
-            row_ids=row_ids,
-        )
-        assert transcript_values[row_ids[0]] == "First row transcript."
-        assert transcript_values[row_ids[1]] == "Second row transcript."
-        alternate_values = project.get_values(
-            sheet_id,
-            int(by_name["clips_alternate_transcript"].column_id),
-            row_ids=row_ids,
-        )
-        assert alternate_values.get(row_ids[0]) is None
-        assert alternate_values[row_ids[1]] == "Conflicting second row transcript."
-        projected = resolve_timestamped_transcript(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_ids[0],
-            column_id=int(by_name["clips_transcript"].column_id),
-        )
-        assert projected is not None
-        assert [(span["start_ms"], span["end_ms"]) for span in projected.spans] == [
-            (0, 3_000)
+    result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-batch-transcripts",
+        stage_fn=fake_stage,
+    )
+
+    assert result.status == "completed", result.model_dump(mode="json")
+    assert result.warnings == []
+    by_name = {output.name: output for output in result.outputs}
+    assert by_name["clips_transcript"].row_ids == row_ids
+    assert by_name["clips_alternate_transcript"].row_ids == [row_ids[1]]
+    transcript_column = project.db.execute(
+        "SELECT type FROM columns WHERE id=?",
+        (by_name["clips_transcript"].column_id,),
+    ).fetchone()
+    assert transcript_column["type"] == "timestamped_transcript"
+    transcript_values = project.get_values(
+        sheet_id,
+        int(by_name["clips_transcript"].column_id),
+        row_ids=row_ids,
+    )
+    assert transcript_values[row_ids[0]] == "First row transcript."
+    assert transcript_values[row_ids[1]] == "Second row transcript."
+    alternate_values = project.get_values(
+        sheet_id,
+        int(by_name["clips_alternate_transcript"].column_id),
+        row_ids=row_ids,
+    )
+    assert alternate_values.get(row_ids[0]) is None
+    assert alternate_values[row_ids[1]] == "Conflicting second row transcript."
+    projected = resolve_timestamped_transcript(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_ids[0],
+        column_id=int(by_name["clips_transcript"].column_id),
+    )
+    assert projected is not None
+    assert [(span["start_ms"], span["end_ms"]) for span in projected.spans] == [
+        (0, 3_000)
+    ]
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM evidence_links "
+            "WHERE link_role='temporal_transcript_projection' AND receipt_id=?",
+            (result.receipt_id,),
+        ).fetchone()[0]
+        == 3
+    )
+
+    queued_replay = reserve_typed_action_job(
+        project, "project-extract-batch-transcripts", bound
+    )
+    assert not isinstance(queued_replay, dict)
+    assert queued_replay.status == "completed"
+    replay_by_name = {output.name: output for output in queued_replay.outputs}
+    assert set(replay_by_name) == {
+        "clips",
+        "clips_transcript",
+        "clips_alternate_transcript",
+    }
+    assert replay_by_name["clips"].row_ids == row_ids
+    assert replay_by_name["clips_transcript"].row_ids == row_ids
+    assert replay_by_name["clips_alternate_transcript"].row_ids == [row_ids[1]]
+    for name, replay_output in replay_by_name.items():
+        assert replay_output.kind == "column"
+        assert replay_output.sheet_id == sheet_id
+        assert replay_output.column_id == by_name[name].column_id
+        assert replay_output.ref == by_name[name].ref
+
+    project.apply_edits(
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": transcript_column_id,
+                "value": "Edited after extraction.",
+            }
         ]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM evidence_links "
-                "WHERE link_role='temporal_transcript_projection' AND receipt_id=?",
-                (result.receipt_id,),
-            ).fetchone()[0]
-            == 3
-        )
-
-        queued_replay = reserve_typed_action_job(
-            project, "project-extract-batch-transcripts", bound
-        )
-        assert not isinstance(queued_replay, dict)
-        assert queued_replay.status == "completed"
-        replay_by_name = {output.name: output for output in queued_replay.outputs}
-        assert set(replay_by_name) == {
-            "clips",
-            "clips_transcript",
-            "clips_alternate_transcript",
-        }
-        assert replay_by_name["clips"].row_ids == row_ids
-        assert replay_by_name["clips_transcript"].row_ids == row_ids
-        assert replay_by_name["clips_alternate_transcript"].row_ids == [row_ids[1]]
-        for name, replay_output in replay_by_name.items():
-            assert replay_output.kind == "column"
-            assert replay_output.sheet_id == sheet_id
-            assert replay_output.column_id == by_name[name].column_id
-            assert replay_output.ref == by_name[name].ref
-
-        project.apply_edits(
-            [
-                {
-                    "row_id": row_ids[0],
-                    "column_id": transcript_column_id,
-                    "value": "Edited after extraction.",
-                }
-            ]
-        )
-        idempotent_result = _run_extract(
-            project,
-            bound,
-            project_id="project-extract-batch-transcripts",
-            stage_fn=lambda *_args: pytest.fail(
-                "an idempotent result must not stage again"
-            ),
-        )
-        assert idempotent_result.status == "completed"
-        assert idempotent_result.receipt_id == result.receipt_id
-    finally:
-        project.close()
+    )
+    idempotent_result = _run_extract(
+        project,
+        bound,
+        project_id="project-extract-batch-transcripts",
+        stage_fn=lambda *_args: pytest.fail(
+            "an idempotent result must not stage again"
+        ),
+    )
+    assert idempotent_result.status == "completed"
+    assert idempotent_result.receipt_id == result.receipt_id

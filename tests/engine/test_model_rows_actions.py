@@ -334,9 +334,9 @@ def _run_third_party(
 
 
 def test_third_party_model_rows_literal_source_refuses_before_paid_dispatch(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "literal.frisket")
+    project = make_project("literal")
     requests: list[LLMRequest] = []
     try:
         sheet_id, _ = _seed(project)
@@ -353,9 +353,9 @@ def test_third_party_model_rows_literal_source_refuses_before_paid_dispatch(
 
 
 def test_model_rows_applies_functional_output_validator_before_publication(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "functional-validator.frisket")
+    project = make_project("functional-validator")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -393,8 +393,8 @@ def test_model_rows_applies_functional_output_validator_before_publication(
         project.close()
 
 
-def test_model_rows_publishes_structured_and_json_output_fields(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "structured-output.frisket")
+def test_model_rows_publishes_structured_and_json_output_fields(make_project) -> None:
+    project = make_project("structured-output")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -452,9 +452,9 @@ def test_model_rows_publishes_structured_and_json_output_fields(tmp_path: Path) 
 
 
 def test_model_rows_direct_confirmation_multimodal_receipt_and_replay(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "model-rows.frisket")
+    project = make_project("model-rows")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -562,7 +562,7 @@ def test_model_rows_direct_confirmation_multimodal_receipt_and_replay(
 @pytest.mark.parametrize("include_confidence", [False, True])
 @pytest.mark.parametrize("include_reasoning", [False, True])
 def test_ask_response_type_drives_schema_and_persisted_values(
-    tmp_path: Path,
+    make_project,
     response_type: str,
     value: Any,
     column_type: str,
@@ -571,7 +571,7 @@ def test_ask_response_type_drives_schema_and_persisted_values(
 ) -> None:
     from jsonschema import Draft202012Validator
 
-    project = Project.create(tmp_path / "typed-answer.frisket")
+    project = make_project("typed-answer")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -647,8 +647,8 @@ def test_ask_response_type_drives_schema_and_persisted_values(
         project.close()
 
 
-def test_ask_wrong_response_type_is_not_published(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "invalid-answer.frisket")
+def test_ask_wrong_response_type_is_not_published(make_project) -> None:
+    project = make_project("invalid-answer")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -673,11 +673,11 @@ def test_ask_wrong_response_type_is_not_published(tmp_path: Path) -> None:
 @pytest.mark.parametrize("action_id", ["map.ask", "map.extract"])
 @pytest.mark.parametrize("initial_value", ["not sure", False])
 def test_typed_model_retry_changes_only_empty_failed_output_type(
-    tmp_path: Path, action_id: str, initial_value: Any
+    make_project, action_id: str, initial_value: Any
 ) -> None:
     from tests.engine.extract_typed_chain_helpers import typed_extract_request
 
-    project = Project.create(tmp_path / "typed-failed-retry.frisket")
+    project = make_project("typed-failed-retry")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -775,9 +775,9 @@ def test_typed_model_retry_changes_only_empty_failed_output_type(
 @pytest.mark.parametrize("edited_value", [True, None])
 @pytest.mark.parametrize("undo_edit", [False, True])
 def test_typed_ask_retry_preserves_manual_edit_history_on_failed_output(
-    tmp_path: Path, edited_value: Any, undo_edit: bool
+    make_project, edited_value: Any, undo_edit: bool
 ) -> None:
-    project = Project.create(tmp_path / "edited-failed-answer.frisket")
+    project = make_project("edited-failed-answer")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -860,7 +860,7 @@ def test_typed_ask_retry_preserves_manual_edit_history_on_failed_output(
 
 
 def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     import hashlib
     from frisket.engine.executor.map_rows_action import (
@@ -868,7 +868,7 @@ def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
         typed_request_hash,
     )
 
-    project = Project.create(tmp_path / "legacy-ask-hash.frisket")
+    project = make_project("legacy-ask-hash")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -938,9 +938,9 @@ def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
 
 
 def test_model_rows_direct_skips_empty_references_in_labeled_template(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "labeled-empty-direct.frisket")
+    project = make_project("labeled-empty-direct")
     requests: list[LLMRequest] = []
     try:
         sheet_id, row_ids = _seed(project)
@@ -979,79 +979,73 @@ def test_model_rows_direct_skips_empty_references_in_labeled_template(
 
 
 def test_model_rows_template_rejects_incompatible_referenced_type(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "bad-template.frisket")
+    project = make_project("bad-template")
+    sheet_id = project.add_sheet("Places")
+    project.add_column(sheet_id, "point", type="geo_point")
+    bound = BoundTypedActionRequest.bind(
+        ACTION_REGISTRY.get("map.ask"),
+        ActionRequest.model_validate(
+            {
+                **_request(sheet_id),
+                "params": {
+                    **_request(sheet_id)["params"],
+                    "source": {"text": "{{point}}"},
+                },
+            }
+        ),
+    )
     try:
-        sheet_id = project.add_sheet("Places")
-        project.add_column(sheet_id, "point", type="geo_point")
-        bound = BoundTypedActionRequest.bind(
-            ACTION_REGISTRY.get("map.ask"),
-            ActionRequest.model_validate(
-                {
-                    **_request(sheet_id),
-                    "params": {
-                        **_request(sheet_id)["params"],
-                        "source": {"text": "{{point}}"},
-                    },
-                }
-            ),
-        )
-        try:
-            build_typed_map_rows_plan(project, bound)
-        except ValueError as error:
-            assert getattr(error, "code", None) == "invalid_input_ref"
-            assert getattr(error, "details")["columns"][0]["name"] == "point"
-        else:
-            raise AssertionError("incompatible template source was accepted")
-    finally:
-        project.close()
+        build_typed_map_rows_plan(project, bound)
+    except ValueError as error:
+        assert getattr(error, "code", None) == "invalid_input_ref"
+        assert getattr(error, "details")["columns"][0]["name"] == "point"
+    else:
+        raise AssertionError("incompatible template source was accepted")
 
 
 def test_model_rows_all_failed_receipt_keeps_complete_run_counts(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "failed.frisket")
-    try:
-        sheet_id, row_ids = _seed(project)
-        body = _request(sheet_id, row_ids=[row_ids[0]])
-        gated = run_typed_map_request(
-            project,
-            body,
-            project_id="project-1",
-            deps=_zero_consent_deps(project),
-        )
-        confirmation = gated.errors[0].details["promise_set_hash"]
-        request = ActionRequest.model_validate({**body, "confirmation": confirmation})
-        bound = BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.ask"), request)
-        from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
-        from frisket.engine.runner import MapRunner
-        from frisket.execution.attempt_authority import UnroutedOnlyAuthority
+    project = make_project("failed")
+    sheet_id, row_ids = _seed(project)
+    body = _request(sheet_id, row_ids=[row_ids[0]])
+    gated = run_typed_map_request(
+        project,
+        body,
+        project_id="project-1",
+        deps=_zero_consent_deps(project),
+    )
+    confirmation = gated.errors[0].details["promise_set_hash"]
+    request = ActionRequest.model_validate({**body, "confirmation": confirmation})
+    bound = BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.ask"), request)
+    from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
+    from frisket.engine.runner import MapRunner
+    from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
-        router = _failing_router()
-        result = run_typed_map_rows_action(
-            project,
-            "project-1",
-            bound,
-            router,
-            lambda target, selected: MapRunner(
-                target,
-                selected or router,
-                authority=UnroutedOnlyAuthority(target),
-                consent_coverage=_zero_consent_coverage(target),
-            ),
-        )
+    router = _failing_router()
+    result = run_typed_map_rows_action(
+        project,
+        "project-1",
+        bound,
+        router,
+        lambda target, selected: MapRunner(
+            target,
+            selected or router,
+            authority=UnroutedOnlyAuthority(target),
+            consent_coverage=_zero_consent_coverage(target),
+        ),
+    )
 
-        assert result.status == "failed"
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        assert receipt.errors[0].details == {
-            "total_rows": 1,
-            "completed_rows": 1,
-            "failed_rows": 1,
-        }
-    finally:
-        project.close()
+    assert result.status == "failed"
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    assert receipt.errors[0].details == {
+        "total_rows": 1,
+        "completed_rows": 1,
+        "failed_rows": 1,
+    }
 
 
 def test_model_rows_live_validation_rejects_incompatible_template_type(
@@ -1627,8 +1621,10 @@ def test_model_rows_all_empty_reports_source_field_direct_and_queued(
     assert requests == []
 
 
-def test_model_request_exact_replay_ignores_empty_rows(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "replay.frisket")
+def test_model_request_exact_replay_ignores_empty_rows(
+    tmp_path: Path, make_project
+) -> None:
+    project = make_project("replay")
     cache = ResponseCache(tmp_path / "replay.cache.db")
     try:
         sheet_id, row_ids = _seed(project)

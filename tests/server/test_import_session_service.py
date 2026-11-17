@@ -3,13 +3,11 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
 from starlette.datastructures import UploadFile
 
-from frisket.engine.store import Project
 from frisket.engine.store.cells import add_sheet
 from frisket.engine.store.import_intake import (
     import_intake_dir,
@@ -32,12 +30,6 @@ def _upload(name: str, payload: bytes) -> BulkUpload:
         mime="application/octet-stream",
         file=UploadFile(file=io.BytesIO(payload), filename=name),
     )
-
-
-@pytest.fixture
-def project(tmp_path):
-    with closing(Project.create(tmp_path / "project.frisket", name="Intake")) as value:
-        yield value
 
 
 @pytest.mark.asyncio

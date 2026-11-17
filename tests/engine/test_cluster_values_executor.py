@@ -380,167 +380,155 @@ def _recover_abandoned_cluster(project, action, *, router, project_id):
 
 @pytest.mark.parametrize("source", ["missing", "numeric"])
 def test_source_descriptor_refusal_explains_supported_types_without_writes(
-    tmp_path, source
+    tmp_path, make_project, source
 ):
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "invalid-cluster-source.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        project.add_column(seeded["sheet_id"], "numeric", type="integer")
-        before = counts(project)
-        result = run_action_spec(
-            project,
-            _cluster_action(seeded["sheet_id"], input_column=source),
-            project_id="source-types",
-        )
-        assert result.status == "failed", result.model_dump()
-        assert any(
-            "visible text, category, or link source column" in item["message"]
-            for item in result.errors[0].details["errors"]
-        )
-        assert counts(project) == before
-    finally:
-        project.close()
+    project = make_project("invalid-cluster-source")
+    seeded = _seed(project, tmp_path)
+    project.add_column(seeded["sheet_id"], "numeric", type="integer")
+    before = counts(project)
+    result = run_action_spec(
+        project,
+        _cluster_action(seeded["sheet_id"], input_column=source),
+        project_id="source-types",
+    )
+    assert result.status == "failed", result.model_dump()
+    assert any(
+        "visible text, category, or link source column" in item["message"]
+        for item in result.errors[0].details["errors"]
+    )
+    assert counts(project) == before
 
 
 def test_semantic_cluster_remote_cache_miss_requires_confirmation_before_egress(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-unconfirmed.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:unconfirmed-remote",
-            method="semantic",
-        )
-        before = counts(project)
+    project = make_project("cluster-values-unconfirmed")
+    seeded = _seed(project, tmp_path)
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:unconfirmed-remote",
+        method="semantic",
+    )
+    before = counts(project)
 
-        result = run_action_spec(
-            project,
-            action,
-            project_id="cluster-values-unconfirmed",
-            router=router,
-        )
+    result = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-unconfirmed",
+        router=router,
+    )
 
-        assert result.status == "needs_confirmation"
-        assert v1_action_result_http_status(result) == 402
-        assert result.errors[0].code == "model_cost_requires_confirmation"
-        details = result.errors[0].details
-        assert details["estimate"]["rows"] == len(seeded["row_ids"])
-        assert details["estimate"]["cost"] is None
-        from frisket.actions.system import typed_action_for_request
-        from frisket.engine.executor.cluster_action import prepare_cluster_action
-        from frisket.engine.executor.value_cluster import cluster_embedding_inputs
-        from frisket.actions.cluster_types import ClusterOptions
+    assert result.status == "needs_confirmation"
+    assert v1_action_result_http_status(result) == 402
+    assert result.errors[0].code == "model_cost_requires_confirmation"
+    details = result.errors[0].details
+    assert details["estimate"]["rows"] == len(seeded["row_ids"])
+    assert details["estimate"]["cost"] is None
+    from frisket.actions.system import typed_action_for_request
+    from frisket.engine.executor.cluster_action import prepare_cluster_action
+    from frisket.engine.executor.value_cluster import cluster_embedding_inputs
+    from frisket.actions.cluster_types import ClusterOptions
 
-        plan = prepare_cluster_action(
-            project, typed_action_for_request(action), router=router
-        )
-        state = plan.spec["cluster_values"]
-        assert state["source"]["value_hash"].startswith("sha256:")
-        assert state["source"]["row_ids"] == seeded["row_ids"]
-        assert state["embedding_model"] == "openai/text-embedding-3-small"
-        assert (
-            len(
-                cluster_embedding_inputs(
-                    project.get_values(seeded["sheet_id"], seeded["name_column_id"]),
-                    ClusterOptions.model_validate(state["options"]),
-                )
+    plan = prepare_cluster_action(
+        project, typed_action_for_request(action), router=router
+    )
+    state = plan.spec["cluster_values"]
+    assert state["source"]["value_hash"].startswith("sha256:")
+    assert state["source"]["row_ids"] == seeded["row_ids"]
+    assert state["embedding_model"] == "openai/text-embedding-3-small"
+    assert (
+        len(
+            cluster_embedding_inputs(
+                project.get_values(seeded["sheet_id"], seeded["name_column_id"]),
+                ClusterOptions.model_validate(state["options"]),
             )
-            == 4
         )
-        assert len(details["promise_set_hash"]) == 64
-        assert adapter.calls == []
-        assert counts(project) == before
-    finally:
-        project.close()
+        == 4
+    )
+    assert len(details["promise_set_hash"]) == 64
+    assert adapter.calls == []
+    assert counts(project) == before
 
 
 def test_semantic_cluster_wrong_exact_echo_repauses(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-bare-confirmed.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:bare-confirmed-remote",
-            method="semantic",
-            confirmation="0" * 64,
-        )
-        before = counts(project)
+    project = make_project("cluster-values-bare-confirmed")
+    seeded = _seed(project, tmp_path)
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:bare-confirmed-remote",
+        method="semantic",
+        confirmation="0" * 64,
+    )
+    before = counts(project)
 
-        result = run_action_spec(
-            project,
-            action,
-            project_id="cluster-values-bare-confirmed",
-            router=router,
-        )
+    result = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-bare-confirmed",
+        router=router,
+    )
 
-        assert result.status == "needs_confirmation"
-        assert v1_action_result_http_status(result) == 402
-        assert len(result.errors[0].details["promise_set_hash"]) == 64
-        assert adapter.calls == []
-        assert counts(project) == before
-    finally:
-        project.close()
+    assert result.status == "needs_confirmation"
+    assert v1_action_result_http_status(result) == 402
+    assert len(result.errors[0].details["promise_set_hash"]) == 64
+    assert adapter.calls == []
+    assert counts(project) == before
 
 
 def test_semantic_cluster_source_change_invalidates_old_confirmation_hash(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-stale-confirmation.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:stale-confirmation",
-            method="semantic",
-        )
-        quote = run_action_spec(
-            project,
-            action,
-            project_id="cluster-values-stale-confirmation",
-            router=router,
-        )
-        old_hash = quote.errors[0].details["promise_set_hash"]
-        _tamper_source_values(project, seeded)
-        before = counts(project)
-        retry = copy.deepcopy(action)
-        retry["confirmation"] = old_hash
+    project = make_project("cluster-values-stale-confirmation")
+    seeded = _seed(project, tmp_path)
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:stale-confirmation",
+        method="semantic",
+    )
+    quote = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-stale-confirmation",
+        router=router,
+    )
+    old_hash = quote.errors[0].details["promise_set_hash"]
+    _tamper_source_values(project, seeded)
+    before = counts(project)
+    retry = copy.deepcopy(action)
+    retry["confirmation"] = old_hash
 
-        stale = run_action_spec(
-            project,
-            retry,
-            project_id="cluster-values-stale-confirmation",
-            router=router,
-        )
+    stale = run_action_spec(
+        project,
+        retry,
+        project_id="cluster-values-stale-confirmation",
+        router=router,
+    )
 
-        assert stale.status == "needs_confirmation"
-        assert v1_action_result_http_status(stale) == 402
-        assert stale.errors[0].details["promise_set_hash"] != old_hash
-        assert adapter.calls == []
-        assert counts(project) == before
-    finally:
-        project.close()
+    assert stale.status == "needs_confirmation"
+    assert v1_action_result_http_status(stale) == 402
+    assert stale.errors[0].details["promise_set_hash"] != old_hash
+    assert adapter.calls == []
+    assert counts(project) == before
 
 
 def test_semantic_cluster_refuses_an_exhausted_project_key_before_embedding(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     """cluster.values bypasses MapRunner, but its semantic warm can call the
     project's OpenAI embedding key.  An exhausted cap must stop that pre-txn
@@ -548,38 +536,35 @@ def test_semantic_cluster_refuses_an_exhausted_project_key_before_embedding(
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-exhausted.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint=key_hint("sk-project-openai"),
-            spend_cap_micro=0,
-        )
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:exhausted-project-key",
-            method="semantic",
-        )
-        _, result = _run_remote_cluster_with_exact_confirmation(
-            project,
-            action,
-            project_id="cluster-values-exhausted",
-            router=router,
-        )
+    project = make_project("cluster-values-exhausted")
+    seeded = _seed(project, tmp_path)
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-project-openai"),
+        hint=key_hint("sk-project-openai"),
+        spend_cap_micro=0,
+    )
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:exhausted-project-key",
+        method="semantic",
+    )
+    _, result = _run_remote_cluster_with_exact_confirmation(
+        project,
+        action,
+        project_id="cluster-values-exhausted",
+        router=router,
+    )
 
-        assert result.status == "failed"
-        assert result.receipt_id is None
-        assert result.errors[0].code == "provider_spend_cap_exceeded"
-        assert adapter.calls == []
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.receipt_id is None
+    assert result.errors[0].code == "provider_spend_cap_exceeded"
+    assert adapter.calls == []
 
 
 def test_semantic_cluster_persists_remote_fact_and_receipts_the_provider_cost(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     """The semantic warm is a paid provider effect, not a local clustering
     detail.  Its durable fact, project-key accrual, and completed receipt must
@@ -587,121 +572,115 @@ def test_semantic_cluster_persists_remote_fact_and_receipts_the_provider_cost(
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-provider-fact.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint=key_hint("sk-project-openai"),
-            spend_cap_micro=1_000_000,
-        )
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:remote-provider-fact",
-            method="semantic",
-        )
-        _, result = _run_remote_cluster_with_exact_confirmation(
-            project,
-            action,
-            project_id="cluster-values-provider-fact",
-            router=router,
-        )
+    project = make_project("cluster-values-provider-fact")
+    seeded = _seed(project, tmp_path)
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-project-openai"),
+        hint=key_hint("sk-project-openai"),
+        spend_cap_micro=1_000_000,
+    )
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:remote-provider-fact",
+        method="semantic",
+    )
+    _, result = _run_remote_cluster_with_exact_confirmation(
+        project,
+        action,
+        project_id="cluster-values-provider-fact",
+        router=router,
+    )
 
-        assert result.status == "completed", result.errors
-        assert len(adapter.calls) == 1
-        calls = project.db.execute(
-            "SELECT * FROM model_calls WHERE provider='openai' ORDER BY created_at"
-        ).fetchall()
-        assert len(calls) == len(adapter.calls)
-        assert calls[0]["run_id"] == result.run_id
-        assert calls[0]["capability"] == "llm.embed"
-        assert calls[0]["credential_source"] == "project_key"
-        assert calls[0]["provider_cost_usd"] == _RemoteEmbeddingAdapter.COST_USD
+    assert result.status == "completed", result.errors
+    assert len(adapter.calls) == 1
+    calls = project.db.execute(
+        "SELECT * FROM model_calls WHERE provider='openai' ORDER BY created_at"
+    ).fetchall()
+    assert len(calls) == len(adapter.calls)
+    assert calls[0]["run_id"] == result.run_id
+    assert calls[0]["capability"] == "llm.embed"
+    assert calls[0]["credential_source"] == "project_key"
+    assert calls[0]["provider_cost_usd"] == _RemoteEmbeddingAdapter.COST_USD
 
-        expected_cost = len(adapter.calls) * _RemoteEmbeddingAdapter.COST_USD
-        spend = project.provider_spend_state("openai")
-        assert spend is not None
-        assert spend.spent_micro == round(expected_cost * 1_000_000)
-        assert spend.unmetered_calls == 0
+    expected_cost = len(adapter.calls) * _RemoteEmbeddingAdapter.COST_USD
+    spend = project.provider_spend_state("openai")
+    assert spend is not None
+    assert spend.spent_micro == round(expected_cost * 1_000_000)
+    assert spend.unmetered_calls == 0
 
-        receipt_row = project.db.execute(
-            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-        ).fetchone()
-        receipt = json.loads(receipt_row["body"])
-        provider_use = receipt["provider_use"]
-        assert len(provider_use) == 1
-        assert provider_use[0]["provider"] == "openai"
-        assert provider_use[0]["credential_source"] == "project_key"
-        assert provider_use[0]["external_api"] is True
-        assert provider_use[0]["model_call_count"] == len(adapter.calls)
-        assert provider_use[0]["cost_actual"] == expected_cost
-    finally:
-        project.close()
+    receipt_row = project.db.execute(
+        "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+    ).fetchone()
+    receipt = json.loads(receipt_row["body"])
+    provider_use = receipt["provider_use"]
+    assert len(provider_use) == 1
+    assert provider_use[0]["provider"] == "openai"
+    assert provider_use[0]["credential_source"] == "project_key"
+    assert provider_use[0]["external_api"] is True
+    assert provider_use[0]["model_call_count"] == len(adapter.calls)
+    assert provider_use[0]["cost_actual"] == expected_cost
 
 
 def test_cluster_replay_does_not_finalize_a_live_completed_writer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import cluster_action
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "cluster-values-live-replay.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:live-completed-writer",
-            method="fingerprint",
-        )
-        original_finalize = cluster_action.finalize_cluster_action
-        replay_results = []
-        replayed = False
+    project = make_project("cluster-values-live-replay")
+    seeded = _seed(project, tmp_path)
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:live-completed-writer",
+        method="fingerprint",
+    )
+    original_finalize = cluster_action.finalize_cluster_action
+    replay_results = []
+    replayed = False
 
-        def replay_during_live_finalize(current_project, *args, **kwargs):
-            nonlocal replayed
-            if not replayed:
-                replayed = True
-                replay_results.append(
-                    run_action_spec(
-                        current_project,
-                        action,
-                        project_id="cluster-values-live-replay",
-                    )
+    def replay_during_live_finalize(current_project, *args, **kwargs):
+        nonlocal replayed
+        if not replayed:
+            replayed = True
+            replay_results.append(
+                run_action_spec(
+                    current_project,
+                    action,
+                    project_id="cluster-values-live-replay",
                 )
-                owner = current_project.db.execute(
-                    "SELECT state FROM execution_attempts WHERE id=?",
-                    (kwargs["writer_attempt_id"],),
-                ).fetchone()
-                assert owner is not None and owner["state"] == "dispatching"
-            return original_finalize(current_project, *args, **kwargs)
+            )
+            owner = current_project.db.execute(
+                "SELECT state FROM execution_attempts WHERE id=?",
+                (kwargs["writer_attempt_id"],),
+            ).fetchone()
+            assert owner is not None and owner["state"] == "dispatching"
+        return original_finalize(current_project, *args, **kwargs)
 
-        monkeypatch.setattr(
-            cluster_action, "finalize_cluster_action", replay_during_live_finalize
-        )
-        result = run_action_spec(
-            project,
-            action,
-            project_id="cluster-values-live-replay",
-        )
+    monkeypatch.setattr(
+        cluster_action, "finalize_cluster_action", replay_during_live_finalize
+    )
+    result = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-live-replay",
+    )
 
-        assert replayed
-        assert result.status == "completed", result.model_dump()
-        assert len(replay_results) == 1
-        assert replay_results[0].status == "failed"
-        assert replay_results[0].errors[0].code == "idempotency_in_progress"
-        run = project.db.execute(
-            "SELECT status,current_attempt_id FROM runs WHERE id=?",
-            (result.run_id,),
-        ).fetchone()
-        assert tuple(run) == ("completed", None)
-    finally:
-        project.close()
+    assert replayed
+    assert result.status == "completed", result.model_dump()
+    assert len(replay_results) == 1
+    assert replay_results[0].status == "failed"
+    assert replay_results[0].errors[0].code == "idempotency_in_progress"
+    run = project.db.execute(
+        "SELECT status,current_attempt_id FROM runs WHERE id=?",
+        (result.run_id,),
+    ).fetchone()
+    assert tuple(run) == ("completed", None)
 
 
 def test_semantic_cluster_replay_and_vector_cache_do_not_double_spend(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     """An idempotency replay reuses the original receipt, while a distinct
     action over the same content uses the vector cache. Neither is a new
@@ -710,86 +689,83 @@ def test_semantic_cluster_replay_and_vector_cache_do_not_double_spend(
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-cache-accounting.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint=key_hint("sk-project-openai"),
-            spend_cap_micro=1_000_000,
-        )
-        router, adapter = _remote_embedding_router()
-        first_action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:remote-cache-source",
-            method="semantic",
-        )
-        _, first = _run_remote_cluster_with_exact_confirmation(
-            project,
-            first_action,
-            project_id="cluster-values-cache-accounting",
-            router=router,
-        )
-        replay = run_action_spec(
-            project,
-            first_action,
-            project_id="cluster-values-cache-accounting",
-            router=router,
-        )
-        assert first.status == replay.status == "completed"
-        assert first.receipt_id == replay.receipt_id
-        assert len(adapter.calls) == 1
-        spend_after_first = project.provider_spend_state("openai")
-        assert spend_after_first is not None
+    project = make_project("cluster-values-cache-accounting")
+    seeded = _seed(project, tmp_path)
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-project-openai"),
+        hint=key_hint("sk-project-openai"),
+        spend_cap_micro=1_000_000,
+    )
+    router, adapter = _remote_embedding_router()
+    first_action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:remote-cache-source",
+        method="semantic",
+    )
+    _, first = _run_remote_cluster_with_exact_confirmation(
+        project,
+        first_action,
+        project_id="cluster-values-cache-accounting",
+        router=router,
+    )
+    replay = run_action_spec(
+        project,
+        first_action,
+        project_id="cluster-values-cache-accounting",
+        router=router,
+    )
+    assert first.status == replay.status == "completed"
+    assert first.receipt_id == replay.receipt_id
+    assert len(adapter.calls) == 1
+    spend_after_first = project.provider_spend_state("openai")
+    assert spend_after_first is not None
 
-        # Set the cap exactly at accrued spend. A real second egress would now
-        # refuse, but the content-addressed vectors make this action cache-only.
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint=key_hint("sk-project-openai"),
-            spend_cap_micro=spend_after_first.spent_micro,
-        )
-        cached_action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:remote-cache-consumer",
-        )
-        cached_action["params"]["method"] = "semantic"
-        cached_action["output_names"]["canonical"] = "name_cached_canonical"
-        cached = run_action_spec(
-            project,
-            cached_action,
-            project_id="cluster-values-cache-accounting",
-            router=router,
-        )
+    # Set the cap exactly at accrued spend. A real second egress would now
+    # refuse, but the content-addressed vectors make this action cache-only.
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-project-openai"),
+        hint=key_hint("sk-project-openai"),
+        spend_cap_micro=spend_after_first.spent_micro,
+    )
+    cached_action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:remote-cache-consumer",
+    )
+    cached_action["params"]["method"] = "semantic"
+    cached_action["output_names"]["canonical"] = "name_cached_canonical"
+    cached = run_action_spec(
+        project,
+        cached_action,
+        project_id="cluster-values-cache-accounting",
+        router=router,
+    )
 
-        assert cached.status == "completed", cached.errors
-        assert len(adapter.calls) == 1
-        assert project.provider_spend_state("openai") == spend_after_first.__class__(
-            provider="openai",
-            cap_micro=spend_after_first.spent_micro,
-            spent_micro=spend_after_first.spent_micro,
-            unmetered_calls=0,
-        )
-        assert len(project.db.execute("SELECT id FROM model_calls").fetchall()) == 1
-        receipt_row = project.db.execute(
-            "SELECT body FROM receipts WHERE id=?", (cached.receipt_id,)
-        ).fetchone()
-        provider_use = json.loads(receipt_row["body"])["provider_use"]
-        assert provider_use == [
-            {
-                "provider": "openai",
-                "model": "openai/text-embedding-3-small",
-                "service": "frisket.cluster.semantic.embedding_cache",
-                "credential_source": "cache",
-                "external_api": False,
-                "model_call_count": 0,
-                "cost_actual": 0.0,
-            }
-        ]
-    finally:
-        project.close()
+    assert cached.status == "completed", cached.errors
+    assert len(adapter.calls) == 1
+    assert project.provider_spend_state("openai") == spend_after_first.__class__(
+        provider="openai",
+        cap_micro=spend_after_first.spent_micro,
+        spent_micro=spend_after_first.spent_micro,
+        unmetered_calls=0,
+    )
+    assert len(project.db.execute("SELECT id FROM model_calls").fetchall()) == 1
+    receipt_row = project.db.execute(
+        "SELECT body FROM receipts WHERE id=?", (cached.receipt_id,)
+    ).fetchone()
+    provider_use = json.loads(receipt_row["body"])["provider_use"]
+    assert provider_use == [
+        {
+            "provider": "openai",
+            "model": "openai/text-embedding-3-small",
+            "service": "frisket.cluster.semantic.embedding_cache",
+            "credential_source": "cache",
+            "external_api": False,
+            "model_call_count": 0,
+            "cost_actual": 0.0,
+        }
+    ]
 
 
 @pytest.mark.parametrize("sidecar_commit_landed", [False, True])
@@ -943,7 +919,7 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
 
 
 def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Partial cache warming must not renumber paid embedding checkpoints."""
     from frisket.ai.embeddings.analytics import ensure_legacy_analytical_space
@@ -954,119 +930,116 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-stable-batches.frisket")
-    try:
-        sheet_id = project.add_sheet("Organizations")
-        column_id = project.add_column(sheet_id, "name", type="text")
-        values = [f"organization-{index:03d}" for index in range(501)]
-        project.add_rows(
-            sheet_id,
-            [{"name": value} for value in values],
-            {"name": column_id},
-        )
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint=key_hint("sk-project-openai"),
-            spend_cap_micro=1_000_000,
-        )
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(
-            sheet_id,
-            idempotency_key="cluster_values@sha256:stable-batch-retry",
-            method="semantic",
-        )
-        quote = run_action_spec(
+    project = make_project("cluster-values-stable-batches")
+    sheet_id = project.add_sheet("Organizations")
+    column_id = project.add_column(sheet_id, "name", type="text")
+    values = [f"organization-{index:03d}" for index in range(501)]
+    project.add_rows(
+        sheet_id,
+        [{"name": value} for value in values],
+        {"name": column_id},
+    )
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-project-openai"),
+        hint=key_hint("sk-project-openai"),
+        spend_cap_micro=1_000_000,
+    )
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(
+        sheet_id,
+        idempotency_key="cluster_values@sha256:stable-batch-retry",
+        method="semantic",
+    )
+    quote = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-stable-batches",
+        router=router,
+    )
+    confirmed = copy.deepcopy(action)
+    confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+
+    real_put = RetrievalStore.put_representations
+    fail_next = True
+
+    def fail_second_put(self, representations):
+        nonlocal fail_next
+        if fail_next and len(adapter.calls) >= 2:
+            fail_next = False
+            raise sqlite3.OperationalError(
+                "injected second semantic batch sidecar failure"
+            )
+        return real_put(self, representations)
+
+    monkeypatch.setattr(RetrievalStore, "put_representations", fail_second_put)
+    with pytest.raises(
+        sqlite3.OperationalError,
+        match="injected second semantic batch sidecar failure",
+    ):
+        run_action_spec(
             project,
-            action,
+            confirmed,
             project_id="cluster-values-stable-batches",
             router=router,
         )
-        confirmed = copy.deepcopy(action)
-        confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    assert [len(batch) for batch in adapter.calls] == [500, 1]
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
+        ).fetchone()[0]
+        == 2
+    )
 
-        real_put = RetrievalStore.put_representations
-        fail_next = True
-
-        def fail_second_put(self, representations):
-            nonlocal fail_next
-            if fail_next and len(adapter.calls) >= 2:
-                fail_next = False
-                raise sqlite3.OperationalError(
-                    "injected second semantic batch sidecar failure"
+    # Reproduce an arbitrary partial sidecar landing: only the first 250
+    # values from planned batch 0 are cached before the exact retry.
+    monkeypatch.setattr(RetrievalStore, "put_representations", real_put)
+    space = ensure_legacy_analytical_space(project, REMOTE_EMBED_MODEL)
+    with RetrievalStore(project) as sidecar:
+        sidecar.db.execute(
+            "DELETE FROM representations WHERE space_id=?", (space.identity,)
+        )
+        sidecar.put_representations(
+            [
+                CachedRepresentation(
+                    representation_id=representation_id(
+                        space=space.identity, input_hash=input_hash(value)
+                    ),
+                    space_id=space.identity,
+                    input_hash=input_hash(value),
+                    vector=array("f", [1.0, *([0.0] * 1535)]).tobytes(),
+                    dimension=1536,
                 )
-            return real_put(self, representations)
-
-        monkeypatch.setattr(RetrievalStore, "put_representations", fail_second_put)
-        with pytest.raises(
-            sqlite3.OperationalError,
-            match="injected second semantic batch sidecar failure",
-        ):
-            run_action_spec(
-                project,
-                confirmed,
-                project_id="cluster-values-stable-batches",
-                router=router,
-            )
-        assert [len(batch) for batch in adapter.calls] == [500, 1]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
-            ).fetchone()[0]
-            == 2
+                for value in values[:250]
+            ]
         )
 
-        # Reproduce an arbitrary partial sidecar landing: only the first 250
-        # values from planned batch 0 are cached before the exact retry.
-        monkeypatch.setattr(RetrievalStore, "put_representations", real_put)
-        space = ensure_legacy_analytical_space(project, REMOTE_EMBED_MODEL)
-        with RetrievalStore(project) as sidecar:
-            sidecar.db.execute(
-                "DELETE FROM representations WHERE space_id=?", (space.identity,)
-            )
-            sidecar.put_representations(
-                [
-                    CachedRepresentation(
-                        representation_id=representation_id(
-                            space=space.identity, input_hash=input_hash(value)
-                        ),
-                        space_id=space.identity,
-                        input_hash=input_hash(value),
-                        vector=array("f", [1.0, *([0.0] * 1535)]).tobytes(),
-                        dimension=1536,
-                    )
-                    for value in values[:250]
-                ]
-            )
+    _recover_abandoned_cluster(
+        project,
+        confirmed,
+        router=router,
+        project_id="cluster-values-stable-batches",
+    )
+    retried = run_action_spec(
+        project,
+        confirmed,
+        project_id="cluster-values-stable-batches",
+        router=router,
+    )
 
-        _recover_abandoned_cluster(
-            project,
-            confirmed,
-            router=router,
-            project_id="cluster-values-stable-batches",
-        )
-        retried = run_action_spec(
-            project,
-            confirmed,
-            project_id="cluster-values-stable-batches",
-            router=router,
-        )
-
-        assert retried.status == "completed", retried.errors
-        assert [len(batch) for batch in adapter.calls] == [500, 1]
-        assert len(project.db.execute("SELECT id FROM model_calls").fetchall()) == 2
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    assert retried.status == "completed", retried.errors
+    assert [len(batch) for batch in adapter.calls] == [500, 1]
+    assert len(project.db.execute("SELECT id FROM model_calls").fetchall()) == 2
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
     from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -1074,176 +1047,170 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-receipt-atomic.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint=key_hint("sk-project-openai"),
-            spend_cap_micro=1_000_000,
-        )
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:receipt-context-atomic",
-            method="semantic",
-        )
-        quote = run_action_spec(
-            project,
-            action,
-            project_id="cluster-values-receipt-atomic",
-            router=router,
-        )
-        confirmed = copy.deepcopy(action)
-        confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
-        original_context = {
-            "funding_account_id": 17,
-            "reservation_id": "atomic-transfer",
-        }
-        original_update = ReceiptStore.update_if_status_in
-        fail_next = True
+    project = make_project("cluster-values-receipt-atomic")
+    seeded = _seed(project, tmp_path)
+    project.set_provider_key(
+        provider="openai",
+        encrypted=encrypt_secret("sk-project-openai"),
+        hint=key_hint("sk-project-openai"),
+        spend_cap_micro=1_000_000,
+    )
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:receipt-context-atomic",
+        method="semantic",
+    )
+    quote = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-receipt-atomic",
+        router=router,
+    )
+    confirmed = copy.deepcopy(action)
+    confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    original_context = {
+        "funding_account_id": 17,
+        "reservation_id": "atomic-transfer",
+    }
+    original_update = ReceiptStore.update_if_status_in
+    fail_next = True
 
-        def fail_first_receipt_update(self, *args, **kwargs):
-            nonlocal fail_next
-            result = original_update(self, *args, **kwargs)
-            if fail_next:
-                fail_next = False
-                raise sqlite3.OperationalError("injected receipt update failure")
-            return result
+    def fail_first_receipt_update(self, *args, **kwargs):
+        nonlocal fail_next
+        result = original_update(self, *args, **kwargs)
+        if fail_next:
+            fail_next = False
+            raise sqlite3.OperationalError("injected receipt update failure")
+        return result
 
-        monkeypatch.setattr(
-            ReceiptStore, "update_if_status_in", fail_first_receipt_update
-        )
+    monkeypatch.setattr(ReceiptStore, "update_if_status_in", fail_first_receipt_update)
 
-        with pytest.raises(
-            sqlite3.OperationalError, match="injected receipt update failure"
-        ):
-            run_action_spec(
-                project,
-                confirmed,
-                project_id="cluster-values-receipt-atomic",
-                router=router,
-                edition_run_context=original_context,
-            )
-        assert len(adapter.calls) == 1
-        receipt = project.db.execute(
-            "SELECT id,run_id,status,edition_run_context FROM receipts"
-        ).fetchone()
-        assert receipt["status"] == "running"
-        original_receipt_id = str(receipt["id"])
-        original_run_id = int(receipt["run_id"])
-        assert json.loads(receipt["edition_run_context"]) == original_context
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM cell_result_heads").fetchone()[0]
-            == 0
-        )
-        checkpoint = project.db.execute(
-            "SELECT state, payload FROM effect_checkpoints WHERE family='model_call'"
-        ).fetchone()
-        assert checkpoint is not None and checkpoint["state"] == "returned"
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM columns WHERE sheet_id=? AND name='name_canonical' AND hidden=0",
-                (seeded["sheet_id"],),
-            ).fetchone()
-            is None
-        )
-        claims = OutputColumnClaimStore(project)
-        _, conflict = claims.acquire(
-            sheet_id=seeded["sheet_id"],
-            output_names=["name_canonical"],
-            action_kind="test.foreign_writer",
-            claim_token="test:foreign-cluster-output",
-        )
-        assert conflict is None
-        refused = run_action_spec(
+    with pytest.raises(
+        sqlite3.OperationalError, match="injected receipt update failure"
+    ):
+        run_action_spec(
             project,
             confirmed,
             project_id="cluster-values-receipt-atomic",
             router=router,
+            edition_run_context=original_context,
         )
-        assert refused.status == "failed"
-        assert refused.errors[0].code == "output_column_busy"
-        stored_receipt = project.db.execute(
-            "SELECT id,run_id,status FROM receipts WHERE id=?",
-            (original_receipt_id,),
+    assert len(adapter.calls) == 1
+    receipt = project.db.execute(
+        "SELECT id,run_id,status,edition_run_context FROM receipts"
+    ).fetchone()
+    assert receipt["status"] == "running"
+    original_receipt_id = str(receipt["id"])
+    original_run_id = int(receipt["run_id"])
+    assert json.loads(receipt["edition_run_context"]) == original_context
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM cell_result_heads").fetchone()[0] == 0
+    )
+    checkpoint = project.db.execute(
+        "SELECT state, payload FROM effect_checkpoints WHERE family='model_call'"
+    ).fetchone()
+    assert checkpoint is not None and checkpoint["state"] == "returned"
+    assert (
+        project.db.execute(
+            "SELECT 1 FROM columns WHERE sheet_id=? AND name='name_canonical' AND hidden=0",
+            (seeded["sheet_id"],),
         ).fetchone()
-        assert stored_receipt is not None
-        assert stored_receipt["run_id"] == original_run_id
-        assert stored_receipt["status"] == "running"
-        claims.release(claim_token="test:foreign-cluster-output", status="released")
+        is None
+    )
+    claims = OutputColumnClaimStore(project)
+    _, conflict = claims.acquire(
+        sheet_id=seeded["sheet_id"],
+        output_names=["name_canonical"],
+        action_kind="test.foreign_writer",
+        claim_token="test:foreign-cluster-output",
+    )
+    assert conflict is None
+    refused = run_action_spec(
+        project,
+        confirmed,
+        project_id="cluster-values-receipt-atomic",
+        router=router,
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "output_column_busy"
+    stored_receipt = project.db.execute(
+        "SELECT id,run_id,status FROM receipts WHERE id=?",
+        (original_receipt_id,),
+    ).fetchone()
+    assert stored_receipt is not None
+    assert stored_receipt["run_id"] == original_run_id
+    assert stored_receipt["status"] == "running"
+    claims.release(claim_token="test:foreign-cluster-output", status="released")
 
-        # Both retries pass the idle receipt check before either reaches the
-        # output claim CAS. Hold the winner's claim until the competing retry
-        # has observed the conflict, proving it cannot delete the reused receipt.
-        acquire_barrier = threading.Barrier(2)
-        competing_refusal = threading.Event()
-        original_acquire = OutputColumnClaimStore.acquire
+    # Both retries pass the idle receipt check before either reaches the
+    # output claim CAS. Hold the winner's claim until the competing retry
+    # has observed the conflict, proving it cannot delete the reused receipt.
+    acquire_barrier = threading.Barrier(2)
+    competing_refusal = threading.Event()
+    original_acquire = OutputColumnClaimStore.acquire
 
-        def synchronize_resume_claim(self, **kwargs):
-            if (
-                kwargs.get("receipt_id") == original_receipt_id
-                and kwargs.get("claim_token") == f"output-claim:{original_receipt_id}"
-            ):
-                acquire_barrier.wait(timeout=10)
-                result = original_acquire(self, **kwargs)
-                if result[1] is None:
-                    assert competing_refusal.wait(timeout=10)
-                return result
-            return original_acquire(self, **kwargs)
-
-        monkeypatch.setattr(OutputColumnClaimStore, "acquire", synchronize_resume_claim)
-
-        def resume():
-            result = run_action_spec(
-                project,
-                confirmed,
-                project_id="cluster-values-receipt-atomic",
-                router=router,
-                edition_run_context={"reservation_id": "replacement-must-not-win"},
-            )
-            if result.status == "failed":
-                competing_refusal.set()
+    def synchronize_resume_claim(self, **kwargs):
+        if (
+            kwargs.get("receipt_id") == original_receipt_id
+            and kwargs.get("claim_token") == f"output-claim:{original_receipt_id}"
+        ):
+            acquire_barrier.wait(timeout=10)
+            result = original_acquire(self, **kwargs)
+            if result[1] is None:
+                assert competing_refusal.wait(timeout=10)
             return result
+        return original_acquire(self, **kwargs)
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            resumptions = [pool.submit(resume) for _ in range(2)]
-            results = [future.result(timeout=30) for future in resumptions]
+    monkeypatch.setattr(OutputColumnClaimStore, "acquire", synchronize_resume_claim)
 
-        completed = [result for result in results if result.status == "completed"]
-        refused = [result for result in results if result.status == "failed"]
-        assert len(completed) == 1
-        assert len(refused) == 1
-        assert refused[0].errors[0].code == "output_column_busy"
-        assert completed[0].receipt_id == original_receipt_id
-        assert len(adapter.calls) == 1
-        replay = run_action_spec(
+    def resume():
+        result = run_action_spec(
             project,
             confirmed,
             project_id="cluster-values-receipt-atomic",
             router=router,
             edition_run_context={"reservation_id": "replacement-must-not-win"},
         )
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == original_receipt_id
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
-            ).fetchone()[0]
-            == 0
-        )
-        receipt = project.db.execute(
-            "SELECT edition_run_context FROM receipts WHERE id=?",
-            (original_receipt_id,),
-        ).fetchone()
-        assert json.loads(receipt["edition_run_context"]) == original_context
-    finally:
-        project.close()
+        if result.status == "failed":
+            competing_refusal.set()
+        return result
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        resumptions = [pool.submit(resume) for _ in range(2)]
+        results = [future.result(timeout=30) for future in resumptions]
+
+    completed = [result for result in results if result.status == "completed"]
+    refused = [result for result in results if result.status == "failed"]
+    assert len(completed) == 1
+    assert len(refused) == 1
+    assert refused[0].errors[0].code == "output_column_busy"
+    assert completed[0].receipt_id == original_receipt_id
+    assert len(adapter.calls) == 1
+    replay = run_action_spec(
+        project,
+        confirmed,
+        project_id="cluster-values-receipt-atomic",
+        router=router,
+        edition_run_context={"reservation_id": "replacement-must-not-win"},
+    )
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == original_receipt_id
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints WHERE family='model_call'"
+        ).fetchone()[0]
+        == 0
+    )
+    receipt = project.db.execute(
+        "SELECT edition_run_context FROM receipts WHERE id=?",
+        (original_receipt_id,),
+    ).fetchone()
+    assert json.loads(receipt["edition_run_context"]) == original_context
 
 
 def test_semantic_cluster_ambiguous_provider_outcome_refuses_exact_retry(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     """Once egress starts, an exception without returned metadata is ambiguous.
 
@@ -1253,199 +1220,185 @@ def test_semantic_cluster_ambiguous_provider_outcome_refuses_exact_retry(
     from frisket.engine.executor.actions import run_action_spec
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-ambiguous-provider.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        router, adapter = _ambiguous_remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:ambiguous-provider",
-            method="semantic",
-        )
-        quote = run_action_spec(
-            project,
-            action,
-            project_id="cluster-values-ambiguous-provider",
-            router=router,
-        )
-        confirmed = copy.deepcopy(action)
-        confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    project = make_project("cluster-values-ambiguous-provider")
+    seeded = _seed(project, tmp_path)
+    router, adapter = _ambiguous_remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:ambiguous-provider",
+        method="semantic",
+    )
+    quote = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-ambiguous-provider",
+        router=router,
+    )
+    confirmed = copy.deepcopy(action)
+    confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
 
-        first = run_action_spec(
-            project,
-            confirmed,
-            project_id="cluster-values-ambiguous-provider",
-            router=router,
-        )
-        assert first.status == "failed", first.model_dump()
-        assert first.errors[0].code == "idempotency_checkpoint_ambiguous"
-        assert (
-            project.db.execute("SELECT status FROM receipts").fetchone()[0] == "running"
-        )
+    first = run_action_spec(
+        project,
+        confirmed,
+        project_id="cluster-values-ambiguous-provider",
+        router=router,
+    )
+    assert first.status == "failed", first.model_dump()
+    assert first.errors[0].code == "idempotency_checkpoint_ambiguous"
+    assert project.db.execute("SELECT status FROM receipts").fetchone()[0] == "running"
 
-        checkpoint = project.db.execute(
-            "SELECT state, payload FROM effect_checkpoints WHERE family='model_call'"
-        ).fetchone()
-        assert checkpoint is not None
-        assert checkpoint["state"] == "reserved"
-        assert "vectors" not in json.loads(checkpoint["payload"])
-        assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 0
+    checkpoint = project.db.execute(
+        "SELECT state, payload FROM effect_checkpoints WHERE family='model_call'"
+    ).fetchone()
+    assert checkpoint is not None
+    assert checkpoint["state"] == "reserved"
+    assert "vectors" not in json.loads(checkpoint["payload"])
+    assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 0
 
-        retried = run_action_spec(
-            project,
-            confirmed,
-            project_id="cluster-values-ambiguous-provider",
-            router=router,
-        )
+    retried = run_action_spec(
+        project,
+        confirmed,
+        project_id="cluster-values-ambiguous-provider",
+        router=router,
+    )
 
-        assert retried.status == "failed"
-        assert retried.receipt_id == first.receipt_id
-        assert retried.errors == first.errors
-        assert len(adapter.calls) == 1
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM receipts WHERE status='completed'"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    assert retried.status == "failed"
+    assert retried.receipt_id == first.receipt_id
+    assert retried.errors == first.errors
+    assert len(adapter.calls) == 1
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM receipts WHERE status='completed'"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_semantic_cluster_operator_attestation_closes_without_repeating_call(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     """An operator resolves ambiguous spend, not permission to repeat the call."""
     from frisket.engine.executor.actions import run_action_spec
     from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-values-operator-decided.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        router, adapter = _ambiguous_remote_embedding_router()
-        action = _cluster_action(
-            seeded["sheet_id"],
-            idempotency_key="cluster_values@sha256:operator-decided",
-            method="semantic",
-        )
-        quote = run_action_spec(
-            project,
-            action,
-            project_id="cluster-values-operator-decided",
-            router=router,
-        )
-        confirmed = copy.deepcopy(action)
-        confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
-        first = run_action_spec(
-            project,
-            confirmed,
-            project_id="cluster-values-operator-decided",
-            router=router,
-        )
-        assert first.status == "failed", first.model_dump()
-        assert first.errors[0].code == "idempotency_checkpoint_ambiguous"
-        checkpoint = project.db.execute(
-            "SELECT id FROM effect_checkpoints WHERE family='model_call'"
-        ).fetchone()
-        assert checkpoint is not None
-        EffectCheckpointStore(project.db).operator_accept_charged(checkpoint["id"])
+    project = make_project("cluster-values-operator-decided")
+    seeded = _seed(project, tmp_path)
+    router, adapter = _ambiguous_remote_embedding_router()
+    action = _cluster_action(
+        seeded["sheet_id"],
+        idempotency_key="cluster_values@sha256:operator-decided",
+        method="semantic",
+    )
+    quote = run_action_spec(
+        project,
+        action,
+        project_id="cluster-values-operator-decided",
+        router=router,
+    )
+    confirmed = copy.deepcopy(action)
+    confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    first = run_action_spec(
+        project,
+        confirmed,
+        project_id="cluster-values-operator-decided",
+        router=router,
+    )
+    assert first.status == "failed", first.model_dump()
+    assert first.errors[0].code == "idempotency_checkpoint_ambiguous"
+    checkpoint = project.db.execute(
+        "SELECT id FROM effect_checkpoints WHERE family='model_call'"
+    ).fetchone()
+    assert checkpoint is not None
+    EffectCheckpointStore(project.db).operator_accept_charged(checkpoint["id"])
 
-        retried = run_action_spec(
-            project,
-            confirmed,
-            project_id="cluster-values-operator-decided",
-            router=router,
-        )
+    retried = run_action_spec(
+        project,
+        confirmed,
+        project_id="cluster-values-operator-decided",
+        router=router,
+    )
 
-        assert retried.status == "failed"
-        assert retried.errors[0].code == "idempotency_checkpoint_operator_decided"
-        assert "operator" in retried.errors[0].message.lower()
-        assert (
-            project.db.execute("SELECT status FROM receipts").fetchone()[0] == "failed"
-        )
-        assert "name_canonical" not in [
-            c["name"] for c in project.columns(seeded["sheet_id"])
-        ]
-        assert (
-            EffectCheckpointStore(project.db).get(checkpoint["id"])["state"]
-            == "consumed"
-        )
-        assert len(adapter.calls) == 1
-    finally:
-        project.close()
+    assert retried.status == "failed"
+    assert retried.errors[0].code == "idempotency_checkpoint_operator_decided"
+    assert "operator" in retried.errors[0].message.lower()
+    assert project.db.execute("SELECT status FROM receipts").fetchone()[0] == "failed"
+    assert "name_canonical" not in [
+        c["name"] for c in project.columns(seeded["sheet_id"])
+    ]
+    assert (
+        EffectCheckpointStore(project.db).get(checkpoint["id"])["state"] == "consumed"
+    )
+    assert len(adapter.calls) == 1
 
 
 @pytest.mark.parametrize(
     "tamper", [None, "identity", "action_kind", "group_key", "vectors"]
 )
 def test_recovery_binds_returned_vectors_to_actual_admitted_operation(
-    tmp_path, monkeypatch, tamper
+    tmp_path, make_project, monkeypatch, tamper
 ):
     """A different action/run or malformed response cannot authorize recovery."""
     from frisket.engine.executor.actions import run_action_spec
     from frisket.retrieval.store import RetrievalStore
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
-    project = Project.create(tmp_path / "cluster-checkpoint-binding.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        router, adapter = _remote_embedding_router()
-        action = _cluster_action(seeded["sheet_id"], method="semantic")
-        quote = run_action_spec(project, action, project_id="binding", router=router)
-        action["confirmation"] = quote.errors[0].details["promise_set_hash"]
-        original_put = RetrievalStore.put_representations
+    project = make_project("cluster-checkpoint-binding")
+    seeded = _seed(project, tmp_path)
+    router, adapter = _remote_embedding_router()
+    action = _cluster_action(seeded["sheet_id"], method="semantic")
+    quote = run_action_spec(project, action, project_id="binding", router=router)
+    action["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    original_put = RetrievalStore.put_representations
 
-        def fail_put(self, representations):
-            del self, representations
-            raise sqlite3.OperationalError("interrupted vector-cache commit")
+    def fail_put(self, representations):
+        del self, representations
+        raise sqlite3.OperationalError("interrupted vector-cache commit")
 
-        monkeypatch.setattr(RetrievalStore, "put_representations", fail_put)
-        with pytest.raises(sqlite3.OperationalError, match="interrupted vector-cache"):
-            run_action_spec(project, action, project_id="binding", router=router)
-        assert len(adapter.calls) == 1
-        checkpoint = project.db.execute(
-            "SELECT * FROM effect_checkpoints WHERE family='model_call'"
-        ).fetchone()
-        assert checkpoint["state"] == "returned"
-        if tamper in {"identity", "action_kind", "group_key"}:
-            foreign = {
-                "identity": '{"different_admission":true}',
-                "action_kind": "derive.join",
-                "group_key": "99999",
-            }[tamper]
+    monkeypatch.setattr(RetrievalStore, "put_representations", fail_put)
+    with pytest.raises(sqlite3.OperationalError, match="interrupted vector-cache"):
+        run_action_spec(project, action, project_id="binding", router=router)
+    assert len(adapter.calls) == 1
+    checkpoint = project.db.execute(
+        "SELECT * FROM effect_checkpoints WHERE family='model_call'"
+    ).fetchone()
+    assert checkpoint["state"] == "returned"
+    if tamper in {"identity", "action_kind", "group_key"}:
+        foreign = {
+            "identity": '{"different_admission":true}',
+            "action_kind": "derive.join",
+            "group_key": "99999",
+        }[tamper]
+        project.db.execute(
+            f"UPDATE effect_checkpoints SET {tamper}=? WHERE id=?",
+            (foreign, checkpoint["id"]),
+        )
+    elif tamper == "vectors":
+        payload = json.loads(checkpoint["payload"])
+        payload["vectors"] = []
+        project.db.execute(
+            "UPDATE effect_checkpoints SET payload=? WHERE id=?",
+            (json.dumps(payload), checkpoint["id"]),
+        )
+    project.db.commit()
+    monkeypatch.setattr(RetrievalStore, "put_representations", original_put)
+    _recover_abandoned_cluster(project, action, router=router, project_id="binding")
+    retried = run_action_spec(project, action, project_id="binding", router=router)
+    assert len(adapter.calls) == 1
+    assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 1
+    if tamper is None:
+        assert retried.status == "completed", retried.errors
+        assert "name_canonical" in [
+            c["name"] for c in project.columns(seeded["sheet_id"])
+        ]
+    else:
+        assert retried.status == "failed", retried.model_dump()
+        assert "name_canonical" not in [
+            c["name"] for c in project.columns(seeded["sheet_id"])
+        ]
+        assert (
             project.db.execute(
-                f"UPDATE effect_checkpoints SET {tamper}=? WHERE id=?",
-                (foreign, checkpoint["id"]),
-            )
-        elif tamper == "vectors":
-            payload = json.loads(checkpoint["payload"])
-            payload["vectors"] = []
-            project.db.execute(
-                "UPDATE effect_checkpoints SET payload=? WHERE id=?",
-                (json.dumps(payload), checkpoint["id"]),
-            )
-        project.db.commit()
-        monkeypatch.setattr(RetrievalStore, "put_representations", original_put)
-        _recover_abandoned_cluster(project, action, router=router, project_id="binding")
-        retried = run_action_spec(project, action, project_id="binding", router=router)
-        assert len(adapter.calls) == 1
-        assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 1
-        if tamper is None:
-            assert retried.status == "completed", retried.errors
-            assert "name_canonical" in [
-                c["name"] for c in project.columns(seeded["sheet_id"])
-            ]
-        else:
-            assert retried.status == "failed", retried.model_dump()
-            assert "name_canonical" not in [
-                c["name"] for c in project.columns(seeded["sheet_id"])
-            ]
-            assert (
-                project.db.execute(
-                    "SELECT count(*) FROM receipts WHERE status='completed'"
-                ).fetchone()[0]
-                == 0
-            )
-    finally:
-        project.close()
+                "SELECT count(*) FROM receipts WHERE status='completed'"
+            ).fetchone()[0]
+            == 0
+        )

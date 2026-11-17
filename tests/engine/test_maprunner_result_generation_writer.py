@@ -69,7 +69,7 @@ def test_compatibility_key_allows_cross_producer_readable_shape() -> None:
 
 @pytest.mark.parametrize("new_type", ["text", "boolean"])
 def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, new_type: str
+    make_project, monkeypatch: pytest.MonkeyPatch, new_type: str
 ) -> None:
     class RetryRecipe(_CancellationBatchRecipe):
         def output_fields(self, spec):
@@ -93,180 +93,167 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
 
     recipe = RetryRecipe()
     monkeypatch.setattr(validation_module, "get_recipe", lambda _: recipe)
-    project = Project.create(tmp_path / "changed-empty-reservation.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        source_id = project.add_column(sheet_id, "seed", type="text")
-        (row_id,) = project.add_rows(
-            sheet_id, [{"seed": "source"}], {"seed": source_id}
+    project = make_project("changed-empty-reservation")
+    sheet_id = project.add_sheet("Rows")
+    source_id = project.add_column(sheet_id, "seed", type="text")
+    (row_id,) = project.add_rows(sheet_id, [{"seed": "source"}], {"seed": source_id})
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    spec = {
+        "action_kind": "map.regex_extract",
+        "sheet_id": sheet_id,
+        "input_columns": ["seed"],
+        "phase": "missing",
+    }
+    failed = asyncio.run(run_with_output_claim(runner, spec))
+    old_column = project.db.execute(
+        "SELECT id FROM columns WHERE name='cleaned' AND active=1"
+    ).fetchone()["id"]
+    generations = ResultGenerationStore(project)
+    old_heads = generations.read_cell_heads(old_column, [row_id])
+    assert old_heads[row_id].publication_effect == "publish_error"
+    old_binding = generations.get_binding(failed.run_id, old_column)
+    repeated = asyncio.run(run_with_output_claim(runner, spec))
+    repeated_heads = generations.read_cell_heads(old_column, [row_id])
+    recovered = asyncio.run(
+        run_with_output_claim(
+            runner,
+            {
+                **spec,
+                "phase": "initial",
+                "output_type": new_type,
+                "description": "revised prompt",
+            },
         )
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            authority=UnroutedOnlyAuthority(project),
-        )
-        spec = {
-            "action_kind": "map.regex_extract",
-            "sheet_id": sheet_id,
-            "input_columns": ["seed"],
-            "phase": "missing",
-        }
-        failed = asyncio.run(run_with_output_claim(runner, spec))
-        old_column = project.db.execute(
-            "SELECT id FROM columns WHERE name='cleaned' AND active=1"
-        ).fetchone()["id"]
-        generations = ResultGenerationStore(project)
-        old_heads = generations.read_cell_heads(old_column, [row_id])
-        assert old_heads[row_id].publication_effect == "publish_error"
-        old_binding = generations.get_binding(failed.run_id, old_column)
-        repeated = asyncio.run(run_with_output_claim(runner, spec))
-        repeated_heads = generations.read_cell_heads(old_column, [row_id])
-        recovered = asyncio.run(
-            run_with_output_claim(
-                runner,
-                {
-                    **spec,
-                    "phase": "initial",
-                    "output_type": new_type,
-                    "description": "revised prompt",
-                },
-            )
-        )
-        new_column = project.db.execute(
-            "SELECT id FROM columns WHERE name='cleaned' AND active=1"
-        ).fetchone()["id"]
-        assert new_column != old_column
-        assert project.get_column(old_column)["active"] == 0
-        from frisket.engine.store.op_log import operation_affected_refs
+    )
+    new_column = project.db.execute(
+        "SELECT id FROM columns WHERE name='cleaned' AND active=1"
+    ).fetchone()["id"]
+    assert new_column != old_column
+    assert project.get_column(old_column)["active"] == 0
+    from frisket.engine.store.op_log import operation_affected_refs
 
-        failed_info = json.loads(
-            project.db.execute(
-                "SELECT undo_info FROM ops WHERE id=(SELECT op_id FROM runs WHERE id=?)",
-                (failed.run_id,),
-            ).fetchone()["undo_info"]
-        )
-        assert {"kind": "column", "column_id": old_column} in operation_affected_refs(
-            failed_info
-        )
-        assert generations.get_binding(failed.run_id, old_column) == old_binding
-        assert generations.read_cell_heads(old_column, [row_id]) == repeated_heads
-        assert (
-            generations.read_cell_heads(new_column, [row_id])[row_id].run_id
-            == recovered.run_id
-        )
-        assert project.get_values(sheet_id, source_id, row_ids=[row_id]) == {
-            row_id: "source"
-        }
-        recovered_op = RunResultStore(project).get_run(recovered.run_id)["op_id"]
-        failed_op = RunResultStore(project).get_run(failed.run_id)["op_id"]
-        repeated_op = RunResultStore(project).get_run(repeated.run_id)["op_id"]
-        assert project.undo() == recovered_op
-        assert project.undo() == repeated_op
-        assert project.undo() == failed_op
-        from frisket.engine.store.op_log import RestorationUnavailable, step_operation
+    failed_info = json.loads(
+        project.db.execute(
+            "SELECT undo_info FROM ops WHERE id=(SELECT op_id FROM runs WHERE id=?)",
+            (failed.run_id,),
+        ).fetchone()["undo_info"]
+    )
+    assert {"kind": "column", "column_id": old_column} in operation_affected_refs(
+        failed_info
+    )
+    assert generations.get_binding(failed.run_id, old_column) == old_binding
+    assert generations.read_cell_heads(old_column, [row_id]) == repeated_heads
+    assert (
+        generations.read_cell_heads(new_column, [row_id])[row_id].run_id
+        == recovered.run_id
+    )
+    assert project.get_values(sheet_id, source_id, row_ids=[row_id]) == {
+        row_id: "source"
+    }
+    recovered_op = RunResultStore(project).get_run(recovered.run_id)["op_id"]
+    failed_op = RunResultStore(project).get_run(failed.run_id)["op_id"]
+    repeated_op = RunResultStore(project).get_run(repeated.run_id)["op_id"]
+    assert project.undo() == recovered_op
+    assert project.undo() == repeated_op
+    assert project.undo() == failed_op
+    from frisket.engine.store.op_log import RestorationUnavailable, step_operation
 
-        # Retired incompatible destinations cannot be silently recreated by
-        # restoring a saved failure. The newer valid output remains restorable.
-        with pytest.raises(RestorationUnavailable, match="destination is unavailable"):
-            project.redo()
-        assert project.get_column(old_column)["active"] == 0
-        with project.transaction_scope():
-            step_operation(project, "restore", op_id=recovered_op)
-        assert project.get_column(new_column)["active"] == 1
-        assert generations.read_cell_heads(old_column, [row_id]) == {}
-        assert generations.get_binding(failed.run_id, old_column) == old_binding
-    finally:
-        project.close()
+    # Retired incompatible destinations cannot be silently recreated by
+    # restoring a saved failure. The newer valid output remains restorable.
+    with pytest.raises(RestorationUnavailable, match="destination is unavailable"):
+        project.redo()
+    assert project.get_column(old_column)["active"] == 0
+    with project.transaction_scope():
+        step_operation(project, "restore", op_id=recovered_op)
+    assert project.get_column(new_column)["active"] == 1
+    assert generations.read_cell_heads(old_column, [row_id]) == {}
+    assert generations.get_binding(failed.run_id, old_column) == old_binding
 
 
 @pytest.mark.parametrize("effect", ["publish_value", "publish_null"])
 def test_empty_failed_retirement_preserves_any_prior_value_or_null(
-    tmp_path: Path, effect: str
+    make_project, effect: str
 ) -> None:
-    project = Project.create(tmp_path / "protected-reservation.frisket")
-    try:
-        sheet_id, row_ids, column_id, run_id = _seed_managed_regex_output(
-            project, notes=["no match", "other"] if effect == "publish_null" else None
-        )
-        run = RunResultStore(project).get_run(run_id)
-        op = project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
-        ).fetchone()
-        info = json.loads(op["undo_info"])
-        # Even a stale zero-success marker may not retire populated history.
-        info["zero_success_columns"] = [column_id]
-        project.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), run["op_id"])
-        )
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
-        project.db.commit()
-        before = ResultGenerationStore(project).read_cell_heads(column_id, row_ids)
-        assert {head.publication_effect for head in before.values()} == {effect}
-        assert not retire_empty_failed_output(project, column_id)
-        assert project.get_column(column_id)["active"] == 1
-        assert (
-            ResultGenerationStore(project).read_cell_heads(column_id, row_ids) == before
-        )
-        assert project.get_column(column_id)["sheet_id"] == sheet_id
-    finally:
-        project.close()
+    project = make_project("protected-reservation")
+    sheet_id, row_ids, column_id, run_id = _seed_managed_regex_output(
+        project, notes=["no match", "other"] if effect == "publish_null" else None
+    )
+    run = RunResultStore(project).get_run(run_id)
+    op = project.db.execute(
+        "SELECT undo_info FROM ops WHERE id=?", (run["op_id"],)
+    ).fetchone()
+    info = json.loads(op["undo_info"])
+    # Even a stale zero-success marker may not retire populated history.
+    info["zero_success_columns"] = [column_id]
+    project.db.execute(
+        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), run["op_id"])
+    )
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
+    project.db.commit()
+    before = ResultGenerationStore(project).read_cell_heads(column_id, row_ids)
+    assert {head.publication_effect for head in before.values()} == {effect}
+    assert not retire_empty_failed_output(project, column_id)
+    assert project.get_column(column_id)["active"] == 1
+    assert ResultGenerationStore(project).read_cell_heads(column_id, row_ids) == before
+    assert project.get_column(column_id)["sheet_id"] == sheet_id
 
 
 def test_managed_recovery_refuses_claim_without_frozen_descriptors(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "old-managed-claim.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        project.add_column(
-            sheet_id,
-            "cleaned",
-            type="text",
-            ai_generated=True,
-        )
-        op_id = project.append_op("map", {"action_kind": "map.regex_extract"})
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet_id,
-            "map.regex_extract",
-        )
-        claims = OutputColumnClaimStore(project)
-        created, conflict = claims.acquire(
-            sheet_id=sheet_id,
-            output_names=["cleaned"],
-            action_kind="map.regex_extract",
-            claim_token="old-claim-without-output-fields",
-            details={},
-        )
-        assert len(created) == 1 and conflict is None
-        assert (
-            claims.bind_to_run(
-                claim_token="old-claim-without-output-fields",
-                run_id=run_id,
-                expected_output_names=["cleaned"],
-            )
-            == 1
-        )
-
-        assert claims.active_output_fields(
+    project = make_project("old-managed-claim")
+    sheet_id = project.add_sheet("Rows")
+    project.add_column(
+        sheet_id,
+        "cleaned",
+        type="text",
+        ai_generated=True,
+    )
+    op_id = project.append_op("map", {"action_kind": "map.regex_extract"})
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.regex_extract",
+    )
+    claims = OutputColumnClaimStore(project)
+    created, conflict = claims.acquire(
+        sheet_id=sheet_id,
+        output_names=["cleaned"],
+        action_kind="map.regex_extract",
+        claim_token="old-claim-without-output-fields",
+        details={},
+    )
+    assert len(created) == 1 and conflict is None
+    assert (
+        claims.bind_to_run(
             claim_token="old-claim-without-output-fields",
             run_id=run_id,
-        ) == [{"name": "cleaned", "column_type": "text"}]
-        with pytest.raises(ValueError, match="no frozen output descriptors"):
-            claims.active_output_fields(
-                claim_token="old-claim-without-output-fields",
-                run_id=run_id,
-                require_frozen_descriptors=True,
-            )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?",
-                (run_id,),
-            ).fetchone()[0]
-            == 0
+            expected_output_names=["cleaned"],
         )
-    finally:
-        project.close()
+        == 1
+    )
+
+    assert claims.active_output_fields(
+        claim_token="old-claim-without-output-fields",
+        run_id=run_id,
+    ) == [{"name": "cleaned", "column_type": "text"}]
+    with pytest.raises(ValueError, match="no frozen output descriptors"):
+        claims.active_output_fields(
+            claim_token="old-claim-without-output-fields",
+            run_id=run_id,
+            require_frozen_descriptors=True,
+        )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?",
+            (run_id,),
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_managed_recovery_pins_recipe_name_and_version() -> None:
@@ -297,88 +284,85 @@ def test_managed_recovery_pins_recipe_name_and_version() -> None:
 
 
 def test_scalar_only_existing_output_refuses_managed_adoption_without_blanking(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "legacy-scalar-adoption.frisket")
-    try:
-        sheet_id = project.add_sheet("Legacy")
-        note_column = project.add_column(sheet_id, "note", type="text")
-        output_id = project.add_column(
+    project = make_project("legacy-scalar-adoption")
+    sheet_id = project.add_sheet("Legacy")
+    note_column = project.add_column(sheet_id, "note", type="text")
+    output_id = project.add_column(
+        sheet_id,
+        "digits",
+        type="text",
+        ai_generated=True,
+    )
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"note": "one 101"}, {"note": "two 202"}],
+        {"note": note_column},
+    )
+    legacy_op_id = project.append_op(
+        "map",
+        {"action_kind": "map.regex_extract", "output_name": "digits"},
+        label="legacy regex output",
+    )
+    store = RunResultStore(project)
+    legacy_run_id = store.start_run(
+        legacy_op_id,
+        sheet_id,
+        "map.regex_extract",
+        total_rows=len(row_ids),
+        row_ids=row_ids,
+    )
+    project.db.executemany(
+        "INSERT INTO results (run_id,row_id,column_id,value,outcome) "
+        "VALUES (?,?,?,?, 'ok')",
+        [
+            (legacy_run_id, row_ids[0], output_id, json.dumps("101")),
+            (legacy_run_id, row_ids[1], output_id, json.dumps("202")),
+        ],
+    )
+    project.db.execute(
+        "UPDATE columns SET current_run_id=? WHERE id=?",
+        (legacy_run_id, output_id),
+    )
+    store.finish_run(legacy_run_id, "completed")
+    before = project.get_values_with_refs(sheet_id, output_id, row_ids=row_ids)
+
+    refused = run_typed_map_request(
+        project,
+        _regex_action(
             sheet_id,
-            "digits",
-            type="text",
-            ai_generated=True,
-        )
-        row_ids = project.add_rows(
+            key="p3b-refuse-scalar-adoption@sha256:v1",
+            row_ids=[row_ids[0]],
+            overwrite=True,
+        ),
+        project_id="p3b-writer",
+    )
+
+    assert refused.status == "failed"
+    assert refused.errors and refused.errors[0].code == "output_column_exists"
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM run_output_generations WHERE column_id=?",
+            (output_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.get_values_with_refs(
             sheet_id,
-            [{"note": "one 101"}, {"note": "two 202"}],
-            {"note": note_column},
-        )
-        legacy_op_id = project.append_op(
-            "map",
-            {"action_kind": "map.regex_extract", "output_name": "digits"},
-            label="legacy regex output",
-        )
-        store = RunResultStore(project)
-        legacy_run_id = store.start_run(
-            legacy_op_id,
-            sheet_id,
-            "map.regex_extract",
-            total_rows=len(row_ids),
+            output_id,
             row_ids=row_ids,
         )
-        project.db.executemany(
-            "INSERT INTO results (run_id,row_id,column_id,value,outcome) "
-            "VALUES (?,?,?,?, 'ok')",
-            [
-                (legacy_run_id, row_ids[0], output_id, json.dumps("101")),
-                (legacy_run_id, row_ids[1], output_id, json.dumps("202")),
-            ],
-        )
+        == before
+    )
+    assert (
         project.db.execute(
-            "UPDATE columns SET current_run_id=? WHERE id=?",
-            (legacy_run_id, output_id),
-        )
-        store.finish_run(legacy_run_id, "completed")
-        before = project.get_values_with_refs(sheet_id, output_id, row_ids=row_ids)
-
-        refused = run_typed_map_request(
-            project,
-            _regex_action(
-                sheet_id,
-                key="p3b-refuse-scalar-adoption@sha256:v1",
-                row_ids=[row_ids[0]],
-                overwrite=True,
-            ),
-            project_id="p3b-writer",
-        )
-
-        assert refused.status == "failed"
-        assert refused.errors and refused.errors[0].code == "output_column_exists"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM run_output_generations WHERE column_id=?",
-                (output_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.get_values_with_refs(
-                sheet_id,
-                output_id,
-                row_ids=row_ids,
-            )
-            == before
-        )
-        assert (
-            project.db.execute(
-                "SELECT current_run_id FROM columns WHERE id=?",
-                (output_id,),
-            ).fetchone()["current_run_id"]
-            == legacy_run_id
-        )
-    finally:
-        project.close()
+            "SELECT current_run_id FROM columns WHERE id=?",
+            (output_id,),
+        ).fetchone()["current_run_id"]
+        == legacy_run_id
+    )
 
 
 @dataclass
@@ -451,7 +435,7 @@ class _LegacyOverwriteRecipe(Recipe):
 
 
 def test_cancelled_batch_cannot_publish_returned_values_after_stop(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recipe = _CancellationBatchRecipe()
@@ -465,81 +449,78 @@ def test_cancelled_batch_cannot_publish_returned_values_after_stop(
             else original_get_recipe(name)
         ),
     )
-    project = Project.create(tmp_path / "cancelled-existing-generation.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        seed_column = project.add_column(sheet_id, "seed", type="text")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"seed": "a"}, {"seed": "b"}, {"seed": "c"}],
-            {"seed": seed_column},
-        )
+    project = make_project("cancelled-existing-generation")
+    sheet_id = project.add_sheet("Rows")
+    seed_column = project.add_column(sheet_id, "seed", type="text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"seed": "a"}, {"seed": "b"}, {"seed": "c"}],
+        {"seed": seed_column},
+    )
 
-        def run(phase: str, *, overwrite: bool) -> Any:
-            spec = {
-                "action_kind": "map.regex_extract",
-                "sheet_id": sheet_id,
-                "input_columns": ["seed"],
-                "phase": phase,
-                "overwrite": overwrite,
-            }
-            return asyncio.run(
-                run_with_output_claim(
-                    MapRunner(
-                        project,
-                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                        should_cancel=(
-                            (lambda _run_id: recipe.cancellation_observed)
-                            if phase == "replacement"
-                            else None
-                        ),
-                        authority=UnroutedOnlyAuthority(project),
+    def run(phase: str, *, overwrite: bool) -> Any:
+        spec = {
+            "action_kind": "map.regex_extract",
+            "sheet_id": sheet_id,
+            "input_columns": ["seed"],
+            "phase": phase,
+            "overwrite": overwrite,
+        }
+        return asyncio.run(
+            run_with_output_claim(
+                MapRunner(
+                    project,
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                    should_cancel=(
+                        (lambda _run_id: recipe.cancellation_observed)
+                        if phase == "replacement"
+                        else None
                     ),
-                    spec,
-                )
+                    authority=UnroutedOnlyAuthority(project),
+                ),
+                spec,
             )
-
-        first = run("initial", overwrite=False)
-        assert first.done and not first.cancelled
-        output_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='cleaned'",
-                (sheet_id,),
-            ).fetchone()["id"]
         )
-        generation_store = ResultGenerationStore(project)
-        first_heads = generation_store.read_cell_heads(output_id, row_ids)
-        assert set(first_heads) == set(row_ids)
-        assert {head.run_id for head in first_heads.values()} == {first.run_id}
 
-        second = run("replacement", overwrite=True)
-        assert second.cancelled
-        second_rows = project.db.execute(
-            "SELECT row_id,publication_effect FROM results "
-            "WHERE run_id=? AND column_id=? ORDER BY row_id",
-            (second.run_id, output_id),
-        ).fetchall()
-        # The recipe observes Stop before the batch reaches publication.
-        assert second_rows == []
-        assert generation_store.read_cell_heads(output_id, row_ids) == {}
-        assert project.get_values(sheet_id, output_id) == dict.fromkeys(row_ids)
-        assert {
-            row[0]
-            for row in project.db.execute(
-                "SELECT outcome FROM effective_current_cells WHERE column_id=?",
-                (output_id,),
-            )
-        } == {"not_completed"}
-        assert project.db.execute(
-            "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
-            (first.run_id,),
-        ).fetchone()[0] == len(row_ids)
-    finally:
-        project.close()
+    first = run("initial", overwrite=False)
+    assert first.done and not first.cancelled
+    output_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='cleaned'",
+            (sheet_id,),
+        ).fetchone()["id"]
+    )
+    generation_store = ResultGenerationStore(project)
+    first_heads = generation_store.read_cell_heads(output_id, row_ids)
+    assert set(first_heads) == set(row_ids)
+    assert {head.run_id for head in first_heads.values()} == {first.run_id}
+
+    second = run("replacement", overwrite=True)
+    assert second.cancelled
+    second_rows = project.db.execute(
+        "SELECT row_id,publication_effect FROM results "
+        "WHERE run_id=? AND column_id=? ORDER BY row_id",
+        (second.run_id, output_id),
+    ).fetchall()
+    # The recipe observes Stop before the batch reaches publication.
+    assert second_rows == []
+    assert generation_store.read_cell_heads(output_id, row_ids) == {}
+    assert project.get_values(sheet_id, output_id) == dict.fromkeys(row_ids)
+    assert {
+        row[0]
+        for row in project.db.execute(
+            "SELECT outcome FROM effective_current_cells WHERE column_id=?",
+            (output_id,),
+        )
+    } == {"not_completed"}
+    assert project.db.execute(
+        "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1",
+        (first.run_id,),
+    ).fetchone()[0] == len(row_ids)
 
 
 def test_single_output_omission_publishes_an_explicit_error_head(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recipe = _CancellationBatchRecipe()
@@ -553,100 +534,95 @@ def test_single_output_omission_publishes_an_explicit_error_head(
             else original_get_recipe(name)
         ),
     )
-    project = Project.create(tmp_path / "missing-single-output.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        seed_column = project.add_column(sheet_id, "seed", type="text")
-        (row_id,) = project.add_rows(
-            sheet_id,
-            [{"seed": "a"}],
-            {"seed": seed_column},
+    project = make_project("missing-single-output")
+    sheet_id = project.add_sheet("Rows")
+    seed_column = project.add_column(sheet_id, "seed", type="text")
+    (row_id,) = project.add_rows(
+        sheet_id,
+        [{"seed": "a"}],
+        {"seed": seed_column},
+    )
+    progress = asyncio.run(
+        run_with_output_claim(
+            MapRunner(
+                project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                authority=UnroutedOnlyAuthority(project),
+            ),
+            {
+                "action_kind": "map.regex_extract",
+                "sheet_id": sheet_id,
+                "input_columns": ["seed"],
+                "phase": "missing",
+            },
         )
-        progress = asyncio.run(
-            run_with_output_claim(
-                MapRunner(
-                    project,
-                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                    authority=UnroutedOnlyAuthority(project),
-                ),
-                {
-                    "action_kind": "map.regex_extract",
-                    "sheet_id": sheet_id,
-                    "input_columns": ["seed"],
-                    "phase": "missing",
-                },
-            )
-        )
-        output_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='cleaned'",
-                (sheet_id,),
-            ).fetchone()["id"]
-        )
-        result = project.db.execute(
-            "SELECT publication_effect,error_code,outcome FROM results "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (progress.run_id, row_id, output_id),
-        ).fetchone()
-        assert dict(result) == {
-            "publication_effect": "publish_error",
-            "error_code": "invalid_output",
-            "outcome": "invalid_output",
-        }
-        head = ResultGenerationStore(project).read_cell_heads(output_id, [row_id])[
-            row_id
-        ]
-        assert head.run_id == progress.run_id
-        assert head.publication_effect == "publish_error"
-        assert head.error_code == "invalid_output"
-        # Fresh-column zero-success visibility keeps the CURRENT product
-        # policy (doc 14 owner decision): a brand-new column whose every row
-        # errored is hidden. The error head above is untouched by the hide —
-        # visibility is presentation state, not publication state — and the
-        # successful retry below reveals the recovered column.
-        assert bool(
-            project.db.execute(
-                "SELECT hidden FROM columns WHERE id=?",
-                (output_id,),
-            ).fetchone()["hidden"]
-        )
+    )
+    output_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='cleaned'",
+            (sheet_id,),
+        ).fetchone()["id"]
+    )
+    result = project.db.execute(
+        "SELECT publication_effect,error_code,outcome FROM results "
+        "WHERE run_id=? AND row_id=? AND column_id=?",
+        (progress.run_id, row_id, output_id),
+    ).fetchone()
+    assert dict(result) == {
+        "publication_effect": "publish_error",
+        "error_code": "invalid_output",
+        "outcome": "invalid_output",
+    }
+    head = ResultGenerationStore(project).read_cell_heads(output_id, [row_id])[row_id]
+    assert head.run_id == progress.run_id
+    assert head.publication_effect == "publish_error"
+    assert head.error_code == "invalid_output"
+    # Fresh-column zero-success visibility keeps the CURRENT product
+    # policy (doc 14 owner decision): a brand-new column whose every row
+    # errored is hidden. The error head above is untouched by the hide —
+    # visibility is presentation state, not publication state — and the
+    # successful retry below reveals the recovered column.
+    assert bool(
+        project.db.execute(
+            "SELECT hidden FROM columns WHERE id=?",
+            (output_id,),
+        ).fetchone()["hidden"]
+    )
 
-        retry = asyncio.run(
-            run_with_output_claim(
-                MapRunner(
-                    project,
-                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                    authority=UnroutedOnlyAuthority(project),
-                ),
-                {
-                    "action_kind": "map.regex_extract",
-                    "sheet_id": sheet_id,
-                    "input_columns": ["seed"],
-                    "phase": "initial",
-                    "overwrite": True,
-                },
-            )
+    retry = asyncio.run(
+        run_with_output_claim(
+            MapRunner(
+                project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                authority=UnroutedOnlyAuthority(project),
+            ),
+            {
+                "action_kind": "map.regex_extract",
+                "sheet_id": sheet_id,
+                "input_columns": ["seed"],
+                "phase": "initial",
+                "overwrite": True,
+            },
         )
-        assert (
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='cleaned'",
-                (sheet_id,),
-            ).fetchone()["id"]
-            == output_id
-        )
-        retry_head = ResultGenerationStore(project).read_cell_heads(
-            output_id,
-            [row_id],
-        )[row_id]
-        assert retry_head.run_id == retry.run_id
-        assert retry_head.publication_effect == "publish_value"
-        assert retry_head.value == "initial:a"
-    finally:
-        project.close()
+    )
+    assert (
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='cleaned'",
+            (sheet_id,),
+        ).fetchone()["id"]
+        == output_id
+    )
+    retry_head = ResultGenerationStore(project).read_cell_heads(
+        output_id,
+        [row_id],
+    )[row_id]
+    assert retry_head.run_id == retry.run_id
+    assert retry_head.publication_effect == "publish_value"
+    assert retry_head.value == "initial:a"
 
 
 def test_fresh_pre_dispatch_cancellation_still_seals_managed_binding(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     recipe = _CancellationBatchRecipe()
@@ -660,50 +636,47 @@ def test_fresh_pre_dispatch_cancellation_still_seals_managed_binding(
             else original_get_recipe(name)
         ),
     )
-    project = Project.create(tmp_path / "fresh-pre-dispatch-cancel.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        seed_column = project.add_column(sheet_id, "seed", type="text")
-        project.add_rows(sheet_id, [{"seed": "a"}], {"seed": seed_column})
-        progress = asyncio.run(
-            run_with_output_claim(
-                MapRunner(
-                    project,
-                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                    should_cancel=lambda _run_id: True,
-                    authority=UnroutedOnlyAuthority(project),
-                ),
-                {
-                    "action_kind": "map.regex_extract",
-                    "sheet_id": sheet_id,
-                    "input_columns": ["seed"],
-                    "phase": "initial",
-                },
-            )
+    project = make_project("fresh-pre-dispatch-cancel")
+    sheet_id = project.add_sheet("Rows")
+    seed_column = project.add_column(sheet_id, "seed", type="text")
+    project.add_rows(sheet_id, [{"seed": "a"}], {"seed": seed_column})
+    progress = asyncio.run(
+        run_with_output_claim(
+            MapRunner(
+                project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                should_cancel=lambda _run_id: True,
+                authority=UnroutedOnlyAuthority(project),
+            ),
+            {
+                "action_kind": "map.regex_extract",
+                "sheet_id": sheet_id,
+                "input_columns": ["seed"],
+                "phase": "initial",
+            },
         )
-        assert progress.cancelled
-        output_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='cleaned'",
-                (sheet_id,),
-            ).fetchone()["id"]
-        )
-        binding = ResultGenerationStore(project).get_binding(
-            progress.run_id,
-            output_id,
-        )
-        assert binding is not None
-        assert binding.state == "sealed"
-        assert binding.terminal_disposition == "cancelled"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?",
-                (progress.run_id,),
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    )
+    assert progress.cancelled
+    output_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='cleaned'",
+            (sheet_id,),
+        ).fetchone()["id"]
+    )
+    binding = ResultGenerationStore(project).get_binding(
+        progress.run_id,
+        output_id,
+    )
+    assert binding is not None
+    assert binding.state == "sealed"
+    assert binding.terminal_disposition == "cancelled"
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?",
+            (progress.run_id,),
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_queued_pre_run_failure_seals_zero_effect_binding_then_allows_replace(
@@ -910,669 +883,268 @@ def _seed_managed_regex_output(
     return sheet_id, row_ids, output_id, binding[0].run_id
 
 
-def test_undone_scalar_ai_column_does_not_block_fresh_managed_output(tmp_path):
-    project = Project.create(tmp_path / "undone-scalar.frisket")
-    try:
-        sheet = project.add_sheet("Data")
-        source = project.add_column(sheet, "note")
-        project.add_rows(sheet, [{"note": "record 123"}], {"note": source})
-        old = project.add_column(sheet, "digits", ai_generated=True)
-        op = append_op(project, "add_column", undo_info={"created_columns": [old]})
-        from frisket.engine.store.changes import start_change
+def test_undone_scalar_ai_column_does_not_block_fresh_managed_output(make_project):
+    project = make_project("undone-scalar")
+    sheet = project.add_sheet("Data")
+    source = project.add_column(sheet, "note")
+    project.add_rows(sheet, [{"note": "record 123"}], {"note": source})
+    old = project.add_column(sheet, "digits", ai_generated=True)
+    op = append_op(project, "add_column", undo_info={"created_columns": [old]})
+    from frisket.engine.store.changes import start_change
 
-        with project.transaction_scope():
-            start_change(project.db, op, writing=False)
-        assert project.undo() == op
-        result = run_typed_map_request(
-            project,
-            _regex_action(sheet, key="fresh-after-scalar@sha256:v1"),
-            project_id="p3b-writer",
-        )
-        assert result.status == "completed", result.errors
-        current = next(c for c in project.columns(sheet) if c["name"] == "digits")
-        assert current["id"] != old
-        assert project.get_column(old)["active"] == 0
-    finally:
-        project.close()
+    with project.transaction_scope():
+        start_change(project.db, op, writing=False)
+    assert project.undo() == op
+    result = run_typed_map_request(
+        project,
+        _regex_action(sheet, key="fresh-after-scalar@sha256:v1"),
+        project_id="p3b-writer",
+    )
+    assert result.status == "completed", result.errors
+    current = next(c for c in project.columns(sheet) if c["name"] == "digits")
+    assert current["id"] != old
+    assert project.get_column(old)["active"] == 0
 
 
 def test_undo_then_same_name_managed_output_creates_fresh_identity(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "managed-revival-after-undo.frisket")
-    try:
-        sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
-        first_run = RunResultStore(project).get_run(first_run_id)
-        assert first_run is not None
-        assert project.undo() == int(first_run["op_id"])
-        undone_column = project.db.execute(
-            "SELECT hidden,current_run_id FROM columns WHERE id=?",
-            (output_id,),
-        ).fetchone()
-        assert tuple(undone_column) == (1, None)
-        assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
+    project = make_project("managed-revival-after-undo")
+    sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
+    first_run = RunResultStore(project).get_run(first_run_id)
+    assert first_run is not None
+    assert project.undo() == int(first_run["op_id"])
+    undone_column = project.db.execute(
+        "SELECT hidden,current_run_id FROM columns WHERE id=?",
+        (output_id,),
+    ).fetchone()
+    assert tuple(undone_column) == (1, None)
+    assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
 
-        replacement = run_typed_map_request(
-            project,
-            _regex_action(
-                sheet_id,
-                key="p3b-managed-revival-after-undo@sha256:v1",
-                overwrite=True,
-            ),
-            project_id="p3b-writer",
-        )
+    replacement = run_typed_map_request(
+        project,
+        _regex_action(
+            sheet_id,
+            key="p3b-managed-revival-after-undo@sha256:v1",
+            overwrite=True,
+        ),
+        project_id="p3b-writer",
+    )
 
-        assert replacement.status == "completed", replacement.errors
-        assert replacement.run_id is not None
-        replacement_column = project.db.execute(
-            "SELECT id,hidden,current_run_id FROM columns "
-            "WHERE sheet_id=? AND name='digits' AND active=1",
-            (sheet_id,),
-        ).fetchone()
-        assert replacement_column["id"] != output_id
-        assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
-        output_id = int(replacement_column["id"])
-        assert tuple(replacement_column) == (output_id, 0, replacement.run_id)
-        binding = ResultGenerationStore(project).get_binding(
-            int(replacement.run_id), output_id
-        )
-        assert binding is not None
-        assert binding.write_mode == "create"
-        assert binding.expected_base_run_id is None
-        assert binding.state == "sealed"
-        assert {
-            head.run_id
-            for head in ResultGenerationStore(project)
-            .read_cell_heads(output_id, row_ids)
-            .values()
-        } == {replacement.run_id}
+    assert replacement.status == "completed", replacement.errors
+    assert replacement.run_id is not None
+    replacement_column = project.db.execute(
+        "SELECT id,hidden,current_run_id FROM columns "
+        "WHERE sheet_id=? AND name='digits' AND active=1",
+        (sheet_id,),
+    ).fetchone()
+    assert replacement_column["id"] != output_id
+    assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
+    output_id = int(replacement_column["id"])
+    assert tuple(replacement_column) == (output_id, 0, replacement.run_id)
+    binding = ResultGenerationStore(project).get_binding(
+        int(replacement.run_id), output_id
+    )
+    assert binding is not None
+    assert binding.write_mode == "create"
+    assert binding.expected_base_run_id is None
+    assert binding.state == "sealed"
+    assert {
+        head.run_id
+        for head in ResultGenerationStore(project)
+        .read_cell_heads(output_id, row_ids)
+        .values()
+    } == {replacement.run_id}
 
-        replacement_run = RunResultStore(project).get_run(int(replacement.run_id))
-        assert replacement_run is not None
-        assert project.undo() == int(replacement_run["op_id"])
-        hidden_again = project.db.execute(
-            "SELECT hidden,current_run_id FROM columns WHERE id=?",
-            (output_id,),
-        ).fetchone()
-        assert tuple(hidden_again) == (1, None)
-        assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
+    replacement_run = RunResultStore(project).get_run(int(replacement.run_id))
+    assert replacement_run is not None
+    assert project.undo() == int(replacement_run["op_id"])
+    hidden_again = project.db.execute(
+        "SELECT hidden,current_run_id FROM columns WHERE id=?",
+        (output_id,),
+    ).fetchone()
+    assert tuple(hidden_again) == (1, None)
+    assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
 
-        assert project.redo() == int(replacement_run["op_id"])
-        redone = project.db.execute(
-            "SELECT hidden,current_run_id FROM columns WHERE id=?",
-            (output_id,),
-        ).fetchone()
-        assert tuple(redone) == (0, replacement.run_id)
-        assert {
-            head.run_id
-            for head in ResultGenerationStore(project)
-            .read_cell_heads(output_id, row_ids)
-            .values()
-        } == {replacement.run_id}
-    finally:
-        project.close()
+    assert project.redo() == int(replacement_run["op_id"])
+    redone = project.db.execute(
+        "SELECT hidden,current_run_id FROM columns WHERE id=?",
+        (output_id,),
+    ).fetchone()
+    assert tuple(redone) == (0, replacement.run_id)
+    assert {
+        head.run_id
+        for head in ResultGenerationStore(project)
+        .read_cell_heads(output_id, row_ids)
+        .values()
+    } == {replacement.run_id}
 
 
 def test_incompatible_hidden_managed_revival_refuses_before_mutation(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "incompatible-hidden-managed-revival.frisket")
-    try:
-        sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
-        first_run = RunResultStore(project).get_run(first_run_id)
-        assert first_run is not None
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (output_id,))
-        project.db.commit()
-        original_heads = ResultGenerationStore(project).read_cell_heads(
-            output_id, row_ids
-        )
+    project = make_project("incompatible-hidden-managed-revival")
+    sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
+    first_run = RunResultStore(project).get_run(first_run_id)
+    assert first_run is not None
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (output_id,))
+    project.db.commit()
+    original_heads = ResultGenerationStore(project).read_cell_heads(output_id, row_ids)
 
-        def snapshot() -> tuple[object, ...]:
-            return (
-                tuple(
-                    project.db.execute(
-                        "SELECT id,type,format,semantic_type,hidden,current_run_id "
-                        "FROM columns WHERE id=?",
-                        (output_id,),
-                    ).fetchone()
-                ),
-                int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]),
-                int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]),
-                int(
-                    project.db.execute(
-                        "SELECT COUNT(*) FROM output_column_claims "
-                        "WHERE released_at IS NULL"
-                    ).fetchone()[0]
-                ),
-                int(
-                    project.db.execute(
-                        "SELECT COUNT(*) FROM run_output_generations"
-                    ).fetchone()[0]
-                ),
-            )
-
-        before = snapshot()
-        refused = run_typed_map_request(
-            project,
-            typed_map_request(
-                "map.clean_dates",
-                sheet_id,
-                params={"source": "note"},
-                output_names={"cleaned": "digits"},
-                idempotency_key="p3b-incompatible-hidden-revival@sha256:v1",
+    def snapshot() -> tuple[object, ...]:
+        return (
+            tuple(
+                project.db.execute(
+                    "SELECT id,type,format,semantic_type,hidden,current_run_id "
+                    "FROM columns WHERE id=?",
+                    (output_id,),
+                ).fetchone()
             ),
-            project_id="p3b-writer",
-        )
-        assert refused.status == "failed"
-        assert refused.errors and refused.errors[0].code == "output_column_exists"
-        assert snapshot() == before
-        assert (
-            ResultGenerationStore(project).read_cell_heads(output_id, row_ids)
-            == original_heads
+            int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]),
+            int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]),
+            int(
+                project.db.execute(
+                    "SELECT COUNT(*) FROM output_column_claims "
+                    "WHERE released_at IS NULL"
+                ).fetchone()[0]
+            ),
+            int(
+                project.db.execute(
+                    "SELECT COUNT(*) FROM run_output_generations"
+                ).fetchone()[0]
+            ),
         )
 
-        compatible = run_typed_map_request(
-            project,
-            _regex_action(
-                sheet_id,
-                key="p3b-compatible-after-hidden-refusal@sha256:v1",
-            ),
-            project_id="p3b-writer",
-        )
-        assert compatible.status == "completed", compatible.errors
-        assert compatible.run_id is not None
-        binding = ResultGenerationStore(project).get_binding(
-            int(compatible.run_id), output_id
-        )
-        assert binding is not None
-        assert binding.write_mode == "replace_scope"
-        assert binding.expected_base_run_id == first_run_id
-        assert binding.state == "sealed"
-        assert {
-            head.run_id
-            for head in ResultGenerationStore(project)
-            .read_cell_heads(output_id, row_ids)
-            .values()
-        } == {compatible.run_id}
-    finally:
-        project.close()
+    before = snapshot()
+    refused = run_typed_map_request(
+        project,
+        typed_map_request(
+            "map.clean_dates",
+            sheet_id,
+            params={"source": "note"},
+            output_names={"cleaned": "digits"},
+            idempotency_key="p3b-incompatible-hidden-revival@sha256:v1",
+        ),
+        project_id="p3b-writer",
+    )
+    assert refused.status == "failed"
+    assert refused.errors and refused.errors[0].code == "output_column_exists"
+    assert snapshot() == before
+    assert (
+        ResultGenerationStore(project).read_cell_heads(output_id, row_ids)
+        == original_heads
+    )
+
+    compatible = run_typed_map_request(
+        project,
+        _regex_action(
+            sheet_id,
+            key="p3b-compatible-after-hidden-refusal@sha256:v1",
+        ),
+        project_id="p3b-writer",
+    )
+    assert compatible.status == "completed", compatible.errors
+    assert compatible.run_id is not None
+    binding = ResultGenerationStore(project).get_binding(
+        int(compatible.run_id), output_id
+    )
+    assert binding is not None
+    assert binding.write_mode == "replace_scope"
+    assert binding.expected_base_run_id == first_run_id
+    assert binding.state == "sealed"
+    assert {
+        head.run_id
+        for head in ResultGenerationStore(project)
+        .read_cell_heads(output_id, row_ids)
+        .values()
+    } == {compatible.run_id}
 
 
 def test_prepared_atomic_resume_declaration_failure_preserves_retry(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     """Queued preparation precedes run(resume_run_id); refusal keeps that family."""
-    project = Project.create(tmp_path / "atomic-retry.frisket")
-    try:
-        sheet = project.add_sheet("Data")
-        source = project.add_column(sheet, "seed")
-        rows = project.add_rows(sheet, [{"seed": "one"}], {"seed": source})
-        recipe = _CancellationBatchRecipe(atomic_output_columns=True)
-        recipe.keep_zero_success_output_columns = True
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            authority=UnroutedOnlyAuthority(project),
-        )
-        spec = {
-            "action_kind": "map.regex_extract",
-            "sheet_id": sheet,
-            "input_columns": ["seed"],
-            "phase": "initial",
-        }
-        prepared = runner._prepare(
-            spec, program=recipe, confirmed=False, resume_run_id=None
-        )
-        original = map_runner_module.declare_prepared_outputs
+    project = make_project("atomic-retry")
+    sheet = project.add_sheet("Data")
+    source = project.add_column(sheet, "seed")
+    rows = project.add_rows(sheet, [{"seed": "one"}], {"seed": source})
+    recipe = _CancellationBatchRecipe(atomic_output_columns=True)
+    recipe.keep_zero_success_output_columns = True
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    spec = {
+        "action_kind": "map.regex_extract",
+        "sheet_id": sheet,
+        "input_columns": ["seed"],
+        "phase": "initial",
+    }
+    prepared = runner._prepare(
+        spec, program=recipe, confirmed=False, resume_run_id=None
+    )
+    original = map_runner_module.declare_prepared_outputs
 
-        def fail(*args, **kwargs):
-            raise GenerationDeclarationConflict("injected atomic declaration failure")
+    def fail(*args, **kwargs):
+        raise GenerationDeclarationConflict("injected atomic declaration failure")
 
-        monkeypatch.setattr(map_runner_module, "declare_prepared_outputs", fail)
-        with pytest.raises(GenerationDeclarationConflict, match="injected atomic"):
-            asyncio.run(
-                run_with_output_claim(
-                    runner,
-                    spec,
-                    program=recipe,
-                    resume_run_id=prepared.run_id,
-                )
+    monkeypatch.setattr(map_runner_module, "declare_prepared_outputs", fail)
+    with pytest.raises(GenerationDeclarationConflict, match="injected atomic"):
+        asyncio.run(
+            run_with_output_claim(
+                runner,
+                spec,
+                program=recipe,
+                resume_run_id=prepared.run_id,
             )
-        run = project.db.execute(
-            "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        column_id = prepared.out_cols["cleaned"]
-        retained = project.get_column(column_id)
-        assert retained["active"] == 1
-        assert retained["hidden"] == 0
-        assert retained["current_run_id"] == prepared.run_id
-        monkeypatch.setattr(map_runner_module, "declare_prepared_outputs", original)
-        result = asyncio.run(
-            run_with_output_claim(runner, spec, program=recipe, resume_run_id=run["id"])
         )
-        assert result.run_id == run["id"]
-        assert project.get_values(sheet, column_id, row_ids=rows) == {
-            rows[0]: "initial:one"
-        }
-    finally:
-        project.close()
+    run = project.db.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+    column_id = prepared.out_cols["cleaned"]
+    retained = project.get_column(column_id)
+    assert retained["active"] == 1
+    assert retained["hidden"] == 0
+    assert retained["current_run_id"] == prepared.run_id
+    monkeypatch.setattr(map_runner_module, "declare_prepared_outputs", original)
+    result = asyncio.run(
+        run_with_output_claim(runner, spec, program=recipe, resume_run_id=run["id"])
+    )
+    assert result.run_id == run["id"]
+    assert project.get_values(sheet, column_id, row_ids=rows) == {
+        rows[0]: "initial:one"
+    }
 
 
 def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project = Project.create(tmp_path / "unbound-managed-revival-refusal.frisket")
-    try:
-        sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
-        first_run = RunResultStore(project).get_run(first_run_id)
-        assert first_run is not None
-        assert project.undo() == int(first_run["op_id"])
+    project = make_project("unbound-managed-revival-refusal")
+    sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
+    first_run = RunResultStore(project).get_run(first_run_id)
+    assert first_run is not None
+    assert project.undo() == int(first_run["op_id"])
 
-        original_declare = map_runner_module.declare_prepared_outputs
+    original_declare = map_runner_module.declare_prepared_outputs
 
-        def refuse_declaration(*_args: Any, **_kwargs: Any) -> None:
-            raise GenerationDeclarationConflict("injected declaration refusal")
+    def refuse_declaration(*_args: Any, **_kwargs: Any) -> None:
+        raise GenerationDeclarationConflict("injected declaration refusal")
 
-        monkeypatch.setattr(
-            map_runner_module,
-            "declare_prepared_outputs",
-            refuse_declaration,
-        )
-        plan = _typed_regex_plan(
-            project,
-            sheet_id,
-            key="p3b-unbound-declaration@sha256:v1",
-            replace_existing=True,
-        )
-        with pytest.raises(
-            GenerationDeclarationConflict, match="injected declaration refusal"
-        ):
-            asyncio.run(
-                run_with_output_claim(
-                    MapRunner(
-                        project,
-                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                        authority=UnroutedOnlyAuthority(project),
-                        allow_action_lifecycle_only_recipes=True,
-                    ),
-                    plan.spec_dict(),
-                    program=plan.program,
-                )
-            )
-        refused_run = project.db.execute(
-            "SELECT id,status,op_id FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        assert refused_run is not None and refused_run["status"] == "failed"
-        assert (
-            ResultGenerationStore(project).get_binding(
-                int(refused_run["id"]), output_id
-            )
-            is None
-        )
-        column = project.db.execute(
-            "SELECT hidden,current_run_id FROM columns WHERE id=?", (output_id,)
-        ).fetchone()
-        assert tuple(column) == (1, None)
-        draft = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='digits' AND id<>?",
-            (sheet_id, output_id),
-        ).fetchone()
-        assert draft is not None
-        assert project.get_column(draft["id"])["active"] == 0
-        # Refused declaration never started a data Change and must not
-        # become an ordinary Undo/Redo entry merely because a run exists.
-        assert (
-            project.db.execute(
-                "SELECT change_order FROM ops WHERE id=?", (refused_run["op_id"],)
-            ).fetchone()[0]
-            is None
-        )
-        assert project.get_column(draft["id"])["active"] == 0
-        assert project.get_column(draft["id"])["hidden"] == 1
-
-        monkeypatch.setattr(
-            map_runner_module,
-            "declare_prepared_outputs",
-            original_declare,
-        )
-        compatible = run_typed_map_request(
-            project,
-            _regex_action(
-                sheet_id,
-                key="p3b-compatible-after-declaration-refusal@sha256:v1",
-            ),
-            project_id="p3b-writer",
-        )
-        assert compatible.status == "completed", compatible.errors
-        assert compatible.run_id is not None
-        fresh_column = next(
-            column for column in project.columns(sheet_id) if column["name"] == "digits"
-        )
-        assert fresh_column["id"] != output_id
-        assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
-        assert {
-            head.run_id
-            for head in ResultGenerationStore(project)
-            .read_cell_heads(fresh_column["id"], row_ids)
-            .values()
-        } == {compatible.run_id}
-    finally:
-        project.close()
-
-
-def test_typed_producer_refuses_an_existing_managed_output_before_mutation(
-    tmp_path: Path,
-) -> None:
-    project = Project.create(tmp_path / "legacy-on-managed.frisket")
-    try:
-        sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
-        generation_store = ResultGenerationStore(project)
-        before_heads = generation_store.read_cell_heads(output_id, row_ids)
-        before_runs = int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
-        replacement = run_typed_map_request(
-            project,
-            typed_map_request(
-                "map.template",
-                sheet_id,
-                params={"template": {"text": "T={{note}}"}},
-                output_names={"rendered": "digits"},
-                idempotency_key="p3b-typed-on-managed@sha256:v1",
-            ),
-            project_id="p3b-writer",
-        )
-
-        assert replacement.status == "failed"
-        assert replacement.errors[0].code == "output_column_exists"
-        assert generation_store.read_cell_heads(output_id, row_ids) == before_heads
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == before_runs
-        )
-        assert (
-            project.db.execute(
-                "SELECT current_run_id FROM columns WHERE id=?",
-                (output_id,),
-            ).fetchone()["current_run_id"]
-            == first_run_id
-        )
-    finally:
-        project.close()
-
-
-def test_runner_fence_refuses_legacy_producer_on_managed_output(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = Project.create(tmp_path / "legacy-on-managed-runner-fence.frisket")
-    try:
-        sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
-        generation_store = ResultGenerationStore(project)
-        before_heads = generation_store.read_cell_heads(output_id, row_ids)
-        recipe = _LegacyOverwriteRecipe()
-        original_get_recipe = validation_module.get_recipe
-        monkeypatch.setattr(
-            validation_module,
-            "get_recipe",
-            lambda name: (
-                recipe
-                if name in {recipe.name, "map.template"}
-                else original_get_recipe(name)
-            ),
-        )
-
-        with pytest.raises(GenerationDeclarationConflict):
-            asyncio.run(
-                run_with_output_claim(
-                    MapRunner(
-                        project,
-                        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-                        authority=UnroutedOnlyAuthority(project),
-                    ),
-                    {
-                        "action_kind": "map.template",
-                        "sheet_id": sheet_id,
-                        "input_columns": ["note"],
-                        "overwrite": True,
-                    },
-                )
-            )
-
-        assert generation_store.read_cell_heads(output_id, row_ids) == before_heads
-        assert (
-            project.db.execute(
-                "SELECT current_run_id FROM columns WHERE id=?",
-                (output_id,),
-            ).fetchone()["current_run_id"]
-            == first_run_id
-        )
-        refused_run = project.db.execute(
-            "SELECT id,status FROM runs WHERE action_kind='map.template' "
-            "ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        assert refused_run is not None and refused_run["status"] == "failed"
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM results WHERE run_id=?",
-                (int(refused_run["id"]),),
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
-
-
-def test_managed_producer_refuses_intervening_legacy_scalar_run(
-    tmp_path: Path,
-) -> None:
-    project = Project.create(tmp_path / "managed-after-legacy.frisket")
-    try:
-        sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
-        generation_store = ResultGenerationStore(project)
-        before_heads = generation_store.read_cell_heads(output_id, row_ids)
-        legacy_op_id = project.append_op(
-            "map",
-            {"action_kind": "map.template", "output_name": "digits"},
-            label="intervening legacy output",
-        )
-        run_store = RunResultStore(project)
-        legacy_run_id = run_store.start_run(
-            legacy_op_id,
-            sheet_id,
-            "map.template",
-            total_rows=len(row_ids),
-            row_ids=row_ids,
-        )
-        project.db.executemany(
-            "INSERT INTO results (run_id,row_id,column_id,value,outcome) "
-            "VALUES (?,?,?,?, 'ok')",
-            [
-                (legacy_run_id, row_ids[0], output_id, json.dumps("legacy 1")),
-                (legacy_run_id, row_ids[1], output_id, json.dumps("legacy 2")),
-            ],
-        )
-        project.db.execute(
-            "UPDATE columns SET current_run_id=? WHERE id=?",
-            (legacy_run_id, output_id),
-        )
-        run_store.finish_run(legacy_run_id, "completed")
-
-        refused = run_typed_map_request(
-            project,
-            _regex_action(
-                sheet_id,
-                key="p3b-managed-after-legacy@sha256:v1",
-                overwrite=True,
-            ),
-            project_id="p3b-writer",
-        )
-
-        assert refused.status == "failed"
-        assert refused.errors and refused.errors[0].code == "output_column_exists"
-        assert generation_store.read_cell_heads(output_id, row_ids) == before_heads
-        assert (
-            project.db.execute(
-                "SELECT current_run_id FROM columns WHERE id=?",
-                (output_id,),
-            ).fetchone()["current_run_id"]
-            == legacy_run_id
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM run_output_generations WHERE column_id=?",
-                (output_id,),
-            ).fetchone()[0]
-            == 1
-        )
-        assert first_run_id != legacy_run_id
-    finally:
-        project.close()
-
-
-def test_regex_writer_streams_fresh_then_seals_exact_replacement(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    project = Project.create(tmp_path / "maprunner-generation-writer.frisket")
-    try:
-        sheet_id = project.add_sheet("Notes")
-        note_column = project.add_column(sheet_id, "note", type="text")
-        row_ids = project.add_rows(
-            sheet_id,
-            [
-                {"note": "one 101"},
-                {"note": "two 202"},
-                {"note": "three 303"},
-                {"note": "four 404"},
-            ],
-            {"note": note_column},
-        )
-        generation_store = ResultGenerationStore(project)
-        original_publish_results = RunResultStore.publish_result_batch
-        fresh_flushes: list[tuple[int, int]] = []
-
-        def observe_fresh_flush(
-            store: RunResultStore,
-            run_id: int,
-            batch: list[dict[str, Any]],
-            **kwargs: Any,
-        ) -> None:
-            original_publish_results(store, run_id, batch, **kwargs)
-            run = store.get_run(run_id)
-            assert run is not None
-            assert run["status"] == "running"
-            for result in batch:
-                row_id = int(result["row_id"])
-                column_id = int(result["column_id"])
-                binding = generation_store.get_binding(run_id, column_id)
-                assert binding is not None
-                assert binding.write_mode == "create"
-                assert binding.state == "active"
-                head = generation_store.read_cell_heads(column_id, [row_id])[row_id]
-                assert head.run_id == run_id
-                assert head.value == result["value"]
-                assert head.publication_effect == result["publication_effect"]
-                fresh_flushes.append((row_id, column_id))
-
-        monkeypatch.setattr(RunResultStore, "publish_result_batch", observe_fresh_flush)
-        first = run_typed_map_request(
-            project,
-            _regex_action(sheet_id, key="p3b-writer-fresh@sha256:v1"),
-            project_id="p3b-writer",
-        )
-        monkeypatch.setattr(
-            RunResultStore, "publish_result_batch", original_publish_results
-        )
-
-        assert first.status == "completed", first.errors
-        output_row = project.db.execute(
-            "SELECT id,current_run_id FROM columns WHERE sheet_id=? AND name='digits'",
-            (sheet_id,),
-        ).fetchone()
-        assert output_row is not None
-        output_id = int(output_row["id"])
-        assert output_row["current_run_id"] == first.run_id
-        assert {row_id for row_id, _column_id in fresh_flushes} == set(row_ids)
-        first_binding = generation_store.get_binding(first.run_id, output_id)
-        assert first_binding is not None
-        assert first_binding.write_mode == "create"
-        assert first_binding.state == "sealed"
-        assert first_binding.terminal_disposition == "completed"
-        first_heads = generation_store.read_cell_heads(output_id, row_ids)
-        assert {row_id: head.value for row_id, head in first_heads.items()} == {
-            row_ids[0]: "101",
-            row_ids[1]: "202",
-            row_ids[2]: "303",
-            row_ids[3]: "404",
-        }
-
-        project.apply_edits(
-            [
-                {
-                    "row_id": row_ids[0],
-                    "column_id": note_column,
-                    "value": "changed 909",
-                },
-                {
-                    "row_id": row_ids[1],
-                    "column_id": note_column,
-                    "value": "no digits remain",
-                },
-                {
-                    "row_id": row_ids[2],
-                    "column_id": note_column,
-                    "value": "unresolved producer output",
-                },
-            ],
-            label="change exact regex scope",
-        )
-        original_execute = _TypedMapRowsProgram.execute
-
-        async def omit_declared_output(
-            recipe: _TypedMapRowsProgram,
-            row_values: dict[str, Any],
-            spec: dict[str, Any],
-            ctx: Any,
-        ) -> PreparedRowPublication:
-            if any("unresolved" in str(value) for value in row_values.values()):
-                return PreparedRowPublication(trace_data={}, cells={})
-            return await original_execute(recipe, row_values, spec, ctx)
-
-        monkeypatch.setattr(_TypedMapRowsProgram, "execute", omit_declared_output)
-        replacement_flushes: list[tuple[int, int]] = []
-
-        def observe_replacement_flush(
-            store: RunResultStore,
-            run_id: int,
-            batch: list[dict[str, Any]],
-            **kwargs: Any,
-        ) -> None:
-            original_publish_results(store, run_id, batch, **kwargs)
-            for result in batch:
-                row_id = int(result["row_id"])
-                column_id = int(result["column_id"])
-                binding = generation_store.get_binding(run_id, column_id)
-                assert binding is not None
-                assert binding.write_mode == "replace_scope"
-                assert binding.state == "active"
-                # Same-descriptor replacements publish each complete family
-                # at the shared publication boundary, before terminal sealing.
-                head = generation_store.read_cell_heads(column_id, [row_id])[row_id]
-                assert head.run_id == run_id
-                assert head.value == result["value"]
-                replacement_flushes.append((row_id, column_id))
-
-        monkeypatch.setattr(
-            RunResultStore, "publish_result_batch", observe_replacement_flush
-        )
-        replacement_plan = _typed_regex_plan(
-            project,
-            sheet_id,
-            key="p3b-writer-replacement@sha256:v1",
-            row_ids=row_ids[:3],
-            replace_existing=True,
-        )
-        second_spec = replacement_plan.spec_dict()
-        second = asyncio.run(
+    monkeypatch.setattr(
+        map_runner_module,
+        "declare_prepared_outputs",
+        refuse_declaration,
+    )
+    plan = _typed_regex_plan(
+        project,
+        sheet_id,
+        key="p3b-unbound-declaration@sha256:v1",
+        replace_existing=True,
+    )
+    with pytest.raises(
+        GenerationDeclarationConflict, match="injected declaration refusal"
+    ):
+        asyncio.run(
             run_with_output_claim(
                 MapRunner(
                     project,
@@ -1580,53 +1152,417 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
                     authority=UnroutedOnlyAuthority(project),
                     allow_action_lifecycle_only_recipes=True,
                 ),
-                second_spec,
-                program=replacement_plan.program,
+                plan.spec_dict(),
+                program=plan.program,
+            )
+        )
+    refused_run = project.db.execute(
+        "SELECT id,status,op_id FROM runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert refused_run is not None and refused_run["status"] == "failed"
+    assert (
+        ResultGenerationStore(project).get_binding(int(refused_run["id"]), output_id)
+        is None
+    )
+    column = project.db.execute(
+        "SELECT hidden,current_run_id FROM columns WHERE id=?", (output_id,)
+    ).fetchone()
+    assert tuple(column) == (1, None)
+    draft = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='digits' AND id<>?",
+        (sheet_id, output_id),
+    ).fetchone()
+    assert draft is not None
+    assert project.get_column(draft["id"])["active"] == 0
+    # Refused declaration never started a data Change and must not
+    # become an ordinary Undo/Redo entry merely because a run exists.
+    assert (
+        project.db.execute(
+            "SELECT change_order FROM ops WHERE id=?", (refused_run["op_id"],)
+        ).fetchone()[0]
+        is None
+    )
+    assert project.get_column(draft["id"])["active"] == 0
+    assert project.get_column(draft["id"])["hidden"] == 1
+
+    monkeypatch.setattr(
+        map_runner_module,
+        "declare_prepared_outputs",
+        original_declare,
+    )
+    compatible = run_typed_map_request(
+        project,
+        _regex_action(
+            sheet_id,
+            key="p3b-compatible-after-declaration-refusal@sha256:v1",
+        ),
+        project_id="p3b-writer",
+    )
+    assert compatible.status == "completed", compatible.errors
+    assert compatible.run_id is not None
+    fresh_column = next(
+        column for column in project.columns(sheet_id) if column["name"] == "digits"
+    )
+    assert fresh_column["id"] != output_id
+    assert ResultGenerationStore(project).read_cell_heads(output_id, row_ids) == {}
+    assert {
+        head.run_id
+        for head in ResultGenerationStore(project)
+        .read_cell_heads(fresh_column["id"], row_ids)
+        .values()
+    } == {compatible.run_id}
+
+
+def test_typed_producer_refuses_an_existing_managed_output_before_mutation(
+    make_project,
+) -> None:
+    project = make_project("legacy-on-managed")
+    sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
+    generation_store = ResultGenerationStore(project)
+    before_heads = generation_store.read_cell_heads(output_id, row_ids)
+    before_runs = int(project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
+    replacement = run_typed_map_request(
+        project,
+        typed_map_request(
+            "map.template",
+            sheet_id,
+            params={"template": {"text": "T={{note}}"}},
+            output_names={"rendered": "digits"},
+            idempotency_key="p3b-typed-on-managed@sha256:v1",
+        ),
+        project_id="p3b-writer",
+    )
+
+    assert replacement.status == "failed"
+    assert replacement.errors[0].code == "output_column_exists"
+    assert generation_store.read_cell_heads(output_id, row_ids) == before_heads
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == before_runs
+    assert (
+        project.db.execute(
+            "SELECT current_run_id FROM columns WHERE id=?",
+            (output_id,),
+        ).fetchone()["current_run_id"]
+        == first_run_id
+    )
+
+
+def test_runner_fence_refuses_legacy_producer_on_managed_output(
+    make_project,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = make_project("legacy-on-managed-runner-fence")
+    sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
+    generation_store = ResultGenerationStore(project)
+    before_heads = generation_store.read_cell_heads(output_id, row_ids)
+    recipe = _LegacyOverwriteRecipe()
+    original_get_recipe = validation_module.get_recipe
+    monkeypatch.setattr(
+        validation_module,
+        "get_recipe",
+        lambda name: (
+            recipe
+            if name in {recipe.name, "map.template"}
+            else original_get_recipe(name)
+        ),
+    )
+
+    with pytest.raises(GenerationDeclarationConflict):
+        asyncio.run(
+            run_with_output_claim(
+                MapRunner(
+                    project,
+                    ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                    authority=UnroutedOnlyAuthority(project),
+                ),
+                {
+                    "action_kind": "map.template",
+                    "sheet_id": sheet_id,
+                    "input_columns": ["note"],
+                    "overwrite": True,
+                },
             )
         )
 
-        assert second.done
-        assert second.failed == 1
-        assert {row_id for row_id, _column_id in replacement_flushes} == set(
-            row_ids[:3]
+    assert generation_store.read_cell_heads(output_id, row_ids) == before_heads
+    assert (
+        project.db.execute(
+            "SELECT current_run_id FROM columns WHERE id=?",
+            (output_id,),
+        ).fetchone()["current_run_id"]
+        == first_run_id
+    )
+    refused_run = project.db.execute(
+        "SELECT id,status FROM runs WHERE action_kind='map.template' "
+        "ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert refused_run is not None and refused_run["status"] == "failed"
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM results WHERE run_id=?",
+            (int(refused_run["id"]),),
+        ).fetchone()[0]
+        == 0
+    )
+
+
+def test_managed_producer_refuses_intervening_legacy_scalar_run(
+    make_project,
+) -> None:
+    project = make_project("managed-after-legacy")
+    sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
+    generation_store = ResultGenerationStore(project)
+    before_heads = generation_store.read_cell_heads(output_id, row_ids)
+    legacy_op_id = project.append_op(
+        "map",
+        {"action_kind": "map.template", "output_name": "digits"},
+        label="intervening legacy output",
+    )
+    run_store = RunResultStore(project)
+    legacy_run_id = run_store.start_run(
+        legacy_op_id,
+        sheet_id,
+        "map.template",
+        total_rows=len(row_ids),
+        row_ids=row_ids,
+    )
+    project.db.executemany(
+        "INSERT INTO results (run_id,row_id,column_id,value,outcome) "
+        "VALUES (?,?,?,?, 'ok')",
+        [
+            (legacy_run_id, row_ids[0], output_id, json.dumps("legacy 1")),
+            (legacy_run_id, row_ids[1], output_id, json.dumps("legacy 2")),
+        ],
+    )
+    project.db.execute(
+        "UPDATE columns SET current_run_id=? WHERE id=?",
+        (legacy_run_id, output_id),
+    )
+    run_store.finish_run(legacy_run_id, "completed")
+
+    refused = run_typed_map_request(
+        project,
+        _regex_action(
+            sheet_id,
+            key="p3b-managed-after-legacy@sha256:v1",
+            overwrite=True,
+        ),
+        project_id="p3b-writer",
+    )
+
+    assert refused.status == "failed"
+    assert refused.errors and refused.errors[0].code == "output_column_exists"
+    assert generation_store.read_cell_heads(output_id, row_ids) == before_heads
+    assert (
+        project.db.execute(
+            "SELECT current_run_id FROM columns WHERE id=?",
+            (output_id,),
+        ).fetchone()["current_run_id"]
+        == legacy_run_id
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM run_output_generations WHERE column_id=?",
+            (output_id,),
+        ).fetchone()[0]
+        == 1
+    )
+    assert first_run_id != legacy_run_id
+
+
+def test_regex_writer_streams_fresh_then_seals_exact_replacement(
+    make_project,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = make_project("maprunner-generation-writer")
+    sheet_id = project.add_sheet("Notes")
+    note_column = project.add_column(sheet_id, "note", type="text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [
+            {"note": "one 101"},
+            {"note": "two 202"},
+            {"note": "three 303"},
+            {"note": "four 404"},
+        ],
+        {"note": note_column},
+    )
+    generation_store = ResultGenerationStore(project)
+    original_publish_results = RunResultStore.publish_result_batch
+    fresh_flushes: list[tuple[int, int]] = []
+
+    def observe_fresh_flush(
+        store: RunResultStore,
+        run_id: int,
+        batch: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> None:
+        original_publish_results(store, run_id, batch, **kwargs)
+        run = store.get_run(run_id)
+        assert run is not None
+        assert run["status"] == "running"
+        for result in batch:
+            row_id = int(result["row_id"])
+            column_id = int(result["column_id"])
+            binding = generation_store.get_binding(run_id, column_id)
+            assert binding is not None
+            assert binding.write_mode == "create"
+            assert binding.state == "active"
+            head = generation_store.read_cell_heads(column_id, [row_id])[row_id]
+            assert head.run_id == run_id
+            assert head.value == result["value"]
+            assert head.publication_effect == result["publication_effect"]
+            fresh_flushes.append((row_id, column_id))
+
+    monkeypatch.setattr(RunResultStore, "publish_result_batch", observe_fresh_flush)
+    first = run_typed_map_request(
+        project,
+        _regex_action(sheet_id, key="p3b-writer-fresh@sha256:v1"),
+        project_id="p3b-writer",
+    )
+    monkeypatch.setattr(
+        RunResultStore, "publish_result_batch", original_publish_results
+    )
+
+    assert first.status == "completed", first.errors
+    output_row = project.db.execute(
+        "SELECT id,current_run_id FROM columns WHERE sheet_id=? AND name='digits'",
+        (sheet_id,),
+    ).fetchone()
+    assert output_row is not None
+    output_id = int(output_row["id"])
+    assert output_row["current_run_id"] == first.run_id
+    assert {row_id for row_id, _column_id in fresh_flushes} == set(row_ids)
+    first_binding = generation_store.get_binding(first.run_id, output_id)
+    assert first_binding is not None
+    assert first_binding.write_mode == "create"
+    assert first_binding.state == "sealed"
+    assert first_binding.terminal_disposition == "completed"
+    first_heads = generation_store.read_cell_heads(output_id, row_ids)
+    assert {row_id: head.value for row_id, head in first_heads.items()} == {
+        row_ids[0]: "101",
+        row_ids[1]: "202",
+        row_ids[2]: "303",
+        row_ids[3]: "404",
+    }
+
+    project.apply_edits(
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": note_column,
+                "value": "changed 909",
+            },
+            {
+                "row_id": row_ids[1],
+                "column_id": note_column,
+                "value": "no digits remain",
+            },
+            {
+                "row_id": row_ids[2],
+                "column_id": note_column,
+                "value": "unresolved producer output",
+            },
+        ],
+        label="change exact regex scope",
+    )
+    original_execute = _TypedMapRowsProgram.execute
+
+    async def omit_declared_output(
+        recipe: _TypedMapRowsProgram,
+        row_values: dict[str, Any],
+        spec: dict[str, Any],
+        ctx: Any,
+    ) -> PreparedRowPublication:
+        if any("unresolved" in str(value) for value in row_values.values()):
+            return PreparedRowPublication(trace_data={}, cells={})
+        return await original_execute(recipe, row_values, spec, ctx)
+
+    monkeypatch.setattr(_TypedMapRowsProgram, "execute", omit_declared_output)
+    replacement_flushes: list[tuple[int, int]] = []
+
+    def observe_replacement_flush(
+        store: RunResultStore,
+        run_id: int,
+        batch: list[dict[str, Any]],
+        **kwargs: Any,
+    ) -> None:
+        original_publish_results(store, run_id, batch, **kwargs)
+        for result in batch:
+            row_id = int(result["row_id"])
+            column_id = int(result["column_id"])
+            binding = generation_store.get_binding(run_id, column_id)
+            assert binding is not None
+            assert binding.write_mode == "replace_scope"
+            assert binding.state == "active"
+            # Same-descriptor replacements publish each complete family
+            # at the shared publication boundary, before terminal sealing.
+            head = generation_store.read_cell_heads(column_id, [row_id])[row_id]
+            assert head.run_id == run_id
+            assert head.value == result["value"]
+            replacement_flushes.append((row_id, column_id))
+
+    monkeypatch.setattr(
+        RunResultStore, "publish_result_batch", observe_replacement_flush
+    )
+    replacement_plan = _typed_regex_plan(
+        project,
+        sheet_id,
+        key="p3b-writer-replacement@sha256:v1",
+        row_ids=row_ids[:3],
+        replace_existing=True,
+    )
+    second_spec = replacement_plan.spec_dict()
+    second = asyncio.run(
+        run_with_output_claim(
+            MapRunner(
+                project,
+                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+                authority=UnroutedOnlyAuthority(project),
+                allow_action_lifecycle_only_recipes=True,
+            ),
+            second_spec,
+            program=replacement_plan.program,
         )
-        second_results = project.db.execute(
-            "SELECT row_id,publication_effect FROM results "
-            "WHERE run_id=? AND column_id=? ORDER BY row_id",
-            (second.run_id, output_id),
-        ).fetchall()
-        assert {int(row["row_id"]) for row in second_results} == set(row_ids[:3])
-        assert [str(row["publication_effect"]) for row in second_results] == [
-            "publish_value",
-            "publish_null",
-            "publish_error",
-        ]
+    )
 
-        second_binding = generation_store.get_binding(second.run_id, output_id)
-        assert second_binding is not None
-        assert second_binding.write_mode == "replace_scope"
-        assert second_binding.state == "sealed"
-        assert second_binding.terminal_disposition == "completed"
-        assert second_binding.expected_base_run_id == first.run_id
-        assert second_binding.compatibility_key == first_binding.compatibility_key
+    assert second.done
+    assert second.failed == 1
+    assert {row_id for row_id, _column_id in replacement_flushes} == set(row_ids[:3])
+    second_results = project.db.execute(
+        "SELECT row_id,publication_effect FROM results "
+        "WHERE run_id=? AND column_id=? ORDER BY row_id",
+        (second.run_id, output_id),
+    ).fetchall()
+    assert {int(row["row_id"]) for row in second_results} == set(row_ids[:3])
+    assert [str(row["publication_effect"]) for row in second_results] == [
+        "publish_value",
+        "publish_null",
+        "publish_error",
+    ]
 
-        heads = generation_store.read_cell_heads(output_id, row_ids)
-        assert heads[row_ids[0]].run_id == second.run_id
-        assert heads[row_ids[0]].publication_effect == "publish_value"
-        assert heads[row_ids[0]].value == "909"
-        assert heads[row_ids[1]].run_id == second.run_id
-        assert heads[row_ids[1]].publication_effect == "publish_null"
-        assert heads[row_ids[1]].value is None
-        assert heads[row_ids[1]].error is None
-        assert heads[row_ids[2]].run_id == second.run_id
-        assert heads[row_ids[2]].publication_effect == "publish_error"
-        assert heads[row_ids[2]].value is None
-        assert heads[row_ids[2]].error_code == "model_error"
-        assert "does not match declared outputs" in str(heads[row_ids[2]].error)
-        assert heads[row_ids[3]] == first_heads[row_ids[3]]
-        assert generation_store.origin_run_ids(output_id, row_ids) == [
-            second.run_id,
-            first.run_id,
-        ]
-    finally:
-        project.close()
+    second_binding = generation_store.get_binding(second.run_id, output_id)
+    assert second_binding is not None
+    assert second_binding.write_mode == "replace_scope"
+    assert second_binding.state == "sealed"
+    assert second_binding.terminal_disposition == "completed"
+    assert second_binding.expected_base_run_id == first.run_id
+    assert second_binding.compatibility_key == first_binding.compatibility_key
+
+    heads = generation_store.read_cell_heads(output_id, row_ids)
+    assert heads[row_ids[0]].run_id == second.run_id
+    assert heads[row_ids[0]].publication_effect == "publish_value"
+    assert heads[row_ids[0]].value == "909"
+    assert heads[row_ids[1]].run_id == second.run_id
+    assert heads[row_ids[1]].publication_effect == "publish_null"
+    assert heads[row_ids[1]].value is None
+    assert heads[row_ids[1]].error is None
+    assert heads[row_ids[2]].run_id == second.run_id
+    assert heads[row_ids[2]].publication_effect == "publish_error"
+    assert heads[row_ids[2]].value is None
+    assert heads[row_ids[2]].error_code == "model_error"
+    assert "does not match declared outputs" in str(heads[row_ids[2]].error)
+    assert heads[row_ids[3]] == first_heads[row_ids[3]]
+    assert generation_store.origin_run_ids(output_id, row_ids) == [
+        second.run_id,
+        first.run_id,
+    ]

@@ -183,13 +183,6 @@ CLASSIFY_SPEC_FIELDS = [
 ]
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
-
-
 def _seed_sheet(p: Project, texts: list[str]) -> tuple[int, dict]:
     sheet = p.add_sheet("data")
     cols = {"text": p.add_column(sheet, "text")}

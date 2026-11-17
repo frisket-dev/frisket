@@ -236,93 +236,87 @@ def _fake_stage(
     )
 
 
-def test_split_normalizes_points_and_preserves_ranges(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "split-normalization.frisket")
-    try:
-        seeded = _seed_media(project)
-        point_plan = _plan(
-            project,
-            _request(
-                seeded,
-                {
-                    "kind": "draft_points",
-                    "items": [
-                        {"id": "p7", "at_ms": 7_000},
-                        {"id": "edge-0", "at_ms": 0},
-                        {"id": "p3-a", "at_ms": 3_000},
-                        {"id": "p3-b", "at_ms": 3_000},
-                        {"id": "edge-end", "at_ms": 10_000},
-                    ],
-                },
-            ),
-        )
-        assert not isinstance(point_plan, Exception)
-        assert [
-            (item.start_ms, item.end_ms) for item in point_plan.sources[0].source.ranges
-        ] == [
-            (0, 3_000),
-            (3_000, 7_000),
-            (7_000, 10_000),
-        ]
-        assert set(
-            point_plan.sources[0].source.ranges[0].metadata["boundary_item_ids"]
-        ) == {"p3-a", "p3-b"}
-        assert [
-            item["id"] for item in point_plan.sources[0].source.selection_value["items"]
-        ] == ["p7", "edge-0", "p3-a", "p3-b", "edge-end"]
-        assert len(point_plan.sources[0].warnings) == 2
+def test_split_normalizes_points_and_preserves_ranges(make_project) -> None:
+    project = make_project("split-normalization")
+    seeded = _seed_media(project)
+    point_plan = _plan(
+        project,
+        _request(
+            seeded,
+            {
+                "kind": "draft_points",
+                "items": [
+                    {"id": "p7", "at_ms": 7_000},
+                    {"id": "edge-0", "at_ms": 0},
+                    {"id": "p3-a", "at_ms": 3_000},
+                    {"id": "p3-b", "at_ms": 3_000},
+                    {"id": "edge-end", "at_ms": 10_000},
+                ],
+            },
+        ),
+    )
+    assert not isinstance(point_plan, Exception)
+    assert [
+        (item.start_ms, item.end_ms) for item in point_plan.sources[0].source.ranges
+    ] == [
+        (0, 3_000),
+        (3_000, 7_000),
+        (7_000, 10_000),
+    ]
+    assert set(
+        point_plan.sources[0].source.ranges[0].metadata["boundary_item_ids"]
+    ) == {"p3-a", "p3-b"}
+    assert [
+        item["id"] for item in point_plan.sources[0].source.selection_value["items"]
+    ] == ["p7", "edge-0", "p3-a", "p3-b", "edge-end"]
+    assert len(point_plan.sources[0].warnings) == 2
 
-        range_plan = _plan(
-            project,
-            _request(
-                seeded,
-                {
-                    "kind": "draft_ranges",
-                    "items": [
-                        {"id": "late", "start_ms": 5_000, "end_ms": 8_000},
-                        {"id": "overlap", "start_ms": 2_000, "end_ms": 6_000},
-                        {"id": "duplicate", "start_ms": 5_000, "end_ms": 8_000},
-                    ],
-                },
-                target="Range clips",
-            ),
-        )
-        assert not isinstance(range_plan, Exception)
-        ranges = range_plan.sources[0].source.ranges
-        assert [(item.start_ms, item.end_ms, item.item_id) for item in ranges] == [
-            (5_000, 8_000, "late"),
-            (2_000, 6_000, "overlap"),
-            (5_000, 8_000, "duplicate"),
-        ]
-    finally:
-        project.close()
+    range_plan = _plan(
+        project,
+        _request(
+            seeded,
+            {
+                "kind": "draft_ranges",
+                "items": [
+                    {"id": "late", "start_ms": 5_000, "end_ms": 8_000},
+                    {"id": "overlap", "start_ms": 2_000, "end_ms": 6_000},
+                    {"id": "duplicate", "start_ms": 5_000, "end_ms": 8_000},
+                ],
+            },
+            target="Range clips",
+        ),
+    )
+    assert not isinstance(range_plan, Exception)
+    ranges = range_plan.sources[0].source.ranges
+    assert [(item.start_ms, item.end_ms, item.item_id) for item in ranges] == [
+        (5_000, 8_000, "late"),
+        (2_000, 6_000, "overlap"),
+        (5_000, 8_000, "duplicate"),
+    ]
 
 
 def test_split_warns_when_a_typed_transcript_cannot_be_inherited(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "split-transcript-warning.frisket")
-    try:
-        seeded = _seed_media(project, transcript=True)
-        plan = _plan(
-            project,
-            _request(
-                seeded,
-                {
-                    "kind": "draft_ranges",
-                    "items": [{"start_ms": 1_000, "end_ms": 2_000}],
-                },
-            ),
-        )
+    project = make_project("split-transcript-warning")
+    seeded = _seed_media(project, transcript=True)
+    plan = _plan(
+        project,
+        _request(
+            seeded,
+            {
+                "kind": "draft_ranges",
+                "items": [{"start_ms": 1_000, "end_ms": 2_000}],
+            },
+        ),
+    )
 
-        assert not isinstance(plan, ActionError)
-        assert plan.sources[0].transcripts == ()
-        assert plan.sources[0].warnings == (
-            'Transcript "transcript" was not inherited because its current timestamp '
-            "evidence is missing, stale, or ambiguous.",
-        )
-    finally:
-        project.close()
+    assert not isinstance(plan, ActionError)
+    assert plan.sources[0].transcripts == ()
+    assert plan.sources[0].warnings == (
+        'Transcript "transcript" was not inherited because its current timestamp '
+        "evidence is missing, stale, or ambiguous.",
+    )
 
 
 @pytest.mark.parametrize(
@@ -377,204 +371,195 @@ def test_split_manual_missing_ids_are_stable_across_repeated_prepare(
 
 
 def test_typed_selection_snapshot_expands_defaults_before_hashing(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "split-canonical-selection.frisket")
-    try:
-        seeded = _seed_media(project)
-        anchor = resolve_timeline(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_id"],
-            column_id=seeded["columns"]["video"],
-        ).anchor.wire_value()
-        omitted = {
+    project = make_project("split-canonical-selection")
+    seeded = _seed_media(project)
+    anchor = resolve_timeline(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=seeded["columns"]["video"],
+    ).anchor.wire_value()
+    omitted = {
+        "schema_version": "frisket.timeline_points.v1",
+        "timeline": anchor,
+        "items": [{"id": "point", "at_ms": 3_000}],
+    }
+    explicit = {
+        "schema_version": "frisket.timeline_points.v1",
+        "timeline": anchor,
+        "items": [
+            {
+                "id": "point",
+                "at_ms": 3_000,
+                "label": None,
+                "metadata": {},
+            }
+        ],
+    }
+    omitted_before = json.loads(json.dumps(omitted))
+    omitted_params = _request(seeded, {"kind": "typed_value", "value": omitted})
+    explicit_params = _request(seeded, {"kind": "typed_value", "value": explicit})
+    params_before = omitted_params.model_dump(mode="json")
+
+    omitted_plan = _plan(project, omitted_params)
+    explicit_plan = _plan(project, explicit_params)
+
+    assert not isinstance(omitted_plan, ActionError)
+    assert not isinstance(explicit_plan, ActionError)
+    omitted_source = omitted_plan.sources[0].source
+    explicit_source = explicit_plan.sources[0].source
+    assert omitted_source.selection_value == explicit_source.selection_value
+    assert omitted_source.selection_hash == explicit_source.selection_hash
+    assert omitted_source.selection_value["items"][0] == {
+        "id": "point",
+        "label": None,
+        "metadata": {},
+        "at_ms": 3_000,
+    }
+    assert omitted_params.model_dump(mode="json") == params_before
+    assert omitted == omitted_before
+    assert "label" not in omitted["items"][0]
+    assert "metadata" not in omitted["items"][0]
+
+
+def test_selection_column_revalidation_hashes_canonical_value(make_project) -> None:
+    project = make_project("split-canonical-revalidation")
+    seeded = _seed_media(project)
+    anchor = resolve_timeline(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=seeded["columns"]["video"],
+    ).anchor.wire_value()
+    selection_column_id = project.add_column(
+        seeded["sheet_id"], "timestamps", "timeline_points"
+    )
+    # Model a valid legacy value that predates default-expanded temporal
+    # persistence.  Resolving it produces a canonical receipt snapshot;
+    # revalidation of the unchanged cell must use the same representation.
+    replace_test_source_cell(
+        project,
+        row_id=seeded["row_id"],
+        column_id=selection_column_id,
+        value={
             "schema_version": "frisket.timeline_points.v1",
             "timeline": anchor,
             "items": [{"id": "point", "at_ms": 3_000}],
-        }
-        explicit = {
-            "schema_version": "frisket.timeline_points.v1",
-            "timeline": anchor,
-            "items": [
-                {
-                    "id": "point",
-                    "at_ms": 3_000,
-                    "label": None,
-                    "metadata": {},
-                }
-            ],
-        }
-        omitted_before = json.loads(json.dumps(omitted))
-        omitted_params = _request(seeded, {"kind": "typed_value", "value": omitted})
-        explicit_params = _request(seeded, {"kind": "typed_value", "value": explicit})
-        params_before = omitted_params.model_dump(mode="json")
+        },
+    )
+    plan = _plan(
+        project,
+        _request(
+            seeded,
+            {"kind": "column", "column": "timestamps"},
+        ),
+    )
 
-        omitted_plan = _plan(project, omitted_params)
-        explicit_plan = _plan(project, explicit_params)
-
-        assert not isinstance(omitted_plan, ActionError)
-        assert not isinstance(explicit_plan, ActionError)
-        omitted_source = omitted_plan.sources[0].source
-        explicit_source = explicit_plan.sources[0].source
-        assert omitted_source.selection_value == explicit_source.selection_value
-        assert omitted_source.selection_hash == explicit_source.selection_hash
-        assert omitted_source.selection_value["items"][0] == {
-            "id": "point",
-            "label": None,
-            "metadata": {},
-            "at_ms": 3_000,
-        }
-        assert omitted_params.model_dump(mode="json") == params_before
-        assert omitted == omitted_before
-        assert "label" not in omitted["items"][0]
-        assert "metadata" not in omitted["items"][0]
-    finally:
-        project.close()
-
-
-def test_selection_column_revalidation_hashes_canonical_value(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "split-canonical-revalidation.frisket")
-    try:
-        seeded = _seed_media(project)
-        anchor = resolve_timeline(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_id"],
-            column_id=seeded["columns"]["video"],
-        ).anchor.wire_value()
-        selection_column_id = project.add_column(
-            seeded["sheet_id"], "timestamps", "timeline_points"
-        )
-        # Model a valid legacy value that predates default-expanded temporal
-        # persistence.  Resolving it produces a canonical receipt snapshot;
-        # revalidation of the unchanged cell must use the same representation.
-        replace_test_source_cell(
-            project,
-            row_id=seeded["row_id"],
-            column_id=selection_column_id,
-            value={
-                "schema_version": "frisket.timeline_points.v1",
-                "timeline": anchor,
-                "items": [{"id": "point", "at_ms": 3_000}],
-            },
-        )
-        plan = _plan(
-            project,
-            _request(
-                seeded,
-                {"kind": "column", "column": "timestamps"},
-            ),
-        )
-
-        assert not isinstance(plan, ActionError)
-        source = plan.sources[0].source
-        assert source.selection_value["items"][0]["label"] is None
-        assert source.selection_value["items"][0]["metadata"] == {}
-        revalidate_action_sources(project, plan.source_snapshots)
-    finally:
-        project.close()
+    assert not isinstance(plan, ActionError)
+    source = plan.sources[0].source
+    assert source.selection_value["items"][0]["label"] is None
+    assert source.selection_value["items"][0]["metadata"] == {}
+    revalidate_action_sources(project, plan.source_snapshots)
 
 
 def test_column_selection_without_row_ids_splits_every_visible_source(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "split-column-all-visible.frisket")
-    try:
-        seeded = _seed_media(project)
-        second_blob = project.add_blob(
-            b"second-source-video" * 32,
-            filename="second.mp4",
-            mime="video/mp4",
-            metadata=owned_media_metadata_document(
-                probe={"duration_seconds": 12, "kind": "video"}
-            ),
-        )
-        second_row_id = project.add_rows(
-            seeded["sheet_id"],
-            [
-                {
-                    "video": {
-                        "blob": second_blob,
-                        "filename": "second.mp4",
-                        "mime": "video/mp4",
-                    }
+    project = make_project("split-column-all-visible")
+    seeded = _seed_media(project)
+    second_blob = project.add_blob(
+        b"second-source-video" * 32,
+        filename="second.mp4",
+        mime="video/mp4",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": 12, "kind": "video"}
+        ),
+    )
+    second_row_id = project.add_rows(
+        seeded["sheet_id"],
+        [
+            {
+                "video": {
+                    "blob": second_blob,
+                    "filename": "second.mp4",
+                    "mime": "video/mp4",
                 }
-            ],
-            {"video": seeded["columns"]["video"]},
-        )[0]
-        row_ids = [seeded["row_id"], second_row_id]
-        anchors = {
-            row_id: resolve_timeline(
-                project,
-                sheet_id=seeded["sheet_id"],
-                row_id=row_id,
-                column_id=seeded["columns"]["video"],
-            ).anchor.wire_value()
-            for row_id in row_ids
-        }
-        selection_column_id = project.add_column(
-            seeded["sheet_id"], "boundaries", "timeline_points"
-        )
-        project.apply_edits(
-            [
-                {
-                    "row_id": row_id,
-                    "column_id": selection_column_id,
-                    "value": {
-                        "schema_version": "frisket.timeline_points.v1",
-                        "timeline": anchors[row_id],
-                        "items": [
-                            {
-                                "id": f"cut-{row_id}",
-                                "at_ms": 3_000 if row_id == row_ids[0] else 4_000,
-                            }
-                        ],
-                    },
-                }
-                for row_id in row_ids
-            ],
-            label="seed per-row boundaries",
-        )
-        params = ActionRequest(
-            action_id=ACTION_KIND,
-            scope=SheetRows(sheet_id=seeded["sheet_id"]),
-            params={
-                "source": "video",
-                "selection": {"kind": "column", "column": "boundaries"},
-            },
-            sheet_name="Every visible source",
-            idempotency_key="split-column-all-visible",
-        )
-
-        assert params.scope.row_ids is None
-        plan = _plan(project, params)
-        assert not isinstance(plan, ActionError)
-        assert [source.row_id for source in plan.source_snapshots] == row_ids
-        assert plan.output_count == 4
-
-        result = _run(
+            }
+        ],
+        {"video": seeded["columns"]["video"]},
+    )[0]
+    row_ids = [seeded["row_id"], second_row_id]
+    anchors = {
+        row_id: resolve_timeline(
             project,
-            _with_key(params, key="split-column-all-visible"),
-            project_id=PROJECT_ID,
-            stage_fn=_fake_stage,
-        )
+            sheet_id=seeded["sheet_id"],
+            row_id=row_id,
+            column_id=seeded["columns"]["video"],
+        ).anchor.wire_value()
+        for row_id in row_ids
+    }
+    selection_column_id = project.add_column(
+        seeded["sheet_id"], "boundaries", "timeline_points"
+    )
+    project.apply_edits(
+        [
+            {
+                "row_id": row_id,
+                "column_id": selection_column_id,
+                "value": {
+                    "schema_version": "frisket.timeline_points.v1",
+                    "timeline": anchors[row_id],
+                    "items": [
+                        {
+                            "id": f"cut-{row_id}",
+                            "at_ms": 3_000 if row_id == row_ids[0] else 4_000,
+                        }
+                    ],
+                },
+            }
+            for row_id in row_ids
+        ],
+        label="seed per-row boundaries",
+    )
+    params = ActionRequest(
+        action_id=ACTION_KIND,
+        scope=SheetRows(sheet_id=seeded["sheet_id"]),
+        params={
+            "source": "video",
+            "selection": {"kind": "column", "column": "boundaries"},
+        },
+        sheet_name="Every visible source",
+        idempotency_key="split-column-all-visible",
+    )
 
-        assert result.status == "completed"
-        child_sheet_id = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
+    assert params.scope.row_ids is None
+    plan = _plan(project, params)
+    assert not isinstance(plan, ActionError)
+    assert [source.row_id for source in plan.source_snapshots] == row_ids
+    assert plan.output_count == 4
+
+    result = _run(
+        project,
+        _with_key(params, key="split-column-all-visible"),
+        project_id=PROJECT_ID,
+        stage_fn=_fake_stage,
+    )
+
+    assert result.status == "completed"
+    child_sheet_id = next(
+        output.sheet_id for output in result.outputs if output.kind == "sheet"
+    )
+    assert child_sheet_id is not None
+    parent_ids = [
+        int(row["parent_row_id"])
+        for row in project.db.execute(
+            "SELECT parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
+            (child_sheet_id,),
         )
-        assert child_sheet_id is not None
-        parent_ids = [
-            int(row["parent_row_id"])
-            for row in project.db.execute(
-                "SELECT parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
-                (child_sheet_id,),
-            )
-        ]
-        assert parent_ids == [row_ids[0], row_ids[0], row_ids[1], row_ids[1]]
-    finally:
-        project.close()
+    ]
+    assert parent_ids == [row_ids[0], row_ids[0], row_ids[1], row_ids[1]]
 
 
 @pytest.mark.parametrize(
@@ -588,319 +573,302 @@ def test_column_selection_without_row_ids_splits_every_visible_source(
     ],
 )
 def test_split_reports_manual_selection_beyond_source_duration(
-    tmp_path: Path,
+    make_project,
     selection: dict[str, Any],
 ) -> None:
-    project = Project.create(tmp_path / "split-out-of-bounds.frisket")
-    try:
-        seeded = _seed_media(project)
-        plan = _plan(project, _request(seeded, selection))
+    project = make_project("split-out-of-bounds")
+    seeded = _seed_media(project)
+    plan = _plan(project, _request(seeded, selection))
 
-        assert isinstance(plan, ActionError)
-        assert plan.code == "range_out_of_bounds"
-        assert "outside its timeline duration" in plan.message
-    finally:
-        project.close()
+    assert isinstance(plan, ActionError)
+    assert plan.code == "range_out_of_bounds"
+    assert "outside its timeline duration" in plan.message
 
 
 def test_split_bounds_duration_omitting_typed_point_against_resolved_timeline(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "split-typed-out-of-bounds.frisket")
-    try:
-        seeded = _seed_media(project)
-        anchor = resolve_timeline(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_id"],
-            column_id=seeded["columns"]["video"],
-        ).anchor.wire_value()
-        anchor.pop("duration_ms")
-        plan = _plan(
-            project,
-            _request(
-                seeded,
-                {
-                    "kind": "typed_value",
-                    "value": {
-                        "schema_version": "frisket.timeline_points.v1",
-                        "timeline": anchor,
-                        "items": [{"id": "too-late", "at_ms": 10_001}],
-                    },
+    project = make_project("split-typed-out-of-bounds")
+    seeded = _seed_media(project)
+    anchor = resolve_timeline(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=seeded["columns"]["video"],
+    ).anchor.wire_value()
+    anchor.pop("duration_ms")
+    plan = _plan(
+        project,
+        _request(
+            seeded,
+            {
+                "kind": "typed_value",
+                "value": {
+                    "schema_version": "frisket.timeline_points.v1",
+                    "timeline": anchor,
+                    "items": [{"id": "too-late", "at_ms": 10_001}],
                 },
-            ),
-        )
+            },
+        ),
+    )
 
-        assert isinstance(plan, ActionError)
-        assert plan.code == "range_out_of_bounds"
-    finally:
-        project.close()
+    assert isinstance(plan, ActionError)
+    assert plan.code == "range_out_of_bounds"
 
 
 def test_split_rejects_batch_when_one_source_has_no_effective_ranges(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "split-empty-source.frisket")
-    try:
-        seeded = _seed_media(project, duration_ms=10_000)
-        second_blob = project.add_blob(
-            b"second-source-video" * 32,
-            filename="second.mp4",
-            mime="video/mp4",
-            metadata=owned_media_metadata_document(
-                probe={"duration_seconds": 20, "kind": "video"}
-            ),
-        )
-        second_row_id = project.add_rows(
-            seeded["sheet_id"],
-            [
-                {
-                    "video": {
-                        "blob": second_blob,
-                        "filename": "second.mp4",
-                        "mime": "video/mp4",
-                    }
-                }
-            ],
-            {"video": seeded["columns"]["video"]},
-        )[0]
-        params = ActionRequest(
-            action_id=ACTION_KIND,
-            scope=SheetRows(
-                sheet_id=seeded["sheet_id"], row_ids=[seeded["row_id"], second_row_id]
-            ),
-            params={
-                "source": "video",
-                "selection": {
-                    "kind": "draft_points",
-                    "items": [{"id": "ten-seconds", "at_ms": 10_000}],
-                    "repeat_for_rows": True,
-                },
-            },
-            sheet_name="Mixed clips",
-            idempotency_key="split-mixed-clips",
-        )
-        plan = _plan(project, params)
-        assert getattr(plan, "code", None) == "timestamps_required"
-        assert plan.details["row_id"] == seeded["row_id"]
-    finally:
-        project.close()
-
-
-def test_split_writes_child_ranges_and_exact_timeline_rows(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "split-write.frisket")
-    try:
-        seeded = _seed_media(project)
-        params = _request(
-            seeded,
+    project = make_project("split-empty-source")
+    seeded = _seed_media(project, duration_ms=10_000)
+    second_blob = project.add_blob(
+        b"second-source-video" * 32,
+        filename="second.mp4",
+        mime="video/mp4",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": 20, "kind": "video"}
+        ),
+    )
+    second_row_id = project.add_rows(
+        seeded["sheet_id"],
+        [
             {
-                "kind": "draft_ranges",
-                "items": [
-                    {"id": "quote", "start_ms": 1_000, "end_ms": 3_000},
-                    {"id": "followup", "start_ms": 5_000, "end_ms": 9_000},
-                ],
+                "video": {
+                    "blob": second_blob,
+                    "filename": "second.mp4",
+                    "mime": "video/mp4",
+                }
+            }
+        ],
+        {"video": seeded["columns"]["video"]},
+    )[0]
+    params = ActionRequest(
+        action_id=ACTION_KIND,
+        scope=SheetRows(
+            sheet_id=seeded["sheet_id"], row_ids=[seeded["row_id"], second_row_id]
+        ),
+        params={
+            "source": "video",
+            "selection": {
+                "kind": "draft_points",
+                "items": [{"id": "ten-seconds", "at_ms": 10_000}],
+                "repeat_for_rows": True,
             },
-            output_name="segment",
-        )
-        result = _run(
-            project,
-            _with_key(params),
-            project_id=PROJECT_ID,
-            stage_fn=_fake_stage,
-        )
-        assert result.status == "completed"
-        sheet_output = next(item for item in result.outputs if item.kind == "sheet")
-        child_sheet_id = sheet_output.sheet_id
-        assert child_sheet_id is not None
-        columns = {row["name"]: row for row in project.columns(child_sheet_id)}
-        assert {name: row["type"] for name, row in columns.items()} == {
-            "segment": "video",
-            "source_range": "timeline_range",
-        }
-        row_ids = next(item for item in result.outputs if item.kind == "rows").row_ids
-        assert len(row_ids) == 2
-        parent_ids = [
-            row["parent_row_id"]
-            for row in project.db.execute(
-                "SELECT parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
-                (child_sheet_id,),
-            )
-        ]
-        assert parent_ids == [seeded["row_id"], seeded["row_id"]]
-        ranges = project.get_values(
-            child_sheet_id,
-            columns["source_range"]["id"],
-            row_ids=row_ids,
-        )
-        assert [
-            (ranges[row_id]["item"]["start_ms"], ranges[row_id]["item"]["end_ms"])
-            for row_id in row_ids
-        ] == [(1_000, 3_000), (5_000, 9_000)]
+        },
+        sheet_name="Mixed clips",
+        idempotency_key="split-mixed-clips",
+    )
+    plan = _plan(project, params)
+    assert getattr(plan, "code", None) == "timestamps_required"
+    assert plan.details["row_id"] == seeded["row_id"]
 
-        timeline_rows = project.db.execute(
-            "SELECT ats.derived_start_ms, ats.derived_end_ms, "
-            "ats.source_start_ms, ats.source_end_ms, ats.rate_num, ats.rate_den, "
-            "ats.receipt_id "
-            "FROM artifact_timeline_segments ats "
-            "JOIN source_artifacts sa ON sa.id=ats.derived_artifact_id "
-            "WHERE sa.source_sheet_id=? ORDER BY sa.source_row_id",
+
+def test_split_writes_child_ranges_and_exact_timeline_rows(make_project) -> None:
+    project = make_project("split-write")
+    seeded = _seed_media(project)
+    params = _request(
+        seeded,
+        {
+            "kind": "draft_ranges",
+            "items": [
+                {"id": "quote", "start_ms": 1_000, "end_ms": 3_000},
+                {"id": "followup", "start_ms": 5_000, "end_ms": 9_000},
+            ],
+        },
+        output_name="segment",
+    )
+    result = _run(
+        project,
+        _with_key(params),
+        project_id=PROJECT_ID,
+        stage_fn=_fake_stage,
+    )
+    assert result.status == "completed"
+    sheet_output = next(item for item in result.outputs if item.kind == "sheet")
+    child_sheet_id = sheet_output.sheet_id
+    assert child_sheet_id is not None
+    columns = {row["name"]: row for row in project.columns(child_sheet_id)}
+    assert {name: row["type"] for name, row in columns.items()} == {
+        "segment": "video",
+        "source_range": "timeline_range",
+    }
+    row_ids = next(item for item in result.outputs if item.kind == "rows").row_ids
+    assert len(row_ids) == 2
+    parent_ids = [
+        row["parent_row_id"]
+        for row in project.db.execute(
+            "SELECT parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
             (child_sheet_id,),
-        ).fetchall()
-        assert [
-            (
-                row["derived_start_ms"],
-                row["derived_end_ms"],
-                row["source_start_ms"],
-                row["source_end_ms"],
-                row["rate_num"],
-                row["rate_den"],
-            )
-            for row in timeline_rows
-        ] == [
-            (0, 2_000, 1_000, 3_000, 1, 1),
-            (0, 4_000, 5_000, 9_000, 1, 1),
-        ]
-        assert all(row["receipt_id"] == result.receipt_id for row in timeline_rows)
-        assert (
-            project.db.execute(
-                "SELECT status FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()["status"]
-            == "completed"
         )
+    ]
+    assert parent_ids == [seeded["row_id"], seeded["row_id"]]
+    ranges = project.get_values(
+        child_sheet_id,
+        columns["source_range"]["id"],
+        row_ids=row_ids,
+    )
+    assert [
+        (ranges[row_id]["item"]["start_ms"], ranges[row_id]["item"]["end_ms"])
+        for row_id in row_ids
+    ] == [(1_000, 3_000), (5_000, 9_000)]
 
-        def should_not_stage(*_args: Any, **_kwargs: Any) -> Any:
-            raise AssertionError("idempotent replay must not render again")
-
-        replay = _run(
-            project,
-            _with_key(params),
-            project_id=PROJECT_ID,
-            stage_fn=should_not_stage,
+    timeline_rows = project.db.execute(
+        "SELECT ats.derived_start_ms, ats.derived_end_ms, "
+        "ats.source_start_ms, ats.source_end_ms, ats.rate_num, ats.rate_den, "
+        "ats.receipt_id "
+        "FROM artifact_timeline_segments ats "
+        "JOIN source_artifacts sa ON sa.id=ats.derived_artifact_id "
+        "WHERE sa.source_sheet_id=? ORDER BY sa.source_row_id",
+        (child_sheet_id,),
+    ).fetchall()
+    assert [
+        (
+            row["derived_start_ms"],
+            row["derived_end_ms"],
+            row["source_start_ms"],
+            row["source_end_ms"],
+            row["rate_num"],
+            row["rate_den"],
         )
-        assert replay.status == "completed"
-        assert replay.receipt_id == result.receipt_id
-        assert len(project.sheets()) == 2
+        for row in timeline_rows
+    ] == [
+        (0, 2_000, 1_000, 3_000, 1, 1),
+        (0, 4_000, 5_000, 9_000, 1, 1),
+    ]
+    assert all(row["receipt_id"] == result.receipt_id for row in timeline_rows)
+    assert (
+        project.db.execute(
+            "SELECT status FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()["status"]
+        == "completed"
+    )
 
-        changed_params = params.model_copy(update={"sheet_name": "Different clips"})
-        conflict = _run(
-            project,
-            _with_key(changed_params),
-            project_id=PROJECT_ID,
-            stage_fn=should_not_stage,
-        )
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
-    finally:
-        project.close()
+    def should_not_stage(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("idempotent replay must not render again")
+
+    replay = _run(
+        project,
+        _with_key(params),
+        project_id=PROJECT_ID,
+        stage_fn=should_not_stage,
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == result.receipt_id
+    assert len(project.sheets()) == 2
+
+    changed_params = params.model_copy(update={"sheet_name": "Different clips"})
+    conflict = _run(
+        project,
+        _with_key(changed_params),
+        project_id=PROJECT_ID,
+        stage_fn=should_not_stage,
+    )
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
 
 
 def test_split_projects_compatible_typed_annotations_into_each_child(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "split-annotations.frisket")
-    try:
-        seeded = _seed_media(project)
-        marker_column_id = project.add_column(
-            seeded["sheet_id"], "markers", "timeline_points"
-        )
-        text_column_id = project.add_column(seeded["sheet_id"], "notes", "text")
-        source = resolve_timeline(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_id"],
-            column_id=seeded["columns"]["video"],
-        )
-        project.apply_edits(
-            [
-                {
-                    "row_id": seeded["row_id"],
-                    "column_id": marker_column_id,
-                    "value": {
-                        "schema_version": "frisket.timeline_points.v1",
-                        "timeline": source.anchor.wire_value(),
-                        "items": [
-                            {"id": "first", "at_ms": 2_500},
-                            {"id": "second", "at_ms": 6_500},
-                        ],
-                    },
-                },
-                {
-                    "row_id": seeded["row_id"],
-                    "column_id": text_column_id,
-                    "value": "not a temporal annotation",
-                },
-            ],
-            label="seed split annotations",
-        )
-        params = _request(
-            seeded,
+    project = make_project("split-annotations")
+    seeded = _seed_media(project)
+    marker_column_id = project.add_column(
+        seeded["sheet_id"], "markers", "timeline_points"
+    )
+    text_column_id = project.add_column(seeded["sheet_id"], "notes", "text")
+    source = resolve_timeline(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=seeded["columns"]["video"],
+    )
+    project.apply_edits(
+        [
             {
-                "kind": "draft_ranges",
-                "items": [
-                    {"id": "one", "start_ms": 2_000, "end_ms": 4_000},
-                    {"id": "two", "start_ms": 6_000, "end_ms": 8_000},
-                ],
+                "row_id": seeded["row_id"],
+                "column_id": marker_column_id,
+                "value": {
+                    "schema_version": "frisket.timeline_points.v1",
+                    "timeline": source.anchor.wire_value(),
+                    "items": [
+                        {"id": "first", "at_ms": 2_500},
+                        {"id": "second", "at_ms": 6_500},
+                    ],
+                },
             },
-            target="Annotated clips",
-        )
-        action = _with_key(params, key="split-annotations")
-        result = _run(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            stage_fn=_fake_stage,
-        )
+            {
+                "row_id": seeded["row_id"],
+                "column_id": text_column_id,
+                "value": "not a temporal annotation",
+            },
+        ],
+        label="seed split annotations",
+    )
+    params = _request(
+        seeded,
+        {
+            "kind": "draft_ranges",
+            "items": [
+                {"id": "one", "start_ms": 2_000, "end_ms": 4_000},
+                {"id": "two", "start_ms": 6_000, "end_ms": 8_000},
+            ],
+        },
+        target="Annotated clips",
+    )
+    action = _with_key(params, key="split-annotations")
+    result = _run(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        stage_fn=_fake_stage,
+    )
 
-        assert result.status == "completed"
-        child_sheet_id = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
+    assert result.status == "completed"
+    child_sheet_id = next(
+        output.sheet_id for output in result.outputs if output.kind == "sheet"
+    )
+    columns = {row["name"]: row for row in project.columns(child_sheet_id)}
+    assert set(columns) == {"clip", "source_range", "markers"}
+    row_ids = next(output.row_ids for output in result.outputs if output.kind == "rows")
+    values = project.get_values(
+        child_sheet_id,
+        int(columns["markers"]["id"]),
+        row_ids=row_ids,
+    )
+    assert [values[row_id]["items"][0]["at_ms"] for row_id in row_ids] == [
+        500,
+        500,
+    ]
+    assert [values[row_id]["items"][0]["id"] for row_id in row_ids] == [
+        "first",
+        "second",
+    ]
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None
+    assert (
+        sum(
+            item.ref.get("kind") == "temporal_annotation_projection"
+            for item in receipt.evidence
         )
-        columns = {row["name"]: row for row in project.columns(child_sheet_id)}
-        assert set(columns) == {"clip", "source_range", "markers"}
-        row_ids = next(
-            output.row_ids for output in result.outputs if output.kind == "rows"
-        )
-        values = project.get_values(
-            child_sheet_id,
-            int(columns["markers"]["id"]),
-            row_ids=row_ids,
-        )
-        assert [values[row_id]["items"][0]["at_ms"] for row_id in row_ids] == [
-            500,
-            500,
-        ]
-        assert [values[row_id]["items"][0]["id"] for row_id in row_ids] == [
-            "first",
-            "second",
-        ]
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None
-        assert (
-            sum(
-                item.ref.get("kind") == "temporal_annotation_projection"
-                for item in receipt.evidence
-            )
-            == 2
-        )
+        == 2
+    )
 
-        replay = _run(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            stage_fn=lambda *_args, **_kwargs: (_ for _ in ()).throw(
-                AssertionError("replay must not render")
-            ),
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == result.receipt_id
-    finally:
-        project.close()
+    replay = _run(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        stage_fn=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("replay must not render")
+        ),
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == result.receipt_id
 
 
-def test_split_stage_failure_publishes_no_partial_outputs(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "split-stage-failure.frisket")
+def test_split_stage_failure_publishes_no_partial_outputs(make_project) -> None:
+    project = make_project("split-stage-failure")
     staged_paths: list[Path] = []
 
     def fail_second(
@@ -979,13 +947,13 @@ def _insert_split_failure_receipt(
     return receipt
 
 
-def test_split_failure_preserves_error_facts_by_value(tmp_path: Path) -> None:
+def test_split_failure_preserves_error_facts_by_value(make_project) -> None:
     from frisket.engine.executor.action_reservations import (
         _terminalize_claimless_direct_failure,
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "split-failure-error-facts.frisket")
+    project = make_project("split-failure-error-facts")
     receipt_id = "receipt_split_failure_error_facts"
     error = ActionError(
         code="split_provider_declined",
@@ -1059,12 +1027,12 @@ def test_split_failure_preserves_prior_terminal_receipt(
 
 
 def test_queued_split_failure_leaves_worker_owned_receipt_untouched(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor.map_rows_action import typed_request_hash
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "queued-split-owned-receipt.frisket")
+    project = make_project("queued-split-owned-receipt")
     receipt_id = "receipt_queued_split_owned_by_worker"
     action_id = "act_queued_split_owned_by_worker"
     try:
@@ -1106,540 +1074,528 @@ def test_queued_split_failure_leaves_worker_owned_receipt_untouched(
         project.close()
 
 
-def test_split_source_change_after_staging_publishes_nothing(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "split-stale-before-commit.frisket")
-    try:
-        seeded = _seed_media(project)
-        replacement_hash = project.add_blob(
-            b"replacement-video-bytes" * 32,
-            filename="replacement.mp4",
-            mime="video/mp4",
-            metadata=owned_media_metadata_document(
-                probe={"duration_seconds": 10, "kind": "video"}
-            ),
-        )
+def test_split_source_change_after_staging_publishes_nothing(make_project) -> None:
+    project = make_project("split-stale-before-commit")
+    seeded = _seed_media(project)
+    replacement_hash = project.add_blob(
+        b"replacement-video-bytes" * 32,
+        filename="replacement.mp4",
+        mime="video/mp4",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": 10, "kind": "video"}
+        ),
+    )
 
-        def stage_then_change_source(
-            project_arg: Project,
-            source: Any,
-            temporal_range: Any,
-            output_path: Path,
-        ) -> StagedMediaSplice:
-            staged = _fake_stage(project_arg, source, temporal_range, output_path)
-            replace_test_source_cell(
-                project_arg,
-                row_id=seeded["row_id"],
-                column_id=seeded["columns"]["video"],
-                value={
-                    "blob": replacement_hash,
-                    "filename": "replacement.mp4",
-                    "mime": "video/mp4",
-                },
-            )
-            return staged
-
-        params = _request(
-            seeded,
-            {
-                "kind": "draft_ranges",
-                "items": [{"start_ms": 1_000, "end_ms": 2_000}],
+    def stage_then_change_source(
+        project_arg: Project,
+        source: Any,
+        temporal_range: Any,
+        output_path: Path,
+    ) -> StagedMediaSplice:
+        staged = _fake_stage(project_arg, source, temporal_range, output_path)
+        replace_test_source_cell(
+            project_arg,
+            row_id=seeded["row_id"],
+            column_id=seeded["columns"]["video"],
+            value={
+                "blob": replacement_hash,
+                "filename": "replacement.mp4",
+                "mime": "video/mp4",
             },
         )
-        result = _run(
-            project,
-            _with_key(params, key="split-stale-before-commit"),
-            project_id=PROJECT_ID,
-            stage_fn=stage_then_change_source,
-        )
+        return staged
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "stale_input"
-        assert [row["name"] for row in project.sheets()] == ["Media"]
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM artifact_timeline_segments"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    params = _request(
+        seeded,
+        {
+            "kind": "draft_ranges",
+            "items": [{"start_ms": 1_000, "end_ms": 2_000}],
+        },
+    )
+    result = _run(
+        project,
+        _with_key(params, key="split-stale-before-commit"),
+        project_id=PROJECT_ID,
+        stage_fn=stage_then_change_source,
+    )
+
+    assert result.status == "failed"
+    assert result.errors[0].code == "stale_input"
+    assert [row["name"] for row in project.sheets()] == ["Media"]
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM artifact_timeline_segments"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "split-transcript.frisket")
-    try:
-        seeded = _seed_media(
-            project,
-            duration_ms=6_300,
-            transcript=True,
-            transcript_text="w0 w1 w2 w3 w4",
-        )
-        lease = resolve_timeline(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_id"],
-            column_id=seeded["columns"]["video"],
-        )
-        span_refs = []
-        primary_span_ids: list[str] = []
-        for rank, (start_ms, end_ms, text) in enumerate(
-            [
-                (0, 1_300, "w0"),
-                (1_000, 2_300, "w1"),
-                (2_000, 3_300, "w2"),
-                (3_000, 4_300, "w3"),
-                (4_000, 5_300, "w4"),
-            ]
-        ):
-            span = record_source_span(
-                project,
-                artifact_id=lease.anchor.artifact_id,
-                span_kind="temporal",
-                start_ms=start_ms,
-                end_ms=end_ms,
-                quote=text,
-                selector={"segment_index": rank},
-            )
-            span_refs.append({"span_id": span["id"], "rank": rank})
-            primary_span_ids.append(str(span["stable_id"]))
-        _values, refs = project.get_values_with_refs(
-            seeded["sheet_id"],
-            seeded["columns"]["transcript"],
-            row_ids=[seeded["row_id"]],
-        )
-        primary_link = record_evidence_link(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[seeded["row_id"]],
-            spans=span_refs,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_id"],
-            column_id=seeded["columns"]["transcript"],
-            run_id=seeded["transcript_run_id"],
-            op_id=seeded["transcript_op_id"],
-            link_role="media_transcribe_temporal",
-            producer={"action_kind": "media.transcribe"},
-            metadata={
-                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-                "semantic_type": "timestamped_transcript",
-            },
-        )
-        alternate_column_id = project.add_column(
-            seeded["sheet_id"],
-            "alternate transcript",
-            "timestamped_transcript",
-            ai_generated=True,
-        )
-        alternate_op_id = project.append_op(
-            "media.transcribe",
-            {
-                "kind": "media.transcribe",
-                "params": {"output_name": "alternate transcript"},
-            },
-            label="transcribe alternate transcript",
-        )
-        runs = RunResultStore(project)
-        alternate_run_id = runs.start_run(
-            alternate_op_id,
-            seeded["sheet_id"],
-            "media.transcribe",
-            params={"output_name": "alternate transcript"},
-            total_rows=1,
-            row_ids=[seeded["row_id"]],
-        )
-        write_claimed_test_results(
-            project,
-            alternate_run_id,
-            [
-                {
-                    "row_id": seeded["row_id"],
-                    "column_id": alternate_column_id,
-                    "value": "Alternate wording.",
-                }
-            ],
-        )
-        runs.finish_run(alternate_run_id)
-        runs.point_column_at_run(
-            alternate_op_id,
-            alternate_column_id,
-            alternate_run_id,
-        )
-        alternate_span = record_source_span(
+    project = make_project("split-transcript")
+    seeded = _seed_media(
+        project,
+        duration_ms=6_300,
+        transcript=True,
+        transcript_text="w0 w1 w2 w3 w4",
+    )
+    lease = resolve_timeline(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=seeded["columns"]["video"],
+    )
+    span_refs = []
+    primary_span_ids: list[str] = []
+    for rank, (start_ms, end_ms, text) in enumerate(
+        [
+            (0, 1_300, "w0"),
+            (1_000, 2_300, "w1"),
+            (2_000, 3_300, "w2"),
+            (3_000, 4_300, "w3"),
+            (4_000, 5_300, "w4"),
+        ]
+    ):
+        span = record_source_span(
             project,
             artifact_id=lease.anchor.artifact_id,
             span_kind="temporal",
-            start_ms=2_000,
-            end_ms=5_000,
-            quote="Alternate wording.",
-            selector={"segment_index": 0},
+            start_ms=start_ms,
+            end_ms=end_ms,
+            quote=text,
+            selector={"segment_index": rank},
         )
-        _values, alternate_refs = project.get_values_with_refs(
-            seeded["sheet_id"],
-            alternate_column_id,
-            row_ids=[seeded["row_id"]],
-        )
-        record_evidence_link(
-            project,
-            subject_kind="cell",
-            subject_ref=alternate_refs[seeded["row_id"]],
-            spans=[{"span_id": alternate_span["id"], "rank": 0}],
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_id"],
-            column_id=alternate_column_id,
-            run_id=alternate_run_id,
-            op_id=alternate_op_id,
-            link_role="media_transcribe_temporal",
-            producer={"action_kind": "media.transcribe"},
-            metadata={
-                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-                "semantic_type": "timestamped_transcript",
+        span_refs.append({"span_id": span["id"], "rank": rank})
+        primary_span_ids.append(str(span["stable_id"]))
+    _values, refs = project.get_values_with_refs(
+        seeded["sheet_id"],
+        seeded["columns"]["transcript"],
+        row_ids=[seeded["row_id"]],
+    )
+    primary_link = record_evidence_link(
+        project,
+        subject_kind="cell",
+        subject_ref=refs[seeded["row_id"]],
+        spans=span_refs,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=seeded["columns"]["transcript"],
+        run_id=seeded["transcript_run_id"],
+        op_id=seeded["transcript_op_id"],
+        link_role="media_transcribe_temporal",
+        producer={"action_kind": "media.transcribe"},
+        metadata={
+            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+            "semantic_type": "timestamped_transcript",
+        },
+    )
+    alternate_column_id = project.add_column(
+        seeded["sheet_id"],
+        "alternate transcript",
+        "timestamped_transcript",
+        ai_generated=True,
+    )
+    alternate_op_id = project.append_op(
+        "media.transcribe",
+        {
+            "kind": "media.transcribe",
+            "params": {"output_name": "alternate transcript"},
+        },
+        label="transcribe alternate transcript",
+    )
+    runs = RunResultStore(project)
+    alternate_run_id = runs.start_run(
+        alternate_op_id,
+        seeded["sheet_id"],
+        "media.transcribe",
+        params={"output_name": "alternate transcript"},
+        total_rows=1,
+        row_ids=[seeded["row_id"]],
+    )
+    write_claimed_test_results(
+        project,
+        alternate_run_id,
+        [
+            {
+                "row_id": seeded["row_id"],
+                "column_id": alternate_column_id,
+                "value": "Alternate wording.",
+            }
+        ],
+    )
+    runs.finish_run(alternate_run_id)
+    runs.point_column_at_run(
+        alternate_op_id,
+        alternate_column_id,
+        alternate_run_id,
+    )
+    alternate_span = record_source_span(
+        project,
+        artifact_id=lease.anchor.artifact_id,
+        span_kind="temporal",
+        start_ms=2_000,
+        end_ms=5_000,
+        quote="Alternate wording.",
+        selector={"segment_index": 0},
+    )
+    _values, alternate_refs = project.get_values_with_refs(
+        seeded["sheet_id"],
+        alternate_column_id,
+        row_ids=[seeded["row_id"]],
+    )
+    record_evidence_link(
+        project,
+        subject_kind="cell",
+        subject_ref=alternate_refs[seeded["row_id"]],
+        spans=[{"span_id": alternate_span["id"], "rank": 0}],
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=alternate_column_id,
+        run_id=alternate_run_id,
+        op_id=alternate_op_id,
+        link_role="media_transcribe_temporal",
+        producer={"action_kind": "media.transcribe"},
+        metadata={
+            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+            "semantic_type": "timestamped_transcript",
+        },
+    )
+    primary_transcript = resolve_timestamped_transcript(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=seeded["columns"]["transcript"],
+    )
+    assert primary_transcript is not None
+    topic_column_id = project.add_column(
+        seeded["sheet_id"],
+        "Topic sections",
+        "timeline_ranges",
+        ai_generated=True,
+    )
+    sidecar_column_id = project.add_column(
+        seeded["sheet_id"],
+        TOPIC_ANALYSIS_SIDECAR_COLUMN,
+        "json",
+        ai_generated=True,
+        hidden=True,
+    )
+    topic_value = {
+        "schema_version": "frisket.timeline_ranges.v1",
+        "timeline": lease.anchor.wire_value(),
+        "items": [
+            {
+                "id": "before",
+                "start_ms": 0,
+                "end_ms": 4_300,
+                "metadata": {
+                    "requested_range": {"start_ms": 0, "end_ms": 3_300},
+                    "boundary_policy": ("include_intersecting_transcript_chunks"),
+                },
             },
-        )
-        primary_transcript = resolve_timestamped_transcript(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_id"],
-            column_id=seeded["columns"]["transcript"],
-        )
-        assert primary_transcript is not None
-        topic_column_id = project.add_column(
-            seeded["sheet_id"],
-            "Topic sections",
-            "timeline_ranges",
-            ai_generated=True,
-        )
-        sidecar_column_id = project.add_column(
-            seeded["sheet_id"],
-            TOPIC_ANALYSIS_SIDECAR_COLUMN,
-            "json",
-            ai_generated=True,
-            hidden=True,
-        )
-        topic_value = {
-            "schema_version": "frisket.timeline_ranges.v1",
-            "timeline": lease.anchor.wire_value(),
-            "items": [
-                {
-                    "id": "before",
-                    "start_ms": 0,
-                    "end_ms": 4_300,
-                    "metadata": {
-                        "requested_range": {"start_ms": 0, "end_ms": 3_300},
-                        "boundary_policy": ("include_intersecting_transcript_chunks"),
-                    },
+            {
+                "id": "after",
+                "start_ms": 1_000,
+                "end_ms": 6_300,
+                "metadata": {
+                    "requested_range": {"start_ms": 2_000, "end_ms": 6_300},
+                    "boundary_policy": ("include_intersecting_transcript_chunks"),
                 },
-                {
-                    "id": "after",
-                    "start_ms": 1_000,
-                    "end_ms": 6_300,
-                    "metadata": {
-                        "requested_range": {"start_ms": 2_000, "end_ms": 6_300},
-                        "boundary_policy": ("include_intersecting_transcript_chunks"),
-                    },
-                },
-            ],
-        }
-        topic_op_id = project.append_op(
-            "map.find_topic_sections",
-            {"action_kind": "map.find_topic_sections"},
-            label="find topic sections",
-        )
-        topic_run_id = runs.start_run(
-            topic_op_id,
-            seeded["sheet_id"],
-            "map.find_topic_sections",
-            total_rows=1,
-            row_ids=[seeded["row_id"]],
-        )
-        write_claimed_test_results(
-            project,
-            topic_run_id,
-            [
-                {
-                    "row_id": seeded["row_id"],
-                    "column_id": topic_column_id,
-                    "value": topic_value,
-                    "outcome": "ok",
-                },
-                {
-                    "row_id": seeded["row_id"],
-                    "column_id": sidecar_column_id,
-                    "value": {
-                        "schema_version": TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
-                        "transcript_evidence_id": primary_link["stable_id"],
-                        "transcript_snapshot_hash": primary_transcript.snapshot_hash,
-                        "transcript_run_id": primary_transcript.transcript_run_id,
-                        "transcript_column_id": (
-                            primary_transcript.transcript_column_id
+            },
+        ],
+    }
+    topic_op_id = project.append_op(
+        "map.find_topic_sections",
+        {"action_kind": "map.find_topic_sections"},
+        label="find topic sections",
+    )
+    topic_run_id = runs.start_run(
+        topic_op_id,
+        seeded["sheet_id"],
+        "map.find_topic_sections",
+        total_rows=1,
+        row_ids=[seeded["row_id"]],
+    )
+    write_claimed_test_results(
+        project,
+        topic_run_id,
+        [
+            {
+                "row_id": seeded["row_id"],
+                "column_id": topic_column_id,
+                "value": topic_value,
+                "outcome": "ok",
+            },
+            {
+                "row_id": seeded["row_id"],
+                "column_id": sidecar_column_id,
+                "value": {
+                    "schema_version": TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
+                    "transcript_evidence_id": primary_link["stable_id"],
+                    "transcript_snapshot_hash": primary_transcript.snapshot_hash,
+                    "transcript_run_id": primary_transcript.transcript_run_id,
+                    "transcript_column_id": (primary_transcript.transcript_column_id),
+                    "transcript_value_ref": (primary_transcript.transcript_value_ref),
+                    "transcript_value_hash": canonical_json_hash(
+                        primary_transcript.transcript_value
+                    ),
+                    "artifact_stable_id": primary_transcript.artifact_stable_id,
+                    "timeline": lease.anchor.wire_value(),
+                    "language": primary_transcript.language,
+                    "engine_id": "fixture-engine",
+                    "engine_version": "1",
+                    "resolved_settings": {},
+                    "engine_diagnostics": {},
+                    "native_candidates": [],
+                    "locking": {
+                        "timeline_ranges_hash": canonical_temporal_hash(
+                            "timeline_ranges", topic_value
                         ),
-                        "transcript_value_ref": (
-                            primary_transcript.transcript_value_ref
-                        ),
-                        "transcript_value_hash": canonical_json_hash(
-                            primary_transcript.transcript_value
-                        ),
-                        "artifact_stable_id": primary_transcript.artifact_stable_id,
-                        "timeline": lease.anchor.wire_value(),
-                        "language": primary_transcript.language,
-                        "engine_id": "fixture-engine",
-                        "engine_version": "1",
-                        "resolved_settings": {},
-                        "engine_diagnostics": {},
-                        "native_candidates": [],
-                        "locking": {
-                            "timeline_ranges_hash": canonical_temporal_hash(
-                                "timeline_ranges", topic_value
-                            ),
-                            "section_unit_ids": {
-                                "before": primary_span_ids[:4],
-                                "after": primary_span_ids[1:],
-                            },
+                        "section_unit_ids": {
+                            "before": primary_span_ids[:4],
+                            "after": primary_span_ids[1:],
                         },
                     },
-                    "outcome": "ok",
                 },
-            ],
+                "outcome": "ok",
+            },
+        ],
+    )
+    runs.finish_run(topic_run_id)
+    runs.point_column_at_run(topic_op_id, topic_column_id, topic_run_id)
+    runs.point_column_at_run(topic_op_id, sidecar_column_id, topic_run_id)
+    params = _request(
+        seeded,
+        {"kind": "column", "column": "Topic sections"},
+    )
+    action = _with_key(params, key="split-with-transcript")
+    result = _run(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        stage_fn=_fake_stage,
+    )
+    assert result.status == "completed"
+    child_sheet_id = next(
+        item.sheet_id for item in result.outputs if item.kind == "sheet"
+    )
+    columns = {row["name"]: row for row in project.columns(child_sheet_id)}
+    assert set(columns) == {
+        "clip",
+        "source_range",
+        "transcript",
+        "alternate transcript",
+    }
+    assert columns["transcript"]["type"] == "timestamped_transcript"
+    row_ids = next(item for item in result.outputs if item.kind == "rows").row_ids
+    assert row_ids is not None and len(row_ids) == 2
+    media_transcripts = project.get_values(
+        child_sheet_id,
+        columns["transcript"]["id"],
+        row_ids=row_ids,
+    )
+    assert [media_transcripts[row_id] for row_id in row_ids] == [
+        "w0 w1 w2 w3",
+        "w1 w2 w3 w4",
+    ]
+    alternate = project.get_values(
+        child_sheet_id,
+        columns["alternate transcript"]["id"],
+        row_ids=row_ids,
+    )
+    assert "partial speech" in alternate[row_ids[0]]
+    assert alternate[row_ids[1]] == "Alternate wording."
+
+    media_projected = [
+        resolve_timestamped_transcript(
+            project,
+            sheet_id=child_sheet_id,
+            row_id=row_id,
+            column_id=columns["transcript"]["id"],
         )
-        runs.finish_run(topic_run_id)
-        runs.point_column_at_run(topic_op_id, topic_column_id, topic_run_id)
-        runs.point_column_at_run(topic_op_id, sidecar_column_id, topic_run_id)
-        params = _request(
+        for row_id in row_ids
+    ]
+    assert all(item is not None for item in media_projected)
+    assert [
+        [span["quote"] for span in item.spans]
+        for item in media_projected
+        if item is not None
+    ] == [
+        ["w0", "w1", "w2", "w3"],
+        ["w1", "w2", "w3", "w4"],
+    ]
+    assert all(
+        span["metadata"]["projection"]["clipping"] == "full"
+        for item in media_projected
+        if item is not None
+        for span in item.spans
+    )
+
+    media_ranges = project.get_values(
+        child_sheet_id,
+        columns["source_range"]["id"],
+        row_ids=row_ids,
+    )
+    assert [
+        (
+            media_ranges[row_id]["item"]["start_ms"],
+            media_ranges[row_id]["item"]["end_ms"],
+        )
+        for row_id in row_ids
+    ] == [(0, 4_300), (1_000, 6_300)]
+    assert [
+        media_ranges[row_id]["item"]["metadata"]["requested_range"]
+        for row_id in row_ids
+    ] == [
+        {"start_ms": 0, "end_ms": 3_300},
+        {"start_ms": 2_000, "end_ms": 6_300},
+    ]
+
+    projected_links = project.db.execute(
+        "SELECT id FROM evidence_links WHERE sheet_id=? "
+        "AND link_role='temporal_transcript_projection'",
+        (child_sheet_id,),
+    ).fetchall()
+    assert len(projected_links) == 4
+
+    transcript_result = run_action_spec(
+        project,
+        {
+            "action_id": "derive.transcript_segments",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": seeded["sheet_id"],
+                "row_ids": [seeded["row_id"]],
+            },
+            "params": {
+                "source": "transcript",
+                "selection": {"kind": "column", "column": "Topic sections"},
+            },
+            "sheet_name": "Transcript sections",
+            "idempotency_key": "split-transcript-parity",
+        },
+        project_id=PROJECT_ID,
+    )
+    assert transcript_result.status == "completed"
+    transcript_sheet_id = next(
+        item.sheet_id for item in transcript_result.outputs if item.kind == "sheet"
+    )
+    transcript_output = next(
+        item for item in transcript_result.outputs if item.name == "transcript"
+    )
+    transcript_range_output = next(
+        item for item in transcript_result.outputs if item.name == "source_range"
+    )
+    transcript_row_ids = next(
+        item.row_ids for item in transcript_result.outputs if item.kind == "rows"
+    )
+    assert transcript_row_ids is not None
+    transcript_values = project.get_values(
+        transcript_sheet_id,
+        transcript_output.column_id,
+        row_ids=transcript_row_ids,
+    )
+    assert [transcript_values[row_id] for row_id in transcript_row_ids] == [
+        media_transcripts[row_id] for row_id in row_ids
+    ]
+    transcript_ranges = project.get_values(
+        transcript_sheet_id,
+        transcript_range_output.column_id,
+        row_ids=transcript_row_ids,
+    )
+    assert [
+        (
+            transcript_ranges[row_id]["item"]["start_ms"],
+            transcript_ranges[row_id]["item"]["end_ms"],
+        )
+        for row_id in transcript_row_ids
+    ] == [(0, 4_300), (1_000, 6_300)]
+    transcript_projected = [
+        resolve_timestamped_transcript(
+            project,
+            sheet_id=transcript_sheet_id,
+            row_id=row_id,
+            column_id=transcript_output.column_id,
+        )
+        for row_id in transcript_row_ids
+    ]
+    assert all(item is not None for item in transcript_projected)
+    assert [
+        [span["quote"] for span in item.spans]
+        for item in transcript_projected
+        if item is not None
+    ] == [
+        [span["quote"] for span in item.spans]
+        for item in media_projected
+        if item is not None
+    ]
+    assert all(
+        span["metadata"]["projection"]["clipping"] == "full"
+        for item in transcript_projected
+        if item is not None
+        for span in item.spans
+    )
+
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()["body"]
+    )
+    assert (
+        sum(
+            item["ref"].get("kind") == "temporal_transcript_snapshot"
+            for item in receipt["inputs"]
+        )
+        == 2
+    )
+    selection_input = next(
+        item
+        for item in receipt["inputs"]
+        if item["ref"].get("kind") == "temporal_selection_snapshot"
+    )
+    assert selection_input["ref"]["topic_analysis"] == {
+        "kind": "topic_analysis_snapshot",
+        "sheet_id": seeded["sheet_id"],
+        "row_id": seeded["row_id"],
+        "selection_column_id": topic_column_id,
+        "run_id": topic_run_id,
+        "sidecar_column_id": sidecar_column_id,
+        "payload_hash": selection_input["ref"]["topic_analysis"]["payload_hash"],
+        "transcript_evidence_id": primary_link["stable_id"],
+        "transcript_snapshot_hash": primary_transcript.snapshot_hash,
+    }
+
+    edited_topic_value = {
+        "schema_version": "frisket.timeline_ranges.v1",
+        "timeline": lease.anchor.wire_value(),
+        "items": [
+            {"id": "manual-a", "start_ms": 0, "end_ms": 3_500},
+            {"id": "manual-b", "start_ms": 3_500, "end_ms": 6_300},
+        ],
+    }
+    project.apply_edits(
+        [
+            {
+                "row_id": seeded["row_id"],
+                "column_id": topic_column_id,
+                "value": edited_topic_value,
+            }
+        ]
+    )
+    edited_plan = _plan(
+        project,
+        _request(
             seeded,
             {"kind": "column", "column": "Topic sections"},
-        )
-        action = _with_key(params, key="split-with-transcript")
-        result = _run(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            stage_fn=_fake_stage,
-        )
-        assert result.status == "completed"
-        child_sheet_id = next(
-            item.sheet_id for item in result.outputs if item.kind == "sheet"
-        )
-        columns = {row["name"]: row for row in project.columns(child_sheet_id)}
-        assert set(columns) == {
-            "clip",
-            "source_range",
-            "transcript",
-            "alternate transcript",
-        }
-        assert columns["transcript"]["type"] == "timestamped_transcript"
-        row_ids = next(item for item in result.outputs if item.kind == "rows").row_ids
-        assert row_ids is not None and len(row_ids) == 2
-        media_transcripts = project.get_values(
-            child_sheet_id,
-            columns["transcript"]["id"],
-            row_ids=row_ids,
-        )
-        assert [media_transcripts[row_id] for row_id in row_ids] == [
-            "w0 w1 w2 w3",
-            "w1 w2 w3 w4",
-        ]
-        alternate = project.get_values(
-            child_sheet_id,
-            columns["alternate transcript"]["id"],
-            row_ids=row_ids,
-        )
-        assert "partial speech" in alternate[row_ids[0]]
-        assert alternate[row_ids[1]] == "Alternate wording."
-
-        media_projected = [
-            resolve_timestamped_transcript(
-                project,
-                sheet_id=child_sheet_id,
-                row_id=row_id,
-                column_id=columns["transcript"]["id"],
-            )
-            for row_id in row_ids
-        ]
-        assert all(item is not None for item in media_projected)
-        assert [
-            [span["quote"] for span in item.spans]
-            for item in media_projected
-            if item is not None
-        ] == [
-            ["w0", "w1", "w2", "w3"],
-            ["w1", "w2", "w3", "w4"],
-        ]
-        assert all(
-            span["metadata"]["projection"]["clipping"] == "full"
-            for item in media_projected
-            if item is not None
-            for span in item.spans
-        )
-
-        media_ranges = project.get_values(
-            child_sheet_id,
-            columns["source_range"]["id"],
-            row_ids=row_ids,
-        )
-        assert [
-            (
-                media_ranges[row_id]["item"]["start_ms"],
-                media_ranges[row_id]["item"]["end_ms"],
-            )
-            for row_id in row_ids
-        ] == [(0, 4_300), (1_000, 6_300)]
-        assert [
-            media_ranges[row_id]["item"]["metadata"]["requested_range"]
-            for row_id in row_ids
-        ] == [
-            {"start_ms": 0, "end_ms": 3_300},
-            {"start_ms": 2_000, "end_ms": 6_300},
-        ]
-
-        projected_links = project.db.execute(
-            "SELECT id FROM evidence_links WHERE sheet_id=? "
-            "AND link_role='temporal_transcript_projection'",
-            (child_sheet_id,),
-        ).fetchall()
-        assert len(projected_links) == 4
-
-        transcript_result = run_action_spec(
-            project,
-            {
-                "action_id": "derive.transcript_segments",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": seeded["sheet_id"],
-                    "row_ids": [seeded["row_id"]],
-                },
-                "params": {
-                    "source": "transcript",
-                    "selection": {"kind": "column", "column": "Topic sections"},
-                },
-                "sheet_name": "Transcript sections",
-                "idempotency_key": "split-transcript-parity",
-            },
-            project_id=PROJECT_ID,
-        )
-        assert transcript_result.status == "completed"
-        transcript_sheet_id = next(
-            item.sheet_id for item in transcript_result.outputs if item.kind == "sheet"
-        )
-        transcript_output = next(
-            item for item in transcript_result.outputs if item.name == "transcript"
-        )
-        transcript_range_output = next(
-            item for item in transcript_result.outputs if item.name == "source_range"
-        )
-        transcript_row_ids = next(
-            item.row_ids for item in transcript_result.outputs if item.kind == "rows"
-        )
-        assert transcript_row_ids is not None
-        transcript_values = project.get_values(
-            transcript_sheet_id,
-            transcript_output.column_id,
-            row_ids=transcript_row_ids,
-        )
-        assert [transcript_values[row_id] for row_id in transcript_row_ids] == [
-            media_transcripts[row_id] for row_id in row_ids
-        ]
-        transcript_ranges = project.get_values(
-            transcript_sheet_id,
-            transcript_range_output.column_id,
-            row_ids=transcript_row_ids,
-        )
-        assert [
-            (
-                transcript_ranges[row_id]["item"]["start_ms"],
-                transcript_ranges[row_id]["item"]["end_ms"],
-            )
-            for row_id in transcript_row_ids
-        ] == [(0, 4_300), (1_000, 6_300)]
-        transcript_projected = [
-            resolve_timestamped_transcript(
-                project,
-                sheet_id=transcript_sheet_id,
-                row_id=row_id,
-                column_id=transcript_output.column_id,
-            )
-            for row_id in transcript_row_ids
-        ]
-        assert all(item is not None for item in transcript_projected)
-        assert [
-            [span["quote"] for span in item.spans]
-            for item in transcript_projected
-            if item is not None
-        ] == [
-            [span["quote"] for span in item.spans]
-            for item in media_projected
-            if item is not None
-        ]
-        assert all(
-            span["metadata"]["projection"]["clipping"] == "full"
-            for item in transcript_projected
-            if item is not None
-            for span in item.spans
-        )
-
-        receipt = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()["body"]
-        )
-        assert (
-            sum(
-                item["ref"].get("kind") == "temporal_transcript_snapshot"
-                for item in receipt["inputs"]
-            )
-            == 2
-        )
-        selection_input = next(
-            item
-            for item in receipt["inputs"]
-            if item["ref"].get("kind") == "temporal_selection_snapshot"
-        )
-        assert selection_input["ref"]["topic_analysis"] == {
-            "kind": "topic_analysis_snapshot",
-            "sheet_id": seeded["sheet_id"],
-            "row_id": seeded["row_id"],
-            "selection_column_id": topic_column_id,
-            "run_id": topic_run_id,
-            "sidecar_column_id": sidecar_column_id,
-            "payload_hash": selection_input["ref"]["topic_analysis"]["payload_hash"],
-            "transcript_evidence_id": primary_link["stable_id"],
-            "transcript_snapshot_hash": primary_transcript.snapshot_hash,
-        }
-
-        edited_topic_value = {
-            "schema_version": "frisket.timeline_ranges.v1",
-            "timeline": lease.anchor.wire_value(),
-            "items": [
-                {"id": "manual-a", "start_ms": 0, "end_ms": 3_500},
-                {"id": "manual-b", "start_ms": 3_500, "end_ms": 6_300},
-            ],
-        }
-        project.apply_edits(
-            [
-                {
-                    "row_id": seeded["row_id"],
-                    "column_id": topic_column_id,
-                    "value": edited_topic_value,
-                }
-            ]
-        )
-        edited_plan = _plan(
-            project,
-            _request(
-                seeded,
-                {"kind": "column", "column": "Topic sections"},
-                target="Edited topic clips",
-            ),
-        )
-        assert not isinstance(edited_plan, ActionError)
-        assert [
-            (item.start_ms, item.end_ms)
-            for item in edited_plan.sources[0].source.ranges
-        ] == [(0, 3_500), (3_500, 6_300)]
-        assert edited_plan.sources[0].topic_span_ids_by_item == {}
-    finally:
-        project.close()
+            target="Edited topic clips",
+        ),
+    )
+    assert not isinstance(edited_plan, ActionError)
+    assert [
+        (item.start_ms, item.end_ms) for item in edited_plan.sources[0].source.ranges
+    ] == [(0, 3_500), (3_500, 6_300)]
+    assert edited_plan.sources[0].topic_span_ids_by_item == {}
