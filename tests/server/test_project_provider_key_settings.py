@@ -72,8 +72,7 @@ def test_project_provider_keys_are_redacted_and_used_by_project_router(
     )
 
 
-def test_project_provider_keys_reject_unknown_provider(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_provider_keys_reject_unknown_provider(client) -> None:
     pid = client.post("/api/projects", json={"name": "Provider Keys"}).json()["id"]
 
     response = client.post(

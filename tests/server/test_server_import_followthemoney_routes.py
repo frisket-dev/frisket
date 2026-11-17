@@ -124,8 +124,7 @@ def test_normal_action_service_preserves_request_dependencies_and_admitted_sourc
     assert not stream.closed
 
 
-def test_disabled_ftm_upload_does_not_publish(tmp_path):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_disabled_ftm_upload_does_not_publish(client):
     project_id = client.post("/api/projects", json={"name": "Disabled"}).json()["id"]
     response = client.post(
         f"/api/projects/{project_id}/import/followthemoney",

@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.engine.jobs.notifications_delivery import deliver_notification_request
 from frisket.server.notifications.delivery import NotificationDeliveryRuntime
@@ -20,7 +19,6 @@ from frisket.server.notifications.providers import (
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
 from frisket.server.notifications.service import emit_notification_candidate
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 
 
@@ -185,8 +183,7 @@ def _attempt(project: Project) -> dict[str, Any]:
     return project.notification_delivery_attempt(int(row["id"]))
 
 
-def test_webhook_channel_api_redacts_url_and_signing_refs(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_webhook_channel_api_redacts_url_and_signing_refs(client) -> None:
     pid = client.post("/api/projects", json={"name": "Webhook security"}).json()["id"]
 
     response = client.post(

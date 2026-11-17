@@ -399,8 +399,7 @@ def test_workspace_key_mutations_report_route_pinning_refusal(
     assert provider_config.load_local_provider_keys(root)["openai"] == SECRET
 
 
-def test_set_key_rejects_unknown_provider(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_set_key_rejects_unknown_provider(client) -> None:
     resp = client.put("/api/providers/keys/bogus", json={"key": "sk-nope"})
     assert resp.status_code == 400
     assert "sk-nope" not in resp.text

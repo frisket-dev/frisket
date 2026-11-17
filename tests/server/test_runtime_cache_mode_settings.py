@@ -135,8 +135,7 @@ def test_deployment_owned_composition_has_no_runtime_mutation(tmp_path) -> None:
     )
 
 
-def test_runtime_update_rejects_unknown_modes(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_runtime_update_rejects_unknown_modes(client) -> None:
     response = client.patch(
         "/api/config",
         json={"cache_mode": "surprise", "confirmed": True},

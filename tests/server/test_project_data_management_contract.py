@@ -58,9 +58,8 @@ def test_project_data_management_retention_contract_lists_supported_evidence_val
 
 
 def test_project_data_management_compact_contract_reports_destructive_summary(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     created = client.post("/api/projects", json={"name": "Compact Contract"}).json()
     pid = created["id"]
 

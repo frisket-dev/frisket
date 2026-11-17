@@ -9,10 +9,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
-
 
 FIXTURE_SERVER = (
     Path(__file__).resolve().parents[1] / "fixtures" / "mcp_stdio_server.py"
@@ -48,6 +44,7 @@ def _assert_process_stopped(pid: int) -> None:
 
 def test_saved_project_mcp_server_tests_through_stdio_discovery_without_tool_calls(
     tmp_path: Path,
+    client,
 ) -> None:
     """The settings endpoint only probes the configured outbound MCP server.
 
@@ -55,7 +52,6 @@ def test_saved_project_mcp_server_tests_through_stdio_discovery_without_tool_cal
     tool invocation.  Project-secret values are passed to the child only for
     that probe, while persistence and the public test report keep them opaque.
     """
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "MCP runtime"}).json()["id"]
     secret = "project-secret-must-not-appear-in-mcp-settings-or-diagnostics"
     saved_secret = client.post(

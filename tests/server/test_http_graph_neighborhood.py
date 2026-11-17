@@ -12,8 +12,6 @@ pytest.importorskip(
     reason="requires the entities extra: pip install 'frisket-data[entities]'",
 )
 
-from frisket.server.app import create_app
-
 
 def _jsonl(path: Path, *items: dict[str, Any]) -> Path:
     path.write_text(
@@ -138,8 +136,8 @@ def _set_relationship_review_states(
 
 def test_graph_neighborhood_route_returns_bounded_ftm_projection(
     tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     pid, summary = _import_fixture(client, tmp_path)
     project = client.app.state.workspace.get(pid)
     _set_relationship_review_states(
@@ -179,8 +177,8 @@ def test_graph_neighborhood_route_returns_bounded_ftm_projection(
 
 def test_graph_neighborhood_route_maps_invalid_anchor_to_typed_404(
     tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     pid, _summary = _import_fixture(client, tmp_path)
 
     response = client.get(
@@ -197,8 +195,8 @@ def test_graph_neighborhood_route_maps_invalid_anchor_to_typed_404(
 
 def test_graph_neighborhood_route_rejects_non_entity_anchor_kind(
     tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     pid, _summary = _import_fixture(client, tmp_path)
 
     response = client.get(

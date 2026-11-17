@@ -201,8 +201,7 @@ def test_held_file_upload_reads_bounded_original_handle_not_replaced_path(tmp_pa
     assert project.read_blob(cell["blob"]) == raw
 
 
-def test_upload_source_urls_are_positional_and_affect_idempotency(tmp_path):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_upload_source_urls_are_positional_and_affect_idempotency(client):
     pid = client.post("/api/projects", json={"name": "Source URLs"}).json()["id"]
     endpoint = f"/api/projects/{pid}/import/files"
 
@@ -231,9 +230,8 @@ def test_upload_source_urls_are_positional_and_affect_idempotency(tmp_path):
 
 
 def test_files_upload_default_name_allocates_and_replays_but_explicit_name_refuses(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Files names"}).json()["id"]
     endpoint = f"/api/projects/{pid}/import/files"
     first = client.post(

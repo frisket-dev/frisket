@@ -111,8 +111,7 @@ def test_search_preparation_jobs_have_a_cosmetic_origin_label(tmp_path) -> None:
     assert names_by_run[prepared.json()["run_id"]] == f"{title} (search preparation)"
 
 
-def test_runless_job_retains_explicit_sheet_context_through_failure(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_runless_job_retains_explicit_sheet_context_through_failure(client) -> None:
     pid = client.post("/api/projects", json={"name": "Queued context"}).json()["id"]
     workspace = client.app.state.workspace
     project = workspace.get(pid)

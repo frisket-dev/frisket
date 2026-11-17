@@ -156,9 +156,8 @@ def test_review_bundles_return_bounded_pages_with_action_metadata(
 
 
 def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "prepared-review-ws"))
     project_id = client.post("/api/projects", json={"name": "Prepared review"}).json()[
         "id"
     ]

@@ -169,13 +169,12 @@ def test_provenance_manifest_returns_bounded_run_and_receipt_pages(
         assert invalid.status_code == 422
 
 
-def test_provenance_manifest_reports_unknown_costs_honestly(tmp_path: Path) -> None:
+def test_provenance_manifest_reports_unknown_costs_honestly(client) -> None:
     """A NULL cost_actual crosses the wire as null and raises the flag.
 
     Totals stay sums of the known values only — the flag and the excluded-run
     count carry the honesty; nothing fabricates a $0.
     """
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post(
         "/api/projects", json={"name": "Provenance unknown cost"}
     ).json()["id"]

@@ -19,9 +19,7 @@ import json
 import re
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.authoring.workbench.contracts import (
     FIRST_PARTY_WORKBENCH_DESCRIPTOR_PACKAGE_PATH,
     load_first_party_workbench_descriptor_package,
@@ -89,8 +87,7 @@ def test_load_first_party_workbench_descriptor_package_matches_the_generic_loade
     assert dedicated.descriptor_manifests == generic.descriptor_manifests
 
 
-def test_runtime_index_first_party_section_equals_the_artifact(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_runtime_index_first_party_section_equals_the_artifact(client) -> None:
     project_id = client.post(
         "/api/projects", json={"name": "first-party descriptor runtime index"}
     ).json()["id"]

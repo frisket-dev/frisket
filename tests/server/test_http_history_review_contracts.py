@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -14,7 +13,6 @@ from frisket.server.routes.project_research import (
     register_project_entity_review_routes,
 )
 from frisket.server.routes.project_inspection import register_project_history_routes
-from frisket.server.app import create_app
 
 
 class _HistoryService:
@@ -341,9 +339,8 @@ def test_history_review_contracts_retain_query_bounds_error_envelopes_and_openap
 
 
 def test_history_contract_preserves_an_ordinary_unlabeled_persisted_operation(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post(
         "/api/projects", json={"name": "Unlabeled history operation"}
     ).json()["id"]

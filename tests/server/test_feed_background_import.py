@@ -1,11 +1,7 @@
-from fastapi.testclient import TestClient
-
 from frisket.engine.store.sources import SourceStore
-from frisket.server.app import create_app
 
 
-def test_manual_feed_http_returns_destination_and_visible_cancellable_job(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_manual_feed_http_returns_destination_and_visible_cancellable_job(client):
     pid = client.post("/api/projects", json={"name": "Feed"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sid = SourceStore(project).add_source(

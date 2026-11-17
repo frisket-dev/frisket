@@ -6,7 +6,6 @@ import time
 import tracemalloc
 
 import pytest
-from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 
 from frisket.engine.store import Project
@@ -27,7 +26,6 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import PreparedContentRef
-from frisket.server.app import create_app
 from frisket.server.services.project_qa_sources import (
     SCAN_SECONDS,
     read_prepared_passages,
@@ -255,9 +253,8 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
 
 @pytest.mark.parametrize("failure", ["start", "body", "disconnect"])
 def test_cell_download_releases_snapshot_on_disconnect_even_before_first_yield(
-    tmp_path, monkeypatch, failure
+    client, monkeypatch, failure
 ):
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "download"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet = project.add_sheet("documents")

@@ -3,16 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
-
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_sheet_row_locate_uses_current_filter_sort_scope(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_sheet_row_locate_uses_current_filter_sort_scope(client) -> None:
     project_id = client.post("/api/projects", json={"name": "Locate scale"}).json()[
         "id"
     ]

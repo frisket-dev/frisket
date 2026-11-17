@@ -4,10 +4,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionResult
-from frisket.server.app import create_app
 from frisket.server.run_status import ProjectRunStatus, project_run_status_payload
 from action_test_helpers import typed_map_request
 from helpers import write_claimless_test_model_calls
@@ -28,8 +26,7 @@ def _assert_no_recipe_keys(value: object) -> None:
             _assert_no_recipe_keys(child)
 
 
-def test_action_run_status_uses_action_metadata_without_recipe_bridge(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_action_run_status_uses_action_metadata_without_recipe_bridge(client) -> None:
     project_id = client.post("/api/projects", json={"name": "Status v1"}).json()["id"]
     imported = client.post(
         f"/api/projects/{project_id}/import/csv",
@@ -160,13 +157,12 @@ def test_public_status_projects_unambiguous_terminal_outcomes_and_counts(
     assert payload["remaining"] == remaining
 
 
-def test_action_run_status_presents_unknown_cost_as_null_not_zero(tmp_path) -> None:
+def test_action_run_status_presents_unknown_cost_as_null_not_zero(client) -> None:
     """A run whose live calls include an unknown provider cost projects
     ``runs.cost_actual`` NULL, and the status boundary passes that through as
     JSON null on both ``run.cost_actual`` and ``public_status.cost`` — never a
     confident 0."""
 
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Unknown cost"}).json()[
         "id"
     ]
