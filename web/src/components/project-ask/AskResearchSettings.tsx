@@ -93,7 +93,7 @@ export function AskResearchSettings({
           type="text"
           inputMode="decimal"
           aria-label="Total budget (USD)"
-          placeholder="Current approval limit"
+          placeholder="Current allowance"
           value={value.budget_usd ?? ''}
           disabled={disabled}
           onChange={(event) => {
@@ -101,7 +101,7 @@ export function AskResearchSettings({
             if (!next || MONEY_PATTERN.test(next)) update({ budget_usd: next || null });
           }}
         />
-        <small>Uses your current action approval limit{defaultBudgetUsd ? ` (${`$${defaultBudgetUsd}`})` : ''} when blank.</small>
+        <small>Uses your current action allowance{defaultBudgetUsd ? ` (${`$${defaultBudgetUsd}`})` : ''} when blank.</small>
       </FormField>
 
       <FormField label="Max turns" className="ask-research-field">

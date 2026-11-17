@@ -133,7 +133,7 @@ export function PersonalProfileSettings({
             onChange={(event) => setDisplayName(event.currentTarget.value)}
           />
         </FormField>
-        <FormField label="Cost pre-approval amount (USD)" >
+        <FormField label="Allowance per run (USD)" >
 
           <TextInput
             data-testid="personal-cost-preapproval"

@@ -23,7 +23,7 @@ export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => v
   });
 
   return (
-    <Modal title="Choose your cost pre-approval amount" testId="cost-preapproval-setup">
+    <Modal title="Set your allowance" testId="cost-preapproval-setup">
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -31,12 +31,12 @@ export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => v
         }}
       >
         <p className="modal-body-text">
-          Frisket always shows a price estimate. Runs at or below this amount can
+          Frisket always shows a price estimate. Runs at or below your allowance
           continue without another prompt, including sending their inputs to the
-          selected provider. Higher or unpriced runs ask for one click.
+          selected provider. Runs over it, or with no price, ask for one click.
         </p>
         <label className="form-label" htmlFor="cost-preapproval-setup-input">
-          Amount in USD per run
+          Allowance per run (USD)
         </label>
         <TextInput
           id="cost-preapproval-setup-input"
