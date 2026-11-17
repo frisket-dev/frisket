@@ -22,6 +22,7 @@ from frisket.engine.store.receipts import (
     ReceiptStore,
 )
 from frisket.execution.attempt import StaleAttemptWriter, set_attempt_state
+from frisket.notifications.run_outcomes import emit_run_outcome_notification
 
 RunTerminalStatus = Literal["completed", "failed", "cancelled"]
 TerminalizationDisposition = Literal[
@@ -228,6 +229,10 @@ def terminalize_project_run(
     ) -> ProjectRunTerminalizationResult:
         if commit:
             db.commit()
+            # A caller-owned transaction has not committed yet; its owner's
+            # outer boundary notifies once that commit lands.
+            if result.disposition == "terminalized":
+                emit_run_outcome_notification(project, run_id)
         return result
 
     try:

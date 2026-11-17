@@ -61,6 +61,10 @@ from frisket.execution.consent_coverage import ConsentCoverage
 from decimal import Decimal
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
+from frisket.notifications.run_outcomes import (
+    emit_action_run_outcome_notification,
+    emit_run_outcome_notification,
+)
 from frisket.execution.provider import (
     ExecutionComposition,
     ExecutionCompositionContext,
@@ -1335,6 +1339,9 @@ def register_project_run_handler(
                 # a retried queue job.
                 with contextlib.suppress(Exception):
                     handler_owned_cache.close()
+            # Every terminal path above has committed by now; a run left
+            # running for retry or reconciliation is not notified.
+            emit_run_outcome_notification(project, run_id)
             project.close()
 
     return registry.add(
@@ -1465,6 +1472,7 @@ def register_action_run_handler(
                 project_id=project_id,
                 project_root=project_root,
             )
+            emit_action_run_outcome_notification(project, result)
         finally:
             project.close()
         return action_job_result_payload(result)

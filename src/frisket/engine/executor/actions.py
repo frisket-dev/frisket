@@ -12,7 +12,7 @@ import ``ExecutorDeps`` from ``frisket.executor``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from functools import partial
+from functools import partial, wraps
 from typing import Any, Callable, Mapping
 
 from pydantic import ValidationError
@@ -37,6 +37,7 @@ from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
 )
+from frisket.notifications.run_outcomes import emit_action_run_outcome_notification
 
 __all__ = ["run_action_spec"]
 
@@ -438,6 +439,21 @@ def _executor_deps_with_defaults(
     )
 
 
+def _notifies_run_outcome(
+    dispatch: Callable[..., ActionResult],
+) -> Callable[..., ActionResult]:
+    # Inline families commit their own terminal transactions before returning,
+    # so the run's outcome is durable once dispatch returns.
+    @wraps(dispatch)
+    def run(project: Project, *args: Any, **kwargs: Any) -> ActionResult:
+        result = dispatch(project, *args, **kwargs)
+        emit_action_run_outcome_notification(project, result)
+        return result
+
+    return run
+
+
+@_notifies_run_outcome
 def run_action_spec(
     project: Project,
     data: dict[str, Any],

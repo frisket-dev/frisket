@@ -140,7 +140,6 @@ src/frisket/features/temporal/transcript_boundaries.py::TranscriptBoundaryResult
 src/frisket/features/alerts/service.py::evaluate_alert  test-only
 src/frisket/features/alerts/service.py::resolve_alert_check  test-only
 src/frisket/ingest.py::ingest_rss  test-only
-src/frisket/notifications/producers.py::run_transition_notification_candidate  test-only
 src/frisket/operability/control/app_env.py::<module>  frisket-cloud
 src/frisket/operability/control/env_manifest.py::classify_name  frisket-cloud
 src/frisket/operability/control/env_manifest.py::known_names  frisket-cloud

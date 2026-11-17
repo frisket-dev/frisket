@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from frisket.notifications.candidates import (
     NotificationCandidate,
     validate_notification_candidate,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 _RUN_STATUSES = {
