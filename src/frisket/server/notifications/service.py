@@ -669,14 +669,6 @@ def _loads_list(value: Any) -> list[Any]:
     return data if isinstance(data, list) else []
 
 
-def _public_attempt_for_emit(attempt: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "channel_id": attempt["channel_id"],
-        "kind": attempt["kind"],
-        "status": attempt["status"],
-    }
-
-
 def _public_request_for_emit(
     request: dict[str, Any],
 ) -> NotificationEmitDeliveryRequest:

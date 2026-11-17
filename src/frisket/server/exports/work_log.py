@@ -17,15 +17,6 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.server.provenance_payloads import provenance_manifest_payload
 
 
-def json_cell(raw: str | None) -> Any:
-    if raw is None:
-        return None
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        return raw
-
-
 def export_value(value: Any, *, limit: int = 180) -> str:
     if value is None:
         text = ""

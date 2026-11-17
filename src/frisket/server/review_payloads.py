@@ -17,12 +17,6 @@ def _public_review_action_payload(
     return payload
 
 
-def public_review_action_payload(item: dict[str, Any]) -> dict[str, Any]:
-    return _public_review_action_payload(
-        item, action_metadata_for_action_kind(item.get("action_kind"))
-    )
-
-
 def public_review_action_payloads(
     items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:

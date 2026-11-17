@@ -31,7 +31,6 @@ function sourceRefLabel(ref: Record<string, unknown>): string {
 function itemSourceLabel(item: NotificationItem): string {
   if (item.sourceKind === 'watch') return 'Watch';
   if (item.sourceKind === 'run') return 'Run';
-  if (item.sourceKind === 'job') return 'Job';
   return item.sourceKind || 'Source';
 }
 

@@ -18,7 +18,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import encode_stored_value
 from frisket.querysets import resolve_sheet_filter_rows
 from frisket.search import drain_index, search_project
-from frisket.server.exports.sheet_csv import render_sheet_csv
+from helpers import export_sheet_csv_text
 from frisket.server.services.project_qa_sources import (
     find_source_text,
     read_source_text,
@@ -254,7 +254,7 @@ def test_search_and_csv_export_use_full_prepared_document(tmp_path: Path) -> Non
             == row_id
         )
 
-        _metadata, csv_text = render_sheet_csv(project, sheet_id)
+        csv_text = export_sheet_csv_text(project, sheet_id)
         assert '"alpha boundary-left\n\nboundary-right omega"' in csv_text
     finally:
         project.close()

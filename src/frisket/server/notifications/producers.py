@@ -10,7 +10,7 @@ from frisket.server.notifications.candidates import (
 )
 
 if TYPE_CHECKING:
-    from frisket.engine.jobs.queue import Job
+    pass
 
 
 _RUN_STATUSES = {
@@ -86,61 +86,6 @@ def run_transition_notification_candidate(
         "severity": _run_severity(normalized_status, stalled_reason=stalled_reason),
         "deep_link": {"kind": "run", "project_id": project_id, "run_id": int(run_id)},
         "payload": candidate_payload,
-    }
-    return validate_notification_candidate(candidate)
-
-
-def job_transition_notification_candidate(
-    job: Job,
-    *,
-    public_status: str | None = None,
-    stalled_reason: str | None = None,
-    prefer_run_candidate: bool = True,
-) -> NotificationCandidate | None:
-    reason = _job_reason(
-        job, public_status=public_status, stalled_reason=stalled_reason
-    )
-    if reason is None:
-        return None
-    job_run_id = _job_run_id(job)
-    if prefer_run_candidate and job.kind == "project.run" and job_run_id is not None:
-        return None
-    workspace_root = job.workspace_root or str(job.payload.get("workspace_root") or "")
-    source_ref: dict[str, Any] = {
-        "job_id": job.id,
-        "job_kind": job.kind,
-        "status": reason.split(":", 1)[0],
-    }
-    if job.project_id:
-        source_ref["project_id"] = job.project_id
-    if job_run_id is not None:
-        source_ref["run_id"] = job_run_id
-    if job.source_id is not None:
-        source_ref["source_id"] = job.source_id
-    if workspace_root:
-        source_ref["workspace_root"] = workspace_root
-    if stalled_reason:
-        source_ref["stalled_reason"] = stalled_reason
-    payload: dict[str, Any] = {
-        "attempts": job.attempts,
-        "max_attempts": job.max_attempts,
-    }
-    if job.error:
-        payload["error"] = job.error
-    dedupe_root = workspace_root or (job.project_id or "workspace")
-    candidate = {
-        "source_kind": "job",
-        "source_ref": source_ref,
-        "dedupe_key": f"job:{dedupe_root}:{job.id}:{job.kind}:{reason}",
-        "title": _job_title(job, reason),
-        "summary": _job_summary(job, reason, stalled_reason=stalled_reason),
-        "severity": _job_severity(reason),
-        "deep_link": {
-            "kind": "job",
-            "project_id": job.project_id,
-            "job_id": job.id,
-        },
-        "payload": payload,
     }
     return validate_notification_candidate(candidate)
 
@@ -441,58 +386,3 @@ def _run_summary(
     if status == "needs_user_action" and reason:
         return f"Run {run_id} needs user action: {reason}"
     return f"Run {run_id} is {status}."
-
-
-def _job_reason(
-    job: Job,
-    *,
-    public_status: str | None,
-    stalled_reason: str | None,
-) -> str | None:
-    if public_status:
-        normalized = _normalize_status(public_status)
-        if normalized == "stalled" and stalled_reason:
-            return f"stalled:{stalled_reason}"
-        if normalized in {"orphaned", "stalled"}:
-            return normalized
-    status = _normalize_status(job.status)
-    if status == "done":
-        return "completed"
-    if status in {"failed", "cancelled"}:
-        return status
-    return None
-
-
-def _job_run_id(job: Job) -> int | None:
-    if job.run_id is not None:
-        return int(job.run_id)
-    try:
-        return int(job.payload.get("run_id"))
-    except (TypeError, ValueError):
-        return None
-
-
-def _job_severity(reason: str) -> str:
-    if reason.startswith("orphaned"):
-        return "critical"
-    if reason.startswith(("failed", "stalled")):
-        return "warning"
-    return "info"
-
-
-def _job_title(job: Job, reason: str) -> str:
-    label = reason.split(":", 1)[0].replace("_", " ")
-    return f"Job {label} #{job.id}"
-
-
-def _job_summary(
-    job: Job,
-    reason: str,
-    *,
-    stalled_reason: str | None,
-) -> str:
-    if reason.startswith("failed") and job.error:
-        return f"{job.kind} job {job.id} failed: {job.error}"
-    if reason.startswith("stalled") and stalled_reason:
-        return f"{job.kind} job {job.id} is stalled: {stalled_reason}"
-    return f"{job.kind} job {job.id} is {reason.split(':', 1)[0]}."

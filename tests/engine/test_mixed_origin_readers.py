@@ -22,7 +22,7 @@ from frisket.preview.entity_mentions import (
     resolve_entity_mentions_preview,
 )
 from frisket.querysets import resolve_sheet_filter_rows
-from frisket.server.exports.sheet_csv import render_sheet_csv
+from helpers import export_sheet_csv_text
 from frisket.server.run_payloads import column_run_provenance_payload
 from frisket.server.services.sheet_grid import _sheet_data_payload
 
@@ -538,9 +538,7 @@ def test_grid_filter_sort_and_export_follow_exact_heads(
         == 0
     )
 
-    _metadata, csv_text = render_sheet_csv(
-        project, fixture.sheet_id, row_ids=fixture.row_ids
-    )
+    csv_text = export_sheet_csv_text(project, fixture.sheet_id, row_ids=fixture.row_ids)
     assert csv_text.splitlines() == [
         "source,generated",
         "one,manual-value",
