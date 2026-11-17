@@ -118,6 +118,7 @@ from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.ai.models.metadata import ModelCallMeta
 
 from frisket.engine.executor.embedding_read import (
@@ -1049,17 +1050,16 @@ def _run_paid_embedding_dimension_probe(
             requested_model=params.model,
         )
     except Exception:
-        project.db.execute("BEGIN IMMEDIATE")
-        run_store.finish_run(
-            run_id,
-            "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-            commit=False,
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
-        )
-        set_attempt_state(project, attempt_id, "halted", commit=False)
-        ReceiptStore(project).delete_running(receipt_id, commit=False)
-        project.db.commit()
+        with write_transaction(project.db):
+            run_store.finish_run(
+                run_id,
+                "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+                commit=False,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+            )
+            set_attempt_state(project, attempt_id, "halted", commit=False)
+            ReceiptStore(project).delete_running(receipt_id, commit=False)
         return _error(
             action,
             project_id,
@@ -1099,17 +1099,16 @@ def _run_paid_embedding_dimension_probe(
             raise
         raise
     except EmbeddingBackendUnavailable as exc:
-        project.db.execute("BEGIN IMMEDIATE")
-        run_store.finish_run(
-            run_id,
-            "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-            commit=False,
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
-        )
-        set_attempt_state(project, attempt_id, "halted", commit=False)
-        ReceiptStore(project).delete_running(receipt_id, commit=False)
-        project.db.commit()
+        with write_transaction(project.db):
+            run_store.finish_run(
+                run_id,
+                "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+                commit=False,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+            )
+            set_attempt_state(project, attempt_id, "halted", commit=False)
+            ReceiptStore(project).delete_running(receipt_id, commit=False)
         return _error(
             action,
             project_id,
@@ -1176,28 +1175,27 @@ def _run_paid_embedding_dimension_probe(
         # The provider returned, so preserve the paid fact even though its payload
         # cannot mint an index. Keep the reservation: an exact retry must refuse a
         # second unknown/invalid probe rather than silently buy it again.
-        project.db.execute("BEGIN IMMEDIATE")
-        _persist_embedding_provider_fact(
-            project,
-            run_store=run_store,
-            run_id=run_id,
-            fact=provider_fact,
-            sheet_id=int(params.sheet_id),
-            row_ids=probe_row_ids,
-            commit=False,
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
-            authorized_attempt_id=attempt_id,
-        )
-        run_store.finish_run(
-            run_id,
-            "cancelled" if run_store.cancellation_requested(run_id) else "failed",
-            commit=False,
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
-        )
-        set_attempt_state(project, attempt_id, "effected", commit=False)
-        project.db.commit()
+        with write_transaction(project.db):
+            _persist_embedding_provider_fact(
+                project,
+                run_store=run_store,
+                run_id=run_id,
+                fact=provider_fact,
+                sheet_id=int(params.sheet_id),
+                row_ids=probe_row_ids,
+                commit=False,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+                authorized_attempt_id=attempt_id,
+            )
+            run_store.finish_run(
+                run_id,
+                "cancelled" if run_store.cancellation_requested(run_id) else "failed",
+                commit=False,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+            )
+            set_attempt_state(project, attempt_id, "effected", commit=False)
         return _error(
             action,
             project_id,

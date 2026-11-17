@@ -27,6 +27,7 @@ from frisket.engine.store.effect_checkpoints import (
 )
 from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.prepared_content import decode_logical_value
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.value_codec import PreparedContentRef, encode_stored_value
 from frisket.engine.store.prepared_ocr import (
     prepare_ocr_results,
@@ -829,10 +830,9 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> int:
-        started_transaction = not self.db.in_transaction
-        try:
-            if started_transaction:
-                self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(
+            self.db, commit=commit, what="set_result_review_state(commit=False)"
+        ):
             self._require_run_sheet_mutable(run_id)
             before = self.db.execute(
                 "SELECT review_state,review_decision FROM results "
@@ -857,13 +857,7 @@ class RunResultStore:
                     after_state=review_state,
                     after_decision=before["review_decision"],
                 )
-            if commit:
-                self.db.commit()
-            return int(cur.rowcount)
-        except BaseException:
-            if started_transaction:
-                self.db.rollback()
-            raise
+        return int(cur.rowcount)
 
     def set_result_review_metadata(
         self,
@@ -875,10 +869,9 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> int:
-        started_transaction = not self.db.in_transaction
-        try:
-            if started_transaction:
-                self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(
+            self.db, commit=commit, what="set_result_review_metadata(commit=False)"
+        ):
             self._require_run_sheet_mutable(run_id)
             before = self.db.execute(
                 "SELECT review_state,review_decision FROM results "
@@ -903,13 +896,7 @@ class RunResultStore:
                     after_state=before["review_state"],
                     after_decision=decision,
                 )
-            if commit:
-                self.db.commit()
-            return int(cur.rowcount)
-        except BaseException:
-            if started_transaction:
-                self.db.rollback()
-            raise
+        return int(cur.rowcount)
 
     def mark_run_results_verified(self, run_id: int, *, commit: bool = True) -> int:
         """Auto-verify every still-unreviewed result in a run (mechanical ops).
@@ -3109,12 +3096,7 @@ class RunResultStore:
             raise ValueError(
                 "a terminal run cannot have both prepared and current writers"
             )
-        owns_transaction = not self.db.in_transaction
-        if commit and owns_transaction:
-            self.db.execute("BEGIN IMMEDIATE")
-        elif not commit and owns_transaction:
-            raise RuntimeError("finish_run(commit=False) requires a caller transaction")
-        try:
+        with write_transaction(self.db, commit=commit, what="finish_run(commit=False)"):
             run = self.db.execute(
                 "SELECT run.status,run.current_attempt_id,run.cancel_requested_at "
                 "FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
@@ -3220,11 +3202,6 @@ class RunResultStore:
             mark_run_review_stats_dirty(self.db, run_id)
             if commit:
                 rebuild_run_review_stats(self.db, run_id)
-                self.db.commit()
-        except Exception:
-            if commit and owns_transaction:
-                self.db.rollback()
-            raise
 
     def request_cancel(self, run_id: int, *, commit: bool = True) -> bool:
         """Durably request cooperative cancellation of a live run.

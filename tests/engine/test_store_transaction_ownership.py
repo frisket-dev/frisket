@@ -82,29 +82,25 @@ def test_finish_run_owns_its_transaction_when_none_is_open(project):
     assert _committed_run_status(project, run_id) == "completed"
 
 
-def test_finish_run_commit_true_inside_caller_transaction_commits_callers_write(
+def test_finish_run_commit_true_inside_caller_transaction_refuses_and_keeps_it(
     project,
 ):
     run_id = _running_run(project)
     _open_caller_transaction(project)
 
-    RunResultStore(project).finish_run(run_id, "completed")
-
-    assert not project.db.in_transaction
-    assert _committed_sheet_name(project) == CALLER_SHEET_NAME
-    assert _committed_run_status(project, run_id) == "completed"
-
-
-def test_finish_run_commit_true_failure_inside_caller_transaction_leaves_it_open(
-    project,
-):
-    _open_caller_transaction(project)
-
-    with pytest.raises(ValueError, match="unknown run"):
-        RunResultStore(project).finish_run(999_999, "completed")
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        RunResultStore(project).finish_run(run_id, "completed")
 
     assert project.db.in_transaction
     assert _committed_sheet_name(project) == "Source"
+    assert _committed_run_status(project, run_id) == "running"
+
+
+def test_finish_run_owned_failure_rolls_back(project):
+    with pytest.raises(ValueError, match="unknown run"):
+        RunResultStore(project).finish_run(999_999, "completed")
+
+    assert not project.db.in_transaction
 
 
 def test_finish_run_commit_false_joins_caller_transaction(project):
@@ -191,27 +187,27 @@ def test_review_write_commit_false_joins_caller_transaction(
 
 
 @pytest.mark.parametrize("field", sorted(REVIEW_WRITES))
-def test_review_write_commit_true_inside_caller_transaction_commits_callers_write(
+def test_review_write_commit_true_inside_caller_transaction_refuses_and_keeps_it(
     project, review_target, field
 ):
     _open_caller_transaction(project)
 
-    REVIEW_WRITES[field](RunResultStore(project), review_target)
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        REVIEW_WRITES[field](RunResultStore(project), review_target)
 
-    assert not project.db.in_transaction
-    assert _committed_sheet_name(project) == CALLER_SHEET_NAME
-    assert _committed_review(project, *review_target) == REVIEW_AFTER[field]
+    assert project.db.in_transaction
+    assert _committed_sheet_name(project) == "Source"
+    assert _committed_review(project, *review_target) == ("unreviewed", None)
 
 
 @pytest.mark.parametrize("field", sorted(REVIEW_WRITES))
-def test_review_write_commit_false_without_transaction_hands_one_back(
+def test_review_write_commit_false_requires_caller_transaction(
     project, review_target, field
 ):
-    REVIEW_WRITES[field](RunResultStore(project), review_target, commit=False)
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        REVIEW_WRITES[field](RunResultStore(project), review_target, commit=False)
 
-    assert project.db.in_transaction
-    assert _committed_review(project, *review_target) == ("unreviewed", None)
-    project.db.rollback()
+    assert not project.db.in_transaction
 
 
 # -- start_run, set_run_halt, begin_run_resume -------------------------------

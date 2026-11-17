@@ -109,6 +109,7 @@ def _managed_run(
 
     start_change(project.db, op_id)
     project.db.execute("UPDATE results SET published=1 WHERE run_id=?", (run_id,))
+    project.db.commit()
     store.finish_run(run_id)
     return run_id
 
@@ -266,8 +267,10 @@ def test_review_stats_distinguish_resolved_unknown_from_human_decisions(
         ).fetchone()
         assert tuple(run) == (2, 0)
 
-        # The production writer separates state and metadata. Both directions
-        # keep row-bundle resolution exact throughout that ordering.
+        # The production writer separates state and metadata inside one
+        # judgment transaction. Both directions keep row-bundle resolution
+        # exact throughout that ordering.
+        project.db.execute("BEGIN IMMEDIATE")
         assert (
             store.set_result_review_state(
                 run_id, row_ids[0], first, "verified", commit=False

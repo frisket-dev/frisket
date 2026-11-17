@@ -31,6 +31,7 @@ def _result(
             decision,
         ),
     )
+    project.db.commit()
 
 
 def _judge_receipt(
