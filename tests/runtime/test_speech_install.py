@@ -158,7 +158,7 @@ def test_artifact_resolver_and_parakeet_protocol_import_without_host_dependencie
 
     root = Path(__file__).resolve().parents[2] / "src"
     environment = tmp_path / "empty"
-    venv.EnvBuilder(with_pip=False).create(environment)
+    venv.EnvBuilder(with_pip=False, symlinks=os.name != "nt").create(environment)
     python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     subprocess.run(
         [

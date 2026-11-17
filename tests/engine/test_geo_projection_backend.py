@@ -1,6 +1,8 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
+import sqlite3
+
 import pytest
 
 from frisket.actions.registry import ACTION_REGISTRY
@@ -101,6 +103,18 @@ def test_row_ids_restriction(project):
     # empty allow-list yields nothing
     points, _ = backend.query_points(sheet, geo_col, row_ids=[])
     assert points == []
+
+
+def test_row_id_restriction_is_not_bounded_by_sqlite_bind_limit(project):
+    sheet, geo_col, _name, rows = _seed(project)
+    backend = GeoProjectionBackend(project)
+    backend.materialize_geo_column(sheet, geo_col)
+    backend.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 8)
+    allowed = [rows[1], *range(max(rows) + 1, max(rows) + 50)]
+
+    points, _ = backend.query_points(sheet, geo_col, row_ids=allowed)
+
+    assert {p.row_id for p in points} == {rows[1]}
 
 
 def test_deleting_sidecar_never_corrupts_project_and_rebuilds(project):

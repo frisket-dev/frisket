@@ -82,9 +82,7 @@ def _text_pdf() -> bytes:
 
 
 def _scan_pdf(*texts: str) -> bytes:
-    font = ImageFont.truetype(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 48
-    )
+    font = ImageFont.load_default(48)
     pages = []
     for text in texts:
         page = Image.new("RGB", (1200, 800), "white")

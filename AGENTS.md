@@ -7,8 +7,13 @@ paid or external runs.
 
 ## Commands
 
-- Python suite: `pytest -q -n 8 --dist loadfile` (~5 min; do not run
-  the full suite serially). Single file: plain `pytest tests/<file>`.
+- Python suite: `scripts/dev/suite.py` (~5 min; one full run per machine,
+  `--wait` queues behind another; never start `pytest -n` over all of
+  `tests/` by hand). Targeted: `scripts/dev/suite.py -- tests/<path>`, or
+  plain `pytest tests/<file>`.
+- Worktrees: `scripts/dev/worktree.py create <name>` (then follow the
+  commands it prints); land a PR with `scripts/dev/land.py <pr>`, never a
+  chained `gh pr merge && git branch -D ...`.
 - Web (from `web/`): `npx vitest run`; types: `npx tsc -b` (the root
   tsconfig uses project references; `tsc --noEmit` alone checks no files).
 - Lint: `ruff check src tests` and `ruff format --check src tests`,

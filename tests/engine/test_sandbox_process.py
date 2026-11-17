@@ -527,10 +527,14 @@ finally:
 @pytest.mark.skipif(os.name == "nt", reason="POSIX rlimit wrapper contract")
 def test_posix_limit_wrapper_reports_target_exec_failure():
     """The wrapper must surface a missing target instead of silently succeeding."""
+    # With the network denied, macOS puts sandbox-exec between this wrapper
+    # and the target, and sandbox-exec reports the failed exec itself.
     result = asyncio.run(
         run_sandboxed(
             ["/definitely-not-a-frisket-executable"],
-            policy=sandbox_shim.SandboxPolicy(cpu_seconds=3, memory_mb=256),
+            policy=sandbox_shim.SandboxPolicy(
+                cpu_seconds=3, memory_mb=256, allow_network=True
+            ),
         )
     )
 

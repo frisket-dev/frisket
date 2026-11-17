@@ -285,12 +285,12 @@ def _require_cell_targets_mutable(
     require_publication_targets(db, column_ids=columns, row_ids=rows)
     if not rows:
         return
-    row_ids = sorted(rows)
-    marks = ",".join("?" for _ in row_ids)
     sheet_ids = {
         int(row[0])
         for row in db.execute(
-            f"SELECT DISTINCT sheet_id FROM rows WHERE id IN ({marks})", row_ids
+            "SELECT DISTINCT sheet_id FROM rows "
+            "WHERE id IN (SELECT value FROM json_each(?))",
+            (json.dumps(sorted(rows)),),
         )
     }
     for sheet_id in sheet_ids:

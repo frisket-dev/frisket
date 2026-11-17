@@ -817,8 +817,8 @@ def test_column_transform_large_scope_respects_sqlite_bind_limit(tmp_path):
     with closing(Project.create(tmp_path / "large-transform.frisket")) as project:
         sheet = project.add_sheet("Rows")
         source = project.add_column(sheet, "source")
-        rows = project.add_rows(sheet, [{"source": "old"}] * 33_000, {"source": source})
         project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 32766)
+        rows = project.add_rows(sheet, [{"source": "old"}] * 33_000, {"source": source})
         per_row_family_reads = 0
 
         def track(sql):
