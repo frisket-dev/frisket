@@ -34,7 +34,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
 }
@@ -44,14 +44,14 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .ocr-compare-toolbar > .ocr-compare-chips-row {
   grid-column: 1;
   grid-row: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
   min-width: 0;
   flex-wrap: wrap;
 }
@@ -69,7 +69,7 @@ fieldset.ocr-compare-chips-row {
   .ocr-compare-toolbar {
     grid-template-columns: minmax(0, 1fr);
     align-items: stretch;
-    gap: 8px;
+    gap: var(--space-8);
   }
   .ocr-compare-toolbar > .ocr-compare-controls-row {
     grid-column: 1;
@@ -91,7 +91,7 @@ fieldset.ocr-compare-chips-row {
   opacity: 0.5;
 }
 .ocr-compare-variants-label {
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   color: var(--text-light);
   flex-shrink: 0;
 }
@@ -107,7 +107,7 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-variant-chips {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   flex-wrap: wrap;
 }
 .ocr-compare-variant {
@@ -136,7 +136,7 @@ fieldset.ocr-compare-chips-row {
   width: 12px;
   flex-shrink: 0;
   justify-content: center;
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   line-height: 1;
 }
 .ocr-compare-pip[data-pip='pending'] {
@@ -151,7 +151,7 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-variant-body {
   display: inline-flex;
   align-items: baseline;
-  gap: 2px;
+  gap: var(--space-2);
   background: transparent;
   border: none;
   color: inherit;
@@ -195,7 +195,7 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-add-engine {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
   background: transparent;
   cursor: pointer;
 }
@@ -213,7 +213,7 @@ fieldset.ocr-compare-chips-row {
      future engine with a longer catalog label never re-blows the card. */
   width: min(264px, calc(100vw - 24px));
   display: grid;
-  gap: 10px;
+  gap: var(--space-10);
   padding: 12px;
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -222,11 +222,11 @@ fieldset.ocr-compare-chips-row {
 }
 .ocr-compare-configure-title {
   font-weight: 650;
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .ocr-compare-configure-fields {
   display: grid;
-  gap: 10px;
+  gap: var(--space-10);
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -247,7 +247,7 @@ fieldset.ocr-compare-chips-row {
   box-sizing: border-box;
 }
 .ocr-compare-configure-label {
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-mid);
   font-weight: 600;
 }
@@ -257,7 +257,7 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-configure-error {
   padding: 7px 9px;
   border-radius: var(--radius-6);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   border: 1px solid var(--red);
   color: var(--red);
   background: rgba(214, 69, 69, 0.08);
@@ -275,7 +275,7 @@ fieldset.ocr-compare-chips-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
   border-top: 1px solid var(--border);
   padding-top: 8px;
   font-size: 10.5px;
@@ -287,12 +287,12 @@ fieldset.ocr-compare-chips-row {
   padding: 8px;
   border-top: 1px solid var(--border);
   color: var(--amber);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   max-width: 260px;
 }
 .ocr-compare-remote-gate-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-6);
   justify-content: flex-end;
 }
 /* Explicit run model: Run is the controls-row primary action. Its state drives
@@ -314,12 +314,12 @@ fieldset.ocr-compare-chips-row {
 }
 .ocr-compare-empty-variants {
   padding: 16px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-style: italic;
 }
 .ocr-compare-col-summary {
   margin-left: 6px;
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -332,7 +332,7 @@ fieldset.ocr-compare-chips-row {
 }
 .ocr-compare-frontdoor-engines {
   display: flex;
-  gap: 6px;
+  gap: var(--space-6);
   margin-top: 6px;
 }
 .ocr-compare-body {
@@ -354,7 +354,7 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-doc-item {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   text-align: left;
   width: 100%;
   background: transparent;
@@ -377,7 +377,7 @@ fieldset.ocr-compare-chips-row {
   min-width: 0;
 }
 .ocr-compare-doc-title {
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -401,7 +401,7 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-drop-more {
   margin-top: 6px;
   padding: 8px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -445,7 +445,7 @@ fieldset.ocr-compare-chips-row {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-10);
 }
 .ocr-compare-add-menu-option {
   text-align: left;
@@ -486,7 +486,7 @@ fieldset.ocr-compare-chips-row {
   border-radius: var(--radius-8);
   background: var(--bg-panel);
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   text-align: center;
   pointer-events: none;
 }
@@ -495,14 +495,14 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-drop-rejected {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
   margin: 0 10px 8px;
   padding: 7px 8px 7px 11px;
   border: 1px solid var(--amber);
   border-radius: var(--radius-8);
   background: var(--amber-bg);
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .ocr-compare-drop-rejected span {
   flex: 1;
@@ -513,9 +513,9 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-engine-running {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   padding: 10px 2px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-style: italic;
 }
 .ocr-compare-spin {
@@ -528,7 +528,7 @@ fieldset.ocr-compare-chips-row {
 }
 .ocr-compare-engine-error {
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
   justify-items: start;
   margin: 8px 0;
   padding: 10px;
@@ -536,7 +536,7 @@ fieldset.ocr-compare-chips-row {
   border-radius: var(--radius-7);
   background: var(--amber-bg);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .ocr-compare-engine-error span {
   overflow-wrap: anywhere;
@@ -585,7 +585,7 @@ fieldset.ocr-compare-chips-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
@@ -596,13 +596,13 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-vote-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-6);
   padding: 2px 6px;
   font-weight: 650;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--text);
   cursor: pointer;
   /* Shrinks inside the ocr-compare-engine-head row so the title ellipsizes
@@ -637,12 +637,12 @@ fieldset.ocr-compare-chips-row {
   overflow: auto;
   padding: 8px 10px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.6;
   color: var(--text);
 }
 .ocr-compare-page-marker {
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   margin: 4px 0;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -656,7 +656,7 @@ fieldset.ocr-compare-chips-row {
 .ocr-compare-nodiff {
   margin: 0 0 8px;
   font-style: italic;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .ocr-compare-token {
   white-space: pre-wrap;
@@ -683,12 +683,12 @@ fieldset.ocr-compare-chips-row {
   gap: 14px;
   padding: 6px 12px;
   border-top: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .ocr-compare-token-nav {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   color: var(--text-mid);
 }
 .ocr-compare-verdict {

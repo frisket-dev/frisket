@@ -1,9 +1,10 @@
 import type { CellValue, ColumnDef, Row, SheetMeta } from '../api/types';
 import { resolveMediaValue, type ResolvedMediaValue } from '../media/resolveMediaValue';
 import {
-  dataRequirementReason,
-  firstMissingDataRequirement,
+  resolveRequirementAvailability,
   sheetDataRequirementContext,
+  withoutDisabledCapabilities,
+  type RequirementAvailability,
 } from './dataRequirements';
 import type { WorkbenchPlacementMode, WorkbenchViewDescriptor } from './descriptors';
 import type {
@@ -77,18 +78,6 @@ export interface PluginViewContext {
   libs?: HostLibraryDeckglFragment;
 }
 
-interface PluginViewUnavailable {
-  available: false;
-  reason: string;
-}
-
-interface PluginViewAvailable {
-  available: true;
-  reason?: undefined;
-}
-
-type PluginViewAvailability = PluginViewAvailable | PluginViewUnavailable;
-
 // Contract-pinned export: tests/authoring/test_plugin_sdk_contract_parity.py scrapes
 // this by its exported form — do not demote to module-private. This is the
 // host's full AVAILABLE set, not just the SDK auto-default set: it equals
@@ -123,34 +112,18 @@ declare global {
 }
 
 export function availablePluginViewCapabilities(): Set<string> {
-  const disabled =
-    typeof window === 'undefined'
-      ? []
-      : window.__FRISKET_DISABLED_PLUGIN_VIEW_CAPABILITIES__ ?? [];
-  const disabledSet = new Set(disabled);
-  return new Set(DEFAULT_PLUGIN_VIEW_CAPABILITIES.filter((capability) => !disabledSet.has(capability)));
+  return withoutDisabledCapabilities(
+    DEFAULT_PLUGIN_VIEW_CAPABILITIES,
+    (host) => host.__FRISKET_DISABLED_PLUGIN_VIEW_CAPABILITIES__,
+  );
 }
 
 export function resolvePluginViewAvailability(
   descriptor: WorkbenchViewDescriptor,
   sheet: SheetMeta | null,
   capabilities: Set<string> = availablePluginViewCapabilities(),
-): PluginViewAvailability {
-  for (const requirement of descriptor.requires) {
-    if (requirement.kind !== 'hostCapability' || requirement.optional) continue;
-    const capabilityId = requirement.id ?? '';
-    if (!capabilities.has(capabilityId)) {
-      return { available: false, reason: `missing_capability:${capabilityId}` };
-    }
-  }
-  const unmet = firstMissingDataRequirement(
-    descriptor.dataRequirements,
-    sheetDataRequirementContext(sheet),
-  );
-  if (unmet) {
-    return { available: false, reason: dataRequirementReason(unmet) };
-  }
-  return { available: true };
+): RequirementAvailability {
+  return resolveRequirementAvailability(descriptor, capabilities, sheetDataRequirementContext(sheet));
 }
 
 export function mediaFromPluginViewCell(value: unknown, projectId: string): ResolvedMediaValue | null {

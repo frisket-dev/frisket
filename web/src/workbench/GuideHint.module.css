@@ -8,10 +8,10 @@
   background: var(--bg);
   color: var(--text);
   box-shadow: var(--shadow-menu);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.45;
 }
 
 .hint p { margin: 0 0 12px; }
-.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-8); }
 .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }

@@ -2,6 +2,7 @@ import './FormControls.css';
 import './IconButton.css';
 import './ApplicationGuidance.css';
 import { Button, TabButton } from './Button';
+import { errorMessage } from '../hooks/errorMessage';
 // Install-guidance empty states for the local LLM server slot: every dead end
 // for the 'ollama' catalog entry (any OpenAI-compatible local server, not just
 // Ollama proper) becomes
@@ -130,7 +131,7 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
         setDownloadPull(caught.details.active);
         setDownloadPhase('active');
       } else {
-        setDownloadError(caught instanceof Error ? caught.message : String(caught));
+        setDownloadError(errorMessage(caught));
         setDownloadPhase('error');
       }
     } finally {
@@ -149,7 +150,7 @@ export function LocalServerGuidance({ entry, variant, onRecheck }: LocalServerGu
         setRecheckBusy(true);
         setRecheckError(null);
         void Promise.resolve(onRecheck()).catch((caught) => {
-          setRecheckError(caught instanceof Error ? caught.message : String(caught));
+          setRecheckError(errorMessage(caught));
         }).finally(() => setRecheckBusy(false));
       }}
     >

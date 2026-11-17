@@ -7,16 +7,16 @@
   border-left: 1px solid var(--border);
   background: var(--bg);
 }
-.mention-detail-title { display: inline-flex; align-items: baseline; gap: 2px; min-width: 0; }
+.mention-detail-title { display: inline-flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
 .mention-detail-label { font-weight: 600; }
-.mention-detail-counts { margin: 8px 12px 2px; font-size: 12px; font-weight: 600; }
-.mention-detail-basis { margin: 0 12px 8px; font-size: 11px; line-height: 1.4; }
+.mention-detail-counts { margin: 8px 12px 2px; font-size: var(--font-size-small); font-weight: 600; }
+.mention-detail-basis { margin: 0 12px 8px; font-size: var(--font-size-meta); line-height: 1.4; }
 .mention-detail-list { list-style: none; margin: 0; padding: 0; }
 .mention-detail-doc {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
   width: 100%;
   padding: 7px 8px;
   border: 0;
@@ -24,7 +24,7 @@
   background: none;
   text-align: left;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--text);
   cursor: pointer;
 }
@@ -33,7 +33,7 @@
 .mention-detail-doc-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* The disclosure and the title are two controls on one line: peeking inside a
    document must not cost you the one you are reading. */
-.mention-detail-doc-row { display: flex; align-items: center; gap: 2px; }
+.mention-detail-doc-row { display: flex; align-items: center; gap: var(--space-2); }
 .mention-detail-doc-row .mention-detail-doc { flex: 1; min-width: 0; }
 .mention-detail-doc-toggle {
   flex-shrink: 0;
@@ -71,5 +71,5 @@
   color: var(--text);
   font-weight: 600;
 }
-.mention-occurrence-note { margin: 2px 0 6px 26px; font-size: 11px; line-height: 1.4; }
+.mention-occurrence-note { margin: 2px 0 6px 26px; font-size: var(--font-size-meta); line-height: 1.4; }
 .mention-occurrence-more { margin: 0 0 6px 26px; }

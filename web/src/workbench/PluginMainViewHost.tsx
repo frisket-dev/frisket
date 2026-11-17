@@ -33,6 +33,7 @@ import {
   optionalGridReadSection,
   optionalHostLibrarySection,
 } from './pluginContextFragments';
+import { contributionSlug } from './visibility';
 
 // Host-component registry for projection views whose binding has no module_path:
 // the componentKey names a component built into the host. Which component renders
@@ -102,7 +103,7 @@ function unavailableView(descriptor: WorkbenchViewDescriptor, reason: string) {
     >
       <div
         className="plugin-view-unavailable"
-        data-testid={`plugin-view-unavailable-${descriptor.id.replace(/[^a-zA-Z0-9]+/g, '-')}`}
+        data-testid={`plugin-view-unavailable-${contributionSlug(descriptor.id)}`}
         data-contribution-id={descriptor.id}
         data-reason={reason}
       >

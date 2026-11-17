@@ -51,7 +51,7 @@
 }
 .evidence-viewer-subtitle {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   margin-top: 2px;
 }
 .evidence-viewer-content {
@@ -79,7 +79,7 @@
 .evidence-viewer-detail-pane {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: var(--space-10);
 }
 @media (max-width: 860px) {
   .evidence-viewer-backdrop { padding: 0; }

@@ -1,6 +1,6 @@
 import { Button } from '../components/Button';
 import { FormField, TextInput, TextArea } from '../components/FormControls';
-import { type FormEvent, useCallback, useEffect, useReducer } from 'react';
+import { type FormEvent, useState } from 'react';
 import { AlertTriangle, Save, Trash2 } from 'lucide-react';
 import {
   ApiError,
@@ -12,7 +12,6 @@ import {
   removeProjectMember,
   signOut,
   type ProjectInfo,
-  type ProjectInvite,
   type ProjectInviteRole,
   type ProjectMember,
   type ProjectRole,
@@ -22,7 +21,9 @@ import { canEditProject, canOwnProject, projectRole } from '../api/projectRole';
 import { PanelSelect } from '../components/PanelSelect';
 import { ConfirmTypeInput, PanelNotice } from '../components/PanelPrimitives';
 import { navigate } from '../routes';
-import { useLoader, errMsg } from './settingsSupport';
+import { useAction } from '../hooks/useAction';
+import { useLoader } from '../hooks/useLoader';
+import { errorMessage } from '../hooks/errorMessage';
 import { InlineStatus, SettingsTable } from './SettingsPrimitives';
 
 const MEMBER_ROLES: ProjectRole[] = ['viewer', 'reviewer', 'editor', 'owner'];
@@ -32,7 +33,7 @@ function accessErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
     return fallback;
   }
-  return errMsg(error);
+  return errorMessage(error);
 }
 
 function isFreshAuthError(error: unknown): boolean {
@@ -53,48 +54,17 @@ function memberKey(member: ProjectMember): string {
   return Number.isFinite(member.user_id) ? String(member.user_id) : safeTestKey(member.email);
 }
 
-interface ProjectGeneralFormState {
-  name: string | null;
-  description: string | null;
-  confirmDelete: string;
-  notice: string | null;
-  mutationError: string | null;
-  busy: boolean;
-}
-
-type ProjectGeneralFormAction =
-  | { type: 'set_name'; value: string }
-  | { type: 'set_description'; value: string }
-  | { type: 'set_confirm_delete'; value: string }
-  | { type: 'save_start' }
-  | { type: 'save_success'; notice: string }
-  | { type: 'save_error'; error: string }
-  | { type: 'delete_start' }
-  | { type: 'delete_error'; error: string };
-
-function projectGeneralReducer(state: ProjectGeneralFormState, action: ProjectGeneralFormAction): ProjectGeneralFormState {
-  switch (action.type) {
-    case 'set_name': return { ...state, name: action.value };
-    case 'set_description': return { ...state, description: action.value };
-    case 'set_confirm_delete': return { ...state, confirmDelete: action.value };
-    case 'save_start': return { ...state, busy: true, mutationError: null };
-    case 'save_success': return { ...state, busy: false, notice: action.notice };
-    case 'save_error': return { ...state, busy: false, notice: null, mutationError: action.error };
-    case 'delete_start': return { ...state, busy: true, mutationError: null };
-    case 'delete_error': return { ...state, busy: false, mutationError: action.error };
-  }
-}
-
-const projectGeneralInitial: ProjectGeneralFormState = {
-  name: null, description: null, confirmDelete: '', notice: null, mutationError: null, busy: false,
-};
-
 export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | null }) {
   const { projectApi: api } = useWorkspaceStores();
-  const details = useLoader<ProjectInfo>(() => api.getProject(), project?.id ?? '');
-  const [form, dispatch] = useReducer(projectGeneralReducer, projectGeneralInitial);
-  const nameValue = form.name ?? details.data?.name ?? project?.name ?? '';
-  const descriptionValue = form.description ?? details.data?.description ?? project?.description ?? '';
+  const details = useLoader<ProjectInfo>(() => api.getProject(), [project?.id ?? ''], { keepPreviousData: true });
+  const [name, setName] = useState<string | null>(null);
+  const [description, setDescription] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState('');
+  const [notice, setNotice] = useState<string | null>(null);
+  const mutation = useAction();
+  const busy = mutation.busy;
+  const nameValue = name ?? details.data?.name ?? project?.name ?? '';
+  const descriptionValue = description ?? details.data?.description ?? project?.description ?? '';
   const current = details.data ?? project;
   const canEdit = canEditProject(current);
   const canOwner = canOwnProject(current);
@@ -102,22 +72,23 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
   const save = async (event: FormEvent) => {
     event.preventDefault();
     if (!canEdit) return;
-    dispatch({ type: 'save_start' });
-    try {
-      const saved = await api.updateCurrentProject({
-        name: nameValue,
-        description: descriptionValue,
-      });
-      details.setData(saved);
-      dispatch({ type: 'save_success', notice: 'Project saved' });
-    } catch (caught) {
-      dispatch({ type: 'save_error', error: errMsg(caught) });
-    }
+    await mutation.run(async () => {
+      try {
+        details.setData(await api.updateCurrentProject({
+          name: nameValue,
+          description: descriptionValue,
+        }));
+      } catch (caught) {
+        setNotice(null);
+        throw caught;
+      }
+      setNotice('Project saved');
+    });
   };
 
   return (
     <div className="content-stack" data-testid="project-general-settings">
-      <InlineStatus error={details.error ?? form.mutationError} loading={details.loading} notice={form.notice} />
+      <InlineStatus error={details.error ?? mutation.error} loading={details.loading} notice={notice} />
       {!canEdit && (
         <PanelNotice>
           Your project role can view project identity but cannot change it.
@@ -129,8 +100,8 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
           <TextInput
             data-testid="project-name-input"
             value={nameValue}
-            disabled={!canEdit || form.busy}
-            onChange={(event) => dispatch({ type: 'set_name', value: event.currentTarget.value })}
+            disabled={!canEdit || busy}
+            onChange={(event) => setName(event.currentTarget.value)}
           />
         </FormField>
         <FormField label="Description" >
@@ -138,8 +109,8 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
           <TextArea
             data-testid="project-description-input"
             value={descriptionValue}
-            disabled={!canEdit || form.busy}
-            onChange={(event) => dispatch({ type: 'set_description', value: event.currentTarget.value })}
+            disabled={!canEdit || busy}
+            onChange={(event) => setDescription(event.currentTarget.value)}
           />
         </FormField>
         <div className="settings-meta-list">
@@ -148,7 +119,7 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
           <div><dt>Sensitive</dt><dd>{current?.sensitive ? 'Yes' : 'No'}</dd></div>
         </div>
         <div className="control-row">
-          <Button className="btn-primary" type="submit" disabled={!canEdit || form.busy}>
+          <Button className="btn-primary" type="submit" disabled={!canEdit || busy}>
             <Save size={14} /> Save
           </Button>
         </div>
@@ -160,16 +131,18 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
       )}
       <form className="settings-danger-zone" onSubmit={(event) => {
         event.preventDefault();
-        if (form.confirmDelete === current?.name && canOwner) {
-          dispatch({ type: 'delete_start' });
-          void api.deleteProject(current?.id, form.confirmDelete)
-            .then(() => navigate({ kind: 'picker' }))
-            .catch((caught) => dispatch({
-              type: 'delete_error',
-              error: caught instanceof ApiError && caught.status === 409
-                ? 'This project still has runs in flight. Wait for them to finish or cancel them, then delete.'
-                : errMsg(caught),
-            }));
+        if (confirmDelete === current?.name && canOwner) {
+          void mutation.run(async () => {
+            try {
+              await api.deleteProject(current?.id, confirmDelete);
+            } catch (caught) {
+              if (caught instanceof ApiError && caught.status === 409) {
+                throw new Error('This project still has runs in flight. Wait for them to finish or cancel them, then delete.', { cause: caught });
+              }
+              throw caught;
+            }
+            navigate({ kind: 'picker' });
+          });
         }
       }}>
         <div className="settings-danger-header">
@@ -187,16 +160,16 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            value={form.confirmDelete}
-            disabled={!canOwner || form.busy}
-            onChange={(value) => dispatch({ type: 'set_confirm_delete', value })}
+            value={confirmDelete}
+            disabled={!canOwner || busy}
+            onChange={setConfirmDelete}
           />
         </label>
         <Button
           className="btn-reject settings-danger-button"
           data-testid="project-delete-button"
           type="submit"
-          disabled={!canOwner || form.busy || form.confirmDelete !== current?.name}
+          disabled={!canOwner || busy || confirmDelete !== current?.name}
         >
           <Trash2 size={14} /> Delete
         </Button>
@@ -205,73 +178,31 @@ export function ProjectGeneralSettings({ project }: { project?: ProjectInfo | nu
   );
 }
 
-interface ProjectAccessState {
-  members: ProjectMember[] | null;
-  invites: ProjectInvite[] | null;
-  email: string;
-  role: ProjectInviteRole;
-  memberError: string | null;
-  inviteError: string | null;
-  actionError: string | null;
-  notice: string | null;
+interface ProjectAccessAction {
   busy: string | null;
+  error: string | null;
+  notice: string | null;
   freshAuthRequired: boolean;
-  loadedProjectId: string | null;
 }
 
-type ProjectAccessAction =
-  | { type: 'load_result'; members: ProjectMember[]; invites: ProjectInvite[]; memberError: string | null; inviteError: string | null; loadedProjectId: string }
-  | { type: 'load_error'; error: string }
-  | { type: 'action_start'; label: string }
-  | { type: 'action_success'; notice: string }
-  | { type: 'action_error'; error: string; freshAuthRequired: boolean }
-  | { type: 'set_email'; value: string }
-  | { type: 'set_role'; value: ProjectInviteRole }
-  | { type: 'clear_email' };
-
-function projectAccessReducer(state: ProjectAccessState, action: ProjectAccessAction): ProjectAccessState {
-  switch (action.type) {
-    case 'load_result':
-      return { ...state, members: action.members, invites: action.invites, memberError: action.memberError, inviteError: action.inviteError, loadedProjectId: action.loadedProjectId };
-    case 'load_error':
-      return { ...state, actionError: action.error };
-    case 'action_start':
-      return { ...state, busy: action.label, actionError: null, notice: null, freshAuthRequired: false };
-    case 'action_success':
-      return { ...state, busy: null, notice: action.notice };
-    case 'action_error':
-      return { ...state, busy: null, actionError: action.error, freshAuthRequired: action.freshAuthRequired };
-    case 'set_email':
-      return { ...state, email: action.value };
-    case 'set_role':
-      return { ...state, role: action.value };
-    case 'clear_email':
-      return { ...state, email: '' };
-  }
-}
-
-const projectAccessInitial: ProjectAccessState = {
-  members: null, invites: null, email: '', role: 'viewer',
-  memberError: null, inviteError: null, actionError: null, notice: null,
-  busy: null, freshAuthRequired: false, loadedProjectId: null,
-};
+const ACCESS_ACTION_IDLE: ProjectAccessAction = { busy: null, error: null, notice: null, freshAuthRequired: false };
 
 export function ProjectAccessSettings({ project, identityMode }: { project?: ProjectInfo | null; identityMode: boolean }) {
-  const [state, dispatch] = useReducer(projectAccessReducer, projectAccessInitial);
   const projectId = project?.id ?? '';
   const canManageProject = ['owner', 'editor'].includes(projectRole(project));
   const canManageOwners = canOwnProject(project);
   const assignableRoles = canManageOwners
     ? MEMBER_ROLES
     : MEMBER_ROLES.filter((item) => item !== 'owner');
-  const load = useCallback(async () => {
-    if (!projectId || !identityMode) return;
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState<ProjectInviteRole>('viewer');
+  const [action, setAction] = useState<ProjectAccessAction>(ACCESS_ACTION_IDLE);
+  const access = useLoader(async () => {
     const [memberResult, inviteResult] = await Promise.allSettled([
       listProjectMembers(projectId),
       listProjectInvites(projectId),
     ]);
-    dispatch({
-      type: 'load_result',
+    return {
       members: memberResult.status === 'fulfilled' ? memberResult.value : [],
       invites: inviteResult.status === 'fulfilled' ? inviteResult.value : [],
       memberError: memberResult.status === 'rejected'
@@ -280,47 +211,36 @@ export function ProjectAccessSettings({ project, identityMode }: { project?: Pro
       inviteError: inviteResult.status === 'rejected'
         ? accessErrorMessage(inviteResult.reason, 'You do not have permission to manage project invites.')
         : null,
-      loadedProjectId: projectId,
-    });
-  }, [identityMode, projectId]);
-  useEffect(() => {
-    if (!identityMode) return undefined;
-    let alive = true;
-    void Promise.resolve().then(async () => {
-      try {
-        await load();
-      } catch (caught) {
-        if (alive) dispatch({ type: 'load_error', error: errMsg(caught) });
-      }
-    });
-    return () => {
-      alive = false;
     };
-  }, [identityMode, load]);
+  }, [identityMode, projectId], { keepPreviousData: true, enabled: identityMode && projectId !== '' });
+  const load = access.reload;
   if (!identityMode) {
     return <div className="panel-empty">Project access is available on hosted workspaces.</div>;
   }
-  const loading = state.loadedProjectId !== projectId;
-  const runAction = async (label: string, action: () => Promise<void>) => {
-    if (state.busy !== null || !canManageProject) return;
-    dispatch({ type: 'action_start', label });
+  const loading = access.data === null || access.loading;
+  const members = access.data?.members ?? null;
+  const invites = access.data?.invites ?? null;
+  const runAction = async (label: string, task: () => Promise<void>) => {
+    if (action.busy !== null || !canManageProject) return;
+    setAction({ ...ACCESS_ACTION_IDLE, busy: label });
     try {
-      await action();
-      dispatch({ type: 'action_success', notice: label });
+      await task();
+      setAction({ ...ACCESS_ACTION_IDLE, notice: label });
     } catch (caught) {
-      dispatch({
-        type: 'action_error',
-        error: isFreshAuthError(caught)
+      const freshAuthRequired = isFreshAuthError(caught);
+      setAction({
+        ...ACCESS_ACTION_IDLE,
+        error: freshAuthRequired
           ? 'Sign in again to change project access.'
           : accessErrorMessage(caught, 'You do not have permission to manage project access.'),
-        freshAuthRequired: isFreshAuthError(caught),
+        freshAuthRequired,
       });
     }
   };
   return (
     <div className="content-stack" data-testid="project-access-settings">
-      <InlineStatus error={state.actionError} loading={loading} notice={state.notice} />
-      {state.freshAuthRequired && (
+      <InlineStatus error={action.error ?? access.error} loading={loading} notice={action.notice} />
+      {action.freshAuthRequired && (
         <Button
 
           type="button"
@@ -338,11 +258,11 @@ export function ProjectAccessSettings({ project, identityMode }: { project?: Pro
       {canManageProject && (
         <form className="form-inline" onSubmit={(event) => {
           event.preventDefault();
-          const inviteEmail = state.email.trim();
+          const inviteEmail = email.trim();
           if (!inviteEmail) return;
           void runAction('Invite created', async () => {
-            await createProjectInvite(projectId, inviteEmail, state.role);
-            dispatch({ type: 'clear_email' });
+            await createProjectInvite(projectId, inviteEmail, role);
+            setEmail('');
             await load();
           });
         }}>
@@ -350,32 +270,32 @@ export function ProjectAccessSettings({ project, identityMode }: { project?: Pro
             aria-label="Invite email"
             data-testid="project-invite-email"
             placeholder="Email"
-            value={state.email}
-            disabled={state.busy !== null}
-            onChange={(event) => dispatch({ type: 'set_email', value: event.currentTarget.value })}
+            value={email}
+            disabled={action.busy !== null}
+            onChange={(event) => setEmail(event.currentTarget.value)}
           />
           <PanelSelect
             data-testid="project-invite-role"
-            value={state.role}
-            disabled={state.busy !== null}
-            onChange={(event) => dispatch({ type: 'set_role', value: event.currentTarget.value as ProjectInviteRole })}
+            value={role}
+            disabled={action.busy !== null}
+            onChange={(event) => setRole(event.currentTarget.value as ProjectInviteRole)}
           >
             {INVITE_ROLES.map((item) => <option key={item} value={item}>{item}</option>)}
           </PanelSelect>
-          <Button className="btn-primary" data-testid="project-invite-submit" type="submit" disabled={state.busy !== null || !state.email.trim()}>Invite</Button>
+          <Button className="btn-primary" data-testid="project-invite-submit" type="submit" disabled={action.busy !== null || !email.trim()}>Invite</Button>
         </form>
       )}
-      <InlineStatus error={state.memberError} />
+      <InlineStatus error={access.data?.memberError ?? null} />
       <SettingsTable
         headers={['Member', 'Role', '']}
-        rows={(state.members ?? []).map((member) => [
+        rows={(members ?? []).map((member) => [
           member.email,
           <PanelSelect
             key={`${memberKey(member)}-role`}
             data-testid={`project-member-role-${memberKey(member)}`}
             value={member.role}
             disabled={
-              state.busy !== null ||
+              action.busy !== null ||
               !canManageProject ||
               (member.role === 'owner' && !canManageOwners)
             }
@@ -397,7 +317,7 @@ export function ProjectAccessSettings({ project, identityMode }: { project?: Pro
             aria-label={`Remove ${member.email}`}
             title={`Remove ${member.email}`}
             disabled={
-              state.busy !== null ||
+              action.busy !== null ||
               !canManageProject ||
               (member.role === 'owner' && !canManageOwners)
             }
@@ -411,10 +331,10 @@ export function ProjectAccessSettings({ project, identityMode }: { project?: Pro
         ])}
         empty="No members"
       />
-      <InlineStatus error={state.inviteError} />
+      <InlineStatus error={access.data?.inviteError ?? null} />
       <SettingsTable
         headers={['Pending invite', 'Role', 'Expires', '']}
-        rows={(state.invites ?? []).map((invite) => [
+        rows={(invites ?? []).map((invite) => [
           invite.email,
           invite.role,
           formatDate(invite.expires_at),
@@ -423,7 +343,7 @@ export function ProjectAccessSettings({ project, identityMode }: { project?: Pro
 
             data-testid={`project-invite-revoke-${invite.id}`}
             type="button"
-            disabled={state.busy !== null || !canManageProject}
+            disabled={action.busy !== null || !canManageProject}
             onClick={() => void runAction('Invite revoked', async () => {
               await revokeProjectInvite(projectId, invite.id);
               await load();

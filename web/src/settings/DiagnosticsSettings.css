@@ -10,7 +10,7 @@
 .diagnose-panel-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   text-align: left;
 }
 .diagnose-panel-table th,
@@ -35,7 +35,7 @@
   align-items: center;
   gap: 5px;
   min-width: 66px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
   white-space: nowrap;
 }

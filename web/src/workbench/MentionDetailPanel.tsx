@@ -1,6 +1,7 @@
 import '../components/EntityFacetsPanel.css';
 import './MentionDetailPanel.css';
 import { Button } from '../components/Button';
+import { errorMessage } from '../hooks/errorMessage';
 // The drill-down the Mentions panel lacks. Clicking a mention group there
 // filters the GRID; this answers the question a reader actually has — which
 // documents does this mention appear in, and how many times in each — without
@@ -111,7 +112,7 @@ export function MentionDetailPanel({
           key,
           page: null,
           loading: false,
-          error: err instanceof Error ? err.message : 'Could not load this mention.',
+          error: errorMessage(err, 'Could not load this mention.'),
         });
       });
     return () => {
@@ -168,7 +169,7 @@ export function MentionDetailPanel({
           patchRow(rowId, (prev) => ({
             page: prev?.page ?? null,
             loading: false,
-            error: err instanceof Error ? err.message : 'Could not load these mentions.',
+            error: errorMessage(err, 'Could not load these mentions.'),
           }));
         });
     },
@@ -219,7 +220,7 @@ export function MentionDetailPanel({
         setState((prev) => ({
           ...prev,
           loading: false,
-          error: err instanceof Error ? err.message : 'Could not load more documents.',
+          error: errorMessage(err, 'Could not load more documents.'),
         }));
       });
   };

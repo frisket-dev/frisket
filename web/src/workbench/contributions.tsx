@@ -55,6 +55,7 @@ import {
   type WorkbenchResolvedPlacement,
 } from './descriptors';
 import type { WorkbenchResolvedLayoutRegion } from './layout';
+import { contributionSlug } from './visibility';
 
 function contributionIdsByStatus(
   region: WorkbenchResolvedLayoutRegion,
@@ -90,7 +91,7 @@ export function ResolvedWorkbenchLayoutRegion({
         <span
           key={`${item.contributionId}:${item.placementId}`}
           hidden
-          data-testid={`workbench-resolved-layout-item-${item.contributionId.replace(/[^a-zA-Z0-9]+/g, '-')}`}
+          data-testid={`workbench-resolved-layout-item-${contributionSlug(item.contributionId)}`}
           data-contribution-id={item.contributionId}
           data-host={item.host}
           data-mode={item.mode}
@@ -146,11 +147,11 @@ interface HistoryWorkbenchPanelProps extends HistoryPanelProps {
 }
 
 function contributionTestId(contributionId: string): string {
-  return `workbench-contribution-${contributionId.replace(/[^a-zA-Z0-9]+/g, '-')}`;
+  return `workbench-contribution-${contributionSlug(contributionId)}`;
 }
 
 function commandTestId(contributionId: string): string {
-  return `workbench-command-${contributionId.replace(/[^a-zA-Z0-9]+/g, '-')}`;
+  return `workbench-command-${contributionSlug(contributionId)}`;
 }
 
 interface WorkbenchContributionFrameProps {

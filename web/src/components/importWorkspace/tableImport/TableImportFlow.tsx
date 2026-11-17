@@ -32,6 +32,7 @@ import {
   type TableImportSourceMode,
   type TableImportStage,
 } from './model';
+import { errorMessage } from '../../../hooks/errorMessage';
 
 export interface TableImportShellContext {
   active: true;
@@ -150,7 +151,7 @@ export function TableImportFlow({
 
   const reportError = useCallback((problem: unknown) => {
     if (problem instanceof DOMException && problem.name === 'AbortError') return;
-    const message = problem instanceof Error ? problem.message : String(problem);
+    const message = errorMessage(problem);
     setError(message);
     callbacks.current.onError(message);
   }, []);

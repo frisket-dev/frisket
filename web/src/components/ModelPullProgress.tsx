@@ -1,6 +1,7 @@
 import './ModelPullProgress.css';
 import './PanelPrimitives.css';
 import { Button } from './Button';
+import { errorMessage } from '../hooks/errorMessage';
 // Live progress for a single in-app model pull. Renders inline wherever a pull
 // needs to be watched: LocalServerGuidance's Download flow and the Settings
 // active/recent pulls strip. Polls GET /providers/models/pulls/{id} every ~1s via
@@ -114,7 +115,7 @@ export function ModelPullProgress({
       await cancelPull(pull.id);
       setPull((current) => ({ ...current, cancel_requested: true }));
     } catch (caught) {
-      setCancelError(caught instanceof Error ? caught.message : String(caught));
+      setCancelError(errorMessage(caught));
     } finally {
       setCancelling(false);
     }
@@ -127,7 +128,7 @@ export function ModelPullProgress({
       const next = await uninstall(pull.model);
       setPull(next);
     } catch (caught) {
-      setUninstallError(caught instanceof Error ? caught.message : String(caught));
+      setUninstallError(errorMessage(caught));
     } finally {
       setUninstalling(false);
     }

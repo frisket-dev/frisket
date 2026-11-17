@@ -170,7 +170,7 @@ describe('comparison variant editor lifecycle', () => {
       addBlankColumn: vi.fn(), removeColumn: vi.fn(), duplicateColumn: vi.fn(),
     } as unknown as MediaCompareSession<TranscribeCompareEngineResult>;
     const { result } = renderHook(() => useTranscribeVariantConfigure(session));
-    act(() => result.current.onConfigureChooseEngine('variant', 'whisper'));
+    act(() => result.current.onChooseEngine('variant', 'whisper'));
     expect(chooseEngine).toHaveBeenCalledWith('variant', 'whisper');
     expect(updateColumnOptions).toHaveBeenCalledWith('variant', {
       language: undefined, modelSize: undefined, vad: undefined, diarize: undefined,

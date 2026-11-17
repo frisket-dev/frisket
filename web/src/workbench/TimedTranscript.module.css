@@ -5,7 +5,7 @@
 .layout {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  gap: var(--space-16);
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -19,7 +19,7 @@
   position: sticky;
   top: 0;
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
 }
 
 .player audio,

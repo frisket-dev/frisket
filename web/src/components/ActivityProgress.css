@@ -37,14 +37,14 @@
 .activity-progress-card-heading {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-10);
   min-width: 0;
 }
 .activity-progress-card-copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-2);
   overflow-wrap: anywhere;
 }
 .activity-progress-card-header .activity-progress-card-copy > strong {
@@ -57,7 +57,7 @@
 .activity-progress-card.activity-state-complete .activity-progress-card-header .activity-progress-card-copy > strong { color: var(--green); }
 .activity-progress-card-detail {
   color: var(--text-mid);
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
 }
@@ -81,7 +81,7 @@
   border-top: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 
 .activity-progress-spinner {
@@ -95,7 +95,7 @@
   display: grid;
   grid-template-columns: minmax(118px, 1fr) 120px minmax(92px, auto);
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
   min-width: 0;
   padding: 9px 16px;
   border-top: 1px solid var(--border);
@@ -103,14 +103,14 @@
 .activity-progress-label {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-6);
   min-width: 0;
 }
 .activity-progress-label strong {
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -125,7 +125,7 @@
 }
 .activity-progress-count {
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   text-align: right;

@@ -1,38 +1,19 @@
 import '../settings/SettingsPrimitives.css';
 import { Button } from '../components/Button';
-import { useEffect, useState } from 'react';
-import type { HttpModelsGatewayStatus } from '../api/modelsGateway';
-import { getModelsGateway, type ModelsGatewayScope } from '../api/modelsGateway';
+import { getModelsGateway, type HttpModelsGatewayStatus, type ModelsGatewayScope } from '../api/modelsGateway';
 import { ModelsGatewayForm } from './ModelsGatewayForm';
-import { useSetupRequests } from './setupLifetime';
+import { useLoader } from '../hooks/useLoader';
 
 /** Mounted only where the edition contributes the gateway status resource. */
 function ScopedModelsGatewaySettings({ scope }: { scope: ModelsGatewayScope }) {
-  const [status, setStatus] = useState<HttpModelsGatewayStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const { begin } = useSetupRequests();
-  const load = () => {
-    const request = begin();
-    return getModelsGateway(scope, request.signal).then(
-      (fresh) => { if (request.isCurrent()) { setStatus(fresh); setLoading(false); } },
-      () => { if (request.isCurrent()) { setError('Could not load models gateway configuration.'); setLoading(false); } },
-    );
-  };
-  useEffect(() => {
-    const request = begin();
-    getModelsGateway(scope, request.signal).then(
-      (fresh) => { if (request.isCurrent()) { setStatus(fresh); setLoading(false); } },
-      () => { if (request.isCurrent()) { setError('Could not load models gateway configuration.'); setLoading(false); } },
-    );
-  }, [begin, scope]);
-  const reload = () => { setLoading(true); setError(null); void load(); };
+  const { data: status, error, loading, reload: refetch } = useLoader<HttpModelsGatewayStatus>((signal) => getModelsGateway(scope, signal), [scope]);
+  const reload = () => { void refetch(); };
   return <section className="content-stack" data-testid="models-gateway-settings">
     <div className="settings-section-subhead"><h2>Models gateway</h2>
       <p>Attach a Frisket models server with its URL and bearer token.</p>
     </div>
     {loading && <p role="status">Loading models gateway configuration…</p>}
-    {error && <p role="alert">{error}</p>}
+    {error !== null && <p role="alert">Could not load models gateway configuration.</p>}
     {status && <>
       <p className="form-hint">{status.configured ? `Configured at ${status.origin ?? 'the configured server'}${status.token_hint ? ` (${status.token_hint})` : ''}` : 'No models gateway configured.'}</p>
       {status.error && <p role="alert">{status.error}</p>}

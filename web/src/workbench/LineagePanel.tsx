@@ -2,6 +2,8 @@ import '../components/PanelPrimitives.css';
 import '../workspace/SheetInfoPopover.css';
 import './LineagePanel.css';
 import { Button } from '../components/Button';
+import { errorMessage } from '../hooks/errorMessage';
+import { useAction } from '../hooks/useAction';
 // The Monitor Lineage tab: the project's provenance DAG (sources → sheets → AI
 // columns) read from GET /lineage.
 // Stale sheet nodes and the edges into them render amber; the
@@ -43,8 +45,7 @@ export function CascadeConfirmDialog({
   refreshSheets: () => void | Promise<unknown>;
 }) {
   const { projectApi } = useWorkspaceStores();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useAction({ errorFallback: 'Refresh failed' });
   const [costGate, setCostGate] = useState<{
     estimate: RunEstimate;
     message: string;
@@ -57,34 +58,26 @@ export function CascadeConfirmDialog({
   // dismissing away mid-run, so the Escape listener is disabled while busy).
   useEscapeDismiss(onClose, { enabled: !busy });
 
-  const runCascade = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      for (const sheet of [...staleDeepestFirst].reverse()) {
-        let confirmation: string | undefined;
-        while (true) {
-          try {
-            await projectApi.refreshSheet(sheet.id, confirmation);
-            break;
-          } catch (err) {
-            if (!(err instanceof ConfirmationRequiredError)) throw err;
-            const approved = await new Promise<boolean>((resolve) => {
-              setCostGate({ estimate: err.estimate, message: err.message, resolve });
-            });
-            if (!approved) return;
-            confirmation = err.estimate.promise_set_hash;
-          }
+  const runCascade = useCallback(() => run(async () => {
+    for (const sheet of [...staleDeepestFirst].reverse()) {
+      let confirmation: string | undefined;
+      while (true) {
+        try {
+          await projectApi.refreshSheet(sheet.id, confirmation);
+          break;
+        } catch (err) {
+          if (!(err instanceof ConfirmationRequiredError)) throw err;
+          const approved = await new Promise<boolean>((resolve) => {
+            setCostGate({ estimate: err.estimate, message: err.message, resolve });
+          });
+          if (!approved) return;
+          confirmation = err.estimate.promise_set_hash;
         }
       }
-      await refreshSheets();
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Refresh failed');
-    } finally {
-      setBusy(false);
     }
-  }, [staleDeepestFirst, refreshSheets, onClose]);
+    await refreshSheets();
+    onClose();
+  }), [run, staleDeepestFirst, refreshSheets, onClose]);
 
   return (
     <>
@@ -235,7 +228,7 @@ export function LineagePanel({
           }
         })
         .catch((err) => {
-          if (alive) setError(err instanceof Error ? err.message : 'Lineage unavailable');
+          if (alive) setError(errorMessage(err, 'Lineage unavailable'));
         });
     };
     read();

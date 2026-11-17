@@ -28,16 +28,16 @@
 }
 .inspect-detail-rownum {
   font-family: var(--mono);
-  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  font-size: var(--font-size-meta); font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--act);
 }
-.inspect-detail-walk { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.inspect-detail-walk { display: inline-flex; align-items: center; gap: var(--space-6); min-width: 0; }
 /* sheet-title-column-v1: the row's resolved title (web/src/workbench/
    rowTitle.ts), shown next to the ROW n kicker/prev-next chips. Capped +
    ellipsized so a long value never pushes the sheet-name chip or close
    button out of reach. */
 .inspect-detail-row-title {
-  font-size: 12.5px; font-weight: 600; color: var(--text);
+  font-size: var(--font-size-control); font-weight: 600; color: var(--text);
   max-width: 180px; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }

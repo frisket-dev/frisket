@@ -3,7 +3,7 @@
 .resolve-substitute-status { justify-content: space-between; }
 .resolve-substitute-facts {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-variant-numeric: tabular-nums;
 }
 .resolve-substitute-exact-note {
@@ -29,7 +29,7 @@
 }
 .resolve-substitute-legend {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .resolve-substitute-rows {
   gap: 0;
@@ -51,7 +51,7 @@
 }
 .resolve-substitute-diamond {
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   flex-shrink: 0;
 }
 .resolve-substitute-value-text {
@@ -66,7 +66,7 @@
   min-width: 30px;
   text-align: right;
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-variant-numeric: tabular-nums;
 }
 .resolve-substitute-arrow {
@@ -93,7 +93,7 @@
 .resolve-substitute-merge-hint {
   flex-basis: 100%;
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 /* "—" count cell for a hand-typed value the loaded page doesn't contain,
    with its explicit "not in column" marker stacked under the dash. */
@@ -105,7 +105,7 @@
 }
 .resolve-substitute-not-in-column {
   color: var(--text-light);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   white-space: nowrap;
 }
 /* Conflict warning on an extra row that duplicates an enumerated value. */

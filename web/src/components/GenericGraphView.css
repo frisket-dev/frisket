@@ -24,7 +24,7 @@
 .graph-view-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-10);
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-panel);
@@ -50,7 +50,7 @@
   border-radius: var(--radius-6);
   background: #fff;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   cursor: pointer;
 }
 .graph-toolbar-button:hover { background: var(--bg-hover); }
@@ -68,7 +68,7 @@
 .graph-edge-group.is-selected .graph-edge-line { stroke: var(--accent); stroke-width: 3; }
 .graph-config-panel {
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
   padding-bottom: 12px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--border);
@@ -77,8 +77,8 @@
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--space-8);
+  font-size: var(--font-size-small);
   color: var(--text-mid);
 }
 .graph-config-field .row-height-select { width: 100%; max-width: none; }
@@ -110,7 +110,7 @@
 .graph-arrow { fill: #64748b; }
 .graph-edge-label {
   fill: #334155;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   text-anchor: middle;
   paint-order: stroke;
   stroke: #f8fafc;
@@ -124,7 +124,7 @@
 
 .graph-node-label {
   fill: #0f172a;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 650;
   text-anchor: middle;
   paint-order: stroke;
@@ -142,18 +142,18 @@
 }
 .graph-side-panel h3 {
   margin: 12px 0 8px;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   color: var(--text);
 }
 .graph-list {
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
 }
 .graph-list-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
   width: 100%;
   padding: 8px;
   border: 1px solid var(--border);
@@ -174,7 +174,7 @@
   display: block;
   margin-top: 2px;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .graph-diagnostic {
   margin-bottom: 8px;
@@ -183,7 +183,7 @@
   border-radius: var(--radius-6);
   background: #fffbeb;
   color: #7c2d12;
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .graph-diagnostic-limit {
   border-color: #fed7aa;

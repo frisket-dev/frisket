@@ -5,6 +5,7 @@ import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { ConfirmDialog } from '../Modal';
 import { OutputNameCombobox } from '../action-panel/TargetSaveToControl';
 import { dedupeDefaultColumnName, existingColumnByName } from '../action-panel/formControlHelpers';
+import { useAction } from '../../hooks/useAction';
 
 /** Saved logical output bindings come from the run, never today's action schema. */
 export function ReapplyResultsDialog({ run, onClose, onApplied }: {
@@ -13,8 +14,7 @@ export function ReapplyResultsDialog({ run, onClose, onApplied }: {
   const { projectApi } = useWorkspaceStores();
   const [columns, setColumns] = useState<ColumnDef[] | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, error, setError, run: runAction } = useAction();
   const outputs = run.outputs ?? [];
   useEffect(() => {
     let active = true;
@@ -33,16 +33,14 @@ export function ReapplyResultsDialog({ run, onClose, onApplied }: {
       setColumns(sheet.columns);
     }).catch((reason) => { if (active) setError(String(reason)); });
     return () => { active = false; };
-  }, [projectApi, run]);
+  }, [projectApi, run, setError]);
   const values = outputs.map((output) => names[output.key]?.trim() ?? '');
   const valid = columns !== null && outputs.length > 0 && values.every(Boolean)
     && new Set(values.map((name) => name.toLowerCase())).size === outputs.length;
   const replacements = values.filter((name) => existingColumnByName(columns ?? [], name));
   const apply = async () => {
     if (!valid || busy || !run.runId) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await runAction(async () => {
       await projectApi.runAction({ action_id: 'run.reapply',
         idempotency_key: freshActionRequestKey('run.reapply'),
         scope: { kind: 'sheet_rows', sheet_id: Number(run.sheetId) },
@@ -54,8 +52,7 @@ export function ReapplyResultsDialog({ run, onClose, onApplied }: {
             : Number(existingColumnByName(columns ?? [], name)!.id)])),
       });
       onApplied();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
-    finally { setBusy(false); }
+    });
   };
   return <ConfirmDialog title="Reapply saved results?" confirmLabel="Reapply results"
     onConfirm={() => { void apply(); }} onCancel={onClose} busy={busy} blocked={!valid}

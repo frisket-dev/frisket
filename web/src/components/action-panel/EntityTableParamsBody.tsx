@@ -2,39 +2,25 @@ import '../PanelPrimitives.css';
 import '../FormControls.css';
 import '../ActionPanel.css';
 import { Button } from '../Button';
-import { useEffect, useState } from 'react';
 import { useChromeHandle } from '../../bind/useChromeHandle';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
-import type { V1Receipt } from '../../api/types';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
+import { useLoader } from '../../hooks/useLoader';
 
 export function EntityTableParamsBody({ params }:
   GeneratedActionParamsBodyProps<'resolve.entities'>) {
   const { projectApi } = useWorkspaceStores();
   const chrome = useChromeHandle();
   const receiptId = params.source?.receipt_id;
-  const [result, setResult] = useState<{
-    id: string; receipt?: V1Receipt; error?: string;
-  } | null>(null);
-  useEffect(() => {
-    if (!receiptId) return;
-    let current = true;
-    projectApi.getReceipt(receiptId).then((receipt) => {
-      if (current) setResult({ id: receiptId, receipt });
-    }).catch((error: unknown) => {
-      if (current) setResult({ id: receiptId,
-        error: error instanceof Error ? error.message : 'Could not load clustering result.' });
-    });
-    return () => { current = false; };
-  }, [projectApi, receiptId]);
-  const loaded = result?.id === receiptId ? result : null;
-  const receipt = loaded?.receipt;
+  const loader = useLoader(() => projectApi.getReceipt(receiptId!), [receiptId],
+    { enabled: Boolean(receiptId), errorFallback: 'Could not load clustering result.' });
+  const receipt = loader.data;
   return <div className="action-source-block" data-testid="entity-table-source">
     <div className="form-label">Completed clustering result</div>
     {receiptId ? <>
       <p className="form-hint">Receipt {receiptId}</p>
-      {!loaded && <p className="form-hint">Loading result…</p>}
-      {loaded?.error && <p className="panel-error" role="alert">{loaded.error}</p>}
+      {loader.loading && <p className="form-hint">Loading result…</p>}
+      {loader.error && <p className="panel-error" role="alert">{loader.error}</p>}
       {receipt && (receipt.actionKind !== 'cluster.values' || receipt.status !== 'completed')
         && <p className="panel-error" role="alert">This is not a completed Cluster values result.</p>}
       <p className="form-hint">Creates a table from the committed groups and canonical names.

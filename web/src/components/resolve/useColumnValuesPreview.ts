@@ -8,8 +8,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { type ColumnValuesPreview } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
+import { errorMessage } from '../../hooks/errorMessage';
 
-const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const msg = (e: unknown): string => errorMessage(e);
 
 /** Output-column naming: a free-text draft whose blank state falls back to
  *  the `{input_column}_clean` default the executors also assume. */

@@ -28,7 +28,7 @@
 .json-blob-thumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-10);
 }
 .json-blob-thumb {
   margin: 0;

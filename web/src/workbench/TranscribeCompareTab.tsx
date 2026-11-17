@@ -1,9 +1,8 @@
-import { CompareToolbar, CompareEngineChip } from './CompareLayout';
+import { CompareToolbar } from './CompareLayout';
 import { CompareRunControl } from './CompareRunControl';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus } from 'lucide-react';
 
 import type { PreviewSampleResult, TranscribeCompareScratchInput } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
@@ -26,12 +25,11 @@ import {
   transcribeFieldsForEngine,
   type TranscribeVariantOptions,
 } from './transcribeCompareInput';
-import { ConfigureVariantPopover, MediaCompareBody } from './MediaCompareShell';
+import { CompareVariantChips, MediaCompareBody } from './MediaCompareShell';
 import { usePaidMediaComparison } from './usePaidMediaComparison';
 import { useTranscribeVariantConfigure } from './useTranscribeVariantConfigure';
 import {
   useMediaCompareSession,
-  variantPip,
   type AlignedUnit,
   type CompareColumn,
   type MediaCompareConfig,
@@ -154,8 +152,6 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     columns,
     docs,
     runnableColumns,
-    activeDoc,
-    engineLabel,
     runningCount,
     sourceOpen,
     setSourceOpen,
@@ -172,21 +168,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
   const { clearQuote } = paid;
   useEffect(() => { clearQuote(); }, [clearQuote, quoteInputKey]);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const moreInputRef = useRef<HTMLInputElement>(null);
-  const {
-    configureVariantId,
-    onRemoveVariant,
-    popoverShift,
-    configureAnchorRef,
-    engineSelectorRef,
-    configurePopoverRef,
-    openConfigure,
-    onConfigureChooseEngine,
-    onConfigureDuplicate,
-    addVariant,
-    renderSourcePeek,
-  } = useTranscribeVariantConfigure(session);
+  const variantEditor = useTranscribeVariantConfigure(session);
 
   function variantSummary(column: CompareColumn): string {
     if (!column.engineId) return '';
@@ -238,73 +220,35 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
           </Button>
         </>}
       >
-        {columns.map((column) => {
-          const pip = variantPip(column, activeDoc?.runs[column.id]);
-          const summary = variantSummary(column);
-          const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
-          return (
-            <div
-              key={column.id}
-              className="ocr-compare-variant"
-              ref={configureVariantId === column.id ? configureAnchorRef : undefined}
-            >
-              <CompareEngineChip testIdPrefix="transcribe-compare" engine={chipEngine}
-                engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
-                pip={pip} summary={summary}
-                onConfigure={() => openConfigure(column.id)}
-                onRemove={() => onRemoveVariant(column.id)}
-                chipTestId="transcribe-compare-engine-chip"
-                removeTestId={`transcribe-compare-engine-chip-remove-${column.engineId ?? ''}`} />
-              {configureVariantId === column.id ? (
-                <ConfigureVariantPopover
-                  selectorProjection={session.selectorProjection(column)}
-                  testidPrefix="transcribe-compare"
-                  actionId="media.transcribe"
-                  popoverRef={configurePopoverRef}
-                  style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
-                  column={column}
-                  catalog={column.engineId ? catalog : catalog.filter((engine) => !columns.some((variant) => variant.engineId === engine.id))}
-                  engineSelectorRef={engineSelectorRef}
-                  errorMessage={
-                    activeDoc?.runs[column.id]?.status === 'error'
-                      ? (activeDoc.runs[column.id] as { message: string }).message
-                      : null
-                  }
-                  onChooseEngine={(engineId) => onConfigureChooseEngine(column.id, engineId)}
-                  onDuplicate={() => onConfigureDuplicate(column.id)}
-                  renderOptionFields={(col) => (
-                    <TranscribeOptionFields
-                      column={col}
-                      engine={catalog.find((candidate) => candidate.id === col.engineId)}
-                      onSetLanguage={(language) => updateColumnOptions(col.id, { language })}
-                      onSetModelSize={(modelSize) => updateColumnOptions(col.id, { modelSize })}
-                      onSetVad={(vad) => updateColumnOptions(col.id, { vad })}
-                      onSetDiarize={(diarize) => updateColumnOptions(col.id, { diarize })}
-                    />
-                  )}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          className="ocr-compare-add-engine engine-tier-chip"
-          data-testid="transcribe-compare-add-engine"
-          disabled={busy}
-          onClick={addVariant}
-        >
-          <Plus size={12} /> Engine
-        </button>
+        <CompareVariantChips
+          session={session}
+          editor={variantEditor}
+          testidPrefix="transcribe-compare"
+          actionId="media.transcribe"
+          summary={variantSummary}
+          catalogFor={(column) => column.engineId ? catalog : catalog.filter((engine) => !columns.some((variant) => variant.engineId === engine.id))}
+          chipTestId="transcribe-compare-engine-chip"
+          removeTestId={(column) => `transcribe-compare-engine-chip-remove-${column.engineId ?? ''}`}
+          addLabel="Engine"
+          addDisabled={busy}
+          renderOptionFields={(col) => (
+            <TranscribeOptionFields
+              column={col}
+              engine={catalog.find((candidate) => candidate.id === col.engineId)}
+              onSetLanguage={(language) => updateColumnOptions(col.id, { language })}
+              onSetModelSize={(modelSize) => updateColumnOptions(col.id, { modelSize })}
+              onSetVad={(vad) => updateColumnOptions(col.id, { vad })}
+              onSetDiarize={(diarize) => updateColumnOptions(col.id, { diarize })}
+            />
+          )}
+        />
       </CompareToolbar>
 
       <MediaCompareBody
         session={session}
         config={config}
         testidPrefix="transcribe-compare"
-        fileInputRef={fileInputRef}
-        moreInputRef={moreInputRef}
-        renderSourcePeek={renderSourcePeek}
+        renderSourcePeek={variantEditor.renderSourcePeek}
         columnSummary={variantSummary}
         frontDoorTitle="Drop audio or video clips"
         frontDoorHint="Drop files, choose engines, then run. Each engine receives the same initial interval (600 seconds by default). Shorter clips run in full. Files and transcripts are temporary; paid usage is recorded."

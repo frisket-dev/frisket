@@ -1,4 +1,4 @@
-import { CompareResultColumn } from './CompareLayout';
+import { CompareEngineChip, CompareResultColumn } from './CompareLayout';
 import './MediaCompareShell.css';
 import { Button } from '../components/Button';
 // The compare family's popover / add-menu dismissal (OcrCompareTab's/
@@ -8,8 +8,8 @@ import { Button } from '../components/Button';
 // the Configure popovers own a small inline Escape+outside effect (they are
 // inline-absolute, not a top-layer popover candidate); the add-engine menu
 // is a native `popover="manual"` element (useNativePopover).
-import { memo, useCallback, useMemo, type DragEvent, type ReactNode } from 'react';
-import { Copy, X } from 'lucide-react';
+import { memo, useCallback, useMemo, useRef, type DragEvent, type ReactNode } from 'react';
+import { Copy, Plus, X } from 'lucide-react';
 
 import type { EngineOption } from '../api/open';
 import type { PreviewSampleResult } from '../api/types';
@@ -30,9 +30,11 @@ import {
   CompareVoteControl,
 } from './mediaCompareBodyParts';
 import type { DiffToken } from './ocrDiff';
+import type { useCompareVariantConfigure } from './useCompareVariantConfigure';
 import {
   PEEK_MAX_WIDTH,
   PEEK_MIN_WIDTH,
+  variantPip,
   type CompareColumn,
   type EngineRunState,
   type MediaCompareConfig,
@@ -78,7 +80,7 @@ interface ConfigureVariantPopoverProps {
 /** "Configure variant" — the shared options popover. Anchored under its
  *  chip by the caller (popoverRef + style); this component owns only the
  *  popover's own DOM: engine select, domain fields + duplicate footer. */
-export function ConfigureVariantPopover({
+function ConfigureVariantPopover({
   testidPrefix,
   actionId,
   engineSelectorRef,
@@ -167,6 +169,96 @@ export function ConfigureVariantPopover({
         <div className="ocr-compare-configure-hint muted">Choose an engine to configure options.</div>
       )}
     </div>
+  );
+}
+
+interface CompareVariantChipsProps<R> {
+  session: MediaCompareSession<R>;
+  editor: ReturnType<typeof useCompareVariantConfigure>;
+  testidPrefix: string;
+  actionId: ConfigureVariantPopoverProps['actionId'];
+  summary(column: CompareColumn): string;
+  renderOptionFields: ConfigureVariantPopoverProps['renderOptionFields'];
+  /** Engines the Configure popover offers for `column` (default: the whole catalog). */
+  catalogFor?(column: CompareColumn): EngineOption[];
+  /** Disables the chips' own buttons; the add button follows `addDisabled`. */
+  disabled?: boolean;
+  /** The gear only opens Configure; the chip body still toggles it. */
+  gearOnlyOpens?: boolean;
+  chipTestId?: string;
+  removeTestId?(column: CompareColumn): string;
+  /** Add-button label; its testid is `${testidPrefix}-add-${label lowercased}`. */
+  addLabel: 'Engine' | 'Variant';
+  addDisabled: boolean;
+}
+
+/** The compare toolbar's variant chips, each anchoring its Configure popover,
+ *  followed by the add-variant button. */
+export function CompareVariantChips<R>({
+  session,
+  editor,
+  testidPrefix,
+  actionId,
+  summary,
+  renderOptionFields,
+  catalogFor,
+  disabled,
+  gearOnlyOpens = false,
+  chipTestId,
+  removeTestId,
+  addLabel,
+  addDisabled,
+}: CompareVariantChipsProps<R>) {
+  const { catalog, columns, activeDoc, engineLabel, selectorProjection } = session;
+  const { configureVariantId, popoverShift, openConfigure, showConfigure } = editor;
+  return (
+    <>
+      {columns.map((column) => {
+        const run = activeDoc?.runs[column.id];
+        return (
+          <div
+            key={column.id}
+            className="ocr-compare-variant"
+            ref={configureVariantId === column.id ? editor.configureAnchorRef : undefined}
+          >
+            <CompareEngineChip testIdPrefix={testidPrefix}
+              engine={catalog.find((candidate) => candidate.id === column.engineId)}
+              engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
+              pip={variantPip(column, run)} summary={summary(column)} disabled={disabled}
+              onBodyClick={() => openConfigure(column.id)}
+              onConfigure={() => (gearOnlyOpens ? showConfigure : openConfigure)(column.id)}
+              onRemove={() => editor.onRemoveVariant(column.id)}
+              chipTestId={chipTestId}
+              removeTestId={removeTestId?.(column)} />
+            {configureVariantId === column.id ? (
+              <ConfigureVariantPopover
+                selectorProjection={selectorProjection(column)}
+                testidPrefix={testidPrefix}
+                actionId={actionId}
+                popoverRef={editor.configurePopoverRef}
+                style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
+                column={column}
+                catalog={catalogFor ? catalogFor(column) : catalog}
+                engineSelectorRef={editor.engineSelectorRef}
+                errorMessage={run?.status === 'error' ? run.message : null}
+                onChooseEngine={(engineId) => editor.onChooseEngine(column.id, engineId)}
+                onDuplicate={() => editor.onDuplicate(column.id)}
+                renderOptionFields={renderOptionFields}
+              />
+            ) : null}
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        className="ocr-compare-add-engine engine-tier-chip"
+        data-testid={`${testidPrefix}-add-${addLabel.toLowerCase()}`}
+        disabled={addDisabled}
+        onClick={editor.addVariant}
+      >
+        <Plus size={12} /> {addLabel}
+      </button>
+    </>
   );
 }
 
@@ -300,8 +392,6 @@ interface MediaCompareBodyProps<R> {
   session: MediaCompareSession<R>;
   config: MediaCompareConfig<R>;
   testidPrefix: string;
-  fileInputRef: React.RefObject<HTMLInputElement>;
-  moreInputRef: React.RefObject<HTMLInputElement>;
   /** Renders the inner source-peek content (pdf.js reader or native player). */
   renderSourcePeek(doc: ScratchDoc<R>, nav: MediaNavTarget | null): ReactNode;
   /** Per-column options summary chip text (empty = none). */
@@ -319,8 +409,6 @@ export function MediaCompareBody<R>({
   session,
   config,
   testidPrefix,
-  fileInputRef,
-  moreInputRef,
   renderSourcePeek,
   columnSummary,
   frontDoorTitle,
@@ -328,6 +416,8 @@ export function MediaCompareBody<R>({
   pendingLabel,
 }: MediaCompareBodyProps<R>) {
   const t = (suffix: string) => `${testidPrefix}-${suffix}`;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const moreInputRef = useRef<HTMLInputElement>(null);
   const {
     columns,
     docs,

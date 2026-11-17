@@ -9,6 +9,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { projectBlobUrl } from '../api/raw/projectResources';
 import { columnTablesExportRequest } from '../actions/columnTablesExport';
 import { PanelSelect } from './PanelSelect';
+import { errorMessage } from '../hooks/errorMessage';
 
 interface ExportColumnTablesModalProps {
   projectId: string;
@@ -100,7 +101,7 @@ export function ExportColumnTablesModal({
       setDownload(result);
       setState('done');
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Export failed.');
+      setError(errorMessage(caught, 'Export failed.'));
       setState('error');
     }
   };

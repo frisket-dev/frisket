@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ModelPullDto } from '../api/open';
 import { ModelPullProgress } from '../components/ModelPullProgress';
 import { formatNumberDisplay } from '../format';
-import { errMsg } from './settingsSupport';
+import { errorMessage } from '../hooks/errorMessage';
 
 // Active and recent downloads share the same lifecycle in workspace and team
 // settings; callers supply the scope-specific routes and keep their test IDs.
@@ -28,7 +28,7 @@ export function ModelPullHistory({
       setPulls(result.pulls);
       setError(null);
     } catch (caught) {
-      setError(errMsg(caught));
+      setError(errorMessage(caught));
     } finally {
       setLoaded(true);
     }

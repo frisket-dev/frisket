@@ -6,12 +6,12 @@
 /* The form variant wins over PanelHeader regardless of which primitive loads
    first (including independent form stories). */
 .panel-header.form-header {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: var(--space-8);
   text-transform: none; letter-spacing: 0;
-  font-size: 13px; color: var(--text);
+  font-size: var(--font-size-body); color: var(--text);
   padding: 16px 14px 10px;
 }
-.form-header > .muted { flex-shrink: 0; font-size: 12.5px; }
+.form-header > .muted { flex-shrink: 0; font-size: var(--font-size-control); }
 .form-label-row {
   display: flex; align-items: center; justify-content: space-between;
   margin: var(--space-12) 0 var(--space-4);
@@ -37,15 +37,15 @@
 @layer base {
 .form-check {
   display: flex; align-items: center; gap: 7px;
-  margin-top: 12px; font-size: 12px; color: var(--text-mid);
+  margin-top: 12px; font-size: var(--font-size-small); color: var(--text-mid);
 }
 }
 .form-actions .btn-primary { min-width: 74px; }
 
 /* ---- action form extras ----------------------------------------------------- */
 
-.field-group { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
-.field-labels { font-size: 12px; }
+.field-group { display: flex; flex-direction: column; gap: var(--space-6); margin-top: 12px; }
+.field-labels { font-size: var(--font-size-small); }
 .field-help { color: var(--text-mid); font-size: 11.5px; line-height: 1.35; }
 .brand-project-btn:hover { background: var(--accent-bg); color: var(--accent); }
 
@@ -67,7 +67,7 @@
   }
   .form-textarea { resize: vertical; line-height: 1.45; }
 }
-.form-input[data-control-density='compact'] { padding: 3px 6px; font-size: 11px; }
+.form-input[data-control-density='compact'] { padding: 3px 6px; font-size: var(--font-size-meta); }
 .form-input[data-control-full-width='false'] { width: auto; }
 .form-input:focus {
   outline: 2px solid var(--accent-bg);
@@ -89,34 +89,34 @@
 }
 .form-label { display: block; margin: 12px 0 6px; font-size: var(--font-size-control); font-weight: 600; color: var(--text-mid); }
 .form-field > .form-label { margin: 0; }
-.form-field[data-field-layout='inline'] { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 12px; }
+.form-field[data-field-layout='inline'] { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: var(--space-12); }
 .form-field[data-field-layout='inline'] > .form-hint { grid-column: 1 / -1; }
 .form-field > .form-input, .form-field > .panel-select-shell { width: 100%; }
-.form-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.45; font-weight: 400; color: var(--text-light); }
+.form-hint { margin: 6px 0 0; font-size: var(--font-size-small); line-height: 1.45; font-weight: 400; color: var(--text-light); }
 .form-field > .form-hint { margin: 0; }
 .param-row > .form-label { margin: 0; }
 .form-hint code { font-size: inherit; }
-.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
-.content-stack { display: grid; align-content: start; gap: 12px; min-width: 0; }
-.control-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); margin-top: 12px; }
+.content-stack { display: grid; align-content: start; gap: var(--space-12); min-width: 0; }
+.control-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-8); min-width: 0; }
 .control-row[data-align='end'] { justify-content: flex-end; }
-.panel-list { display: flex; flex-direction: column; gap: 8px; list-style: none; margin: 0; padding: 0; min-width: 0; }
-.panel-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-7); }
+.panel-list { display: flex; flex-direction: column; gap: var(--space-8); list-style: none; margin: 0; padding: 0; min-width: 0; }
+.panel-card { display: flex; flex-direction: column; gap: var(--space-8); min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-7); }
 .panel-card[data-layout='row'] { flex-direction: row; flex-wrap: wrap; align-items: center; }
 .panel-item-main { flex: 1 1 140px; min-width: 0; }
-.panel-item-title { min-width: 0; margin: 0; font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
-.panel-item-description { min-width: 0; margin: 0; font-size: 11px; color: var(--text-mid); line-height: 1.4; overflow-wrap: anywhere; }
-.panel-item-meta { min-width: 0; margin: 0; font-size: 11px; color: var(--text-light); line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.unit-input { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.panel-item-title { min-width: 0; margin: 0; font-size: var(--font-size-control); font-weight: 600; color: var(--text); line-height: 1.4; overflow-wrap: anywhere; }
+.panel-item-description { min-width: 0; margin: 0; font-size: var(--font-size-meta); color: var(--text-mid); line-height: 1.4; overflow-wrap: anywhere; }
+.panel-item-meta { min-width: 0; margin: 0; font-size: var(--font-size-meta); color: var(--text-light); line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.unit-input { display: flex; align-items: center; gap: var(--space-8); min-width: 0; }
 .unit-input > input { flex: 1; min-width: 0; }
-.unit-input-suffix { font-size: 12px; color: var(--text-light); }
+.unit-input-suffix { font-size: var(--font-size-small); color: var(--text-light); }
 .search-field { position: relative; min-width: 0; }
 .search-field > svg { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--text-light); pointer-events: none; }
 .search-field > .form-input { padding-left: 30px; }
-.form-inline { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.form-inline { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-8); }
 .form-inline > .form-field, .form-inline > .form-input { flex: 1 1 160px; }
 .form-inline > .form-hint, .form-inline > .panel-error, .form-inline > .panel-notice { flex: 1 0 100%; }
-.form-stack { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.form-stack { display: flex; flex-direction: column; gap: var(--space-12); margin-top: 12px; }
 .form-stack > *, .form-stack > fieldset > * { margin-block: 0; }
 .form-stack > .btn, .form-stack > fieldset > .btn { align-self: flex-start; }
 .row-height-select:hover { background: var(--bg-hover); }

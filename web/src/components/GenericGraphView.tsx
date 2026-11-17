@@ -3,9 +3,7 @@ import './FormControls.css';
 import { FormField } from './FormControls';
 import {
   useCallback,
-  useEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
   type CSSProperties,
@@ -22,6 +20,7 @@ import {
   type SheetMeta,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
+import { useLoader } from '../hooks/useLoader';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import type { PluginDetailSubject } from '../workbench/pluginDetailContext';
 import { EntityDetailPanel, type EntityDetailConnection } from './EntityDetailPanel';
@@ -94,12 +93,6 @@ interface GenericGraphViewProps {
   ): ReactNode;
 }
 
-type LoadState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'loaded'; graph: SheetGraphResult }
-  | { status: 'error'; message: string };
-
 interface GraphViewConfig {
   direction: '' | 'directed' | 'undirected'; // '' = auto (per role family)
   nodeLabelColumnId: string;
@@ -107,6 +100,8 @@ interface GraphViewConfig {
   nodeSizeColumnId: string;
   edgeLabelColumnId: string;
 }
+
+const NO_SHEETS: SheetMeta[] = [];
 
 const EMPTY_CONFIG: GraphViewConfig = {
   direction: '',
@@ -285,36 +280,13 @@ export function GenericGraphView({
 }: GenericGraphViewProps) {
   const { projectApi } = useWorkspaceStores();
   const [config, setConfig] = useState<GraphViewConfig>(EMPTY_CONFIG);
-  // useReducer (not useState) so the fetch effect can dispatch 'loading'
-  // synchronously without tripping react-hooks/set-state-in-effect. Per-sheet
-  // reset happens by remount: the render sites key this component on sheet.id.
-  const [load, dispatchLoad] = useReducer(
-    (_prev: LoadState, next: LoadState) => next,
-    { status: 'idle' } as LoadState,
-  );
-  const [allSheets, setAllSheets] = useState<SheetMeta[]>([]);
+  // Column options degrade gracefully to empty when the sheet list fails.
+  const allSheets = useLoader(() => projectApi.listSheets(), []).data ?? NO_SHEETS;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { viewBox, resetCamera, onWheel, onPointerDown, onPointerMove, endPan } = useGraphCamera();
 
-  useEffect(() => {
-    let cancelled = false;
-    projectApi
-      .listSheets()
-      .then((sheets) => {
-        if (!cancelled) setAllSheets(sheets);
-      })
-      .catch(() => {
-        /* column options degrade gracefully to empty */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    dispatchLoad({ status: 'loading' });
-    projectApi
+  const graphLoad = useLoader(
+    () => projectApi
       .getSheetGraph({
         sheetId: sheet.id,
         direction: config.direction || undefined,
@@ -323,28 +295,19 @@ export function GenericGraphView({
         nodeSizeColumnId: config.nodeSizeColumnId || undefined,
         edgeLabelColumnId: config.edgeLabelColumnId || undefined,
       })
-      .then((graph) => {
-        if (!cancelled) dispatchLoad({ status: 'loaded', graph });
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        const message =
-          err instanceof ApiError ? err.message : 'Failed to load graph.';
-        dispatchLoad({ status: 'error', message });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    sheet.id,
-    config.direction,
-    config.nodeLabelColumnId,
-    config.nodeColorColumnId,
-    config.nodeSizeColumnId,
-    config.edgeLabelColumnId,
-  ]);
-
-  const graph = load.status === 'loaded' ? load.graph : null;
+      .catch((err: unknown) => {
+        throw err instanceof ApiError ? err : new Error('Failed to load graph.');
+      }),
+    [
+      sheet.id,
+      config.direction,
+      config.nodeLabelColumnId,
+      config.nodeColorColumnId,
+      config.nodeSizeColumnId,
+      config.edgeLabelColumnId,
+    ],
+  );
+  const graph = graphLoad.data;
 
   const positions = useMemo(
     () => (graph ? computeLayout(graph.nodes, graph.edges) : new Map()),
@@ -487,7 +450,8 @@ export function GenericGraphView({
       <div className="graph-view-body">
         <div className="graph-canvas-column">
           <GraphCanvas
-            load={load}
+            loading={graphLoad.loading}
+            error={graphLoad.error}
             graph={graph}
             positions={positions}
             colorPalette={colorPalette}
@@ -642,7 +606,8 @@ function GraphSidePanel({
 }
 
 function GraphCanvas({
-  load,
+  loading,
+  error,
   graph,
   positions,
   colorPalette,
@@ -657,7 +622,8 @@ function GraphCanvas({
   onPointerUp,
   onPointerLeave,
 }: {
-  load: LoadState;
+  loading: boolean;
+  error: string | null;
   graph: SheetGraphResult | null;
   positions: Map<string, { x: number; y: number }>;
   colorPalette: Map<string, string>;
@@ -672,17 +638,17 @@ function GraphCanvas({
   onPointerUp(): void;
   onPointerLeave(): void;
 }) {
-  if (load.status === 'loading' || load.status === 'idle') {
+  if (loading) {
     return (
       <div className="graph-empty" data-testid="graph-loading">
         Loading graph…
       </div>
     );
   }
-  if (load.status === 'error') {
+  if (error !== null) {
     return (
       <div className="graph-empty graph-error" data-testid="graph-error">
-        {load.message}
+        {error}
       </div>
     );
   }

@@ -16,9 +16,8 @@ import {
   type ResolvedActItem,
   type ResolvedActTab,
 } from './actSurface';
+import { contributionSlug } from './visibility';
 
-const contributionSlug = (contributionId: string) =>
-  contributionId.replace(/[^a-zA-Z0-9]+/g, '-');
 
 const itemKey = (item: ResolvedActItem) =>
   item.kind === 'action'

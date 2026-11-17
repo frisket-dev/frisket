@@ -2,7 +2,7 @@
 .lineage-panel {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-8);
   height: 100%;
   padding: 8px 12px;
   overflow: auto;
@@ -13,7 +13,7 @@
 }
 .lineage-panel-caption {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   letter-spacing: 0.05em;
   color: var(--text-light);
 }
@@ -26,7 +26,7 @@
   background: var(--amber-bg);
   color: var(--amber);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   cursor: pointer;
 }
@@ -34,7 +34,7 @@
 .lineage-tiers {
   display: grid;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
-  gap: 12px;
+  gap: var(--space-12);
   align-items: start;
 }
 .lineage-tier-title {
@@ -62,7 +62,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 600;
   color: var(--text);
 }
@@ -71,12 +71,12 @@
    own [data-stale] border hook above stays; it styles a different element). */
 .lineage-node-sub {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   color: var(--text-light);
   margin-top: 2px;
 }
 .lineage-edge {
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-light);
   margin-top: 3px;
 }
@@ -87,7 +87,7 @@
 .sheet-cascade-confirm-list {
   margin: 0;
   padding-left: 18px;
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   color: var(--text);
   display: flex;
   flex-direction: column;

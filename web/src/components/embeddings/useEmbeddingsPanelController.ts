@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   type EmbeddingIndexSummary,
@@ -11,6 +11,7 @@ import {
   type CreateEmbeddingIndexForm,
 } from './createForm';
 import { EMBEDDING_TEXT_MODALITY } from './constants';
+import { errorMessage } from '../../hooks/errorMessage';
 
 const TERMINAL_JOB_STATUSES = new Set(['done', 'failed', 'cancelled']);
 
@@ -52,113 +53,20 @@ interface UseEmbeddingsPanelControllerOptions {
   sheet: SheetMeta;
 }
 
-interface EmbeddingsPanelState {
-  indexes: EmbeddingIndexSummary[] | null;
-  error: string | null;
-  busyId: string | null;
-  adding: boolean;
-  providers: EmbeddingProvider[] | null;
-  form: CreateEmbeddingIndexForm;
-  creating: boolean;
-}
-
-type EmbeddingsPanelAction =
-  | { type: 'load_success'; indexes: EmbeddingIndexSummary[] }
-  | { type: 'set_error'; message: string | null }
-  | { type: 'set_busy'; indexId: string | null }
-  | { type: 'open_create' }
-  | { type: 'close_create' }
-  | { type: 'set_providers'; providers: EmbeddingProvider[] | null }
-  | { type: 'set_form'; form: CreateEmbeddingIndexForm }
-  | { type: 'select_model'; provider: string; model: string }
-  | { type: 'toggle_source_column'; columnName: string; checked: boolean }
-  | { type: 'set_allow_remote'; allowed: boolean }
-  | { type: 'set_allow_auto_refresh'; allowed: boolean }
-  | { type: 'set_max_cost'; value: string }
-  | { type: 'set_confirm_remote'; confirmed: boolean }
-  | { type: 'set_creating'; creating: boolean };
-
-function createInitialState(sheet: SheetMeta): EmbeddingsPanelState {
-  return {
-    indexes: null,
-    error: null,
-    busyId: null,
-    adding: false,
-    providers: null,
-    form: emptyCreateEmbeddingIndexForm(sheet.columns[0]?.name),
-    creating: false,
-  };
-}
-
-function updateForm(
-  state: EmbeddingsPanelState,
-  patch: Partial<CreateEmbeddingIndexForm>,
-): EmbeddingsPanelState {
-  return { ...state, form: { ...state.form, ...patch } };
-}
-
-function embeddingsPanelReducer(
-  state: EmbeddingsPanelState,
-  action: EmbeddingsPanelAction,
-): EmbeddingsPanelState {
-  switch (action.type) {
-    case 'load_success':
-      return { ...state, indexes: action.indexes, error: null };
-    case 'set_error':
-      return { ...state, error: action.message };
-    case 'set_busy':
-      return { ...state, busyId: action.indexId };
-    case 'open_create':
-      return { ...state, adding: true };
-    case 'close_create':
-      return { ...state, adding: false };
-    case 'set_providers':
-      return { ...state, providers: action.providers };
-    case 'set_form':
-      return { ...state, form: action.form };
-    case 'select_model':
-      return updateForm(state, {
-        provider: action.provider,
-        model: action.model,
-        allowRemote: false,
-        allowRemoteAutomaticRefresh: false,
-        confirmRemote: false,
-      });
-    case 'toggle_source_column':
-      return updateForm(state, {
-        sourceColumns: action.checked
-          ? [...state.form.sourceColumns, action.columnName]
-          : state.form.sourceColumns.filter((name) => name !== action.columnName),
-      });
-    case 'set_allow_remote':
-      return updateForm(state, {
-        allowRemote: action.allowed,
-        allowRemoteAutomaticRefresh:
-          action.allowed && state.form.allowRemoteAutomaticRefresh,
-      });
-    case 'set_allow_auto_refresh':
-      return updateForm(state, { allowRemoteAutomaticRefresh: action.allowed });
-    case 'set_max_cost':
-      return updateForm(state, { maxCost: action.value });
-    case 'set_confirm_remote':
-      return updateForm(state, { confirmRemote: action.confirmed });
-    case 'set_creating':
-      return { ...state, creating: action.creating };
-    default:
-      return state;
-  }
-}
-
 export function useEmbeddingsPanelController({
   apiPort,
   sheet,
 }: UseEmbeddingsPanelControllerOptions) {
   const sheetId = Number(sheet.id);
-  const [state, dispatch] = useReducer(
-    embeddingsPanelReducer,
-    sheet,
-    createInitialState,
+  const [indexes, setIndexes] = useState<EmbeddingIndexSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [providers, setProviders] = useState<EmbeddingProvider[] | null>(null);
+  const [form, setForm] = useState<CreateEmbeddingIndexForm>(
+    () => emptyCreateEmbeddingIndexForm(sheet.columns[0]?.name),
   );
+  const [creating, setCreating] = useState(false);
   // Project switches unmount the keyed Workspace, and sheet switches remount
   // this panel. Async work already sent to the server is allowed to finish,
   // but every continuation after an await must prove it still belongs to this
@@ -177,80 +85,71 @@ export function useEmbeddingsPanelController({
   const load = useCallback(async () => {
     const generation = scopeGeneration.current;
     try {
-      const indexes = await apiPort.embeddingIndexes(sheetId);
+      const loaded = await apiPort.embeddingIndexes(sheetId);
       if (!isCurrentScope(generation)) return;
-      dispatch({ type: 'load_success', indexes });
-    } catch (error) {
+      setIndexes(loaded);
+      setError(null);
+    } catch (caught) {
       if (!isCurrentScope(generation)) return;
-      dispatch({
-        type: 'set_error',
-        message: error instanceof Error ? error.message : String(error),
-      });
+      setError(errorMessage(caught));
     }
   }, [apiPort, isCurrentScope, sheetId]);
 
   // The panel is always open now (no second collapse level in the Discover
   // tab host) — load on mount instead of waiting for a toggle.
+  // Started from a microtask so the effect body never reaches a state setter.
   useEffect(() => {
-    void load();
+    queueMicrotask(() => void load());
   }, [load]);
 
   const openCreate = useCallback(async () => {
     const generation = scopeGeneration.current;
-    dispatch({ type: 'open_create' });
-    let cards = state.providers;
+    setAdding(true);
+    let cards = providers;
     if (!cards) {
       try {
         cards = await apiPort.embeddingProviderCatalog({
           modality: EMBEDDING_TEXT_MODALITY,
         });
         if (!isCurrentScope(generation)) return;
-        dispatch({ type: 'set_providers', providers: cards });
-      } catch (error) {
+        setProviders(cards);
+      } catch (caught) {
         if (!isCurrentScope(generation)) return;
-        dispatch({
-          type: 'set_error',
-          message: error instanceof Error ? error.message : String(error),
-        });
+        setError(errorMessage(caught));
       }
     }
     if (!isCurrentScope(generation)) return;
-    dispatch({
-      type: 'set_form',
-      form: {
-        ...emptyCreateEmbeddingIndexForm(sheet.columns[0]?.name),
-      },
-    });
-  }, [apiPort, isCurrentScope, state.providers, sheet.columns]);
+    setForm(emptyCreateEmbeddingIndexForm(sheet.columns[0]?.name));
+  }, [apiPort, isCurrentScope, providers, sheet.columns]);
 
   const selectedCard = useMemo(
     () =>
-      state.providers?.find(
+      providers?.find(
         (provider) =>
-          provider.providerId === state.form.provider &&
-          provider.modelId === state.form.model,
+          provider.providerId === form.provider &&
+          provider.modelId === form.model,
       ) ?? null,
-    [state.providers, state.form.provider, state.form.model],
+    [providers, form.provider, form.model],
   );
   const providerCard = useMemo(
-    () => state.providers?.find((provider) => provider.providerId === state.form.provider) ?? null,
-    [state.providers, state.form.provider],
+    () => providers?.find((provider) => provider.providerId === form.provider) ?? null,
+    [providers, form.provider],
   );
   const remoteSelected = Boolean(providerCard && !providerCard.local);
   const autoRefreshOn =
     remoteSelected &&
-    state.form.allowRemote &&
-    state.form.allowRemoteAutomaticRefresh;
-  const maxCostValue = Number(state.form.maxCost);
+    form.allowRemote &&
+    form.allowRemoteAutomaticRefresh;
+  const maxCostValue = Number(form.maxCost);
   const modelOk =
-    state.form.model.trim().length > 0 &&
+    form.model.trim().length > 0 &&
     (selectedCard?.modalityCompatible ?? providerCard?.modalityCompatible ?? true);
   const createReady =
-    state.form.sourceColumns.length > 0 &&
-    Boolean(state.form.provider) &&
+    form.sourceColumns.length > 0 &&
+    Boolean(form.provider) &&
     modelOk &&
-    (!remoteSelected || state.form.allowRemote) &&
-    (!autoRefreshOn || (state.form.confirmRemote && maxCostValue > 0));
+    (!remoteSelected || form.allowRemote) &&
+    (!autoRefreshOn || (form.confirmRemote && maxCostValue > 0));
 
   // A create is metadata-only and instant (space + index rows, no provider
   // call — `_run_index_create`); the actual (possibly long) embedding work
@@ -264,7 +163,7 @@ export function useEmbeddingsPanelController({
   const runRefresh = useCallback(
     async (indexId: string, mode: 'incremental' | 'full') => {
       const generation = scopeGeneration.current;
-      dispatch({ type: 'set_busy', indexId });
+      setBusyId(indexId);
       try {
         const launch = await apiPort.refreshEmbeddingIndex(indexId, mode);
         if (!isCurrentScope(generation)) return;
@@ -275,15 +174,12 @@ export function useEmbeddingsPanelController({
         }
         if (!isCurrentScope(generation)) return;
         await load();
-      } catch (error) {
+      } catch (caught) {
         if (!isCurrentScope(generation)) return;
-        dispatch({
-          type: 'set_error',
-          message: error instanceof Error ? error.message : String(error),
-        });
+        setError(errorMessage(caught));
       } finally {
         if (isCurrentScope(generation)) {
-          dispatch({ type: 'set_busy', indexId: null });
+          setBusyId(null);
         }
       }
     },
@@ -293,44 +189,41 @@ export function useEmbeddingsPanelController({
   const submitCreate = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!createReady || !state.form.provider) return;
+      if (!createReady || !form.provider) return;
       const generation = scopeGeneration.current;
-      dispatch({ type: 'set_creating', creating: true });
+      setCreating(true);
       try {
         const indexId = await apiPort.createEmbeddingIndex({
           sheetId,
-          sourceColumns: state.form.sourceColumns,
+          sourceColumns: form.sourceColumns,
           modality: EMBEDDING_TEXT_MODALITY,
-          provider: state.form.provider,
-          model: state.form.model,
-          allowRemote: remoteSelected ? state.form.allowRemote : false,
+          provider: form.provider,
+          model: form.model,
+          allowRemote: remoteSelected ? form.allowRemote : false,
           allowRemoteAutomaticRefresh: autoRefreshOn,
           maxCostUsdPerRefresh: autoRefreshOn ? maxCostValue : null,
         });
         if (!isCurrentScope(generation)) return;
-        dispatch({ type: 'close_create' });
+        setAdding(false);
         await load();
         if (!isCurrentScope(generation)) return;
         // Refresh on creation: do not await — the dialog closes immediately
         // and the build progresses in the background, visible in the jobs
         // panel via its own busy/status.
         void runRefresh(indexId, 'full');
-      } catch (error) {
+      } catch (caught) {
         if (!isCurrentScope(generation)) return;
-        dispatch({
-          type: 'set_error',
-          message: error instanceof Error ? error.message : String(error),
-        });
+        setError(errorMessage(caught));
       } finally {
         if (isCurrentScope(generation)) {
-          dispatch({ type: 'set_creating', creating: false });
+          setCreating(false);
         }
       }
     },
     [
       createReady,
       sheetId,
-      state.form,
+      form,
       remoteSelected,
       autoRefreshOn,
       maxCostValue,
@@ -344,46 +237,62 @@ export function useEmbeddingsPanelController({
   const refresh = runRefresh;
 
   const closeCreate = useCallback(() => {
-    dispatch({ type: 'close_create' });
+    setAdding(false);
   }, []);
 
   const selectModel = useCallback((provider: string, model: string) => {
-    dispatch({ type: 'select_model', provider, model });
+    setForm((current) => ({
+      ...current,
+      provider,
+      model,
+      allowRemote: false,
+      allowRemoteAutomaticRefresh: false,
+      confirmRemote: false,
+    }));
   }, []);
 
   const toggleSourceColumn = useCallback((columnName: string, checked: boolean) => {
-    dispatch({ type: 'toggle_source_column', columnName, checked });
+    setForm((current) => ({
+      ...current,
+      sourceColumns: checked
+        ? [...current.sourceColumns, columnName]
+        : current.sourceColumns.filter((name) => name !== columnName),
+    }));
   }, []);
 
   const setAllowRemote = useCallback((allowed: boolean) => {
-    dispatch({ type: 'set_allow_remote', allowed });
+    setForm((current) => ({
+      ...current,
+      allowRemote: allowed,
+      allowRemoteAutomaticRefresh: allowed && current.allowRemoteAutomaticRefresh,
+    }));
   }, []);
 
   const setAllowAutoRefresh = useCallback((allowed: boolean) => {
-    dispatch({ type: 'set_allow_auto_refresh', allowed });
+    setForm((current) => ({ ...current, allowRemoteAutomaticRefresh: allowed }));
   }, []);
 
   const setMaxCost = useCallback((value: string) => {
-    dispatch({ type: 'set_max_cost', value });
+    setForm((current) => ({ ...current, maxCost: value }));
   }, []);
 
   const setConfirmRemote = useCallback((confirmed: boolean) => {
-    dispatch({ type: 'set_confirm_remote', confirmed });
+    setForm((current) => ({ ...current, confirmRemote: confirmed }));
   }, []);
 
   return {
-    adding: state.adding,
+    adding,
     autoRefreshOn,
-    busyId: state.busyId,
+    busyId,
     closeCreate,
     createReady,
-    creating: state.creating,
-    error: state.error,
-    form: state.form,
-    indexes: state.indexes,
+    creating,
+    error,
+    form,
+    indexes,
     load,
     openCreate,
-    providers: state.providers,
+    providers,
     providerCard,
     refresh,
     remoteSelected,

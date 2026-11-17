@@ -5,8 +5,9 @@ import type { SourceApiPort } from '../../api/ports';
 import { buildSourceInput, type SourceFormState } from './sourceConfig';
 import { initialSourcesState, sourcesReducer, type BusySource } from './sourceState';
 import { useSourceHealth } from './useSourceHealth';
+import { errorMessage } from '../../hooks/errorMessage';
 
-const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+const msg = (e: unknown): string => errorMessage(e);
 
 export function useSourcesPanelState(
   sourceApi: SourceApiPort,

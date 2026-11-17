@@ -34,7 +34,7 @@
 }
 .history-label { font-weight: 550; line-height: 1.35; }
 .history-pointer {
-  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  font-size: var(--font-size-caption); font-weight: 700; text-transform: uppercase;
   color: var(--accent);
   align-self: center;
 }
@@ -44,7 +44,7 @@
 .history-run-id-row, .history-deep-link-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   min-width: 0;
 }
 .history-run-id-row code, .history-deep-link-row code {
@@ -55,7 +55,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-12);
   margin-bottom: 6px;
 }
 .bottom-dock-detail-section pre.history-params-json {
@@ -74,7 +74,7 @@
 .bottom-dock-row-button:has(.history-icon) {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .bottom-dock-row-button .history-icon,
 .bottom-dock-detail-header .history-icon { width: 20px; height: 20px; }
@@ -85,4 +85,4 @@
   white-space: nowrap;
 }
 .bottom-dock-row-button .history-pointer { margin-left: auto; }
-.bottom-dock-detail-header strong { display: flex; align-items: center; gap: 8px; }
+.bottom-dock-detail-header strong { display: flex; align-items: center; gap: var(--space-8); }

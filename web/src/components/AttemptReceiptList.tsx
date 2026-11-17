@@ -1,5 +1,5 @@
 import './PanelPrimitives.css';
-import { useEffect, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { AttemptReceipt } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { ListDetailGrid } from '../workbench/WorkbenchListDetailPanel';
@@ -13,14 +13,7 @@ import {
   unsettleableLabel,
 } from '../attemptReceiptModel';
 import { formatUsd } from '../actions/model';
-
-interface LoadState {
-  key: string;
-  receipts: AttemptReceipt[] | null;
-  total: number | null;
-  hasMore: boolean;
-  error: string | null;
-}
+import { useLoader } from '../hooks/useLoader';
 
 /** Settlement receipts for one run, or (with no `runId`) for the whole
  *  project — the UI seat for `attempt_settlement`.
@@ -49,54 +42,16 @@ export function AttemptReceiptList({
   testIdPrefix?: string;
 }) {
   const { projectApi: api } = useWorkspaceStores();
-  // The fetch key is carried IN state (MentionDetailPanel's pattern) so a
-  // changed run reads as loading without a synchronous setState in the effect.
   const key = `${runId ?? ''}:${limit}`;
-  const [state, setState] = useState<LoadState>({
-    key,
-    receipts: null,
-    total: null,
-    hasMore: false,
-    error: null,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-    void api
-      .listAttemptReceipts(runId ?? null, limit)
-      .then((page) => {
-        if (!cancelled) {
-          setState({
-            key,
-            receipts: page.attempts,
-            total: page.total,
-            hasMore: page.has_more,
-            error: null,
-          });
-        }
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setState({
-          key,
-          receipts: null,
-          total: null,
-          hasMore: false,
-          error: err instanceof Error ? err.message : 'Failed to load receipts',
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [key, runId, limit]);
-
-  const current = state.key === key
-    ? state
-    : { key, receipts: null, total: null, hasMore: false, error: null };
-  const receipts = current.receipts;
-  const pageTotal = current.total;
-  const hasMore = current.hasMore;
-  const error = current.error;
+  const loader = useLoader(
+    () => api.listAttemptReceipts(runId ?? null, limit),
+    [key, runId, limit],
+    { errorFallback: 'Failed to load receipts' },
+  );
+  const receipts = loader.data?.attempts ?? null;
+  const pageTotal = loader.data?.total ?? null;
+  const hasMore = loader.data?.has_more ?? false;
+  const error = loader.error;
 
   if (error) {
     return (

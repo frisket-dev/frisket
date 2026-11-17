@@ -1,4 +1,4 @@
-import type { WorkbenchDataRequirement } from './descriptors';
+import type { WorkbenchDataRequirement, WorkbenchRequirement } from './descriptors';
 
 // Mirror of DATA_REQUIREMENT_CONTEXT_KINDS in src/frisket/authoring/workbench/contracts.py.
 // The parity test in tests/authoring/test_workbench_descriptor_metadata_honesty.py binds the
@@ -98,4 +98,37 @@ export function dataRequirementReason(unmet: UnmetDataRequirement): string {
     return `data_requirement_unmet:sheetHasColumnType:${unmet.columnType}`;
   }
   return `data_requirement_unmet:${unmet.kind}`;
+}
+
+export type RequirementAvailability =
+  | { available: true; reason?: undefined }
+  | { available: false; reason: string };
+
+/** The first missing required host capability, else the first unmet data requirement. */
+export function resolveRequirementAvailability(
+  descriptor: { requires: readonly WorkbenchRequirement[]; dataRequirements?: readonly WorkbenchDataRequirement[] },
+  capabilities: Set<string>,
+  context: WorkbenchDataRequirementContext,
+): RequirementAvailability {
+  for (const requirement of descriptor.requires) {
+    if (requirement.kind !== 'hostCapability' || requirement.optional) continue;
+    const capabilityId = requirement.id ?? '';
+    if (!capabilities.has(capabilityId)) {
+      return { available: false, reason: `missing_capability:${capabilityId}` };
+    }
+  }
+  const unmet = firstMissingDataRequirement(descriptor.dataRequirements, context);
+  if (unmet) {
+    return { available: false, reason: dataRequirementReason(unmet) };
+  }
+  return { available: true };
+}
+
+/** `capabilities` minus the ids a test harness disabled through a window global. */
+export function withoutDisabledCapabilities(
+  capabilities: readonly string[],
+  disabled: (window: Window) => readonly string[] | undefined,
+): Set<string> {
+  const disabledSet = new Set(typeof window === 'undefined' ? [] : disabled(window) ?? []);
+  return new Set(capabilities.filter((capability) => !disabledSet.has(capability)));
 }

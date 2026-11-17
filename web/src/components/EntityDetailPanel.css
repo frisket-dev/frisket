@@ -1,6 +1,6 @@
 .entity-detail-shell {
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border);
@@ -16,9 +16,9 @@
   border-radius: var(--radius-6);
   background: #f8fafc;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .entity-detail-panel strong {
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-size-body);
 }

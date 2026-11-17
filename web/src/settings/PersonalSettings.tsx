@@ -27,7 +27,9 @@ import {
 import { CloudProfileSettings } from '../cloud/CloudProfileSettings';
 import { cloudConnectionApi } from '../api/cloudConnection';
 import { setTelemetryPreference, telemetryPreference } from '../telemetry/productTelemetry';
-import { useLoader, errMsg } from './settingsSupport';
+import { useAction } from '../hooks/useAction';
+import { useLoader } from '../hooks/useLoader';
+import { errorMessage } from '../hooks/errorMessage';
 import { InlineStatus } from './SettingsPrimitives';
 
 export function PersonalProfileSettings({
@@ -51,12 +53,13 @@ export function PersonalProfileSettings({
         throw caught;
       }
     },
+    [],
   );
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [costPreapproval, setCostPreapproval] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const runtime = useLoader<RuntimeConfig>(() => getRuntimeConfig());
+  const runtime = useLoader<RuntimeConfig>(() => getRuntimeConfig(), []);
   const displayNameValue = displayName ?? me?.display_name ?? '';
   const costPreapprovalValue = costPreapproval
     ?? (identityMode
@@ -102,7 +105,7 @@ export function PersonalProfileSettings({
       setCostPreapproval(null);
       setNotice('Profile saved');
     } catch (caught) {
-      setNotice(errMsg(caught));
+      setNotice(errorMessage(caught));
     } finally {
       setBusy(false);
     }
@@ -199,29 +202,16 @@ const AI_CALL_MODES: ReadonlyArray<{
 ];
 
 export function AiCallModeSettings() {
-  const [config, setConfig] = useState<RuntimeConfig | null>(null);
-  const [selected, setSelected] = useState<RuntimeConfig['cache_mode'] | null>(null);
+  const runtime = useLoader<RuntimeConfig>(() => getRuntimeConfig(), []);
+  const config = runtime.data;
+  const [selectedDraft, setSelected] = useState<RuntimeConfig['cache_mode'] | null>(null);
+  const selected = selectedDraft ?? config?.cache_mode ?? null;
   const [pendingLiveMode, setPendingLiveMode] = useState<RuntimeConfig['cache_mode'] | null>(null);
   const [confirmText, setConfirmText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const saving = useAction();
+  const busy = saving.busy;
+  const error = saving.error ?? runtime.error;
   const [notice, setNotice] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    getRuntimeConfig()
-      .then((loaded) => {
-        if (alive) {
-          setConfig(loaded);
-          setSelected(loaded.cache_mode);
-        }
-      })
-      .catch((loadError) => {
-        if (alive) setError(errMsg(loadError));
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
   const current = config?.cache_mode;
   const currentMode = AI_CALL_MODES.find((mode) => mode.value === current);
   const editable = config ? config.cache_mode_editable : false;
@@ -230,21 +220,15 @@ export function AiCallModeSettings() {
     mode: RuntimeConfig['cache_mode'],
     confirmed: boolean,
   ) => {
-    setBusy(true);
-    setError(null);
     setNotice(null);
-    try {
+    await saving.run(async () => {
       const updated = await updateRuntimeConfig(mode, confirmed);
-      setConfig(updated);
-      setSelected(updated.cache_mode);
+      runtime.setData(updated);
+      setSelected(null);
       setPendingLiveMode(null);
       setConfirmText('');
       setNotice(`AI call mode changed to ${AI_CALL_MODES.find((item) => item.value === updated.cache_mode)?.label ?? updated.cache_mode}.`);
-    } catch (saveError) {
-      setError(errMsg(saveError));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const submit = (event: FormEvent) => {
@@ -261,7 +245,7 @@ export function AiCallModeSettings() {
   return (
     <section className="content-stack ai-call-mode-settings" data-testid="ai-call-mode-settings">
       <div className="settings-section-kicker">AI call mode</div>
-      <InlineStatus error={error} loading={config === null && error === null} notice={notice} />
+      <InlineStatus error={error} loading={runtime.loading} notice={notice} />
       <p className="form-hint">
         Whether frisket makes live AI calls or reuses cached responses.
         {currentMode ? (
@@ -469,7 +453,7 @@ export function PersonalPreferencesSettings() {
 
 export function PersonalPrivacySettings() {
   const [enabled, setEnabled] = useState(telemetryPreference() === 'enabled');
-  const { data: config, error, loading } = useLoader<RuntimeConfig>(() => getRuntimeConfig());
+  const { data: config, error, loading } = useLoader<RuntimeConfig>(() => getRuntimeConfig(), []);
 
   const update = (next: boolean) => {
     setTelemetryPreference(next);

@@ -7,6 +7,7 @@ import { quotedUsd } from '../actions/quotedCost';
 import { CostGateModal } from '../components/CostGateModal';
 import { formatUsd } from '../format';
 import type { CompareColumn, MediaCompareConfig, ScratchDoc } from './mediaCompareSession';
+import { errorMessage } from '../hooks/errorMessage';
 
 interface ComparisonCalls<R, Input> {
   api: Pick<ProjectApi, 'getPreview' | 'cancelPreview'>;
@@ -50,7 +51,7 @@ export function usePaidMediaComparison<R, Input>(calls: ComparisonCalls<R, Input
         quoted.push({ estimate, label: `${doc.filename}: ${column.engineId}` });
         if (estimate.requires_confirmation) paid.push({ estimate, label: `${doc.filename}: ${column.engineId}` });
       } catch (error) {
-        prepared.set(pairKey(doc, column), { error: error instanceof Error ? error.message : String(error) });
+        prepared.set(pairKey(doc, column), { error: errorMessage(error) });
       }
     }
     if (signal.aborted) return false;

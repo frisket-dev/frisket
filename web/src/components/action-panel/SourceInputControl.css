@@ -60,7 +60,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-10);
   margin-bottom: 8px;
 }
 
@@ -70,7 +70,7 @@
   grid-template-columns: 56px minmax(0, 1fr);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .template-composer {
   border: 1px solid var(--border);
@@ -108,7 +108,7 @@
   color: var(--text-light);
 }
 .template-insert-chip {
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 600;
   color: var(--text-mid);
   background: var(--bg);
@@ -125,7 +125,7 @@
   min-height: 26px;
   height: 26px;
   padding: 0 6px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--text-light);
   border: none;
   background: transparent;

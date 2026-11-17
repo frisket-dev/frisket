@@ -5,6 +5,7 @@ import { notifyImportSessionChanged, rememberImportSessionFiles, setImportSessio
 import type { ImportFormat } from '../../telemetry/productTelemetry';
 import { trackImportSubmission } from '../../telemetry/importTelemetry';
 import type { FileImportMode, ImportHandlers } from './model';
+import { errorMessage } from '../../hooks/errorMessage';
 
 function fileImportFormat(file: File): ImportFormat {
   const suffix = file.name.split('.').pop()?.toLowerCase();
@@ -306,7 +307,7 @@ export function useImportUpload({
           : null,
       };
     } catch (e) {
-      onError(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
+      onError(`Import failed: ${errorMessage(e)}`);
       return null;
     } finally {
       setBusy(false);

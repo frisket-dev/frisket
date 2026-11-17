@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ActionParamResolution } from '../../api/types';
 import { ModelSetupRequestError, startEngineSetup } from '../../api/engineSetup';
 import { readModelPull } from '../../api/modelPullOperations';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { useSelector } from '../../bind/useSelector';
 import { modelPullActive } from '../../hooks/useModelPullPolling';
+import { useAction } from '../../hooks/useAction';
 import { Button } from '../Button';
 
 type Setup = NonNullable<ActionParamResolution['runtime_setup']>;
@@ -22,8 +23,7 @@ function EngineRuntimeSetupGate({ setup, onChanged }: {
 }) {
   const { runtimeSetup } = useWorkspaceStores();
   const activity = useSelector(runtimeSetup.store, (state) => state);
-  const [starting, setStarting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy: starting, error, run } = useAction();
   const initialVersion = useRef(activity.completionVersion);
   useEffect(() => {
     if (initialVersion.current !== activity.completionVersion) {
@@ -38,19 +38,20 @@ function EngineRuntimeSetupGate({ setup, onChanged }: {
   const matching = activity.pull?.model === setup.setup_ref;
   const start = async () => {
     if (starting || active || !setup.can_mutate || !setup.can_start) return;
-    setStarting(true); setError(null);
-    try {
-      const result = await startEngineSetup(setup.scope, setup.setup_ref);
-      runtimeSetup.observe(result.pull, setup.scope, setup.can_mutate);
-    } catch (caught) {
-      if (caught instanceof ModelSetupRequestError && caught.status === 409 && caught.activePullId !== null) {
-        try {
-          runtimeSetup.observe(await readModelPull(setup.scope, caught.activePullId), setup.scope, setup.can_mutate);
-          return;
-        } catch { /* Keep the original start failure actionable. */ }
+    await run(async () => {
+      try {
+        const result = await startEngineSetup(setup.scope, setup.setup_ref);
+        runtimeSetup.observe(result.pull, setup.scope, setup.can_mutate);
+      } catch (caught) {
+        if (caught instanceof ModelSetupRequestError && caught.status === 409 && caught.activePullId !== null) {
+          try {
+            runtimeSetup.observe(await readModelPull(setup.scope, caught.activePullId), setup.scope, setup.can_mutate);
+            return;
+          } catch { /* Keep the original start failure actionable. */ }
+        }
+        throw new Error('Could not start browser setup. Recheck and try again.', { cause: caught });
       }
-      setError('Could not start browser setup. Recheck and try again.');
-    } finally { setStarting(false); }
+    });
   };
   return <section className="selector-setup" data-testid="runtime-setup-gate">
     <p className="form-hint">This action needs Chromium to load pages in a browser. Set up browser tools on this computer before running.</p>

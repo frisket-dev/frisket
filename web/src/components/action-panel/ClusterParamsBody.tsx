@@ -10,6 +10,7 @@ import { PanelSelect } from '../PanelSelect';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import '../cluster-review.css';
+import { errorMessage } from '../../hooks/errorMessage';
 
 type Params = GeneratedActionParams['cluster.values'];
 type Review = NonNullable<Params['review']>;
@@ -150,7 +151,7 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
     } catch (cause) {
       if (seq !== generation.current || requestedIdentity !== currentIdentity.current) return;
       setUnavailable(cause instanceof ApiError && cause.code === 'embedding_backend_unavailable');
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(errorMessage(cause));
       setReviewed(null);
     } finally {
       if (seq === generation.current) setBusy(false);

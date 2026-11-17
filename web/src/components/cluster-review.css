@@ -2,7 +2,7 @@
 .cluster-controls {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 84px;
-  gap: 8px;
+  gap: var(--space-8);
   align-items: end;
 }
 .cluster-controls .btn {
@@ -11,7 +11,7 @@
 .cluster-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-10);
   margin-top: 12px;
 }
 .cluster-card {
@@ -24,7 +24,7 @@
   display: flex;
   justify-content: space-between;
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   margin-bottom: 8px;
 }
 .cluster-values {
@@ -34,12 +34,12 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .cluster-values li {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .cluster-values li span:first-child {
   min-width: 0;
@@ -54,7 +54,7 @@
 .cluster-member {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   min-width: 0;
 }
 
@@ -82,7 +82,7 @@
 /* Sentence-case semibold labels: the shared `.field-labels` is only a font
    size, so mirror `.action-panel .form-label`'s weight/color/size here. */
 .cluster-review-form .field-labels {
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-weight: 600;
   color: var(--text-mid);
 }
@@ -94,7 +94,7 @@
    field rows. */
 .cluster-review-form .cluster-list {
   margin-top: 16px;
-  gap: 12px;
+  gap: var(--space-12);
 }
 .cluster-review-form .cluster-card {
   border-color: var(--border);

@@ -55,7 +55,7 @@ dialog.import-workspace-layer::backdrop {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: var(--space-12);
   padding: 14px 24px;
   border-bottom: 1px solid var(--border);
 }
@@ -78,7 +78,7 @@ dialog.import-workspace-layer::backdrop {
 .import-workspace-kicker {
   margin-top: 2px;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -111,7 +111,7 @@ dialog.import-workspace-layer::backdrop {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-10);
   padding: 22px;
   overflow-y: auto;
 }
@@ -127,7 +127,7 @@ dialog.import-workspace-layer::backdrop {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .import-feed-form {
   width: min(620px, 100%);
@@ -138,12 +138,12 @@ dialog.import-workspace-layer::backdrop {
   gap: 7px;
   min-height: 34px;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .import-step-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-8);
   padding-top: 4px;
 }
 .dropzone-import-open {
@@ -153,7 +153,7 @@ dialog.import-workspace-layer::backdrop {
 
 .dropzone {
   flex: 1; margin: 24px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-8);
   border: 2px dashed var(--border-strong);
   border-radius: 12px;
   color: var(--text-light);
@@ -166,7 +166,7 @@ dialog.import-workspace-layer::backdrop {
   color: var(--accent);
 }
 .dropzone-title { font-size: 15px; font-weight: 650; }
-.dropzone-sub { font-size: 12px; }
+.dropzone-sub { font-size: var(--font-size-small); }
 .import-workspace-panel-flush {
   padding: 0;
   gap: 0;
@@ -190,10 +190,10 @@ dialog.import-workspace-layer::backdrop {
   gap: 7px;
   min-width: 0;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .import-files-summary-list li svg { flex: 0 0 auto; }
-.import-files-progress { display: grid; gap: 8px; }
+.import-files-progress { display: grid; gap: var(--space-8); }
 .import-workspace-main-preparation .run-spinner { display: inline-block; vertical-align: middle; margin-right: 6px; }
 .import-files-progress .activity-progress-bar { width: min(100%, 420px); }
 

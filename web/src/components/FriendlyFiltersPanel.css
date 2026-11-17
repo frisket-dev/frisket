@@ -1,24 +1,24 @@
 /* Friendly filtering: a compact Amazon-style stack of typed facets. */
 .friendly-filters { gap: 9px; }
 .friendly-filter-intro {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-8);
   padding: 0 2px 7px; border-bottom: 1px solid var(--border);
 }
-.friendly-filter-intro strong { font-size: 12px; color: var(--text); }
+.friendly-filter-intro strong { font-size: var(--font-size-small); color: var(--text); }
 .friendly-filter-intro p {
   margin: 3px 0 0; color: var(--text-light); font-size: 10.5px; line-height: 1.4;
 }
-.friendly-active-filters { display: flex; flex-direction: column; gap: 4px; }
+.friendly-active-filters { display: flex; flex-direction: column; gap: var(--space-4); }
 .friendly-active-heading {
   display: flex; align-items: center; justify-content: space-between;
-  color: var(--text-light); font-size: 10px; font-weight: 650;
+  color: var(--text-light); font-size: var(--font-size-caption); font-weight: 650;
   text-transform: uppercase; letter-spacing: 0.03em;
 }
 .friendly-active-heading button,
 .friendly-advanced > button {
   border: 0; background: none; color: var(--accent); font-size: 10.5px; cursor: pointer;
 }
-.friendly-facet-stack { display: flex; flex-direction: column; gap: 6px; }
+.friendly-facet-stack { display: flex; flex-direction: column; gap: var(--space-6); }
 .friendly-facet-card {
   border: 1px solid var(--border); border-radius: var(--radius-7);
   background: var(--bg); overflow: hidden;
@@ -30,7 +30,7 @@
 }
 .friendly-facet-toggle {
   display: grid; grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 7px 8px;
+  align-items: center; gap: var(--space-6); flex: 1; min-width: 0; padding: 7px 8px;
   border: 0; background: transparent; color: var(--text); text-align: left;
 }
 .friendly-facet-toggle > span:first-child { display: flex; flex-direction: column; min-width: 0; }
@@ -39,7 +39,7 @@
 .friendly-facet-toggle svg { color: var(--text-light); transition: transform 120ms ease; }
 .friendly-facet-toggle svg.is-open { transform: rotate(180deg); }
 .friendly-facet-clear {
-  display: inline-flex; align-items: center; gap: 2px; flex: none;
+  display: inline-flex; align-items: center; gap: var(--space-2); flex: none;
   margin-right: 7px; border: 0; border-radius: 999px; padding: 2px 5px;
   background: var(--accent-bg); color: var(--accent);
   font-size: 9px; font-weight: 700; cursor: pointer;
@@ -54,7 +54,7 @@
 .friendly-facet-search:focus-within { border-color: var(--focus); }
 .friendly-facet-search input {
   width: 100%; min-width: 0; border: 0; outline: 0; background: transparent;
-  color: var(--text); font-size: 11px;
+  color: var(--text); font-size: var(--font-size-meta);
 }
 .friendly-facet-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .friendly-facet-bulk-actions button {
@@ -66,22 +66,22 @@
 .friendly-facet-bulk-actions button:disabled { cursor: default; opacity: 0.5; }
 .friendly-facet-note { color: var(--text-light); font-size: 9.5px; }
 .friendly-facet-note[data-loading='true'] { opacity: 0.55; }
-.friendly-checkbox-list { display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow: auto; }
+.friendly-checkbox-list { display: flex; flex-direction: column; gap: var(--space-2); max-height: 220px; overflow: auto; }
 .friendly-checkbox-list.is-searchable { height: 220px; }
 .friendly-checkbox-list[data-loading='true'] { opacity: 0.55; }
 .friendly-checkbox-row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
-  gap: 6px; min-height: 24px; padding: 2px 3px; border-radius: var(--radius-5);
-  color: var(--text-mid); font-size: 11px;
+  gap: var(--space-6); min-height: 24px; padding: 2px 3px; border-radius: var(--radius-5);
+  color: var(--text-mid); font-size: var(--font-size-meta);
 }
 .friendly-checkbox-row:hover { background: var(--bg-hover); }
 .friendly-checkbox-choice {
-  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-6);
   min-width: 0;
 }
 .friendly-checkbox-choice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .friendly-checkbox-actions {
-  display: inline-flex; align-items: center; gap: 2px; opacity: 0; pointer-events: none;
+  display: inline-flex; align-items: center; gap: var(--space-2); opacity: 0; pointer-events: none;
 }
 .friendly-checkbox-row:hover .friendly-checkbox-actions,
 .friendly-checkbox-row:focus-within .friendly-checkbox-actions { opacity: 1; pointer-events: auto; }
@@ -95,7 +95,7 @@
 .friendly-checkbox-actions button:disabled { cursor: default; opacity: 0.5; }
 .friendly-checkbox-row > small { color: var(--text-light); font-variant-numeric: tabular-nums; }
 .friendly-histogram {
-  display: flex; align-items: flex-end; gap: 2px; height: 54px; padding: 3px 2px 0;
+  display: flex; align-items: flex-end; gap: var(--space-2); height: 54px; padding: 3px 2px 0;
   border-bottom: 1px solid var(--border-strong);
 }
 .friendly-histogram span {
@@ -104,7 +104,7 @@
   transition: background-color 100ms ease;
 }
 .friendly-histogram span[data-excluded='true'] { background: var(--border); }
-.friendly-range-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.friendly-range-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
 .friendly-range-inputs label {
   display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center;
   border: 1px solid var(--border); border-radius: var(--radius-5); background: var(--bg);

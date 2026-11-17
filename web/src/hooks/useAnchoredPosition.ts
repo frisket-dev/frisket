@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
 
 /**
  * One home for popover viewport-positioning math. Six sites hand-rolled the
@@ -34,6 +34,16 @@ export interface AnchoredPositionOptions {
   minHeight?: number;
   /** Viewport safe-area margin. Default 8. */
   margin?: number;
+}
+
+/**
+ * Fixed top-layer placement for an anchored popover, hidden until the position
+ * resolves. `inset`/`margin` reset the UA popover centring.
+ */
+export function anchoredPopoverStyle(position: AnchoredPosition | null): CSSProperties {
+  return position
+    ? { position: 'fixed', inset: 'auto', top: position.top, bottom: position.bottom, left: position.left, right: 'auto', width: position.width, margin: 0 }
+    : { position: 'fixed', visibility: 'hidden' };
 }
 
 const VIEWPORT_MARGIN = 8;

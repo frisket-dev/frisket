@@ -7,7 +7,7 @@
 .preview-view-banner {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-10);
   padding: 9px 22px;
   background: var(--preview-bg);
   border-bottom: 1px solid var(--preview-border);
@@ -20,12 +20,12 @@
   flex-shrink: 0;
 }
 .preview-view-title {
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-weight: 700;
   color: var(--preview-ink);
 }
 .preview-view-scope {
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   color: var(--preview-muted);
 }
 .preview-view-spacer { flex: 1; }
@@ -35,7 +35,7 @@
   border: 1px solid var(--preview-border);
   background: var(--bg);
   border-radius: var(--radius-8);
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-weight: 600;
   color: var(--preview-btn);
   cursor: pointer;
@@ -47,7 +47,7 @@
   background: var(--preview-btn);
   color: var(--text-on-solid);
   border-radius: var(--radius-8);
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-weight: 650;
   cursor: pointer;
 }

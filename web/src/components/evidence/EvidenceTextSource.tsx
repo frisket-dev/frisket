@@ -1,5 +1,5 @@
 import './EvidenceReading.css';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { EvidenceArtifact, EvidenceSpan, EvidenceTextPassageTarget } from '../../api/open';
 import { readEvidenceTextResource } from '../../api/raw/blobText';
 import { Button } from '../Button';
@@ -7,6 +7,7 @@ import { PanelLoading } from '../PanelPrimitives';
 import { SavedTextContext } from '../EvidenceTextContext';
 import { textSegments, type TextSegment } from '../evidenceTextSegments';
 import { isTextRenderableMediaType, jsonRecord, textCitedSpans } from './evidenceSourceModel';
+import { useLoader } from '../../hooks/useLoader';
 
 export type RecoveryState =
   | { phase: 'idle' }
@@ -137,11 +138,6 @@ function highlightQuotes(sourceText: string, spans: EvidenceSpan[]): TextSegment
   return textSegments(sourceText, ranges);
 }
 
-type TextBlobState =
-  | { phase: 'loading' }
-  | { phase: 'error' }
-  | { phase: 'done'; text: string };
-
 function TextBlobSource({
   artifact,
   blobUrl,
@@ -151,32 +147,16 @@ function TextBlobSource({
   blobUrl: string;
   spans: EvidenceSpan[];
 }) {
-  const [state, setState] = useState<TextBlobState>({ phase: 'loading' });
-  useEffect(() => {
-    let alive = true;
-
-    const controller = new AbortController();
-    readEvidenceTextResource(blobUrl, controller.signal)
-      .then((text) => {
-        if (alive) setState({ phase: 'done', text });
-      })
-      .catch(() => {
-        if (alive) setState({ phase: 'error' });
-      });
-    return () => {
-      alive = false;
-      controller.abort();
-    };
-  }, [blobUrl]);
-
-  const segments = state.phase === 'done' ? highlightQuotes(state.text, spans) : null;
+  const textBlob = useLoader((signal) => readEvidenceTextResource(blobUrl, signal), [blobUrl], { keepPreviousData: true });
+  const text = textBlob.error === null ? textBlob.data : null;
+  const segments = text !== null ? highlightQuotes(text, spans) : null;
   const firstHighlightIndex = segments ? segments.findIndex((segment) => segment.highlighted) : -1;
   const firstMarkRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (firstHighlightIndex >= 0) firstMarkRef.current?.scrollIntoView({ block: 'nearest' });
   }, [firstHighlightIndex]);
 
-  if (state.phase === 'loading') {
+  if (textBlob.loading && textBlob.data === null && textBlob.error === null) {
     return (
       <div className="evidence-text-source" data-testid="evidence-text-source">
         <PanelLoading testId="evidence-text-loading" label="Loading source text…" />

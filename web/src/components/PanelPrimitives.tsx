@@ -11,7 +11,7 @@ import './SegmentedToggle.css';
  * keep a real focusable control in the DOM so keyboard and e2e access work.
  *
  * Component exports only (react-refresh/only-export-components) — plain
- * helper functions shared between panels (testIdKey, panelErrorMessage) live
+ * helper functions shared between panels (testIdKey) live
  * in ./panelPrimitivesModel instead.
  */
 

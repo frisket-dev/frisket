@@ -1,0 +1,264 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`workbench descriptor parsers > parse plugin manifests from an enabled plugin and apply every rejection rule 1`] = `
+"{
+  "commands": [
+    {
+      "commandId": "acme.tools.acme.tools.command",
+      "componentKey": "acme.tools.command.Component",
+      "dataRequirements": [],
+      "handlerKey": "acme.tools.command.Component",
+      "icon": "<undefined>",
+      "id": "acme.tools.command",
+      "kind": "command",
+      "ownerPluginId": "acme.tools",
+      "placements": [
+        {
+          "default": "<undefined>",
+          "defaultSize": "<undefined>",
+          "density": null,
+          "host": "commandPalette",
+          "minSize": "<undefined>",
+          "mode": "command",
+          "order": "<undefined>",
+          "placementId": "<undefined>",
+          "slot": null,
+          "tabChrome": "<undefined>"
+        }
+      ],
+      "requires": [],
+      "runtimeComponent": {
+        "componentKey": "acme.tools.command.Component",
+        "contributionId": "acme.tools.command",
+        "manifestSha256": "manifest-sha",
+        "moduleKey": "module",
+        "moduleUrl": "/plugins/acme.tools.command.js",
+        "packageSha256": "package-sha",
+        "pluginId": "acme.tools"
+      },
+      "schemaVersion": "frisket.command.v1",
+      "shortTitle": "<undefined>",
+      "title": "Title"
+    }
+  ],
+  "panels": [
+    {
+      "componentKey": "acme.tools.panel-b.Component",
+      "dataRequirements": [
+        {
+          "columnType": "<undefined>",
+          "id": "<undefined>",
+          "kind": "activeRow",
+          "min": "<undefined>",
+          "optional": "<undefined>"
+        },
+        {
+          "columnType": "date",
+          "id": "<undefined>",
+          "kind": "sheetHasColumnType",
+          "min": 1,
+          "optional": "<undefined>"
+        }
+      ],
+      "icon": "chart",
+      "id": "acme.tools.panel-b",
+      "kind": "panel",
+      "ownerPluginId": "acme.tools",
+      "placements": [
+        {
+          "default": true,
+          "defaultSize": 20,
+          "density": "compact",
+          "host": "rightInspector",
+          "minSize": 10,
+          "mode": "panel",
+          "order": 1,
+          "placementId": "p1",
+          "slot": "detail",
+          "tabChrome": {
+            "closeable": true,
+            "singleton": false
+          }
+        },
+        {
+          "default": "<undefined>",
+          "defaultSize": "<undefined>",
+          "density": null,
+          "host": "bottomDock",
+          "minSize": "<undefined>",
+          "mode": "tab",
+          "order": "<undefined>",
+          "placementId": "<undefined>",
+          "slot": null,
+          "tabChrome": "<undefined>"
+        }
+      ],
+      "requires": [
+        {
+          "id": "grid.read",
+          "kind": "hostCapability",
+          "optional": true
+        }
+      ],
+      "runtimeComponent": {
+        "componentKey": "acme.tools.panel-b.Component",
+        "contributionId": "acme.tools.panel-b",
+        "manifestSha256": "manifest-sha",
+        "moduleKey": "module",
+        "moduleUrl": "/plugins/acme.tools.panel-b.js",
+        "packageSha256": "package-sha",
+        "pluginId": "acme.tools"
+      },
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "shortTitle": "B",
+      "title": "Title"
+    },
+    {
+      "componentKey": "acme.tools.no-module.Component",
+      "dataRequirements": [],
+      "icon": "<undefined>",
+      "id": "acme.tools.no-module",
+      "kind": "panel",
+      "ownerPluginId": "acme.tools",
+      "placements": [
+        {
+          "default": "<undefined>",
+          "defaultSize": "<undefined>",
+          "density": null,
+          "host": "rightInspector",
+          "minSize": "<undefined>",
+          "mode": "panel",
+          "order": 2,
+          "placementId": "<undefined>",
+          "slot": null,
+          "tabChrome": "<undefined>"
+        }
+      ],
+      "requires": [],
+      "runtimeComponent": "<undefined>",
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "shortTitle": "<undefined>",
+      "title": "Title"
+    },
+    {
+      "componentKey": "acme.tools.panel-a.Component",
+      "dataRequirements": [],
+      "icon": "<undefined>",
+      "id": "acme.tools.panel-a",
+      "kind": "panel",
+      "ownerPluginId": "acme.tools",
+      "placements": [
+        {
+          "default": "<undefined>",
+          "defaultSize": "<undefined>",
+          "density": null,
+          "host": "rightInspector",
+          "minSize": "<undefined>",
+          "mode": "panel",
+          "order": 2,
+          "placementId": "<undefined>",
+          "slot": null,
+          "tabChrome": "<undefined>"
+        }
+      ],
+      "requires": [],
+      "runtimeComponent": {
+        "componentKey": "acme.tools.panel-a.Component",
+        "contributionId": "acme.tools.panel-a",
+        "manifestSha256": "manifest-sha",
+        "moduleKey": "module",
+        "moduleUrl": "/plugins/acme.tools.panel-a.js",
+        "packageSha256": "package-sha",
+        "pluginId": "acme.tools"
+      },
+      "schemaVersion": "frisket.workbench.panel.v1",
+      "shortTitle": "<undefined>",
+      "title": "Title"
+    }
+  ],
+  "views": [
+    {
+      "componentKey": "acme.tools.projection.Component",
+      "dataRequirements": [],
+      "icon": "<undefined>",
+      "id": "acme.tools.projection",
+      "kind": "view",
+      "ownerPluginId": "acme.tools",
+      "placements": [
+        {
+          "default": "<undefined>",
+          "defaultSize": "<undefined>",
+          "density": null,
+          "host": "mainView",
+          "minSize": "<undefined>",
+          "mode": "pane",
+          "order": "<undefined>",
+          "placementId": "<undefined>",
+          "slot": null,
+          "tabChrome": "<undefined>"
+        }
+      ],
+      "projectionKind": "timeline",
+      "projectionParams": {
+        "dateColumn": "d"
+      },
+      "requires": [
+        {
+          "id": "projection.status",
+          "kind": "hostCapability",
+          "optional": "<undefined>"
+        }
+      ],
+      "runtimeComponent": {
+        "componentKey": "acme.tools.projection.Component",
+        "contributionId": "acme.tools.projection",
+        "manifestSha256": "manifest-sha",
+        "moduleKey": "module",
+        "moduleUrl": "/plugins/acme.tools.projection.js",
+        "packageSha256": "package-sha",
+        "pluginId": "acme.tools"
+      },
+      "schemaVersion": "frisket.workbench.view.v1",
+      "shortTitle": "<undefined>",
+      "title": "Title"
+    },
+    {
+      "componentKey": "acme.tools.view.Component",
+      "dataRequirements": [],
+      "icon": "<undefined>",
+      "id": "acme.tools.view",
+      "kind": "view",
+      "ownerPluginId": "acme.tools",
+      "placements": [
+        {
+          "default": "<undefined>",
+          "defaultSize": "<undefined>",
+          "density": null,
+          "host": "mainView",
+          "minSize": "<undefined>",
+          "mode": "pane",
+          "order": "<undefined>",
+          "placementId": "<undefined>",
+          "slot": null,
+          "tabChrome": "<undefined>"
+        }
+      ],
+      "projectionKind": "<undefined>",
+      "projectionParams": "<undefined>",
+      "requires": [],
+      "runtimeComponent": {
+        "componentKey": "acme.tools.view.Component",
+        "contributionId": "acme.tools.view",
+        "manifestSha256": "manifest-sha",
+        "moduleKey": "module",
+        "moduleUrl": "/plugins/acme.tools.view.js",
+        "packageSha256": "package-sha",
+        "pluginId": "acme.tools"
+      },
+      "schemaVersion": "frisket.workbench.view.v1",
+      "shortTitle": "<undefined>",
+      "title": "Title"
+    }
+  ]
+}"
+`;

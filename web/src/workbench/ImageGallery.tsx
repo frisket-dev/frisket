@@ -6,6 +6,7 @@ import type { Row } from '../api/types';
 import { mediaFilename } from '../media/resolveMediaValue';
 import type { PluginViewContext } from './pluginViewContext';
 import { PanelLoading } from '../components/PanelPrimitives';
+import { errorMessage } from '../hooks/errorMessage';
 
 const IMAGE_GALLERY_PAGE_SIZE = 12;
 
@@ -74,7 +75,7 @@ export function ImageGallery({ ctx }: { ctx: PluginViewContext }) {
           rows: [],
           total: ctx.sheet.rowCount,
           loading: false,
-          error: err instanceof Error ? err.message : 'Could not load images.',
+          error: errorMessage(err, 'Could not load images.'),
         });
       });
     return () => {
@@ -109,7 +110,7 @@ export function ImageGallery({ ctx }: { ctx: PluginViewContext }) {
       setState({
         ...visibleState,
         loading: false,
-        error: err instanceof Error ? err.message : 'Could not load images.',
+        error: errorMessage(err, 'Could not load images.'),
       });
     }
   }, [

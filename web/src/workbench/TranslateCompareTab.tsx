@@ -17,6 +17,7 @@ import { mediaSelectorQuery } from './mediaCompareSelector';
 import { useCompareSelectorReadiness } from './useCompareSelectorReadiness';
 import { useComparisonCatalog } from './useComparisonCatalog';
 import { SelectorField } from '../engine-selector/SelectorField';
+import { useAction } from '../hooks/useAction';
 
 // TranslateCompareTab — the TEXT-source sibling of the OCR/Transcribe
 // compare tabs. Those are built on MediaCompareShell (file drop + media peek
@@ -68,10 +69,9 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
   const [text, setText] = useState('');
   const [targetLanguage, setTargetLanguage] = useState(DEFAULT_TARGET);
   const [sourceLanguage, setSourceLanguage] = useState('');
-  const [running, setRunning] = useState(false);
+  const { busy: running, error: runError, run: runCompare } = useAction({ errorFallback: 'Translate compare failed' });
   const [results, setResults] = useState<TranslateCompareEngineResult[] | null>(null);
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
-  const [runError, setRunError] = useState<string | null>(null);
 
   const freeEngines = useMemo(
     () => engines.filter((engine) => !engineIsRemote(engine)),
@@ -122,10 +122,8 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
 
   async function run() {
     if (!canRun) return;
-    setRunning(true);
     setRunErrors({});
-    setRunError(null);
-    try {
+    await runCompare(async () => {
       const result = await api.compareTranslateScratch({
         engines: selectedIds,
         text,
@@ -139,11 +137,7 @@ export function TranslateCompareTab({ onSessionChange }: TranslateCompareTabProp
       }
       setRunErrors(errs);
       onSessionChange({ hasData: true, verdict: `${result.results.length} engines` });
-    } catch (err) {
-      setRunError(err instanceof Error ? err.message : 'Translate compare failed');
-    } finally {
-      setRunning(false);
-    }
+    });
   }
 
   const resultByEngine = useMemo(() => {

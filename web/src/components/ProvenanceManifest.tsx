@@ -514,11 +514,9 @@ export function ProvenanceManifest({ projectName, onClose, onCreateEntityTable }
   const receiptsOffsetRef = useRef(0);
   const requestSeq = useRef(0);
 
-  const loadPage = useCallback((nextRunsOffset: number, nextReceiptsOffset: number) => {
+  const fetchPage = useCallback((nextRunsOffset: number, nextReceiptsOffset: number) => {
     const requestId = requestSeq.current + 1;
     requestSeq.current = requestId;
-    setState({ status: 'loading' });
-    setActiveReceiptId(null);
     api
       .getProvenanceManifest(
         nextRunsOffset,
@@ -539,28 +537,20 @@ export function ProvenanceManifest({ projectName, onClose, onCreateEntityTable }
       });
   }, []);
 
+  const loadPage = useCallback((nextRunsOffset: number, nextReceiptsOffset: number) => {
+    setState({ status: 'loading' });
+    setActiveReceiptId(null);
+    fetchPage(nextRunsOffset, nextReceiptsOffset);
+  }, [fetchPage]);
+
   const load = () => {
     loadPage(runsOffsetRef.current, receiptsOffsetRef.current);
   };
 
   useEffect(() => {
-    const requestId = requestSeq.current + 1;
-    requestSeq.current = requestId;
-    api
-      .getProvenanceManifest(0, PROVENANCE_HISTORY_PAGE_SIZE, 0, PROVENANCE_HISTORY_PAGE_SIZE)
-      .then((manifest) => {
-        if (requestId !== requestSeq.current) return;
-        runsOffsetRef.current = manifest.runsPage.offset;
-        receiptsOffsetRef.current = manifest.receiptsPage.offset;
-        setState({ status: 'loaded', manifest });
-      })
-      .catch((error: Error) => {
-        if (requestId === requestSeq.current) {
-          setState({ status: 'error', error: error.message });
-        }
-      });
+    fetchPage(0, 0);
     return () => { requestSeq.current += 1; };
-  }, []);
+  }, [fetchPage]);
 
   const manifest = state.status === 'loaded' ? state.manifest : null;
   const payload = useMemo(() => jsonPayload(manifest), [manifest]);

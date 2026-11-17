@@ -1,7 +1,8 @@
 import { Button } from '../Button';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { SheetMeta } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
+import { useLoader } from '../../hooks/useLoader';
 import { PdfTablesPicker } from '../PdfTablesPicker';
 
 export interface PdfTablesMaterializeIntent {
@@ -56,19 +57,13 @@ function PdfTablesColumnReview({ sheetId, reviewColumn, outputName, onMaterializ
   }) {
   const { projectApi } = useWorkspaceStores();
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [verified, setVerified] = useState(false);
-  useEffect(() => {
-    let current = true;
-    projectApi.getColumnRuns(reviewColumn.id, 0, 1).then((history) => {
-      // This is an advisory review entry point, not current-cell provenance or
-      // permission to feed a list. Mixed/re-run values remain backend-validated.
-      const producer = history.currentRun ?? history.latestRun;
-      if (current && producer?.actionKind === 'media.extract_pdf_tables') {
-        setVerified(true);
-      }
-    }).catch(() => { /* A failed provenance lookup cannot claim an extraction. */ });
-    return () => { current = false; };
-  }, [projectApi, reviewColumn.id]);
+  // A failed provenance lookup cannot claim an extraction.
+  const verified = useLoader(() => projectApi.getColumnRuns(reviewColumn.id, 0, 1).then((history) => {
+    // This is an advisory review entry point, not current-cell provenance or
+    // permission to feed a list. Mixed/re-run values remain backend-validated.
+    const producer = history.currentRun ?? history.latestRun;
+    return producer?.actionKind === 'media.extract_pdf_tables';
+  }), [projectApi, reviewColumn.id], { keepPreviousData: true }).data === true;
 
   if (!verified) return null;
 

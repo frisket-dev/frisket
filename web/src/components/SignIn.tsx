@@ -15,6 +15,7 @@ import { useEditionModule } from '../editions/module';
 import { AuthForm, AuthScreen } from './AuthScreen';
 import styles from './SignIn.module.css';
 import { authReturnTo, rememberPendingSignIn } from './authReturnTo';
+import { useAction } from '../hooks/useAction';
 
 export function SignIn() {
   const { routes } = useEditionModule();
@@ -24,9 +25,8 @@ export function SignIn() {
   const [password, setPassword] = useState('');
   const [passwordConfirmation, setPasswordConfirmation] = useState('');
   const [magicLinkOpen, setMagicLinkOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { busy, error, setError, run } = useAction();
   const [sent, setSent] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [returnTo] = useState(() => authReturnTo(window.location));
   const magicEmailRef = useRef<HTMLInputElement>(null);
   const [invitedArrival] = useState(
@@ -61,7 +61,7 @@ export function SignIn() {
       .then((runtime) => { if (alive) setConfig(runtime); })
       .catch(() => { if (alive) setError('Sign-in is temporarily unavailable.'); });
     return () => { alive = false; };
-  }, []);
+  }, [setError]);
 
   useEffect(() => {
     if (magicLinkOpen) magicEmailRef.current?.focus();
@@ -70,31 +70,19 @@ export function SignIn() {
   async function submitPassword(event: FormEvent) {
     event.preventDefault();
     if (!email.trim() || !password || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await run(async () => {
       await signInWithPassword(email, password);
       continueAfterBrowserSignIn(returnTo);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function submitMagicLink(event: FormEvent) {
     event.preventDefault();
     if (!email.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
+    await run(async () => {
       await requestMagicLink(email);
       setSent(true);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   async function completeFirstUse(event: FormEvent) {
@@ -104,20 +92,14 @@ export function SignIn() {
       setError('Passwords do not match.');
       return;
     }
-    setBusy(true);
-    setError(null);
-    try {
+    await run(async () => {
       if (firstUse.kind === 'magic-link') {
         await completeMagicLink(firstUse.token, password);
       } else {
         await completeProjectInvite(firstUse.token, password);
       }
       continueAfterBrowserSignIn(returnTo);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : String(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   const methods = config?.auth_methods;
