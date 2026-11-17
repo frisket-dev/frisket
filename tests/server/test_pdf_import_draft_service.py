@@ -1013,7 +1013,7 @@ def test_paid_ocr_commit_requires_current_import_scope_confirmation(
     assert quoted[0]["known_pages"] == 8
 
     for confirmation in (None, "b" * 64):
-        with pytest.raises(PdfImportDraftError, match="OCR approval"):
+        with pytest.raises(PdfImportDraftError, match="OCR consent"):
             service.freeze_for_commit(
                 project_id,
                 draft_id,
@@ -1129,7 +1129,7 @@ def test_paid_ocr_freeze_rejects_route_or_price_change(
         ocr_selection={"kind": "engine", "engine": "remote-ocr"},
         ocr_policy="all",
     )
-    with pytest.raises(PdfImportDraftError, match="OCR quote changed"):
+    with pytest.raises(PdfImportDraftError, match="OCR estimate changed"):
         service.freeze_for_commit(
             project_id,
             draft_id,

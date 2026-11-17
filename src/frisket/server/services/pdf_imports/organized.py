@@ -194,12 +194,12 @@ def approve_pages(
     if holder is None:
         if remote and current.public["pages"]:
             raise PdfImportDraftError(
-                409, "paid or remote OCR requires an exact source-page quote"
+                409, "paid or remote OCR requires an exact source-page estimate"
             )
         holder = current
     elif holder.binding_hash != current.binding_hash:
         raise PdfImportDraftError(
-            409, "PDF source-page OCR quote changed; review the current price"
+            409, "PDF source-page OCR estimate changed; review the current price"
         )
     try:
         preparation = coordinator.approve(

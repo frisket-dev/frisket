@@ -164,7 +164,7 @@ class _EvidenceService:
                             "text_context_status": "stale",
                             "recovery_status": "not_found",
                             "recovery_notice": (
-                                "The saved quote was not found in the current source."
+                                "The saved passage was not found in the current source."
                             ),
                         }
                         if locate_current

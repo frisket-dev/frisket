@@ -28,12 +28,12 @@ def _utf16_offset(text: str, codepoint_offset: int) -> int:
 
 def _notice(*, matched_spans: int, total_spans: int, repeated: bool) -> str:
     if matched_spans < total_spans:
-        return "Found some saved quotes in the current source."
+        return "Found some saved passages in the current source."
     if repeated:
-        return "Found saved quotes in multiple places in the current source."
+        return "Found saved passages in multiple places in the current source."
     if total_spans == 1:
-        return "Found the saved quote in the current source."
-    return "Found the saved quotes in the current source."
+        return "Found the saved passage in the current source."
+    return "Found the saved passages in the current source."
 
 
 def locate_current_evidence_text(
@@ -128,7 +128,9 @@ def locate_current_evidence_text(
         ]
         if not quoted_spans:
             artifact["recovery_status"] = "unsupported"
-            artifact["recovery_notice"] = "This citation has no saved quote to locate."
+            artifact["recovery_notice"] = (
+                "This citation has no saved passage to locate."
+            )
             continue
 
         ranges: list[dict[str, Any]] = []
@@ -164,7 +166,7 @@ def locate_current_evidence_text(
         else:
             artifact["recovery_status"] = "not_found"
             artifact["recovery_notice"] = (
-                "The saved quote was not found in the current source."
+                "The saved passage was not found in the current source."
             )
     return viewer
 
@@ -185,7 +187,7 @@ def _locate_bounded(
     if not quoted:
         artifact.update(
             recovery_status="unsupported",
-            recovery_notice="This citation has no bounded saved quote to locate.",
+            recovery_notice="This citation has no bounded saved passage to locate.",
         )
         return
     size = limit or TEXT_WINDOW_CODEPOINT_LIMIT
@@ -229,7 +231,7 @@ def _locate_bounded(
             artifact.update(
                 recovery_status="incomplete",
                 recovery_scanned_characters=scanned,
-                recovery_notice="No saved quote was located in the bounded search. Other sections or spacing changes may contain it.",
+                recovery_notice="No saved passage was located in the bounded search. Other sections or spacing changes may contain it.",
             )
             return
     passage, _stale = read_artifact_passage(

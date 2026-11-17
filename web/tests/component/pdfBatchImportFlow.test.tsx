@@ -1155,7 +1155,7 @@ describe('PDF batch import flow', () => {
     const { api } = createApi(paid);
     vi.mocked(api.estimateBatchOcr).mockResolvedValue(paid.batch_ocr);
     vi.mocked(api.commit).mockRejectedValueOnce(new PdfImportResponseError(409, {
-      detail: 'PDF OCR quote changed; review the current price',
+      detail: 'PDF OCR estimate changed; review the current price',
     }));
     render(<PdfBatchImportFlow
       projectId="project-1" resumeDraftId="draft-1" destinationSheets={[]} api={api}

@@ -86,7 +86,7 @@ export function ProjectRetrievalSettings({
           Prepare new files automatically
           <small className="form-hint">
             Read PDFs and images after import. Missing local models are downloaded only
-            after you approve them.
+            with your consent.
           </small>
         </span>
       </label>

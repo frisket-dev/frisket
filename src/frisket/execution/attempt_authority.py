@@ -596,7 +596,7 @@ class AttemptAuthority:
                 # The one case that can name the offending fact.
                 raise ExecutionRouteVerificationFailed(
                     "consent_missing",
-                    "this run's quote can no longer be projected onto the "
+                    "this run's estimate can no longer be projected onto the "
                     f"money facts its confirmation bound ({exc.key}); re-run "
                     "the action to confirm the current work",
                 ) from exc
@@ -605,7 +605,7 @@ class AttemptAuthority:
                     raise
                 raise ExecutionRouteVerificationFailed(
                     "consent_missing",
-                    "this run's quote could not be recomputed "
+                    "this run's estimate could not be recomputed "
                     f"({type(exc).__name__}: {exc}); consent that cannot be "
                     "verified authorizes nothing — re-run the action to "
                     "confirm the current work",
@@ -623,15 +623,15 @@ class AttemptAuthority:
                     )
                     raise ExecutionRouteVerificationFailed(
                         "consent_missing",
-                        f"this run was quoted under pricing policy {quoted}, but "
+                        f"this run was estimated under pricing policy {quoted}, but "
                         "the deployment dispatching it prices with "
                         f"{survey.installed_policy_id!r}; nothing was spent. A "
-                        "confirmation binds the figure it quoted, so re-run the "
-                        "action to get a current quote and confirm it",
+                        "confirmation binds the figure it estimated, so re-run the "
+                        "action to get a current estimate and confirm it",
                     )
                 raise ExecutionRouteVerificationFailed(
                     "consent_missing",
-                    "this run's live rows, source revisions, or quote no longer "
+                    "this run's live rows, source revisions, or estimate no longer "
                     "match its persisted confirmation; re-run the action to "
                     "confirm the current work",
                 )

@@ -249,7 +249,7 @@ function HaltedRunResumeSection({
       >
         <h4>Resume</h4>
         <p>
-          The terms changed since you approved this run, so resuming needs
+          The terms changed since you consented to this run, so resuming needs
           your consent to the new ones — which this panel cannot collect. Open
           the run&apos;s target column and choose &ldquo;Run missing
           cells&rdquo;: it shows you what changed before anything runs, and

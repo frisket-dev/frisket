@@ -285,7 +285,7 @@ def test_source_page_grant_refuses_expansion_settings_and_confirmation_drop(
 
         tampered = copy.deepcopy(quoted)
         tampered["authorization"]["allocation"]["requires_confirmation"] = False
-        with pytest.raises(ValueError, match="quote changed"):
+        with pytest.raises(ValueError, match="estimate changed"):
             adapter.approve(tampered, confirmation=None)
         adapter.approve(quoted, confirmation=quoted["estimate"]["promise_set_hash"])
         with PdfSplitPreparationStore(adapter.inventory_path) as store:

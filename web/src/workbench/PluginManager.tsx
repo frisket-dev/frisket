@@ -567,7 +567,7 @@ export function PluginManager({
                     {allowLocalInstall && (
                       <div><dt>Reload files</dt><dd>Re-read changes from the same local path into the workspace package.</dd></div>
                     )}
-                    <div><dt>Review and enable</dt><dd>Approve access and expose contributions.</dd></div>
+                    <div><dt>Review and enable</dt><dd>Grant access and expose contributions.</dd></div>
                     <div><dt>Start backend</dt><dd>Register executable recipes and job handlers.</dd></div>
                     <div><dt>Disable</dt><dd>Pause contributions while keeping the installation.</dd></div>
                     <div><dt>Uninstall</dt><dd>Remove the workspace package for every project, not source files.</dd></div>

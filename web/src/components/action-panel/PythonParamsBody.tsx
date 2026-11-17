@@ -30,7 +30,7 @@ export function PythonParamsBody({ params, setParams, Field }:
       <summary>Return schema and output routes</summary>
       <p className="form-hint">
         Routes select values from result. Column routes appear below; named results and receipt
-        evidence remain hidden. Final column names do not change route keys.
+        values remain hidden. Final column names do not change route keys.
       </p>
       <Field name="return_schema" />
       <Field name="output_routes" />

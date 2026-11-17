@@ -222,8 +222,8 @@ function deriveSearchPreparationStageNotice(
       reviewBatchId: activeBatch.id,
       stage: 'approval',
       tone: 'warning',
-      title: 'Search preparation needs approval',
-      detail: `${remainingFileCount(activeBatch).toLocaleString()} files are waiting for approval`,
+      title: 'Search preparation needs your consent',
+      detail: `${remainingFileCount(activeBatch).toLocaleString()} files are waiting for consent`,
       progress: null,
       details: activeBatch.models.filter((model) => model.required && !model.ready).map((model) => model.display_name),
     };

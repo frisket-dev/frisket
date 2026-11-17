@@ -38,7 +38,7 @@ export async function prepareComparisonQuotePlan({ context, variants, quote, con
       const { estimate } = await quote(clone(request));
       if (changed()) return refused;
       if (estimate.requires_confirmation && !estimate.promise_set_hash) {
-        throw new Error('The comparison quote is missing its confirmation token.');
+        throw new Error('The comparison estimate is missing its confirmation token.');
       }
       if (estimate.requires_confirmation) request.action.confirmation = estimate.promise_set_hash;
       requests.push(request);
@@ -61,7 +61,7 @@ export async function prepareComparisonQuotePlan({ context, variants, quote, con
         field: `${index}:${claim.field}`, display: `${label} — ${claim.display}`,
       }))),
     };
-    const accepted = await confirm(total, `Approve ${quotes.length} comparison preview${quotes.length === 1 ? '' : 's'}. Results are temporary; usage is recorded.`, signal);
+    const accepted = await confirm(total, `Run ${quotes.length} comparison preview${quotes.length === 1 ? '' : 's'}. Results are temporary; usage is recorded.`, signal);
     if (!accepted || changed()) return refused;
   }
   return { approved: true, chunks };
