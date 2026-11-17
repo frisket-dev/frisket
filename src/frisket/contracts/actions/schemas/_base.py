@@ -384,13 +384,6 @@ class ActionValidationResult(ContractModel):
     error: ActionError | None = None
 
 
-class ConfirmationContextParams(ContractModel):
-    """Retry-flow fields shared by actions that can return HTTP 402."""
-
-    confirmed: bool = False
-    consented_promise_set_hash: StrictString | None = None
-
-
 def _is_v1_column_type(type_name: str) -> bool:
     return column_types.is_registered(canonical_column_type(type_name))
 

@@ -766,7 +766,7 @@ def test_bottom_dock_tab_placement_round_trips_resolution_and_validate() -> None
     """Cohort 1 (plugin-bottomdock-tab-parity-v1): a plugin panel placed in
     bottomDock:tab passes author-time validation and resolves through the
     backend reference resolver with its dock placement active."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
+    from workbench_contribution_resolver import resolve_contributions
 
     fixture_root = (
         Path(__file__).resolve().parents[1]
@@ -826,7 +826,7 @@ def test_plugin_command_contribution_round_trips_validation_and_resolution() -> 
     passes author-time validation, loads as a package, and resolves through the
     backend reference resolver with its commandPalette:command placement; an
     undeclared command descriptor fails the package validation closed."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
+    from workbench_contribution_resolver import resolve_contributions
 
     fixture_root = (
         Path(__file__).resolve().parents[1]
@@ -898,7 +898,7 @@ def test_left_sidebar_panel_placement_round_trips_resolution_and_validate() -> N
     """Cohort 3 (plugin-leftsidebar-panel-parity-v1): a plugin panel placed in
     leftSidebar:panel passes author-time validation and resolves through the
     backend reference resolver with its sidebar placement active."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
+    from workbench_contribution_resolver import resolve_contributions
 
     fixture_root = (
         Path(__file__).resolve().parents[1]
@@ -951,7 +951,7 @@ def test_detail_host_placements_round_trip_resolution_and_validate() -> None:
     """Cohort 4 (plugin-rowdetail/columndetail/entitysource-detail-parity-v1):
     plugin panels placed in the detail hosts pass author-time validation and
     resolve with their declared detail placements active."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
+    from workbench_contribution_resolver import resolve_contributions
 
     fixture_root = (
         Path(__file__).resolve().parents[1]
@@ -1002,7 +1002,7 @@ def test_modal_or_peek_placement_round_trips_resolution_and_validate() -> None:
     """Cohort 5 (plugin-modalorpeek-peek-parity-v1): a plugin peek panel and its
     opener command pass author-time validation and resolve with their declared
     placements active."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
+    from workbench_contribution_resolver import resolve_contributions
 
     fixture_root = (
         Path(__file__).resolve().parents[1]
@@ -1049,7 +1049,7 @@ def test_activity_rail_launcher_placement_round_trips_resolution_and_validate() 
     """Cohort 6 (plugin-activityrail-launcher-parity-v1): a plugin panel with a
     bottomDock primary and an activityRail launcher secondary validates and
     resolves BOTH placements (multi-placement from Cohort 0)."""
-    from frisket.authoring.workbench.contracts import resolve_contributions
+    from workbench_contribution_resolver import resolve_contributions
 
     fixture_root = (
         Path(__file__).resolve().parents[1]
@@ -1150,7 +1150,7 @@ def test_plugin_sdk_init_build_validate_roundtrip(tmp_path: Path) -> None:
         (plugin_root / "workbench-descriptors.json").read_text(encoding="utf-8")
     )["descriptors"]
 
-    from frisket.authoring.workbench.contracts import resolve_contributions
+    from workbench_contribution_resolver import resolve_contributions
 
     resolved = resolve_contributions(
         descriptors,

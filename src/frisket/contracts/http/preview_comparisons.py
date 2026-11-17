@@ -23,13 +23,6 @@ class PreviewProducerRecord(WireModel):
     __pydantic_extra__: dict[str, JsonValue] = Field(init=False)
 
 
-class PreviewEngine(PreviewProducerRecord):
-    id: str
-    label: str
-    tier: Literal["local", "sidecar", "hosted"]
-    billable: bool
-
-
 class PreviewMessage(PreviewProducerRecord):
     code: str
     message: str

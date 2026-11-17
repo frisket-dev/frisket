@@ -8,9 +8,11 @@ from frisket.authoring.workbench.contracts import (
     CANONICAL_REGIONS,
     FORBIDDEN_TAB_CONTRACTS,
     LEGAL_HOSTS,
+    project_manifest,
+)
+from workbench_contribution_resolver import (
     build_activity_recovery_entries,
     load_fixture_descriptors,
-    project_manifest,
     resolve_contributions,
 )
 

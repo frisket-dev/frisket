@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from frisket.contracts.action import (
     ActionError,
@@ -30,14 +30,6 @@ def _error(
             field=field,
             details=details or {},
         ),
-    )
-
-
-def _success(action: ActionSpec, params: BaseModel) -> ActionValidationResult:
-    return ActionValidationResult(
-        ok=True,
-        action=action,
-        params=params.model_dump(mode="json", by_alias=True),
     )
 
 

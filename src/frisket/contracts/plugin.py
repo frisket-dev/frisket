@@ -316,7 +316,6 @@ _CORE_MATCHER_HANDLER_KINDS = frozenset(
         "media.ytdlp_download",
     }
 )
-_MATCHER_KINDS = frozenset({"media", "collection", "scraper", "page"})
 # eTLD+1-ish registered domain shape. Deliberately loose (host validation is
 # not the security boundary — parsed-parts matching is); this only rejects
 # obvious junk (schemes, paths, whitespace) in a declared domain.
@@ -558,22 +557,6 @@ class PluginManifestSetting(PluginContractModel):
         return self
 
 
-class PluginManifestManagedRuntime(PluginContractModel):
-    """A declared SINGLE-FILE executable managed runtime
-    (plugin-managed-runtime-service-v1, program doc §11). Core fetches /
-    checksum-verifies / caches / versions the artifact; from this declaration
-    ALONE the runtime gets a doctor check + catalog disabled-with-reason gating
-    for free (frisket.plugins.runtime_gating). This is a dedicated contract, NOT
-    overloaded onto PluginManifestRuntime — `runtime` stays reserved for handler
-    bindings."""
-
-    name: str = Field(min_length=1, max_length=160)
-    version: str = Field(min_length=1, max_length=160)
-    artifact_url: str = Field(min_length=1)
-    checksum_url: str = Field(min_length=1)
-    checksum_entry: str = Field(min_length=1, max_length=256)
-
-
 class PluginManifest(PluginContractModel):
     schema_version: Literal[PLUGIN_MANIFEST_SCHEMA_VERSION] = (
         PLUGIN_MANIFEST_SCHEMA_VERSION
@@ -584,9 +567,6 @@ class PluginManifest(PluginContractModel):
     requires: PluginManifestRequires = Field(default_factory=PluginManifestRequires)
     runtime: PluginManifestRuntime = Field(default_factory=PluginManifestRuntime)
     settings: list[PluginManifestSetting] = Field(default_factory=list)
-    # Optional and absent by default so a rung-1 manifest-only plugin is
-    # unaffected.
-    managed_runtime: PluginManifestManagedRuntime | None = None
     # A bundled plugin some operators do not want should be shippable
     # DISABLED — "a way to most likely disable it (or just never enable
     # it)". Bootstrap seeds every packaged bundled plugin and auto-enables it

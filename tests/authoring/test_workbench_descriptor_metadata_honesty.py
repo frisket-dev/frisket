@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from frisket.authoring.workbench.contracts import (
+from workbench_contribution_resolver import (
     DATA_REQUIREMENT_CONTEXT_KINDS,
     _first_missing_data_requirement,
 )

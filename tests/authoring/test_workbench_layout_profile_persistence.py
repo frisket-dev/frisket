@@ -3,9 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from frisket.authoring.workbench.contracts import (
-    resolve_contributions,
-)
+from workbench_contribution_resolver import resolve_contributions
 
 
 ROOT = Path(__file__).parent.parent / "fixtures" / "workbench_portability"
