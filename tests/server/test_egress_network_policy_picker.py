@@ -128,16 +128,11 @@ def test_legacy_always_remote_kinds_carry_network_disabled_hint(off_project) -> 
     assert "network_disabled" not in (by_kind["map.translate"].get("ui_hints") or {})
 
 
-def test_no_network_hints_under_default_on(tmp_path) -> None:
-    project = Project.create(tmp_path / "on.frisket")
-    try:
-        payload = _hints_payload(project)
-        by_kind = {a["kind"]: a for a in payload["actions"]}
-        assert "network_disabled" not in (
-            by_kind["enrich.geocode"].get("ui_hints") or {}
-        )
-        translate = by_kind["map.translate"]
-        engines = {e["id"]: e for e in translate["ui_hints"]["engines"]}
-        assert "network setting is off" not in (engines["deepl"].get("error") or "")
-    finally:
-        project.close()
+def test_no_network_hints_under_default_on(make_project) -> None:
+    project = make_project("on")
+    payload = _hints_payload(project)
+    by_kind = {a["kind"]: a for a in payload["actions"]}
+    assert "network_disabled" not in (by_kind["enrich.geocode"].get("ui_hints") or {})
+    translate = by_kind["map.translate"]
+    engines = {e["id"]: e for e in translate["ui_hints"]["engines"]}
+    assert "network setting is off" not in (engines["deepl"].get("error") or "")

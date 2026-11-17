@@ -566,7 +566,7 @@ class _CountingCostPlusPolicy:
 
 
 def test_routed_action_preview_rates_once_and_returns_that_billed_quote(
-    tmp_path,
+    make_project,
 ) -> None:
     """Cross-seam pin for the routed producer and preview-service consumer.
 
@@ -574,7 +574,7 @@ def test_routed_action_preview_rates_once_and_returns_that_billed_quote(
     into its claims hash. The preview service must forward that current shape,
     not feed it back through the policy a second time.
     """
-    project = Project.create(tmp_path / "preview.frisket")
+    project = make_project("preview")
     sheet = project.add_sheet("audio")
     column = project.add_column(sheet, "media", type="audio")
     blob = project.add_blob(

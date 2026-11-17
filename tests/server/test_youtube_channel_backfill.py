@@ -133,7 +133,7 @@ def _rows(project: Project, sheet_id: int) -> list[dict[str, Any]]:
 
 
 def test_playlist_poll_fills_null_entry_channel_from_playlist_owner(
-    tmp_path: Path,
+    make_project,
     restore_youtube_playlist_poller: None,
 ) -> None:
     # extract_flat entries: title survives, channel/uploader/channel_id/
@@ -167,7 +167,7 @@ def test_playlist_poll_fills_null_entry_channel_from_playlist_owner(
         YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
     )
 
-    project = Project.create(tmp_path / "channel-backfill-poll.frisket", name="YT")
+    project = make_project("YT")
     result = run_action_spec(
         project,
         _source_poll_action(_playlist_source()),

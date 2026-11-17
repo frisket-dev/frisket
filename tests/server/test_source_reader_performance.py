@@ -151,9 +151,9 @@ def test_twenty_mib_nul_metadata_and_windows_stay_bounded_and_revision_fenced(
 
 
 def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
-    tmp_path, monkeypatch, record_property
+    make_project, monkeypatch, record_property
 ):
-    project = Project.create(tmp_path / "prepared.frisket", name="Prepared")
+    project = make_project("Prepared")
     try:
         sheet = project.add_sheet("documents")
         column = project.add_column(sheet, "body", type="text")

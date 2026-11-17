@@ -100,11 +100,10 @@ def test_detected_language_output_tracks_the_flag() -> None:
 
 @pytest.mark.parametrize("text", ["hi", "x" * 50])
 def test_hosted_translation_requires_consent_even_below_character_threshold(
-    tmp_path, monkeypatch, text
+    make_project, monkeypatch, text
 ):
     from frisket.engine.executor import run_action_spec
     from frisket.ops.integrations.translation_engine import TranslationEngine
-    from frisket.engine.store import Project
 
     async def forbidden(*args):
         pytest.fail("unconfirmed hosted translation dispatched")
@@ -116,26 +115,23 @@ def test_hosted_translation_requires_consent_even_below_character_threshold(
     # the limit and dispatches, which would make `forbidden` unreachable.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     monkeypatch.setenv("DEEPL_API_KEY", "test:fx")
-    project = Project.create(tmp_path / "gate.frisket")
-    try:
-        sheet = project.add_sheet("text")
-        column = project.add_column(sheet, "text")
-        project.add_rows(sheet, [{"text": text}], {"text": column})
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "map.translate",
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-                "params": {"source": ["text"], "engine": "deepl"},
-                "idempotency_key": "translation-gate",
-            },
-            project_id="translation-gate",
-        )
-        assert result.status == "needs_confirmation", result
-        assert result.errors[0].details["promise_set_hash"]
-        assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0
-    finally:
-        project.close()
+    project = make_project("gate")
+    sheet = project.add_sheet("text")
+    column = project.add_column(sheet, "text")
+    project.add_rows(sheet, [{"text": text}], {"text": column})
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "map.translate",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {"source": ["text"], "engine": "deepl"},
+            "idempotency_key": "translation-gate",
+        },
+        project_id="translation-gate",
+    )
+    assert result.status == "needs_confirmation", result
+    assert result.errors[0].details["promise_set_hash"]
+    assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0
 
 
 # ---------------------------------------------------------------------------

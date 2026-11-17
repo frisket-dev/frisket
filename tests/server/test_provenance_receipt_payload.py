@@ -3,13 +3,12 @@
 import json
 import sqlite3
 
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.provenance_payloads import provenance_manifest_payload
 
 
-def test_provenance_summary_does_not_read_receipt_bodies(tmp_path):
-    project = Project.create(tmp_path / "receipts.frisket")
+def test_provenance_summary_does_not_read_receipt_bodies(make_project):
+    project = make_project("receipts")
     body = json.dumps({"evidence": "long evidence " * 100_000})
     try:
         for index in range(3):
