@@ -7,14 +7,12 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
 from frisket.engine.store.evidence import citation_temporal_runs
 from frisket.engine.store.project import Project
 
 MAX_CLIP_DURATION_MS = 10 * 60 * 1000
-DEFAULT_PAD_MS = 500
 MAX_PAD_MS = 5_000
 _CLIP_WALL_SECONDS = 60
 
@@ -292,7 +290,3 @@ def clip_error_status(error: ClipError) -> int:
     if error.code == "ffmpeg_failed":
         return 500
     return 400
-
-
-def clip_error_details(span_stable_id: str) -> dict[str, Any]:
-    return {"span_stable_id": span_stable_id}

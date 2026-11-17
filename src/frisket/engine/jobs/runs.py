@@ -650,17 +650,6 @@ def _project_model_keys(project: Project) -> dict[str, str]:
     return project.provider_model_keys()
 
 
-def _run_params(project: Project, run_id: int) -> dict[str, Any]:
-    row = RunResultStore(project).get_run(run_id)
-    if row is None:
-        return {}
-    try:
-        params = json.loads(row["params"] or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return params if isinstance(params, dict) else {}
-
-
 def _deferred_publication(project: Project, run_id: int) -> bool:
     """Read the admitted preparation decision, not the mutable job payload."""
     row = project.db.execute(

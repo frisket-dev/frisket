@@ -23,7 +23,6 @@ from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointRef,
     EffectCheckpointStore,
-    is_operator_attestation,
     require_model_call_ids,
 )
 from frisket.engine.store.import_sessions import require_import_sheet_write
@@ -759,23 +758,6 @@ class RunResultStore:
                     result["prepared_ref_id"] = prepared_ref_id
                 decoded[key] = result
         return decoded
-
-    def clear_result_justification(
-        self,
-        run_id: int,
-        row_id: int,
-        column_id: int,
-        *,
-        commit: bool = True,
-    ) -> None:
-        self._require_run_sheet_mutable(run_id)
-        self.db.execute(
-            "UPDATE results SET justification=NULL "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (run_id, row_id, column_id),
-        )
-        if commit:
-            self.db.commit()
 
     def fail_result_value(
         self,
@@ -2464,74 +2446,6 @@ class RunResultStore:
             if credential_source != "cache" and cost_usd is not None
         )
 
-    def model_call_checkpoint(self, checkpoint_id: str) -> dict[str, Any] | None:
-        """Load one pre-egress/returned reconciliation checkpoint.
-
-        A thin projection over the shared ``effect_checkpoints`` store
-        (family ``model_call``); the caller-facing shape is unchanged.
-        Malformed payload JSON is returned as ``None`` under ``payload`` rather
-        than hidden as absence: the effect-site consumer can then fail closed
-        with its action-specific error instead of mistaking corruption for
-        permission to call the provider again.
-        """
-        row = self._effect_store().get(checkpoint_id)
-        if row is None or row["family"] != MODEL_CALL_CHECKPOINT_FAMILY:
-            return None
-        wrapper = row["payload"] if isinstance(row["payload"], dict) else None
-        if is_operator_attestation(wrapper):
-            # An operator's reconcile decision has no inner payload wrapper;
-            # surface it intact so effect sites can name the decision instead
-            # of reporting corruption.
-            payload = wrapper
-        else:
-            payload = wrapper.get("payload") if isinstance(wrapper, dict) else None
-        fact_id = wrapper.get("provider_fact_id") if isinstance(wrapper, dict) else None
-        if not isinstance(fact_id, str) or not fact_id:
-            fact_id = None
-
-        fact: dict[str, Any] | None = None
-        if fact_id is not None:
-            fact_row = self.db.execute(
-                "SELECT id, fact_version, capability, engine, provider, "
-                "provider_kind, model_ids, credential_source, "
-                "provider_reported_cost_usd, provider_cost_usd, cost_source, "
-                "units, cache, request_id, warnings "
-                "FROM model_calls WHERE id=?",
-                (fact_id,),
-            ).fetchone()
-            if fact_row is not None:
-                try:
-                    fact = {
-                        "id": str(fact_row["id"]),
-                        "fact_version": str(fact_row["fact_version"]),
-                        "capability": str(fact_row["capability"]),
-                        "engine": str(fact_row["engine"]),
-                        "provider": str(fact_row["provider"]),
-                        "provider_kind": str(fact_row["provider_kind"]),
-                        "model_ids": json.loads(fact_row["model_ids"]),
-                        "credential_source": str(fact_row["credential_source"]),
-                        "provider_reported_cost_usd": fact_row[
-                            "provider_reported_cost_usd"
-                        ],
-                        "provider_cost_usd": fact_row["provider_cost_usd"],
-                        "cost_source": str(fact_row["cost_source"]),
-                        "units": json.loads(fact_row["units"]),
-                        "cache": json.loads(fact_row["cache"]),
-                        "request_id": fact_row["request_id"],
-                        "warnings": json.loads(fact_row["warnings"]),
-                    }
-                except (TypeError, json.JSONDecodeError):
-                    fact = None
-        return {
-            "id": row["id"],
-            "action_kind": row["action_kind"],
-            "state": row["state"],
-            "provider_fact_id": fact_id,
-            "payload": payload,
-            "provider_fact": fact,
-            "created_at": row["created_at"],
-        }
-
     def _effect_store(self) -> EffectCheckpointStore:
         return EffectCheckpointStore(self.db)
 
@@ -2864,62 +2778,6 @@ class RunResultStore:
             commit=commit,
         )
 
-    def account_returned_row_effect_checkpoint(
-        self,
-        checkpoint_id: str,
-        *,
-        run_id: int,
-        row_id: int,
-        action_kind: str,
-        identity: str,
-        batch: list[dict[str, Any]],
-        replay_response: dict[str, Any],
-        writer_attempt_id: str | None = None,
-        claim_token: str | None = None,
-        claimless_direct_effect: bool = False,
-    ) -> float:
-        """Persist a cancelled-after-return fact while keeping the row replayable.
-
-        Cancellation deliberately leaves the result absent.  Facts and spend
-        are still historical truth, so they commit under the original attempt
-        and the durable replay response is rewritten with zero row cost.  A
-        later result consume re-inserts the already-owned facts idempotently;
-        the fact-derived ``runs.cost_actual`` projection recomputes to the
-        same value rather than accruing twice.
-
-        That idempotence rests on stable caller-minted call ids, so id-less
-        ``model_calls`` entries are refused before anything is written — see
-        ``complete_row_effect_checkpoint``.
-        """
-
-        require_model_call_ids(batch)
-
-        def accrue(checkpoint: dict[str, Any]) -> float:
-            return self.write_returned_call_accounting(
-                int(run_id),
-                batch,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
-                commit=False,
-            )
-
-        return self._effect_store().account_returned(
-            checkpoint_id,
-            family=ROW_EFFECT_CHECKPOINT_FAMILY,
-            group_key=str(int(run_id)),
-            unit_key=str(int(row_id)),
-            action_kind=action_kind,
-            identity=identity,
-            payload=replay_response,
-            accrue=accrue,
-            run_id=run_id,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-        )
-
     def discard_reserved_row_effect_checkpoint(
         self,
         checkpoint_id: str,
@@ -2945,82 +2803,6 @@ class RunResultStore:
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,
             claimless_direct_effect=claimless_direct_effect,
-        )
-
-    def reserve_model_call_checkpoint(
-        self,
-        checkpoint_id: str,
-        *,
-        action_kind: str,
-        payload: dict[str, Any],
-    ) -> bool:
-        """Durably reserve one effect identity immediately before egress.
-
-        Family ``model_call`` on the shared store: the caller-computed
-        checkpoint id IS the unit (and the verbatim identity), grouped by
-        action kind.  Returns ``True`` only to the invocation that created
-        the reservation.  A concurrent/exact retry gets ``False`` and must
-        inspect the existing state; it may reconcile ``returned`` but must
-        never call through an ambiguous ``reserved`` row.
-        """
-        return self._effect_store().reserve(
-            checkpoint_id,
-            family=MODEL_CALL_CHECKPOINT_FAMILY,
-            group_key=action_kind,
-            unit_key=checkpoint_id,
-            action_kind=action_kind,
-            identity=checkpoint_id,
-            payload={"payload": payload, "provider_fact_id": None},
-        )
-
-    def complete_model_call_checkpoint(
-        self,
-        checkpoint_id: str,
-        *,
-        action_kind: str,
-        payload: dict[str, Any],
-        fact: dict[str, Any],
-        row_id: int | None,
-        column_id: int | None,
-    ) -> float:
-        """Atomically attach a returned fact, spend, and recovery payload."""
-        fact_id = str(fact.get("id") or "")
-        if not fact_id:
-            raise ValueError("checkpoint provider fact requires an id")
-
-        def accrue(_checkpoint: dict[str, Any]) -> float:
-            return self.write_unscoped_model_calls(
-                [fact],
-                row_id=row_id,
-                column_id=column_id,
-                commit=False,
-            )
-
-        return self._effect_store().complete(
-            checkpoint_id,
-            family=MODEL_CALL_CHECKPOINT_FAMILY,
-            group_key=action_kind,
-            unit_key=checkpoint_id,
-            action_kind=action_kind,
-            identity=checkpoint_id,
-            payload={"payload": payload, "provider_fact_id": fact_id},
-            accrue=accrue,
-        )
-
-    def discard_reserved_model_call_checkpoint(
-        self,
-        checkpoint_id: str,
-        *,
-        action_kind: str,
-    ) -> bool:
-        """Remove this invocation's reservation when egress provably did not start."""
-        return self._effect_store().discard_reserved(
-            checkpoint_id,
-            family=MODEL_CALL_CHECKPOINT_FAMILY,
-            group_key=action_kind,
-            unit_key=checkpoint_id,
-            action_kind=action_kind,
-            identity=checkpoint_id,
         )
 
     def _reconcile_existing_model_call(self, call: dict[str, Any]) -> float:

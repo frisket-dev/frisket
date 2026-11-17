@@ -401,12 +401,11 @@ def test_id_less_model_call_refuses_checkpoint_complete_and_writes_nothing(
     )
 
 
-def test_id_less_model_call_refuses_consume_and_account_of_returned_row(
+def test_id_less_model_call_refuses_consume_of_returned_row(
     checkpointed_run,
 ) -> None:
-    """The consume and account paths carry the same replay-dedup obligation:
-    their idempotence rests on stable call ids, so an id-less entry refuses
-    before anything is written."""
+    """The consume path's idempotence rests on stable call ids, so an id-less
+    entry refuses before anything is written."""
 
     (
         project,
@@ -439,17 +438,6 @@ def test_id_less_model_call_refuses_consume_and_account_of_returned_row(
             action_kind="classify",
             identity="identity-digest",
             batch=_batch(None, row_id=row_id, column_id=column_id),
-            writer_attempt_id=attempt_id,
-            claim_token=claim_token,
-        ),
-        lambda: store.account_returned_row_effect_checkpoint(
-            "cp-1",
-            run_id=run_id,
-            row_id=row_id,
-            action_kind="classify",
-            identity="identity-digest",
-            batch=_batch(None, row_id=row_id, column_id=column_id),
-            replay_response={"field": {"value": "x", "cost": 0.0}},
             writer_attempt_id=attempt_id,
             claim_token=claim_token,
         ),

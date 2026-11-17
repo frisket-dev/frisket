@@ -134,23 +134,6 @@ def test_a_new_active_row_can_be_created_once_the_prior_one_is_terminal(
         queue.close()
 
 
-def test_find_active_for_workspace_ignores_terminal_rows(tmp_path) -> None:
-    queue, engine = _engine(tmp_path)
-    try:
-        assert store.find_active_for_workspace(engine, str(tmp_path)) is None
-
-        row, _ = store.create_or_get_active(
-            engine, workspace_root=str(tmp_path), model_ref="smollm:135m"
-        )
-        active = store.find_active_for_workspace(engine, str(tmp_path))
-        assert active is not None and active.id == row.id
-
-        store.mark_failed(engine, row.id, error_code="pull_failed", error_message="x")
-        assert store.find_active_for_workspace(engine, str(tmp_path)) is None
-    finally:
-        queue.close()
-
-
 def test_lifecycle_transitions_and_progress(tmp_path) -> None:
     queue, engine = _engine(tmp_path)
     try:
@@ -400,7 +383,6 @@ def test_list_recent_and_find_active_also_repair(tmp_path) -> None:
         queue.claim("w1")
         queue.fail(job_id, "w1", "no handler registered", retry=False)
 
-        assert store.find_active_for_workspace(engine, str(tmp_path)) is None
         listed = {r.id: r for r in store.list_recent(engine, str(tmp_path))}
         assert listed[row.id].status == store.STATUS_FAILED
     finally:

@@ -240,9 +240,6 @@ class TranscriptProjection:
     warnings: tuple[str, ...] = ()
     language: str | None = None
 
-    def transcript_segments_value(self) -> list[dict[str, Any]]:
-        return [segment.as_transcript_segment() for segment in self.segments]
-
 
 def _parse_word(value: Any) -> TranscriptWord | None:
     if not isinstance(value, Mapping):

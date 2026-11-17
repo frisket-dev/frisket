@@ -7,8 +7,7 @@ the no-re-embed rule (vectors come from the shared content-addressed sidecar);
 the cap test pins the O(n²) bound; the network-marked FastEmbed test proves a
 real model groups meaning-level duplicates fingerprinting can never collide.
 
-The retired `run_cluster` wrapper had a silent fingerprint fallback. The
-no-fallback contract is enforced by
+The no-fallback contract is enforced by
 `preview.cluster.compute_method_clusters` (semantic with no embedder ->
 `embedding_backend_unavailable`), tested in tests/preview/test_cluster_preview.py.
 """

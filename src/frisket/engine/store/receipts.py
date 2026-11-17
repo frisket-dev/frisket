@@ -359,44 +359,6 @@ class ReceiptStore:
         ).fetchall()
         return [StoredReceipt.from_row(row) for row in rows]
 
-    def for_action_kind(
-        self,
-        action_kind: str,
-        *,
-        newest_first: bool = False,
-    ) -> list[StoredReceipt]:
-        order = "created_at DESC, rowid DESC" if newest_first else "created_at, rowid"
-        rows = self.db.execute(
-            "SELECT id, run_id, action_kind, action_id, "
-            "idempotency_key, params_hash, status, body, created_at "
-            "FROM receipts WHERE action_kind=? "
-            f"ORDER BY {order}",
-            (action_kind,),
-        ).fetchall()
-        return [StoredReceipt.from_row(row) for row in rows]
-
-    def for_action_status(
-        self,
-        *,
-        action_kind: str,
-        status: str,
-        newest_first: bool = False,
-        limit: int | None = None,
-    ) -> list[StoredReceipt]:
-        order = "created_at DESC, rowid DESC" if newest_first else "created_at, rowid"
-        limit_clause = "" if limit is None else " LIMIT ?"
-        params: list[Any] = [action_kind, status]
-        if limit is not None:
-            params.append(int(limit))
-        rows = self.db.execute(
-            "SELECT id, run_id, action_kind, action_id, "
-            "idempotency_key, params_hash, status, body, created_at "
-            "FROM receipts WHERE action_kind=? AND status=? "
-            f"ORDER BY {order}{limit_clause}",
-            params,
-        ).fetchall()
-        return [StoredReceipt.from_row(row) for row in rows]
-
     def backfill_activity_count(self, *, column_id: int | None = None) -> int:
         where = _BACKFILL_ACTIVITY_WHERE
         params: list[Any] = []

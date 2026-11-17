@@ -120,16 +120,7 @@ def test_output_column_claim_store_releases_by_receipt_and_claim_token(
     assert conflict is None
     assert claims
     assert (
-        store.release_for_claim_and_receipt(
-            claim_token="claim:other",
-            receipt_id="receipt_release",
-            status="failed",
-        )
-        == 0
-    )
-    assert (
-        store.release_for_claim_and_receipt(
-            claim_token="claim:receipt-release",
+        store.release_for_receipt(
             receipt_id="receipt_release",
             status="failed",
         )

@@ -259,39 +259,6 @@ class ResultGenerationStore:
             is not None
         )
 
-    def delete_for_sheet_removal(self, sheet_id: int) -> None:
-        """Remove doomed heads and declarations inside physical sheet deletion.
-
-        The caller discards owning operations first and removes runs and the
-        sheet afterward, all in the same transaction. Existing schema guards
-        still refuse deletion of any generation owned by a live operation.
-        """
-        if not self.db.in_transaction:
-            raise RuntimeError(
-                "generation removal requires the sheet deletion transaction"
-            )
-
-        # Current heads restrict generation/result deletion, including already
-        # discarded dependent generations whose base run is on this sheet.
-        self.db.execute(
-            "DELETE FROM cell_result_heads WHERE (run_id,column_id) IN ("
-            "SELECT generation.run_id,generation.column_id "
-            "FROM run_output_generations generation "
-            "JOIN runs owner ON owner.id=generation.run_id "
-            "LEFT JOIN runs base ON base.id=generation.expected_base_run_id "
-            "WHERE owner.sheet_id=? OR base.sheet_id=?)",
-            (sheet_id, sheet_id),
-        )
-        # Generation rows restrict both their owning and base runs.
-        self.db.execute(
-            "DELETE FROM run_output_generations WHERE run_id IN ("
-            "SELECT id FROM runs WHERE sheet_id=?"
-            ") OR expected_base_run_id IN ("
-            "SELECT id FROM runs WHERE sheet_id=?"
-            ")",
-            (sheet_id, sheet_id),
-        )
-
     def latest_applied_run_id(self, column_id: int) -> int | None:
         """Newest applied generation for presentation-family metadata.
 
@@ -1549,32 +1516,6 @@ class ResultGenerationStore:
                         f"AND column_id IN ({placeholders}) "
                         "AND publication_effect IN ('publish_value','publish_null','publish_error')",
                         (int(run_id), *column_batch),
-                    )
-            yield table
-
-    @contextmanager
-    def affected_key_table(
-        self, op_id: int, column_ids: Collection[int]
-    ) -> Iterator[str]:
-        """Materialize one operation's managed result coordinates in SQL."""
-
-        ordered_column_ids = sorted({int(column_id) for column_id in column_ids})
-        with self._empty_key_table() as table:
-            if ordered_column_ids:
-                for column_batch in _chunks(
-                    ordered_column_ids, _SQLITE_ID_CHUNK_SIZE - 1
-                ):
-                    placeholders = ",".join("?" for _ in column_batch)
-                    self.db.execute(
-                        f"INSERT OR IGNORE INTO {table} (row_id,column_id) "
-                        "SELECT result.row_id,result.column_id FROM runs affected_run "
-                        "JOIN run_output_generations generation "
-                        "ON generation.run_id=affected_run.id "
-                        "JOIN results result ON result.run_id=generation.run_id "
-                        "AND result.column_id=generation.column_id "
-                        f"WHERE affected_run.op_id=? "
-                        f"AND result.column_id IN ({placeholders})",
-                        (int(op_id), *column_batch),
                     )
             yield table
 

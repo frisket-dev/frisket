@@ -24,7 +24,6 @@ from .changes import close_change as _close_change, start_change
 from .import_sessions import (
     ImportInProgress,
     active_import_session,
-    require_cancelled_import_removal,
     require_import_sheet_write,
 )
 from .value_codec import SQLiteValue, encode_stored_value
@@ -413,49 +412,6 @@ def remove_base_cells(
         [version_producer_id, *params],
     )
     refresh_current_cells(db, column_ids=columns, row_ids=rows)
-    return int(cursor.rowcount)
-
-
-def delete_sheet_rows(
-    db: sqlite3.Connection,
-    *,
-    sheet_id: int,
-    producer_id: int,
-    import_writer_authority: str | None = None,
-    import_expected_cursor: int | None = None,
-) -> int:
-    """Delete one sheet's rows under a known base-write producer.
-
-    Row foreign-key cascades own removal of authoritative cells and their
-    derived projection rows. The sheet itself and any operation-specific
-    lineage remain the higher-level caller's responsibility.
-    """
-
-    _require_transaction(db)
-    _require_base_producer(db, int(producer_id))
-    from .purge import require_publication_targets
-
-    require_publication_targets(
-        db,
-        sheet_id=int(sheet_id),
-        row_ids=(
-            int(row[0])
-            for row in db.execute(
-                "SELECT id FROM rows WHERE sheet_id=?", (int(sheet_id),)
-            )
-        ),
-    )
-    if active_import_session(db, sheet_id) is not None:
-        if import_writer_authority is None or import_expected_cursor is None:
-            require_import_sheet_write(db, sheet_id)
-        require_cancelled_import_removal(
-            db,
-            sheet_id,
-            producer_id=producer_id,
-            writer_authority=import_writer_authority,
-            expected_cursor=import_expected_cursor,
-        )
-    cursor = db.execute("DELETE FROM rows WHERE sheet_id=?", (int(sheet_id),))
     return int(cursor.rowcount)
 
 
