@@ -77,12 +77,12 @@
   align-self: center;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
   padding-right: 4px;
 }
 .workbench-bottom-summary-label {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text-mid);
@@ -119,7 +119,7 @@
   padding: 0;
   overflow: auto;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 /* run-row-error-observability-v1: grouped per-row failure list (Jobs +
    Errors tabs' shared job-detail pane, HistoryPanel's run-detail — the

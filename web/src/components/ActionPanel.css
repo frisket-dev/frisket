@@ -64,9 +64,9 @@
   flex: 1 1 auto; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.action-list { display: flex; flex-direction: column; padding: 0 8px 12px; gap: 2px; }
+.action-list { display: flex; flex-direction: column; padding: 0 8px 12px; gap: var(--space-2); }
 .action-item {
-  display: flex; gap: 10px; align-items: flex-start;
+  display: flex; gap: var(--space-10); align-items: flex-start;
   padding: 8px; border-radius: var(--radius-7);
   text-align: left;
 }
@@ -87,7 +87,7 @@
   cursor: pointer;
   padding: 7px 0;
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 650;
 }
 .action-advanced-body {
@@ -128,7 +128,7 @@
      0 instead of growing past its share. */
   grid-template-columns: minmax(110px, 38%) minmax(0, 1fr);
   align-items: center;
-  column-gap: 12px;
+  column-gap: var(--space-12);
   margin: 18px 0 0;
 }
 /* The track minmax alone isn't enough: a grid ITEM also defaults to
@@ -146,7 +146,7 @@
 .param-row > * {
   min-width: 0;
 }
-.action-panel .form-check { font-size: 12.5px; color: var(--text); }
+.action-panel .form-check { font-size: var(--font-size-control); color: var(--text); }
 .action-panel .form-check input[type="checkbox"] { accent-color: var(--accent); }
 /* clean_column "Cleanings": a compact multi-column checkbox grid so ~a dozen
    transform toggles fit without a scroll. Bare checkboxes (the
@@ -162,7 +162,7 @@
 }
 .cleanings-grid-legend {
   padding: 0;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 650;
   color: var(--text-mid);
   text-transform: uppercase;
@@ -188,7 +188,7 @@
 .dense-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+  gap: var(--space-12);
   margin-top: 12px;
   min-inline-size: 0;
 }
@@ -212,7 +212,7 @@
 }
 .action-panel .action-advanced summary {
   padding: 14px 0 0;
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-weight: 600;
   color: var(--text-mid);
 }
@@ -251,7 +251,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .python-editor-scope {
   font-size: 11.5px;

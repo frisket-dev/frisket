@@ -20,7 +20,7 @@
 .answers-row-list-search {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   color: var(--text-light);
@@ -32,7 +32,7 @@
   border: none;
   background: transparent;
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   color: var(--text);
   outline: none;
 }
@@ -59,7 +59,7 @@
   box-shadow: inset 3px 0 0 var(--accent);
 }
 .answers-row-item-title {
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-weight: 600;
   color: var(--text);
   overflow: hidden;
@@ -67,7 +67,7 @@
   white-space: nowrap;
 }
 .answers-row-list-empty,
-.answers-row-list-message { padding: 16px 12px; font-size: 12px; color: var(--text-light); }
+.answers-row-list-message { padding: 16px 12px; font-size: var(--font-size-small); color: var(--text-light); }
 .answers-row-list-more { margin: 8px; }
 
 .answers-column {
@@ -87,12 +87,12 @@
 .answers-column-picker-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--space-8);
+  font-size: var(--font-size-small);
   color: var(--text-mid);
 }
 .answers-column-picker-row > .panel-select-shell { min-width: 160px; }
-.answers-column-picker-static { font-size: 13px; font-weight: 600; color: var(--text); }
+.answers-column-picker-static { font-size: var(--font-size-body); font-weight: 600; color: var(--text); }
 .answers-column-body {
   flex: 1;
   min-height: 0;
@@ -105,9 +105,9 @@
 }
 .answers-cell.active { background: var(--accent-bg); }
 .answers-cell-title { font-size: 11.5px; font-weight: 600; color: var(--text-light); margin-bottom: 4px; }
-.answers-cell-content { font-size: 13px; color: var(--text); white-space: pre-wrap; }
-.answers-cell-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-.answers-column-empty { padding: 16px 12px; font-size: 12px; }
+.answers-cell-content { font-size: var(--font-size-body); color: var(--text); white-space: pre-wrap; }
+.answers-cell-chips { display: flex; flex-wrap: wrap; gap: var(--space-6); margin-top: 6px; }
+.answers-column-empty { padding: 16px 12px; font-size: var(--font-size-small); }
 
 .answers-evidence-seam {
   position: relative;
@@ -148,7 +148,7 @@
   justify-content: center;
   padding: 24px;
   color: var(--text-light);
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   text-align: center;
 }
 /* answers-view-evidence-refinement-v1: the docked pane's three-part reading of
@@ -175,7 +175,7 @@
   margin: 0;
   padding-left: 10px;
   border-left: 3px solid var(--accent);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.45;
   color: var(--text);
   font-style: italic;

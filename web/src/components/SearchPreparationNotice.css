@@ -13,12 +13,12 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-10);
   margin: 0;
   padding: 9px 16px;
   border-top: 1px solid var(--border);
   color: var(--text-mid);
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
 }
 .import-activity-now strong { color: var(--accent-strong); }
 .import-activity-now span:nth-child(2) {
@@ -30,11 +30,11 @@
 .search-preparation-progress {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
   padding: 11px 16px;
   border-top: 1px solid var(--border);
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-variant-numeric: tabular-nums;
 }
 .search-preparation-progress .activity-progress-bar { flex: 1; }
@@ -44,12 +44,12 @@
 }
 .search-preparation-details {
   display: grid;
-  gap: 4px;
+  gap: var(--space-4);
   margin: 0;
   padding: 9px 16px;
   border-top: 1px solid var(--border);
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .search-preparation-details-toggle {
   justify-self: start;

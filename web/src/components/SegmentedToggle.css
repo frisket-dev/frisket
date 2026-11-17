@@ -1,7 +1,7 @@
 .segmented {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: var(--space-2);
   padding: 2px;
   border-radius: var(--radius-8);
   background: var(--bg-hover);
@@ -21,12 +21,12 @@
   background: transparent;
   color: var(--text-mid);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 550;
   text-align: center;
 }
 .segmented-full > button { flex: 1; }
-.segmented[data-segment-size='compact'] > button { padding: 3px 7px; font-size: 11px; }
+.segmented[data-segment-size='compact'] > button { padding: 3px 7px; font-size: var(--font-size-meta); }
 .segmented-toolbar { flex-wrap: nowrap; }
 .segmented > button:hover:not(:disabled) { color: var(--text); }
 .segmented > button.active {

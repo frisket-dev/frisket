@@ -6,7 +6,7 @@
 .embeddings-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-8);
   /* Zero own-padding: the host owns the gutter (the .discover-body contract,
      re-enforced by ui-region-frames-v1 / R2). */
   padding: 0;
@@ -16,7 +16,7 @@
 }
 .embedding-index-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--font-size-body);
 }
 .embedding-index-meta {
   margin: 0;

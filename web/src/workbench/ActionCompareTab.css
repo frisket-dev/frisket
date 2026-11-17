@@ -11,9 +11,9 @@ button.action-compare-variant-body:focus-visible { outline: 2px solid var(--focu
 .action-compare-remove, .action-compare-lock { margin-right: var(--space-8); color: var(--text-light); }
 .action-compare-add { flex: 0 0 auto; min-height: 34px; }
 .action-compare-settings { position: absolute; z-index: 10; top: calc(100% + 5px); left: 0; width: min(340px, calc(100vw - 24px)); max-height: min(420px, calc(100vh - 120px)); overflow: auto; padding: var(--space-10) var(--space-12); border: 1px solid var(--border-strong); border-radius: var(--radius-8); background: var(--bg); box-shadow: var(--shadow-menu); }
-.action-compare-settings > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; margin-top: 10px; }
+.action-compare-settings > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); margin-top: 10px; }
 .action-compare-settings > div > span:first-child { color: var(--text-mid); font-weight: 600; }
-.action-compare-setting-values { display: grid; min-width: 0; gap: 2px; }
+.action-compare-setting-values { display: grid; min-width: 0; gap: var(--space-2); }
 .action-compare-setting-values del, .action-compare-setting-values ins { display: block; }
 .action-compare-setting-values del, .action-compare-setting-values ins { min-width: 0; overflow-wrap: break-word; white-space: normal; }
 .action-compare-settings del { color: var(--text-light); }

@@ -58,13 +58,13 @@
   border-radius: 999px;
   background: var(--bg-hover);
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 650;
 }
 .plugin-manager-install {
   display: grid;
   grid-template-columns: minmax(240px, 1.3fr) minmax(180px, 0.7fr) auto;
-  gap: 10px;
+  gap: var(--space-10);
   align-items: start;
 }
 .plugin-manager-install > button {
@@ -75,7 +75,7 @@
   align-self: flex-start;
   padding: 2px 6px;
   border-radius: var(--radius-5);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 650;
 }
 .plugin-manager-status {
@@ -89,7 +89,7 @@
 .plugin-manager-installed-plugin {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-12);
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--border);
@@ -99,14 +99,14 @@
 .plugin-manager-state {
   display: grid;
   justify-items: end;
-  gap: 4px;
+  gap: var(--space-4);
   max-width: 360px;
   text-align: right;
 }
-.plugin-manager-state-description { color: var(--text-light); font-size: 11px; line-height: 1.35; }
+.plugin-manager-state-description { color: var(--text-light); font-size: var(--font-size-meta); line-height: 1.35; }
 .plugin-manager-plugin-failure {
   display: grid;
-  gap: 2px;
+  gap: var(--space-2);
   padding: 8px 10px;
   border-radius: var(--radius-6);
   background: var(--red-bg);
@@ -135,7 +135,7 @@
 .plugin-manager-action-guide dl > div {
   display: grid;
   grid-template-columns: minmax(90px, auto) minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-8);
   min-width: 0;
 }
 .plugin-manager-fact-list strong,
@@ -192,7 +192,7 @@
 .plugin-manager-action-buttons {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-6);
 }
 /* plugins-errors-deeplink-v1: the Errors dock's "Open in Settings → Plugins"
    CTA (WorkbenchBottomDock.tsx) arrives with ?plugin=<id>; this is the
@@ -217,16 +217,16 @@
 .plugin-manager-trust-copy {
   display: grid;
   flex: 1 0 100%;
-  gap: 2px;
+  gap: var(--space-2);
 }
 .plugin-manager-trust-copy span {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .plugin-manager-trust-prompt label {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
   min-width: 0;
   color: var(--text-mid);
   white-space: nowrap;
@@ -236,7 +236,7 @@
   height: 14px;
   padding: 0;
 }
-.plugin-manager-trust-actions { display: flex; gap: 6px; }
+.plugin-manager-trust-actions { display: flex; gap: var(--space-6); }
 @media (max-width: 760px) {
   .plugin-manager-install {
     grid-template-columns: minmax(0, 1fr);

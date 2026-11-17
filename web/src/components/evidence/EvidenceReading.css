@@ -1,7 +1,7 @@
 .pdf-packet-source-card {
   display: grid;
   grid-template-columns: 74px minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--space-12);
   margin-bottom: 14px;
   padding: 12px;
   border: 1px solid var(--border);
@@ -32,23 +32,23 @@
   min-width: 0;
   display: grid;
   align-content: start;
-  gap: 4px;
+  gap: var(--space-4);
 }
 .pdf-packet-source-kicker {
   color: var(--text-light);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   font-weight: 700;
   letter-spacing: 0.06em;
 }
 .pdf-packet-source-summary > strong {
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .pdf-packet-source-summary > span:not(.pdf-packet-source-kicker) {
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .pdf-packet-source-strip {
   display: grid;
@@ -75,12 +75,12 @@
 .pdf-packet-source-actions button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 650;
   text-decoration: none;
 }
@@ -109,7 +109,7 @@
   gap: 14px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .pdf-packet-source-reader > header button {
   border: 0;
@@ -129,7 +129,7 @@
 }
 .evidence-source-section {
   display: grid;
-  gap: 12px;
+  gap: var(--space-12);
   margin-bottom: 16px;
 }
 /* evidence-pane-reading-surface-v1: reveals/hides the ref-dump aside
@@ -156,7 +156,7 @@
 .evidence-artifact-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .evidence-artifact-title > div {
   display: grid;
@@ -166,7 +166,7 @@
 }
 .evidence-artifact-title span {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .evidence-page {
   display: grid;
@@ -175,7 +175,7 @@
 .evidence-page-label {
   color: var(--text-mid);
   font-weight: 650;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .evidence-page-image-frame {
   position: relative;
@@ -191,7 +191,7 @@
   display: grid;
   place-items: center;
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .evidence-page-image {
   display: block;
@@ -216,13 +216,13 @@
   border: 1px solid var(--border);
   white-space: pre-wrap;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
 }
 .evidence-page-fallback {
   color: var(--text-mid);
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .evidence-media {
   width: min(100%, 760px);
@@ -247,7 +247,7 @@ audio.evidence-media {
    for plain text (row+json / text/plain sources). */
 .evidence-text-source {
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .evidence-text-body {
   margin: 0;
@@ -257,7 +257,7 @@ audio.evidence-media {
   border: 1px solid var(--border);
   white-space: pre-wrap;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   max-height: 420px;
   overflow-y: auto;
@@ -271,18 +271,18 @@ audio.evidence-media {
 }
 .evidence-text-field-label {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
 .evidence-text-quotes {
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
 }
 .evidence-text-quote-block {
   display: block;
   padding: 9px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.45;
 }
 /* Evidence-pane reading surface: the player sits LEFT and
@@ -293,7 +293,7 @@ audio.evidence-media {
 .evidence-temporal-layout {
   display: flex;
   align-items: flex-start;
-  gap: 16px;
+  gap: var(--space-16);
 }
 .evidence-temporal-player-sticky {
   flex: 0 0 auto;
@@ -301,7 +301,7 @@ audio.evidence-media {
   position: sticky;
   top: 0;
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
 }
 .evidence-temporal-player-sticky .evidence-media {
   width: 100%;
@@ -323,12 +323,12 @@ audio.evidence-media {
 .evidence-temporal-run-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-10);
   margin-bottom: 5px;
 }
 .evidence-temporal-run-range {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   color: var(--text);
   border: none;
@@ -347,7 +347,7 @@ audio.evidence-media {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   color: var(--accent);
   padding: 2px 6px;
@@ -359,7 +359,7 @@ audio.evidence-media {
 }
 .evidence-temporal-run-text {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.65;
   color: var(--text);
 }
@@ -425,7 +425,7 @@ audio.evidence-media {
 }
 .evidence-temporal-range {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-light);
 }
 @media (max-width: 860px) {
@@ -453,7 +453,7 @@ audio.evidence-media {
 .evidence-annotated-player { position: sticky; top: 0; z-index: 2; padding: 12px 16px; background: var(--bg); border-bottom: 1px solid var(--border); }
 .evidence-annotated-player audio, .evidence-annotated-player video { display: block; width: 100%; }
 .evidence-annotated-lines { padding: 16px 24px; }
-.evidence-annotated-lines .evidence-transcript-line { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
-.evidence-annotated-timestamp { flex: 0 0 auto; border: 0; padding: 2px; background: transparent; color: var(--accent); font-family: var(--mono); font-size: 11px; cursor: pointer; }
+.evidence-annotated-lines .evidence-transcript-line { display: flex; align-items: baseline; gap: var(--space-12); margin-bottom: 12px; }
+.evidence-annotated-timestamp { flex: 0 0 auto; border: 0; padding: 2px; background: transparent; color: var(--accent); font-family: var(--mono); font-size: var(--font-size-meta); cursor: pointer; }
 .evidence-annotated-timestamp:disabled { color: var(--text-light); cursor: default; }
 .evidence-annotated-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; }

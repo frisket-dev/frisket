@@ -1,7 +1,7 @@
 .settings-section-frame {
   max-width: 840px;
   display: grid;
-  gap: 12px;
+  gap: var(--space-12);
 }
 .settings-section-frame h1 {
   margin: 0;
@@ -22,7 +22,7 @@
 .settings-meta-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 220px));
-  gap: 10px;
+  gap: var(--space-10);
   margin: 8px 0 0;
 }
 .settings-meta-list div {
@@ -32,7 +32,7 @@
 }
 .settings-meta-list dt {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
 }
 .settings-meta-list dd {
@@ -42,7 +42,7 @@
 .settings-row-note {
   margin-top: 2px;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .settings-section-subhead {
   display: grid;
@@ -58,12 +58,12 @@
 }
 .settings-action-list {
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
 }
 .settings-action-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: var(--space-12);
   align-items: center;
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
@@ -72,20 +72,20 @@
 .settings-action-row strong {
   display: block;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-size-body);
 }
 .settings-grid-two {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-12);
 }
 .settings-check {
   display: flex;
-  gap: 8px;
+  gap: var(--space-8);
   align-items: center;
   min-height: 34px;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 650;
 }
 .settings-table-wrap {
@@ -107,18 +107,18 @@
 }
 .settings-table th {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
   text-transform: uppercase;
 }
 .settings-table td {
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .settings-table tr:last-child td { border-bottom: 0; }
 .settings-token-reveal {
   display: grid;
-  gap: 10px;
+  gap: var(--space-10);
   padding: 12px;
   border: 1px solid color-mix(in srgb, var(--accent), var(--border) 55%);
   border-radius: var(--radius-8);
@@ -127,27 +127,27 @@
 .settings-token-reveal-head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-12);
 }
 .settings-token-reveal-head strong {
   display: block;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-size-body);
 }
 .settings-token-reveal-head span,
 .settings-copy-status {
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .settings-token-copy-row {
   display: flex;
-  gap: 8px;
+  gap: var(--space-8);
   align-items: stretch;
 }
 .settings-token-secret,
 .settings-token-prefix {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .settings-token-secret {
   flex: 1 1 auto;
@@ -165,7 +165,7 @@
 }
 .settings-profile-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-12);
   align-items: center;
 }
 .settings-avatar {
@@ -181,7 +181,7 @@
 }
 .settings-meta-label {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -204,14 +204,14 @@
 }
 .settings-danger-zone {
   display: grid;
-  gap: 10px;
+  gap: var(--space-10);
   margin-top: 8px;
   padding-top: 14px;
   border-top: 1px solid color-mix(in srgb, var(--red), var(--border) 55%);
 }
 .settings-danger-header {
   display: flex;
-  gap: 8px;
+  gap: var(--space-8);
   align-items: flex-start;
   color: var(--red);
 }
@@ -220,7 +220,7 @@
   gap: 5px;
   max-width: 360px;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 650;
 }
 .settings-danger-button {
@@ -235,7 +235,7 @@
 }
 .settings-total {
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 700;
 }
 @media (max-width: 760px) {
@@ -251,7 +251,7 @@
 }
 .settings-section-kicker {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;

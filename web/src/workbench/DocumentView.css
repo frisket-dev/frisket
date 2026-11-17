@@ -40,7 +40,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 2px;
+  gap: var(--space-2);
   padding: 8px 12px;
   box-sizing: border-box;
   text-align: left;
@@ -55,7 +55,7 @@
   box-shadow: inset 3px 0 0 var(--accent);
 }
 .document-list-item-title {
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   font-weight: 600;
   color: var(--text);
   overflow: hidden;
@@ -63,7 +63,7 @@
   white-space: nowrap;
 }
 .document-list-item-secondary {
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -75,7 +75,7 @@
 .document-list-empty,
 .document-list-message {
   padding: 16px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--text-light);
 }
 .document-list-more { margin: 8px; }
@@ -96,7 +96,7 @@
   background: var(--bg);
 }
 .document-reader-title {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   color: var(--text);
   overflow: hidden;
@@ -105,7 +105,7 @@
   max-width: 38%;
 }
 .document-reader-chip {
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 7px;
@@ -113,7 +113,7 @@
 }
 .document-reader-selection { font-size: 10.5px; flex-shrink: 0; }
 .document-reader-spacer { flex: 1; }
-.document-page-controls { display: flex; align-items: center; gap: 2px; }
+.document-page-controls { display: flex; align-items: center; gap: var(--space-2); }
 .document-page-indicator {
   font-family: var(--mono);
   font-size: 11.5px;
@@ -134,7 +134,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-6);
   color: var(--text-light);
   padding: 40px;
 }
@@ -159,7 +159,7 @@
 }
 .document-native video,
 .document-native audio { max-width: 100%; }
-.document-native-file { flex-direction: column; gap: 8px; color: var(--text-mid); }
+.document-native-file { flex-direction: column; gap: var(--space-8); color: var(--text-mid); }
 
 /* A transcribed recording is one reading surface: a sticky native player and
    the seekable transcript beside it. TimedTranscript owns both pieces. */
@@ -186,7 +186,7 @@
   padding: 20px 28px;
   box-sizing: border-box;
 }
-.document-text-truncated { margin: 16px 0 0; font-size: 12px; }
+.document-text-truncated { margin: 16px 0 0; font-size: var(--font-size-small); }
 /* document-view-video-fit-v1: 'full' is the video's natural size (width-capped
    only, the historical default — may need vertical scroll for tall/portrait
    clips); 'fit-height' additionally caps height so the whole clip fits the
@@ -212,12 +212,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 12px;
+  gap: var(--space-12);
+  font-size: var(--font-size-small);
   color: var(--text-mid);
 }
 .document-option-row select { min-width: 128px; }
-.document-option-check { justify-content: flex-start; gap: 8px; }
+.document-option-check { justify-content: flex-start; gap: var(--space-8); }
 .document-option-check input { flex-shrink: 0; }
 
 @media (max-width: 900px) {

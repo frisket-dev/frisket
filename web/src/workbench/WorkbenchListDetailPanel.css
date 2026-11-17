@@ -48,7 +48,7 @@
   padding: 0;
   background: var(--bg-panel);
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
 }
 .bottom-dock-column-header {
@@ -163,7 +163,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-12);
   margin-bottom: 8px;
 }
 .bottom-dock-detail-header strong,
@@ -198,7 +198,7 @@
 .bottom-dock-detail-section h4 {
   margin: 0 0 6px;
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }

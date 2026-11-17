@@ -5,7 +5,7 @@
   min-height: 0;
   padding: 16px;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   text-align: center;
 }
 
@@ -22,7 +22,7 @@
   place-items: center;
   padding: 14px;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   text-align: center;
 }
 .plugin-selection-summary-panel {
@@ -37,7 +37,7 @@
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-10);
   padding: 0 14px 14px;
 }
 .plugin-selection-summary-metric {
@@ -56,7 +56,7 @@
 .plugin-selection-summary-detail,
 .plugin-selection-summary-id-list {
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .plugin-selection-summary-id-list {
   min-height: 32px;

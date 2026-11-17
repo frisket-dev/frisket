@@ -6,7 +6,7 @@
   flex-wrap: wrap;
   align-items: center;
   align-content: flex-start;
-  gap: 6px;
+  gap: var(--space-6);
   min-height: 38px;
   /* A sheet with 40+ columns can wrap dozens of chips — cap the box at
      ~5 rows and scroll internally past that, rather than let the field grow
@@ -20,7 +20,7 @@
   box-shadow: var(--shadow-ring);
 }
 .multi-col-add {
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   color: var(--text-light);
   cursor: pointer;
   padding: 2px 4px;
@@ -31,7 +31,7 @@
   border: none;
   outline: none;
   background: transparent;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   color: var(--text);
   padding: 4px 2px;
 }

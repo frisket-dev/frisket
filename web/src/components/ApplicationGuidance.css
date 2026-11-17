@@ -1,7 +1,7 @@
 /* Local-server install guidance in Settings. */
 .local-server-guidance {
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px dashed var(--border);
@@ -9,7 +9,7 @@
 .local-server-guidance-copy {
   margin: 0;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.45;
 }
 .guidance-command {
@@ -26,11 +26,11 @@
 .guidance-command-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
 }
 .local-server-guidance-copied {
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 650;
 }
 .guidance-download {
@@ -38,7 +38,7 @@
 }
 .guidance-download-confirm {
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
   padding: 8px;
   border-radius: var(--radius-6);
   background: var(--bg-hover);

@@ -15,7 +15,7 @@
   text-align: right;
   color: var(--text-light);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
 }
 .resolve-replace-rule-main > .panel-select-shell { flex: 0 0 120px; }
 .resolve-replace-rule-pattern {
@@ -33,7 +33,7 @@
 .resolve-replace-set-to {
   flex-shrink: 0;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .resolve-replace-rule-target { flex: 1; min-width: 0; }
 .resolve-replace-null-chip {
@@ -46,7 +46,7 @@
 /* per-rule meta line: count / skipped note / regex error */
 .resolve-replace-rule-meta {
   padding-left: 21px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .resolve-replace-rule-count {
   color: var(--text-light);
