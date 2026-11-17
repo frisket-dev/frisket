@@ -29,6 +29,8 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter, ResponseCache
 from frisket.server.app import create_app
+from frisket.server.exports.plan import build_sheet_export_plan
+from frisket.server.exports.sheet_csv import iter_export_csv_bytes
 from frisket.testing import llm_cache_path
 
 
@@ -687,9 +689,6 @@ def export_sheet_csv_text(
     project: Any, sheet_id: int, *, row_ids: list[int] | None = None
 ) -> str:
     """The CSV the export pipeline produces for a sheet (or a row subset)."""
-    from frisket.server.exports.plan import build_sheet_export_plan
-    from frisket.server.exports.sheet_csv import iter_export_csv_bytes
-
     plan = build_sheet_export_plan(
         project, sheet_id, streaming_rowset=True, scope_row_ids=row_ids
     )

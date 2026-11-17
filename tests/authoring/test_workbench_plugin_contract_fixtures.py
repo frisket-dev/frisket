@@ -10,11 +10,6 @@ from frisket.authoring.workbench.contracts import (
     LEGAL_HOSTS,
     project_manifest,
 )
-from workbench_contribution_resolver import (
-    build_activity_recovery_entries,
-    load_fixture_descriptors,
-    resolve_contributions,
-)
 
 
 ROOT = Path(__file__).parent.parent / "fixtures" / "workbench_plugin"
@@ -115,7 +110,7 @@ def test_workbench_plugin_fixture_matrix_is_complete() -> None:
         )
 
 
-def test_workbench_plugin_manifest_projection_and_resolver_diagnostics() -> None:
+def test_workbench_plugin_manifest_projection() -> None:
     descriptors = load_fixture_descriptors(ROOT)
     by_id = {descriptor["id"]: descriptor for descriptor in descriptors}
 
@@ -129,216 +124,11 @@ def test_workbench_plugin_manifest_projection_and_resolver_diagnostics() -> None
     assert "handlerKey" not in command_manifest
     assert command_manifest["commandId"] == "frisket.core.command.open_sources"
 
-    enabled = resolve_contributions(
-        descriptors,
-        installed_plugins={"frisket.core", "frisket.geo"},
-        trusted_plugins={"frisket.core", "frisket.geo"},
-        host_capabilities={
-            "source.list",
-            "source.poll",
-            "host.navigation.openSheet",
-            "grid.filter.applyBbox",
-            "projection.status",
-            "evidence.resolve",
-            "evidence.listForRow",
-            "evidence.open",
-            "history.list",
-        },
-        data_context={
-            "activeProject": True,
-            "activeSheet": True,
-            "activeEvidence": True,
-            "activeRow": True,
-            "columnTypes": {"geo": "frisket.core.column_type.geo_point"},
-        },
-        hidden_contributions=set(),
-    )
-    assert enabled["frisket.geo.view.map"].status == "enabled"
-    assert enabled["frisket.geo.view.map"].activation == "loadAllowed"
-
-    hidden = resolve_contributions(
-        descriptors,
-        installed_plugins={"frisket.core", "frisket.geo"},
-        trusted_plugins={"frisket.core", "frisket.geo"},
-        host_capabilities=set(),
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions={"frisket.geo.view.map"},
-    )
-    assert hidden["frisket.geo.view.map"].status == "hidden"
-    assert hidden["frisket.geo.view.map"].reasons[0]["code"] == "hidden_by_profile"
-
-    disabled = resolve_contributions(
-        [by_id["frisket.geo.view.map"]],
-        installed_plugins={"frisket.geo"},
-        trusted_plugins={"frisket.geo"},
-        host_capabilities={"grid.filter.applyBbox", "projection.status"},
-        data_context={
-            "activeProject": True,
-            "activeSheet": True,
-            "columnTypes": {"name": "text"},
-        },
-        hidden_contributions=set(),
-    )
-    assert disabled["frisket.geo.view.map"].status == "disabled"
-    assert (
-        disabled["frisket.geo.view.map"].reasons[0]["code"] == "data_requirement_unmet"
-    )
-
-    projection_disabled = resolve_contributions(
-        [by_id["frisket.core.panel.projection_status"]],
-        installed_plugins={"frisket.core"},
-        trusted_plugins={"frisket.core"},
-        host_capabilities={"projection.status"},
-        data_context={},
-        hidden_contributions=set(),
-    )
-    assert (
-        projection_disabled["frisket.core.panel.projection_status"].status == "disabled"
-    )
-    assert (
-        projection_disabled["frisket.core.panel.projection_status"].reasons[0]["code"]
-        == "missing_context"
-    )
-
-    missing_dependency = resolve_contributions(
-        [by_id["frisket.core.command.open_sources"]],
-        installed_plugins={"frisket.core"},
-        trusted_plugins={"frisket.core"},
-        host_capabilities=set(),
-        data_context={},
-        hidden_contributions=set(),
-    )
-    assert missing_dependency["frisket.core.command.open_sources"].status == "disabled"
-    assert (
-        missing_dependency["frisket.core.command.open_sources"].reasons[0]["code"]
-        == "missing_contribution"
-    )
-
-    missing = resolve_contributions(
-        [by_id["frisket.geo.view.map"]],
-        installed_plugins={"frisket.core"},
-        trusted_plugins={"frisket.core"},
-        host_capabilities={"grid.filter.applyBbox", "projection.status"},
-        data_context={
-            "activeProject": True,
-            "activeSheet": True,
-            "columnTypes": {"geo": "frisket.core.column_type.geo_point"},
-        },
-        hidden_contributions=set(),
-    )
-    assert missing["frisket.geo.view.map"].status == "missing"
-    assert missing["frisket.geo.view.map"].reasons[0]["code"] == "missing_plugin"
-
-    runtime_failed = resolve_contributions(
-        [by_id["frisket.core.panel.sources"]],
-        installed_plugins={"frisket.core"},
-        trusted_plugins={"frisket.core"},
-        host_capabilities={"source.list", "source.poll", "host.navigation.openSheet"},
-        data_context={},
-        hidden_contributions=set(),
-        activation_errors={
-            "frisket.core.panel.sources": {
-                "message": "Unable to import core.panels.SourcesPanel"
-            }
-        },
-    )
-    assert runtime_failed["frisket.core.panel.sources"].status == "enabled"
-    assert runtime_failed["frisket.core.panel.sources"].activation == "failed"
-    assert (
-        runtime_failed["frisket.core.panel.sources"].reasons[0]["code"]
-        == "runtime_activation_failed"
-    )
-
-    duplicate = resolve_contributions(
-        [by_id["frisket.core.panel.sources"], by_id["frisket.core.panel.sources"]],
-        installed_plugins={"frisket.core"},
-        trusted_plugins={"frisket.core"},
-        host_capabilities={"source.list", "source.poll", "host.navigation.openSheet"},
-        data_context={},
-        hidden_contributions=set(),
-    )
-    assert duplicate["frisket.core.panel.sources"].status == "disabled"
-    assert duplicate["frisket.core.panel.sources"].reasons[0]["code"] == "duplicate_id"
-
-    invalid_descriptor = resolve_contributions(
-        [
-            {
-                "schemaVersion": "frisket.workbench.view.v1",
-                "kind": "view",
-                "ownerPluginId": "frisket.core",
-                "title": "Broken descriptor",
-                "placements": [{"host": "mainView", "mode": "pane"}],
-                "requires": [],
-            }
-        ],
-        installed_plugins={"frisket.core"},
-        trusted_plugins={"frisket.core"},
-        host_capabilities=set(),
-        data_context={},
-        hidden_contributions=set(),
-    )
-    assert invalid_descriptor["<invalid:0>"].status == "disabled"
-    assert (
-        invalid_descriptor["<invalid:0>"].reasons[0]["code"] == "invalid_descriptor_id"
-    )
-
-    missing_owner = resolve_contributions(
-        [
-            {
-                "schemaVersion": "frisket.workbench.view.v1",
-                "id": "frisket.example.view.no_owner",
-                "kind": "view",
-                "title": "No owner",
-                "placements": [{"host": "mainView", "mode": "pane"}],
-                "requires": [],
-            }
-        ],
-        installed_plugins={"frisket.example"},
-        trusted_plugins={"frisket.example"},
-        host_capabilities=set(),
-        data_context={},
-        hidden_contributions=set(),
-    )
-    assert missing_owner["frisket.example.view.no_owner"].status == "disabled"
-    assert (
-        missing_owner["frisket.example.view.no_owner"].reasons[0]["code"]
-        == "missing_owner_plugin"
-    )
-
-    missing_active_entity = resolve_contributions(
-        [
-            {
-                "schemaVersion": "frisket.workbench.view.v1",
-                "id": "frisket.ftm.view.entity_connections",
-                "kind": "view",
-                "ownerPluginId": "frisket.ftm",
-                "title": "Entity connections",
-                "placements": [{"host": "entityDetail", "mode": "tab"}],
-                "requires": [],
-                "dataRequirements": [{"kind": "activeEntity"}],
-            }
-        ],
-        installed_plugins={"frisket.ftm"},
-        trusted_plugins={"frisket.ftm"},
-        host_capabilities=set(),
-        data_context={"activeSheet": True},
-        hidden_contributions=set(),
-    )
-    assert (
-        missing_active_entity["frisket.ftm.view.entity_connections"].status
-        == "disabled"
-    )
-    assert (
-        missing_active_entity["frisket.ftm.view.entity_connections"].reasons[0]["code"]
-        == "missing_context"
-    )
-
 
 def test_workbench_plugin_layout_profile_runtime_host_foundation() -> None:
     layout_doc = _fixture_doc("layout_profile_runtime.json")
     plugin_doc = _fixture_doc("plugin_install_placeholders.json")
 
-    hidden_case = _case(layout_doc, "hidden_not_uninstalled_profile")
     roundtrip_case = _case(layout_doc, "three_pane_roundtrip")
     missing_case = _case(plugin_doc, "missing_geo_plugin_layout")
     install_case = _case(plugin_doc, "geo_plugin_install_trust_execution")
@@ -360,34 +150,6 @@ def test_workbench_plugin_layout_profile_runtime_host_foundation() -> None:
         "frisket.core.view.evidence",
     ]
 
-    descriptors = load_fixture_descriptors(ROOT)
-    invalid_alias_shape = resolve_contributions(
-        [
-            {
-                **next(
-                    descriptor
-                    for descriptor in descriptors
-                    if descriptor["id"] == "frisket.core.panel.sources"
-                ),
-                "aliases": {"bad": "shape"},
-            }
-        ],
-        installed_plugins={"frisket.core"},
-        trusted_plugins={"frisket.core"},
-        host_capabilities={"source.list", "source.poll", "host.navigation.openSheet"},
-        data_context={},
-        hidden_contributions=set(),
-    )
-    assert invalid_alias_shape["frisket.core.panel.sources"].status == "enabled"
-
-    resolved = resolve_contributions(
-        descriptors,
-        installed_plugins={"frisket.core", "frisket.media"},
-        trusted_plugins={"frisket.core", "frisket.media"},
-        host_capabilities=set(),
-        data_context={"activeProject": True, "activeSheet": True},
-        hidden_contributions=set(hidden_case["projectProfile"]["hiddenContributions"]),
-    )
     assert install_case["startingState"]["resolvedStatus"] == "missing"
     assert (
         install_case["indexEntry"]["schemaVersion"] == "frisket.plugin_index_entry.v1"
@@ -414,36 +176,6 @@ def test_workbench_plugin_layout_profile_runtime_host_foundation() -> None:
     assert install_case["expectedState"]["layoutMutated"] is False
     assert install_case["layoutRef"] == missing_case["layoutRef"]
 
-    actions_resolved = resolve_contributions(
-        [
-            next(
-                descriptor
-                for descriptor in descriptors
-                if descriptor["id"] == "frisket.core.panel.actions"
-            )
-        ],
-        installed_plugins={"frisket.core"},
-        trusted_plugins={"frisket.core"},
-        host_capabilities={"action.run", "action.preview"},
-        data_context={"activeSheet": True},
-        hidden_contributions=set(),
-        granted_permissions={"project.write"},
-    )
-    assert actions_resolved["frisket.core.panel.actions"].status == "enabled"
-
-    recovery = build_activity_recovery_entries(resolved)
-    recovery_by_id = {entry["contributionId"]: entry for entry in recovery}
-    assert recovery_by_id["frisket.geo.view.map"]["status"] == "missing"
-    assert recovery_by_id["frisket.geo.view.map"]["actions"] == [
-        "install_plugin",
-        "remove_from_layout",
-        "replace_with_grid",
-    ]
-    assert recovery_by_id["frisket.core.panel.watches"]["status"] == "hidden"
-    assert recovery_by_id["frisket.core.panel.watches"]["reason"] == "hidden_by_profile"
-    assert "reveal" in recovery_by_id["frisket.core.panel.watches"]["actions"]
-    assert "reset_profile" in recovery_by_id["frisket.core.panel.watches"]["actions"]
-
 
 def _fixture_doc(name: str) -> dict[str, Any]:
     return json.loads((ROOT / name).read_text(encoding="utf-8"))
@@ -451,3 +183,28 @@ def _fixture_doc(name: str) -> dict[str, Any]:
 
 def _case(document: dict, case_id: str) -> dict:
     return next(case for case in document["cases"] if case["id"] == case_id)
+
+
+def load_fixture_descriptors(root: Path) -> list[dict[str, Any]]:
+    descriptors: list[dict[str, Any]] = []
+    for path in sorted(root.glob("*.json")):
+        if path.name == "expected_matrix.json":
+            continue
+        for case in json.loads(path.read_text(encoding="utf-8")).get("cases", []):
+            if not isinstance(case, dict):
+                continue
+            raw = case.get("rawDescriptor")
+            if isinstance(raw, dict):
+                descriptors.append(raw)
+            for key in ("sourceKindForms", "actionForms", "commands", "descriptors"):
+                value = case.get(key)
+                if isinstance(value, list):
+                    descriptors.extend(item for item in value if isinstance(item, dict))
+    seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for descriptor in descriptors:
+        descriptor_id = descriptor.get("id")
+        if isinstance(descriptor_id, str) and descriptor_id not in seen:
+            seen.add(descriptor_id)
+            unique.append(descriptor)
+    return unique

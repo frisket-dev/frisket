@@ -107,13 +107,6 @@ class ProjectedTranscriptWord:
     clipped_left: bool
     clipped_right: bool
 
-    def as_transcript_word(self) -> dict[str, Any]:
-        return {
-            "word": self.text,
-            "start": round(self.start_ms / 1000, 3),
-            "end": round(self.end_ms / 1000, 3),
-        }
-
     def as_span_word(self) -> dict[str, Any]:
         return {
             "word": self.text,
@@ -174,33 +167,6 @@ class ProjectedTranscriptSegment:
             value["evidence_link_stable_id"] = self.evidence_link_stable_id
         if self.source_quote is not None:
             value["source_quote"] = self.source_quote
-        return value
-
-    def as_transcript_segment(self) -> dict[str, Any]:
-        """Return the existing transcript-segments cell shape plus lineage.
-
-        Existing transcription columns use seconds.  Evidence spans use the
-        millisecond shape returned by :meth:`as_source_span_fields` instead.
-        """
-
-        value: dict[str, Any] = {
-            "segment_index": self.segment_index,
-            "start": round(self.start_ms / 1000, 3),
-            "end": round(self.end_ms / 1000, 3),
-            "text": self.text,
-            "partial": self.partial,
-            "text_precision": self.text_precision,
-            "text_may_extend_outside_clip": self.text_may_extend_outside_clip,
-            "source": self.lineage(),
-        }
-        if self.speaker:
-            value["speaker"] = self.speaker
-        if self.speaker_confidence:
-            value["speaker_confidence"] = self.speaker_confidence
-        if self.speaker_namespace:
-            value["speaker_namespace"] = self.speaker_namespace
-        if self.words:
-            value["words"] = [word.as_transcript_word() for word in self.words]
         return value
 
     def as_source_span_fields(self) -> dict[str, Any]:
