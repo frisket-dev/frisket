@@ -12,7 +12,6 @@ import { errorMessage } from '../hooks/errorMessage';
 import {
   useEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
   type FormEvent,
@@ -55,6 +54,7 @@ import { navigate } from '../routes';
 import { useShellIdentity } from '../shellIdentity';
 import { useNativePopover } from '../hooks/useNativePopover';
 import { useAnchoredPosition, type AnchoredPosition } from '../hooks/useAnchoredPosition';
+import { useAction } from '../hooks/useAction';
 import { useLoader } from '../hooks/useLoader';
 import { ExportColumnTablesModal } from './ExportColumnTablesModal';
 import { sendProductTelemetry } from '../telemetry/productTelemetry';
@@ -92,60 +92,6 @@ const EXPORT_TARGET_MODAL_KIND: Partial<Record<string, ExportModalKind>> = {
   google_sheets: 'google_sheets',
 };
 
-type ProjectMenuState = {
-  open: boolean;
-  projects: ProjectInfo[] | null;
-  exportOpen: boolean;
-  exportTargets: ExportTarget[] | null;
-  exportModal: ExportModalKind | null;
-};
-
-type ProjectMenuAction =
-  | { type: 'toggleOpen' }
-  | { type: 'closeMenu' }
-  | { type: 'projectsLoaded'; projects: ProjectInfo[] }
-  | { type: 'toggleExportOpen' }
-  | { type: 'exportTargetsLoaded'; targets: ExportTarget[] }
-  | { type: 'openExportModal'; modal: ExportModalKind }
-  | { type: 'closeExportModal' };
-
-const PROJECT_MENU_INITIAL_STATE: ProjectMenuState = {
-  open: false,
-  projects: null,
-  exportOpen: false,
-  exportTargets: null,
-  exportModal: null,
-};
-
-function projectMenuReducer(
-  state: ProjectMenuState,
-  action: ProjectMenuAction,
-): ProjectMenuState {
-  switch (action.type) {
-    case 'toggleOpen':
-      return { ...state, open: !state.open, exportOpen: state.open ? false : state.exportOpen };
-    case 'closeMenu':
-      return { ...state, open: false, exportOpen: false };
-    case 'projectsLoaded':
-      return { ...state, projects: action.projects };
-    case 'toggleExportOpen':
-      return { ...state, exportOpen: !state.exportOpen };
-    case 'exportTargetsLoaded':
-      return { ...state, exportTargets: action.targets };
-    case 'openExportModal':
-      return {
-        ...state,
-        open: false,
-        exportOpen: false,
-        exportModal: action.modal,
-      };
-    case 'closeExportModal':
-      return { ...state, exportModal: null };
-    default:
-      return state;
-  }
-}
-
 function ExportDataGroup({
   currentSheet,
   exportOpen,
@@ -156,7 +102,7 @@ function ExportDataGroup({
 }: {
   currentSheet?: SheetMeta | null;
   exportOpen: boolean;
-  targets: ExportTarget[] | null;
+  targets: ExportTarget[];
   // Bulk sheet dataset export is reviewer-tier on the backend
   // -- one rung above the ordinary viewer read of a sheet's grid. Google
   // Sheets export dispatches through a separate, already editor-tier action
@@ -179,50 +125,46 @@ function ExportDataGroup({
       </button>
       {exportOpen && (
         <div className="menu-nested" data-testid="export-menu">
-          {targets === null ? (
-            <div className="menu-empty">Loading…</div>
-          ) : (
-            (() => {
-              // Never render a row this group can't dispatch — see
-              // EXPORT_TARGET_MODAL_KIND above. A viewer can't reach the
-              // reviewer-tier dataset export routes, so that row is dropped
-              // rather than left as a guaranteed 403 click.
-              const dispatchable = targets.filter(
-                (target) =>
-                  EXPORT_TARGET_MODAL_KIND[target.destinationKind] !== undefined &&
-                  (target.destinationKind !== 'csv' || canExport),
+          {(() => {
+            // Never render a row this group can't dispatch — see
+            // EXPORT_TARGET_MODAL_KIND above. A viewer can't reach the
+            // reviewer-tier dataset export routes, so that row is dropped
+            // rather than left as a guaranteed 403 click.
+            const dispatchable = targets.filter(
+              (target) =>
+                EXPORT_TARGET_MODAL_KIND[target.destinationKind] !== undefined &&
+                (target.destinationKind !== 'csv' || canExport),
+            );
+            if (dispatchable.length === 0) {
+              return <div className="menu-empty">No export targets</div>;
+            }
+            return dispatchable.map((target) => {
+              const modalKind = EXPORT_TARGET_MODAL_KIND[target.destinationKind]!;
+              return (
+                <button
+                  key={target.actionKind}
+                  type="button"
+                  className="menu-item"
+                  data-testid={`export-target-${target.destinationKind}`}
+                  disabled={target.destinationKind === 'csv' && !currentSheet}
+                  onClick={() => onOpenModal(modalKind)}
+                >
+                  {target.destinationKind === 'google_sheets' ? (
+                    <FileSpreadsheet size={12} />
+                  ) : (
+                    <Download size={12} />
+                  )}
+                  <span className="menu-item-name">
+                    {target.destinationKind === 'google_sheets'
+                      ? 'Google Sheets'
+                      : target.destinationKind === 'csv'
+                        ? 'CSV or Excel'
+                        : target.label}
+                  </span>
+                </button>
               );
-              if (dispatchable.length === 0) {
-                return <div className="menu-empty">No export targets</div>;
-              }
-              return dispatchable.map((target) => {
-                const modalKind = EXPORT_TARGET_MODAL_KIND[target.destinationKind]!;
-                return (
-                  <button
-                    key={target.actionKind}
-                    type="button"
-                    className="menu-item"
-                    data-testid={`export-target-${target.destinationKind}`}
-                    disabled={target.destinationKind === 'csv' && !currentSheet}
-                    onClick={() => onOpenModal(modalKind)}
-                  >
-                    {target.destinationKind === 'google_sheets' ? (
-                      <FileSpreadsheet size={12} />
-                    ) : (
-                      <Download size={12} />
-                    )}
-                    <span className="menu-item-name">
-                      {target.destinationKind === 'google_sheets'
-                        ? 'Google Sheets'
-                        : target.destinationKind === 'csv'
-                          ? 'CSV or Excel'
-                          : target.label}
-                    </span>
-                  </button>
-                );
-              });
-            })()
-          )}
+            });
+          })()}
         </div>
       )}
     </div>
@@ -399,7 +341,7 @@ function ProjectMenuPopover({
   menuPos: AnchoredPosition | null;
   currentSheet?: SheetMeta | null;
   exportOpen: boolean;
-  exportTargets: ExportTarget[] | null;
+  exportTargets: ExportTarget[];
   project: ProjectInfo;
   projectApi: ProjectApi;
   projects: ProjectInfo[] | null;
@@ -634,14 +576,14 @@ export function ProjectMenu({
   currentSheetExportOptions?: SheetViewExportOptions | null;
   catalogExportTargets: ExportTarget[];
 }) {
-  const [state, dispatch] = useReducer(projectMenuReducer, PROJECT_MENU_INITIAL_STATE);
-  const {
-    open,
-    projects,
-    exportOpen,
-    exportTargets,
-    exportModal,
-  } = state;
+  const [open, setOpen] = useState(false);
+  const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportModal, setExportModal] = useState<ExportModalKind | null>(null);
+  const closeMenu = () => {
+    setOpen(false);
+    setExportOpen(false);
+  };
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -649,15 +591,14 @@ export function ProjectMenu({
   useEffect(() => {
     if (!open) return;
     listProjects()
-      .then((loaded) => dispatch({ type: 'projectsLoaded', projects: loaded }))
-      .catch(() => dispatch({ type: 'projectsLoaded', projects: [] }));
-    dispatch({ type: 'exportTargetsLoaded', targets: catalogExportTargets });
-  }, [catalogExportTargets, open]);
+      .then((loaded) => setProjects(loaded))
+      .catch(() => setProjects([]));
+  }, [open]);
 
   // Top-layer popover: plain ref+toggle
   // default dismissal; the trigger testid is the ignoreSelector so its own
   // click keeps sole ownership of the open/close toggle.
-  useNativePopover(menuRef, () => dispatch({ type: 'closeMenu' }), {
+  useNativePopover(menuRef, closeMenu, {
     enabled: open,
     ignoreSelector: '[data-testid="switch-project"]',
   });
@@ -681,7 +622,7 @@ export function ProjectMenu({
         className="brand-project brand-project-btn"
         data-testid="switch-project"
         title={`Switch project: ${project.name}`}
-        onClick={() => dispatch({ type: 'toggleOpen' })}
+        onClick={() => (open ? closeMenu() : setOpen(true))}
       >
         <span className="brand-project-label">{project.name}</span><DropdownIndicator />
       </button>
@@ -691,19 +632,22 @@ export function ProjectMenu({
           menuPos={menuPos}
           currentSheet={currentSheet}
           exportOpen={exportOpen}
-          exportTargets={exportTargets}
+          exportTargets={catalogExportTargets}
           project={project}
           projectApi={projectApi}
           projects={projects}
-          onCloseMenu={() => dispatch({ type: 'closeMenu' })}
-          onOpenExportModal={(modal) => dispatch({ type: 'openExportModal', modal })}
+          onCloseMenu={closeMenu}
+          onOpenExportModal={(modal) => {
+            closeMenu();
+            setExportModal(modal);
+          }}
           onSelectProject={(selectedProject) => {
-            dispatch({ type: 'closeMenu' });
+            closeMenu();
             if (selectedProject.id !== project.id) {
               navigate({ kind: 'project', projectId: selectedProject.id });
             }
           }}
-          onToggleExportOpen={() => dispatch({ type: 'toggleExportOpen' })}
+          onToggleExportOpen={() => setExportOpen((current) => !current)}
         />
       )}
       <ProjectExportModals
@@ -713,7 +657,7 @@ export function ProjectMenu({
         currentSheet={currentSheet}
         sheets={sheets}
         currentSheetExportOptions={currentSheetExportOptions}
-        onClose={() => dispatch({ type: 'closeExportModal' })}
+        onClose={() => setExportModal(null)}
       />
     </div>
   );
@@ -930,54 +874,19 @@ function ExportGoogleSheetsModal({
   onClose: () => void;
 }) {
   const { projectApi } = useWorkspaceStores();
-  interface ExportGoogleSheetsState {
-    connections: OAuthConnectionInfo[] | null;
-    connectionId: string;
-    sourceKind: GoogleSheetsSourceKind;
-    destinationKind: GoogleSheetsDestinationKind;
-    spreadsheetTitle: string;
-    spreadsheetId: string;
-    exporting: boolean;
-    error: string | null;
-    resultUrl: string | null;
-    confirmation: GoogleSheetsConfirmationChallenge | null;
-    confirmationText: string;
-  }
-  type ExportGoogleSheetsPatch =
-    | Partial<ExportGoogleSheetsState>
-    | ((state: ExportGoogleSheetsState) => Partial<ExportGoogleSheetsState>);
-  const [modalState, setModalState] = useReducer(
-    (state: ExportGoogleSheetsState, patch: ExportGoogleSheetsPatch): ExportGoogleSheetsState => ({
-      ...state,
-      ...(typeof patch === 'function' ? patch(state) : patch),
-    }),
-    {
-      connections: null,
-      connectionId: '',
-      sourceKind: currentSheet ? 'current_sheet' : 'all_sheets',
-      destinationKind: 'new_spreadsheet',
-      spreadsheetTitle: `${projectName} export`,
-      spreadsheetId: '',
-      exporting: false,
-      error: null,
-      resultUrl: null,
-      confirmation: null,
-      confirmationText: '',
-    },
+  const [connections, setConnections] = useState<OAuthConnectionInfo[] | null>(null);
+  const [connectionId, setConnectionId] = useState('');
+  const [sourceKind, setSourceKind] = useState<GoogleSheetsSourceKind>(
+    currentSheet ? 'current_sheet' : 'all_sheets',
   );
-  const {
-    connections,
-    connectionId,
-    sourceKind,
-    destinationKind,
-    spreadsheetTitle,
-    spreadsheetId,
-    exporting,
-    error,
-    resultUrl,
-    confirmation,
-    confirmationText,
-  } = modalState;
+  const [destinationKind, setDestinationKind] = useState<GoogleSheetsDestinationKind>('new_spreadsheet');
+  const [spreadsheetTitle, setSpreadsheetTitle] = useState(`${projectName} export`);
+  const [spreadsheetId, setSpreadsheetId] = useState('');
+  const exportAction = useAction({ errorFallback: 'Google Sheets export failed' });
+  const { busy: exporting, error, setError } = exportAction;
+  const [resultUrl, setResultUrl] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<GoogleSheetsConfirmationChallenge | null>(null);
+  const [confirmationText, setConfirmationText] = useState('');
 
   // Edition/composition gate (server/action_catalog_hints.py ui_hints.
   // unavailable_reason on the export.google_sheets catalog entry): the
@@ -1002,27 +911,23 @@ function ExportGoogleSheetsModal({
       .listOAuthConnections('google')
       .then((loaded) => {
         if (!alive) return;
-        setModalState((current) => ({
-          connections: loaded,
-          connectionId: current.connectionId || loaded[0]?.connection_id || loaded[0]?.id || '',
-        }));
+        setConnections(loaded);
+        setConnectionId((current) => current || loaded[0]?.connection_id || loaded[0]?.id || '');
       })
       .catch((e) => {
         if (!alive) return;
-        setModalState({
-          connections: [],
-          error: errorMessage(e, 'Could not load Google connections'),
-        });
+        setConnections([]);
+        setError(errorMessage(e, 'Could not load Google connections'));
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [setError]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (exporting || (confirmation && confirmationText !== 'confirm')) return;
-    setModalState({ exporting: true, error: null, resultUrl: null });
+    setResultUrl(null);
     const frozenInput = confirmation?.input ?? {
       connectionId: connectionId.trim(),
       sourceKind,
@@ -1032,42 +937,35 @@ function ExportGoogleSheetsModal({
       spreadsheetTitle: spreadsheetTitle.trim() || 'Frisket export',
       spreadsheetId: spreadsheetId.trim(),
     };
-    try {
-      const result = await projectApi.exportGoogleSheets(
-        confirmation
-          ? {
-              ...frozenInput,
-              confirmation: confirmation.promiseSetHash,
-            }
-          : frozenInput,
-      );
-      setModalState({
-        resultUrl: result.spreadsheetUrl ?? null,
-        confirmation: null,
-        confirmationText: '',
-      });
-    } catch (e) {
-      if (e instanceof ConfirmationRequiredError && e.estimate.promise_set_hash) {
-        setModalState({
-          confirmation: {
+    await exportAction.run(async () => {
+      try {
+        const result = await projectApi.exportGoogleSheets(
+          confirmation
+            ? {
+                ...frozenInput,
+                confirmation: confirmation.promiseSetHash,
+              }
+            : frozenInput,
+        );
+        setResultUrl(result.spreadsheetUrl ?? null);
+        setConfirmation(null);
+        setConfirmationText('');
+      } catch (e) {
+        if (e instanceof ConfirmationRequiredError && e.estimate.promise_set_hash) {
+          setConfirmation({
             input: frozenInput,
             message: e.message,
             claims: e.estimate.claims ?? [],
             promiseSetHash: e.estimate.promise_set_hash,
-          },
-          confirmationText: '',
-          error: null,
-        });
-      } else {
-        setModalState({
-          error: errorMessage(e, 'Google Sheets export failed'),
-          confirmation: null,
-          confirmationText: '',
-        });
+          });
+          setConfirmationText('');
+          return;
+        }
+        setConfirmation(null);
+        setConfirmationText('');
+        throw e;
       }
-    } finally {
-      setModalState({ exporting: false });
-    }
+    });
   };
 
   const canExport =
@@ -1103,7 +1001,7 @@ function ExportGoogleSheetsModal({
               className="form-input"
               value={connectionId}
               disabled={formFrozen}
-              onChange={(event) => setModalState({ connectionId: event.target.value })}
+              onChange={(event) => setConnectionId(event.target.value)}
             >
               {connections.map((connection) => {
                 const id = connection.connection_id || connection.id;
@@ -1123,7 +1021,7 @@ function ExportGoogleSheetsModal({
                 type="button"
                 className={`btn export-option-btn${sourceKind === 'current_sheet' ? ' current' : ''}`}
                 disabled={formFrozen || !currentSheet}
-                onClick={() => setModalState({ sourceKind: 'current_sheet' })}
+                onClick={() => setSourceKind('current_sheet')}
               >
                 Current sheet
               </Button>
@@ -1131,7 +1029,7 @@ function ExportGoogleSheetsModal({
                 type="button"
                 className={`btn export-option-btn${sourceKind === 'current_view' ? ' current' : ''}`}
                 disabled={formFrozen || !hasCurrentViewExport}
-                onClick={() => setModalState({ sourceKind: 'current_view' })}
+                onClick={() => setSourceKind('current_view')}
               >
                 Current view
               </Button>
@@ -1139,7 +1037,7 @@ function ExportGoogleSheetsModal({
                 type="button"
                 className={`btn export-option-btn${sourceKind === 'all_sheets' ? ' current' : ''}`}
                 disabled={formFrozen}
-                onClick={() => setModalState({ sourceKind: 'all_sheets' })}
+                onClick={() => setSourceKind('all_sheets')}
               >
                 All sheets
               </Button>
@@ -1148,7 +1046,7 @@ function ExportGoogleSheetsModal({
                 type="button"
                 className={`btn export-option-btn${destinationKind === 'new_spreadsheet' ? ' current' : ''}`}
                 disabled={formFrozen}
-                onClick={() => setModalState({ destinationKind: 'new_spreadsheet' })}
+                onClick={() => setDestinationKind('new_spreadsheet')}
               >
                 New spreadsheet
               </Button>
@@ -1156,7 +1054,7 @@ function ExportGoogleSheetsModal({
                 type="button"
                 className={`btn export-option-btn${destinationKind === 'update_existing' ? ' current' : ''}`}
                 disabled={formFrozen}
-                onClick={() => setModalState({ destinationKind: 'update_existing' })}
+                onClick={() => setDestinationKind('update_existing')}
               >
                 Update existing spreadsheet
               </Button>
@@ -1167,7 +1065,7 @@ function ExportGoogleSheetsModal({
                 <TextInput
                   value={spreadsheetTitle}
                   disabled={formFrozen}
-                  onChange={(event) => setModalState({ spreadsheetTitle: event.target.value })}
+                  onChange={(event) => setSpreadsheetTitle(event.target.value)}
                 />
               </FormField>
             ) : (
@@ -1176,7 +1074,7 @@ function ExportGoogleSheetsModal({
                 <TextInput
                   value={spreadsheetId}
                   disabled={formFrozen}
-                  onChange={(event) => setModalState({ spreadsheetId: event.target.value })}
+                  onChange={(event) => setSpreadsheetId(event.target.value)}
                   placeholder="1abc..."
                 />
               </FormField>
@@ -1202,7 +1100,7 @@ function ExportGoogleSheetsModal({
                 value={confirmationText}
                 disabled={exporting}
                 autoComplete="off"
-                onChange={(event) => setModalState({ confirmationText: event.target.value })}
+                onChange={(event) => setConfirmationText(event.target.value)}
               />
             </FormField>
           </div>

@@ -1,7 +1,7 @@
 import './ImportWorkspaceDialog.css';
 import { Button } from '../Button';
 import { TextInput, TextArea } from '../FormControls';
-import { Fragment, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanelFrame, PanelBody, PanelFooter } from '../PanelLayout';
 import { ImportDropArea } from './ImportDropArea';
 import {
@@ -54,34 +54,6 @@ import { ACCEPTS, FTM_ACCEPT, prepareFileSelection, logicalPathForImport, select
 import type { ImportHandlers } from './model';
 import { errorMessage } from '../../hooks/errorMessage';
 import { useLoader } from '../../hooks/useLoader';
-
-interface ImportWorkspaceState {
-  mode: ImportMode;
-  urlText: string;
-}
-
-type ImportWorkspaceAction =
-  | { type: 'selectMode'; mode: ImportMode }
-  | { type: 'setUrlText'; value: string };
-
-const initialImportWorkspaceState = (mode: ImportMode): ImportWorkspaceState => ({
-  mode,
-  urlText: '',
-});
-
-function importWorkspaceReducer(
-  state: ImportWorkspaceState,
-  action: ImportWorkspaceAction,
-): ImportWorkspaceState {
-  switch (action.type) {
-    case 'selectMode':
-      return { ...state, mode: action.mode };
-    case 'setUrlText':
-      return { ...state, urlText: action.value };
-    default:
-      return state;
-  }
-}
 
 type ImportWorkspaceDialogProps = ImportHandlers & {
   open: boolean;
@@ -171,15 +143,8 @@ function OpenImportWorkspaceSession({
   const registerPdfBatchCloseGuard = useCallback((guard: (() => boolean) | null) => {
     pdfBatchCloseGuardRef.current = guard;
   }, []);
-  const [state, dispatch] = useReducer(
-    importWorkspaceReducer,
-    initialMode,
-    initialImportWorkspaceState,
-  );
-  const {
-    mode,
-    urlText,
-  } = state;
+  const [mode, setMode] = useState<ImportMode>(initialMode);
+  const [urlText, setUrlText] = useState('');
   const fileMode: FileImportMode =
     mode === 'xlsx' || mode === 'files' ? mode : 'csv';
   const railMode: ImportMode = mode === 'xlsx' ? 'csv' : mode === 'urls' ? 'files' : mode;
@@ -443,7 +408,7 @@ function OpenImportWorkspaceSession({
       setFtmDatasetName('');
     }
     onSessionModeChange(nextMode);
-    dispatch({ type: 'selectMode', mode: nextMode });
+    setMode(nextMode);
   };
 
   const runDownloadPrompt = () => {
@@ -1086,7 +1051,7 @@ function OpenImportWorkspaceSession({
                     rows={8}
                     value={urlText}
                     placeholder="https://example.com/file.pdf"
-                    onChange={(e) => dispatch({ type: 'setUrlText', value: e.target.value })}
+                    onChange={(e) => setUrlText(e.target.value)}
                   />
                 </>
               ) : mode === 'feed' ? (

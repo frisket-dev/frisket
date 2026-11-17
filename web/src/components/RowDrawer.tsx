@@ -4,7 +4,7 @@ import './RowDrawer.css';
 import { Button } from './Button';
 import { TextArea } from './FormControls';
 import { AlertTriangle, Check, Copy, Pencil, RefreshCcw, X, Zap } from 'lucide-react';
-import { useEffect, useReducer, useRef, useState, type FocusEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useRef, useState, type FocusEvent, type ReactNode, type RefObject } from 'react';
 import type { CellValue, ColumnDef, Row, SheetMeta } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useSelector } from '../bind/useSelector';
@@ -228,57 +228,6 @@ function draftToValue(col: ColumnDef, draft: string): CellValue {
 
 type OptimisticCellValue = { source: CellValue; value: CellValue } | null;
 
-type RowFieldState = {
-  optimistic: OptimisticCellValue;
-  editing: boolean;
-  hovered: boolean;
-  focused: boolean;
-  draft: string;
-};
-
-type RowFieldAction =
-  | { type: 'hovered'; hovered: boolean }
-  | { type: 'focused'; focused: boolean }
-  | { type: 'start-edit'; draft: string }
-  | { type: 'cancel-edit' }
-  | { type: 'draft'; draft: string }
-  | { type: 'saved'; source: CellValue; value: CellValue };
-
-function rowFieldInitialState(value: CellValue): RowFieldState {
-  return {
-    optimistic: null,
-    editing: false,
-    hovered: false,
-    focused: false,
-    draft: value === null ? '' : String(value),
-  };
-}
-
-function rowFieldReducer(state: RowFieldState, action: RowFieldAction): RowFieldState {
-  switch (action.type) {
-    case 'hovered':
-      return { ...state, hovered: action.hovered };
-    case 'focused':
-      return { ...state, focused: action.focused };
-    case 'start-edit':
-      return {
-        ...state,
-        editing: true,
-        draft: action.draft,
-      };
-    case 'cancel-edit':
-      return { ...state, editing: false };
-    case 'draft':
-      return { ...state, draft: action.draft };
-    case 'saved':
-      return {
-        ...state,
-        optimistic: { source: action.source, value: action.value },
-        editing: false,
-      };
-  }
-}
-
 export function RowField({
   col,
   columns,
@@ -304,8 +253,11 @@ export function RowField({
   onToggleRunResult(): void;
 }) {
   const value = row.cells?.[col.id] ?? null;
-  const [fieldState, dispatch] = useReducer(rowFieldReducer, value, rowFieldInitialState);
-  const { optimistic, editing, hovered, focused, draft } = fieldState;
+  const [optimistic, setOptimistic] = useState<OptimisticCellValue>(null);
+  const [editing, setEditing] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState(() => (value === null ? '' : String(value)));
   const displayValue = optimistic && Object.is(optimistic.source, value) ? optimistic.value : value;
   const editableTimelineType: EditableTimelineType | null = isTemporalColumnType(col.type)
     ? col.type
@@ -343,7 +295,7 @@ export function RowField({
   const actionsVisible = hovered || focused || editing;
   const onFieldBlur = (event: FocusEvent<HTMLElement>) => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      dispatch({ type: 'focused', focused: false });
+      setFocused(false);
     }
   };
   return (
@@ -353,9 +305,9 @@ export function RowField({
       data-row-field-id={col.id}
       data-selected-cell={selected ? 'true' : undefined}
       aria-label={`${col.name} cell`}
-      onMouseEnter={() => dispatch({ type: 'hovered', hovered: true })}
-      onMouseLeave={() => dispatch({ type: 'hovered', hovered: false })}
-      onFocus={() => dispatch({ type: 'focused', focused: true })}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
       onBlur={onFieldBlur}
     >
       <header className="row-field-name">
@@ -394,15 +346,13 @@ export function RowField({
                 title={`Edit ${col.name}`}
                 onClick={() => {
                   if (editing) {
-                    dispatch({ type: 'cancel-edit' });
+                    setEditing(false);
                     return;
                   }
-                  dispatch({
-                    type: 'start-edit',
-                    draft: editableTimelineType
-                      ? temporalDraftText ?? ''
-                      : displayValue === null ? '' : String(displayValue),
-                  });
+                  setEditing(true);
+                  setDraft(editableTimelineType
+                    ? temporalDraftText ?? ''
+                    : displayValue === null ? '' : String(displayValue));
                 }}
               >
                 {editing ? <X size={12} /> : <Pencil size={12} />}
@@ -439,7 +389,8 @@ export function RowField({
               : draftToValue(col, draft);
             if (next === null && editableTimelineType) return;
             void onEdit(row, col, next).then(() => {
-              dispatch({ type: 'saved', source: value, value: next });
+              setOptimistic({ source: value, value: next });
+              setEditing(false);
             }, () => undefined);
           }}
         >
@@ -459,7 +410,7 @@ export function RowField({
                   ? '00:10,00:30,Optional label'
                 : undefined}
             aria-invalid={Boolean(temporalDraftResult && !temporalDraftResult.ok)}
-            onChange={(e) => dispatch({ type: 'draft', draft: e.target.value })}
+            onChange={(e) => setDraft(e.target.value)}
           />
           {temporalDraftResult && !temporalDraftResult.ok && (
             <p className="temporal-validation-error" role="alert" data-testid={`cell-editor-error-${col.name}`}>

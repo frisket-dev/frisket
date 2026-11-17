@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
 import { IconButton } from './IconButton';
 import {
@@ -50,51 +50,26 @@ function watchRunLink(item: NotificationItem): WatchRunLink | null {
   return { watchId, runId, eventIds };
 }
 
-interface NotificationsPanelState {
-  items: NotificationItem[] | null;
-  pending: ReadonlySet<number>;
-  error: string | null;
-}
-
-type NotificationsPanelPatch =
-  | Partial<NotificationsPanelState>
-  | ((state: NotificationsPanelState) => Partial<NotificationsPanelState>);
-
-const initialNotificationsPanelState: NotificationsPanelState = {
-  items: null,
-  pending: new Set(),
-  error: null,
-};
-
-function reduceNotificationsPanelState(
-  state: NotificationsPanelState,
-  patch: NotificationsPanelPatch,
-): NotificationsPanelState {
-  return { ...state, ...(typeof patch === 'function' ? patch(state) : patch) };
-}
-
 export function NotificationsPanel() {
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
   const summary = useNotificationSummary();
   const pendingItems = useRef(new Set<number>());
   const listGeneration = useRef(0);
-  const [panelState, setPanelState] = useReducer(
-    reduceNotificationsPanelState,
-    initialNotificationsPanelState,
-  );
-  const { items, pending, error } = panelState;
+  const [items, setItems] = useState<NotificationItem[] | null>(null);
+  const [pending, setPending] = useState<ReadonlySet<number>>(() => new Set());
+  const [error, setError] = useState<string | null>(null);
   const { openDiscover } = useWorkspaceChromeCommands();
   const watchRunLinkHandle = useWatchRunLinkHandle();
 
   const load = useCallback(() => {
     const generation = ++listGeneration.current;
-    setPanelState({ error: null });
+    setError(null);
     return api.listNotifications({ state: 'all', offset: 0, limit: 20 })
       .then((page) => {
-        if (generation === listGeneration.current) setPanelState({ items: page.notifications });
+        if (generation === listGeneration.current) setItems(page.notifications);
       })
       .catch((e: Error) => {
-        if (generation === listGeneration.current) setPanelState({ error: e.message });
+        if (generation === listGeneration.current) setError(e.message);
       });
   }, [api]);
 
@@ -113,33 +88,31 @@ export function NotificationsPanel() {
   }, [load, projectId]);
 
   const applyState = (state: NotificationActorState) => {
-    setPanelState((current) => ({
-      items: (current.items ?? []).map((item) =>
-        item.id === state.notificationId
-          ? {
-              ...item,
-              state: state.state,
-              seenAt: state.seenAt,
-              readAt: state.readAt,
-              acknowledgedAt: state.acknowledgedAt,
-              acknowledgedBy: state.acknowledgedBy,
-              updatedAt: state.updatedAt,
-            }
-          : item,
-      ),
-    }));
+    setItems((current) => (current ?? []).map((item) =>
+      item.id === state.notificationId
+        ? {
+            ...item,
+            state: state.state,
+            seenAt: state.seenAt,
+            readAt: state.readAt,
+            acknowledgedAt: state.acknowledgedAt,
+            acknowledgedBy: state.acknowledgedBy,
+            updatedAt: state.updatedAt,
+          }
+        : item,
+    ));
     dispatchNotificationsChanged(projectId);
   };
 
   const mutateItem = (item: NotificationItem, operation: () => Promise<unknown>) => {
     if (pendingItems.current.has(item.id)) return;
     pendingItems.current.add(item.id);
-    setPanelState({ pending: new Set(pendingItems.current) });
+    setPending(new Set(pendingItems.current));
     void operation()
-      .catch((e: Error) => setPanelState({ error: e.message }))
+      .catch((e: Error) => setError(e.message))
       .finally(() => {
         pendingItems.current.delete(item.id);
-        setPanelState({ pending: new Set(pendingItems.current) });
+        setPending(new Set(pendingItems.current));
       });
   };
 

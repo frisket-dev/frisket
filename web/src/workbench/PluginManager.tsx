@@ -1,5 +1,5 @@
 import './PluginManager.css';
-import { useEffect, useReducer, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import type {
   WorkbenchPluginContributionSummary,
@@ -25,73 +25,12 @@ interface PluginManagerProps {
   canMutate?: boolean;
 }
 
-interface PluginManagerState {
-  localPluginId: string;
-  localSourceValue: string;
-  pendingTrustPluginId: string | null;
+interface PendingTrust {
+  pluginId: string | null;
   acceptedCapabilities: Record<string, boolean>;
-  busyKey: string | null;
-  status: string;
-  error: string;
 }
 
-type PluginManagerAction =
-  | { type: 'setPluginId'; value: string }
-  | { type: 'setSourceValue'; value: string }
-  | { type: 'beginTrust'; pluginId: string }
-  | { type: 'toggleCapability'; capability: string; accepted: boolean }
-  | { type: 'cancelTrust' }
-  | { type: 'start'; key: string }
-  | { type: 'success'; status: string }
-  | { type: 'error'; message: string };
-
-const initialState: PluginManagerState = {
-  localPluginId: '',
-  localSourceValue: '',
-  pendingTrustPluginId: null,
-  acceptedCapabilities: {},
-  busyKey: null,
-  status: '',
-  error: '',
-};
-
-function reducer(state: PluginManagerState, action: PluginManagerAction): PluginManagerState {
-  switch (action.type) {
-    case 'setPluginId':
-      return { ...state, localPluginId: action.value };
-    case 'setSourceValue':
-      return { ...state, localSourceValue: action.value };
-    case 'beginTrust':
-      return {
-        ...state,
-        pendingTrustPluginId: action.pluginId,
-        acceptedCapabilities: {},
-        error: '',
-      };
-    case 'toggleCapability':
-      return {
-        ...state,
-        acceptedCapabilities: {
-          ...state.acceptedCapabilities,
-          [action.capability]: action.accepted,
-        },
-      };
-    case 'cancelTrust':
-      return { ...state, pendingTrustPluginId: null, acceptedCapabilities: {} };
-    case 'start':
-      return { ...state, busyKey: action.key, error: '' };
-    case 'success':
-      return {
-        ...state,
-        busyKey: null,
-        pendingTrustPluginId: null,
-        acceptedCapabilities: {},
-        status: action.status,
-      };
-    case 'error':
-      return { ...state, busyKey: null, error: action.message };
-  }
-}
+const NO_PENDING_TRUST: PendingTrust = { pluginId: null, acceptedCapabilities: {} };
 
 function idsForKind(
   summary: WorkbenchPluginContributionSummary[],
@@ -234,10 +173,12 @@ export function PluginManager({
 }: PluginManagerProps) {
   const plugins = runtimeIndex?.plugins ?? [];
   const lifecycleEnabled = mode === 'settings' && canMutate;
-  const [
-    { localPluginId, localSourceValue, pendingTrustPluginId, acceptedCapabilities, busyKey, status, error },
-    dispatch,
-  ] = useReducer(reducer, initialState);
+  const [localPluginId, setLocalPluginId] = useState('');
+  const [localSourceValue, setLocalSourceValue] = useState('');
+  const [{ pluginId: pendingTrustPluginId, acceptedCapabilities }, setPendingTrust] = useState(NO_PENDING_TRUST);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
 
   // The Errors dock's "Open in Settings → Plugins" CTA (openPluginSettingsFromError)
   // arrives with ?plugin=<id> so the failed row is findable without
@@ -255,14 +196,17 @@ export function PluginManager({
   }, [highlightPluginId, plugins.length]);
 
   const runOperation = async (key: string, task: () => Promise<void>) => {
-    dispatch({ type: 'start', key });
+    setBusyKey(key);
+    setError('');
     try {
       await task();
       await onRefresh();
-      dispatch({ type: 'success', status: key });
+      setPendingTrust(NO_PENDING_TRUST);
+      setStatus(key);
     } catch (caught) {
-      dispatch({ type: 'error', message: errorMessage(caught) });
+      setError(errorMessage(caught));
     }
+    setBusyKey(null);
   };
 
   const installLocal = async (event: FormEvent<HTMLFormElement>) => {
@@ -270,7 +214,7 @@ export function PluginManager({
     const pluginId = localPluginId.trim();
     const sourceValue = localSourceValue.trim();
     if (!pluginId || !sourceValue) {
-      dispatch({ type: 'error', message: 'Plugin id and local source path are required.' });
+      setError('Plugin id and local source path are required.');
       return;
     }
     await runOperation(`install:${pluginId}`, async () => {
@@ -377,7 +321,7 @@ export function PluginManager({
                 placeholder="/absolute/path/to/plugin"
                 value={localSourceValue}
                 onChange={(event) =>
-                  dispatch({ type: 'setSourceValue', value: event.currentTarget.value })
+                  setLocalSourceValue(event.currentTarget.value)
                 }
                 data-testid="plugin-manager-install-source"
               />
@@ -393,7 +337,7 @@ export function PluginManager({
                 placeholder="example.plugin"
                 value={localPluginId}
                 onChange={(event) =>
-                  dispatch({ type: 'setPluginId', value: event.currentTarget.value })
+                  setLocalPluginId(event.currentTarget.value)
                 }
                 data-testid="plugin-manager-install-plugin-id"
               />
@@ -577,7 +521,10 @@ export function PluginManager({
                   <Button
                     type="button"
                     disabled={busyKey !== null || !plugin.receiptId || plugin.installState === 'enabled'}
-                    onClick={() => dispatch({ type: 'beginTrust', pluginId: plugin.pluginId })}
+                    onClick={() => {
+                      setPendingTrust({ pluginId: plugin.pluginId, acceptedCapabilities: {} });
+                      setError('');
+                    }}
                     title={plugin.installState === 'enabled'
                       ? 'Already enabled'
                       : 'Review requested access, then make this plugin available to the project.'}
@@ -648,13 +595,13 @@ export function PluginManager({
                     <input
                       type="checkbox"
                       checked={acceptedCapabilities[capability] === true}
-                      onChange={(event) =>
-                        dispatch({
-                          type: 'toggleCapability',
-                          capability,
-                          accepted: event.currentTarget.checked,
-                        })
-                      }
+                      onChange={(event) => {
+                        const accepted = event.currentTarget.checked;
+                        setPendingTrust((current) => ({
+                          ...current,
+                          acceptedCapabilities: { ...current.acceptedCapabilities, [capability]: accepted },
+                        }));
+                      }}
                       data-testid={`plugin-manager-capability-${capability}`}
                     />
                     {capability}
@@ -684,7 +631,7 @@ export function PluginManager({
                   <Button
                     type="button"
                     disabled={busyKey !== null}
-                    onClick={() => dispatch({ type: 'cancelTrust' })}
+                    onClick={() => setPendingTrust(NO_PENDING_TRUST)}
                     data-testid="plugin-manager-cancel-trust"
                   >
                     Cancel
