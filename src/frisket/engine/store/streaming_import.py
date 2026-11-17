@@ -61,6 +61,27 @@ class DuplicateStreamingPublication(RuntimeError):
         self.params_hash = params_hash
 
 
+def _insert_column(
+    db: Any, sheet_id: int, name: str, column: Mapping[str, Any], position: int
+) -> int:
+    cursor = db.execute(
+        "INSERT INTO columns "
+        "(sheet_id,name,type,position,ai_generated,hidden,default_hidden,format,semantic_type) "
+        "VALUES (?,?,?,?,0,?,?,?,?)",
+        (
+            sheet_id,
+            name,
+            str(column.get("type", "text")),
+            position,
+            int(bool(column.get("hidden", False))),
+            int(bool(column.get("default_hidden", False))),
+            column.get("format"),
+            column.get("semantic_type"),
+        ),
+    )
+    return int(cursor.lastrowid)
+
+
 class StreamingSheetWriter:
     """Write a new sheet incrementally, then expose it atomically."""
 
@@ -149,23 +170,7 @@ class StreamingSheetWriter:
             sheet_id = int(cursor.lastrowid)
             column_ids: dict[str, int] = {}
             for position, (name, column) in enumerate(zip(names, column_specs), 1):
-                cursor = db.execute(
-                    "INSERT INTO columns "
-                    "(sheet_id, name, type, position, ai_generated, hidden, "
-                    "default_hidden, format, semantic_type) "
-                    "VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)",
-                    (
-                        sheet_id,
-                        name,
-                        str(column.get("type", "text")),
-                        position,
-                        int(bool(column.get("hidden", False))),
-                        int(bool(column.get("default_hidden", False))),
-                        column.get("format"),
-                        column.get("semantic_type"),
-                    ),
-                )
-                column_ids[name] = int(cursor.lastrowid)
+                column_ids[name] = _insert_column(db, sheet_id, name, column, position)
             producer_id = create_base_cell_producer(
                 db, stage_id=f"receipt:{receipt_id}:{staging_name}"
             )
@@ -255,22 +260,7 @@ class StreamingSheetWriter:
             sheet_id = int(cursor.lastrowid)
             column_ids: dict[str, int] = {}
             for position, (name, column) in enumerate(zip(names, column_specs), 1):
-                cursor = db.execute(
-                    "INSERT INTO columns "
-                    "(sheet_id,name,type,position,ai_generated,hidden,default_hidden,format,semantic_type) "
-                    "VALUES (?,?,?,?,0,?,?,?,?)",
-                    (
-                        sheet_id,
-                        name,
-                        str(column.get("type", "text")),
-                        position,
-                        int(bool(column.get("hidden", False))),
-                        int(bool(column.get("default_hidden", False))),
-                        column.get("format"),
-                        column.get("semantic_type"),
-                    ),
-                )
-                column_ids[name] = int(cursor.lastrowid)
+                column_ids[name] = _insert_column(db, sheet_id, name, column, position)
             op_id = op_log.append_op(
                 project,
                 operation_kind or action_kind,
@@ -429,22 +419,9 @@ class StreamingSheetWriter:
                 if name in column_ids:
                     continue
                 next_position += 1
-                cursor = db.execute(
-                    "INSERT INTO columns "
-                    "(sheet_id,name,type,position,ai_generated,hidden,default_hidden,format,semantic_type) "
-                    "VALUES (?,?,?,?,0,?,?,?,?)",
-                    (
-                        int(sheet_id),
-                        name,
-                        str(column.get("type", "text")),
-                        next_position,
-                        int(bool(column.get("hidden", False))),
-                        int(bool(column.get("default_hidden", False))),
-                        column.get("format"),
-                        column.get("semantic_type"),
-                    ),
+                column_id = _insert_column(
+                    db, int(sheet_id), name, column, next_position
                 )
-                column_id = int(cursor.lastrowid)
                 column_ids[name] = column_id
                 created_column_ids.append(column_id)
 
