@@ -41,7 +41,8 @@ from frisket.server.sources.runtime import (
 from frisket.server.sources.youtube import (
     YOUTUBE_PLAYLIST_KIND,
     YouTubePlaylistListing,
-    YouTubePlaylistPoller,
+    YOUTUBE_PLAYLIST,
+    YouTubeCollectionPoller,
 )
 from frisket.engine.store import Project
 from frisket.ops.ytdlp import DownloadedMedia
@@ -162,7 +163,9 @@ def test_playlist_poll_fills_null_entry_channel_from_playlist_owner(
         channel_title="Playlist Owner Channel",
     )
     provider = _FakePlaylistProvider(listing)
-    register_source_poller(YouTubePlaylistPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    )
 
     project = Project.create(tmp_path / "channel-backfill-poll.frisket", name="YT")
     result = run_action_spec(

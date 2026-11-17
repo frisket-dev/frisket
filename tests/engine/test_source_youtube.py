@@ -25,7 +25,8 @@ from frisket.server.sources.runtime import (
 from frisket.server.sources.youtube import (
     YOUTUBE_PLAYLIST_KIND,
     YouTubePlaylistListing,
-    YouTubePlaylistPoller,
+    YOUTUBE_PLAYLIST,
+    YouTubeCollectionPoller,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
@@ -180,7 +181,9 @@ def test_youtube_playlist_solo_poll_materializes_legacy_cap_plus_one(
     provider = FakeYouTubeProvider(
         [_listing(entries, pages_fetched=6, playlist_count=501)]
     )
-    register_source_poller(YouTubePlaylistPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    )
     source = _youtube_source()
     source["config"].pop("max_pages_per_poll")
 
@@ -240,7 +243,9 @@ def test_default_youtube_playlist_name_resolves_to_channel_and_playlist(
             )
         ]
     )
-    register_source_poller(YouTubePlaylistPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    )
     project = Project.create(tmp_path / "youtube-playlist-name.frisket", name="YouTube")
     try:
         result = run_action_spec(
@@ -313,7 +318,9 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
             _listing(third_entries, pages_fetched=1),
         ]
     )
-    register_source_poller(YouTubePlaylistPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    )
 
     project = Project.create(tmp_path / "youtube-source.frisket", name="YouTube")
     try:
@@ -524,7 +531,8 @@ def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
         ]
     )
     register_source_poller(
-        YouTubePlaylistPoller(provider=capped_provider), replace=True
+        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=capped_provider),
+        replace=True,
     )
     capped_project = Project.create(tmp_path / "capped.frisket", name="Capped")
     try:
@@ -566,7 +574,8 @@ def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
         )
 
     register_source_poller(
-        YouTubePlaylistPoller(provider=failing_provider), replace=True
+        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=failing_provider),
+        replace=True,
     )
     failed_project = Project.create(tmp_path / "failed.frisket", name="Failed")
     try:
@@ -608,7 +617,9 @@ def test_youtube_playlist_scheduled_source_dispatches_generic_source_poll(
     provider = FakeYouTubeProvider(
         [_listing([_video("sched0012A", "Scheduled upload")], pages_fetched=1)]
     )
-    register_source_poller(YouTubePlaylistPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    )
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
