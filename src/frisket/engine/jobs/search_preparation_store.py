@@ -22,6 +22,7 @@ from frisket.engine.jobs.queue import (
     _now,
     _parse,
     engine_write_transaction,
+    inserted_id,
     jobs_metadata,
 )
 
@@ -1031,7 +1032,7 @@ class SearchPreparationStore:
                         created_at=now,
                     )
                 )
-                child_id = int(result.inserted_primary_key[0])
+                child_id = inserted_id(result)
                 existing = cx.execute(
                     sa.select(search_preparation_children_table).where(
                         ch.id == child_id

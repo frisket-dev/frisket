@@ -17,6 +17,7 @@ from typing import Any
 import sqlalchemy as sa
 from fastapi import Body, FastAPI, HTTPException, Request
 
+from frisket.engine.jobs.queue import inserted_id
 from frisket.contracts.http.admin_overview import AdminOverviewResponse
 from frisket.contracts.http.error_intake import DiagnosticBundleResult
 from frisket.server.route_errors import http_error_responses
@@ -382,7 +383,7 @@ def register_observability_routes(
                     context_json="{}",
                 )
             )
-            report_id = int(result.inserted_primary_key[0])
+            report_id = inserted_id(result)
             retain_diagnostic_reports(cx, report_id=report_id)
             record_audit(
                 cx,

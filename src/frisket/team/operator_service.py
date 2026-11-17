@@ -28,6 +28,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
+from frisket.engine.jobs.queue import inserted_id
 from frisket.team.db import locked_transaction
 from frisket.team.schema import (
     OPERATOR_TOKEN_PREFIX,
@@ -71,10 +72,10 @@ def _ensure_operator_actor(cx: sa.Connection) -> int:
     ).scalar_one_or_none()
     if existing is not None:
         return int(existing)
-    return int(
+    return inserted_id(
         cx.execute(
             users.insert().values(email=OPERATOR_ACTOR_EMAIL, name=OPERATOR_ACTOR_NAME)
-        ).inserted_primary_key[0]
+        )
     )
 
 
@@ -83,7 +84,7 @@ def _mint_in_transaction(
 ) -> tuple[str, int]:
     raw = OPERATOR_TOKEN_PREFIX + secrets.token_urlsafe(32)
     actor_id = _ensure_operator_actor(cx)
-    token_id = int(
+    token_id = inserted_id(
         cx.execute(
             operator_tokens.insert().values(
                 org_id=org_id,
@@ -91,7 +92,7 @@ def _mint_in_transaction(
                 token_hash=_digest(raw),
                 created_at=datetime.now(UTC),
             )
-        ).inserted_primary_key[0]
+        )
     )
     record_audit(
         cx,

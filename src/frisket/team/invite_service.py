@@ -15,6 +15,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
+from frisket.engine.jobs.queue import inserted_id
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.enforcement import ProjectAccess
 from frisket.team.identity_service import SESSION_TTL_DAYS
@@ -284,19 +285,21 @@ class InviteService:
                 )
                 .values(revoked_at=now)
             )
-            invite_id = cx.execute(
-                project_invites.insert().values(
-                    org_id=self._org_id,
-                    slug=slug,
-                    email=clean_email,
-                    role=clean_role,
-                    token=token_marker,
-                    token_hash=token_hash,
-                    invited_by_user_id=actor_user_id,
-                    created_at=now,
-                    expires_at=now + timedelta(days=14),
+            invite_id = inserted_id(
+                cx.execute(
+                    project_invites.insert().values(
+                        org_id=self._org_id,
+                        slug=slug,
+                        email=clean_email,
+                        role=clean_role,
+                        token=token_marker,
+                        token_hash=token_hash,
+                        invited_by_user_id=actor_user_id,
+                        created_at=now,
+                        expires_at=now + timedelta(days=14),
+                    )
                 )
-            ).inserted_primary_key[0]
+            )
             row = cx.execute(
                 sa.select(project_invites).where(project_invites.c.id == invite_id)
             ).one()
@@ -419,11 +422,13 @@ class InviteService:
             if user is None:
                 if password_hash is None:
                     raise InviteConflict("create a password to accept this invite")
-                user_id = cx.execute(
-                    users.insert().values(
-                        email=str(invite.email), password_hash=password_hash
+                user_id = inserted_id(
+                    cx.execute(
+                        users.insert().values(
+                            email=str(invite.email), password_hash=password_hash
+                        )
                     )
-                ).inserted_primary_key[0]
+                )
                 user = cx.execute(sa.select(users).where(users.c.id == user_id)).one()
             elif not user.password_hash:
                 if password_hash is None:

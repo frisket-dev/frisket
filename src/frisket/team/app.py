@@ -48,6 +48,7 @@ from frisket.contracts.http.organization_operations import (
 )
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.jobs import WorkerPorts, open_queue
+from frisket.engine.jobs.queue import inserted_id
 from frisket.server.app import create_app
 from frisket.server.routes.skills import register_skill_routes
 from frisket.server.services.skills import SkillLibrary
@@ -1883,15 +1884,17 @@ def create_team_app(
         token_name = body.name.strip() or "token"
         token_prefix = token[:20]
         with engine.begin() as cx:
-            token_id = cx.execute(
-                api_tokens.insert().values(
-                    org_id=org_id,
-                    user_id=user["id"],
-                    name=token_name,
-                    token_hash=hashlib.sha256(token.encode()).hexdigest(),
-                    prefix=token_prefix,
+            token_id = inserted_id(
+                cx.execute(
+                    api_tokens.insert().values(
+                        org_id=org_id,
+                        user_id=user["id"],
+                        name=token_name,
+                        token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                        prefix=token_prefix,
+                    )
                 )
-            ).inserted_primary_key[0]
+            )
             record_audit(
                 cx,
                 user_id=user["id"],
