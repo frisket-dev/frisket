@@ -3,7 +3,7 @@
 .topic-compare-catalog-reasons {
   margin: 4px 0 0;
   padding-left: 18px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-light);
 }
 
@@ -13,7 +13,7 @@
    never word-diff tokens. */
 .topic-compare-catalog-message {
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
 }
@@ -25,10 +25,10 @@
 .topic-compare-source-peek .ocr-compare-peek-head {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-2);
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .topic-compare-source-units {
   min-height: 0;
@@ -42,7 +42,7 @@
   padding: 7px 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-6);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   scroll-margin: 18px;
 }
@@ -53,11 +53,11 @@
 .topic-compare-source-unit-meta {
   display: flex;
   justify-content: space-between;
-  gap: 6px;
+  gap: var(--space-6);
   font-size: 9px;
 }
 .topic-compare-speaker {
-  font-size: 10px;
+  font-size: var(--font-size-caption);
 }
 .topic-compare-columns[data-column-count='3'],
 .topic-compare-columns[data-column-count='4'],
@@ -87,10 +87,10 @@
 .topic-compare-lane-unit {
   display: grid;
   grid-template-columns: 22px 1fr;
-  gap: 6px;
+  gap: var(--space-6);
   align-items: start;
   padding: 4px 2px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
 }
 .topic-compare-lane-unit.shared {

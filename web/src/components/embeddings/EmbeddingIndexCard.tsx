@@ -1,7 +1,7 @@
 import '../EmbeddingsPanel.css';
 import { Button } from '../Button';
 import { TextInput } from '../FormControls';
-import { useCallback, useReducer } from 'react';
+import { useCallback, useState } from 'react';
 import { ChevronDown, ChevronRight, Download, RefreshCw, ScanSearch } from 'lucide-react';
 import {
   ApiError,
@@ -14,6 +14,8 @@ import { REFRESH_NEEDED_CODES } from './constants';
 import { StatusChip } from '../PanelPrimitives';
 import { IndexPolicyDetail } from './IndexPolicyDetail';
 import { LensList } from './LensList';
+import { errorMessage } from '../../hooks/errorMessage';
+import { useAction } from '../../hooks/useAction';
 
 interface EmbeddingIndexCardProps {
   apiPort: EmbeddingApiPort;
@@ -33,16 +35,6 @@ interface EmbeddingIndexCardProps {
   }): void;
 }
 
-interface CardState {
-  showPolicy: boolean;
-}
-
-type CardAction = { type: 'toggle_policy' };
-
-const initialCardState: CardState = {
-  showPolicy: false,
-};
-
 function indexPolicyResetKey(index: EmbeddingIndexSummary): string {
   return [
     index.indexId,
@@ -53,15 +45,6 @@ function indexPolicyResetKey(index: EmbeddingIndexSummary): string {
     index.maxCostUsdPerRefresh == null ? '' : String(index.maxCostUsdPerRefresh),
     String(index.policyNeedsRepair),
   ].join(':');
-}
-
-function cardReducer(state: CardState, action: CardAction): CardState {
-  switch (action.type) {
-    case 'toggle_policy':
-      return { ...state, showPolicy: !state.showPolicy };
-    default:
-      return state;
-  }
 }
 
 export function EmbeddingIndexCard({
@@ -75,7 +58,7 @@ export function EmbeddingIndexCard({
   selectedRowIds,
   onFindSimilar,
 }: EmbeddingIndexCardProps) {
-  const [state, dispatch] = useReducer(cardReducer, initialCardState);
+  const [showPolicy, setShowPolicy] = useState(false);
   const selectedRowId = selectedRowIds.length === 1 ? selectedRowIds[0] : null;
   const sourceColumn = sheet.columns.find((column) =>
     index.sourceColumns.includes(column.name),
@@ -159,13 +142,13 @@ export function EmbeddingIndexCard({
         type="button"
         className="embedding-policy-toggle"
         data-testid={`embedding-policy-toggle-${index.indexId}`}
-        aria-expanded={state.showPolicy}
-        onClick={() => dispatch({ type: 'toggle_policy' })}
+        aria-expanded={showPolicy}
+        onClick={() => setShowPolicy((shown) => !shown)}
       >
-        {state.showPolicy ? <ChevronDown size={11} /> : <ChevronRight size={11} />}{' '}
+        {showPolicy ? <ChevronDown size={11} /> : <ChevronRight size={11} />}{' '}
         Details / Policy
       </Button>
-      {state.showPolicy && (
+      {showPolicy && (
         <IndexPolicyDetail
           apiPort={apiPort}
           key={indexPolicyResetKey(index)}
@@ -177,54 +160,6 @@ export function EmbeddingIndexCard({
   );
 }
 
-interface AnalysisState {
-  k: string;
-  seed: string;
-  pcaSheetName: string;
-  clusterSheetName: string;
-  running: null | 'pca' | 'cluster';
-  error: string | null;
-}
-
-type AnalysisAction =
-  | { type: 'set_k'; k: string }
-  | { type: 'set_seed'; seed: string }
-  | { type: 'set_pca_sheet_name'; name: string }
-  | { type: 'set_cluster_sheet_name'; name: string }
-  | { type: 'run_start'; running: 'pca' | 'cluster' }
-  | { type: 'set_error'; message: string | null }
-  | { type: 'run_done' };
-
-const initialAnalysisState = (indexName: string): AnalysisState => ({
-  k: '5',
-  seed: '0',
-  pcaSheetName: `PCA of ${indexName}`,
-  clusterSheetName: `Clusters of ${indexName}`,
-  running: null,
-  error: null,
-});
-
-function analysisReducer(state: AnalysisState, action: AnalysisAction): AnalysisState {
-  switch (action.type) {
-    case 'set_k':
-      return { ...state, k: action.k };
-    case 'set_seed':
-      return { ...state, seed: action.seed };
-    case 'set_pca_sheet_name':
-      return { ...state, pcaSheetName: action.name };
-    case 'set_cluster_sheet_name':
-      return { ...state, clusterSheetName: action.name };
-    case 'run_start':
-      return { ...state, running: action.running, error: null };
-    case 'set_error':
-      return { ...state, error: action.message };
-    case 'run_done':
-      return { ...state, running: null };
-    default:
-      return state;
-  }
-}
-
 function IndexAnalysis({
   apiPort,
   index,
@@ -234,8 +169,13 @@ function IndexAnalysis({
   index: EmbeddingIndexSummary;
   onSelectSheet(sheetId: string): void;
 }) {
-  const [state, dispatch] = useReducer(analysisReducer, index.name, initialAnalysisState);
-  const busy = state.running !== null;
+  const [k, setK] = useState('5');
+  const [seed, setSeed] = useState('0');
+  const [pcaSheetName, setPcaSheetName] = useState(() => `PCA of ${index.name}`);
+  const [clusterSheetName, setClusterSheetName] = useState(() => `Clusters of ${index.name}`);
+  const [running, setRunning] = useState<null | 'pca' | 'cluster'>(null);
+  const [error, setError] = useState<string | null>(null);
+  const busy = running !== null;
 
   const friendlyError = useCallback((error: unknown): string => {
     if (error instanceof ApiError) {
@@ -246,16 +186,17 @@ function IndexAnalysis({
         return 'Embeddings are out of date — refresh the index before running analysis.';
       }
     }
-    return error instanceof Error ? error.message : String(error);
+    return errorMessage(error);
   }, []);
 
   const runPca = useCallback(async () => {
-    if (!state.pcaSheetName.trim()) return;
-    dispatch({ type: 'run_start', running: 'pca' });
+    if (!pcaSheetName.trim()) return;
+    setRunning('pca');
+    setError(null);
     try {
       const result = await apiPort.runEmbeddingIndexAnalysis({
         action_id: 'embedding.index_project',
-        sheet_name: state.pcaSheetName.trim(),
+        sheet_name: pcaSheetName.trim(),
         params: {
           index_id: index.indexId,
           method: 'pca',
@@ -263,29 +204,27 @@ function IndexAnalysis({
         },
       });
       onSelectSheet(String(result.sheetId));
-    } catch (error) {
-      dispatch({ type: 'set_error', message: friendlyError(error) });
+    } catch (caught) {
+      setError(friendlyError(caught));
     } finally {
-      dispatch({ type: 'run_done' });
+      setRunning(null);
     }
-  }, [apiPort, index.indexId, state.pcaSheetName, onSelectSheet, friendlyError]);
+  }, [apiPort, index.indexId, pcaSheetName, onSelectSheet, friendlyError]);
 
   const runCluster = useCallback(async () => {
-    if (!state.clusterSheetName.trim()) return;
-    const kValue = Number(state.k);
+    if (!clusterSheetName.trim()) return;
+    const kValue = Number(k);
     if (!Number.isInteger(kValue) || kValue < 2) {
-      dispatch({
-        type: 'set_error',
-        message: 'Enter a whole number k of at least 2 to cluster.',
-      });
+      setError('Enter a whole number k of at least 2 to cluster.');
       return;
     }
-    const seedValue = Number(state.seed);
-    dispatch({ type: 'run_start', running: 'cluster' });
+    const seedValue = Number(seed);
+    setRunning('cluster');
+    setError(null);
     try {
       const result = await apiPort.runEmbeddingIndexAnalysis({
         action_id: 'embedding.index_cluster',
-        sheet_name: state.clusterSheetName.trim(),
+        sheet_name: clusterSheetName.trim(),
         params: {
           index_id: index.indexId,
           method: 'kmeans',
@@ -294,12 +233,12 @@ function IndexAnalysis({
         },
       });
       onSelectSheet(String(result.sheetId));
-    } catch (error) {
-      dispatch({ type: 'set_error', message: friendlyError(error) });
+    } catch (caught) {
+      setError(friendlyError(caught));
     } finally {
-      dispatch({ type: 'run_done' });
+      setRunning(null);
     }
-  }, [apiPort, index.indexId, state.clusterSheetName, state.k, state.seed, onSelectSheet, friendlyError]);
+  }, [apiPort, index.indexId, clusterSheetName, k, seed, onSelectSheet, friendlyError]);
 
   return (
     <div className="embedding-analysis" data-testid={`embedding-analysis-${index.indexId}`}>
@@ -307,25 +246,25 @@ function IndexAnalysis({
       <div className="embedding-analysis-actions">
         <label className="embedding-analysis-field form-field">
           PCA sheet name
-          <TextInput value={state.pcaSheetName} disabled={busy}
-            onChange={(event) => dispatch({ type: 'set_pca_sheet_name', name: event.target.value })} />
+          <TextInput value={pcaSheetName} disabled={busy}
+            onChange={(event) => setPcaSheetName(event.target.value)} />
         </label>
         <Button
           type="button"
 
           data-testid={`embedding-run-pca-${index.indexId}`}
-          disabled={busy || !state.pcaSheetName.trim()}
+          disabled={busy || !pcaSheetName.trim()}
           title="Project embeddings to 2D (PCA) in a new sheet"
           onClick={() => void runPca()}
         >
-          {state.running === 'pca' ? 'Projecting…' : 'Run PCA projection'}
+          {running === 'pca' ? 'Projecting…' : 'Run PCA projection'}
         </Button>
       </div>
       <div className="embedding-analysis-cluster">
         <label className="embedding-analysis-field form-field">
           Clustering sheet name
-          <TextInput value={state.clusterSheetName} disabled={busy}
-            onChange={(event) => dispatch({ type: 'set_cluster_sheet_name', name: event.target.value })} />
+          <TextInput value={clusterSheetName} disabled={busy}
+            onChange={(event) => setClusterSheetName(event.target.value)} />
         </label>
         <label className="embedding-analysis-field form-field">
           k
@@ -335,8 +274,8 @@ function IndexAnalysis({
             step="1"
             required
             data-testid={`embedding-cluster-k-${index.indexId}`}
-            value={state.k}
-            onChange={(event) => dispatch({ type: 'set_k', k: event.target.value })}
+            value={k}
+            onChange={(event) => setK(event.target.value)}
           />
         </label>
         <label className="embedding-analysis-field form-field">
@@ -345,60 +284,28 @@ function IndexAnalysis({
             type="number"
             step="1"
             data-testid={`embedding-cluster-seed-${index.indexId}`}
-            value={state.seed}
-            onChange={(event) =>
-              dispatch({ type: 'set_seed', seed: event.target.value })
-            }
+            value={seed}
+            onChange={(event) => setSeed(event.target.value)}
           />
         </label>
         <Button
           type="button"
 
           data-testid={`embedding-run-cluster-${index.indexId}`}
-          disabled={busy || !state.clusterSheetName.trim()}
+          disabled={busy || !clusterSheetName.trim()}
           title="Cluster embeddings (k-means) into a new sheet"
           onClick={() => void runCluster()}
         >
-          {state.running === 'cluster' ? 'Clustering…' : 'Run k-means'}
+          {running === 'cluster' ? 'Clustering…' : 'Run k-means'}
         </Button>
       </div>
-      {state.error && (
+      {error && (
         <p className="panel-error" data-testid={`embedding-analysis-error-${index.indexId}`}>
-          {state.error}
+          {error}
         </p>
       )}
     </div>
   );
-}
-
-interface ExportState {
-  busy: boolean;
-  result: EmbeddingExportResult | null;
-  error: string | null;
-}
-
-type ExportAction =
-  | { type: 'start' }
-  | { type: 'success'; result: EmbeddingExportResult }
-  | { type: 'error'; message: string };
-
-const initialExportState: ExportState = {
-  busy: false,
-  result: null,
-  error: null,
-};
-
-function exportReducer(state: ExportState, action: ExportAction): ExportState {
-  switch (action.type) {
-    case 'start':
-      return { ...state, busy: true, error: null };
-    case 'success':
-      return { ...state, busy: false, result: action.result };
-    case 'error':
-      return { ...state, busy: false, error: action.message, result: null };
-    default:
-      return state;
-  }
 }
 
 function ExportControl({
@@ -408,32 +315,26 @@ function ExportControl({
   apiPort: EmbeddingApiPort;
   index: EmbeddingIndexSummary;
 }) {
-  const [state, dispatch] = useReducer(exportReducer, initialExportState);
+  const exportAction = useAction();
+  const runExport = exportAction.run;
+  const [result, setResult] = useState<EmbeddingExportResult | null>(null);
 
   const run = useCallback(async () => {
-    dispatch({ type: 'start' });
-    try {
-      dispatch({
-        type: 'success',
-        result: await apiPort.exportEmbeddingIndex(index.indexId, {
+    const exported = await runExport(async () => {
+      try {
+        return await apiPort.exportEmbeddingIndex(index.indexId, {
           formats: ['jsonl', 'parquet'],
           includeVectors: true,
-        }),
-      });
-    } catch (error) {
-      if (error instanceof ApiError && REFRESH_NEEDED_CODES.has(error.code ?? '')) {
-        dispatch({
-          type: 'error',
-          message: 'Embeddings are out of date — refresh before exporting.',
         });
-      } else {
-        dispatch({
-          type: 'error',
-          message: error instanceof Error ? error.message : String(error),
-        });
+      } catch (error) {
+        if (error instanceof ApiError && REFRESH_NEEDED_CODES.has(error.code ?? '')) {
+          throw new Error('Embeddings are out of date — refresh before exporting.', { cause: error });
+        }
+        throw error;
       }
-    }
-  }, [apiPort, index.indexId]);
+    });
+    setResult(exported ?? null);
+  }, [apiPort, index.indexId, runExport]);
 
   return (
     <div className="content-stack" data-testid={`embedding-export-${index.indexId}`}>
@@ -441,7 +342,7 @@ function ExportControl({
         type="button"
 
         data-testid={`embedding-export-run-${index.indexId}`}
-        disabled={state.busy || index.refreshNeeded}
+        disabled={exportAction.busy || index.refreshNeeded}
         title={
           index.refreshNeeded
             ? 'Refresh embeddings before exporting'
@@ -449,15 +350,15 @@ function ExportControl({
         }
         onClick={() => void run()}
       >
-        <Download size={11} /> {state.busy ? 'Exporting…' : 'Export'}
+        <Download size={11} /> {exportAction.busy ? 'Exporting…' : 'Export'}
       </Button>
-      {state.error && <p className="panel-error">{state.error}</p>}
-      {state.result && (
+      {exportAction.error && <p className="panel-error">{exportAction.error}</p>}
+      {result && (
         <ul
           className="panel-list"
           data-testid={`embedding-export-artifacts-${index.indexId}`}
         >
-          {state.result.artifacts.map((artifact) => (
+          {result.artifacts.map((artifact) => (
             <li key={`${artifact.format}:${artifact.sha256}`} className="form-hint">
               <a
                 href={apiPort.embeddingExportArtifactUrl(index.indexId, artifact.format)}

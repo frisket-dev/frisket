@@ -52,7 +52,7 @@ import { formatRelativeTime } from '../format';
 import { navigate } from '../routes';
 import { useShellIdentity } from '../shellIdentity';
 import { useNativePopover } from '../hooks/useNativePopover';
-import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
+import { anchoredPopoverStyle, useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { MenuPop } from './MenuPop';
 import { ChromeBarShell } from '../workbench/ChromeBar';
 import { AccountMenu } from './AccountMenu';
@@ -946,13 +946,7 @@ function HomeProjectCard({
           <MenuPop
             ref={menuPopRef}
             className="home-card-menu"
-            // Reset the UA popover centering so the JS-anchored top-layer
-            // placement below applies instead.
-            style={
-              menuPos
-                ? { position: 'fixed', inset: 'auto', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, margin: 0 }
-                : { position: 'fixed', visibility: 'hidden' }
-            }
+            style={anchoredPopoverStyle(menuPos)}
           >
             <button
               type="button"

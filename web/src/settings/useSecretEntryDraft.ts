@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { errMsg } from './settingsSupport';
+import { errorMessage } from '../hooks/errorMessage';
 
 type Submission = { name: string; value: string; revision: number };
 type Session = { scope: unknown };
@@ -51,7 +51,7 @@ export function useSecretEntryDraft(scope: unknown, initialName = '') {
     setName: (name: string) => update({ name }),
     setValue: (value: string) => update({ value }),
     complete: (submission: Submission) => settle(submission, null),
-    fail: (submission: Submission, error: unknown) => settle(submission, errMsg(error)),
+    fail: (submission: Submission, error: unknown) => settle(submission, errorMessage(error)),
     setError: (error: string | null) => {
       if (owner.current?.session === session) setState((previous) => previous.session === session ? { ...previous, error } : previous);
     },

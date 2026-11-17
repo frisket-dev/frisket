@@ -7,29 +7,29 @@
 .chrome-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-10);
   height: 44px;
   flex: 0 0 44px;
   padding: 0 12px;
   background: var(--bg-sidebar);
   border-bottom: 1px solid var(--border);
 }
-.chrome-bar-brand { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.chrome-bar-brand { display: flex; align-items: center; gap: var(--space-6); min-width: 0; }
 .chrome-bar-brand .project-menu { margin-left: 2px; }
 .chrome-bar .brand-tile { background: var(--text); color: var(--bg); }
 .chrome-bar .brand-link:hover .brand-tile { background: var(--text); }
 .chrome-bar-spacer { flex: 1 1 auto; }
 .chrome-command-pill {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; gap: var(--space-8);
   height: 28px; padding: 0 10px;
   border: 1px solid var(--border-strong);
   border-radius: 99px;
   background: var(--bg);
   color: var(--text-light);
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
 }
 .chrome-command-pill:hover { background: var(--bg-hover); color: var(--text-mid); }
-.chrome-command-label { font-size: 12.5px; }
+.chrome-command-label { font-size: var(--font-size-control); }
 .chrome-command-kbd {
   font-family: var(--mono); font-size: 10.5px;
   color: var(--text-light);
@@ -37,9 +37,9 @@
   border-radius: var(--radius-5); padding: 1px 5px;
 }
 .chrome-guide-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-6);
   height: 30px; padding: 0 9px; border-radius: var(--radius-8);
-  color: var(--text-mid); background: transparent; font-size: 12px;
+  color: var(--text-mid); background: transparent; font-size: var(--font-size-small);
 }
 .chrome-guide-btn:hover { background: var(--bg-hover); }
 .chrome-guide-btn.open { background: var(--focus-bg); color: var(--focus); }
@@ -49,7 +49,7 @@
   color: var(--text-on-solid);
 }
 .chrome-guide-resume {
-  display: inline-flex; align-items: center; justify-content: center; gap: 2px;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
   height: 28px; margin-left: -3px; padding: 0 7px;
   border: 1px solid var(--focus);
   border-radius: var(--radius-8);

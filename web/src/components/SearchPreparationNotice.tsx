@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { SearchPreparationNotice as Notice } from './useSearchPreparationNotice';
 import { ActivityProgressCard, ProgressBar, ProgressRow } from './ActivityProgress';
+import { errorMessage } from '../hooks/errorMessage';
 
 interface ActivityProgressLine {
   key: string;
@@ -63,7 +64,7 @@ export function SearchPreparationNotice({
       setStopState((current) => current?.batchId === batchId ? { ...current, busy: false } : current);
     } catch (error) {
       setStopState((current) => current?.batchId === batchId ? {
-        batchId, busy: false, error: error instanceof Error ? error.message : String(error),
+        batchId, busy: false, error: errorMessage(error),
       } : current);
     }
   };

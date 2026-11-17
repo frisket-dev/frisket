@@ -153,7 +153,7 @@
   min-height: 0;
   flex: 1;
   grid-template-columns: 230px 360px minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-8);
   padding: 8px 10px 10px;
 }
 
@@ -164,7 +164,7 @@
 .engine-selector__groups {
   display: grid;
   align-content: start;
-  gap: 2px;
+  gap: var(--space-2);
   overflow-y: auto;
   padding: 0 8px 0 0;
   border-right: 1px solid var(--border);
@@ -173,7 +173,7 @@
 .engine-selector__groups button {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
   padding: 8px;
   border: 0;
   border-radius: 7px;
@@ -246,7 +246,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-4);
   color: var(--text-mid);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
 }
 
 .engine-selector__default {
@@ -279,7 +279,7 @@
 .engine-selector__detail p {
   margin: 5px 0 0;
   color: var(--text-mid);
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   line-height: 1.45;
 }
 
@@ -295,7 +295,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 .engine-selector__detail-heading a {
@@ -313,7 +313,7 @@
   gap: var(--space-4);
   color: var(--text-mid);
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 
 .engine-selector__destination {
@@ -322,7 +322,7 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   color: var(--text-mid);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   line-height: 1.5;
 }
 
@@ -337,7 +337,7 @@
   grid-template-columns: max-content minmax(0, 1fr);
   gap: 4px 14px;
   margin: 12px 0;
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 
 .engine-selector__facts div {
@@ -360,22 +360,22 @@
 
 .engine-selector__route {
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
   margin: 14px 0 0;
   padding-top: 14px;
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 
 .engine-selector__route-control {
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr);
   align-items: start;
-  gap: 12px;
+  gap: var(--space-12);
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 
 .engine-selector__route-control-label {
@@ -429,7 +429,7 @@
 .engine-selector__route > div {
   display: grid;
   grid-template-columns: 100px minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--space-12);
 }
 
 .engine-selector__route dt { color: var(--text-light); }
@@ -437,7 +437,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   margin: 0;
 }
 .engine-selector__route a {
@@ -445,7 +445,7 @@
   text-decoration: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
 }
 
 .engine-selector__chips {
@@ -504,18 +504,18 @@
 .engine-selector__footer .provider-key-setup-card > a {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
   margin: 6px 0 10px;
 }
 
 .engine-selector__footer .cloud-setup-options {
   display: grid;
-  gap: 10px;
+  gap: var(--space-10);
 }
 
 .engine-selector__footer .selector-setup-stack {
   display: grid;
-  gap: 10px;
+  gap: var(--space-10);
 }
 
 .engine-selector__footer .selector-configuration-action {
@@ -564,7 +564,7 @@
 
 .engine-selector__footer .selector-generic-cloud-setup {
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 .engine-selector__footer .cloud-credit-blocker {

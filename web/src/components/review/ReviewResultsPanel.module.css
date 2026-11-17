@@ -7,7 +7,7 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-16);
 }
 
 .header h2 { margin: 0; }
@@ -15,29 +15,29 @@
 .description {
   margin: 5px 0 0;
   color: var(--text-mid);
-  font-size: 13px;
+  font-size: var(--font-size-body);
 }
 
 .section {
   display: grid;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 .section h3 {
   margin: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-size-body);
 }
 
 .fieldResults {
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
 }
 
 .resultRow {
   display: grid;
   grid-template-columns: minmax(130px, 1.4fr) repeat(4, minmax(72px, 1fr));
-  gap: 12px;
+  gap: var(--space-12);
   align-items: center;
   padding: 11px 12px;
   border: 1px solid var(--border);
@@ -49,7 +49,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -57,9 +57,9 @@
 
 .metric {
   display: grid;
-  gap: 2px;
+  gap: var(--space-2);
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.25;
 }
 
@@ -72,10 +72,10 @@
 .summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  gap: var(--space-16);
   padding: 12px 0 18px;
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 
 .summary strong { display: block; color: var(--text); font-size: 28px; font-weight: 600; margin-bottom: 4px; }
@@ -84,7 +84,7 @@
 
 @media (max-width: 620px) {
   .resultsDialog:global(.modal-card) { width: min(480px, calc(100vw - 20px)); padding: 14px; }
-  .resultRow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .resultRow { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-10); }
   .resultLabel { grid-column: 1 / -1; }
   .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

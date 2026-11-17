@@ -1,7 +1,7 @@
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(190px, 240px);
-  gap: 16px;
+  gap: var(--space-16);
   margin: 16px 0 14px;
 }
 
@@ -9,7 +9,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-10);
   padding: 20px;
   border: 1px solid var(--accent);
   border-radius: 14px;
@@ -19,7 +19,7 @@
 .eyebrow {
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--font-size-caption);
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -36,14 +36,14 @@
   max-width: 470px;
   margin: 0;
   color: var(--text-mid);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.45;
 }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-8);
   margin-top: 2px;
 }
 
@@ -58,14 +58,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-6);
   min-height: 168px;
   border: 1.5px dashed var(--border-strong);
   border-radius: 14px;
   background: transparent;
   color: var(--text-mid);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 550;
 }
 
@@ -76,7 +76,7 @@
 
 .newProjectHint {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 450;
 }
 

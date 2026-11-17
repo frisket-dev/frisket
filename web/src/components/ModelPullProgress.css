@@ -1,19 +1,19 @@
 .model-pull-progress .activity-progress-card-body {
-  gap: 6px;
+  gap: var(--space-6);
   padding: 10px 16px;
 }
 .model-pull-progress .activity-progress-card-footer { justify-content: flex-end; }
 .model-pull-progress-size {
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-mid);
 }
 .model-pull-progress-error {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--red);
 }
 .model-pull-progress-done {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-small);
   color: var(--text-mid);
 }

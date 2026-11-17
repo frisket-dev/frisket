@@ -17,6 +17,7 @@ import '../importWorkspace/ImportWorkspaceShared.css';
 import '../importWorkspace/pdfBatch/PdfBatchImportFlow.css';
 import '../importWorkspace/tableImport/TableImportFlow.css';
 import '../FriendlyFiltersPanel.css';
+import { errorMessage } from '../../hooks/errorMessage';
 
 type Source = SplitSource & { prepared_complete: boolean };
 type ScopeSnapshot = PdfPacketSplitSnapshot & { sources: Source[]; sheet_scope: { order_hash: string; excluded: Array<{ row_id: number; reason: string }> } | null };
@@ -114,7 +115,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
         }
         if (!controller.signal.aborted) setSession(admitted);
         else if (admitted) void deletePdfPacketSplit(projectId, admitted.split_id).catch(() => undefined);
-      } catch (e) { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); }
+      } catch (e) { if (!controller.signal.aborted) setError(errorMessage(e)); }
     })();
     return () => { controller.abort(); if (admitted) void deletePdfPacketSplit(projectId, admitted.split_id).catch(() => undefined); };
   }, [projectId, sheet.id, admittedFileColumnId, organization, scope, scopeInputKey]);
@@ -124,7 +125,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     const timer = window.setTimeout(() => {
       void getPdfPacketSplit(projectId, session.split_id, { signal: controller.signal })
         .then((next) => { if (!controller.signal.aborted) setSession((current) => newerSnapshot(current, next as ScopeSnapshot)); })
-        .catch((e: unknown) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); });
+        .catch((e: unknown) => { if (!controller.signal.aborted) setError(errorMessage(e)); });
     }, 1000);
     return () => { controller.abort(); window.clearTimeout(timer); };
   }, [projectId, session, reviewing]);
@@ -150,7 +151,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     const controller = new AbortController();
     void getPdfPacketPage(projectId, splitId, sampleDisplayPage, { signal: controller.signal })
       .then((page) => { if (!controller.signal.aborted) setSamplePage(page); })
-      .catch((e: unknown) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); });
+      .catch((e: unknown) => { if (!controller.signal.aborted) setError(errorMessage(e)); });
     return () => controller.abort();
   }, [checkingText, projectId, splitId, revision, sampleDisplayPage]);
   useEffect(() => {
@@ -172,7 +173,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
         setPreviewText(Object.fromEntries(rows.map((row) => [row.key, row.text])));
         setPreviewKinds(Object.fromEntries(rows.map((row) => [row.key, row.kind])));
       }
-    }).catch((e: unknown) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e)); });
+    }).catch((e: unknown) => { if (!controller.signal.aborted) setError(errorMessage(e)); });
     return () => controller.abort();
   }, [projectId, splitId, status, revision, organization, previewSources, reviewing]);
   useEffect(() => {
@@ -182,7 +183,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     if (!rowIds.length) return undefined;
     void getSheetRows(sheet.id, 0, rowIds.length, { rowIds, columnIds: carried, valueMode: 'bounded' })
       .then((result) => { if (active) setPreviewRows(result.rows); })
-      .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : String(e)); });
+      .catch((e: unknown) => { if (active) setError(errorMessage(e)); });
     return () => { active = false; };
   }, [getSheetRows, sheet.id, splitId, previewSources, carried, reviewing]);
   const apply = async (
@@ -205,7 +206,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
         starts,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
       throw e;
     } finally {
       setBusy(false);
@@ -228,7 +229,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
         setSamplePage(page);
         setSession((current) => newerSnapshot(current, next as ScopeSnapshot));
       } else setSampleJob(String(result.job_id));
-    } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : String(e)); }
+    } catch (e) { if (!signal?.aborted) setError(errorMessage(e)); }
     finally { if (!signal?.aborted) setBusy(false); }
   };
   const quoteSampleOcr = async (forceRescan = false) => {
@@ -248,7 +249,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
         if (!quote.estimate.promise_set_hash) throw new Error('The OCR estimate did not include its authorization token.');
         setSampleConsent(quote.estimate);
       } else await startSampleOcr(undefined, forceRescan);
-    } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : String(e)); } finally { if (!signal?.aborted) setBusy(false); }
+    } catch (e) { if (!signal?.aborted) setError(errorMessage(e)); } finally { if (!signal?.aborted) setBusy(false); }
   };
   useEffect(() => {
     if (!sampleJob || !session || !sample) return undefined;
@@ -267,7 +268,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
           setSampleJob(null);
         }
         setSession((current) => newerSnapshot(current, next as ScopeSnapshot));
-      }).catch((e: unknown) => { if (!controller.signal.aborted) { setSampleJob(null); setError(e instanceof Error ? e.message : String(e)); } });
+      }).catch((e: unknown) => { if (!controller.signal.aborted) { setSampleJob(null); setError(errorMessage(e)); } });
     }, 1000);
     return () => { controller.abort(); window.clearTimeout(timer); };
   }, [projectId, sampleJob, session, sample]);
@@ -294,7 +295,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
         if (!quote.estimate.promise_set_hash) throw new Error('The OCR estimate did not include its authorization token.');
         setOcrQuote({ estimate: quote.estimate, pages: quote.pages });
       } else await advanceFromCheck(null);
-    } catch (e) { if (!signal?.aborted) setError(e instanceof Error ? e.message : String(e)); } finally { if (!signal?.aborted) setBusy(false); }
+    } catch (e) { if (!signal?.aborted) setError(errorMessage(e)); } finally { if (!signal?.aborted) setBusy(false); }
   };
   if (!fileColumn) return <Modal title="Split PDFs" hideHeader className="import-workspace import-workspace-panel-flush" onClose={closeModal}><div className="pdf-batch-flow">
     <SplitSetupHeader title="Split PDFs" subtitle={sheet.name} onClose={onClose} />

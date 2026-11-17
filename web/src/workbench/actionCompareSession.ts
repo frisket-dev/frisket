@@ -13,6 +13,7 @@ import { type GeneratedActionDraft, type JsonValue, type RunEstimate } from '../
 import type { EvaluationApi, EvaluationBoundedValue } from '../api/evaluation';
 import { prepareComparisonQuotePlan } from './evaluation/comparisonQuotePlan';
 import { jsonValuesEqual } from '../actions/canonicalJson';
+import { errorMessage } from '../hooks/errorMessage';
 
 export type ActionCompareVariantStatus =
   | 'pending' | 'running' | 'ready' | 'failed' | 'cancelled' | 'unavailable' | 'current';
@@ -469,7 +470,7 @@ export function createActionCompareSession(
     } catch (error) {
       outcome = controller.signal.aborted || aborted(error)
         ? { status: 'cancelled', previewId: activeRun?.previewId }
-        : { status: 'failed', previewId: activeRun?.previewId, error: error instanceof Error ? error.message : String(error) };
+        : { status: 'failed', previewId: activeRun?.previewId, error: errorMessage(error) };
     }
 
     const outcomePreviewId = outcome.previewId ?? activeRun?.previewId ?? null;
@@ -522,7 +523,7 @@ export function createActionCompareSession(
         if (approved === false || sequence.stopRequested) cancelled = true;
       } catch (error) {
         const first = variantIds[0];
-        if (first && !sequence.stopRequested) replaceVariant(first, (variant) => ({ ...variant, status: 'failed', error: error instanceof Error ? error.message : String(error) }));
+        if (first && !sequence.stopRequested) replaceVariant(first, (variant) => ({ ...variant, status: 'failed', error: errorMessage(error) }));
         cancelled = true;
       }
       sequence.preparing = false;
@@ -681,7 +682,7 @@ export function createActionCompareRunner(
       if (signal.aborted) return { status: 'cancelled' };
       if (error instanceof ConfirmationRequiredError) return { status: 'failed', requiresRequote: true,
         error: 'The comparison quote changed. Retry this variant to approve a fresh comparison quote.' };
-      return { status: 'failed', error: error instanceof Error ? error.message : String(error) };
+      return { status: 'failed', error: errorMessage(error) };
     }
 
     onStarted(started.preview_id);
@@ -733,7 +734,7 @@ export function createActionCompareRunner(
       return {
         status: 'failed',
         previewId: started.preview_id,
-        error: error instanceof Error ? error.message : 'The comparison preview outputs did not match its context.',
+        error: errorMessage(error, 'The comparison preview outputs did not match its context.'),
       };
     }
     return {
@@ -790,7 +791,7 @@ export function createActionCompareRunner(
           capturedId = saved.id;
           onCaptured?.(capturedId);
         } catch (error) {
-          return { status: 'failed', previewId: lastPreviewId, error: error instanceof Error ? error.message : String(error) };
+          return { status: 'failed', previewId: lastPreviewId, error: errorMessage(error) };
         }
       }
       if (outcome.status !== 'ready') return outcome;

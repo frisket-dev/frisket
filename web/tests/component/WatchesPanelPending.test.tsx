@@ -44,6 +44,19 @@ function watch(id: number, name: string): WatchInfo {
   };
 }
 
+function blockedEmbeddingWatch(id: number, name: string): WatchInfo {
+  return {
+    ...watch(id, name),
+    lastStatus: 'error',
+    latestRun: {
+      id: 3, watchId: id, status: 'error', opCursorBefore: 0, opCursorAfter: 0, matchedRows: 0, newRows: 0,
+      error: 'embedding index is stale', errorCode: 'embedding_index_stale', resolvedQueryHash: null,
+      resolvedQuery: { similarity: { kind: 'embedding_similarity', embedding_index_id: 'idx-1' } },
+      startedAt: '2026-08-31 00:00:00', finishedAt: null,
+    },
+  };
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
@@ -465,5 +478,57 @@ describe('WatchesPanel pending actions', () => {
     staleList.resolve([alpha]);
     await waitFor(() => expect(screen.getByText('Renamed Alpha', { exact: true })).toBeInTheDocument());
     expect(screen.queryByText('Alpha', { exact: true })).not.toBeInTheDocument();
+  });
+
+  it('refreshes a blocked embedding index before re-running the watch and pins each step', async () => {
+    const alpha = blockedEmbeddingWatch(1, 'Alpha');
+    const refresh = deferred<unknown>();
+    const run = deferred<WatchRunResult>();
+    const projectApi = {
+      qa: projectQAFixture(),
+      listWatches: vi.fn().mockResolvedValue([alpha]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+      refreshEmbeddingIndex: vi.fn(() => refresh.promise),
+      runWatch: vi.fn(() => run.promise),
+    } as unknown as ProjectApi;
+    const harness = createWorkspaceTestHarness({ projectId: 'refresh-index', api: { projectApi } });
+    const { container } = harness.render(<WatchesPanel canEdit />);
+    const button = await screen.findByTestId('watch-refresh-index-1');
+    const steps = [container.innerHTML];
+
+    fireEvent.click(button);
+    expect(projectApi.refreshEmbeddingIndex).toHaveBeenCalledWith('idx-1', 'incremental');
+    expect(projectApi.runWatch).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(projectApi.refreshEmbeddingIndex).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(button).toHaveTextContent('Refreshing index…'));
+    steps.push(container.innerHTML);
+
+    refresh.resolve(undefined);
+    await waitFor(() => expect(projectApi.runWatch).toHaveBeenCalledWith(1));
+    steps.push(container.innerHTML);
+
+    run.resolve({ watch: { ...alpha, name: 'Alpha refreshed', latestRun: null } } as WatchRunResult);
+    await waitFor(() => expect(screen.getByText('Alpha refreshed', { exact: true })).toBeInTheDocument());
+    steps.push(container.innerHTML);
+    expect(steps).toMatchSnapshot();
+  });
+
+  it('settles a failed index refresh without running the watch', async () => {
+    const alpha = blockedEmbeddingWatch(1, 'Alpha');
+    const projectApi = {
+      qa: projectQAFixture(),
+      listWatches: vi.fn().mockResolvedValue([alpha]),
+      getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
+      refreshEmbeddingIndex: vi.fn().mockRejectedValue(new Error('Index refresh unavailable')),
+      runWatch: vi.fn(),
+    } as unknown as ProjectApi;
+    const harness = createWorkspaceTestHarness({ projectId: 'refresh-index-failure', api: { projectApi } });
+    const { container } = harness.render(<WatchesPanel canEdit />);
+    fireEvent.click(await screen.findByTestId('watch-refresh-index-1'));
+    expect(await screen.findByTestId('watches-error')).toHaveTextContent('Index refresh unavailable');
+    await waitFor(() => expect(screen.getByTestId('watch-refresh-index-1')).toBeEnabled());
+    expect(projectApi.runWatch).not.toHaveBeenCalled();
+    expect(container.innerHTML).toMatchSnapshot();
   });
 });

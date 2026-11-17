@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { signOut } from '../api/open';
 import { useNativePopover } from '../hooks/useNativePopover';
-import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
+import { anchoredPopoverStyle, useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import type { MeInfo, ProjectInfo } from '../api/types';
 import { navigate } from '../routes';
 import {
@@ -185,13 +185,7 @@ export function AccountMenu({
           className="menu-pop account-menu"
           data-testid="account-menu"
           role="menu"
-          // Reset the UA popover centering (inset:0; margin:auto) so the
-          // JS-anchored top-layer placement below applies instead.
-          style={
-            menuPos
-              ? { position: 'fixed', inset: 'auto', top: menuPos.top, bottom: menuPos.bottom, left: menuPos.left, right: 'auto', width: menuPos.width, margin: 0 }
-              : { position: 'fixed', visibility: 'hidden' }
-          }
+          style={anchoredPopoverStyle(menuPos)}
         >
           <div className="account-menu-header" data-testid="account-menu-header">
             <span className="account-menu-avatar">

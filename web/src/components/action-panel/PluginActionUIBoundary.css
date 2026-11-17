@@ -8,7 +8,7 @@
 .action-shape-error {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-10);
   margin: 10px 0;
   padding: 10px 12px;
   background: var(--red-bg);
@@ -16,10 +16,10 @@
   border-radius: var(--radius-8);
   color: var(--red);
 }
-.action-shape-error-copy { flex: 1; font-size: 13px; color: var(--text-mid); }
+.action-shape-error-copy { flex: 1; font-size: var(--font-size-body); color: var(--text-mid); }
 .action-shape-error-copy strong { color: var(--text); }
 .action-shape-error-copy code {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 }

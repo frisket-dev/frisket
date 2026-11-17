@@ -4,6 +4,7 @@ import { type CellEvidencePayload, type CellValue, type ReviewBundle, type Revie
 import { ReviewExcerpt } from './ReviewExcerpt';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { PanelLoading } from '../PanelPrimitives';
+import { useLoader } from '../../hooks/useLoader';
 import { ReviewInputSources } from './ReviewInputSources';
 import { FieldValue } from '../rowInspection/FieldValue';
 import { reviewItemLocations, type ReviewItemLocation, type ReviewItemSelection } from './reviewItemLocations';
@@ -49,7 +50,6 @@ export function ReviewSourcePreview({
   onItemLocations?: (locations: ReviewItemLocation[]) => void;
 }) {
   const { projectApi: api } = useWorkspaceStores();
-  const [state, setState] = useState<LoadState | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [previousFocus, setPreviousFocus] = useState<{ item: ReviewItemSelection | null; sourceId?: string }>({ item: null });
   const [showRowFields, setShowRowFields] = useState(false);
@@ -59,17 +59,16 @@ export function ReviewSourcePreview({
   const inputEntries: Array<[string, CellValue]> = bundle?.sources
     ? bundle.sources.map((source) => [source.columnName, source.value]) : sourceEntries;
 
-  useEffect(() => {
-    if (!citationTargetsKey) return undefined;
-    let current = true;
+  const state = useLoader(async (): Promise<LoadState> => {
+    const key = citationTargetsKey!;
     // This key is serialized from our typed fields below, not external JSON.
-    const targets = JSON.parse(citationTargetsKey) as CitationTarget[];
-    void loadCitationPayloads(targets, api).then(
-      (payloads) => { if (current) setState({ key: citationTargetsKey, phase: 'ready', payloads }); },
-      () => { if (current) setState({ key: citationTargetsKey, phase: 'error' }); },
-    );
-    return () => { current = false; };
-  }, [api, citationTargetsKey]);
+    const targets = JSON.parse(key) as CitationTarget[];
+    try {
+      return { key, phase: 'ready', payloads: await loadCitationPayloads(targets, api) };
+    } catch {
+      return { key, phase: 'error' };
+    }
+  }, [api, citationTargetsKey], { keepPreviousData: true, enabled: Boolean(citationTargetsKey) }).data;
 
   // Decision, edit and note saves clone fields, but they do not change which
   // result cells own citations. Hide old payloads only for a new target set.

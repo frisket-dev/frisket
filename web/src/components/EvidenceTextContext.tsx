@@ -7,6 +7,7 @@ import type { EvidenceArtifact, EvidenceTextPassageTarget } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { TextPassageNavigation } from './TextPassageNavigation';
 import { textSegments } from './evidenceTextSegments';
+import { useLoader } from '../hooks/useLoader';
 
 type EvidenceTextContext = NonNullable<EvidenceArtifact['text_context']>;
 
@@ -105,35 +106,34 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
   } : null;
   const requestKey = [contextKey, request?.start, request?.spanId, request?.revision,
     request?.attempt, request?.target.evidenceLinkId, request?.locateCurrent].join(':');
-  const [settled, setSettled] = useState<{ key: string; context?: EvidenceTextContext; error?: string } | null>(null);
   const requestedOwner = request?.target.evidenceLinkId;
   const requestedArtifactId = request?.target.artifactId;
   const { start: textStart, revision: textRevision, spanId: textSpanId, locateCurrent } = request ?? {};
-  useEffect(() => {
-    if (requestedOwner === undefined || requestedArtifactId === undefined) return;
-    const controller = new AbortController();
-    void projectApi.getEvidenceViewer(requestedOwner, {
-      textArtifactId: requestedArtifactId,
-      textStart, textLimit: 16_384, locateCurrent,
-      textRevision, textSpanId: textStart === undefined ? textSpanId : undefined,
-      signal: controller.signal,
-    }).then((payload) => {
-      if (controller.signal.aborted) return;
-      const next = payload.artifacts.find((item) => item.id === requestedArtifactId)?.text_context;
-      if (!next) throw new Error('This citation has no available source passage.');
-      setSettled({ key: requestKey, context: next });
-    }).catch((error: unknown) => {
-      if (controller.signal.aborted) return;
-      setSettled({ key: requestKey, error: typeof error === 'object' && error !== null && 'status' in error && error.status === 409
-        ? 'The source text changed. Reload the passage to continue.'
-        : error instanceof Error ? error.message : 'Could not load this passage.' });
-    });
-    return () => controller.abort();
-  }, [projectApi, requestKey, requestedOwner, requestedArtifactId, textStart, textRevision, textSpanId, locateCurrent]);
-  const current = request && settled?.key === requestKey ? settled : null;
-  const loading = request !== null && current === null;
-  const displayed = current?.context ?? context;
-  const error = current?.error;
+  const passage = useLoader(async (signal) => {
+    let payload;
+    try {
+      payload = await projectApi.getEvidenceViewer(requestedOwner!, {
+        textArtifactId: requestedArtifactId,
+        textStart, textLimit: 16_384, locateCurrent,
+        textRevision, textSpanId: textStart === undefined ? textSpanId : undefined,
+        signal,
+      });
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'status' in error && error.status === 409) {
+        throw new Error('The source text changed. Reload the passage to continue.', { cause: error });
+      }
+      throw error;
+    }
+    const next = payload.artifacts.find((item) => item.id === requestedArtifactId)?.text_context;
+    if (!next) throw new Error('This citation has no available source passage.');
+    return next;
+  }, [requestKey, requestedOwner, requestedArtifactId, textStart, textRevision, textSpanId, locateCurrent], {
+    enabled: requestedOwner !== undefined && requestedArtifactId !== undefined,
+    errorFallback: 'Could not load this passage.',
+  });
+  const loading = passage.loading;
+  const displayed = passage.data ?? context;
+  const error = passage.error;
   const window = displayed.window;
   const selectedSpan = navigation?.key === contextKey ? navigation.spanId : undefined;
   const rendered = { ...props, context: displayed, passagePending: loading || Boolean(error),
@@ -171,18 +171,13 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
 function TimestampedTextContext({ context, scopeSpanId, scopeSpanIds, highlight, emphasizedSpanIds, passagePending, passageMessage, playFocusedPassage }: SavedTextContextProps) {
   const { projectApi } = useWorkspaceStores();
   const transcript = context.transcript!;
-  const [source, setSource] = useState<{ key: string; artifact: EvidenceArtifact | null } | null>(null);
   const playerRef = useRef<HTMLMediaElement | null>(null);
   const key = `${transcript.evidence_link_stable_id}:${transcript.artifact_stable_id}`;
-  useEffect(() => {
-    let active = true;
-    void projectApi.getEvidenceViewer(transcript.evidence_link_stable_id).then((payload) => {
-      const artifact = payload.artifacts.find((item) => item.stable_id === transcript.artifact_stable_id) ?? null;
-      if (active) setSource({ key, artifact });
-    }, () => { if (active) setSource({ key, artifact: null }); });
-    return () => { active = false; };
-  }, [projectApi, key, transcript.evidence_link_stable_id, transcript.artifact_stable_id]);
-  const artifact = source?.key === key ? source.artifact : null;
+  const source = useLoader(async () => {
+    const payload = await projectApi.getEvidenceViewer(transcript.evidence_link_stable_id);
+    return payload.artifacts.find((item) => item.stable_id === transcript.artifact_stable_id) ?? null;
+  }, [key, transcript.evidence_link_stable_id, transcript.artifact_stable_id]);
+  const artifact = source.data;
   const blob = artifact?.artifact_ref.blob;
   const [seekRequest, setSeekRequest] = useState<{ ms: number } | null>(null);
   useEffect(() => {
@@ -207,7 +202,7 @@ function TimestampedTextContext({ context, scopeSpanId, scopeSpanIds, highlight,
   return <div className="evidence-annotated-transcript" data-testid="evidence-annotated-transcript">
     <div className="evidence-annotated-player">
       {blob && (artifact?.media_type.startsWith('video/') ? <video {...mediaProps}><track kind="captions" /></video> : <audio {...mediaProps}><track kind="captions" /></audio>)}
-      {!blob && <span className="muted">{source?.key === key ? 'Recording unavailable. Saved transcript shown below.' : 'Loading recording…'}</span>}
+      {!blob && <span className="muted">{source.loading ? 'Loading recording…' : 'Recording unavailable. Saved transcript shown below.'}</span>}
     </div>
     <div className="evidence-annotated-lines">
       {passagePending ? <p role="status">{passageMessage ?? 'Loading passage…'}</p> : transcript.segments.map((segment) => {

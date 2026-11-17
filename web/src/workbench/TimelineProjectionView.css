@@ -11,7 +11,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-12);
   min-height: 52px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--border);
@@ -30,7 +30,7 @@
 .plugin-timeline-status {
   margin-top: 3px;
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .plugin-timeline-status span {
   display: inline-flex;
@@ -47,7 +47,7 @@
 .plugin-timeline-item {
   display: grid;
   grid-template-columns: minmax(96px, 0.3fr) minmax(0, 1fr) minmax(64px, auto);
-  gap: 8px;
+  gap: var(--space-8);
   align-items: center;
   width: 100%;
   min-height: 40px;
@@ -67,20 +67,20 @@
 }
 .plugin-timeline-item-date {
   color: var(--text-mid);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-variant-numeric: tabular-nums;
 }
 .plugin-timeline-item-title {
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 560;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .plugin-timeline-item-case {
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 .plugin-timeline-message {
   display: grid;
@@ -88,6 +88,6 @@
   place-items: center;
   padding: 14px;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   text-align: center;
 }

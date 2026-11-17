@@ -4,7 +4,7 @@
    Dot: green = free/local, amber = costs money or needs confirmation. */
 .cost-line {
   margin-top: 16px;
-  font-size: 12.5px; line-height: 1.5;
+  font-size: var(--font-size-control); line-height: 1.5;
   color: var(--text-mid);
 }
 /* The action panel's cost line rides inside the sticky run footer so the price
@@ -35,20 +35,20 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
+  gap: var(--space-8);
 }
 /* Quiet scope summary sits right-aligned above the button row. */
 .run-scope-summary {
   margin: 0;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.25;
   text-align: right;
 }
 .run-disabled-reason {
   margin: 6px 0 0;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   line-height: 1.35;
   text-align: right;
 }
@@ -66,14 +66,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-10);
 }
 /* Preview is the quiet ghost sibling of the run cluster. */
 .run-actions-row > .btn {
   border: 0;
   background: transparent;
   color: var(--text-mid);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   min-height: 38px;
   padding: 0 13px;
   border-radius: 10px;
@@ -90,7 +90,7 @@
 .run-scope-button-row .btn {
   min-width: 0;
   min-height: 38px;
-  font-size: 13px;
+  font-size: var(--font-size-body);
 }
 /* The chevron shares the run button's surface so the pair reads as one
    [Run all ⌄] control rather than two adjacent buttons. Doubled class

@@ -43,7 +43,7 @@ select.panel-select-control:not([multiple]) {
 .panel-select-group {
   padding: 7px 10px 3px;
   color: var(--text-light);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -67,7 +67,7 @@ select.panel-select-control:not([multiple]) {
   right: 34px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   color: var(--text-light);
   pointer-events: none;
 }

@@ -5,9 +5,8 @@ import {
   Fragment,
   type FormEvent,
   useCallback,
-  useEffect,
   useMemo,
-  useReducer,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -42,6 +41,8 @@ import {
 import { BrandLink } from './BrandLink';
 import { useEditionModule } from '../editions/module';
 import { DiagnosticsSettings } from '../settings/DiagnosticsSettings';
+import { errorMessage } from '../hooks/errorMessage';
+import { useLoader } from '../hooks/useLoader';
 
 const ADMIN_LINKS = [
   { path: '/admin', label: 'Overview' },
@@ -233,294 +234,73 @@ function adminAuditScope(event: AdminAuditEvent): string {
   return bits.join(' · ') || '—';
 }
 
-type AdminState = {
-  data: AdminOverview | null;
-  auditLog: AdminAuditLog | null;
-  jobs: AdminJobs | null;
-  users: AdminUsers | null;
-  errorsFeed: AdminErrors | null;
-  health: AdminHealth | null;
-  auditError: string | null;
-  jobsError: string | null;
-  usersError: string | null;
-  errorsError: string | null;
-  healthError: string | null;
-  denied: boolean;
-  error: string | null;
-  /** From GET /api/health `posture.admin_configured`.
-   *  null = not loaded yet / local tier has no posture field, so the denied
-   *  screen falls back to the generic "not an admin" copy. */
-  adminConfigured: boolean | null;
-};
+type AdminOverviewState =
+  | { kind: 'loaded'; overview: AdminOverview }
+  | {
+    kind: 'denied';
+    /** From GET /api/health `posture.admin_configured`.
+     *  null = the local tier has no posture field, so the denied screen
+     *  falls back to the generic "not an admin" copy. */
+    adminConfigured: boolean | null;
+  };
 
-type AdminAction =
-  | { type: 'overviewLoaded'; data: AdminOverview }
-  | { type: 'overviewDenied' }
-  | { type: 'overviewFailed'; message: string }
-  | { type: 'healthLoaded'; adminConfigured: boolean | null }
-  | { type: 'auditRefreshStarted' }
-  | { type: 'auditLoaded'; auditLog: AdminAuditLog }
-  | { type: 'auditFailed'; message: string }
-  | { type: 'jobsRefreshStarted' }
-  | { type: 'jobsLoaded'; jobs: AdminJobs }
-  | { type: 'jobsFailed'; message: string }
-  | { type: 'usersRefreshStarted' }
-  | { type: 'usersLoaded'; users: AdminUsers }
-  | { type: 'usersFailed'; message: string }
-  | { type: 'errorsRefreshStarted' }
-  | { type: 'errorsLoaded'; errorsFeed: AdminErrors }
-  | { type: 'errorsFailed'; message: string }
-  | { type: 'adminHealthRefreshStarted' }
-  | { type: 'adminHealthLoaded'; health: AdminHealth }
-  | { type: 'adminHealthFailed'; message: string };
-
-const ADMIN_INITIAL_STATE: AdminState = {
-  data: null,
-  auditLog: null,
-  jobs: null,
-  users: null,
-  errorsFeed: null,
-  health: null,
-  auditError: null,
-  jobsError: null,
-  usersError: null,
-  errorsError: null,
-  healthError: null,
-  denied: false,
-  error: null,
-  adminConfigured: null,
-};
-
-function adminReducer(state: AdminState, action: AdminAction): AdminState {
-  switch (action.type) {
-    case 'overviewLoaded':
-      return { ...state, data: action.data };
-    case 'overviewDenied':
-      return { ...state, denied: true };
-    case 'overviewFailed':
-      return { ...state, error: action.message };
-    case 'healthLoaded':
-      return { ...state, adminConfigured: action.adminConfigured };
-    case 'auditRefreshStarted':
-      return { ...state, auditError: null };
-    case 'auditLoaded':
-      return { ...state, auditLog: action.auditLog, auditError: null };
-    case 'auditFailed':
-      return { ...state, auditError: action.message };
-    case 'jobsRefreshStarted':
-      return { ...state, jobsError: null };
-    case 'jobsLoaded':
-      return { ...state, jobs: action.jobs, jobsError: null };
-    case 'jobsFailed':
-      return { ...state, jobsError: action.message };
-    case 'usersRefreshStarted':
-      return { ...state, usersError: null };
-    case 'usersLoaded':
-      return { ...state, users: action.users, usersError: null };
-    case 'usersFailed':
-      return { ...state, usersError: action.message };
-    case 'errorsRefreshStarted':
-      return { ...state, errorsError: null };
-    case 'errorsLoaded':
-      return { ...state, errorsFeed: action.errorsFeed, errorsError: null };
-    case 'errorsFailed':
-      return { ...state, errorsError: action.message };
-    case 'adminHealthRefreshStarted':
-      return { ...state, healthError: null };
-    case 'adminHealthLoaded':
-      return { ...state, health: action.health, healthError: null };
-    case 'adminHealthFailed':
-      return { ...state, healthError: action.message };
-    default:
-      return state;
+async function loadAdminOverview(): Promise<AdminOverviewState> {
+  try {
+    return { kind: 'loaded', overview: await getAdminOverview() };
+  } catch (e) {
+    if (!(e instanceof ApiError && (e.status === 403 || e.status === 404))) throw e;
+    // Only a denied overview needs the public instance posture to
+    // distinguish an unconfigured server from a non-admin account.
+    const health = await getHealth().catch(() => null);
+    return { kind: 'denied', adminConfigured: health?.posture?.admin_configured ?? null };
   }
+}
+
+/** One admin section's resource, fetched when the section mounts. */
+function AdminResource<T>({ load, children }: {
+  load(): Promise<T>;
+  children(data: T | null, error: string | null, refresh: () => void): ReactNode;
+}) {
+  const resource = useLoader(load, []);
+  return children(resource.data, resource.error, () => { void resource.reload(); });
+}
+
+function AdminAuditSection() {
+  const filters = useRef<AdminAuditFilters>({});
+  const audit = useLoader(() => getAdminAuditLog(filters.current), []);
+  return (
+    <AdminAuditPanel
+      auditLog={audit.data}
+      error={audit.error}
+      onRefresh={(next = {}) => {
+        filters.current = next;
+        return audit.reload();
+      }}
+    />
+  );
 }
 
 type PendingInviteConfirm = { orgId: number; orgName: string; email: string };
 
-type AdminUsersPanelState = {
-  selectedOrgId: string;
-  inviteEmail: string;
-  pendingInvite: PendingInviteConfirm | null;
+interface AdminUsersAction {
   busy: string | null;
-  actionError: string | null;
+  error: string | null;
   notice: string | null;
-};
-
-type AdminUsersPanelAction =
-  | { type: 'selectOrg'; orgId: string }
-  | { type: 'inviteEmailChanged'; email: string }
-  | { type: 'inviteConfirmRequested'; confirm: PendingInviteConfirm }
-  | { type: 'inviteConfirmCancelled' }
-  | { type: 'actionStarted'; label: string }
-  | {
-    type: 'actionSucceeded';
-    notice: string;
-    clearInviteEmail?: boolean;
-  }
-  | { type: 'actionFailed'; message: string };
-
-const ADMIN_USERS_PANEL_INITIAL_STATE: AdminUsersPanelState = {
-  selectedOrgId: '',
-  inviteEmail: '',
-  pendingInvite: null,
-  busy: null,
-  actionError: null,
-  notice: null,
-};
-
-function adminUsersPanelReducer(
-  state: AdminUsersPanelState,
-  action: AdminUsersPanelAction,
-): AdminUsersPanelState {
-  switch (action.type) {
-    case 'selectOrg':
-      return { ...state, selectedOrgId: action.orgId };
-    case 'inviteEmailChanged':
-      return { ...state, inviteEmail: action.email };
-    case 'inviteConfirmRequested':
-      return { ...state, pendingInvite: action.confirm, actionError: null, notice: null };
-    case 'inviteConfirmCancelled':
-      return { ...state, pendingInvite: null };
-    case 'actionStarted':
-      return {
-        ...state,
-        busy: action.label,
-        actionError: null,
-        notice: null,
-        pendingInvite: null,
-      };
-    case 'actionSucceeded':
-      return {
-        ...state,
-        busy: null,
-        actionError: null,
-        notice: action.notice,
-        inviteEmail: action.clearInviteEmail ? '' : state.inviteEmail,
-      };
-    case 'actionFailed':
-      return { ...state, busy: null, actionError: action.message };
-    default:
-      return state;
-  }
 }
+
+const ADMIN_USERS_ACTION_IDLE: AdminUsersAction = { busy: null, error: null, notice: null };
 
 /** /admin — shared operational administration. The open team edition owns a
  * credit-free totals overview; a downstream composition may replace only that
  * overview block while retaining these health/jobs/users/audit panels. */
 export function AdminPage() {
-  const [state, dispatch] = useReducer(adminReducer, ADMIN_INITIAL_STATE);
-  const {
-    data,
-    auditLog,
-    jobs,
-    users,
-    errorsFeed,
-    health,
-    auditError,
-    jobsError,
-    usersError,
-    errorsError,
-    healthError,
-    denied,
-    error,
-    adminConfigured,
-  } = state;
   const { AdminOverviewSlot } = useEditionModule();
   const section = currentAdminSection();
-
-  const loadAudit = useCallback((filters: AdminAuditFilters = {}) => {
-    dispatch({ type: 'auditRefreshStarted' });
-    return getAdminAuditLog(filters)
-      .then((loaded) => dispatch({ type: 'auditLoaded', auditLog: loaded }))
-      .catch((e: unknown) => {
-        dispatch({ type: 'auditFailed', message: e instanceof Error ? e.message : String(e) });
-      });
-  }, []);
-
-  const loadJobs = useCallback(() => {
-    return getAdminJobs()
-      .then((loaded) => dispatch({ type: 'jobsLoaded', jobs: loaded }))
-      .catch((e: unknown) => {
-        dispatch({ type: 'jobsFailed', message: e instanceof Error ? e.message : String(e) });
-      });
-  }, []);
-
-  const loadAdminHealth = useCallback(() => {
-    return getAdminHealth()
-      .then((loaded) => dispatch({ type: 'adminHealthLoaded', health: loaded }))
-      .catch((e: unknown) => {
-        dispatch({
-          type: 'adminHealthFailed',
-          message: e instanceof Error ? e.message : String(e),
-        });
-      });
-  }, []);
-
-  const loadErrors = useCallback(() => {
-    return getAdminErrors()
-      .then((loaded) => dispatch({ type: 'errorsLoaded', errorsFeed: loaded }))
-      .catch((e: unknown) => {
-        dispatch({ type: 'errorsFailed', message: e instanceof Error ? e.message : String(e) });
-      });
-  }, []);
-
-  const loadUsers = useCallback(() => {
-    return getAdminUsers()
-      .then((loaded) => dispatch({ type: 'usersLoaded', users: loaded }))
-      .catch((e: unknown) => {
-        dispatch({ type: 'usersFailed', message: e instanceof Error ? e.message : String(e) });
-      });
-  }, []);
-
-  const refreshJobs = useCallback(() => {
-    dispatch({ type: 'jobsRefreshStarted' });
-    void loadJobs();
-  }, [loadJobs]);
-
-  const refreshUsers = useCallback(() => {
-    dispatch({ type: 'usersRefreshStarted' });
-    void loadUsers();
-  }, [loadUsers]);
-
-  const refreshErrors = useCallback(() => {
-    dispatch({ type: 'errorsRefreshStarted' });
-    void loadErrors();
-  }, [loadErrors]);
-
-  const refreshAdminHealth = useCallback(() => {
-    dispatch({ type: 'adminHealthRefreshStarted' });
-    void loadAdminHealth();
-  }, [loadAdminHealth]);
-
-  useEffect(() => {
-    getAdminOverview()
-      .then((loaded) => {
-        dispatch({ type: 'overviewLoaded', data: loaded });
-        if (section === 'audit') void loadAudit();
-        if (section === 'jobs') void loadJobs();
-        if (section === 'users') void loadUsers();
-        if (section === 'errors') void loadErrors();
-        if (section === 'diagnostics') void loadAdminHealth();
-      })
-      .catch((e: unknown) => {
-        if (e instanceof ApiError && (e.status === 403 || e.status === 404)) {
-          dispatch({ type: 'overviewDenied' });
-          // Only a denied overview needs the public instance posture to
-          // distinguish an unconfigured server from a non-admin account.
-          void getHealth()
-            .then((health) =>
-              dispatch({
-                type: 'healthLoaded',
-                adminConfigured: health.posture?.admin_configured ?? null,
-              }),
-            )
-            .catch(() => dispatch({ type: 'healthLoaded', adminConfigured: null }));
-        } else {
-          dispatch({ type: 'overviewFailed', message: e instanceof Error ? e.message : String(e) });
-        }
-      });
-  }, [loadAdminHealth, loadAudit, loadErrors, loadJobs, loadUsers, section]);
+  const overview = useLoader(loadAdminOverview, [section], { keepPreviousData: true });
+  const loaded = overview.data?.kind === 'loaded' ? overview.data.overview : null;
+  const denied = overview.data?.kind === 'denied';
+  const adminConfigured = overview.data?.kind === 'denied' ? overview.data.adminConfigured : null;
+  const error = overview.error;
 
   return (
     <AdminShell>
@@ -535,33 +315,35 @@ export function AdminPage() {
           </div>
         ) : error ? (
           <div className="picker-error">{error}</div>
-        ) : data === null ? (
+        ) : loaded === null ? (
           <div className="picker-empty">Loading…</div>
         ) : (
           <>
             {section === 'overview' && (AdminOverviewSlot
-              ? <AdminOverviewSlot overview={data} />
-              : <TeamAdminOverview overview={data} />)}
+              ? <AdminOverviewSlot overview={loaded} />
+              : <TeamAdminOverview overview={loaded} />)}
             {section === 'users' && (
-              <AdminUsersPanel users={users} error={usersError} onRefresh={refreshUsers} />
+              <AdminResource load={getAdminUsers}>
+                {(users, usersError, refresh) => <AdminUsersPanel users={users} error={usersError} onRefresh={refresh} />}
+              </AdminResource>
             )}
-            {section === 'audit' && (
-              <AdminAuditPanel auditLog={auditLog} error={auditError} onRefresh={loadAudit} />
-            )}
+            {section === 'audit' && <AdminAuditSection />}
             {section === 'jobs' && (
-              <AdminJobsPanel jobs={jobs} error={jobsError} onRefresh={refreshJobs} />
+              <AdminResource load={getAdminJobs}>
+                {(jobs, jobsError, refresh) => <AdminJobsPanel jobs={jobs} error={jobsError} onRefresh={refresh} />}
+              </AdminResource>
             )}
             {section === 'errors' && (
-              <AdminErrorsPanel feed={errorsFeed} error={errorsError} onRefresh={refreshErrors} />
+              <AdminResource load={getAdminErrors}>
+                {(feed, errorsError, refresh) => <AdminErrorsPanel feed={feed} error={errorsError} onRefresh={refresh} />}
+              </AdminResource>
             )}
             {section === 'diagnostics' && (
               <>
                 <DiagnosticsSettings />
-                <AdminHealthPanel
-                  health={health}
-                  error={healthError}
-                  onRefresh={refreshAdminHealth}
-                />
+                <AdminResource load={getAdminHealth}>
+                  {(health, healthError, refresh) => <AdminHealthPanel health={health} error={healthError} onRefresh={refresh} />}
+                </AdminResource>
               </>
             )}
           </>
@@ -611,18 +393,11 @@ function AdminUsersPanel({
   const magicLinkTtlMinutes = users?.capabilities.magic_link_ttl_minutes;
   const inviteTtlDays = users?.capabilities.invite_ttl_days;
   const defaultOrgId = orgs[0]?.id ?? 0;
-  const [formState, formDispatch] = useReducer(
-    adminUsersPanelReducer,
-    ADMIN_USERS_PANEL_INITIAL_STATE,
-  );
-  const {
-    selectedOrgId,
-    inviteEmail,
-    pendingInvite,
-    busy,
-    actionError,
-    notice,
-  } = formState;
+  const [selectedOrgId, setSelectedOrgId] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [pendingInvite, setPendingInvite] = useState<PendingInviteConfirm | null>(null);
+  const [action, setAction] = useState<AdminUsersAction>(ADMIN_USERS_ACTION_IDLE);
+  const { busy, error: actionError, notice } = action;
   const activeOrgId = Number(selectedOrgId || defaultOrgId);
 
   const userRows = useMemo(
@@ -638,20 +413,18 @@ function AdminUsersPanel({
 
   async function runAction(
     label: string,
-    action: () => Promise<void>,
+    task: () => Promise<void>,
     options: { clearInviteEmail?: boolean } = {},
   ) {
-    formDispatch({ type: 'actionStarted', label });
+    setAction({ ...ADMIN_USERS_ACTION_IDLE, busy: label });
+    setPendingInvite(null);
     try {
-      await action();
-      formDispatch({
-        type: 'actionSucceeded',
-        notice: label,
-        clearInviteEmail: options.clearInviteEmail,
-      });
+      await task();
+      setAction({ ...ADMIN_USERS_ACTION_IDLE, notice: label });
+      if (options.clearInviteEmail) setInviteEmail('');
       onRefresh();
     } catch (e) {
-      formDispatch({ type: 'actionFailed', message: e instanceof Error ? e.message : String(e) });
+      setAction((current) => ({ ...current, busy: null, error: errorMessage(e) }));
     }
   }
 
@@ -663,10 +436,8 @@ function AdminUsersPanel({
     const email = inviteEmail.trim();
     if (!email || !activeOrgId) return;
     const org = orgs.find((item) => item.id === activeOrgId);
-    formDispatch({
-      type: 'inviteConfirmRequested',
-      confirm: { orgId: activeOrgId, orgName: org?.name ?? `org ${activeOrgId}`, email },
-    });
+    setPendingInvite({ orgId: activeOrgId, orgName: org?.name ?? `org ${activeOrgId}`, email });
+    setAction((current) => ({ ...current, error: null, notice: null }));
   };
 
   const confirmInvite = () => {
@@ -677,7 +448,7 @@ function AdminUsersPanel({
     }, { clearInviteEmail: true });
   };
 
-  const cancelInvite = () => formDispatch({ type: 'inviteConfirmCancelled' });
+  const cancelInvite = () => setPendingInvite(null);
 
   const changeRole = (org: AdminUsersOrg, userId: number, role: AdminOrgRole) => {
     void runAction('Role updated', async () => {
@@ -718,7 +489,7 @@ function AdminUsersPanel({
           className="form-input row-height-select"
           data-testid="admin-invite-org"
           value={String(activeOrgId || '')}
-          onChange={(event) => formDispatch({ type: 'selectOrg', orgId: event.target.value })}
+          onChange={(event) => setSelectedOrgId(event.target.value)}
           disabled={orgs.length === 0 || busy !== null || pendingInvite !== null}
         >
           {orgs.map((org) => (
@@ -733,7 +504,7 @@ function AdminUsersPanel({
           placeholder="email@example.com"
           value={inviteEmail}
           onChange={(event) => (
-            formDispatch({ type: 'inviteEmailChanged', email: event.target.value })
+            setInviteEmail(event.target.value)
           )}
           disabled={orgs.length === 0 || busy !== null || pendingInvite !== null}
         />
@@ -1312,7 +1083,7 @@ function AdminJobsPanel({
         onRefresh();
       } catch (e) {
         setActionError(
-          `Could not ${action} job ${jobId}: ${e instanceof Error ? e.message : String(e)}`,
+          `Could not ${action} job ${jobId}: ${errorMessage(e)}`,
         );
       } finally {
         setPending(null);

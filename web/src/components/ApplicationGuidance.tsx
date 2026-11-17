@@ -1,6 +1,7 @@
 import './ApplicationGuidance.css';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { listWalkthroughs } from '../api/walkthroughs';
+import { useLoader } from '../hooks/useLoader';
 import { useShellIdentity } from '../shellIdentity';
 import { useTelemetryDisclosureReady } from '../telemetry/disclosureReady';
 import { WalkthroughProvider } from '../walkthrough/WalkthroughProvider';
@@ -8,26 +9,19 @@ import { GuidanceReadyContext } from '../workbench/guidanceReady';
 import { CostPreapprovalSetupModal } from './CostPreapprovalSetupModal';
 import { FirstLaunchCloudSuggestion } from './FirstLaunchCloudSuggestion';
 
+const NO_BADGES: readonly { id: string; badges: readonly string[] }[] = [];
+
 export function ApplicationGuidance({ projectId, children }: { projectId?: string; children: ReactNode }) {
   const { identityMode, me, resolved } = useShellIdentity();
   const telemetryReady = useTelemetryDisclosureReady();
   const [completedCostSetupFor, setCompletedCostSetupFor] = useState<string | null>(null);
   const [cloudWelcomeComplete, setCloudWelcomeComplete] = useState(false);
   const completeCloudWelcome = useCallback(() => setCloudWelcomeComplete(true), []);
-  const [badges, setBadges] = useState<readonly { id: string; badges: readonly string[] }[]>([]);
+  // Descriptive badges are optional; a failed catalog leaves the guides usable without them.
+  const badges = useLoader(() => listWalkthroughs(), []).data?.walkthroughs ?? NO_BADGES;
   const needsCostSetup = identityMode && me?.cost_preapproval_usd === null
     && completedCostSetupFor !== me.email;
   const needsCloudWelcome = !identityMode && !cloudWelcomeComplete;
-
-  useEffect(() => {
-    let active = true;
-    void listWalkthroughs().then((catalog) => {
-      if (active) setBadges(catalog.walkthroughs);
-    }).catch(() => {
-      // Descriptive badges are optional; the existing guides remain usable.
-    });
-    return () => { active = false; };
-  }, []);
 
   return (
     <GuidanceReadyContext.Provider value={resolved && telemetryReady && !needsCostSetup && !needsCloudWelcome}>

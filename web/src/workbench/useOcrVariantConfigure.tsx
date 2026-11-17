@@ -37,5 +37,5 @@ export function useOcrVariantConfigure(
     [session.peekMedia],
   );
 
-  return { ...editor, addEngineFlow: editor.addVariant, renderSourcePeek };
+  return { ...editor, renderSourcePeek };
 }

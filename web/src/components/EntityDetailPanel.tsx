@@ -8,6 +8,7 @@ import {
   EntityDetailEvidenceTabFrame,
   EntityDetailSummaryTabFrame,
 } from '../workbench/contributions';
+import { contributionSlug } from '../workbench/visibility';
 
 // EntityDetailPanel — the entity-detail host, extracted from the retired FtM
 // GraphNeighborhoodView so it survives the graph-view rework
@@ -42,7 +43,7 @@ const FIRST_PARTY_ENTITY_DETAIL_TABS: Record<
 function entityDetailTabTestId(contribution: WorkbenchResolvedLayoutContribution): string {
   const firstParty = FIRST_PARTY_ENTITY_DETAIL_TABS[contribution.contributionId];
   if (firstParty) return `entity-detail-tab-${firstParty.shortName}`;
-  return `entity-detail-tab-${contribution.contributionId.replace(/[^a-zA-Z0-9]+/g, '-')}`;
+  return `entity-detail-tab-${contributionSlug(contribution.contributionId)}`;
 }
 
 export interface EntityDetailConnection {

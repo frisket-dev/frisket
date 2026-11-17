@@ -20,6 +20,7 @@ import { usePoll, type PollResult } from '../hooks/usePoll';
 import { PdfTextPagePreview } from './importWorkspace/pdfPacket/PdfTextPagePreview';
 import { PdfSamplePages } from './importWorkspace/pdfPacket/PdfSamplePages';
 import { PanelSelect } from './PanelSelect';
+import { errorMessage } from '../hooks/errorMessage';
 
 const TERMINAL = new Set<SearchPreparationBatch['status']>(['complete', 'stopped', 'failed']);
 
@@ -90,7 +91,7 @@ function TextReview({
       setSample(next);
     } catch (error) {
       if (!controller.signal.aborted && generation === loadGeneration.current) {
-        onError(error instanceof Error ? error.message : String(error));
+        onError(errorMessage(error));
       }
     } finally {
       if (generation === loadGeneration.current) {
@@ -241,7 +242,7 @@ export function SearchPreparationReceipt({
       if (handedOff.current) return 'stop';
     } catch (error) {
       if (generation === requestGeneration.current) {
-        setLoadingError(error instanceof Error ? error.message : String(error));
+        setLoadingError(errorMessage(error));
       }
     }
   };
@@ -290,7 +291,7 @@ export function SearchPreparationReceipt({
       }
     } catch (error) {
       if (generation === requestGeneration.current) {
-        onError(error instanceof Error ? error.message : String(error));
+        onError(errorMessage(error));
         refreshAfterFailure = true;
       }
     } finally {
@@ -312,7 +313,7 @@ export function SearchPreparationReceipt({
       });
       if (generation === requestGeneration.current) publish(next);
     } catch (error) {
-      if (generation === requestGeneration.current) onError(error instanceof Error ? error.message : String(error));
+      if (generation === requestGeneration.current) onError(errorMessage(error));
     } finally {
       if (mutationGeneration.current === generation) {
         mutationGeneration.current = null;

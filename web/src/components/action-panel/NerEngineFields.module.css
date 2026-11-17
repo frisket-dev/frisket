@@ -1,5 +1,5 @@
 .fields {
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
   margin-top: 4px;
 }

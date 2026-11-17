@@ -6,6 +6,8 @@ import { documentMediaKind, documentSources } from './documentMedia';
 import { resolveTitleColumn } from './rowTitle';
 import { LIST_ITEM_HEIGHT, useWindowedRowList } from './useWindowedRowList';
 import { timedTranscriptColumnIds } from './timedTranscriptModel';
+import { errorMessage } from '../hooks/errorMessage';
+import { useLoader } from '../hooks/useLoader';
 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 3;
@@ -62,12 +64,10 @@ export function useDocumentView(args: UseDocumentViewArgs) {
   const [pageCounts, setPageCounts] = useState<Record<string, number>>({});
   const [optionsOpen, setOptionsOpen] = useState(false);
   const queryDocumentsRef = useRef(queryDocuments);
-  const hydrateRowRef = useRef(hydrateRow);
   const listGeneration = useRef(0);
   const boundaryPending = useRef(false);
   const viewportAdjustment = useRef<{ delta: number; rowId: string | null } | null>(null);
   useEffect(() => { queryDocumentsRef.current = queryDocuments; }, [queryDocuments]);
-  useEffect(() => { hydrateRowRef.current = hydrateRow; }, [hydrateRow]);
 
   useEffect(() => {
     if (!sourceColumn) return;
@@ -81,7 +81,7 @@ export function useDocumentView(args: UseDocumentViewArgs) {
         && 'status' in error && error.status === 400 ? request() : Promise.reject(error))
       .then((page) => { if (!cancelled) setList({ key: listKey, pages: [page], pinned: null, loading: false, error: null }); })
       .catch((error: unknown) => { if (!cancelled) setList({ key: listKey, pages: [], pinned: null, loading: false,
-        error: error instanceof Error ? error.message : 'Could not load documents.' }); });
+        error: errorMessage(error, 'Could not load documents.') }); });
     return () => { cancelled = true; if (listGeneration.current === generation) listGeneration.current += 1; };
     // activeRowId is the initial anchor, not a reason to restart the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,12 +154,11 @@ export function useDocumentView(args: UseDocumentViewArgs) {
             }
           } catch (restartError) {
             if (restartGeneration === listGeneration.current) setList((prev) => prev.key === requestKey
-              ? { ...prev, loading: false, error: restartError instanceof Error
-                ? restartError.message : 'Could not load documents.' } : prev);
+              ? { ...prev, loading: false, error: errorMessage(restartError, 'Could not load documents.') } : prev);
           }
         } else {
           setList((prev) => prev.key === requestKey ? ({ ...prev, loading: false,
-            error: error instanceof Error ? error.message : 'Could not load documents.' }) : prev);
+            error: errorMessage(error, 'Could not load documents.') }) : prev);
         }
       }
     } finally {
@@ -167,7 +166,6 @@ export function useDocumentView(args: UseDocumentViewArgs) {
     }
   }, [activeRowId, listKey, query, selectItem, sourceColumn, titleColumn, visibleList]);
 
-  const [hydrated, setHydrated] = useState<{ key: string; row: Row | null; loading: boolean; error: string | null }>({ key: '', row: null, loading: false, error: null });
   const hydrationColumns = useMemo(() => Array.from(new Set([
     source?.kind === 'media' ? sourceColumn?.id : null,
     ...(source?.kind === 'media' && activeItem?.sourcePresent
@@ -175,17 +173,12 @@ export function useDocumentView(args: UseDocumentViewArgs) {
       ? timedTranscriptColumnIds(sheet) : []),
   ].filter(Boolean).map(String))), [activeItem, sheet, source, sourceColumn]);
   const hydrationKey = `${projectId}:${sheet.id}:${activeRowId ?? ''}:${hydrationColumns.join(',')}`;
-  useEffect(() => {
-    if (!activeRowId || hydrationColumns.length === 0) return;
-    let cancelled = false;
-    void hydrateRowRef.current(activeRowId, hydrationColumns).then((row) => {
-      if (!cancelled) setHydrated({ key: hydrationKey, row, loading: false, error: null });
-    }).catch((error: unknown) => {
-      if (!cancelled) setHydrated({ key: hydrationKey, row: null, loading: false, error: error instanceof Error ? error.message : 'Could not load document.' });
-    });
-    return () => { cancelled = true; };
-  }, [activeRowId, hydrationColumns, hydrationKey]);
-  const activeRow = hydrated.key === hydrationKey ? hydrated.row : null;
+  const hydrated = useLoader<Row | null>(
+    () => (activeRowId ? hydrateRow(activeRowId, hydrationColumns) : Promise.resolve(null)),
+    [activeRowId, hydrationKey],
+    { enabled: Boolean(activeRowId && hydrationColumns.length > 0), errorFallback: 'Could not load document.' },
+  );
+  const activeRow = hydrated.data;
   const activeMedia = activeRow && source?.kind === 'media'
     ? resolveMediaValue(activeRow.cells[String(source.column.id)] ?? null, projectId) : null;
   const activeMediaKind = activeMedia ? documentMediaKind(activeMedia, sourceColumn?.type ?? 'file') : null;
@@ -223,7 +216,7 @@ export function useDocumentView(args: UseDocumentViewArgs) {
       if (previous) selectItem(previous);
     } catch (error) {
       if (generation === listGeneration.current) setList((prev) => prev.key === listKey ? { ...prev,
-        error: error instanceof Error ? error.message : 'Could not load documents.' } : prev);
+        error: errorMessage(error, 'Could not load documents.') } : prev);
     }
   }, [activeRowId, items, listKey, loadBoundary, query, selectItem, sourceColumn, titleColumn]);
   const { listBodyRef, onListScroll, onListKeyDown, startIndex, windowRows } = useWindowedRowList({
@@ -251,9 +244,8 @@ export function useDocumentView(args: UseDocumentViewArgs) {
   return { sources, source, sourceColumn, defaultTitleColumn, titleColumn, list: visibleList, items,
     pageCounts, search, setSearch, optionsOpen, setOptionsOpen, listBodyRef, activeRowId, activeItem,
     activeRow, activeMedia, activeMediaKind,
-    hydrationLoading: Boolean(activeRowId && hydrationColumns.length > 0
-      && (hydrated.key !== hydrationKey || hydrated.loading)),
-    hydrationError: activeRowId && hydrated.key === hydrationKey ? hydrated.error : null,
+    hydrationLoading: hydrated.loading,
+    hydrationError: hydrated.error,
     recordPageCount, selectDocument,
     onListKeyDown, onListScroll, startIndex, windowRows, loadMore: () => loadBoundary('next'), setState };
 }

@@ -1,10 +1,11 @@
 import '../PanelPrimitives.css';
 import '../FormControls.css';
 import { Button } from '../Button';
-import { useCallback, useReducer } from 'react';
+import { useCallback, useState } from 'react';
 import type { EmbeddingIndexSummary } from '../../api/open';
 import type { EmbeddingApiPort } from '../../api/ports';
 import { PanelSelect } from '../PanelSelect';
+import { useAction } from '../../hooks/useAction';
 
 interface IndexPolicyDetailProps {
   apiPort: EmbeddingApiPort;
@@ -12,25 +13,7 @@ interface IndexPolicyDetailProps {
   onChanged(): void | Promise<void>;
 }
 
-interface PolicyState {
-  mode: 'manual' | 'on_source_append' | 'scheduled';
-  schedule: string;
-  allowRemote: boolean;
-  allowAuto: boolean;
-  maxCost: string;
-  busy: boolean;
-  error: string | null;
-}
-
-type PolicyAction =
-  | { type: 'set_mode'; mode: PolicyState['mode'] }
-  | { type: 'set_schedule'; schedule: string }
-  | { type: 'set_allow_remote'; allowRemote: boolean }
-  | { type: 'set_allow_auto'; allowAuto: boolean }
-  | { type: 'set_max_cost'; maxCost: string }
-  | { type: 'save_start' }
-  | { type: 'save_error'; message: string }
-  | { type: 'save_done' };
+type MaintenanceMode = EmbeddingIndexSummary['maintenanceMode'];
 
 function parseMaxCost(value: string): number | null | undefined {
   if (value.trim() === '') return null;
@@ -38,90 +21,57 @@ function parseMaxCost(value: string): number | null | undefined {
   return Number.isFinite(cost) && cost > 0 ? cost : undefined;
 }
 
-function createInitialPolicyState(index: EmbeddingIndexSummary): PolicyState {
-  return {
-    mode: index.maintenanceMode,
-    schedule: index.schedule ?? '',
-    allowRemote: index.allowRemote,
-    allowAuto: index.allowRemoteAutomaticRefresh,
-    maxCost:
-      index.maxCostUsdPerRefresh == null ? '' : String(index.maxCostUsdPerRefresh),
-    busy: false,
-    error: null,
-  };
-}
-
-function policyReducer(state: PolicyState, action: PolicyAction): PolicyState {
-  switch (action.type) {
-    case 'set_mode':
-      return { ...state, mode: action.mode };
-    case 'set_schedule':
-      return { ...state, schedule: action.schedule };
-    case 'set_allow_remote':
-      return { ...state, allowRemote: action.allowRemote };
-    case 'set_allow_auto':
-      return { ...state, allowAuto: action.allowAuto };
-    case 'set_max_cost':
-      return { ...state, maxCost: action.maxCost };
-    case 'save_start':
-      return { ...state, busy: true, error: null };
-    case 'save_error':
-      return { ...state, error: action.message };
-    case 'save_done':
-      return { ...state, busy: false };
-    default:
-      return state;
-  }
-}
-
 export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDetailProps) {
   const freshness = index.freshness;
-  const [state, dispatch] = useReducer(
-    policyReducer,
-    index,
-    createInitialPolicyState,
+  const [mode, setMode] = useState<MaintenanceMode>(index.maintenanceMode);
+  const [schedule, setSchedule] = useState(index.schedule ?? '');
+  const [allowRemote, setAllowRemote] = useState(index.allowRemote);
+  const [allowAuto, setAllowAuto] = useState(index.allowRemoteAutomaticRefresh);
+  const [maxCostInput, setMaxCostInput] = useState(
+    index.maxCostUsdPerRefresh == null ? '' : String(index.maxCostUsdPerRefresh),
   );
+  const saveAction = useAction();
+  const { run: runSave, setError: setSaveError } = saveAction;
 
   // Honest gate surface: a remote index with automatic refresh on but NO cost cap
   // will still BLOCK at refresh time (embedding_cost_requires_confirmation). Saving
   // stores the preauthorization; it never means "automatic refresh is enabled".
-  const maxCost = parseMaxCost(state.maxCost);
-  const gateBlocked = index.remote && state.allowAuto && maxCost == null;
+  const maxCost = parseMaxCost(maxCostInput);
+  const gateBlocked = index.remote && allowAuto && maxCost == null;
 
   const save = useCallback(async () => {
-    const nextMaxCost = parseMaxCost(state.maxCost);
+    const nextMaxCost = parseMaxCost(maxCostInput);
     if (nextMaxCost === undefined) {
-      dispatch({
-        type: 'save_error',
-        message: 'Max $/refresh must be a positive finite number or blank.',
-      });
+      setSaveError('Max $/refresh must be a positive finite number or blank.');
       return;
     }
-    dispatch({ type: 'save_start' });
-    try {
-      const allowAuto = state.allowRemote ? state.allowAuto : false;
+    await runSave(async () => {
       await apiPort.updateEmbeddingIndexPolicy({
         indexId: index.indexId,
         maintenancePolicy: {
-          mode: state.mode,
-          schedule: state.mode === 'scheduled' ? state.schedule.trim() : null,
+          mode,
+          schedule: mode === 'scheduled' ? schedule.trim() : null,
         },
         providerPolicy: {
-          allowRemote: state.allowRemote,
-          allowRemoteAutomaticRefresh: allowAuto,
+          allowRemote,
+          allowRemoteAutomaticRefresh: allowRemote ? allowAuto : false,
           maxCostUsdPerRefresh: nextMaxCost,
         },
       });
       await onChanged();
-    } catch (error) {
-      dispatch({
-        type: 'save_error',
-        message: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      dispatch({ type: 'save_done' });
-    }
-  }, [apiPort, index.indexId, state, onChanged]);
+    });
+  }, [
+    apiPort,
+    index.indexId,
+    maxCostInput,
+    mode,
+    schedule,
+    allowRemote,
+    allowAuto,
+    onChanged,
+    runSave,
+    setSaveError,
+  ]);
 
   return (
     <div className="embedding-policy" data-testid={`embedding-policy-${index.indexId}`}>
@@ -154,29 +104,22 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
         Maintenance
         <PanelSelect
           data-testid={`embedding-policy-mode-${index.indexId}`}
-          value={state.mode}
-          onChange={(event) =>
-            dispatch({
-              type: 'set_mode',
-              mode: event.target.value as PolicyState['mode'],
-            })
-          }
+          value={mode}
+          onChange={(event) => setMode(event.target.value as MaintenanceMode)}
         >
           <option value="manual">manual</option>
           <option value="on_source_append">on source append</option>
           <option value="scheduled">scheduled</option>
         </PanelSelect>
       </label>
-      {state.mode === 'scheduled' && (
+      {mode === 'scheduled' && (
         <label className="form-row">
           Schedule
           <input
             data-testid={`embedding-policy-schedule-${index.indexId}`}
-            value={state.schedule}
+            value={schedule}
             placeholder="@hourly / @daily / 6h"
-            onChange={(event) =>
-              dispatch({ type: 'set_schedule', schedule: event.target.value })
-            }
+            onChange={(event) => setSchedule(event.target.value)}
           />
         </label>
       )}
@@ -186,13 +129,8 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
             <input
               type="checkbox"
               data-testid={`embedding-policy-allow-remote-${index.indexId}`}
-              checked={state.allowRemote}
-              onChange={(event) =>
-                dispatch({
-                  type: 'set_allow_remote',
-                  allowRemote: event.target.checked,
-                })
-              }
+              checked={allowRemote}
+              onChange={(event) => setAllowRemote(event.target.checked)}
             />
             Allow remote egress
           </label>
@@ -200,14 +138,9 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
             <input
               type="checkbox"
               data-testid={`embedding-policy-allow-auto-${index.indexId}`}
-              checked={state.allowAuto}
-              disabled={!state.allowRemote}
-              onChange={(event) =>
-                dispatch({
-                  type: 'set_allow_auto',
-                  allowAuto: event.target.checked,
-                })
-              }
+              checked={allowAuto}
+              disabled={!allowRemote}
+              onChange={(event) => setAllowAuto(event.target.checked)}
             />
             Allow automatic remote refresh
           </label>
@@ -215,12 +148,10 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
             Max $/refresh
             <input
               data-testid={`embedding-policy-max-cost-${index.indexId}`}
-              value={state.maxCost}
+              value={maxCostInput}
               inputMode="decimal"
               placeholder="required for automatic"
-              onChange={(event) =>
-                dispatch({ type: 'set_max_cost', maxCost: event.target.value })
-              }
+              onChange={(event) => setMaxCostInput(event.target.value)}
             />
           </label>
           {gateBlocked && (
@@ -234,15 +165,15 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
           )}
         </>
       )}
-      {state.error && <p className="panel-error">{state.error}</p>}
+      {saveAction.error && <p className="panel-error">{saveAction.error}</p>}
       <Button
         type="button"
 
         data-testid={`embedding-policy-save-${index.indexId}`}
-        disabled={state.busy}
+        disabled={saveAction.busy}
         onClick={() => void save()}
       >
-        {state.busy ? 'Saving…' : 'Save policy'}
+        {saveAction.busy ? 'Saving…' : 'Save policy'}
       </Button>
     </div>
   );

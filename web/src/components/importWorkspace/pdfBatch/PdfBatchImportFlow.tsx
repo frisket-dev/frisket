@@ -53,6 +53,7 @@ import { usePdfBatchIntake } from './usePdfBatchIntake';
 import { usePdfBatchPreview } from './usePdfBatchPreview';
 import { createPdfPacketSplitFromDraft, type PdfPacketSplitSnapshot } from '../../../api/pdfPacketSplits';
 import { PdfPacketReview } from '../pdfPacket/PdfPacketReview';
+import { errorMessage } from '../../../hooks/errorMessage';
 import './PdfBatchImportFlow.css';
 
 export interface PdfBatchDestinationSheet {
@@ -84,10 +85,6 @@ interface PdfBatchImportFlowProps {
   onImported(sheetId: number): void;
   onDiscarded(): void;
   onError(message: string): void;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function ocrEngine(selection: PdfImportOcrSelection): string {

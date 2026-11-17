@@ -13,7 +13,7 @@
 }
 @layer base {
 .panel-header {
-  font-size: 12px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
+  font-size: var(--font-size-small); font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--text-mid);
   padding: 14px 14px 8px;
 }
@@ -27,7 +27,7 @@
 .panel-empty { font-size: 11.5px; color: var(--text-light); padding: 4px 8px; }
 li.panel-empty { list-style: none; }
 .panel-error, .panel-notice {
-  font-size: 12px; line-height: 1.45;
+  font-size: var(--font-size-small); line-height: 1.45;
   border-radius: var(--radius-6); padding: 8px 10px;
   word-break: break-word;
 }
@@ -65,13 +65,13 @@ li.panel-empty { list-style: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-8);
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
-.drawer-title { font-weight: 650; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.drawer-title { font-weight: 650; font-size: var(--font-size-body); display: flex; align-items: center; gap: var(--space-6); }
 .drawer-section-title {
-  font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
+  font-size: var(--font-size-meta); font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--text-mid);
   margin: 18px 0 6px;
 }
@@ -88,14 +88,14 @@ li.panel-empty { list-style: none; }
 .toggle-row-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-8);
 }
 
 /* Toggle-row card: a described boolean setting (e.g. voice-activity detection). */
 .toggle-row {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-12);
   padding: 13px 14px;
   background: var(--bg);
   border: 1px solid var(--bg-hover);
@@ -114,7 +114,7 @@ li.panel-empty { list-style: none; }
   color: var(--text);
 }
 .toggle-row-desc {
-  font-size: 12.5px;
+  font-size: var(--font-size-control);
   line-height: 1.45;
   color: var(--text-light);
 }
@@ -177,7 +177,7 @@ li.panel-empty { list-style: none; }
 }
 .toggle-row-tag {
   margin-left: 7px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   color: var(--text-light);
 }
@@ -197,7 +197,7 @@ li.panel-empty { list-style: none; }
    HORIZONTAL padding at their own rule — the host owns that gutter.
    EXCLUDED: .ocr-compare-head (workbench-ocr-compare-bakeoff-v1 owns it). */
 .panel-frame-header {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: var(--space-8);
   padding: 10px 12px;
   flex-shrink: 0;
 }/* ---- project picker ------------------------------------------------------ */
@@ -215,11 +215,11 @@ li.panel-empty { list-style: none; }
   padding: 22px 22px 18px;
 }
 .picker-brand {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: var(--space-8);
   margin-bottom: 16px;
 }
 .picker-brand .brand-name { font-size: 16px; }
-.picker-create { display: flex; gap: 8px; }
+.picker-create { display: flex; gap: var(--space-8); }
 .picker-create .form-input { flex: 1; }
 .picker-section-label {
   font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em;
@@ -230,7 +230,7 @@ li.panel-empty { list-style: none; }
 .picker-error {
   margin-top: 10px;
   background: var(--red-bg); color: var(--red);
-  border-radius: var(--radius-6); padding: 8px 10px; font-size: 12px;
+  border-radius: var(--radius-6); padding: 8px 10px; font-size: var(--font-size-small);
 }
 .picker-error-remediation { margin-top: 4px; color: var(--text-mid); font-weight: 450; }
 /* doctor-semantic-tags-v1: AdminPage's quota banner is a real <output> now
@@ -256,7 +256,7 @@ output.account-note {
 }
 .conf-pill {
   font-variant-numeric: tabular-nums;
-  border-radius: var(--radius-4); padding: 0 6px; font-weight: 650; font-size: 11px;
+  border-radius: var(--radius-4); padding: 0 6px; font-weight: 650; font-size: var(--font-size-meta);
 }
 .conf-high { background: var(--green-bg); color: var(--green); }
 .conf-mid { background: var(--amber-bg); color: var(--amber); }
@@ -274,14 +274,14 @@ output.account-note {
   gap: 3px 8px;
   font-size: 11.5px;
 }
-.prov-key { color: var(--ai); font-weight: 600; font-size: 11px; }
+.prov-key { color: var(--ai); font-weight: 600; font-size: var(--font-size-meta); }
 .provenance-actions {
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
   padding: 4px 0 10px; border-bottom: 1px solid var(--border);
 }
 .explain-pre {
   margin: 0;
-  font-family: var(--mono); font-size: 11px; line-height: 1.55;
+  font-family: var(--mono); font-size: var(--font-size-meta); line-height: 1.55;
   white-space: pre-wrap; overflow-wrap: anywhere;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -289,9 +289,9 @@ output.account-note {
   padding: 8px 10px;
   max-height: 260px; overflow-y: auto;
 }
-.row-field-empty { color: var(--text-light); font-style: italic; font-size: 12px; }
+.row-field-empty { color: var(--text-light); font-style: italic; font-size: var(--font-size-small); }
 .row-field-json {
-  font-family: var(--mono); font-size: 11px; line-height: 1.5;
+  font-family: var(--mono); font-size: var(--font-size-meta); line-height: 1.5;
   background: var(--bg-panel); border-radius: var(--radius-6); padding: 8px 10px;
   margin: 0; overflow-x: auto;
 }
@@ -299,11 +299,11 @@ output.account-note {
 .column-update-result {
   margin-top: 8px;
   color: var(--green);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
-.version-line { display: flex; align-items: center; gap: 8px; }
-.version-status { font-size: 11px; font-weight: 600; }
-.version-sub { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+.version-line { display: flex; align-items: center; gap: var(--space-8); }
+.version-status { font-size: var(--font-size-meta); font-weight: 600; }
+.version-sub { font-size: var(--font-size-meta); color: var(--text-light); margin-top: 2px; }
 .col-field-name { font-family: var(--mono); font-weight: 600; font-size: 11.5px; }
 .bottom-dock-row-error-count {
   color: var(--red);
@@ -315,7 +315,7 @@ output.account-note {
 }
 .provenance-run-list {
   list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: var(--space-6);
 }
 .provenance-run-list li {
   border: 1px solid var(--border); border-radius: var(--radius-7);

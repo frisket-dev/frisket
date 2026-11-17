@@ -5,7 +5,7 @@
 // and placement style handed to a render-prop so the CALLER attaches them via
 // ordinary JSX `ref=`/`style=` and neither side writes a ref outside JSX.
 import { useCallback, useRef, type CSSProperties, type RefObject } from 'react';
-import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
+import { anchoredPopoverStyle, useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { useNativePopover } from '../hooks/useNativePopover';
 
 interface OptionsPopoverPlumbing {
@@ -45,17 +45,6 @@ export function useOptionsPopover(
     width: (_rect, viewportWidth) => Math.min(360, viewportWidth - 16),
     gap: 4,
   });
-  const popoverStyle: CSSProperties = position
-    ? {
-      position: 'fixed',
-      inset: 'auto',
-      top: position.top,
-      bottom: position.bottom,
-      left: position.left,
-      right: 'auto',
-      width: position.width,
-      margin: 0,
-    }
-    : { position: 'fixed', visibility: 'hidden' };
+  const popoverStyle = anchoredPopoverStyle(position);
   return { triggerRef, attachPopover, popoverStyle };
 }

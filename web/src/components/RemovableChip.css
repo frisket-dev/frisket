@@ -1,12 +1,12 @@
 .removable-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-4);
   max-width: 100%;
   overflow-wrap: anywhere;
   padding: 2px 3px 2px 8px;
   border-radius: var(--radius-6);
-  font-size: 12px;
+  font-size: var(--font-size-small);
   font-weight: 600;
   background: var(--accent-bg);
   color: var(--accent);

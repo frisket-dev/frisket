@@ -6,15 +6,15 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
   height: 30px;
   padding: 0 14px;
   background: var(--amber-bg);
   color: var(--amber);
   border-bottom: 1px solid var(--border-strong);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
-.replay-mode-banner.collapsed { height: 20px; gap: 4px; }
+.replay-mode-banner.collapsed { height: 20px; gap: var(--space-4); }
 .replay-mode-banner-icon { flex-shrink: 0; }
 .replay-mode-banner-text {
   flex: 1;

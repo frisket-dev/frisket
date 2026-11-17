@@ -1,18 +1,18 @@
 .model-pull-list {
-  gap: 8px;
+  gap: var(--space-8);
 }
 .model-pull-history {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
+  gap: var(--space-4);
 }
 .model-pull-history-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: var(--space-8);
+  font-size: var(--font-size-small);
   color: var(--text-mid);
 }
 .model-pull-history-model {

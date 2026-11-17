@@ -1,9 +1,8 @@
-import { CompareToolbar, CompareEngineChip } from './CompareLayout';
+import { CompareToolbar } from './CompareLayout';
 import { CompareRunControl } from './CompareRunControl';
 import { Button } from '../components/Button';
 import { TextInput } from '../components/FormControls';
-import { useEffect, useMemo, useRef } from 'react';
-import { Plus } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
 
 import type {
   OcrComparePreviewBlock,
@@ -17,13 +16,12 @@ import type { OcrCompareTarget } from '../actions/ocrCompare';
 import { OCR_ENGINE_FALLBACK, ocrEnginesFromCatalog } from '../actions/engineCatalog';
 import { SegmentedToggle } from '../components/PanelPrimitives';
 import { PanelSelect } from '../components/PanelSelect';
-import { ConfigureVariantPopover, MediaCompareBody } from './MediaCompareShell';
+import { CompareVariantChips, MediaCompareBody } from './MediaCompareShell';
 import { useOcrVariantConfigure } from './useOcrVariantConfigure';
 import { usePaidMediaComparison } from './usePaidMediaComparison';
 import {
   MEDIA_LANGUAGE_OPTIONS,
   useMediaCompareSession,
-  variantPip,
   type AlignedUnit,
   type CompareColumn,
   type MediaCompareConfig,
@@ -218,12 +216,9 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
   );
   const session = useMediaCompareSession(config, onSessionChange);
   const {
-    catalog,
     columns,
     docs,
     runnableColumns,
-    activeDoc,
-    engineLabel,
     effectiveMode,
     setMode,
     runState,
@@ -254,21 +249,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
   const { clearQuote } = paid;
   useEffect(() => { clearQuote(); }, [clearQuote, quoteInputKey]);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const moreInputRef = useRef<HTMLInputElement>(null);
-  const {
-    configureVariantId,
-    popoverShift,
-    configureAnchorRef,
-    engineSelectorRef,
-    configurePopoverRef,
-    openConfigure,
-    addEngineFlow,
-    onChooseEngine,
-    onRemoveVariant,
-    onDuplicate,
-    renderSourcePeek,
-  } = useOcrVariantConfigure(session);
+  const variantEditor = useOcrVariantConfigure(session);
 
 
   function variantSummary(column: CompareColumn): string {
@@ -338,73 +319,35 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
           </Button>
         </>}
       >
-        {columns.map((column) => {
-          const pip = variantPip(column, activeDoc?.runs[column.id]);
-          const summary = variantSummary(column);
-          const chipEngine = catalog.find((candidate) => candidate.id === column.engineId);
-          return (
-            <div
-              key={column.id}
-              className="ocr-compare-variant"
-              ref={configureVariantId === column.id ? configureAnchorRef : undefined}
-            >
-              <CompareEngineChip testIdPrefix="ocr-compare" engine={chipEngine}
-                engineId={column.engineId} label={engineLabel(column.engineId)} variantId={column.id}
-                pip={pip} summary={summary} disabled={busy}
-                onConfigure={() => openConfigure(column.id)}
-                onRemove={() => onRemoveVariant(column.id)} />
-              {configureVariantId === column.id ? (
-                <ConfigureVariantPopover
-                  selectorProjection={session.selectorProjection(column)}
-                  testidPrefix="ocr-compare"
-                  actionId="media.ocr"
-                  popoverRef={configurePopoverRef}
-                  style={popoverShift ? { transform: `translateX(${popoverShift}px)` } : undefined}
-                  column={column}
-                  catalog={catalog}
-                  engineSelectorRef={engineSelectorRef}
-                  errorMessage={
-                    activeDoc?.runs[column.id]?.status === 'error'
-                      ? (activeDoc.runs[column.id] as { message: string }).message
-                      : null
-                  }
-                  onChooseEngine={(engineId) => onChooseEngine(column.id, engineId)}
-                  onDuplicate={() => onDuplicate(column.id)}
-                  renderOptionFields={(col) => (
-                    <OcrOptionFields
-                      column={col}
-                      onSetDpi={(dpi) => updateColumnOptions(col.id, { dpi })}
-                      onSetLanguage={(language) => updateColumnOptions(col.id, { language })}
-                      onSetPagesText={(pagesText) => updateColumnOptions(col.id, { pagesText })}
-                      onSetSearchablePdf={(searchablePdf) =>
-                        updateColumnOptions(col.id, { searchablePdf })
-                      }
-                      disabled={busy}
-                    />
-                  )}
-                />
-              ) : null}
-            </div>
-          );
-        })}
-        <button
-          type="button"
-          className="ocr-compare-add-engine engine-tier-chip"
-          data-testid="ocr-compare-add-engine"
+        <CompareVariantChips
+          session={session}
+          editor={variantEditor}
+          testidPrefix="ocr-compare"
+          actionId="media.ocr"
+          summary={variantSummary}
           disabled={busy}
-          onClick={addEngineFlow}
-        >
-          <Plus size={12} /> Engine
-        </button>
+          addLabel="Engine"
+          addDisabled={busy}
+          renderOptionFields={(col) => (
+            <OcrOptionFields
+              column={col}
+              onSetDpi={(dpi) => updateColumnOptions(col.id, { dpi })}
+              onSetLanguage={(language) => updateColumnOptions(col.id, { language })}
+              onSetPagesText={(pagesText) => updateColumnOptions(col.id, { pagesText })}
+              onSetSearchablePdf={(searchablePdf) =>
+                updateColumnOptions(col.id, { searchablePdf })
+              }
+              disabled={busy}
+            />
+          )}
+        />
       </CompareToolbar>
 
       <MediaCompareBody
         session={session}
         config={config}
         testidPrefix="ocr-compare"
-        fileInputRef={fileInputRef}
-        moreInputRef={moreInputRef}
-        renderSourcePeek={renderSourcePeek}
+        renderSourcePeek={variantEditor.renderSourcePeek}
         columnSummary={variantSummary}
         frontDoorTitle="Drop a small sample of PDFs or images"
         frontDoorHint="Nothing uploads to your project — this session is disposable. Configure variants, then Run."

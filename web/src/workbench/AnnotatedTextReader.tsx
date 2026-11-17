@@ -4,6 +4,7 @@ import '../components/BoundedTextReader.css';
 import '../components/EntityFacetsPanel.css';
 import './AnnotatedTextReader.css';
 import { Button } from '../components/Button';
+import { useLoader } from '../hooks/useLoader';
 // Read one long text cell with the pipeline's entities marked in place, toggle
 // each family off, and click a mark.
 //
@@ -90,17 +91,6 @@ interface AnnotatedTextReaderProps {
   onReplayLayer?: ((outputColumnId: string) => void) | null;
 }
 
-/** A SETTLED fetch, keyed by the cell it settled for. Kept keyed (rather than
- *  reset by an effect) so a document switch reads as "loading" during the same
- *  render that changed the key — resetting it from inside the effect would show
- *  the previous document's marks over the new document's title for one frame,
- *  and is a cascading render besides. */
-interface LoadState {
-  key: string;
-  data: TextAnnotations | null;
-  error: string | null;
-}
-
 export function AnnotatedTextReader({
   rowId,
   columnId,
@@ -138,37 +128,27 @@ export function AnnotatedTextReader({
   } | null>(null);
   const request = navigation?.contextKey === contextKey ? navigation : null;
   const loadKey = `${contextKey}:${request?.start ?? ''}:${request?.revision ?? ''}:${request?.attempt ?? 0}`;
-  const [settled, setSettled] = useState<LoadState | null>(null);
   const [openStatusKey, setOpenStatusKey] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (rowId === null) return;
-    const controller = new AbortController();
-    void api
-      .getTextAnnotations(rowId, columnId, {
-        signal: controller.signal,
+  const loader = useLoader(async (signal) => {
+    if (rowId === null) return null;
+    try {
+      return await api.getTextAnnotations(rowId, columnId, {
+        signal,
         ...(request?.start !== undefined ? { start: request.start, limit: 16_384 } : {}),
         ...(request?.revision !== undefined ? { revision: request.revision } : {}),
         ...(request?.start === undefined && activeOccurrenceId ? { occurrenceId: activeOccurrenceId } : {}),
-      })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        setSettled({ key: loadKey, data, error: null });
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        setSettled({
-          key: loadKey,
-          data: null,
-          error: typeof err === 'object' && err !== null && 'status' in err && err.status === 409
-            ? 'The source text changed. Reload the passage to continue.'
-            : err instanceof Error ? err.message : 'Could not load this document.',
-        });
       });
-    return () => {
-      controller.abort();
-    };
-  }, [api, loadKey, rowId, columnId, request?.start, request?.revision, activeOccurrenceId]);
+    } catch (err) {
+      if (typeof err === 'object' && err !== null && 'status' in err && err.status === 409) {
+        throw new Error('The source text changed. Reload the passage to continue.', { cause: err });
+      }
+      throw err;
+    }
+  }, [api, loadKey, rowId, columnId, request?.start, request?.revision, activeOccurrenceId], {
+    enabled: rowId !== null,
+    errorFallback: 'Could not load this document.',
+  });
 
   // Opening a result in the mention-detail panel must land ON the occurrence,
   // not at the top of a 90-minute transcript. Keyed on the settled fetch too,
@@ -187,12 +167,9 @@ export function AnnotatedTextReader({
     if (target instanceof HTMLElement) {
       target.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
-  }, [activeOccurrenceId, settled]);
+  }, [activeOccurrenceId, loader.data, loader.error]);
 
-  const current = settled !== null && settled.key === loadKey ? settled : null;
-  const loading = rowId !== null && current === null;
-  const error = current?.error ?? null;
-  const data = current?.data ?? null;
+  const { loading, error, data } = loader;
   const layers = useMemo(() => data?.layers ?? EMPTY_LAYERS, [data]);
   const toggles = useMemo(
     () => annotationToggles(layers, disabledToggleKeys),

@@ -22,6 +22,9 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { parseComposedQuery } from '../embeddings/composedQuery';
 import { usePoll } from '../hooks/usePoll';
 import { modelPullActive, useModelPullPolling } from '../hooks/useModelPullPolling';
+import { errorMessage } from '../hooks/errorMessage';
+import { useAction } from '../hooks/useAction';
+import { useLoader } from '../hooks/useLoader';
 
 export interface PaletteSearchSeed {
   anchor?: ProjectSearchAnchorWire;
@@ -155,30 +158,13 @@ export function usePaletteSearch(
     seed?.namedIndexId,
   );
   const activeSheetKey = activeSheetId == null ? null : String(activeSheetId);
-  const [namedIndexLoad, setNamedIndexLoad] = useState<{
-    sheetKey: string;
-    indexes: EmbeddingIndexSummary[];
-    error: string | null;
-  } | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    if (activeSheetKey == null) return undefined;
-    void projectApi.embeddingIndexes(Number(activeSheetId))
-      .then((indexes) => {
-        if (live) setNamedIndexLoad({ sheetKey: activeSheetKey, indexes, error: null });
-      })
-      .catch((error: Error) => {
-        if (live) setNamedIndexLoad({ sheetKey: activeSheetKey, indexes: [], error: error.message });
-      });
-    return () => { live = false; };
-  }, [activeSheetId, activeSheetKey, projectApi]);
-  const namedIndexes = namedIndexLoad?.sheetKey === activeSheetKey
-    ? namedIndexLoad.indexes
-    : [];
-  const namedIndexError = namedIndexLoad?.sheetKey === activeSheetKey
-    ? namedIndexLoad.error
-    : null;
+  const namedIndexLoad = useLoader(
+    () => projectApi.embeddingIndexes(Number(activeSheetId)),
+    [activeSheetKey, projectApi],
+    { enabled: activeSheetKey != null },
+  );
+  const namedIndexes = namedIndexLoad.data ?? [];
+  const namedIndexError = namedIndexLoad.error;
   const [searchResult, setSearchResult] = useState<{
     key: string;
     response: ProjectSearchResponseWire;
@@ -244,7 +230,7 @@ export function usePaletteSearch(
       if (seq.current === mine) {
         setSearchFailure({
           key: requestKey,
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       }
     }
@@ -254,8 +240,7 @@ export function usePaletteSearch(
     guardOverlap: true,
   });
 
-  const [watchBusy, setWatchBusy] = useState(false);
-  const [watchStatus, setWatchStatus] = useState<string | null>(null);
+  const { busy: watchBusy, error: watchStatus, setError: setWatchStatus, run: runWatch } = useAction();
   const selectedIndex = namedIndexes.find((index) => index.indexId === namedIndexId);
   const selectedRowId = anchorRowId(anchor);
   const canWatch = !watchBusy && (
@@ -265,21 +250,17 @@ export function usePaletteSearch(
   const createSearchWatch = () => {
     if (!canWatch) return;
     const similarity = selectedIndex?.sheetId != null && selectedRowId != null;
-    setWatchBusy(true);
-    setWatchStatus(null);
     const selection: import('../api/types').ViewSelection = similarity
       ? { scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId! }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: MAX_LENS_VIEW_ROWS,
           similarity: { kind: 'embedding_similarity', sheet_id: selectedIndex.sheetId!, embedding_index_id: selectedIndex.indexId, anchor: { kind: 'row', row_id: selectedRowId } } }
       : { scope: { kind: 'project' }, filters: [], order: [{ score: 'search', dir: 'desc' }], limit: null, search: { text: trimmedQuery } };
     const name = similarity ? `Similar to ${anchorLabel ?? `row ${selectedRowId}`}` : `Search: ${trimmedQuery}`;
-    void projectApi.saveView({ name, selection, presentation: {} })
-      .then((view) => projectApi.createWatch({ name, view_id: view.id }))
-      .then(() => {
-        window.dispatchEvent(new Event('frisket:watches-changed'));
-        onClose();
-      })
-      .catch((error: Error) => setWatchStatus(error.message))
-      .finally(() => setWatchBusy(false));
+    void runWatch(async () => {
+      const view = await projectApi.saveView({ name, selection, presentation: {} });
+      await projectApi.createWatch({ name, view_id: view.id });
+      window.dispatchEvent(new Event('frisket:watches-changed'));
+      onClose();
+    });
   };
 
   const [saveBusy, setSaveBusy] = useState(false);
@@ -417,9 +398,7 @@ export function usePaletteSearch(
             return;
           } catch (recoveryError) {
             if (generation !== setupGeneration.current) return;
-            setSetupError(recoveryError instanceof Error
-              ? recoveryError.message
-              : String(recoveryError));
+            setSetupError(errorMessage(recoveryError));
             return;
           }
         }

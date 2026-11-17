@@ -2,7 +2,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   border: 1px solid var(--border);
   background: var(--bg);
   border-radius: var(--radius-6);
@@ -12,7 +12,7 @@
 .list {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-6);
 }
 
 .draft {

@@ -27,9 +27,9 @@
 .btn:is([data-button-variant='text'], [data-button-variant='link']) { font: inherit; color: inherit; padding: 0; border: 0; background: none; justify-content: flex-start; }
 .btn[data-button-variant='link'] { color: var(--accent); }
 .btn[data-button-variant='link']:hover:not(:disabled) { color: var(--accent-strong); }
-.tab-list { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); }
+.tab-list { display: flex; flex-wrap: wrap; gap: var(--space-2); border-bottom: 1px solid var(--border); }
 .tab-button {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-6);
   flex-shrink: 0; padding: 7px 10px; white-space: nowrap;
   border: 0; border-bottom: 2px solid transparent; background: transparent;
   color: var(--text-mid); font: 600 12px/1.4 var(--font); cursor: pointer;

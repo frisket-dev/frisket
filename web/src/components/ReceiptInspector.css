@@ -4,11 +4,11 @@
   padding-top: 10px;
 }
 .receipt-loading {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 12px; color: var(--text-mid);
+  display: flex; align-items: center; gap: var(--space-6);
+  font-size: var(--font-size-small); color: var(--text-mid);
 }
 .receipt-heading {
-  display: flex; align-items: flex-start; gap: 8px;
+  display: flex; align-items: flex-start; gap: var(--space-8);
   margin-bottom: 8px;
 }
 .receipt-title-line {
@@ -17,7 +17,7 @@
 .receipt-subline {
   margin-top: 2px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-light);
 }
 .receipt-meta {
@@ -28,7 +28,7 @@
   min-width: 0;
 }
 .receipt-meta dt {
-  font-size: 10px; font-weight: 700; color: var(--text-light);
+  font-size: var(--font-size-caption); font-weight: 700; color: var(--text-light);
   text-transform: uppercase;
 }
 .receipt-meta dd {
@@ -42,7 +42,7 @@
 }
 .receipt-section-title {
   margin: 10px 0 5px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-mid);
 }
 .receipt-ref-list {
@@ -51,8 +51,8 @@
 }
 .receipt-ref-list li {
   display: grid; grid-template-columns: minmax(70px, 0.7fr) minmax(82px, 0.8fr) minmax(0, 1.8fr);
-  gap: 6px; align-items: baseline;
-  font-size: 11px;
+  gap: var(--space-6); align-items: baseline;
+  font-size: var(--font-size-meta);
   border-bottom: 1px solid var(--bg-hover);
   padding-bottom: 5px;
 }

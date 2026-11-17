@@ -4,7 +4,6 @@ import { StageStepper } from '../StageStepper';
 import './CreateEmbeddingIndexDialog.css';
 import { TextInput } from '../FormControls';
 import {
-  useEffect,
   useMemo,
   useState,
   type FormEvent,
@@ -23,6 +22,7 @@ import {
 } from './costEstimate';
 import { SelectorField } from '../../engine-selector/SelectorField';
 import type { SelectorChoice } from '../../api/selectorChoices';
+import { useLoader } from '../../hooks/useLoader';
 
 interface CreateEmbeddingIndexDialogProps {
   apiPort: Pick<EmbeddingApiPort, 'getSheetData'>;
@@ -194,10 +194,6 @@ export function CreateEmbeddingIndexDialog({
     && selectedChoice.authored_selection.provider === form.provider
     && selectedChoice.authored_selection.model === form.model
     && selectedChoice.can_run;
-  const [costQuote, setCostQuote] = useState<{
-    key: string;
-    estimate: EmbeddingCostEstimate | null;
-  } | null>(null);
   const steps = useMemo(
     () =>
       remoteSelected
@@ -232,42 +228,32 @@ export function CreateEmbeddingIndexDialog({
   const inputRate = selectedCard?.pricing?.inputUsdPerMillionTokens ?? null;
   const costQuoteKey = `${sheet.id}:${sheet.rowCount}:${form.sourceColumns.join('\u0000')}:${inputRate ?? 'unknown'}`;
   const costEstimateEligible = remoteSelected && inputRate != null && form.sourceColumns.length > 0;
+  const costQuote = useLoader(async (): Promise<{ key: string; estimate: EmbeddingCostEstimate | null }> => {
+    const key = costQuoteKey;
+    try {
+      const limit = Math.min(EMBEDDING_COST_SAMPLE_ROWS, sheet.rowCount);
+      const page = await (limit > 0
+        ? apiPort.getSheetData(String(sheet.id), 0, limit)
+        : Promise.resolve({ rows: [] }));
+      return {
+        key,
+        estimate: estimateEmbeddingCost({
+          rows: page.rows,
+          sheet,
+          sourceColumns: form.sourceColumns,
+          inputUsdPerMillionTokens: inputRate!,
+        }),
+      };
+    } catch {
+      return { key, estimate: null };
+    }
+  }, [apiPort, costEstimateEligible, costQuoteKey, form.sourceColumns, inputRate, sheet], {
+    keepPreviousData: true,
+    enabled: costEstimateEligible && inputRate != null,
+  }).data;
   const visibleCostQuote = costQuote?.key === costQuoteKey ? costQuote : null;
   const costEstimate = visibleCostQuote?.estimate ?? null;
   const costEstimateLoading = costEstimateEligible && visibleCostQuote == null;
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!costEstimateEligible || inputRate == null) {
-      return () => {
-        cancelled = true;
-      };
-    }
-    const load = async () => {
-      try {
-        const limit = Math.min(EMBEDDING_COST_SAMPLE_ROWS, sheet.rowCount);
-        const page = await (limit > 0
-          ? apiPort.getSheetData(String(sheet.id), 0, limit)
-          : Promise.resolve({ rows: [] }));
-        if (cancelled) return;
-        setCostQuote({
-          key: costQuoteKey,
-          estimate: estimateEmbeddingCost({
-            rows: page.rows,
-            sheet,
-            sourceColumns: form.sourceColumns,
-            inputUsdPerMillionTokens: inputRate,
-          }),
-        });
-      } catch {
-        if (!cancelled) setCostQuote({ key: costQuoteKey, estimate: null });
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [apiPort, costEstimateEligible, costQuoteKey, form.sourceColumns, inputRate, sheet]);
 
   const goNext = () => {
     if (!canAdvance) return;

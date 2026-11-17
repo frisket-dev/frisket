@@ -11,6 +11,7 @@ import {
 import { initialPdfPacketFlowState, pdfPacketFlowReducer } from './model';
 import { PacketFindStep } from './PacketFindStep';
 import { createReviewSources, reviewedStarts, type ReviewSource } from './reviewSources';
+import { errorMessage } from '../../../hooks/errorMessage';
 
 type CombinedSnapshot = PdfPacketSplitSnapshot & { sources: ReviewSource[]; fixed_starts: number[]; example_pages: number[] };
 
@@ -48,7 +49,7 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
     const timer = window.setTimeout(() => {
       void getPdfPacketSplit(projectId, snapshot.split_id, { signal: controller.signal })
         .then((next) => { if (!controller.signal.aborted) dispatch({ type: 'snapshot', snapshot: next }); })
-        .catch((error: unknown) => { if (!controller.signal.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) }); });
+        .catch((error: unknown) => { if (!controller.signal.aborted) dispatch({ type: 'error', message: errorMessage(error) }); });
     }, 1000);
     return () => { controller.abort(); window.clearTimeout(timer); };
   }, [projectId, snapshot]);
@@ -57,7 +58,7 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
     const controller = new AbortController();
     void setPdfPacketTextSource(projectId, snapshot.split_id, { kind: 'native' }, { signal: controller.signal })
       .then((next) => { if (!controller.signal.aborted) dispatch({ type: 'snapshot', snapshot: next }); })
-      .catch((error: unknown) => { if (!controller.signal.aborted) dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) }); });
+      .catch((error: unknown) => { if (!controller.signal.aborted) dispatch({ type: 'error', message: errorMessage(error) }); });
     return () => controller.abort();
   }, [projectId, snapshot.split_id, snapshot.status, snapshot.text_source]);
   useEffect(() => {
@@ -76,8 +77,8 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
       }).catch((error: unknown) => {
         if (controller.signal.aborted) return;
         if ((error as { status?: number }).status === 409) {
-          void getPdfPacketSplit(projectId, snapshot.split_id, { signal: controller.signal }).then((next) => { if (!controller.signal.aborted) dispatch({ type: 'snapshot', snapshot: next }); }).catch((problem: unknown) => { if (!controller.signal.aborted) dispatch({ type: 'error', message: problem instanceof Error ? problem.message : String(problem) }); });
-        } else dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) });
+          void getPdfPacketSplit(projectId, snapshot.split_id, { signal: controller.signal }).then((next) => { if (!controller.signal.aborted) dispatch({ type: 'snapshot', snapshot: next }); }).catch((problem: unknown) => { if (!controller.signal.aborted) dispatch({ type: 'error', message: errorMessage(problem) }); });
+        } else dispatch({ type: 'error', message: errorMessage(error) });
       });
     }, 180);
     return () => { controller.abort(); window.clearTimeout(timer); };
@@ -86,12 +87,12 @@ export function PdfPacketReview({ projectId, snapshot: initial, onReviewed, onBa
   const continueReview = async () => {
     setBusy(true);
     try { await onReviewed(reviewedStarts(sources, state.confirmedStarts)); }
-    catch (error) { dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { dispatch({ type: 'error', message: errorMessage(error) }); }
     finally { setBusy(false); }
   };
   const cancelOcr = (jobId: string) => {
     void cancelPdfPacketOcr(projectId, snapshot.split_id, jobId).then((next) => dispatch({ type: 'snapshot', snapshot: next }))
-      .catch((error: unknown) => dispatch({ type: 'error', message: error instanceof Error ? error.message : String(error) }));
+      .catch((error: unknown) => dispatch({ type: 'error', message: errorMessage(error) }));
   };
   const requestExit = useCallback((target: 'back' | 'close') => {
     if (discardTarget) { setDiscardTarget(null); window.requestAnimationFrame(() => closeButtonRef.current?.focus()); return; }

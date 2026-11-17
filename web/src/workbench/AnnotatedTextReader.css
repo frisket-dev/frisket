@@ -5,7 +5,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-6);
   margin: 0;
   padding: 6px 12px;
   border: 0;
@@ -13,8 +13,8 @@
   position: relative;
   min-width: 0;
 }
-.annotation-toggle { display: inline-flex; align-items: center; gap: 2px; position: relative; }
-.annotation-toggle-btn { display: inline-flex; align-items: center; gap: 6px; }
+.annotation-toggle { display: inline-flex; align-items: center; gap: var(--space-2); position: relative; }
+.annotation-toggle-btn { display: inline-flex; align-items: center; gap: var(--space-6); }
 /* Off reads as off at a glance; a stale layer additionally loses its swatch,
    because it has no marks on screen to match. */
 .annotation-toggle-btn:not(.is-active) { opacity: 0.55; }
@@ -34,7 +34,7 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   box-shadow: var(--shadow-menu);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .annotation-status-note p { margin: 0 0 8px; }
 .annotation-status-note p:last-child { margin-bottom: 0; }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProviderValidateResult } from '../api/open';
-import { errMsg } from './settingsSupport';
+import { errorMessage } from '../hooks/errorMessage';
 
 type ValidationStatus = { text: string; tone: 'success' | 'error' | 'warning' | 'pending' };
 
@@ -45,7 +45,7 @@ export function useExistingProviderValidation(
     try {
       publish(validationStatus(await validate(provider, request.signal)));
     } catch (error) {
-      publish({ text: errMsg(error) || (label ? `Could not test ${label}` : ''), tone: 'error' });
+      publish({ text: errorMessage(error) || (label ? `Could not test ${label}` : ''), tone: 'error' });
     }
   };
   const existingTests: Record<string, ValidationStatus> = state.session === session ? state.statuses : {};

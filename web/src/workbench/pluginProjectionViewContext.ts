@@ -10,9 +10,10 @@ import type {
 } from '../api/types';
 import type { PluginProjectionViewApiPort } from '../api/ports';
 import {
-  dataRequirementReason,
-  firstMissingDataRequirement,
+  resolveRequirementAvailability,
   sheetDataRequirementContext,
+  withoutDisabledCapabilities,
+  type RequirementAvailability,
 } from './dataRequirements';
 import type { WorkbenchPlacementMode, WorkbenchViewDescriptor } from './descriptors';
 import type { WorkbenchHostContext } from './hostContext';
@@ -109,20 +110,6 @@ export interface PluginProjectionViewContext {
   libs?: HostLibraryDeckglFragment;
 }
 
-interface PluginProjectionViewUnavailable {
-  available: false;
-  reason: string;
-}
-
-interface PluginProjectionViewAvailable {
-  available: true;
-  reason?: undefined;
-}
-
-type PluginProjectionViewAvailability =
-  | PluginProjectionViewAvailable
-  | PluginProjectionViewUnavailable;
-
 // Contract-pinned export: tests/authoring/test_plugin_sdk_contract_parity.py scrapes
 // this by its exported form — do not demote to module-private. Same
 // defaults-plus-declared-only composition as pluginViewContext.ts's
@@ -169,15 +156,9 @@ declare global {
 }
 
 function availablePluginProjectionViewCapabilities(): Set<string> {
-  const disabled =
-    typeof window === 'undefined'
-      ? []
-      : window.__FRISKET_DISABLED_PLUGIN_PROJECTION_VIEW_CAPABILITIES__ ?? [];
-  const disabledSet = new Set(disabled);
-  return new Set(
-    DEFAULT_PLUGIN_PROJECTION_VIEW_CAPABILITIES.filter(
-      (capability) => !disabledSet.has(capability),
-    ),
+  return withoutDisabledCapabilities(
+    DEFAULT_PLUGIN_PROJECTION_VIEW_CAPABILITIES,
+    (host) => host.__FRISKET_DISABLED_PLUGIN_PROJECTION_VIEW_CAPABILITIES__,
   );
 }
 
@@ -185,22 +166,8 @@ export function resolvePluginProjectionViewAvailability(
   descriptor: WorkbenchViewDescriptor,
   sheet: SheetMeta | null,
   capabilities: Set<string> = availablePluginProjectionViewCapabilities(),
-): PluginProjectionViewAvailability {
-  for (const requirement of descriptor.requires) {
-    if (requirement.kind !== 'hostCapability' || requirement.optional) continue;
-    const capabilityId = requirement.id ?? '';
-    if (!capabilities.has(capabilityId)) {
-      return { available: false, reason: `missing_capability:${capabilityId}` };
-    }
-  }
-  const unmet = firstMissingDataRequirement(
-    descriptor.dataRequirements,
-    sheetDataRequirementContext(sheet),
-  );
-  if (unmet) {
-    return { available: false, reason: dataRequirementReason(unmet) };
-  }
-  return { available: true };
+): RequirementAvailability {
+  return resolveRequirementAvailability(descriptor, capabilities, sheetDataRequirementContext(sheet));
 }
 
 function columnName(column: ColumnDef): string {

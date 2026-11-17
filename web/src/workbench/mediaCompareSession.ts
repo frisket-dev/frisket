@@ -12,6 +12,7 @@ import type { SelectorChoicesState } from '../engine-selector/useSelectorChoices
 import type { MediaSelectorAction } from './mediaCompareSelector';
 import { useCompareSelectorReadiness } from './useCompareSelectorReadiness';
 import { useComparisonCatalog } from './useComparisonCatalog';
+import { errorMessage } from '../hooks/errorMessage';
 
 export type MediaKind = 'pdf' | 'image' | 'audio' | 'video' | 'text';
 export type Vote = 'neutral' | 'keep' | 'reject';
@@ -344,7 +345,7 @@ export function useMediaCompareSession<R>(
         if (isStale()) return;
         setRunState(doc.id, column.id, {
           status: 'error',
-          message: error instanceof Error ? error.message : String(error),
+          message: errorMessage(error),
         });
       } finally {
         bumpProgress(signal);

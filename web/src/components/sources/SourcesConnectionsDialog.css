@@ -41,14 +41,14 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-16);
   padding: 16px 18px;
   border-bottom: 1px solid var(--border);
 }
 .sources-connections-heading {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-10);
   min-width: 0;
 }
 .sources-connections-icon {
@@ -69,7 +69,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
 .sources-connections-heading p {
   margin: 3px 0 0;
   color: var(--text-light);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .sources-connections-content {
   flex: 1 1 auto;

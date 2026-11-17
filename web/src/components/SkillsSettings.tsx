@@ -6,6 +6,7 @@ import { TextArea } from './FormControls';
 import { useEffect, useRef, useState } from 'react';
 import { FileText, Plus, RefreshCw, Save, Trash2, Upload } from 'lucide-react';
 import { skillsApi, type InstructionSkill } from '../api/skills';
+import { errorMessage } from '../hooks/errorMessage';
 
 const starter = `---
 name: document-investigation
@@ -40,7 +41,7 @@ export function SkillsSettings() {
       setDraft(nextSelected?.content ?? starter);
     } catch (cause) {
       if (generation === mutationGeneration.current) {
-        setError(cause instanceof Error ? cause.message : 'Could not load skills.');
+        setError(errorMessage(cause, 'Could not load skills.'));
       }
     } finally {
       if (generation === mutationGeneration.current && !writeInFlight.current) setBusy(false);
@@ -58,7 +59,7 @@ export function SkillsSettings() {
       setDraft(nextSelected?.content ?? starter);
     }).catch((cause: unknown) => {
       if (active && generation === mutationGeneration.current) {
-        setError(cause instanceof Error ? cause.message : 'Could not load skills.');
+        setError(errorMessage(cause, 'Could not load skills.'));
       }
     }).finally(() => {
       if (active && generation === mutationGeneration.current && !writeInFlight.current) setBusy(false);
@@ -82,7 +83,7 @@ export function SkillsSettings() {
       setSelectedId(saved.id);
       setDraft(saved.content);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not save skill.');
+      setError(errorMessage(cause, 'Could not save skill.'));
     } finally {
       writeInFlight.current = false;
       setBusy(false);
@@ -99,7 +100,7 @@ export function SkillsSettings() {
       const saved = await skillsApi.setEnabled(selected, !selected.enabled);
       setSkills((current) => current.map((skill) => skill.id === saved.id ? saved : skill));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not update skill.');
+      setError(errorMessage(cause, 'Could not update skill.'));
     } finally {
       writeInFlight.current = false;
       setBusy(false);
@@ -118,7 +119,7 @@ export function SkillsSettings() {
       setSelectedId(null);
       setDraft(starter);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not remove skill.');
+      setError(errorMessage(cause, 'Could not remove skill.'));
     } finally {
       writeInFlight.current = false;
       setBusy(false);
@@ -138,7 +139,7 @@ export function SkillsSettings() {
       setSelectedId(saved.id);
       setDraft(saved.content);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not upload SKILL.md.');
+      setError(errorMessage(cause, 'Could not upload SKILL.md.'));
     } finally {
       writeInFlight.current = false;
       setBusy(false);

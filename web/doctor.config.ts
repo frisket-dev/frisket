@@ -14,6 +14,12 @@ export default {
   // and lives in this comment; the watch condition remains: re-run a Socket
   // review on any pdfjs-dist major bump, and revisit if Socket's RISK axes
   // (vulnerability/maintenance — not shape axes) ever degrade.
+  rules: {
+    // Counting useState calls is not a design signal: satisfying this rule
+    // wraps independent fields in a reducer whose cases are plain setters.
+    // Keep useReducer for real transition machines only.
+    'react-doctor/prefer-useReducer': 'off',
+  },
   supplyChain: {
     severity: 'warning',
   },
@@ -272,15 +278,6 @@ export default {
         // minimal ARIA for this mixed-purpose toolbar. KEEP.
         files: ['src/workbench/DocumentReader.tsx'],
         rules: ['react-doctor/prefer-tag-over-role'],
-      },
-      {
-        // sign-in-request-form-split-v1: SignIn keeps six independently
-        // evolving lifecycles (email, busy/sent/error, sender metadata, and
-        // the invited-arrival URL marker). They do not form one transition
-        // state machine, so useReducer would obscure rather than clarify the
-        // request-form behavior.
-        files: ['src/components/SignIn.tsx'],
-        rules: ['react-doctor/prefer-useReducer'],
       },
       {
         files: ['playwright/e2e-duration-server.mjs'],

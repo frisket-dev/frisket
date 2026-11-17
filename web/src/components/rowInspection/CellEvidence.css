@@ -1,7 +1,7 @@
 .cell-evidence {
   margin-top: 8px;
   display: grid;
-  gap: 6px;
+  gap: var(--space-6);
 }
 .cell-evidence-links,
 .cell-evidence-stale-list {
@@ -24,7 +24,7 @@
 .cell-evidence-link small {
   display: block;
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.35;
   margin-top: 2px;
 }

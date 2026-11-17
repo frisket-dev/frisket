@@ -18,8 +18,8 @@
   overflow: hidden;
 }
 /* Review source and decision panes own their scrolling. */
-.review-run-header { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--border); flex: 0 0 auto; min-height: 48px; }
+.review-run-header { display: flex; align-items: center; gap: var(--space-8); padding: 0 12px; border-bottom: 1px solid var(--border); flex: 0 0 auto; min-height: 48px; }
 .review-run-header > section { flex: 1; min-width: 0; }
 .review-run-header > .icon-btn { flex: 0 0 auto; }
-.review-load-error { margin: 6px 18px; font-size: 12px; }
-.review-empty { flex: 1; display: grid; place-content: center; color: var(--text-mid); font-size: 13px; }
+.review-load-error { margin: 6px 18px; font-size: var(--font-size-small); }
+.review-empty { flex: 1; display: grid; place-content: center; color: var(--text-mid); font-size: var(--font-size-body); }

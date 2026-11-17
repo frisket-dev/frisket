@@ -5,6 +5,7 @@ import type { ActionHistoryItem, ActionHistoryPage } from '../../api/actionHisto
 import type { GeneratedActionDraft } from '../../api/types';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { AnchoredMenu } from '../MenuPop';
+import { errorMessage } from '../../hooks/errorMessage';
 
 const HISTORY_PAGE_SIZE = 20;
 type HistoryLoadState =
@@ -46,7 +47,7 @@ export function ActionHistoryMenu({ actionId, trigger, onChoose, onClose }: {
       },
       (error: unknown) => {
         if (requestSequence.current === sequence) setState({ status: 'error', offset,
-          error: error instanceof Error ? error.message : 'Could not load earlier runs.' });
+          error: errorMessage(error, 'Could not load earlier runs.') });
       },
     );
   }, [actionId, projectApi]);
@@ -71,7 +72,7 @@ export function ActionHistoryMenu({ actionId, trigger, onChoose, onClose }: {
       onChoose(detail.draft);
     } catch (error) {
       if (requestSequence.current === sequence) setSelection({ id,
-        error: error instanceof Error ? error.message : 'Could not load these settings.' });
+        error: errorMessage(error, 'Could not load these settings.') });
     }
   };
   const info = state.status === 'ready' ? state.info : null;

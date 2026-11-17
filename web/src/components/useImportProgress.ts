@@ -29,6 +29,7 @@ import {
   setImportSessionBrowserUploading,
   subscribeImportSessions,
 } from './importProgressSession';
+import { errorMessage } from '../hooks/errorMessage';
 
 const POLL_MS = 2_000;
 const ACTIVE_CHILD_STATES = new Set(['queued', 'running', 'stalled', 'orphaned']);
@@ -266,7 +267,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
       setSessions(result.sessions);
     } catch (error) {
       if (!signal?.aborted && generation === refreshGeneration.current) {
-        setMessage(error instanceof Error ? error.message : String(error));
+        setMessage(errorMessage(error));
       }
     }
   }, [onChanged, projectId]);
@@ -311,7 +312,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
       ));
       onChanged?.({ sheetId: next.sheet_id, refreshData: true });
     } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
+      const text = errorMessage(error);
       setMessage(text);
       onError?.(`Import failed: ${text}`);
     } finally {
@@ -326,7 +327,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
       await uploadFilesToImportSession(projectId, session, files);
       onChanged?.({ sheetId: session.sheet_id, refreshData: true });
     } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
+      const text = errorMessage(error);
       setMessage(text);
       onError?.(`Import failed: ${text}`);
     } finally {

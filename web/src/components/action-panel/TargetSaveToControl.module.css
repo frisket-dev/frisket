@@ -2,7 +2,7 @@
   .row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) 28px;
-    gap: 6px;
+    gap: var(--space-6);
     align-items: center;
     margin-top: 10px;
   }

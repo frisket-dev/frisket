@@ -85,7 +85,7 @@
   flex-shrink: 0;
   height: 100%;
   display: flex; flex-direction: column; align-items: center;
-  gap: 4px; padding: 8px 0;
+  gap: var(--space-4); padding: 8px 0;
   background: var(--bg-panel);
   border-left: 1px solid var(--border);
 }

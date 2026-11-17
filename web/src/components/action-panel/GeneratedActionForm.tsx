@@ -51,6 +51,7 @@ import { FormulaFunctionGuide } from './FormulaFunctionGuide';
 import { JoinOutputNames } from './JoinOutputNames';
 import { PdfTablesReview, type PdfTablesMaterializeIntent, type PdfTablesExportIntent } from './PdfTablesReview';
 import type { OcrCompareTarget } from '../../actions/ocrCompare';
+import { errorMessage } from '../../hooks/errorMessage';
 
 interface RichSourceEditorState {
   mode: SourceInputMode;
@@ -864,11 +865,9 @@ function GeneratedActionFormContents({
           if (!current) return;
           setResolvedIdentity(resolutionIdentity);
           setResolved(dynamicOutputs
-            ? { outputs: [], diagnostics: {}, problem: error instanceof Error
-                ? error.message : 'Could not resolve action outputs.' }
+            ? { outputs: [], diagnostics: {}, problem: errorMessage(error, 'Could not resolve action outputs.') }
             : { outputs: catalogEntry.ui_hints.logical_outputs, diagnostics: {},
-                problem: error instanceof Error
-                  ? error.message : 'Could not validate action parameters.' });
+                problem: errorMessage(error, 'Could not validate action parameters.') });
         });
     }, 150);
     return () => {
@@ -1259,7 +1258,7 @@ function GeneratedActionFormContents({
       if (stillCurrent()) onExecute(request, intent);
     } catch (error: unknown) {
       if (stillCurrent()) setResolved((current) => ({ ...current,
-        problem: error instanceof Error ? error.message : 'Could not validate action parameters.' }));
+        problem: errorMessage(error, 'Could not validate action parameters.') }));
     } finally {
       submissionInFlight.current = false;
       setCheckingSubmission(false);

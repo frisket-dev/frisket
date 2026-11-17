@@ -36,14 +36,15 @@ import { ModelPullProgress } from '../components/ModelPullProgress';
 import { PanelError, StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { formatUsdOrNone } from '../format';
 import { ModelPullHistory } from './ModelPullHistory';
-import { useLoader, errMsg } from './settingsSupport';
+import { useLoader } from '../hooks/useLoader';
+import { errorMessage } from '../hooks/errorMessage';
 import { useExistingProviderValidation } from './useExistingProviderValidation';
 import { useSecretEntryDraft } from './useSecretEntryDraft';
 import { InlineStatus, SettingsTable } from './SettingsPrimitives';
 
 export function OrganizationAiProvidersSettings() {
-  const catalog = useLoader<ProviderCatalog>(() => providerCatalog());
-  const keys = useLoader<OrgKeyInfo[]>(() => listOrgKeys());
+  const catalog = useLoader<ProviderCatalog>(() => providerCatalog(), []);
+  const keys = useLoader<OrgKeyInfo[]>(() => listOrgKeys(), []);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -93,7 +94,7 @@ export function OrganizationAiProvidersSettings() {
               title={`Delete ${row.provider} provider key`}
               onClick={() => void deleteOrgKey(row.provider)
                 .then(keys.reload)
-                .catch((caught) => setMutationError(errMsg(caught)))}
+                .catch((caught) => setMutationError(errorMessage(caught)))}
             >
               <Trash2 size={14} />
             </button>
@@ -143,7 +144,7 @@ function orgLocalModelsStatusChip(
 }
 
 function OrgLocalModelsSettings() {
-  const info = useLoader<LocalEndpointCatalog>(() => listOrgLocalEndpoints());
+  const info = useLoader<LocalEndpointCatalog>(() => listOrgLocalEndpoints(), []);
   const data = info.data;
 
   if (info.loading) return null;
@@ -229,7 +230,7 @@ function OrgModelPullDownload({
         // Includes a member's 403 model_pull_disabled/forbidden attempt: the
         // UI cannot know owner-vs-member ahead of time, so that error simply
         // surfaces here as the failure message rather than a pre-hidden button.
-        setError(errMsg(caught));
+        setError(errorMessage(caught));
         setPhase('error');
       }
     } finally {
@@ -318,7 +319,7 @@ function OrgModelPullDownload({
 
 
 export function OrganizationSecretsSettings() {
-  const secrets = useLoader<OrgEnvInfo[]>(() => listOrgEnvVars());
+  const secrets = useLoader<OrgEnvInfo[]>(() => listOrgEnvVars(), []);
   const entry = useSecretEntryDraft('organization');
   const { name, value, setName, setValue, notice, error: mutationError, setError: setMutationError, saving } = entry;
   const save = async (event: FormEvent) => {
@@ -369,7 +370,7 @@ export function OrganizationSecretsSettings() {
             title={`Delete ${row.name} secret`}
             onClick={() => void deleteOrgEnvVar(row.name)
               .then(secrets.reload)
-              .catch((caught) => setMutationError(errMsg(caught)))}
+              .catch((caught) => setMutationError(errorMessage(caught)))}
           >
             <Trash2 size={14} />
           </button>,
@@ -381,7 +382,7 @@ export function OrganizationSecretsSettings() {
 }
 
 export function OrganizationApiKeysSettings() {
-  const tokens = useLoader<ApiTokenInfo[]>(() => listApiKeys());
+  const tokens = useLoader<ApiTokenInfo[]>(() => listApiKeys(), []);
   const [name, setName] = useState('');
   const [created, setCreated] = useState<{ token: string } | null>(null);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
@@ -397,7 +398,7 @@ export function OrganizationApiKeysSettings() {
       await tokens.reload();
     } catch (caught) {
       setCreated(null);
-      setMutationError(errMsg(caught));
+      setMutationError(errorMessage(caught));
     }
   };
   const copyCreatedToken = async () => {
@@ -454,7 +455,7 @@ export function OrganizationApiKeysSettings() {
               type="button"
               onClick={() => void revokeApiKey(row.id)
                 .then(tokens.reload)
-                .catch((caught) => setMutationError(errMsg(caught)))}
+                .catch((caught) => setMutationError(errorMessage(caught)))}
             >
               Revoke
             </Button>
@@ -467,7 +468,7 @@ export function OrganizationApiKeysSettings() {
 }
 
 export function OrganizationSpendSettings() {
-  const spend = useLoader<SpendReport>(() => getSpend());
+  const spend = useLoader<SpendReport>(() => getSpend(), []);
   return (
     <div className="content-stack" data-testid="organization-spend-settings">
       <InlineStatus error={spend.error} loading={spend.loading} />

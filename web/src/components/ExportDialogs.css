@@ -1,4 +1,4 @@
-.export-option-stack { display: grid; gap: 8px; margin-top: 12px; }
+.export-option-stack { display: grid; gap: var(--space-8); margin-top: 12px; }
 .export-option-btn { width: 100%; }
 .export-option-btn.current { border-color: var(--accent); background: var(--accent-bg); }
 .export-dataset-section {
@@ -10,14 +10,14 @@
 .export-dataset-section > legend,
 .export-sheet-heading > span {
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 .export-format-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--space-8);
   margin-top: 7px;
 }
 .export-choice-card {
@@ -35,8 +35,8 @@
   border-color: var(--accent);
   background: var(--accent-bg);
 }
-.export-choice-card span { display: grid; gap: 2px; min-width: 0; }
-.export-choice-card strong { color: var(--text); font-size: 12.5px; }
+.export-choice-card span { display: grid; gap: var(--space-2); min-width: 0; }
+.export-choice-card strong { color: var(--text); font-size: var(--font-size-control); }
 .export-choice-card small,
 .export-scope-option small,
 .export-sheet-option small {
@@ -51,7 +51,7 @@
   align-items: center;
   margin-top: 7px;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .export-scope-option small { grid-column: 2; }
 .export-scope-option:has(input:disabled) { color: var(--text-light); }
@@ -66,13 +66,13 @@
   padding: 0;
   background: transparent;
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
 }
 .export-sheet-list {
   max-height: 176px;
   display: grid;
-  gap: 2px;
+  gap: var(--space-2);
   margin-top: 6px;
   padding: 4px;
   overflow-y: auto;
@@ -83,11 +83,11 @@
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-8);
   padding: 6px;
   border-radius: var(--radius-5);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--font-size-small);
 }
 .export-sheet-option:hover { background: var(--bg-hover); }
 .export-sheet-option span {
@@ -102,7 +102,7 @@
   border-radius: var(--radius-6);
   background: var(--bg-panel);
   color: var(--text-mid);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 @media (max-width: 560px) {
   .export-format-grid { grid-template-columns: minmax(0, 1fr); }

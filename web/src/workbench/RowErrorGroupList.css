@@ -4,7 +4,7 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-4);
 }
 .bottom-dock-row-error-group {
   overflow-wrap: anywhere;

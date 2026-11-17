@@ -1,6 +1,6 @@
 .reviewValue { min-width: 0; }
 .excerpt { min-width: 0; }
-.excerptNotice { margin: 0 0 var(--space-8); color: var(--text-light); font-size: 12px; }
+.excerptNotice { margin: 0 0 var(--space-8); color: var(--text-light); font-size: var(--font-size-small); }
 .excerptText { margin: 0 0 var(--space-8); white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 .reviewValue :global(.row-field-value),
 .reviewValue :global(.row-field-json),

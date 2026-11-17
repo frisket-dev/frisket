@@ -11,6 +11,7 @@ import { ReviewRunControls } from './review/ReviewRunControls';
 import { ReviewSession } from './review/ReviewSession';
 import { ReviewHeader, ReviewShell } from './review/ReviewPresentation';
 import { useReviewRuns } from './review/useReviewRuns';
+import { errorMessage } from '../hooks/errorMessage';
 
 interface ReviewQueueProps {
   runId?: string;
@@ -46,7 +47,7 @@ export function ReviewQueue({ onClose, onChanged, runId, reviewExportUrl }: Revi
       const result = await retryWithConfirmation(projectApi, requestCostConfirmation,
         selectedRun.sheetId, selectedRun.runId);
       if (result?.runId) { afterBackfill(result.runId); onClose(); }
-    } catch (error) { setActionError(error instanceof Error ? error.message : String(error)); }
+    } catch (error) { setActionError(errorMessage(error)); }
     finally { setActionBusy(false); }
   };
   const reapplyDialog = reapplyOpen && selectedRun && <ReapplyResultsDialog run={selectedRun}
