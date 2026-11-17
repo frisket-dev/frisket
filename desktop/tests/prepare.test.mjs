@@ -138,3 +138,62 @@ with tempfile.TemporaryDirectory() as temporary:
     });
   });
 }
+
+test('native downloads retry name-resolution and connection failures, never HTTP statuses', () => {
+  const probe = `
+import email.message
+import importlib.util
+import io
+import json
+import socket
+import sys
+import tempfile
+import urllib.error
+from pathlib import Path
+from unittest.mock import patch
+
+spec = importlib.util.spec_from_file_location("prepare", sys.argv[1])
+prepare = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(prepare)
+
+def scenario(outcomes):
+    calls, sleeps = [], []
+    def urlopen(request, timeout):
+        calls.append(request.full_url)
+        outcome = outcomes[len(calls) - 1]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return io.BytesIO(outcome)
+    with tempfile.TemporaryDirectory() as temporary:
+        destination = Path(temporary) / "asset.download"
+        with patch.object(prepare.urllib.request, "urlopen", urlopen), \\
+                patch.object(prepare.time, "sleep", sleeps.append):
+            try:
+                prepare.download("https://example.invalid/tool.zip", destination)
+                result = destination.read_bytes().decode()
+            except OSError as error:
+                result = type(error).__name__
+    return {"calls": len(calls), "sleeps": sleeps, "result": result}
+
+dns = urllib.error.URLError(socket.gaierror(8, "nodename nor servname provided"))
+not_found = urllib.error.HTTPError(
+    "https://example.invalid/tool.zip", 404, "Not Found", email.message.Message(), None
+)
+print(json.dumps({
+    "recovers": scenario([dns, ConnectionResetError(), b"payload"]),
+    "exhausts": scenario([dns, dns, dns]),
+    "http": scenario([not_found, b"payload"]),
+}))
+`;
+  const python = process.platform === 'win32' ? 'python' : 'python3';
+  const env = process.platform === 'win32' ? { ...process.env } : { PATH: process.env.PATH };
+  const result = spawnSync(python, ['-c', probe, path.join(DESKTOP, 'scripts', 'prepare.py')], {
+    cwd: DESKTOP, encoding: 'utf8', env,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), {
+    recovers: { calls: 3, sleeps: [5, 10], result: 'payload' },
+    exhausts: { calls: 3, sleeps: [5, 10], result: 'URLError' },
+    http: { calls: 1, sleeps: [], result: 'HTTPError' },
+  });
+});
