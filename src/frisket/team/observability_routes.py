@@ -24,11 +24,11 @@ from frisket.team.diagnostics import sanitize_text
 from frisket.team.schema import (
     DEFAULT_DIAGNOSTIC_REPORT_RETENTION_DAYS,
     DEFAULT_DIAGNOSTIC_REPORT_RETENTION_MAX_ROWS,
-    audit_log,
     client_errors,
     orgs,
     pending_invites,
     projects,
+    record_audit,
     users,
 )
 
@@ -384,13 +384,12 @@ def register_observability_routes(
             )
             report_id = int(result.inserted_primary_key[0])
             retain_diagnostic_reports(cx, report_id=report_id)
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=int(actor["id"]),
-                    org_id=org_id,
-                    action="diagnostic_report_created",
-                    detail=str(report_id),
-                )
+            record_audit(
+                cx,
+                user_id=int(actor["id"]),
+                org_id=org_id,
+                action="diagnostic_report_created",
+                detail=str(report_id),
             )
         return DiagnosticBundleResult.model_validate(
             {"ok": True, "report_id": report_id, "bundle": bundle}

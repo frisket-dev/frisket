@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import importlib
 import logging
 import os
 import socket
@@ -16,7 +17,10 @@ import sys
 import threading
 import time
 import webbrowser
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from frisket.project_opener import ProjectOpener
 from frisket.runtime.launch import worker_argv
@@ -25,58 +29,11 @@ from frisket.runtime.supervisor import spawn_service, stop_service
 from frisket.cli._shared import _standalone_database_url
 
 
-def action_cmd(argv: list[str]) -> int:
-    from frisket.cli.action import action as command
-
-    return command(argv)
-
-
-def doctor_cmd(argv: list[str] | None = None) -> int:
-    from frisket.cli.doctor import doctor as command
-
-    return command(argv)
-
-
-def cleanup_cmd(argv: list[str]) -> int:
-    from frisket.cli.cleanup import cleanup as command
-
-    return command(argv)
-
-
-def owner_admin(argv: list[str]) -> int:
-    from frisket.cli.owner import owner_admin as command
-
-    return command(argv)
-
-
-def op_tools(argv: list[str]) -> int:
-    from frisket.cli.op import op as command
-
-    return command(argv)
-
-
-def plugin_cmd(argv: list[str]) -> int:
-    from frisket.cli.plugin import plugin as command
-
-    return command(argv)
-
-
-def queue_admin(argv: list[str]) -> int:
-    from frisket.cli.queue import queue_admin as command
-
-    return command(argv)
-
-
-def reconcile_cmd(argv: list[str]) -> int:
-    from frisket.cli.reconcile import reconcile as command
-
-    return command(argv)
-
-
-def reset_drain_cmd(argv: list[str]) -> int:
-    from frisket.cli.reset_drain import reset_drain as command
-
-    return command(argv)
+def _load(target: str) -> Any:
+    """Resolve a ``"module:attr"`` reference, importing the module on first use
+    so `frisket <cmd>` only pays for the command it runs."""
+    module_name, _, attr = target.partition(":")
+    return getattr(importlib.import_module(module_name), attr)
 
 
 # A scheduler root paired with its DECLARED storage-org identity (None for
@@ -195,197 +152,101 @@ def _storage_org_id_for_scheduler_root(root: Path) -> int | None:
     return value if value > 0 else None
 
 
-def _enqueue_due_source_polls(
+@dataclass(frozen=True)
+class _Sweep:
+    """One due-work scan the worker runs over every scheduler root."""
+
+    enqueue: str
+    skipped_event: str
+    count: Callable[[Any], int] = len
+
+
+_SOURCE_POLLS = _Sweep(
+    "frisket.engine.jobs:enqueue_due_source_polls", "source_scheduler_skipped"
+)
+_SCHEDULED_EMBEDDINGS = _Sweep(
+    "frisket.engine.jobs:enqueue_due_scheduled_refreshes",
+    "embedding_scheduler_skipped",
+)
+_WATCHES = _Sweep(
+    "frisket.engine.jobs.watches:enqueue_due_watch_evaluations",
+    "watch_scheduler_skipped",
+)
+_NOTIFICATION_DIGESTS = _Sweep(
+    "frisket.engine.jobs:enqueue_due_notification_digests",
+    "notification_digest_scheduler_skipped",
+    count=int,
+)
+
+
+@dataclass(frozen=True)
+class _Scheduler:
+    """A worker thread that runs ``sweeps`` in order every ``interval_option``
+    seconds (the parsed worker option; 0 disables it)."""
+
+    thread_name: str
+    interval_option: str
+    sweeps: tuple[_Sweep, ...]
+
+
+_SCHEDULERS = (
+    _Scheduler("source-scheduler", "schedule_sources_interval", (_SOURCE_POLLS,)),
+    _Scheduler(
+        "embedding-scheduler",
+        "schedule_embeddings_interval",
+        (_SCHEDULED_EMBEDDINGS,),
+    ),
+    _Scheduler(
+        "notification-digest-scheduler",
+        "schedule_notification_digests_interval",
+        (_WATCHES, _NOTIFICATION_DIGESTS),
+    ),
+)
+
+
+def _sweep(
+    sweep: _Sweep,
     queue,
     roots: list[SchedulerRoot],
     *,
     project_opener: ProjectOpener | None = None,
 ) -> int:
-    from frisket.engine.jobs import enqueue_due_source_polls
-
-    logger = logging.getLogger("frisket.worker")
+    """Run one sweep over every root; a failing root is logged and skipped so
+    the scheduler never kills the worker."""
+    enqueue = _load(sweep.enqueue)
     total = 0
     for root, storage_org_id in roots:
         try:
-            total += len(
-                enqueue_due_source_polls(
-                    workspace_root=root,
+            total += sweep.count(
+                enqueue(
                     queue=queue,
+                    workspace_root=root,
                     storage_org_id=storage_org_id,
                     project_opener=project_opener,
                 )
             )
-        except Exception as exc:  # noqa: BLE001 - scheduler must not kill worker
-            logger.warning(
-                "source_scheduler_skipped",
-                extra={
-                    "event": "source_scheduler_skipped",
-                    "workspace_root": str(root),
-                    "error": str(exc),
-                },
-            )
-    return total
-
-
-def _start_source_scheduler(
-    queue,
-    roots: list[SchedulerRoot],
-    interval: float,
-    stop,
-    *,
-    project_opener: ProjectOpener | None = None,
-):
-    import threading
-
-    if interval <= 0 or not roots:
-        return None
-
-    def loop() -> None:
-        while not stop.is_set():
-            _enqueue_due_source_polls(queue, roots, project_opener=project_opener)
-            stop.wait(interval)
-
-    thread = threading.Thread(target=loop, name="source-scheduler", daemon=True)
-    thread.start()
-    return thread
-
-
-def _enqueue_due_scheduled_embeddings(
-    queue,
-    roots: list[SchedulerRoot],
-    *,
-    project_opener: ProjectOpener | None = None,
-) -> int:
-    from frisket.engine.jobs import enqueue_due_scheduled_refreshes
-
-    logger = logging.getLogger("frisket.worker")
-    total = 0
-    for root, storage_org_id in roots:
-        try:
-            total += len(
-                enqueue_due_scheduled_refreshes(
-                    workspace_root=root,
-                    queue=queue,
-                    storage_org_id=storage_org_id,
-                    project_opener=project_opener,
-                )
-            )
-        except Exception as exc:  # noqa: BLE001 - scheduler must not kill worker
-            logger.warning(
-                "embedding_scheduler_skipped",
-                extra={
-                    "event": "embedding_scheduler_skipped",
-                    "workspace_root": str(root),
-                    "error": str(exc),
-                },
-            )
-    return total
-
-
-def _start_embedding_scheduler(
-    queue,
-    roots: list[SchedulerRoot],
-    interval: float,
-    stop,
-    *,
-    project_opener: ProjectOpener | None = None,
-):
-    import threading
-
-    if interval <= 0 or not roots:
-        return None
-
-    def loop() -> None:
-        while not stop.is_set():
-            _enqueue_due_scheduled_embeddings(
-                queue, roots, project_opener=project_opener
-            )
-            stop.wait(interval)
-
-    thread = threading.Thread(target=loop, name="embedding-scheduler", daemon=True)
-    thread.start()
-    return thread
-
-
-def _enqueue_due_notification_digests(
-    queue,
-    roots: list[SchedulerRoot],
-    *,
-    project_opener: ProjectOpener | None = None,
-) -> int:
-    from frisket.engine.jobs import enqueue_due_notification_digests
-
-    logger = logging.getLogger("frisket.worker")
-    total = 0
-    for root, storage_org_id in roots:
-        try:
-            total += enqueue_due_notification_digests(
-                queue,
-                workspace_root=root,
-                storage_org_id=storage_org_id,
-                project_opener=project_opener,
-            )
-        except Exception as exc:  # noqa: BLE001 - scheduler must not kill worker
-            logger.warning(
-                "notification_digest_scheduler_skipped",
-                extra={
-                    "event": "notification_digest_scheduler_skipped",
-                    "workspace_root": str(root),
-                    "error": str(exc),
-                },
-            )
-    return total
-
-
-def _enqueue_due_watches(
-    queue, roots: list[SchedulerRoot], *, project_opener: ProjectOpener | None = None
-) -> int:
-    from frisket.engine.jobs.watches import enqueue_due_watch_evaluations
-
-    total = 0
-    for root, storage_org_id in roots:
-        try:
-            total += len(
-                enqueue_due_watch_evaluations(
-                    workspace_root=root,
-                    queue=queue,
-                    storage_org_id=storage_org_id,
-                    project_opener=project_opener,
-                )
-            )
-        except Exception:
+        except Exception as exc:
             logging.getLogger("frisket.worker").warning(
-                "watch_scheduler_skipped", exc_info=True
+                sweep.skipped_event,
+                extra={
+                    "event": sweep.skipped_event,
+                    "workspace_root": str(root),
+                    "error": str(exc),
+                },
+                exc_info=True,
             )
     return total
 
 
-def _start_notification_digest_scheduler(
-    queue,
-    roots: list[SchedulerRoot],
-    interval: float,
-    stop,
-    *,
-    project_opener: ProjectOpener | None = None,
-):
-    import threading
-
-    if interval <= 0 or not roots:
-        return None
-
+def _start_scheduler(
+    name: str, tick: Callable[[], None], interval: float, stop: threading.Event
+) -> threading.Thread:
     def loop() -> None:
         while not stop.is_set():
-            _enqueue_due_watches(queue, roots, project_opener=project_opener)
-            _enqueue_due_notification_digests(
-                queue, roots, project_opener=project_opener
-            )
+            tick()
             stop.wait(interval)
 
-    thread = threading.Thread(
-        target=loop,
-        name="notification-digest-scheduler",
-        daemon=True,
-    )
+    thread = threading.Thread(target=loop, name=name, daemon=True)
     thread.start()
     return thread
 
@@ -548,9 +409,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     env var so the Personal one-command path cannot accidentally point its
     child worker at server infrastructure. FRISKET_DATABASE_URL remains the
     control-plane locator for handlers that need it."""
-    import argparse
     import signal
-    import threading
 
     command_name = "hosted-worker" if hosted else "worker"
     if hosted and any(
@@ -720,48 +579,21 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         queue_label=where,
     )
     stop = threading.Event()
-    source_scheduler = None
-    if args.schedule_sources_interval > 0 and source_roots:
+    schedulers: list[threading.Thread] = []
+    for scheduler in _SCHEDULERS:
+        interval = getattr(args, scheduler.interval_option)
+        if interval <= 0 or not source_roots:
+            continue
+
+        def tick(sweeps: tuple[_Sweep, ...] = scheduler.sweeps) -> None:
+            for sweep in sweeps:
+                _sweep(sweep, queue, source_roots, project_opener=project_opener)
+
         if args.drain:
-            _enqueue_due_source_polls(
-                queue, source_roots, project_opener=project_opener
-            )
+            tick()
         else:
-            source_scheduler = _start_source_scheduler(
-                queue,
-                source_roots,
-                args.schedule_sources_interval,
-                stop,
-                project_opener=project_opener,
-            )
-    embedding_scheduler = None
-    if args.schedule_embeddings_interval > 0 and source_roots:
-        if args.drain:
-            _enqueue_due_scheduled_embeddings(
-                queue, source_roots, project_opener=project_opener
-            )
-        else:
-            embedding_scheduler = _start_embedding_scheduler(
-                queue,
-                source_roots,
-                args.schedule_embeddings_interval,
-                stop,
-                project_opener=project_opener,
-            )
-    notification_digest_scheduler = None
-    if args.schedule_notification_digests_interval > 0 and source_roots:
-        if args.drain:
-            _enqueue_due_watches(queue, source_roots, project_opener=project_opener)
-            _enqueue_due_notification_digests(
-                queue, source_roots, project_opener=project_opener
-            )
-        else:
-            notification_digest_scheduler = _start_notification_digest_scheduler(
-                queue,
-                source_roots,
-                args.schedule_notification_digests_interval,
-                stop,
-                project_opener=project_opener,
+            schedulers.append(
+                _start_scheduler(scheduler.thread_name, tick, interval, stop)
             )
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: stop.set())  # finish current job, then exit
@@ -777,12 +609,8 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         w.run_forever(stop, drain=args.drain)
     finally:
         stop.set()
-        if source_scheduler is not None:
-            source_scheduler.join(timeout=5)
-        if embedding_scheduler is not None:
-            embedding_scheduler.join(timeout=5)
-        if notification_digest_scheduler is not None:
-            notification_digest_scheduler.join(timeout=5)
+        for thread in schedulers:
+            thread.join(timeout=5)
         try:
             if embedding_runtime is not None:
                 embedding_runtime.close()
@@ -831,93 +659,78 @@ def _stop_worker(proc: "subprocess.Popen | None") -> None:
     stop_service(proc)
 
 
-def _subcommands() -> "dict[str, tuple]":
-    """Subcommand registry: name -> (handler, one-line help). Single source of
-    truth for BOTH dispatch and the usage text, so a new command can never leave
-    `--help` stale. Each handler takes the post-subcommand argv and returns an
-    exit code."""
-
-    def _mcp(argv: list[str]) -> int:
-        from frisket.server.mcp.server import main as mcp_main
-
-        return mcp_main(argv)
-
-    def _remote(argv: list[str]) -> int:
-        from frisket.remote.cli import remote_command
-
-        return remote_command(argv)
-
-    def _users(argv: list[str]) -> int:
-        from frisket.remote.cli import users_command
-
-        return users_command(argv)
-
-    def _token(argv: list[str]) -> int:
-        from frisket.remote.cli import token_command
-
-        return token_command(argv)
-
-    def _secrets(argv: list[str]) -> int:
-        from frisket.remote.cli import secrets_command
-
-        return secrets_command(argv)
-
-    def _proxy(argv: list[str]) -> int:
-        from frisket.remote.cli import proxy_command
-
-        return proxy_command(argv)
-
-    def _runtimes(argv: list[str]) -> int:
-        from frisket.plugins.managed_runtime import managed_runtime_cli
-
-        return managed_runtime_cli(argv)
-
+def _subcommands() -> dict[str, tuple[str, str]]:
+    """Subcommand registry: name -> ("module:attr" handler, one-line help).
+    Single source of truth for BOTH dispatch and the usage text, so a new
+    command can never leave `--help` stale. Each handler takes the
+    post-subcommand argv and returns an exit code."""
     return {
-        "server": (server, "run the single-replica production server"),
-        "owner": (owner_admin, "recover the sole server owner account"),
-        "queue": (queue_admin, "provision and migrate the hosted run queue"),
-        "worker": (worker, "run the job-queue worker by itself"),
+        "server": ("frisket.cli:server", "run the single-replica production server"),
+        "owner": (
+            "frisket.cli.owner:owner_admin",
+            "recover the sole server owner account",
+        ),
+        "queue": (
+            "frisket.cli.queue:queue_admin",
+            "provision and migrate the hosted run queue",
+        ),
+        "worker": ("frisket.cli:worker", "run the job-queue worker by itself"),
         "hosted-worker": (
-            hosted_worker,
+            "frisket.cli:hosted_worker",
             "run the public-hosted worker with code execution disabled",
         ),
-        "doctor": (doctor_cmd, "deployment self-probe (frisket doctor --help)"),
-        "cleanup": (cleanup_cmd, "offline cleanup for unused project storage"),
-        "remote": (_remote, "manage linked team servers (link/status/list/default)"),
+        "doctor": (
+            "frisket.cli.doctor:doctor",
+            "deployment self-probe (frisket doctor --help)",
+        ),
+        "cleanup": (
+            "frisket.cli.cleanup:cleanup",
+            "offline cleanup for unused project storage",
+        ),
+        "remote": (
+            "frisket.remote.cli:remote_command",
+            "manage linked team servers (link/status/list/default)",
+        ),
         "users": (
-            _users,
+            "frisket.remote.cli:users_command",
             "manage a linked server's users (add/list/remove/reset/role)",
         ),
-        "token": (_token, "rotate a linked server's operator token"),
+        "token": (
+            "frisket.remote.cli:token_command",
+            "rotate a linked server's operator token",
+        ),
         "secrets": (
-            _secrets,
+            "frisket.remote.cli:secrets_command",
             "manage a linked server's provider keys (set/list/unset/push)",
         ),
         "proxy": (
-            _proxy,
+            "frisket.remote.cli:proxy_command",
             "route a linked server's media downloads through this computer "
             "(up/status/down)",
         ),
-        "mcp": (_mcp, "run the MCP server"),
+        "mcp": ("frisket.server.mcp.server:main", "run the MCP server"),
         "runtimes": (
-            _runtimes,
+            "frisket.plugins.managed_runtime:managed_runtime_cli",
             "inspect/apply managed plugin runtimes (inspect|apply <name>)",
         ),
-        "action": (action_cmd, "v1 action contracts (schema/validate/run)"),
+        "action": (
+            "frisket.cli.action:action",
+            "v1 action contracts (schema/validate/run)",
+        ),
         "plugin": (
-            plugin_cmd,
+            "frisket.cli.plugin:plugin",
             "trusted-local plugin author tools (init/validate/build/test-backend/dev)",
         ),
         "op": (
-            op_tools,
+            "frisket.cli.op:op",
             "first-party op author tools (try <kind> --input '{...}')",
         ),
         "reconcile": (
-            reconcile_cmd,
+            "frisket.cli.reconcile:reconcile",
             "decide stuck paid-effect checkpoints (list/discard/accept-charged)",
         ),
         "reset-drain": (
-            reset_drain_cmd,
+            "frisket.cli.reset_drain:reset_drain",
             "machine-readable stop-the-world reset preflight",
         ),
     }
@@ -984,7 +797,9 @@ def _looks_pathlike(token: str) -> bool:
     )
 
 
-def _unknown_command_error(token: str, commands: "dict[str, tuple]") -> "SystemExit":
+def _unknown_command_error(
+    token: str, commands: dict[str, tuple[str, str]]
+) -> "SystemExit":
     """A mistyped subcommand must not be mistaken for a workspace name — the
     default serve path mkdir's whatever it's given (create_app) and boots a
     server on it. Only a registered subcommand, an existing path, or
@@ -1223,8 +1038,7 @@ def main() -> None:
 
     commands = _subcommands()
     if argv and argv[0] in commands:
-        handler = commands[argv[0]][0]
-        raise SystemExit(handler(argv[1:]))
+        raise SystemExit(_load(commands[argv[0]][0])(argv[1:]))
 
     # A bare typo (`frisket doctro`) must not fall through to the serve path
     # below — that path mkdir's whatever it's given and boots a server on

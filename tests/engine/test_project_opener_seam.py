@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import importlib
 import signal
-import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -316,29 +315,32 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     for name in (
         "frisket.engine.jobs.sources",
         "frisket.engine.jobs.embeddings",
+        "frisket.engine.jobs.watches",
         "frisket.engine.jobs.notifications_digest",
     ):
         monkeypatch.setattr(modules[name], "Project", forbid_direct_project)
 
     queue = SqliteJobQueue(tmp_path / "scheduler.db", hosted=True)
     try:
-        for scheduler in (
-            cli._enqueue_due_source_polls,
-            cli._enqueue_due_scheduled_embeddings,
-            cli._enqueue_due_notification_digests,
+        for sweep in (
+            cli._SOURCE_POLLS,
+            cli._SCHEDULED_EMBEDDINGS,
+            cli._WATCHES,
+            cli._NOTIFICATION_DIGESTS,
         ):
             calls.clear()
             direct_opens.clear()
-            scheduler(queue, [(root, 23)], project_opener=opener)
+            cli._sweep(sweep, queue, [(root, 23)], project_opener=opener)
             assert calls == [(key, bundle)], (
-                f"{scheduler.__name__} ignored tuple identity/opener: {calls}"
+                f"{sweep.enqueue} ignored tuple identity/opener: {calls}"
             )
             assert direct_opens == []
             for invalid_identity in (None, 0, -7):
                 calls.clear()
                 direct_opens.clear()
                 try:
-                    scheduler(
+                    cli._sweep(
+                        sweep,
                         queue,
                         [(root, invalid_identity)],
                         project_opener=opener,
@@ -346,7 +348,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
                 except (RuntimeError, ValueError):
                     pass
                 assert calls == [], (
-                    f"{scheduler.__name__} opened invalid identity "
+                    f"{sweep.enqueue} opened invalid identity "
                     f"{invalid_identity}: {calls}"
                 )
                 assert direct_opens == []
@@ -563,53 +565,17 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
             cli, "_source_scheduler_roots", lambda workspace: [(root, 23)]
         )
 
-        for starter_name, enqueue_name in (
-            ("_start_source_scheduler", "_enqueue_due_source_polls"),
-            ("_start_embedding_scheduler", "_enqueue_due_scheduled_embeddings"),
-            (
-                "_start_notification_digest_scheduler",
-                "_enqueue_due_notification_digests",
-            ),
-        ):
-            stop = threading.Event()
-            loop_openers: list[Any] = []
-
-            def capture_loop(
-                _queue: Any,
-                _roots: Any,
-                *,
-                project_opener: Any = None,
-                _stop: threading.Event = stop,
-            ) -> int:
-                loop_openers.append(project_opener)
-                _stop.set()
-                return 0
-
-            monkeypatch.setattr(cli, enqueue_name, capture_loop)
-            scheduler = getattr(cli, starter_name)(
-                cli_queue,
-                [(root, 23)],
-                0.01,
-                stop,
-                project_opener=sentinel,
-            )
-            assert scheduler is not None
-            scheduler.join(timeout=1)
-            assert not scheduler.is_alive()
-            assert loop_openers == [sentinel]
-
-        def capture_scheduler(
+        def capture_sweep(
+            sweep: Any,
             _queue: Any,
             _roots: Any,
             *,
             project_opener: Any = None,
         ) -> int:
-            scheduler_openers.append(project_opener)
+            scheduler_openers.append((sweep, project_opener))
             return 0
 
-        monkeypatch.setattr(cli, "_enqueue_due_source_polls", capture_scheduler)
-        monkeypatch.setattr(cli, "_enqueue_due_scheduled_embeddings", capture_scheduler)
-        monkeypatch.setattr(cli, "_enqueue_due_notification_digests", capture_scheduler)
+        monkeypatch.setattr(cli, "_sweep", capture_sweep)
         monkeypatch.setattr(signal, "signal", lambda *args, **kwargs: None)
         monkeypatch.setenv("FRISKET_RUN_QUEUE_DATABASE_URL", "postgresql://unused/r10")
         rc = cli._run_worker(
@@ -625,11 +591,17 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
             hosted=True,
         )
         assert rc == 0
-        assert scheduler_openers == [sentinel, sentinel, sentinel]
+        every_sweep = [
+            (cli._SOURCE_POLLS, sentinel),
+            (cli._SCHEDULED_EMBEDDINGS, sentinel),
+            (cli._WATCHES, sentinel),
+            (cli._NOTIFICATION_DIGESTS, sentinel),
+        ]
+        assert scheduler_openers == every_sweep
         assert cli_queue.closed is True
         assert drain_modes == [True]
 
-        starter_openers: list[Any] = []
+        started: list[str] = []
 
         class JoinedScheduler:
             joined = False
@@ -641,23 +613,19 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         schedulers: list[JoinedScheduler] = []
 
         def capture_starter(
-            _queue: Any,
-            _roots: Any,
+            name: str,
+            tick: Any,
             _interval: float,
             _stop: Any,
-            *,
-            project_opener: Any = None,
         ) -> JoinedScheduler:
-            starter_openers.append(project_opener)
+            started.append(name)
+            tick()
             thread = JoinedScheduler()
             schedulers.append(thread)
             return thread
 
-        monkeypatch.setattr(cli, "_start_source_scheduler", capture_starter)
-        monkeypatch.setattr(cli, "_start_embedding_scheduler", capture_starter)
-        monkeypatch.setattr(
-            cli, "_start_notification_digest_scheduler", capture_starter
-        )
+        monkeypatch.setattr(cli, "_start_scheduler", capture_starter)
+        scheduler_openers.clear()
         cli_queue.closed = False
         rc = cli._run_worker(
             [
@@ -671,7 +639,12 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
             hosted=True,
         )
         assert rc == 0
-        assert starter_openers == [sentinel, sentinel, sentinel]
+        assert started == [
+            "source-scheduler",
+            "embedding-scheduler",
+            "notification-digest-scheduler",
+        ]
+        assert scheduler_openers == every_sweep
         assert drain_modes == [True, False]
         assert all(scheduler.joined for scheduler in schedulers)
         assert cli_queue.closed is True

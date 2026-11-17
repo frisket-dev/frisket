@@ -45,19 +45,18 @@ def test_doctor_help_lists_script_backed_subcommands_without_running_probe():
 
 def test_doctor_function_reports_failures(monkeypatch):
     # a core failure must flip the exit code (doctor can actually fail)
-    import frisket.cli as cli
+    from frisket.cli.doctor import doctor
 
     def boom():
         raise RuntimeError("simulated store failure")
 
-    monkeypatch.setattr(cli, "doctor_cmd", cli.doctor_cmd)  # keep real fn referenced
     # simulate by breaking the store import path the probe uses
     import frisket.engine.store
 
     monkeypatch.setattr(
         frisket.engine.store.Project, "create", staticmethod(lambda *a, **k: boom())
     )
-    assert cli.doctor_cmd() == 1
+    assert doctor() == 1
 
 
 # ---------------------------------------------------------------------------

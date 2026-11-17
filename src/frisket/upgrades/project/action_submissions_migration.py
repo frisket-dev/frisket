@@ -1,8 +1,7 @@
 """Add submitted action settings without changing execution or undo history."""
 
 from __future__ import annotations
-import sqlite3
-from frisket.engine.store.schema import SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project._step import SchemaStep, ddl_statements
 
 
 ACTION_SUBMISSIONS_FROM_DIGEST = "frisket.schema.v1:eacabe5ca733e513082aeeb74d2ad676"
@@ -30,28 +29,8 @@ CREATE INDEX IF NOT EXISTS idx_runs_action_history
 """
 
 
-def migrate_action_submissions(db: sqlite3.Connection) -> None:
-    query = "SELECT value FROM meta WHERE key=?"
-    row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-    if row is None or row[0] != ACTION_SUBMISSIONS_FROM_DIGEST:
-        return
-    db.execute("BEGIN IMMEDIATE")
-    try:
-        row = db.execute(query, (SCHEMA_DIGEST_META_KEY,)).fetchone()
-        if row is not None and row[0] == ACTION_SUBMISSIONS_FROM_DIGEST:
-            statement = ""
-            for line in _MIGRATION_SQL.splitlines(keepends=True):
-                statement += line
-                if sqlite3.complete_statement(statement):
-                    db.execute(statement)
-                    statement = ""
-            if statement.strip():
-                raise RuntimeError("Incomplete action history migration DDL")
-            db.execute(
-                "UPDATE meta SET value=? WHERE key=?",
-                (ACTION_SUBMISSIONS_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
-            )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
+ACTION_SUBMISSIONS_STEP: SchemaStep = (
+    ACTION_SUBMISSIONS_FROM_DIGEST,
+    ACTION_SUBMISSIONS_TO_DIGEST,
+    ddl_statements(_MIGRATION_SQL),
+)

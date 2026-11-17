@@ -8,11 +8,12 @@ import pytest
 
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
+from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.document_text_migration import DOCUMENT_TEXT_FROM_DIGEST
 from frisket.upgrades.project.execution_metadata_migration import (
     EXECUTION_METADATA_FROM_DIGEST,
     EXECUTION_METADATA_TO_DIGEST,
-    migrate_execution_metadata,
+    EXECUTION_METADATA_STEP,
 )
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import (
@@ -222,7 +223,7 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
         dict(row) for row in project.db.execute("SELECT * FROM results ORDER BY row_id")
     ]
     # Verify the frozen historical step in isolation before the breaking cutover.
-    migrate_execution_metadata(project.db, bundle_path=project.db_path)
+    run_step(project.db, *EXECUTION_METADATA_STEP)
     assert project.get_meta(SCHEMA_DIGEST_META_KEY) == EXECUTION_METADATA_TO_DIGEST
     after = [
         dict(row) for row in project.db.execute("SELECT * FROM results ORDER BY row_id")
@@ -254,7 +255,7 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
         ] == ["[]", "[]"]
         assert reopened.undo() is None
         assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
-        migrate_execution_metadata(reopened.db, bundle_path=reopened.db_path)
+        run_step(reopened.db, *EXECUTION_METADATA_STEP)
         _assert_warning_guard(reopened, run_id, row_ids[0], output_id)
     finally:
         reopened.close()
@@ -270,7 +271,7 @@ def test_warning_migration_rolls_back_on_digest_stamp_failure(warning_run):
     )
     project.db.commit()
     with pytest.raises(sqlite3.IntegrityError, match="migration interrupted"):
-        migrate_execution_metadata(project.db, bundle_path=project.db_path)
+        run_step(project.db, *EXECUTION_METADATA_STEP)
     assert "warnings" not in {
         row[1] for row in project.db.execute("PRAGMA table_info(results)")
     }
@@ -317,7 +318,7 @@ def test_progress_metadata_is_nullable_separate_from_inputs_and_retained(
             "UPDATE runs SET work_progress=? WHERE id=?", (json.dumps(progress), run_id)
         )
         project.db.commit()
-        migrate_execution_metadata(project.db, bundle_path=project.db_path)
+        run_step(project.db, *EXECUTION_METADATA_STEP)
     finally:
         project.close()
     reopened = Project(path)

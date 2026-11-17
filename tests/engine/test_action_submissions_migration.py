@@ -4,10 +4,11 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
+from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.action_submissions_migration import (
     ACTION_SUBMISSIONS_FROM_DIGEST,
     ACTION_SUBMISSIONS_TO_DIGEST,
-    migrate_action_submissions,
+    ACTION_SUBMISSIONS_STEP,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 
@@ -47,7 +48,7 @@ def test_upgrade_preserves_data_and_undo_history(tmp_path):
             ).fetchone()[0]
             == SCHEMA_DIGEST
         )
-        migrate_action_submissions(project.db)
+        run_step(project.db, *ACTION_SUBMISSIONS_STEP)
         assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
@@ -59,7 +60,7 @@ def test_failed_upgrade_rolls_back_atomically(tmp_path):
         )
         project.db.commit()
         with pytest.raises(sqlite3.IntegrityError, match="stamp refused"):
-            migrate_action_submissions(project.db)
+            run_step(project.db, *ACTION_SUBMISSIONS_STEP)
         assert (
             project.db.execute(
                 "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
@@ -74,7 +75,7 @@ def test_failed_upgrade_rolls_back_atomically(tmp_path):
 def test_standalone_upgrade_stamps_its_historical_endpoint(tmp_path):
     with closing(Project.create(tmp_path / "project")) as project:
         prior(project)
-        migrate_action_submissions(project.db)
+        run_step(project.db, *ACTION_SUBMISSIONS_STEP)
         assert (
             project.db.execute(
                 "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)

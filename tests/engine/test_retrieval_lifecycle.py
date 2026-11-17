@@ -19,10 +19,11 @@ from frisket.engine.store.retrieval_lifecycle import (
     read_binding_revisions,
     touch_binding_revisions,
 )
+from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.retrieval_lifecycle_migration import (
     RETRIEVAL_LIFECYCLE_FROM_DIGEST,
     RETRIEVAL_LIFECYCLE_TO_DIGEST,
-    migrate_retrieval_lifecycle,
+    RETRIEVAL_LIFECYCLE_STEP,
 )
 from frisket.upgrades.project.execution_metadata_migration import (
     EXECUTION_METADATA_FROM_DIGEST,
@@ -277,7 +278,7 @@ def test_migration_rolls_back_column_revision_and_work_on_failed_stamp(
     db.commit()
 
     with pytest.raises(sqlite3.IntegrityError, match="migration interrupted"):
-        migrate_retrieval_lifecycle(db, bundle_path=project.db_path)
+        run_step(db, *RETRIEVAL_LIFECYCLE_STEP)
 
     assert "retrieval_revision" not in {
         str(row[1]) for row in db.execute("PRAGMA table_info(current_cells)")

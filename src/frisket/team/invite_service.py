@@ -20,12 +20,12 @@ from frisket.team.enforcement import ProjectAccess
 from frisket.team.identity_service import SESSION_TTL_DAYS
 from frisket.team.local_auth import hash_password
 from frisket.team.schema import (
-    audit_log,
     memberships,
     pending_invites,
     project_invites,
     project_roles,
     projects,
+    record_audit,
     sessions,
     users,
 )
@@ -202,13 +202,12 @@ class InviteService:
                     "change their role instead of re-inviting them",
                     status_code=409,
                 )
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=actor_user_id,
-                    org_id=self._org_id,
-                    action="org_invite_set",
-                    detail=clean_email,
-                )
+            record_audit(
+                cx,
+                user_id=actor_user_id,
+                org_id=self._org_id,
+                action="org_invite_set",
+                detail=clean_email,
             )
         return {
             "email": clean_email,
@@ -245,13 +244,12 @@ class InviteService:
                 )
             )
             if result.rowcount:
-                cx.execute(
-                    audit_log.insert().values(
-                        user_id=actor_user_id,
-                        org_id=self._org_id,
-                        action="org_invite_revoked",
-                        detail=clean_email,
-                    )
+                record_audit(
+                    cx,
+                    user_id=actor_user_id,
+                    org_id=self._org_id,
+                    action="org_invite_revoked",
+                    detail=clean_email,
                 )
             return bool(result.rowcount)
 
@@ -302,13 +300,12 @@ class InviteService:
             row = cx.execute(
                 sa.select(project_invites).where(project_invites.c.id == invite_id)
             ).one()
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=actor_user_id,
-                    org_id=self._org_id,
-                    action="project_invited",
-                    detail=f"{slug}:{clean_email}:{clean_role}",
-                )
+            record_audit(
+                cx,
+                user_id=actor_user_id,
+                org_id=self._org_id,
+                action="project_invited",
+                detail=f"{slug}:{clean_email}:{clean_role}",
             )
         return self._invite_payload(row), raw_token
 
@@ -347,13 +344,12 @@ class InviteService:
                 .values(revoked_at=now)
             )
             if result.rowcount:
-                cx.execute(
-                    audit_log.insert().values(
-                        user_id=actor_user_id,
-                        org_id=self._org_id,
-                        action="project_invite_revoked",
-                        detail=f"{slug}:{invite_id}",
-                    )
+                record_audit(
+                    cx,
+                    user_id=actor_user_id,
+                    org_id=self._org_id,
+                    action="project_invite_revoked",
+                    detail=f"{slug}:{invite_id}",
                 )
             return bool(result.rowcount)
 
@@ -465,13 +461,12 @@ class InviteService:
                     )
                     .values(role=str(invite.role))
                 )
-            cx.execute(
-                audit_log.insert().values(
-                    user_id=user.id,
-                    org_id=self._org_id,
-                    action="project_invite_accepted",
-                    detail=f"{invite.slug}:{invite.email}:{invite.role}",
-                )
+            record_audit(
+                cx,
+                user_id=user.id,
+                org_id=self._org_id,
+                action="project_invite_accepted",
+                detail=f"{invite.slug}:{invite.email}:{invite.role}",
             )
             # Keep the one-time invite claim and the usable login inseparable:
             # a failed session write must roll back the accepted marker, role,

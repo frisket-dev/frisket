@@ -4,7 +4,12 @@ import sqlite3
 
 import pytest
 
-from frisket.upgrades.project.chain import _migrate_search_work
+from frisket.upgrades.project._step import run_step
+from frisket.upgrades.project.chain import (
+    _SEARCH_WORK_FROM_DIGEST,
+    _SEARCH_WORK_TO_DIGEST,
+    _apply_search_work,
+)
 from frisket.engine.store.project import Project
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.value_codec import encode_stored_value
@@ -162,7 +167,9 @@ def test_known_bundle_migration_preserves_data_and_seeds_repair(tmp_path) -> Non
     # unrelated table-layout migrations against a layout it never claimed to
     # have. Run the targeted migration, then restore the honest current stamp
     # before proving that the repaired bundle reopens normally.
-    _migrate_search_work(project.db)
+    run_step(
+        project.db, _SEARCH_WORK_FROM_DIGEST, _SEARCH_WORK_TO_DIGEST, _apply_search_work
+    )
     project.db.execute(
         "UPDATE meta SET value=? WHERE key=?",
         (SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY),

@@ -608,7 +608,7 @@ def test_doctor_and_diagnose_share_the_probe_module(monkeypatch):
     """``frisket doctor`` must call ``frisket.diagnostics`` instead of
     reimplementing probes inline. Otherwise doctor and Diagnose can drift and
     regress to exposing raw stderr-grade strings."""
-    import frisket.cli as cli
+    from frisket.cli.doctor import doctor
     from frisket.operability import diagnostics
 
     monkeypatch.setattr(
@@ -625,7 +625,7 @@ def test_doctor_and_diagnose_share_the_probe_module(monkeypatch):
 
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        rc = cli.doctor_cmd()
+        rc = doctor()
     assert rc == 0
     assert "SENTINEL-42" in out.getvalue()
 

@@ -28,14 +28,13 @@ from frisket.features.watchlists.triggers import trigger_completed_source_poll_w
 from .embeddings import enqueue_source_append_refreshes
 from .notifications_delivery import enqueue_notification_emit_result
 from .schedule import _parse_time, _schedule_interval
-from frisket.project_identity import ProjectStorageKey
 
 from .project_opener import (
     project_bundle_paths,
     ProjectOpener,
     open_payload_project,
-    require_opener_storage_org_id,
 )
+from .project_scan import bundle_opener, scan_projects
 from .ports import JobHandlerContext
 from .worker import HandlerRegistration, HandlerRegistry, NonRetryableJobError
 
@@ -621,73 +620,63 @@ def enqueue_due_source_polls(
     root = Path(workspace_root)
     now = (now or datetime.now(UTC)).astimezone(UTC)
     enqueued: list[dict[str, int | str]] = []
-    for bundle in project_bundle_paths(root, require_slug=project_opener is not None):
-        project_id = bundle.stem
-        if project_opener is None:
-            project = Project(bundle)
-        else:
-            # A scan that injects an opener must key every open by the root's
-            # DECLARED storage org (never the directory name), and refuse the
-            # whole scan if that identity is missing — see
-            # frisket.jobs.project_opener.
-            project = project_opener(
-                ProjectStorageKey(
-                    storage_org_id=require_opener_storage_org_id(storage_org_id),
-                    project_slug=project_id,
-                ),
-                bundle,
-            )
-        try:
-            for row in SourceStore(project).sources():
-                source_id = int(row["id"])
-                try:
-                    due = _source_due(row, now=now)
-                except ValueError:
-                    continue
-                if not due:
-                    continue
-                if _poll_already_pending(
-                    queue,
+
+    def visit(project_id: str, project: Project) -> None:
+        for row in SourceStore(project).sources():
+            source_id = int(row["id"])
+            try:
+                due = _source_due(row, now=now)
+            except ValueError:
+                continue
+            if not due:
+                continue
+            if _poll_already_pending(
+                queue,
+                project_id=project_id,
+                storage_org_id=storage_org_id,
+                source_id=source_id,
+                workspace_root=root,
+            ):
+                continue
+            src = _source_dict(row)
+            if _source_stale_for_notification(src, now=now):
+                _emit_source_health_notification(
+                    project,
                     project_id=project_id,
-                    storage_org_id=storage_org_id,
-                    source_id=source_id,
-                    workspace_root=root,
-                ):
-                    continue
-                src = _source_dict(row)
-                if _source_stale_for_notification(src, now=now):
-                    _emit_source_health_notification(
-                        project,
-                        project_id=project_id,
-                        source=src,
-                        status="stale",
-                        stale_reason="missed_two_intervals",
-                    )
-                job_id = queue.enqueue(
-                    SOURCE_POLL_KIND,
-                    {
-                        "project_id": project_id,
-                        **(
-                            {"storage_org_id": storage_org_id}
-                            if storage_org_id is not None
-                            else {}
-                        ),
-                        "source_id": source_id,
-                        "poll_id": (
-                            f"{project_id}:{source_id}:"
-                            f"{now.isoformat(timespec='microseconds')}"
-                        ),
-                        "workspace_root": str(root),
-                    },
-                    max_attempts=max_attempts,
+                    source=src,
+                    status="stale",
+                    stale_reason="missed_two_intervals",
                 )
-                enqueued.append(
-                    {
-                        "job_id": job_id,
-                        "project_id": project_id,
-                        "source_id": source_id,
-                    }
-                )
-        finally:
-            project.close()
+            job_id = queue.enqueue(
+                SOURCE_POLL_KIND,
+                {
+                    "project_id": project_id,
+                    **(
+                        {"storage_org_id": storage_org_id}
+                        if storage_org_id is not None
+                        else {}
+                    ),
+                    "source_id": source_id,
+                    "poll_id": (
+                        f"{project_id}:{source_id}:"
+                        f"{now.isoformat(timespec='microseconds')}"
+                    ),
+                    "workspace_root": str(root),
+                },
+                max_attempts=max_attempts,
+            )
+            enqueued.append(
+                {
+                    "job_id": job_id,
+                    "project_id": project_id,
+                    "source_id": source_id,
+                }
+            )
+
+    scan_projects(
+        project_bundle_paths(root, require_slug=project_opener is not None),
+        bundle_opener(Project, project_opener, storage_org_id),
+        visit,
+        failure_event="source_project_schedule_failed",
+    )
     return enqueued

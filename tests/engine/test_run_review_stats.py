@@ -19,6 +19,7 @@ from frisket.engine.store.review_stats import (
     rebuild_run_review_stats,
 )
 from tests.engine.historical_schema import restore_pre_domain_schema
+from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DIGEST
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.schema import (
@@ -721,11 +722,11 @@ def test_historical_review_stats_migration_keeps_old_worker_completion_dirty(
 
     # Exercise the historical migration before the domain cutover. The latter
     # deliberately stops old workers; it must not erase this earlier contract.
-    from frisket.upgrades.project.review_stats_migration import migrate_review_stats
+    from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_STEP
 
     historical = sqlite3.connect(path / "project.db")
     historical.row_factory = sqlite3.Row
-    migrate_review_stats(historical)
+    run_step(historical, *REVIEW_STATS_STEP)
     ready = historical.execute(
         "SELECT review_stats_ready FROM runs WHERE id=?", (run_id,)
     ).fetchone()[0]

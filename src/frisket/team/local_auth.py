@@ -18,10 +18,10 @@ from argon2.exceptions import InvalidHashError, VerificationError
 from frisket.team.db import locked_transaction
 from frisket.team.schema import (
     PASSWORD_RESET_PREFIX,
-    audit_log,
     memberships,
     orgs,
     password_resets,
+    record_audit,
     sessions,
     users,
 )
@@ -169,13 +169,12 @@ def claim_first_owner(
                 expires_at=now + timedelta(days=30),
             )
         )
-        cx.execute(
-            audit_log.insert().values(
-                user_id=user_id,
-                org_id=org_id,
-                action="first_owner_claimed",
-                detail=clean_email,
-            )
+        record_audit(
+            cx,
+            user_id=user_id,
+            org_id=org_id,
+            action="first_owner_claimed",
+            detail=clean_email,
         )
     return {
         "id": user_id,
@@ -234,13 +233,12 @@ def create_password_reset(
                 expires_at=stamp + timedelta(minutes=PASSWORD_RESET_TTL_MINUTES),
             )
         )
-        cx.execute(
-            audit_log.insert().values(
-                user_id=actor_user_id,
-                org_id=org_id,
-                action="password_reset_link_created",
-                detail=clean_email,
-            )
+        record_audit(
+            cx,
+            user_id=actor_user_id,
+            org_id=org_id,
+            action="password_reset_link_created",
+            detail=clean_email,
         )
     return raw
 
@@ -295,13 +293,12 @@ def redeem_password_reset(
             .values(password_hash=password_hash)
         )
         cx.execute(sessions.delete().where(sessions.c.user_id == row.user_id))
-        cx.execute(
-            audit_log.insert().values(
-                user_id=row.user_id,
-                org_id=org_id,
-                action="password_reset_completed",
-                detail=str(row.email),
-            )
+        record_audit(
+            cx,
+            user_id=row.user_id,
+            org_id=org_id,
+            action="password_reset_completed",
+            detail=str(row.email),
         )
     return str(row.email)
 
@@ -323,11 +320,7 @@ def reset_sole_owner_password(engine: sa.Engine, *, password: str) -> str:
             .values(password_hash=password_hash)
         )
         cx.execute(sessions.delete().where(sessions.c.user_id == row.id))
-        cx.execute(
-            audit_log.insert().values(
-                user_id=row.id,
-                org_id=row.org_id,
-                action="sole_owner_password_reset",
-            )
+        record_audit(
+            cx, user_id=row.id, org_id=row.org_id, action="sole_owner_password_reset"
         )
     return str(row.email)

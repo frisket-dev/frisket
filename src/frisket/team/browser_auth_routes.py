@@ -32,6 +32,7 @@ from frisket.team.auth_limits import (
 )
 from frisket.team.config import OIDCProviderConfig
 from frisket.team.db import locked_transaction
+from frisket.team.http_helpers import set_session_cookie
 from frisket.team.identity_service import IdentityAuthService, OidcAdmissionRequired
 from frisket.team.local_auth import InvalidCredentials, SetupError
 
@@ -59,17 +60,6 @@ _MAGIC_EMAIL_WINDOW_SECONDS = 30 * 60
 _OIDC_SOURCE_LIMIT = 20
 _OIDC_SOURCE_WINDOW_SECONDS = 10 * 60
 _OIDC_MAX_ACTIVE_STATES = 1_000
-
-
-def _set_cookie(response: Response, *, name: str, value: str, secure: bool) -> None:
-    response.set_cookie(
-        name,
-        value,
-        httponly=True,
-        secure=secure,
-        samesite="lax",
-        max_age=30 * 86400,
-    )
 
 
 def _no_store(response: Response) -> Response:
@@ -152,7 +142,7 @@ def register_browser_auth_routes(
         with locked_transaction(engine, lock_scope=("browser-auth-limits",)) as cx:
             clear(cx, email_budget)
         response = JSONResponse(BrowserAuthPasswordLoginResponse(ok=True).model_dump())
-        _set_cookie(
+        set_session_cookie(
             response,
             name=session_cookie,
             value=sign_in.session,
@@ -265,7 +255,7 @@ def register_browser_auth_routes(
         if sign_in is None:
             raise HTTPException(400, "link expired or already used")
         response = RedirectResponse("/", status_code=302)
-        _set_cookie(
+        set_session_cookie(
             response,
             name=session_cookie,
             value=sign_in.session,
@@ -292,7 +282,7 @@ def register_browser_auth_routes(
         response = JSONResponse(
             BrowserAuthCompletePasswordResponse(ok=True).model_dump()
         )
-        _set_cookie(
+        set_session_cookie(
             response,
             name=session_cookie,
             value=sign_in.session,
@@ -417,7 +407,7 @@ def register_browser_auth_routes(
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
         response = RedirectResponse("/", status_code=302)
-        _set_cookie(
+        set_session_cookie(
             response,
             name=session_cookie,
             value=sign_in.session,

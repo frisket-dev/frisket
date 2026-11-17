@@ -7,8 +7,9 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import Project
+from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.chain import (
-    _migrate_search_work,
+    _apply_search_work,
     _SEARCH_WORK_FROM_DIGEST,
     _SEARCH_WORK_TO_DIGEST,
 )
@@ -263,7 +264,9 @@ def test_historical_search_migration_keeps_its_nonunique_index(tmp_path) -> None
             (_SEARCH_WORK_FROM_DIGEST, SCHEMA_DIGEST_META_KEY),
         )
         db.commit()
-        _migrate_search_work(db)
+        run_step(
+            db, _SEARCH_WORK_FROM_DIGEST, _SEARCH_WORK_TO_DIGEST, _apply_search_work
+        )
         assert _index(db, "idx_current_cells_column_row")[2] == 0
         assert db.execute(
             "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)

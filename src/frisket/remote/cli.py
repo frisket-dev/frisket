@@ -15,6 +15,7 @@ import shlex
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,26 @@ def _dispatch(handler: Any, argv: list[str]) -> int:
     except KeyboardInterrupt:
         _warn("frisket: cancelled")
         return EXIT_ERROR
+
+
+def _verb_command(
+    noun: str, usage: str, verbs: dict[str, Callable[[list[str]], int]]
+) -> Callable[[list[str]], int]:
+    """``frisket <noun> <verb> ...``: usage on no verb or -h/--help, then dispatch."""
+
+    def run(rest: list[str]) -> int:
+        if not rest or rest[0] in {"-h", "--help"}:
+            _say(usage)
+            return EXIT_OK if rest else EXIT_VALIDATION
+        verb = verbs.get(rest[0])
+        if verb is None:
+            raise UsageError(f"unknown {noun} subcommand '{rest[0]}'")
+        return verb(rest[1:])
+
+    def command(argv: list[str]) -> int:
+        return _dispatch(run, argv)
+
+    return command
 
 
 def _server_argument(parser: _Parser) -> None:
@@ -255,23 +276,15 @@ _REMOTE_VERBS = {
 }
 
 
-def remote_command(argv: list[str]) -> int:
-    def run(rest: list[str]) -> int:
-        if not rest or rest[0] in {"-h", "--help"}:
-            _say(
-                "Usage: frisket remote link <url> --token <token> [--name NAME] "
-                "[--insecure-http]\n"
-                "       frisket remote status [--server NAME|URL] [--json]\n"
-                "       frisket remote list [--json]\n"
-                "       frisket remote default <name>"
-            )
-            return EXIT_OK if rest else EXIT_VALIDATION
-        verb = _REMOTE_VERBS.get(rest[0])
-        if verb is None:
-            raise UsageError(f"unknown remote subcommand '{rest[0]}'")
-        return verb(rest[1:])
-
-    return _dispatch(run, argv)
+remote_command = _verb_command(
+    "remote",
+    "Usage: frisket remote link <url> --token <token> [--name NAME] "
+    "[--insecure-http]\n"
+    "       frisket remote status [--server NAME|URL] [--json]\n"
+    "       frisket remote list [--json]\n"
+    "       frisket remote default <name>",
+    _REMOTE_VERBS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -279,45 +292,44 @@ def remote_command(argv: list[str]) -> int:
 # ---------------------------------------------------------------------------
 
 
-def token_command(argv: list[str]) -> int:
-    def run(rest: list[str]) -> int:
-        if not rest or rest[0] in {"-h", "--help"}:
-            _say("Usage: frisket token rotate [--server NAME|URL]")
-            return EXIT_OK if rest else EXIT_VALIDATION
-        if rest[0] != "rotate":
-            raise UsageError(f"unknown token subcommand '{rest[0]}'")
-        parser = _Parser(prog="frisket token rotate")
-        _server_argument(parser)
-        args = parser.parse_args(rest[1:])
-        config = config_store.load_config()
-        name, entry = config_store.resolve_server(config, selector=args.server)
-        client = RemoteClient(str(entry["url"]), str(entry["token"]))
-        rotated = client.rotate_token()
-        new_token = str(rotated["token"])
-        updated = config_store.upsert_server(
-            config,
-            name=name,
-            url=str(entry["url"]),
-            token=new_token,
-            label=rotated.get("label") or entry.get("label"),
+def _token_rotate(argv: list[str]) -> int:
+    parser = _Parser(prog="frisket token rotate")
+    _server_argument(parser)
+    args = parser.parse_args(argv)
+    config = config_store.load_config()
+    name, entry = config_store.resolve_server(config, selector=args.server)
+    client = RemoteClient(str(entry["url"]), str(entry["token"]))
+    rotated = client.rotate_token()
+    new_token = str(rotated["token"])
+    updated = config_store.upsert_server(
+        config,
+        name=name,
+        url=str(entry["url"]),
+        token=new_token,
+        label=rotated.get("label") or entry.get("label"),
+    )
+    updated["default_server"] = (
+        config.get("default_server") or updated["default_server"]
+    )
+    try:
+        config_store.save_config(updated)
+    except OSError as exc:
+        # The old token is already invalidated server-side; losing the
+        # replacement would strand the pairing, so surface it once.
+        _warn(
+            f"frisket: rotated on the server but could not update the local store ({exc})"
         )
-        updated["default_server"] = (
-            config.get("default_server") or updated["default_server"]
-        )
-        try:
-            config_store.save_config(updated)
-        except OSError as exc:
-            # The old token is already invalidated server-side; losing the
-            # replacement would strand the pairing, so surface it once.
-            _warn(
-                f"frisket: rotated on the server but could not update the local store ({exc})"
-            )
-            _say(f"New operator token (store it manually): {new_token}")
-            return EXIT_ERROR
-        _say(f"Rotated operator token for '{name}'; local credential store updated.")
-        return EXIT_OK
+        _say(f"New operator token (store it manually): {new_token}")
+        return EXIT_ERROR
+    _say(f"Rotated operator token for '{name}'; local credential store updated.")
+    return EXIT_OK
 
-    return _dispatch(run, argv)
+
+token_command = _verb_command(
+    "token",
+    "Usage: frisket token rotate [--server NAME|URL]",
+    {"rotate": _token_rotate},
+)
 
 
 # ---------------------------------------------------------------------------
@@ -437,23 +449,15 @@ _USERS_VERBS = {
 }
 
 
-def users_command(argv: list[str]) -> int:
-    def run(rest: list[str]) -> int:
-        if not rest or rest[0] in {"-h", "--help"}:
-            _say(
-                "Usage: frisket users add <email>... [--role member|owner] [--server ...]\n"
-                "       frisket users list [--json] [--server ...]\n"
-                "       frisket users remove <email> [--server ...]\n"
-                "       frisket users reset <email> [--server ...]\n"
-                "       frisket users role <email> <member|owner> [--server ...]"
-            )
-            return EXIT_OK if rest else EXIT_VALIDATION
-        verb = _USERS_VERBS.get(rest[0])
-        if verb is None:
-            raise UsageError(f"unknown users subcommand '{rest[0]}'")
-        return verb(rest[1:])
-
-    return _dispatch(run, argv)
+users_command = _verb_command(
+    "users",
+    "Usage: frisket users add <email>... [--role member|owner] [--server ...]\n"
+    "       frisket users list [--json] [--server ...]\n"
+    "       frisket users remove <email> [--server ...]\n"
+    "       frisket users reset <email> [--server ...]\n"
+    "       frisket users role <email> <member|owner> [--server ...]",
+    _USERS_VERBS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -686,23 +690,15 @@ _SECRETS_VERBS = {
 }
 
 
-def secrets_command(argv: list[str]) -> int:
-    def run(rest: list[str]) -> int:
-        if not rest or rest[0] in {"-h", "--help"}:
-            _say(
-                "Usage: frisket secrets set <provider> [--stdin] [--server ...]\n"
-                "       frisket secrets list [--json] [--server ...]\n"
-                "       frisket secrets unset <provider> [--server ...]\n"
-                "       frisket secrets push [--file PATH | --from-env] [--dry-run] "
-                "[--prune] [--yes] [--server ...]"
-            )
-            return EXIT_OK if rest else EXIT_VALIDATION
-        verb = _SECRETS_VERBS.get(rest[0])
-        if verb is None:
-            raise UsageError(f"unknown secrets subcommand '{rest[0]}'")
-        return verb(rest[1:])
-
-    return _dispatch(run, argv)
+secrets_command = _verb_command(
+    "secrets",
+    "Usage: frisket secrets set <provider> [--stdin] [--server ...]\n"
+    "       frisket secrets list [--json] [--server ...]\n"
+    "       frisket secrets unset <provider> [--server ...]\n"
+    "       frisket secrets push [--file PATH | --from-env] [--dry-run] "
+    "[--prune] [--yes] [--server ...]",
+    _SECRETS_VERBS,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1049,26 +1045,18 @@ _PROXY_VERBS = {
 }
 
 
-def proxy_command(argv: list[str]) -> int:
-    def run(rest: list[str]) -> int:
-        if not rest or rest[0] in {"-h", "--help"}:
-            _say(
-                "Usage: frisket proxy up [--ssh USER@HOST] [--port N] "
-                "[--bind ADDR] [--run] [--server ...]\n"
-                "       frisket proxy status [--json] [--server ...]\n"
-                "       frisket proxy down [--server ...]\n"
-                "\n"
-                "Routes the server's media downloads through your own computer: "
-                "`up` points the server at a loopback SOCKS proxy and prints "
-                "(or with --run, starts) the reverse ssh tunnel that provides it."
-            )
-            return EXIT_OK if rest else EXIT_VALIDATION
-        verb = _PROXY_VERBS.get(rest[0])
-        if verb is None:
-            raise UsageError(f"unknown proxy subcommand '{rest[0]}'")
-        return verb(rest[1:])
-
-    return _dispatch(run, argv)
+proxy_command = _verb_command(
+    "proxy",
+    "Usage: frisket proxy up [--ssh USER@HOST] [--port N] "
+    "[--bind ADDR] [--run] [--server ...]\n"
+    "       frisket proxy status [--json] [--server ...]\n"
+    "       frisket proxy down [--server ...]\n"
+    "\n"
+    "Routes the server's media downloads through your own computer: "
+    "`up` points the server at a loopback SOCKS proxy and prints "
+    "(or with --run, starts) the reverse ssh tunnel that provides it.",
+    _PROXY_VERBS,
+)
 
 
 __all__ = [

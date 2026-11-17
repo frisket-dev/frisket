@@ -301,15 +301,13 @@ def test_blocked_scheduled_attempt_not_retried_until_next_window(env):
 
 def test_cli_scheduler_helper_enqueues_due(env):
     # the worker's embedding-scheduler thread calls this helper each tick
-    from frisket.cli import _enqueue_due_scheduled_embeddings
+    import frisket.cli as cli
 
     _create_index(env)  # due (never refreshed)
-    # SchedulerRoot became (root, storage_org_id) in 446962d; this suite was
-    # left passing bare Paths and has been red since — same-day-quarantine
-    # cleanup 2026-07-17.
-    assert _enqueue_due_scheduled_embeddings(env.queue, [(env.workspace, None)]) == 1
+    roots = [(env.workspace, None)]
+    assert cli._sweep(cli._SCHEDULED_EMBEDDINGS, env.queue, roots) == 1
     # idempotent within the cadence window
-    assert _enqueue_due_scheduled_embeddings(env.queue, [(env.workspace, None)]) == 0
+    assert cli._sweep(cli._SCHEDULED_EMBEDDINGS, env.queue, roots) == 0
 
 
 def _only_index_id(env):

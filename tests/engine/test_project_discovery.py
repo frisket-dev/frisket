@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 from pathlib import Path
 
 import pytest
@@ -113,14 +114,10 @@ def test_explicit_invalid_scoped_identity_is_not_silently_skipped(tmp_path, proj
 
 @pytest.mark.parametrize(
     ("module_name", "function_name"),
-    [
-        scanner
-        for scanner in SCANNERS
-        if scanner[0] not in {"watches", "notifications_delivery"}
-    ],
+    [scanner for scanner in SCANNERS if scanner[0] != "notifications_delivery"],
 )
 def test_discovery_does_not_swallow_valid_project_processing_failure(
-    tmp_path, module_name, function_name
+    tmp_path, caplog, module_name, function_name
 ):
     _bundles(tmp_path / "workspace")
     module = importlib.import_module(f"frisket.engine.jobs.{module_name}")
@@ -131,7 +128,7 @@ def test_discovery_does_not_swallow_valid_project_processing_failure(
 
     queue = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
     try:
-        with pytest.raises(RuntimeError, match="valid project unavailable"):
+        with caplog.at_level(logging.WARNING):
             getattr(module, function_name)(
                 queue=queue,
                 workspace_root=tmp_path / "workspace",
@@ -140,3 +137,11 @@ def test_discovery_does_not_swallow_valid_project_processing_failure(
             )
     finally:
         queue.close()
+    [failure] = [
+        record
+        for record in caplog.records
+        if record.message.endswith("_project_schedule_failed")
+    ]
+    assert failure.project_id == "valid"
+    assert failure.error == "valid project unavailable"
+    assert failure.exc_info is not None
