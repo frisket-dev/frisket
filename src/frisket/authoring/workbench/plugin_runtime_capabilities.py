@@ -28,15 +28,14 @@ from frisket.authoring.workbench.plugin_package_catalog import (
     plugin_package_catalog_for_project,
 )
 from frisket.authoring.workbench.plugin_runtime_status import (
+    PluginAdmissionRefusal,
+    admit_project_plugin,
     _assert_manifest_ref_module_integrity,
     _effective_required_capabilities,
-    _loaded_manifest_from_ref,
     _json_string_list,
     _safe_bool,
     _workbench_plugin_install_state,
     _workbench_plugin_install_states,
-    project_accepts_current_plugin_capabilities,
-    workspace_permits_plugin,
     runtime_binding_dispatch_error,
 )
 from frisket.contracts.plugin import (
@@ -91,40 +90,17 @@ def project_runtime_binding(
     if not _loaded_manifest_declares_runtime_binding(loaded, binding):
         return None
 
-    # ENABLEMENT gate stays project-scoped (this project's row).
-    install_state = _workbench_plugin_install_state(project, plugin_id=binding.plugin)
-    if install_state is None or install_state.get("install_state") != "enabled":
-        return None
-    # IDENTITY gate comes from the workspace catalog: the one
-    # durable package per plugin_id per workspace. No per-project package digest
-    # exists any more.
-    catalog = plugin_package_catalog_for_project(project)
-    catalog_entry = catalog.get(binding.plugin)
-    manifest_ref = catalog.manifest_ref(binding.plugin)
-    if catalog_entry is None or manifest_ref is None:
-        return None
-    if not workspace_permits_plugin(
-        project, binding.plugin, catalog_entry=catalog_entry
-    ):
-        return None
     try:
-        current_loaded = _loaded_manifest_from_ref(manifest_ref)
-    except WorkbenchPluginActivationError:
+        admitted = admit_project_plugin(project, binding.plugin)
+    except (PluginAdmissionRefusal, WorkbenchPluginActivationError):
         return None
-    if not _loaded_manifest_declares_runtime_binding(current_loaded, binding):
+    install_state = admitted.install_state
+    if admitted.loaded.sha256 != loaded.sha256:
         return None
-    if not project_accepts_current_plugin_capabilities(
-        install_state, current_loaded.manifest
-    ):
-        return None
-    manifest_sha256 = str(catalog_entry.get("manifest_sha256") or "")
-    if manifest_sha256 != loaded.sha256 or current_loaded.sha256 != loaded.sha256:
-        return None
-    package_sha256 = str(catalog_entry.get("package_sha256") or "")
-    if not package_sha256:
+    if not _loaded_manifest_declares_runtime_binding(admitted.loaded, binding):
         return None
     binding_package_sha256 = str(binding.metadata.get("package_sha256") or "")
-    if binding_package_sha256 and binding_package_sha256 != package_sha256:
+    if binding_package_sha256 and binding_package_sha256 != admitted.package_sha256:
         # Binding has package identity recorded but it does not match the
         # workspace catalog digest.  Reject to prevent dispatch of a stale or
         # mismatched package version.
@@ -194,31 +170,17 @@ def enabled_workbench_plugin_ids(project: Project) -> set[str]:
     }
     enabled: set[str] = set()
     for plugin_id, install_state in _workbench_plugin_install_states(project).items():
-        if install_state.get("install_state") != "enabled":
-            continue
-        entry = catalog.get(plugin_id)
-        manifest_ref = catalog.manifest_ref(plugin_id)
         registered_loaded = registered.get(plugin_id)
-        if entry is None or manifest_ref is None or registered_loaded is None:
-            continue
-        if not workspace_permits_plugin(project, plugin_id, catalog_entry=entry):
+        if install_state.get("install_state") != "enabled" or registered_loaded is None:
             continue
         try:
-            current_loaded = _loaded_manifest_from_ref(manifest_ref)
-        except WorkbenchPluginActivationError:
+            admitted = admit_project_plugin(
+                project, plugin_id, catalog=catalog, install_state=install_state
+            )
+        except (PluginAdmissionRefusal, WorkbenchPluginActivationError):
             continue
-        manifest_sha256 = str(entry.get("manifest_sha256") or "")
-        if (
-            not manifest_sha256
-            or current_loaded.sha256 != manifest_sha256
-            or registered_loaded.sha256 != manifest_sha256
-        ):
-            continue
-        if not project_accepts_current_plugin_capabilities(
-            install_state, current_loaded.manifest
-        ):
-            continue
-        enabled.add(plugin_id)
+        if registered_loaded.sha256 == admitted.loaded.sha256:
+            enabled.add(plugin_id)
     return enabled
 
 

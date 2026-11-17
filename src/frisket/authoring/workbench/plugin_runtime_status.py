@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from frisket.authoring.plugin_registry import RuntimeBindingSpec, default_registry
 from frisket.authoring.workbench.plugin_package_catalog import (
+    PluginPackageCatalog,
     plugin_package_catalog_for_project,
 )
 from frisket.authoring.workbench.contracts import (
@@ -177,6 +180,121 @@ def project_accepts_current_plugin_capabilities_from_ref(
     return required.issubset(accepted)
 
 
+_INSTALL_STATE_UNREAD = object()
+
+
+class PluginAdmissionRefusal(Exception):
+    """A project may not use a plugin package; ``reason`` names the failed check."""
+
+    def __init__(self, reason: str, *, entry_sha256: str = "", ref_sha256: str = ""):
+        super().__init__(reason)
+        self.reason = reason
+        self.entry_sha256 = entry_sha256
+        self.ref_sha256 = ref_sha256
+
+
+@dataclass(frozen=True)
+class AdmittedPlugin:
+    install_state: dict[str, Any] | None
+    catalog_entry: dict[str, Any]
+    manifest_ref: dict[str, Any]
+    loaded: LoadedPluginManifest
+    receipt_id: str
+    manifest_sha256: str
+    package_sha256: str
+
+
+def admit_project_plugin(
+    project: Project,
+    plugin_id: str,
+    *,
+    install_states: frozenset[str] | None = frozenset({"enabled"}),
+    require_accepted_capabilities: bool = True,
+    catalog: PluginPackageCatalog | None = None,
+    install_state: dict[str, Any] | None | object = _INSTALL_STATE_UNREAD,
+) -> AdmittedPlugin:
+    """The one admission gate for a project's use of a workspace plugin package.
+
+    Checks, in order: this project's install state (skipped when
+    ``install_states`` is None), catalog identity presence, the composition
+    policy, that the manifest evidence names ``plugin_id`` and validates,
+    complete catalog identity refs, that the evidence's manifest and package
+    digests equal the catalog's,
+    and (optionally) that the project accepted the manifest's capabilities.
+    Raises ``PluginAdmissionRefusal``; invalid manifest evidence raises
+    ``WorkbenchPluginActivationError`` from ``_loaded_manifest_from_ref``.
+    Callers that already read this project's install rows pass ``install_state``.
+    """
+    if install_state is _INSTALL_STATE_UNREAD:
+        install_state = _workbench_plugin_install_state(project, plugin_id=plugin_id)
+    if install_states is not None and (
+        install_state is None
+        or install_state.get("install_state") not in install_states
+    ):
+        raise PluginAdmissionRefusal("not_installed")
+    catalog = catalog or plugin_package_catalog_for_project(project)
+    entry = catalog.get(plugin_id)
+    manifest_ref = catalog.manifest_ref(plugin_id)
+    if entry is None or manifest_ref is None:
+        raise PluginAdmissionRefusal("identity_missing")
+    if not workspace_permits_plugin(project, plugin_id, catalog_entry=entry):
+        raise PluginAdmissionRefusal("policy")
+    if manifest_ref.get("plugin_id") != plugin_id:
+        raise PluginAdmissionRefusal("plugin_id_mismatch")
+    loaded = _loaded_manifest_from_ref(manifest_ref)
+    receipt_id = str(entry.get("receipt_id") or "")
+    manifest_sha256 = str(entry.get("manifest_sha256") or "")
+    package_sha256 = str(entry.get("package_sha256") or "")
+    if not receipt_id or not manifest_sha256 or not package_sha256:
+        raise PluginAdmissionRefusal("identity_corrupt")
+    if loaded.sha256 != manifest_sha256:
+        raise PluginAdmissionRefusal(
+            "manifest_sha_mismatch",
+            entry_sha256=manifest_sha256,
+            ref_sha256=loaded.sha256,
+        )
+    recorded_package_sha256 = str(manifest_ref.get("package_sha256") or "")
+    if recorded_package_sha256 != package_sha256:
+        raise PluginAdmissionRefusal(
+            "package_sha_mismatch",
+            entry_sha256=package_sha256,
+            ref_sha256=recorded_package_sha256,
+        )
+    if (
+        require_accepted_capabilities
+        and not project_accepts_current_plugin_capabilities(
+            install_state, loaded.manifest
+        )
+    ):
+        raise PluginAdmissionRefusal("permissions_missing")
+    return AdmittedPlugin(
+        install_state=install_state,
+        catalog_entry=entry,
+        manifest_ref=manifest_ref,
+        loaded=loaded,
+        receipt_id=receipt_id,
+        manifest_sha256=manifest_sha256,
+        package_sha256=package_sha256,
+    )
+
+
+def plugin_admission_error(
+    refusal: PluginAdmissionRefusal,
+    errors: Mapping[str, tuple[str, str, int]],
+    *,
+    error_type: type[ValueError] = WorkbenchPluginActivationError,
+) -> ValueError:
+    """Map a refusal to an entry point's own (code, message, status) wording."""
+    if refusal.reason == "identity_corrupt":
+        return WorkbenchPluginLifecycleError(
+            "plugin_lifecycle_state_corrupt",
+            "workspace catalog package is missing identity evidence",
+            status_code=409,
+        )
+    code, message, status_code = errors[refusal.reason]
+    return error_type(code, message, status_code=status_code)
+
+
 def workbench_plugin_runtime_index(
     project: Project, *, project_id: str
 ) -> dict[str, Any]:
@@ -217,12 +335,16 @@ def workbench_plugin_runtime_index(
                 install_state, manifest_ref
             )
         )
+        try:
+            admitted = admit_project_plugin(
+                project, plugin_id, catalog=catalog, install_state=install_state
+            )
+        except (PluginAdmissionRefusal, WorkbenchPluginActivationError):
+            admitted = None
         activated = (
-            install_state is not None
-            and install_state.get("install_state") == "enabled"
-            and current_capabilities_accepted
+            admitted is not None
             and registered is not None
-            and registered.sha256 == str(manifest_ref.get("manifest_sha256") or "")
+            and registered.sha256 == admitted.loaded.sha256
         )
         projected_install_state = install_state
         if (
@@ -273,6 +395,41 @@ def workbench_plugin_runtime_index(
     }
 
 
+_FRONTEND_MODULE_REFUSALS = {
+    "not_installed": (
+        "plugin_frontend_module_not_enabled",
+        "frontend module serving requires an enabled workbench plugin",
+        409,
+    ),
+    "identity_missing": (
+        "plugin_frontend_module_manifest_mismatch",
+        "workspace catalog has no package identity for this plugin",
+        409,
+    ),
+    "policy": (
+        "plugin_frontend_module_not_available",
+        "frontend module serving is not available for this plugin under "
+        "the active composition policy",
+        404,
+    ),
+    "plugin_id_mismatch": (
+        "plugin_frontend_module_manifest_mismatch",
+        "workspace catalog package does not match the requested plugin id",
+        409,
+    ),
+    "manifest_sha_mismatch": (
+        "plugin_frontend_module_manifest_mismatch",
+        "enabled plugin install state does not match plugin.load manifest sha",
+        409,
+    ),
+    "permissions_missing": (
+        "plugin_frontend_module_permissions_missing",
+        "frontend module serving requires acceptance of the current manifest capabilities",
+        409,
+    ),
+}
+
+
 def workbench_plugin_frontend_component_module(
     project: Project,
     *,
@@ -280,53 +437,29 @@ def workbench_plugin_frontend_component_module(
     contribution_id: str,
     expected_package_sha256: str | None = None,
 ) -> str:
-    install_state = _workbench_plugin_install_state(project, plugin_id=plugin_id)
-    if install_state is None or install_state.get("install_state") != "enabled":
-        raise WorkbenchPluginActivationError(
-            "plugin_frontend_module_not_enabled",
-            "frontend module serving requires an enabled workbench plugin",
-            status_code=409,
-        )
-    if _safe_bool(install_state.get("arbitrary_package_load_allowed")):
+    try:
+        admitted = admit_project_plugin(project, plugin_id)
+    except PluginAdmissionRefusal as refusal:
+        if refusal.reason == "package_sha_mismatch":
+            raise WorkbenchPluginActivationError(
+                "plugin_frontend_module_package_mismatch",
+                "enabled plugin install state does not match plugin.load package sha",
+                status_code=409,
+                details={
+                    "expected_package_sha256": refusal.entry_sha256,
+                    "recorded_package_sha256": refusal.ref_sha256,
+                },
+            ) from refusal
+        raise plugin_admission_error(refusal, _FRONTEND_MODULE_REFUSALS) from refusal
+    if _safe_bool(admitted.install_state.get("arbitrary_package_load_allowed")):
         raise WorkbenchPluginActivationError(
             "plugin_frontend_module_arbitrary_package_load_blocked",
             "frontend module serving does not allow arbitrary package loading",
             status_code=403,
         )
-    catalog = plugin_package_catalog_for_project(project)
-    entry = catalog.get(plugin_id)
-    manifest_ref = catalog.manifest_ref(plugin_id)
-    if entry is None or manifest_ref is None:
-        raise WorkbenchPluginActivationError(
-            "plugin_frontend_module_manifest_mismatch",
-            "workspace catalog has no package identity for this plugin",
-            status_code=409,
-        )
-    if not workspace_permits_plugin(project, plugin_id, catalog_entry=entry):
-        raise WorkbenchPluginActivationError(
-            "plugin_frontend_module_not_available",
-            "frontend module serving is not available for this plugin under "
-            "the active composition policy",
-            status_code=404,
-        )
-    receipt_id, manifest_sha256, package_sha256 = _catalog_identity_refs(entry)
-    if manifest_ref.get("plugin_id") != plugin_id:
-        raise WorkbenchPluginActivationError(
-            "plugin_frontend_module_manifest_mismatch",
-            "workspace catalog package does not match the requested plugin id",
-            status_code=409,
-        )
-    recorded_package_sha256 = str(manifest_ref.get("package_sha256") or "")
-    if package_sha256 != recorded_package_sha256:
-        raise WorkbenchPluginActivationError(
-            "plugin_frontend_module_package_mismatch",
-            "enabled plugin install state does not match plugin.load package sha",
-            status_code=409,
-            details={
-                "expected_package_sha256": package_sha256,
-                "recorded_package_sha256": recorded_package_sha256,
-            },
-        )
+    manifest_ref = admitted.manifest_ref
+    loaded = admitted.loaded
+    recorded_package_sha256 = admitted.package_sha256
     if not isinstance(expected_package_sha256, str) or not expected_package_sha256:
         raise WorkbenchPluginActivationError(
             "plugin_frontend_module_package_required",
@@ -343,19 +476,6 @@ def workbench_plugin_frontend_component_module(
                 "expected_package_sha256": recorded_package_sha256,
                 "requested_package_sha256": expected_package_sha256,
             },
-        )
-    loaded = _loaded_manifest_from_ref(manifest_ref)
-    if not project_accepts_current_plugin_capabilities(install_state, loaded.manifest):
-        raise WorkbenchPluginActivationError(
-            "plugin_frontend_module_permissions_missing",
-            "frontend module serving requires acceptance of the current manifest capabilities",
-            status_code=409,
-        )
-    if loaded.sha256 != manifest_sha256:
-        raise WorkbenchPluginActivationError(
-            "plugin_frontend_module_manifest_mismatch",
-            "enabled plugin install state does not match plugin.load manifest sha",
-            status_code=409,
         )
     from frisket.plugins.frontend_modules import typed_action_ui_bindings
 

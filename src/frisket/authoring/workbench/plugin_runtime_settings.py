@@ -12,15 +12,10 @@ from frisket.authoring.workbench.plugin_runtime_shared import (
     PLUGIN_ENV_VAR_SCHEMA_VERSION,
     WorkbenchPluginLifecycleError,
 )
-from frisket.authoring.workbench.plugin_package_catalog import (
-    plugin_package_catalog_for_project,
-)
 from frisket.authoring.workbench.plugin_runtime_status import (
-    _catalog_identity_refs,
-    _loaded_manifest_from_ref,
-    _workbench_plugin_install_state,
-    project_accepts_current_plugin_capabilities,
-    workspace_permits_plugin,
+    PluginAdmissionRefusal,
+    admit_project_plugin,
+    plugin_admission_error,
 )
 from frisket.contracts.plugin import LoadedPluginManifest
 from frisket.engine.store import Project
@@ -319,63 +314,59 @@ def patch_workbench_plugin_settings(
     )
 
 
+_PLUGIN_ENV_REFUSALS = {
+    "not_installed": (
+        "plugin_env_plugin_not_installed",
+        "project plugin env vars require an installed workbench plugin",
+        404,
+    ),
+    "identity_missing": (
+        "plugin_env_manifest_mismatch",
+        "workspace catalog has no package identity for this plugin",
+        409,
+    ),
+    "policy": (
+        "plugin_not_available_under_composition_policy",
+        "this workbench plugin is not available under the active composition policy",
+        404,
+    ),
+    "plugin_id_mismatch": (
+        "plugin_env_manifest_mismatch",
+        "workspace catalog package does not match the requested plugin id",
+        409,
+    ),
+    "manifest_sha_mismatch": (
+        "plugin_env_manifest_mismatch",
+        "workspace catalog manifest sha does not match its manifest evidence",
+        409,
+    ),
+    "package_sha_mismatch": (
+        "plugin_env_package_mismatch",
+        "workspace catalog package sha does not match its manifest evidence",
+        409,
+    ),
+    "permissions_missing": (
+        "plugin_env_permissions_missing",
+        "plugin env and settings require acceptance of current manifest capabilities",
+        409,
+    ),
+}
+
+
 def _loaded_manifest_for_plugin_env(
     project: Project, *, plugin_id: str
 ) -> LoadedPluginManifest:
     # ENABLEMENT gate stays project-scoped: this project must have the plugin
     # installed/enabled to read or set its env/settings. IDENTITY
     # (the manifest evidence + digests) comes from the workspace catalog.
-    install_state = _workbench_plugin_install_state(project, plugin_id=plugin_id)
-    if install_state is None or install_state.get("install_state") not in (
-        PLUGIN_ENV_INSTALL_STATES
-    ):
-        raise WorkbenchPluginLifecycleError(
-            "plugin_env_plugin_not_installed",
-            "project plugin env vars require an installed workbench plugin",
-            status_code=404,
-        )
-    catalog = plugin_package_catalog_for_project(project)
-    entry = catalog.get(plugin_id)
-    manifest_ref = catalog.manifest_ref(plugin_id)
-    if entry is None or manifest_ref is None:
-        raise WorkbenchPluginLifecycleError(
-            "plugin_env_manifest_mismatch",
-            "workspace catalog has no package identity for this plugin",
-            status_code=409,
-        )
-    if not workspace_permits_plugin(project, plugin_id, catalog_entry=entry):
-        raise WorkbenchPluginLifecycleError(
-            "plugin_not_available_under_composition_policy",
-            "this workbench plugin is not available under the active composition policy",
-            status_code=404,
-        )
-    _receipt_id, manifest_sha256, package_sha256 = _catalog_identity_refs(entry)
-    if manifest_ref.get("plugin_id") != plugin_id:
-        raise WorkbenchPluginLifecycleError(
-            "plugin_env_manifest_mismatch",
-            "workspace catalog package does not match the requested plugin id",
-            status_code=409,
-        )
-    loaded = _loaded_manifest_from_ref(manifest_ref)
-    if not project_accepts_current_plugin_capabilities(install_state, loaded.manifest):
-        raise WorkbenchPluginLifecycleError(
-            "plugin_env_permissions_missing",
-            "plugin env and settings require acceptance of current manifest capabilities",
-            status_code=409,
-        )
-    if loaded.sha256 != manifest_sha256:
-        raise WorkbenchPluginLifecycleError(
-            "plugin_env_manifest_mismatch",
-            "workspace catalog manifest sha does not match its manifest evidence",
-            status_code=409,
-        )
-    if str(manifest_ref.get("package_sha256") or "") != package_sha256:
-        raise WorkbenchPluginLifecycleError(
-            "plugin_env_package_mismatch",
-            "workspace catalog package sha does not match its manifest evidence",
-            status_code=409,
-        )
-    return loaded
+    try:
+        return admit_project_plugin(
+            project, plugin_id, install_states=frozenset(PLUGIN_ENV_INSTALL_STATES)
+        ).loaded
+    except PluginAdmissionRefusal as refusal:
+        raise plugin_admission_error(
+            refusal, _PLUGIN_ENV_REFUSALS, error_type=WorkbenchPluginLifecycleError
+        ) from refusal
 
 
 def _plugin_required_env_names(loaded: LoadedPluginManifest) -> set[str]:
