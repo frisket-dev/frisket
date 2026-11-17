@@ -77,4 +77,7 @@ paid or external runs.
   each ratchet's `--update` refuses growth)
 - Don't edit `README.md`; Jonathan maintains it. If docs should change,
   suggest the wording in your PR description instead.
-- See CONTRIBUTING.md for PR and testing expectations.
+- Read `documentation/adr/` before changing something that looks wrong on
+  purpose.
+- See CONTRIBUTING.md for PR and testing expectations; reviewers check
+  `CODING_STANDARDS.md`.

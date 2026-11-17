@@ -34,5 +34,11 @@ test-results
 web/storybook-static/
 web/screenshots/
 .codex
+# Local agent state is untracked except the repository's review skill.
 .claude
+!/.claude/
+/.claude/*
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/review-change/
 /.worktree-env

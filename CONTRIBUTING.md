@@ -57,6 +57,16 @@ under the project's license.
   wrong, say so in the PR instead.
 - No secrets, no copyrighted media, and only public-domain or
   redistribution-clean fixture data.
+- Before requesting human review, review the change in a separate session
+  from the one that wrote it, with `.claude/skills/review-change/SKILL.md`
+  (against its task and `CODING_STANDARDS.md`).
+- Review follows the PR's merge danger. A one-way door or a wide blast radius
+  always gets a person; a two-way, narrow, well-evidenced change can land on
+  green checks plus the automated review. Changes to `src/frisket/upgrades/`,
+  authentication and team security (`src/frisket/team/`), billing and consent
+  in `src/frisket/execution/`, secrets, `.github/`, `scripts/release/`, gate
+  baselines and allowlists in `scripts/ci/`, or `GLOSSARY.md` always get a
+  person.
 
 ### Cleanup gates
 

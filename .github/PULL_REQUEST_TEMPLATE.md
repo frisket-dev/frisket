@@ -1,30 +1,24 @@
-## What & why
+## What and why
 
-<!-- One or two sentences: what changed, and why. Keep the PR scoped to one
-     logical change -- see CONTRIBUTING.md. -->
+<!-- 2-4 lines in GLOSSARY.md's terms. One logical change; link the issue or task. -->
 
-## Checklist
+## Evidence
 
-- [ ] Tests pass locally: `uv run pytest tests -q`
-- [ ] Lint/format are clean: `uv run ruff check src tests` and
-      `uv run ruff format --check src tests`
-- [ ] New/changed behavior has a focused test that proves it
-- [ ] `frisket doctor` still runs clean, if this touches install/deploy,
-      diagnostics, optional extras, or startup paths
-- [ ] `web` changes build: `npm run build --prefix web` (and `npm ci` first
-      if `package-lock.json` moved)
+<!-- Before: the failing output, or the behaviour being changed. After: the
+     commands you ran and their results; screenshots for visible changes;
+     `frisket doctor` if install, startup or optional extras changed.
+     Say plainly where evidence is weak, e.g. "no test covers this". -->
+
+## Merge danger
+
+- **Door:** two-way / one-way <!-- one-way: data migration, deleted or rewritten user data, a published release or wire format, sent messages, cost incurred, security posture --> — why:
+- **Blast radius:** <!-- what breaks, for whom, if this is wrong -->
+
+## Not done / follow-ups
+
+<!-- Out of scope on purpose, follow-ups filed, suggested README wording,
+     a proposed record for documentation/adr/. -->
+
 - [ ] No secrets, no copyrighted media, and only public-domain or
-      redistribution-clean fixture data
-- [ ] README/help text updated if this changes user-facing behavior or install steps
-- [ ] For architecture or high-risk migrations: review ownership, removal and
-      compatibility plans, and invariant coverage; record material decisions
-      in the PR or a linked decision record
-
-## Testing
-
-<!-- How did you verify this? Commands run, screenshots for UI changes, etc. -->
-
-## Notes for reviewers
-
-<!-- Anything out of scope on purpose, follow-ups filed, or context a
-     reviewer needs that isn't obvious from the diff. -->
+      redistribution-clean fixture data (contributions are Apache-2.0)
+- [ ] Reviewed with `.claude/skills/review-change` in a fresh session
