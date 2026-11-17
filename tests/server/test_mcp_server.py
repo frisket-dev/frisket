@@ -2235,3 +2235,30 @@ class TestServerConstruction:
         s = create_mcp_server(LocalBackend(tmp_path / "ws"))
         assert s.name == "frisket"
         assert callable(main) and callable(server.main)
+
+
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_mcp_help_prints_usage_without_touching_the_filesystem(
+    flag, tmp_path, monkeypatch, capsys
+) -> None:
+    from frisket.server.mcp import server as mcp_server
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        mcp_server.main([flag])
+    assert exit_info.value.code == 0
+    assert "usage: frisket mcp" in capsys.readouterr().out
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_mcp_refuses_unknown_flags_without_creating_a_workspace(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    from frisket.server.mcp import server as mcp_server
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        mcp_server.main(["--bogus"])
+    assert exit_info.value.code == 2
+    assert "unrecognized arguments: --bogus" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from frisket.contracts.http.project_search import ProjectSearchRequest
 
+import argparse
 import inspect
 import sys
 from contextlib import asynccontextmanager
@@ -237,14 +238,28 @@ def main(argv: list[str] | None = None) -> int:
     HTTP server needed). Hosted (--hosted): thin client over the hosted API
     using FRISKET_BASE_URL + FRISKET_PAT from the environment.
     """
-    args = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(
+        prog="frisket mcp",
+        description="Serve the Frisket MCP tools over stdio.",
+    )
+    parser.add_argument(
+        "workspace",
+        nargs="?",
+        type=Path,
+        help="workspace directory (default ./frisket-projects); ignored with --hosted",
+    )
+    parser.add_argument(
+        "--hosted",
+        action="store_true",
+        help="act as a client of the hosted API (FRISKET_BASE_URL + FRISKET_PAT)",
+    )
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     backend: LocalBackend | HostedBackend
-    if "--hosted" in args:
-        args.remove("--hosted")
+    if args.hosted:
         backend = HostedBackend()
         where = "hosted API (PAT auth)"
     else:
-        root = Path(args[0]) if args else Path.cwd() / "frisket-projects"
+        root = args.workspace or Path.cwd() / "frisket-projects"
         backend = LocalBackend(root)
         where = f"workspace {root}"
     # stdout belongs to the stdio transport; human chatter goes to stderr
