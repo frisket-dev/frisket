@@ -38,7 +38,7 @@ from frisket.contracts.action import (
 from frisket.engine.executor.action_families.imports import _preflight_table_rows
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import _receipt_for_idempotency
-from frisket.engine.executor.action_support import _failed_result, _new_id
+from frisket.engine.executor.action_support import ActionCtx, _new_id
 from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.executor.list_table_grounding import propagate_list_item_evidence
 from frisket.engine.executor.map_rows_action import typed_request_hash
@@ -514,7 +514,7 @@ def run_typed_sheet_refresh_action(
             project_id=project_id,
             errors=[error],
         )
-    return _failed_result(project_id=project_id, action_kind=kind, error=error)
+    return ActionCtx(project_id, kind).failed(error)
 
 
 def _refresh_sheet(

@@ -8,6 +8,7 @@ from functools import partial
 from types import MappingProxyType
 from typing import Any, Callable
 
+from frisket.engine.executor.action_inventory import _typed_request_envelope
 from frisket.actions.core import SemanticJoin, _ProjectAction
 from frisket.actions.python_types import PythonEvaluator
 from frisket.actions.http_types import HttpRequester
@@ -37,9 +38,8 @@ from frisket.engine.executor.action_reservations import (
     _receipt_for_idempotency,
     _reserved_receipt_result_from_existing,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
-    _TypedExecutionEnvelope,
     _typed_external_cost_error,
     _typed_model_cost_error,
     _typed_receipt,
@@ -259,11 +259,7 @@ def run_typed_backfill_action(
     *,
     edition: str | None = None,
 ) -> ActionResult:
-    action = _TypedExecutionEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=MappingProxyType(dict(bound.request.params)),
-    )
+    action = _typed_request_envelope(bound)
     request_hash = typed_request_hash(bound)
     existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
     if existing is not None:
@@ -356,17 +352,9 @@ def run_typed_backfill_action(
                 output_fields=tuple(program.output_fields(spec)),
             )
     except BackfillRefused as exc:
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=exc.error
-        )
+        return ActionCtx(project_id, action.kind).failed(exc.error)
     except (TypeError, ValueError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="invalid_params", message=str(exc), action_kind=action.kind
-            ),
-        )
+        return ActionCtx(project_id, action.kind).fail("invalid_params", str(exc))
 
     def receipt(
         current: Project, run_id: int, action_id: str, receipt_id: str

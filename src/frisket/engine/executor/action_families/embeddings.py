@@ -23,12 +23,14 @@ from __future__ import annotations
 import json
 import logging
 import math
+from functools import partial
 import asyncio
 import hashlib
 from contextlib import ExitStack
 from typing import Any
 
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.embeddings import (
     IndexCreateParams,
@@ -94,10 +96,11 @@ from frisket.engine.executor.action_receipts import (
 from frisket.engine.executor.action_reservations import (
     _receipt_for_idempotency,
     _reserve_running_action_receipt,
+    _reserved_receipt_result_from_existing,
     _running_receipt_stale_result,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
     _new_id,
 )
 from frisket.engine.executor.project_run_terminalization import (
@@ -150,10 +153,8 @@ _MEDIA_MODALITIES = frozenset({"image", "audio", "video", "file"})
 
 
 def _error(action: ActionSpec, project_id: str, code, message, **kw):
-    return _failed_result(
-        project_id=project_id,
-        action_kind=action.kind,
-        error=ActionError(code=code, message=message, action_kind=action.kind, **kw),
+    return ActionCtx(project_id, action.kind).failed(
+        ActionError(code=code, message=message, action_kind=action.kind, **kw)
     )
 
 
@@ -167,23 +168,15 @@ def _replay(
     existing = _receipt_for_idempotency(project, action.idempotency_key)
     if existing is None:
         return None
-    if existing["params_hash"] != params_hash:
-        return _error(
-            action,
-            project_id,
-            "idempotency_conflict",
-            "idempotency_key was already used with different normalized params",
-            field="idempotency_key",
-        )
-    receipt = Receipt.model_validate(json.loads(existing["body"]))
-    stale = _embedding_lifecycle_replay_error(project, receipt)
-    if stale is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=stale,
-        )
-    return _result_from_receipt(receipt)
+    return _reserved_receipt_result_from_existing(
+        project,
+        existing,
+        params_hash=params_hash,
+        project_id=project_id,
+        action=action,
+        replay_error_fn=partial(_embedding_lifecycle_replay_error, project),
+        guard_running=False,
+    )
 
 
 def _embedding_lifecycle_replay_error(
@@ -3387,15 +3380,10 @@ class _EmbeddingLifecycleCapability:
             params = model.model_validate(admitted)
         except (TypeError, ValueError) as exc:
             raise _EmbeddingOperationRefused(
-                _failed_result(
-                    project_id=self.project_id,
-                    action_kind=self.bound.action.action_id,
-                    error=ActionError(
-                        code="invalid_params",
-                        message="Invalid embedding operation arguments.",
-                        action_kind=self.bound.action.action_id,
-                        field="params",
-                    ),
+                ActionCtx(self.project_id, self.bound.action.action_id).fail(
+                    "invalid_params",
+                    "Invalid embedding operation arguments.",
+                    field="params",
                 )
             ) from exc
         action = _TypedProjectEnvelope(
@@ -3514,11 +3502,7 @@ def run_typed_embedding_action(
     terminal = bound.action.definition.run
     if not supports_typed_embedding_action(terminal):
         raise TypeError("typed embedding executor requires an embedding capability")
-    envelope = _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    envelope = _typed_params_envelope(bound)
     params_hash = typed_request_hash(bound)
     if any(terminal.capabilities == (cap,) for cap in {IndexCreator, IndexRefresher}):
         # Terminal replay precedes the authored handler and any fresh provider work.

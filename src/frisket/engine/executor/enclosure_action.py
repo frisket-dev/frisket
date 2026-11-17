@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from functools import partial
 from typing import Any
 
@@ -30,17 +29,16 @@ from frisket.engine.executor.action_families._errors import (
 from frisket.engine.executor.action_inventory import (
     _TypedProjectEnvelope,
 )
-from frisket.engine.executor.action_receipts import _result_from_receipt
+from frisket.engine.executor.action_receipts import receipt_status_from_failures
 from frisket.engine.executor.action_reservations import (
     _cleanup_reserved_receipt_on_failed_result,
-    _direct_action_finalize_metadata,
-    _finalize_direct_reserved_action_receipt,
+    _finalize_reserved_action_receipt,
     _receipt_for_idempotency,
     _reserve_running_action_receipt,
-    _running_receipt_stale_result,
+    _reserved_receipt_result_from_existing,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.redaction import redact_text
@@ -149,21 +147,18 @@ def run_typed_enclosure_action(
     params_hash = typed_request_hash(bound)
     existing = _receipt_for_idempotency(project, action.idempotency_key)
     if existing is not None:
-        return _media_enclosure_result_from_existing_receipt(
+        return _reserved_receipt_result_from_existing(
             project,
             existing,
             params_hash=params_hash,
             project_id=project_id,
             action=action,
+            replay_error_fn=partial(_media_enclosure_replay_error, project),
         )
 
     resolved = _resolve_media_enclosure_inputs(project, action, scope)
     if isinstance(resolved, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=resolved,
-        )
+        return ActionCtx(project_id, action.kind).failed(resolved)
 
     reservation = _reserve_running_action_receipt(
         project,
@@ -171,7 +166,7 @@ def run_typed_enclosure_action(
         params_hash=params_hash,
         project_id=project_id,
         reservation_kind="media_enclosure_idempotency_reservation",
-        result_from_existing_fn=_media_enclosure_result_from_existing_receipt,
+        replay_error_fn=partial(_media_enclosure_replay_error, project),
     )
     if isinstance(reservation, ActionResult):
         return reservation
@@ -225,9 +220,7 @@ def run_typed_enclosure_action(
         for item in row_results
         if item["status"] == "error"
     ]
-    status = "completed"
-    if errors:
-        status = "failed" if len(errors) == len(row_results) else "partial"
+    status = receipt_status_from_failures(len(errors), len(row_results))
     return _cleanup_reserved_receipt_on_failed_result(
         project,
         _write_media_enclosure_receipt(
@@ -333,60 +326,6 @@ def _resolve_media_enclosure_inputs(
         },
         "urls": {row_id: str(values[row_id]) for row_id in scope.row_ids},
     }
-
-
-def _media_enclosure_result_from_existing_receipt(
-    project: Project,
-    existing: Any,
-    *,
-    params_hash: str,
-    project_id: str,
-    action: _TypedProjectEnvelope,
-) -> ActionResult:
-    if existing["params_hash"] != params_hash:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_conflict",
-                message="idempotency_key was already used with different normalized params",
-                action_kind=action.kind,
-                field="idempotency_key",
-            ),
-        )
-    stale = _running_receipt_stale_result(
-        project,
-        existing,
-        params_hash=params_hash,
-        project_id=project_id,
-        action=action,
-    )
-    if stale is not None:
-        return stale
-    receipt = Receipt.model_validate(json.loads(existing["body"]))
-    if receipt.status == "running":
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_in_progress",
-                message=(
-                    "idempotency_key is already reserved by a running "
-                    "media.enclosure_materialize action"
-                ),
-                action_kind=action.kind,
-                field="idempotency_key",
-                details={"receipt_id": receipt.receipt_id},
-            ),
-        )
-    replay_error = _media_enclosure_replay_error(project, receipt)
-    if replay_error is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=replay_error,
-        )
-    return _result_from_receipt(receipt)
 
 
 def _media_enclosure_replay_error(
@@ -507,17 +446,14 @@ def _write_media_enclosure_receipt(
         status=status,
         errors=errors,
     )
-    finalize_result = _finalize_direct_reserved_action_receipt(
+    finalize_result = _finalize_reserved_action_receipt(
         project,
         action,
         params_hash=params_hash,
         project_id=project_id,
         receipt=receipt,
-        finalize=_direct_action_finalize_metadata(
-            action.kind,
-            result_from_existing_fn=_media_enclosure_result_from_existing_receipt,
-            require_running_status=False,
-        ),
+        replay_error_fn=partial(_media_enclosure_replay_error, project),
+        require_running_status=False,
     )
     if finalize_result is not None:
         return finalize_result

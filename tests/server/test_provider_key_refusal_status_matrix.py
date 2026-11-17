@@ -19,7 +19,7 @@ from frisket.engine.runner import (
     ProviderSpendCapUnenforceable,
 )
 from frisket.execution.provider import ExecutionCompositionContext
-from frisket.server.action_enqueue import provider_key_refusal_error
+from frisket.engine.executor.action_support import RefusalSite, refusal_error
 from frisket.server.routes.action_runs import register_action_run_routes
 from frisket.server.services import action_preview_runs
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
@@ -43,7 +43,9 @@ class _RunService:
     def run_action(
         self, project_id: str, body: dict[str, Any], **_: Any
     ) -> ActionRunResponse:
-        error = provider_key_refusal_error(body["kind"], self.refusal)
+        error = refusal_error(
+            self.refusal, RefusalSite(action_kind=body["kind"], has_row_scope=False)
+        )
         result = ActionResult(
             action={"kind": body["kind"], "action_id": "action"},
             status="failed",

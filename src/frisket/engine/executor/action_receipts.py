@@ -403,3 +403,12 @@ def _receipt_ops_are_applied(project: Any, op_ids: list[int]) -> bool:
     ).fetchall()
     by_id = {int(row["id"]): str(row["status"]) for row in rows}
     return all(by_id.get(op_id) == "applied" for op_id in op_ids)
+
+
+def receipt_status_from_failures(failed: int, total: int) -> str:
+    """A finished unit of work is failed when every item failed, else partial."""
+    if total and failed >= total:
+        return "failed"
+    if failed:
+        return "partial"
+    return "completed"

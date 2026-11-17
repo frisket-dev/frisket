@@ -10,7 +10,6 @@ from frisket.actions.core import _ProjectAction
 from frisket.actions.types import DeletedEmbeddingIndex
 from frisket.ai.embeddings import EmbeddingStore
 from frisket.contracts.action import (
-    ActionError,
     ActionResult,
     Receipt,
     ReceiptEvidence,
@@ -22,7 +21,7 @@ from frisket.engine.executor.embedding_export import (
 )
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.retrieval.store import RetrievalStore
@@ -151,15 +150,8 @@ def _perform_delete_in_txn(
     try:
         returned = terminal.handler(params, capability)
     except _DeleteRefused as error:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code=error.code,
-                message=error.message,
-                action_kind=action.kind,
-                field="params",
-            ),
+        return ActionCtx(project_id, action.kind).fail(
+            error.code, error.message, field="params"
         )
     result = capability.result
     if result is None or not isinstance(returned, DeletedEmbeddingIndex):

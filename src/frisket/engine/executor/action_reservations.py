@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Literal, Mapping
 
 from pydantic import BaseModel
 
@@ -20,6 +20,7 @@ from frisket.contracts.action import (
 )
 from frisket.ai.llm.types import LLMError
 from frisket.ops.base import Recipe
+from frisket.engine.runner.result_generations import declare_bound_run_outputs
 from frisket.engine.store.output_claims import (
     OutputColumnClaimStore,
 )
@@ -42,7 +43,7 @@ from frisket.engine.executor.action_inventory import (
 )
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
     _new_id,
     _params_hash_without_confirmed,
     _row_value,
@@ -146,37 +147,6 @@ def _acquire_output_claims_for_runner(
     if conflict is not None:
         return _output_column_busy_error(action.kind, conflict, field=error_field)
     return None
-
-
-@dataclass(frozen=True)
-class _DirectActionFinalizeMetadata:
-    action_kind: str
-    result_from_existing_fn: Callable[..., ActionResult]
-    result_from_existing_kwargs: dict[str, Any] | None = None
-    require_running_status: bool = True
-
-    @property
-    def reservation_lost_message(self) -> str:
-        return f"{self.action_kind} idempotency reservation was lost"
-
-    @property
-    def update_failed_message(self) -> str:
-        return f"{self.action_kind} receipt update failed"
-
-
-def _direct_action_finalize_metadata(
-    action_kind: str,
-    *,
-    result_from_existing_fn: Callable[..., ActionResult],
-    result_from_existing_kwargs: dict[str, Any] | None = None,
-    require_running_status: bool = True,
-) -> _DirectActionFinalizeMetadata:
-    return _DirectActionFinalizeMetadata(
-        action_kind=action_kind,
-        result_from_existing_fn=result_from_existing_fn,
-        result_from_existing_kwargs=result_from_existing_kwargs,
-        require_running_status=require_running_status,
-    )
 
 
 @dataclass(frozen=True)
@@ -295,12 +265,9 @@ def _terminalize_claimless_direct_failure(
     error: ActionError,
     project_write_failed_message: str,
 ) -> ActionResult:
+    ctx = ActionCtx(project_id, action_kind)
     if stored_receipt is None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action_kind,
-            error=error,
-        )
+        return ctx.failed(error)
     prior = stored_receipt.parsed()
     if prior.status in FINISHED_RECEIPT_STATUSES:
         return _result_from_receipt(prior)
@@ -314,15 +281,7 @@ def _terminalize_claimless_direct_failure(
         )
         if not landed:
             project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action_kind,
-                error=ActionError(
-                    code="project_write_failed",
-                    message=project_write_failed_message,
-                    action_kind=action_kind,
-                ),
-            )
+            return ctx.fail("project_write_failed", project_write_failed_message)
         project.db.commit()
     except Exception:
         project.db.rollback()
@@ -334,15 +293,10 @@ def _terminalize_claimless_direct_failure(
                 "action_kind": action_kind,
             },
         )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action_kind,
-            error=ActionError(
-                code="project_write_failed",
-                message=project_write_failed_message,
-                action_kind=action_kind,
-            ),
-        )
+        return ctx.fail("project_write_failed", project_write_failed_message)
+    except BaseException:
+        project.db.rollback()
+        raise
     return _result_from_receipt(failed)
 
 
@@ -473,6 +427,7 @@ def _running_receipt_stale_result(
     project_id: str,
     action: _ActionExecutionEnvelope,
 ) -> ActionResult | None:
+    ctx = ActionCtx(project_id, action.kind)
     if _row_value(existing, "status") != "running":
         return None
     if not _running_receipt_is_stale(_row_value(existing, "created_at")):
@@ -521,35 +476,26 @@ def _running_receipt_stale_result(
             project.db.rollback()
         except Exception:
             pass
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message=f"failed to clear stale running receipt: {exc}",
-                action_kind=action.kind,
-                field="idempotency_key",
-            ),
-        )
-
-    return _failed_result(
-        project_id=project_id,
-        action_kind=action.kind,
-        error=ActionError(
-            code="idempotency_stale_running",
-            message=(
-                "stale running idempotency reservation was cleared; "
-                "retry the action to continue"
-            ),
-            action_kind=action.kind,
+        return ctx.fail(
+            "project_write_failed",
+            f"failed to clear stale running receipt: {exc}",
             field="idempotency_key",
-            details={
-                "receipt_id": receipt_id,
-                "created_at": str(_row_value(existing, "created_at")),
-                "stale_after_seconds": RUNNING_RECEIPT_STALE_AFTER_SECONDS,
-                "retryable": True,
-            },
-        ),
+        )
+    except BaseException:
+        project.db.rollback()
+        raise
+
+    return ctx.fail(
+        "idempotency_stale_running",
+        "stale running idempotency reservation was cleared; "
+        "retry the action to continue",
+        field="idempotency_key",
+        details={
+            "receipt_id": receipt_id,
+            "created_at": str(_row_value(existing, "created_at")),
+            "stale_after_seconds": RUNNING_RECEIPT_STALE_AFTER_SECONDS,
+            "retryable": True,
+        },
     )
 
 
@@ -561,51 +507,45 @@ def _reserved_receipt_result_from_existing(
     project_id: str,
     action: _ActionExecutionEnvelope,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
+    guard_running: bool = True,
     **_ignored: Any,
 ) -> ActionResult:
+    """Replay the receipt an idempotency key already names.
+
+    ``guard_running=False`` is for in-transaction hosts, whose receipts are
+    never left running for another caller to observe.
+    """
+    ctx = ActionCtx(project_id, action.kind)
     if existing["params_hash"] != params_hash:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_conflict",
-                message="idempotency_key was already used with different normalized params",
-                action_kind=action.kind,
-                field="idempotency_key",
-            ),
+        return ctx.fail(
+            "idempotency_conflict",
+            "idempotency_key was already used with different normalized params",
+            field="idempotency_key",
         )
-    stale = _running_receipt_stale_result(
-        project,
-        existing,
-        params_hash=params_hash,
-        project_id=project_id,
-        action=action,
+    stale = (
+        _running_receipt_stale_result(
+            project,
+            existing,
+            params_hash=params_hash,
+            project_id=project_id,
+            action=action,
+        )
+        if guard_running
+        else None
     )
     if stale is not None:
         return stale
-    if existing["status"] == "running":
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_in_progress",
-                message=(
-                    "idempotency_key is already reserved by a running "
-                    f"{action.kind} action"
-                ),
-                action_kind=action.kind,
-                field="idempotency_key",
-                details={"receipt_id": existing["id"]},
-            ),
+    if guard_running and existing["status"] == "running":
+        return ctx.fail(
+            "idempotency_in_progress",
+            f"idempotency_key is already reserved by a running {action.kind} action",
+            field="idempotency_key",
+            details={"receipt_id": existing["id"]},
         )
     receipt = Receipt.model_validate(json.loads(existing["body"]))
     replay_error = replay_error_fn(receipt) if replay_error_fn is not None else None
     if replay_error is not None:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=replay_error,
-        )
+        return ctx.failed(replay_error)
     return _result_from_receipt(receipt)
 
 
@@ -670,7 +610,6 @@ def _reserve_running_action_receipt(
                         "reservation_reused": "true",
                     }
                 return replay
-            assert replay_error_fn is not None
             return _reserved_receipt_result_from_existing(
                 project, existing, **kwargs, replay_error_fn=replay_error_fn
             )
@@ -681,24 +620,19 @@ def _reserve_running_action_receipt(
         )
         if commit:
             project.db.commit()
-    except Exception:
-        if commit:
-            project.db.rollback()
-        else:
+    except BaseException as exc:
+        if not commit:
+            raise
+        project.db.rollback()
+        if not isinstance(exc, Exception):
             raise
         logger.debug(
             "action_failed",
             exc_info=True,
             extra={"event": "action_failed", "action_kind": action.kind},
         )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="project write failed",
-                action_kind=action.kind,
-            ),
+        return ActionCtx(project_id, action.kind).fail(
+            "project_write_failed", "project write failed"
         )
     return {"action_id": action_id, "receipt_id": receipt_id}
 
@@ -726,40 +660,26 @@ def _queued_action_result_from_existing(
         action: ActionSpec,
         params: BaseModel,
     ) -> ActionResult:
+        ctx = ActionCtx(project_id, action.kind)
         if existing["params_hash"] != params_hash:
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="idempotency_conflict",
-                    message=(
-                        "idempotency_key was already used with different "
-                        "normalized params"
-                    ),
-                    action_kind=action.kind,
-                    field="idempotency_key",
-                ),
+            return ctx.fail(
+                "idempotency_conflict",
+                "idempotency_key was already used with different normalized params",
+                field="idempotency_key",
             )
         receipt = Receipt.model_validate(json.loads(existing["body"]))
         if receipt.status == "queued":
             job_id = _queued_receipt_job_id(receipt)
             if receipt.run_id is None or job_id is None:
-                return _failed_result(
-                    project_id=project_id,
-                    action_kind=action.kind,
-                    error=ActionError(
-                        code="idempotency_in_progress",
-                        message=(
-                            "idempotency_key is already reserved by a queued "
-                            f"{action.kind} action"
-                        ),
-                        action_kind=action.kind,
-                        field="idempotency_key",
-                        details={
-                            "receipt_id": receipt.receipt_id,
-                            "retryable": True,
-                        },
-                    ),
+                return ctx.fail(
+                    "idempotency_in_progress",
+                    "idempotency_key is already reserved by a queued "
+                    f"{action.kind} action",
+                    field="idempotency_key",
+                    details={
+                        "receipt_id": receipt.receipt_id,
+                        "retryable": True,
+                    },
                 )
             return _result_from_receipt(receipt).model_copy(update={"job_id": job_id})
         if receipt.status in {"failed", "cancelled"}:
@@ -777,14 +697,8 @@ def _queued_action_result_from_existing(
                 action=action,
                 params=params,
             )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="queued action spec has no completed replay handler",
-                action_kind=action.kind,
-            ),
+        return ctx.fail(
+            "project_write_failed", "queued action spec has no completed replay handler"
         )
 
     return result_from_existing
@@ -801,6 +715,7 @@ def _queued_action_reservation_payload(
     router: Any | None = None,
     program: Recipe | None = None,
 ) -> dict[str, Any] | ActionResult:
+    ctx = ActionCtx(project_id, action.kind)
     runner_spec = _apply_action_envelope_to_runner_spec(
         action, spec.runner_spec_fn(params)
     )
@@ -813,26 +728,14 @@ def _queued_action_reservation_payload(
         else spec.resolve_fn(project, params, runner_spec)
     )
     if isinstance(resolved, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=resolved,
-        )
+        return ctx.failed(resolved)
     try:
         local_endpoint_bindings = _local_endpoint_bindings_for_runner_spec(
             runner_spec,
             router=router,
         )
     except (LLMError, RuntimeError, ValueError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="local_endpoint_unavailable",
-                message=str(exc),
-                action_kind=action.kind,
-            ),
-        )
+        return ctx.fail("local_endpoint_unavailable", str(exc))
     precomputed_output_fields: list[dict[str, Any]] | None = None
     if run_precheck:
         from frisket.engine.runner.validation import recipe_for_spec
@@ -867,11 +770,7 @@ def _queued_action_reservation_payload(
                                 field=spec.output_claim_error_field,
                             )
                             break
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=output_precheck,
-            )
+            return ctx.failed(output_precheck)
     # Absence of a confirmed field/fn is NOT consent: the default is False,
     # matching the sibling needs_confirmation
     # checks. Free ops are unaffected (a $0/None-free estimate never gates);
@@ -954,14 +853,26 @@ def _queued_action_runner_spec_with_marker(
     params_hash: str,
 ) -> dict[str, Any]:
     marked = dict(runner_spec)
-    marked[QUEUED_ACTION_RUN_MARKER_PARAM] = {
+    marked[QUEUED_ACTION_RUN_MARKER_PARAM] = _queued_action_run_marker(
+        action_kind=action_kind,
+        receipt_id=receipt_id,
+        action_id=action_id,
+        params_hash=params_hash,
+    )
+    return marked
+
+
+def _queued_action_run_marker(
+    *, action_kind: str, receipt_id: str, action_id: str, params_hash: str
+) -> dict[str, str]:
+    """The runner-spec marker binding a queued project run to its receipt."""
+    return {
         "schema_version": QUEUED_ACTION_RUN_MARKER_SCHEMA,
         "action_kind": action_kind,
         "receipt_id": receipt_id,
         "action_id": action_id,
         "params_hash": params_hash,
     }
-    return marked
 
 
 def _queued_receipt_prepared_link(receipt: Receipt) -> Mapping[str, Any] | None:
@@ -1224,11 +1135,7 @@ def _reserve_queued_action(
         if claim_error is not None:
             if commit:
                 project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=claim_error,
-            )
+            return ActionCtx(project_id, action.kind).failed(claim_error)
         from frisket.engine.runner.validation import recipe_for_spec
 
         if (program or recipe_for_spec(payload["runner_spec"])).consumes_resolution:
@@ -1245,11 +1152,7 @@ def _reserve_queued_action(
         if post_claim_precheck is not None:
             if commit:
                 project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=post_claim_precheck,
-            )
+            return ActionCtx(project_id, action.kind).failed(post_claim_precheck)
         if commit:
             project.db.commit()
     except BaseException as exc:
@@ -1262,14 +1165,8 @@ def _reserve_queued_action(
             exc_info=True,
             extra={"event": "action_failed", "action_kind": action.kind},
         )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="project write failed",
-                action_kind=action.kind,
-            ),
+        return ActionCtx(project_id, action.kind).fail(
+            "project_write_failed", "project write failed"
         )
     return {
         "action_id": action_id,
@@ -1292,17 +1189,6 @@ def _mark_queued_action_run_prepared(
     reservation_snapshot: Mapping[str, Any] | None = None,
     commit: bool = True,
 ) -> None:
-    row = ReceiptStore(project).find_by_id(receipt_id)
-    if row is None:
-        raise RuntimeError(
-            f"queued receipt {receipt_id!r} disappeared during preparation"
-        )
-    receipt = Receipt.model_validate(json.loads(row["body"]))
-    evidence = [
-        item
-        for item in receipt.evidence
-        if item.ref.get("kind") != QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND
-    ]
     prepared_ref: dict[str, Any] = {
         "kind": QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND,
         "queue_kind": "project.run",
@@ -1313,48 +1199,17 @@ def _mark_queued_action_run_prepared(
         prepared_ref["attempt_id"] = attempt_id
     if reservation_snapshot is not None:
         prepared_ref["reservation_snapshot"] = dict(reservation_snapshot)
-    evidence.append(ReceiptEvidence(ref=prepared_ref))
-    receipt = receipt.model_copy(update={"run_id": run_id, "evidence": evidence})
-    try:
-        if commit:
-            project.db.execute("BEGIN IMMEDIATE")
-        elif not project.db.in_transaction:
-            raise RuntimeError(
-                "_mark_queued_action_run_prepared(commit=False) requires a "
-                "caller-owned project transaction"
-            )
-        updated = ReceiptStore(project).update_body_status(
-            receipt,
-            require_status="queued",
-            commit=False,
-        )
-        if not updated:
-            raise RuntimeError(f"queued receipt {receipt_id!r} is no longer preparable")
-        OutputColumnClaimStore(project).bind_to_run(
-            claim_token=_output_claim_token(receipt_id),
-            run_id=run_id,
-            expected_output_names=[str(field["name"]) for field in output_fields],
-            commit=False,
-        )
-        from frisket.engine.runner.result_generations import (
-            declare_bound_run_outputs,
-        )
-
-        declare_bound_run_outputs(
-            project,
-            run_id=run_id,
-            output_fields=output_fields,
-            program=program,
-            claim_token=_output_claim_token(receipt_id),
-            defer_publication=getattr(program, "defer_generation_seal", False) is True,
-        )
-        _hide_deferred_created_columns(project, run_id, program)
-        if commit:
-            project.db.commit()
-    except Exception:
-        if commit:
-            project.db.rollback()
-        raise
+    _bind_receipt_to_prepared_run(
+        project,
+        receipt_id=receipt_id,
+        run_id=run_id,
+        receipt_status="queued",
+        prepared_ref=prepared_ref,
+        output_fields=output_fields,
+        program=program,
+        defer_publication=getattr(program, "defer_generation_seal", False) is True,
+        commit=commit,
+    )
 
 
 def _hide_deferred_created_columns(
@@ -1386,10 +1241,44 @@ def _mark_running_action_run_prepared(
 ) -> None:
     """Bind a direct action's existing receipt and claim group to its run."""
 
+    _bind_receipt_to_prepared_run(
+        project,
+        receipt_id=receipt_id,
+        run_id=run_id,
+        receipt_status="running",
+        prepared_ref=None
+        if attempt_id is None
+        else {
+            "kind": QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND,
+            "queue_kind": "direct",
+            "run_id": run_id,
+            "attempt_id": attempt_id,
+        },
+        output_fields=output_fields,
+        program=program,
+        defer_publication=defer_publication,
+        commit=commit,
+    )
+
+
+def _bind_receipt_to_prepared_run(
+    project: Any,
+    *,
+    receipt_id: str,
+    run_id: int,
+    receipt_status: Literal["queued", "running"],
+    prepared_ref: dict[str, Any] | None,
+    output_fields: list[dict[str, Any]],
+    program: Recipe | None,
+    defer_publication: bool,
+    commit: bool,
+) -> None:
+    """Point a reserved receipt and its output claim group at a prepared run."""
+
     row = ReceiptStore(project).find_by_id(receipt_id)
     if row is None:
         raise RuntimeError(
-            f"running receipt {receipt_id!r} disappeared during preparation"
+            f"{receipt_status} receipt {receipt_id!r} disappeared during preparation"
         )
     receipt = Receipt.model_validate(json.loads(row["body"]))
     evidence = [
@@ -1397,35 +1286,22 @@ def _mark_running_action_run_prepared(
         for item in receipt.evidence
         if item.ref.get("kind") != QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND
     ]
-    if attempt_id is not None:
-        evidence.append(
-            ReceiptEvidence(
-                ref={
-                    "kind": QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND,
-                    "queue_kind": "direct",
-                    "run_id": run_id,
-                    "attempt_id": attempt_id,
-                }
-            )
-        )
-    prepared_receipt = receipt.model_copy(
-        update={"run_id": run_id, "evidence": evidence}
-    )
+    if prepared_ref is not None:
+        evidence.append(ReceiptEvidence(ref=prepared_ref))
+    receipt = receipt.model_copy(update={"run_id": run_id, "evidence": evidence})
     try:
         if commit:
             project.db.execute("BEGIN IMMEDIATE")
         elif not project.db.in_transaction:
             raise RuntimeError(
-                "_mark_running_action_run_prepared(commit=False) requires a "
+                f"_mark_{receipt_status}_action_run_prepared(commit=False) requires a "
                 "caller-owned project transaction"
             )
         if not ReceiptStore(project).update_body_status(
-            prepared_receipt,
-            require_status="running",
-            commit=False,
+            receipt, require_status=receipt_status, commit=False
         ):
             raise RuntimeError(
-                f"running receipt {receipt_id!r} is no longer preparable"
+                f"{receipt_status} receipt {receipt_id!r} is no longer preparable"
             )
         OutputColumnClaimStore(project).bind_to_run(
             claim_token=_output_claim_token(receipt_id),
@@ -1433,10 +1309,6 @@ def _mark_running_action_run_prepared(
             expected_output_names=[str(field["name"]) for field in output_fields],
             commit=False,
         )
-        from frisket.engine.runner.result_generations import (
-            declare_bound_run_outputs,
-        )
-
         declare_bound_run_outputs(
             project,
             run_id=run_id,
@@ -1446,15 +1318,16 @@ def _mark_running_action_run_prepared(
             defer_publication=defer_publication,
         )
         _hide_deferred_created_columns(project, run_id, program)
-        project.db.execute(
-            "UPDATE runs SET edition_run_context="
-            "(SELECT edition_run_context FROM receipts WHERE id=?) "
-            "WHERE id=? AND edition_run_context IS NULL",
-            (receipt_id, run_id),
-        )
+        if receipt_status == "running":
+            project.db.execute(
+                "UPDATE runs SET edition_run_context="
+                "(SELECT edition_run_context FROM receipts WHERE id=?) "
+                "WHERE id=? AND edition_run_context IS NULL",
+                (receipt_id, run_id),
+            )
         if commit:
             project.db.commit()
-    except Exception:
+    except BaseException:
         if commit:
             project.db.rollback()
         raise
@@ -1521,6 +1394,9 @@ def _mark_queued_action_enqueued(
             exc_info=True,
             extra={"event": "queued_receipt_mark_failed", "receipt_id": receipt_id},
         )
+    except BaseException:
+        project.db.rollback()
+        raise
 
 
 def _release_queued_output_claim_if_terminal(
@@ -1560,6 +1436,9 @@ def _cleanup_queued_action_reservation(
             exc_info=True,
             extra={"event": "queued_receipt_delete_failed", "receipt_id": receipt_id},
         )
+    except BaseException:
+        project.db.rollback()
+        raise
 
 
 def _delete_reserved_action_receipt(
@@ -1591,6 +1470,9 @@ def _delete_reserved_action_receipt(
             exc_info=True,
             extra={"event": "action_failed", "action_kind": action_kind},
         )
+    except BaseException:
+        project.db.rollback()
+        raise
 
 
 def _cleanup_reserved_receipt_on_failed_result(
@@ -1616,8 +1498,7 @@ def _finalize_reserved_action_receipt(
     params_hash: str,
     project_id: str,
     receipt: Receipt,
-    reservation_lost_message: str,
-    update_failed_message: str,
+    reservation_lost_message: str | None = None,
     result_from_existing_fn: Callable[..., ActionResult | None] | None = None,
     replay_error_fn: Callable[[Receipt], ActionError | None] | None = None,
     result_from_existing_kwargs: dict[str, Any] | None = None,
@@ -1625,6 +1506,9 @@ def _finalize_reserved_action_receipt(
     before_commit: Callable[[], None] | None = None,
     commit: bool = True,
 ) -> ActionResult | None:
+    ctx = ActionCtx(project_id, action.kind)
+    if reservation_lost_message is None:
+        reservation_lost_message = f"{action.kind} idempotency reservation was lost"
     try:
         if commit:
             project.db.execute("BEGIN IMMEDIATE")
@@ -1637,20 +1521,12 @@ def _finalize_reserved_action_receipt(
         if existing is None:
             if commit:
                 project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="project_write_failed",
-                    message=reservation_lost_message,
-                    action_kind=action.kind,
-                ),
-            )
+            return ctx.fail("project_write_failed", reservation_lost_message)
         if existing["id"] != receipt.receipt_id:
             if commit:
                 project.db.rollback()
             kwargs = dict(result_from_existing_kwargs or {})
-            if replay_error_fn is not None:
+            if result_from_existing_fn is None:
                 return _reserved_receipt_result_from_existing(
                     project,
                     existing,
@@ -1660,7 +1536,6 @@ def _finalize_reserved_action_receipt(
                     replay_error_fn=replay_error_fn,
                     **kwargs,
                 )
-            assert result_from_existing_fn is not None
             existing_result = result_from_existing_fn(
                 project,
                 existing,
@@ -1670,28 +1545,15 @@ def _finalize_reserved_action_receipt(
                 **kwargs,
             )
             if existing_result is None:
-                return _failed_result(
-                    project_id=project_id,
-                    action_kind=action.kind,
-                    error=ActionError(
-                        code="project_write_failed",
-                        message=reservation_lost_message,
-                        action_kind=action.kind,
-                    ),
-                )
+                return ctx.fail("project_write_failed", reservation_lost_message)
             return existing_result
         if existing["params_hash"] != params_hash:
             if commit:
                 project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="idempotency_conflict",
-                    message="idempotency_key was already used with different normalized params",
-                    action_kind=action.kind,
-                    field="idempotency_key",
-                ),
+            return ctx.fail(
+                "idempotency_conflict",
+                "idempotency_key was already used with different normalized params",
+                field="idempotency_key",
             )
         if existing["status"] not in {"queued", "running"}:
             # Re-delivery may project the run again, but a completed receipt is
@@ -1709,14 +1571,8 @@ def _finalize_reserved_action_receipt(
         if not updated:
             if commit:
                 project.db.rollback()
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="project_write_failed",
-                    message=update_failed_message,
-                    action_kind=action.kind,
-                ),
+            return ctx.fail(
+                "project_write_failed", f"{action.kind} receipt update failed"
             )
         if before_commit is not None:
             before_commit()
@@ -1739,43 +1595,12 @@ def _finalize_reserved_action_receipt(
                 "receipt_id": receipt.receipt_id,
             },
         )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="project write failed",
-                action_kind=action.kind,
-            ),
-        )
+        return ctx.fail("project_write_failed", "project write failed")
+    except BaseException:
+        if commit:
+            project.db.rollback()
+        raise
     return None
-
-
-def _finalize_direct_reserved_action_receipt(
-    project: Any,
-    action: _ActionExecutionEnvelope,
-    *,
-    params_hash: str,
-    project_id: str,
-    receipt: Receipt,
-    finalize: _DirectActionFinalizeMetadata,
-    before_commit: Callable[[], None] | None = None,
-    commit: bool = True,
-) -> ActionResult | None:
-    return _finalize_reserved_action_receipt(
-        project,
-        action,
-        params_hash=params_hash,
-        project_id=project_id,
-        receipt=receipt,
-        reservation_lost_message=finalize.reservation_lost_message,
-        update_failed_message=finalize.update_failed_message,
-        result_from_existing_fn=finalize.result_from_existing_fn,
-        result_from_existing_kwargs=finalize.result_from_existing_kwargs,
-        require_running_status=finalize.require_running_status,
-        before_commit=before_commit,
-        commit=commit,
-    )
 
 
 def _reserved_maprunner_result_from_existing(
