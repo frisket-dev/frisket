@@ -360,10 +360,7 @@
   "tests/team/test_invite_authority_postgres.py": 1
  },
  "py-pyright-ignore": {},
- "py-skip-debt": {
-  "tests/test_release_manifest_workflow.py": 1,
-  "tests/test_release_native_image_workflow.py": 1
- },
+ "py-skip-debt": {},
  "py-type-ignore": {
   "scripts/ci/lint_route_error_idioms.py": 1,
   "scripts/smoke/deployment_http_smoke.py": 1,

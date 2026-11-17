@@ -7,7 +7,9 @@
 The full suite takes an exclusive lock file (pid + worktree) under the user
 cache directory; a second full run refuses, or waits with ``--wait``. A lock
 whose pid is no longer alive is stale and is taken over. Workers are sized
-from CPU count minus the current load average (at most 8; targeted at most 4).
+from CPU count minus the current load average (at most 8; targeted at most 4);
+a full run never drops below 4 workers (half the CPUs on small machines, at
+least 2), because a starved single worker takes hours.
 
 Tests run on the main checkout's ``.venv`` with ``PYTHONPATH=<worktree>/src``,
 so this works unchanged from any lane worktree. Output is teed to a log, and
@@ -110,8 +112,29 @@ def release_lock(path: Path) -> None:
         path.unlink()
 
 
-def worker_count(cpus: Optional[int], load: float, cap: int) -> int:
-    return max(1, min(cap, int((cpus or 1) - load)))
+def worker_floor(cpus: Optional[int]) -> int:
+    """Fewest workers a full run may use: 4, or half the CPUs on small machines."""
+    return max(2, min(4, (cpus or 1) // 2))
+
+
+def worker_count(
+    cpus: Optional[int], load: float, cap: int, *, full: bool = False
+) -> int:
+    floor = worker_floor(cpus) if full else 1
+    return max(floor, min(cap, int((cpus or 1) - load)))
+
+
+def worker_reason(
+    workers: int, cpus: Optional[int], load: float, *, override: bool, full: bool
+) -> str:
+    if override:
+        return f"{workers} workers (explicit -n)"
+    kind = "full" if full else "targeted"
+    free = int((cpus or 1) - load)
+    return (
+        f"{workers} workers ({kind} run: {cpus or 1} CPUs, load {load:.1f}, "
+        f"{free} free; floor {worker_floor(cpus) if full else 1})"
+    )
 
 
 def read_known(path: Path) -> dict[str, str]:
@@ -267,10 +290,18 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     targeted = bool(args.pytest_args)
     cap = TARGETED_CAP if targeted else FULL_CAP
+    cpus, load = os.cpu_count(), os.getloadavg()[0]
     workers = (
         min(cap, args.workers)
         if args.workers
-        else worker_count(os.cpu_count(), os.getloadavg()[0], cap)
+        else worker_count(cpus, load, cap, full=not targeted)
+    )
+    print(
+        "suite.py: "
+        + worker_reason(
+            workers, cpus, load, override=bool(args.workers), full=not targeted
+        ),
+        flush=True,
     )
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log = args.log or cache_dir() / f"suite-{worktree.name}-{stamp}.log"

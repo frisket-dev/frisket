@@ -37,6 +37,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.server.runtime_settings import save_workspace_cost_preapproval_usd
 from frisket.server.mcp import HostedBackend, LocalBackend, create_mcp_server
+from frisket.server.mcp import server as mcp_server
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.mcp.server import ActionToolSpec, RegisteredActionToolSpec
 from frisket.actions.classify import ClassifyParams, classify_prompt
@@ -2235,3 +2236,26 @@ class TestServerConstruction:
         s = create_mcp_server(LocalBackend(tmp_path / "ws"))
         assert s.name == "frisket"
         assert callable(main) and callable(server.main)
+
+
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_mcp_help_prints_usage_without_touching_the_filesystem(
+    flag, tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        mcp_server.main([flag])
+    assert exit_info.value.code == 0
+    assert "usage: frisket mcp" in capsys.readouterr().out
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_mcp_refuses_unknown_flags_without_creating_a_workspace(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        mcp_server.main(["--bogus"])
+    assert exit_info.value.code == 2
+    assert "unrecognized arguments: --bogus" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
