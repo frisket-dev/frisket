@@ -1,7 +1,7 @@
 import type { RouteState } from '../core/route/RouteState';
 import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 import { onActionCatalogInvalidated } from '../api/catalogEvents';
 import type {
   ActionCatalogPayload,
@@ -504,7 +504,7 @@ interface ProjectDataState {
 }
 
 type ProjectDataApiPort = Pick<
-  ProjectApiPort,
+  ProjectApi,
   'listSheets' | 'getHistory' | 'getReviewCount'
 >;
 
@@ -680,7 +680,7 @@ interface ActionCatalogState {
   version: number;
 }
 
-type ActionCatalogApiPort = Pick<ProjectApiPort, 'listActionCatalog'>;
+type ActionCatalogApiPort = Pick<ProjectApi, 'listActionCatalog'>;
 type ActionCatalogExportTargetOwner = Pick<ActSurfaceStoreHandle, 'setActExportTargets'>;
 
 /**

@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   ProjectInvite,
   ProjectInviteResponse,
@@ -9,132 +9,97 @@ import type {
   RemovalResult,
 } from './types';
 
-interface ProjectCollaborationOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface ProjectCollaborationApi {
-  listMembers(
-    projectId: string,
-    options?: ProjectCollaborationOptions,
-  ): Promise<ProjectMember[]>;
-  setMember(
-    projectId: string,
-    email: string,
-    role: ProjectRole,
-    options?: ProjectCollaborationOptions,
-  ): Promise<ProjectMemberChange>;
-  removeMember(
-    projectId: string,
-    email: string,
-    options?: ProjectCollaborationOptions,
-  ): Promise<RemovalResult>;
-  listInvites(
-    projectId: string,
-    options?: ProjectCollaborationOptions,
-  ): Promise<ProjectInvite[]>;
-  createInvite(
-    projectId: string,
-    email: string,
-    role: ProjectInviteRole,
-    options?: ProjectCollaborationOptions,
-  ): Promise<ProjectInviteResponse>;
-  revokeInvite(
-    projectId: string,
-    inviteId: number | string,
-    options?: ProjectCollaborationOptions,
-  ): Promise<{ ok: boolean; revoked: boolean }>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type InvitesWire = HttpContractSuccessResponse<'outer.list_project_invites.get'>;
 
 function inviteList(wire: InvitesWire): ProjectInvite[] {
   return wire.invites;
 }
 
-export function createProjectCollaborationApi(
-  errorFactory: ContractErrorFactory,
-): ProjectCollaborationApi {
+export function createProjectCollaborationApi() {
   return {
-    listMembers(projectId, options = {}) {
+    async listProjectMembers(
+      projectId: string,
+      options: RequestOptions = {},
+    ): Promise<ProjectMember[]> {
       return httpContract(
         'outer.list_members.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    setMember(projectId, email, role, options = {}) {
+    async setProjectMember(
+      projectId: string,
+      email: string,
+      role: ProjectRole,
+      options: RequestOptions = {},
+    ): Promise<ProjectMemberChange> {
       return httpContract(
         'outer.set_member.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: { email, role },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    removeMember(projectId, email, options = {}) {
+    async removeProjectMember(
+      projectId: string,
+      email: string,
+      options: RequestOptions = {},
+    ): Promise<RemovalResult> {
       return httpContract(
         'outer.remove_member.delete',
         {
           pathParams: { pid: projectId, email },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    listInvites(projectId, options = {}) {
+    async listProjectInvites(
+      projectId: string,
+      options: RequestOptions = {},
+    ): Promise<ProjectInvite[]> {
       return httpContract(
         'outer.list_project_invites.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         inviteList,
       );
     },
 
-    createInvite(projectId, email, role, options = {}) {
+    async createProjectInvite(
+      projectId: string,
+      email: string,
+      role: ProjectInviteRole,
+      options: RequestOptions = {},
+    ): Promise<ProjectInviteResponse> {
       return httpContract(
         'outer.create_project_invite.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: { email, role },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    revokeInvite(projectId, inviteId, options = {}) {
+    async revokeProjectInvite(
+      projectId: string,
+      inviteId: number | string,
+      options: RequestOptions = {},
+    ): Promise<{ ok: boolean; revoked: boolean }> {
       return httpContract(
         'outer.revoke_project_invite.delete',
         {
           pathParams: { pid: projectId, invite_id: inviteId as never },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '../../src/api/contractErrors';
 import {
   getGlobalActionCatalog,
   getProjectActionCatalog,
@@ -81,28 +82,12 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-class MappedCatalogError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped catalog error ${status}`);
-    this.name = 'MappedCatalogError';
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
-function errorFactory(status: number, payload: unknown): Error {
-  return new MappedCatalogError(status, payload);
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe('action catalog HTTP contracts', () => {
-  it('uses exact global/project URLs and forwards exact optional headers and signals', async () => {
+  it('uses exact global/project URLs and forwards exact signals', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
@@ -110,17 +95,9 @@ describe('action catalog HTTP contracts', () => {
     }));
     const globalController = new AbortController();
     const projectController = new AbortController();
-    const globalHeaders = new Headers({ Authorization: 'Bearer global', 'X-Trace-Id': 'global' });
-    const projectHeaders = new Headers({ Authorization: 'Bearer project', 'X-Trace-Id': 'project' });
 
-    await getGlobalActionCatalog(errorFactory, {
-      signal: globalController.signal,
-      headers: globalHeaders,
-    });
-    await getProjectActionCatalog('tenant/project +%', errorFactory, {
-      signal: projectController.signal,
-      headers: projectHeaders,
-    });
+    await getGlobalActionCatalog({ signal: globalController.signal });
+    await getProjectActionCatalog('tenant/project +%', { signal: projectController.signal });
 
     expect(requests.map((request) => request.input)).toEqual([
       '/api/actions/v1/catalog',
@@ -130,8 +107,8 @@ describe('action catalog HTTP contracts', () => {
     expect(requests[1]?.init?.method).toBe('GET');
     expect(requests[0]?.init?.signal).toBe(globalController.signal);
     expect(requests[1]?.init?.signal).toBe(projectController.signal);
-    expect(requests[0]?.init?.headers).toBe(globalHeaders);
-    expect(requests[1]?.init?.headers).toBe(projectHeaders);
+    expect(requests[0]?.init?.headers).toBeUndefined();
+    expect(requests[1]?.init?.headers).toBeUndefined();
   });
 
   it('preserves abort rejection identity', async () => {
@@ -145,7 +122,7 @@ describe('action catalog HTTP contracts', () => {
         });
       });
     }));
-    const pending = getGlobalActionCatalog(errorFactory, { signal: controller.signal });
+    const pending = getGlobalActionCatalog({ signal: controller.signal });
     const abortError = new DOMException('catalog cancelled', 'AbortError');
     controller.abort(abortError);
 
@@ -157,7 +134,7 @@ describe('action catalog HTTP contracts', () => {
     const wire = catalogWire();
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(wire)));
 
-    const catalog = await getProjectActionCatalog('project-1', errorFactory);
+    const catalog = await getProjectActionCatalog('project-1');
 
     expect(catalog.actions[0]?.conditional_capabilities).toEqual([
       {
@@ -202,8 +179,8 @@ describe('action catalog HTTP contracts', () => {
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(wire)));
 
       const mapped = scope === 'global'
-        ? await getGlobalActionCatalog(errorFactory)
-        : await getProjectActionCatalog('project-1', errorFactory);
+        ? await getGlobalActionCatalog()
+        : await getProjectActionCatalog('project-1');
 
       expect(mapped.actions.map((action) => action.authoring_contract_version)).toEqual([1, 1, 1]);
     },
@@ -219,8 +196,8 @@ describe('action catalog HTTP contracts', () => {
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(wire)));
 
       const request = scope === 'global'
-        ? getGlobalActionCatalog(errorFactory)
-        : getProjectActionCatalog('project-1', errorFactory);
+        ? getGlobalActionCatalog()
+        : getProjectActionCatalog('project-1');
       await expect(request).rejects.toThrow(
         'action catalog entry map.ner has invalid authoring_contract_version',
       );
@@ -238,12 +215,15 @@ describe('action catalog HTTP contracts', () => {
   ] as const)('accepts the exact declared %s catalog error %s', async (scope, status) => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error ${status}` }, status)));
     const request = scope === 'global'
-      ? getGlobalActionCatalog(errorFactory)
-      : getProjectActionCatalog('project-1', errorFactory);
+      ? getGlobalActionCatalog()
+      : getProjectActionCatalog('project-1');
+    await expect(request).rejects.toBeInstanceOf(ApiError);
     await expect(request).rejects.toMatchObject({
-      name: 'MappedCatalogError',
+      name: 'ApiError',
       status,
-      payload: { detail: `error ${status}` },
+      message: `error ${status}`,
+      code: undefined,
+      details: undefined,
     });
   });
 
@@ -254,16 +234,16 @@ describe('action catalog HTTP contracts', () => {
     ['project', 418],
   ] as const)('maps additional %s catalog status %s', async (scope, status) => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'undeclared' }, status)));
-    const factory = vi.fn(errorFactory);
     const request = scope === 'global'
-      ? getGlobalActionCatalog(factory)
-      : getProjectActionCatalog('project-1', factory);
+      ? getGlobalActionCatalog()
+      : getProjectActionCatalog('project-1');
+    await expect(request).rejects.toBeInstanceOf(ApiError);
     await expect(request).rejects.toMatchObject({
-      name: 'MappedCatalogError',
+      name: 'ApiError',
       status,
-      payload: { detail: 'undeclared' },
+      message: 'undeclared',
+      code: undefined,
+      details: undefined,
     });
-    expect(factory).toHaveBeenCalledOnce();
-    expect(factory).toHaveBeenCalledWith(status, { detail: 'undeclared' });
   });
 });

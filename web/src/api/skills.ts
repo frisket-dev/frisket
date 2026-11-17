@@ -22,14 +22,10 @@ function skillRequestError(_status: number, payload: unknown): Error {
 export const skillsApi = {
   list: (): Promise<SkillsEnvelope> =>
     httpContract("tenant.list_skills.get", {
-      pathParams: {},
-      query: {},
       errorFactory: skillRequestError,
     }),
   create: (content: string): Promise<InstructionSkill> =>
     httpContract("tenant.create_skill.post", {
-      pathParams: {},
-      query: {},
       body: { content, enabled: true },
       errorFactory: skillRequestError,
     }),
@@ -43,7 +39,6 @@ export const skillsApi = {
   ): Promise<InstructionSkill> =>
     httpContract("tenant.update_skill.put", {
       pathParams: { skill_id: skill.id },
-      query: {},
       body: { expectedRevision: skill.revision, content },
       errorFactory: skillRequestError,
     }),
@@ -53,14 +48,12 @@ export const skillsApi = {
   ): Promise<InstructionSkill> =>
     httpContract("tenant.set_skill_enabled.patch", {
       pathParams: { skill_id: skill.id },
-      query: {},
       body: { expectedRevision: skill.revision, enabled },
       errorFactory: skillRequestError,
     }),
   delete: (skill: InstructionSkill): Promise<void> =>
     httpContract("tenant.delete_skill.delete", {
       pathParams: { skill_id: skill.id },
-      query: {},
       body: { expectedRevision: skill.revision },
       errorFactory: skillRequestError,
     }),

@@ -8,6 +8,7 @@ vi.mock("pluralize", () => ({
   }),
 }));
 
+import type { RequestOptions } from "../../src/api/httpContract";
 
 const rawRun = {
   id: 8,
@@ -179,24 +180,19 @@ function jsonResponse(
   });
 }
 
-interface Options {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface ProjectSourcesTransport {
-  listSources(options?: Options): Promise<Array<{ config: unknown }>>;
+  listSources(options?: RequestOptions): Promise<Array<{ config: unknown }>>;
   getSource(
     id: number,
     offset?: number | null,
     limit?: number,
-    options?: Options,
+    options?: RequestOptions,
   ): Promise<{ runs: unknown[] }>;
   getSourceHealth(
     id: number,
     offset?: number | null,
     limit?: number,
-    options?: Options,
+    options?: RequestOptions,
   ): Promise<{ source: { redactions: string[] } }>;
   createSource(input: unknown): Promise<{ id: number; config: unknown }>;
   updateSource(id: number, patch: unknown): Promise<{ id: number }>;
@@ -232,7 +228,6 @@ interface ProjectSourcesActionSession {
 interface ProjectSourcesModule {
   createProjectSourcesApi(
     dependencies: {
-      errorFactory: (status: number, payload: unknown) => Error;
       v1ActionSession: ProjectSourcesActionSession;
     },
     projectId: string,
@@ -246,18 +241,6 @@ async function projectSourcesModule(): Promise<
   return import(/* @vite-ignore */ path).catch(() => undefined) as Promise<
     ProjectSourcesModule | undefined
   >;
-}
-
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped source error ${status}`);
-    this.name = "MappedContractError";
-    this.status = status;
-    this.payload = payload;
-  }
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -282,7 +265,6 @@ describe("project-source generated HTTP reads", () => {
       },
     };
     const api = module.createProjectSourcesApi({
-      errorFactory: (status, payload) => new MappedContractError(status, payload),
       v1ActionSession: actionSession,
     }, "source-read-contract");
     expect(Object.keys(api).sort()).toEqual([
@@ -312,10 +294,7 @@ describe("project-source generated HTTP reads", () => {
       }),
     );
     const signal = new AbortController().signal;
-    const options = {
-      signal,
-      headers: { Authorization: "Bearer source-read", "X-Trace-Id": "f4" },
-    };
+    const options = { signal };
 
     const rawList = await api.listSources(options);
     await api.getSource(7, null, 3, options);
@@ -341,9 +320,6 @@ describe("project-source generated HTTP reads", () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get("authorization")).toBe("Bearer source-read");
-      expect(headers.get("x-trace-id")).toBe("f4");
     }
   });
 
@@ -422,7 +398,6 @@ describe("project-source generated HTTP reads", () => {
       },
     };
     const api = module.createProjectSourcesApi({
-      errorFactory: (status, payload) => new MappedContractError(status, payload),
       v1ActionSession: actionSession,
     }, "source-action-contract");
 
@@ -780,7 +755,6 @@ it("returns a queued feed's empty destination without waiting for its rows", asy
     }),
   };
   const api = module.createProjectSourcesApi({
-    errorFactory: (status, payload) => new MappedContractError(status, payload),
     v1ActionSession: session,
   }, 'feed');
   await expect(api.fetchSource(7)).resolves.toMatchObject({ jobId: 42, sheetId: 3, runId: null, newRows: 0 });

@@ -8,6 +8,7 @@ import {
   getRunRowsContract,
   listActionJobsContract,
 } from '../../src/api/httpContractRoutes';
+import { ApiError } from '../../src/api/contractErrors';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -16,26 +17,18 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function contractError(status: number, payload: unknown): Error {
-  return new Error(`unexpected contract error ${status}: ${JSON.stringify(payload)}`);
-}
-
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped contract error ${status}`);
-    this.name = 'MappedContractError';
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
-async function expectMapped(request: Promise<unknown>, status: number): Promise<void> {
+async function expectApiError(
+  request: Promise<unknown>,
+  status: number,
+  message: string,
+): Promise<void> {
+  await expect(request).rejects.toBeInstanceOf(ApiError);
   await expect(request).rejects.toMatchObject({
-    name: 'MappedContractError',
+    name: 'ApiError',
     status,
+    message,
+    code: undefined,
+    details: undefined,
   });
 }
 
@@ -63,7 +56,7 @@ describe('run and receipt HTTP contracts', () => {
       },
     })));
 
-    await expect(getRunProgressContract('project-1', 17, contractError)).resolves.toMatchObject({
+    await expect(getRunProgressContract('project-1', 17)).resolves.toMatchObject({
       status: 'running',
       completedRows: 0,
       attemptedRows: 0,
@@ -89,7 +82,7 @@ describe('run and receipt HTTP contracts', () => {
       reason: 'live_writer_must_terminalize',
     }, 202)));
 
-    await expect(cancelRunContract('project-1', 17, contractError)).resolves.toBeUndefined();
+    await expect(cancelRunContract('project-1', 17)).resolves.toBeUndefined();
   });
 
   it.each([null, false, 0, '', { matched: 2 }])('maps receipt presentation and domain value %j', async (value) => {
@@ -112,7 +105,7 @@ describe('run and receipt HTTP contracts', () => {
       errors: [],
     })));
 
-    const receipt = await getReceiptContract('project-1', 'receipt-1', contractError);
+    const receipt = await getReceiptContract('project-1', 'receipt-1');
     expect(receipt).toMatchObject({
       receiptId: 'receipt-1',
       actionId: 'action-1',
@@ -142,44 +135,49 @@ describe('run and receipt HTTP contracts', () => {
       requests.push({ input, init });
       return responses.shift()!;
     }));
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: new Headers({
-        Authorization: 'Bearer token',
-        'Content-Type': 'application/vnd.frisket+json',
-        'X-Trace-Id': 'trace-runs',
-      }),
-    };
+    const options = { signal: controller.signal };
 
-    await expectMapped(
-      getRunProgressContract('project/one', 17, errorFactory, options),
+    await expectApiError(
+      getRunProgressContract('project/one', 17, options),
       404,
+      'run not found',
     );
-    await expectMapped(
+    await expectApiError(
       getRunRowsContract(
         'project/one',
         17,
         { offset: 0, limit: 500, status: 'error' },
-        errorFactory,
         options,
       ),
       400,
+      'unsupported row status filter',
     );
-    await expectMapped(cancelRunContract('project/one', 17, errorFactory, options), 403);
-    await expectMapped(cancelRunContract('project/one', 17, errorFactory, options), 409);
-    await expectMapped(
-      getReceiptContract('project/one', 'receipt/one', errorFactory, options),
+    await expectApiError(
+      cancelRunContract('project/one', 17, options),
+      403,
+      'editor role required',
+    );
+    await expectApiError(
+      cancelRunContract('project/one', 17, options),
+      409,
+      'run cannot be cancelled',
+    );
+    await expectApiError(
+      getReceiptContract('project/one', 'receipt/one', options),
       500,
+      'invalid stored receipt',
     );
-    await expectMapped(
-      listActionJobsContract('project/one', { status: null, limit: 50 }, errorFactory, options),
+    await expectApiError(
+      listActionJobsContract('project/one', { status: null, limit: 50 }, options),
       422,
+      'invalid limit',
     );
-    await expectMapped(getActionJobContract('project/one', 23, errorFactory, options), 422);
+    await expectApiError(
+      getActionJobContract('project/one', 23, options),
+      422,
+      'invalid job id',
+    );
 
     expect(requests.map((request) => request.input)).toEqual([
       '/api/projects/project%2Fone/actions/runs/17/status',
@@ -190,31 +188,16 @@ describe('run and receipt HTTP contracts', () => {
       '/api/projects/project%2Fone/actions/jobs?limit=50',
       '/api/projects/project%2Fone/actions/jobs/23',
     ]);
-    expect(errorFactory).toHaveBeenCalledTimes(7);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer token');
-      expect(headers.get('content-type')).toBe('application/vnd.frisket+json');
-      expect(headers.get('x-trace-id')).toBe('trace-runs');
+      expect(request.init?.headers).toBeUndefined();
     }
   });
 
   it('maps an additional non-2xx status', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'teapot' }, 418)));
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
 
-    await expect(
-      getReceiptContract('project-1', 'receipt-1', errorFactory),
-    ).rejects.toMatchObject({
-      name: 'MappedContractError',
-      status: 418,
-      payload: { detail: 'teapot' },
-    });
-    expect(errorFactory).toHaveBeenCalledOnce();
-    expect(errorFactory).toHaveBeenCalledWith(418, { detail: 'teapot' });
+    await expectApiError(getReceiptContract('project-1', 'receipt-1'), 418, 'teapot');
   });
 
   it('forwards the exact signal and preserves abort rejection', async () => {
@@ -229,9 +212,7 @@ describe('run and receipt HTTP contracts', () => {
       });
     }));
 
-    const request = getActionJobContract('project-1', 23, contractError, {
-      signal: controller.signal,
-    });
+    const request = getActionJobContract('project-1', 23, { signal: controller.signal });
     const abortError = new DOMException('cancelled', 'AbortError');
     controller.abort(abortError);
 

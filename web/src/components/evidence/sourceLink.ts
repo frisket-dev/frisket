@@ -1,5 +1,5 @@
 import type { EvidenceViewerPayload } from '../../api/open';
-import type { ProjectApiPort } from '../../api/ports';
+import type { ProjectApi } from '../../api/ports';
 import { resolveMediaValue } from '../../media/resolveMediaValue';
 import { jsonRecord, selectorNumber } from './evidenceSourceModel';
 
@@ -48,7 +48,7 @@ function sourceLinkArtifact(payload: EvidenceViewerPayload, page?: number) {
 
 export async function openSourceLink(
   source: SourceLink,
-  api: Pick<ProjectApiPort, 'getEvidenceViewer' | 'getSheetRows'>,
+  api: Pick<ProjectApi, 'getEvidenceViewer' | 'getSheetRows'>,
   navigation: {
     isCurrent(): boolean;
     openOriginal(sheetId: string, rowId: string, columnId: string, page?: number): void;

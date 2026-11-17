@@ -21,13 +21,13 @@ export const documentExtractionApi = {
   templates: (projectId: string, sheetId: string, source: string, signal?: AbortSignal) =>
     httpContract('tenant.extraction_templates_list.get', { pathParams: { pid: projectId }, query: { sheet_id: Number(sheetId), source }, signal }),
   save: (projectId: string, value: HttpExtractionTemplateSave) =>
-    httpContract('tenant.extraction_template_save.post', { pathParams: { pid: projectId }, query: {}, body: value }),
+    httpContract('tenant.extraction_template_save.post', { pathParams: { pid: projectId }, body: value }),
   select: (projectId: string, value: HttpExtractionLayoutSelection) =>
-    httpContract('tenant.extraction_layout_select.post', { pathParams: { pid: projectId }, query: {}, body: value }),
+    httpContract('tenant.extraction_layout_select.post', { pathParams: { pid: projectId }, body: value }),
   counts: (projectId: string, value: HttpExtractionScopeCountsRequest, signal?: AbortSignal) =>
-    httpContract('tenant.extraction_scope_counts.post', { pathParams: { pid: projectId }, query: {}, body: value, signal }),
+    httpContract('tenant.extraction_scope_counts.post', { pathParams: { pid: projectId }, body: value, signal }),
   preview: async (projectId: string, value: ExtractionRequest, signal?: AbortSignal): Promise<ExtractionPreview> => {
-    const result = await httpContract('tenant.extraction_preview.post', { pathParams: { pid: projectId }, query: {}, body: value, signal });
+    const result = await httpContract('tenant.extraction_preview.post', { pathParams: { pid: projectId }, body: value, signal });
     return { ...result, documents: result.documents.map((document) => ({ ...document, result: {
       ...document.result, diagnostics: document.result.diagnostics ?? [], records: document.result.records.map((record) => ({ cells:
         Object.fromEntries(Object.entries(record.cells).map(([id, cell]) => [id, { ...cell, regions: cell.regions ?? [], diagnostic: cell.diagnostic ?? null }])) })),

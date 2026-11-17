@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   EvidenceViewerReadOptions,
   TextAnnotationsOptions,
@@ -7,11 +7,7 @@ import type {
   TextAnnotationSpan,
   TextAnnotationUnpositionedReason,
 } from './types';
-
-interface ProjectEvidenceOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
+import { isRecord } from './wireValues';
 
 type EvidenceViewerOptions = EvidenceViewerReadOptions;
 
@@ -26,178 +22,16 @@ type EvidenceViewerWire =
 type RowSourceDocumentsWire =
   HttpContractSuccessResponse<'tenant.row_source_documents.get'>;
 
-interface ProjectEvidenceApi {
-  getRowSourceDocuments(
-    rowId: string,
-    options?: ProjectEvidenceOptions,
-  ): Promise<RowSourceDocumentsWire>;
-  getCellEvidence(
-    rowId: string,
-    columnId: string,
-    includeStale?: boolean,
-    options?: ProjectEvidenceOptions,
-  ): Promise<CellEvidenceWire>;
-  getTextAnnotations(
-    rowId: string,
-    columnId: string,
-    options?: TextAnnotationsOptions,
-  ): Promise<CellTextAnnotationsWire>;
-  getColumnEvidence(
-    sheetId: string,
-    columnId: string,
-    rowIds?: readonly string[],
-    options?: ProjectEvidenceOptions,
-  ): Promise<ColumnEvidenceWire>;
-  getEvidenceViewer(
-    evidenceLinkId: string | number,
-    options?: EvidenceViewerOptions,
-  ): Promise<EvidenceViewerWire>;
-}
-
-/** Product-facing evidence reads. The three open JSON payloads stay exactly
- * as the generated transport returned them; annotations alone have a client
- * domain model because their geometry is rendered directly. */
-interface ProjectEvidenceDomainApi {
-  getRowSourceDocuments(
-    rowId: string,
-    options?: ProjectEvidenceOptions,
-  ): Promise<RowSourceDocumentsWire>;
-  getCellEvidence(
-    rowId: string,
-    columnId: string,
-    includeStale?: boolean,
-    options?: ProjectEvidenceOptions,
-  ): Promise<CellEvidenceWire>;
-  getTextAnnotations(
-    rowId: string,
-    columnId: string,
-    options?: TextAnnotationsOptions,
-  ): Promise<TextAnnotations>;
-  getColumnEvidence(
-    sheetId: string,
-    columnId: string,
-    rowIds?: readonly string[],
-    options?: ProjectEvidenceOptions,
-  ): Promise<ColumnEvidenceWire>;
-  getEvidenceViewer(
-    evidenceLinkId: string | number,
-    options?: EvidenceViewerOptions,
-  ): Promise<EvidenceViewerWire>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-// FrisketApi keeps numeric route references as strings. The generated route
-// signatures reflect FastAPI's integers; these casts preserve the existing URL
-// bytes without adding a second runtime representation or validator.
+// The public API keeps numeric route references as strings. The generated
+// route signatures reflect FastAPI's integers; these casts preserve the
+// existing URL bytes without adding a second runtime representation or validator.
 const numericPathRef = (value: string): number => value as unknown as number;
-
-export function createProjectEvidenceApi(
-  errorFactory: ContractErrorFactory,
-  projectId: string,
-): ProjectEvidenceApi {
-  return {
-    getRowSourceDocuments(rowId, options = {}) {
-      return httpContract(
-        'tenant.row_source_documents.get',
-        {
-          pathParams: { pid: projectId, row_id: numericPathRef(rowId) },
-          query: {},
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-    getCellEvidence(rowId, columnId, includeStale = false, options = {}) {
-      return httpContract(
-        'tenant.cell_evidence.get',
-        {
-          pathParams: {
-            pid: projectId,
-            row_id: numericPathRef(rowId),
-            column_id: numericPathRef(columnId),
-          },
-          query: {
-            // The existing transport emits `include_stale=1`; keep that byte
-            // shape while satisfying the generated boolean query signature.
-            include_stale: includeStale ? (1 as unknown as boolean) : undefined,
-          },
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    getTextAnnotations(rowId, columnId, options = {}) {
-      return httpContract(
-        'tenant.cell_text_annotations.get',
-        {
-          pathParams: {
-            pid: projectId,
-            row_id: numericPathRef(rowId),
-            column_id: numericPathRef(columnId),
-          },
-          query: { start: options.start, limit: options.limit, revision: options.revision, occurrence_id: options.occurrenceId },
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    getColumnEvidence(sheetId, columnId, rowIds, options = {}) {
-      return httpContract(
-        'tenant.column_evidence.get',
-        {
-          pathParams: {
-            pid: projectId,
-            sheet_id: numericPathRef(sheetId),
-            column_id: numericPathRef(columnId),
-          },
-          query: { row_ids: rowIds?.length ? rowIds.join(',') : undefined },
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    getEvidenceViewer(evidenceLinkId, options = {}) {
-      return httpContract(
-        'tenant.evidence_viewer.get',
-        {
-          pathParams: {
-            pid: projectId,
-            evidence_link_id: String(evidenceLinkId),
-          },
-          query: {
-            locate_current: options.locateCurrent ? true : undefined,
-            text_artifact_id: options.textArtifactId,
-            text_start: options.textStart,
-            text_limit: options.textLimit,
-            text_revision: options.textRevision,
-            text_span_id: options.textSpanId,
-          },
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-  };
-}
 
 const TEXT_ANNOTATION_UNPOSITIONED_REASONS: readonly TextAnnotationUnpositionedReason[] = [
   'content_hash_mismatch',
   'unsupported_offset_unit',
   'invalid_geometry',
 ];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 function isUnpositionedReason(value: unknown): value is TextAnnotationUnpositionedReason {
   return TEXT_ANNOTATION_UNPOSITIONED_REASONS.includes(
@@ -294,30 +128,114 @@ function textAnnotationsFromWire(
   };
 }
 
-export function createProjectEvidenceDomainApi(
-  errorFactory: ContractErrorFactory,
+/** Product-facing evidence reads. The three open JSON payloads stay exactly
+ * as the generated transport returns them; annotations alone have a client
+ * domain model because their geometry is rendered directly. */
+export function createProjectEvidenceApi(
   projectId: string,
-): ProjectEvidenceDomainApi {
-  const evidenceApi = createProjectEvidenceApi(errorFactory, projectId);
+) {
   return {
-    getRowSourceDocuments(rowId, options) {
-      return evidenceApi.getRowSourceDocuments(rowId, options);
-    },
-    getCellEvidence(rowId, columnId, includeStale, options) {
-      return evidenceApi.getCellEvidence(rowId, columnId, includeStale, options);
-    },
-    async getTextAnnotations(rowId, columnId, options) {
-      return textAnnotationsFromWire(
-        await evidenceApi.getTextAnnotations(rowId, columnId, options),
-        rowId,
-        columnId,
+    /** Existing citations and readable original documents reachable through a
+     * bounded, cycle-safe row-ancestry walk. Fetched only for the open row. */
+    getRowSourceDocuments(rowId: string, options: RequestOptions = {}): Promise<RowSourceDocumentsWire> {
+      return httpContract(
+        'tenant.row_source_documents.get',
+        {
+          pathParams: { pid: projectId, row_id: numericPathRef(rowId) },
+          signal: options.signal,
+        },
       );
     },
-    getColumnEvidence(sheetId, columnId, rowIds, options) {
-      return evidenceApi.getColumnEvidence(sheetId, columnId, rowIds, options);
+    getCellEvidence(
+      rowId: string,
+      columnId: string,
+      options: RequestOptions & { includeStale?: boolean } = {},
+    ): Promise<CellEvidenceWire> {
+      return httpContract(
+        'tenant.cell_evidence.get',
+        {
+          pathParams: {
+            pid: projectId,
+            row_id: numericPathRef(rowId),
+            column_id: numericPathRef(columnId),
+          },
+          query: {
+            // The existing transport emits `include_stale=1`; keep that byte
+            // shape while satisfying the generated boolean query signature.
+            include_stale: options.includeStale ? (1 as unknown as boolean) : undefined,
+          },
+          signal: options.signal,
+        },
+      );
     },
-    getEvidenceViewer(evidenceLinkId, options) {
-      return evidenceApi.getEvidenceViewer(evidenceLinkId, options);
+
+    /** The annotation layers whose coordinate surface is this cell. Fetched
+     * lazily for the active cell only; a cell with no layers resolves with
+     * `layers: []` rather than throwing. */
+    async getTextAnnotations(
+      rowId: string,
+      columnId: string,
+      options: TextAnnotationsOptions = {},
+    ): Promise<TextAnnotations> {
+      const wire = await httpContract(
+        'tenant.cell_text_annotations.get',
+        {
+          pathParams: {
+            pid: projectId,
+            row_id: numericPathRef(rowId),
+            column_id: numericPathRef(columnId),
+          },
+          query: { start: options.start, limit: options.limit, revision: options.revision, occurrence_id: options.occurrenceId },
+          signal: options.signal,
+        },
+      );
+      return textAnnotationsFromWire(wire, rowId, columnId);
+    },
+
+    /** One call per (sheet, column) instead of one cell-evidence call per
+     * visible row. `rowIds` scopes the batch to the list's virtualization
+     * window; omitted = every row on the sheet. */
+    getColumnEvidence(
+      sheetId: string,
+      columnId: string,
+      options: RequestOptions & { rowIds?: readonly string[] } = {},
+    ): Promise<ColumnEvidenceWire> {
+      return httpContract(
+        'tenant.column_evidence.get',
+        {
+          pathParams: {
+            pid: projectId,
+            sheet_id: numericPathRef(sheetId),
+            column_id: numericPathRef(columnId),
+          },
+          query: { row_ids: options.rowIds?.length ? options.rowIds.join(',') : undefined },
+          signal: options.signal,
+        },
+      );
+    },
+
+    getEvidenceViewer(
+      evidenceLinkId: string | number,
+      options: EvidenceViewerOptions = {},
+    ): Promise<EvidenceViewerWire> {
+      return httpContract(
+        'tenant.evidence_viewer.get',
+        {
+          pathParams: {
+            pid: projectId,
+            evidence_link_id: String(evidenceLinkId),
+          },
+          query: {
+            locate_current: options.locateCurrent ? true : undefined,
+            text_artifact_id: options.textArtifactId,
+            text_start: options.textStart,
+            text_limit: options.textLimit,
+            text_revision: options.textRevision,
+            text_span_id: options.textSpanId,
+          },
+          signal: options.signal,
+        },
+      );
     },
   };
 }

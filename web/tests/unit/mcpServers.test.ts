@@ -32,13 +32,13 @@ describe('project MCP servers API', () => {
       }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, deleted: true }), { status: 200 }));
     vi.stubGlobal('fetch', fetch);
-    const api = createMcpServersApi();
+    const api = createMcpServersApi('project-7');
 
-    await expect(api.list('project-7')).resolves.toEqual([server]);
-    await api.create('project-7', server);
-    await api.update('project-7', 'local-crm', { enabled: false });
-    await api.test('project-7', 'local-crm');
-    await api.remove('project-7', 'local-crm');
+    await expect(api.listMcpServers()).resolves.toEqual([server]);
+    await api.createMcpServer(server);
+    await api.updateMcpServer('local-crm', { enabled: false });
+    await api.testMcpServer('local-crm');
+    await api.deleteMcpServer('local-crm');
 
     expect(fetch.mock.calls.map(([path, init]) => [path, init.method, init.body && JSON.parse(init.body as string)])).toEqual([
       ['/api/projects/project-7/mcp-servers', 'GET', undefined],
@@ -54,7 +54,7 @@ describe('project MCP servers API', () => {
       new Response(JSON.stringify({ detail: 'server detail' }), { status: 503 }),
     ));
 
-    await expect(createMcpServersApi().list('project-7')).rejects.toThrow(
+    await expect(createMcpServersApi('project-7').listMcpServers()).rejects.toThrow(
       'MCP server request failed (503)',
     );
   });

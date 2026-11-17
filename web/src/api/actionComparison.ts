@@ -6,7 +6,7 @@ import type {
   RunEstimate,
 } from './types';
 import { createActionPreviewRunsApi, type ActionPreviewStatusWire } from './actionPreviewRuns';
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import { runEstimateFromV1Wire } from './actionEstimateValidation';
 
 export type ActionComparisonSource =
@@ -80,34 +80,6 @@ export interface ActionComparisonPreviewSnapshot {
   error: { code: string; message: string } | null;
   accounting: ActionPreviewStatusWire['accounting'];
 }
-
-export interface ActionComparisonRequestOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-export interface ActionComparisonApi {
-  quotePreview(
-    request: ActionComparisonPreviewRequest,
-    options?: ActionComparisonRequestOptions,
-  ): Promise<{ schema_version: 'frisket.action_compare_quote.v1'; estimate: RunEstimate }>;
-  getContext(
-    request: ActionComparisonContextRequest,
-    options?: ActionComparisonRequestOptions,
-  ): Promise<ActionComparisonContext>;
-  startPreview(
-    request: ActionComparisonPreviewRequest,
-    options?: ActionComparisonRequestOptions,
-  ): Promise<ActionComparisonPreviewStart>;
-  getPreview(
-    previewId: string,
-    options?: ActionComparisonRequestOptions,
-  ): Promise<ActionComparisonPreviewSnapshot>;
-  cancelPreview(previewId: string, options?: ActionComparisonRequestOptions): Promise<void>;
-  discardPreview(previewId: string, options?: ActionComparisonRequestOptions): Promise<void>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 function normalizedDraft(raw: HttpActionCompareContextResponse['draft']): GeneratedActionDraft {
   return { action_id: raw.action_id, params: raw.params, output_names: raw.output_names,
@@ -195,59 +167,72 @@ export function actionComparisonPreviewSnapshot(
   };
 }
 
+export type ActionComparisonApi = ReturnType<typeof createActionComparisonApi>;
+
 export function createActionComparisonApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
-): ActionComparisonApi {
-  const previewRuns = createActionPreviewRunsApi(errorFactory, projectId);
+) {
+  const previewRuns = createActionPreviewRunsApi(projectId);
   return {
-    quotePreview(request, options = {}) {
+    quotePreview(
+      request: ActionComparisonPreviewRequest,
+      options: RequestOptions = {},
+    ): Promise<{ schema_version: 'frisket.action_compare_quote.v1'; estimate: RunEstimate }> {
       return httpContract('tenant.v1_action_compare_preview_quote.post', {
-        pathParams: { pid: projectId }, query: {},
+        pathParams: { pid: projectId },
         body: {
           action: { ...draftForWire(request.action).draft, idempotency_key: request.action.idempotency_key },
           comparison: { ...request.comparison, basis: sourceForWire(request.comparison.basis) },
         },
-        signal: options.signal, headers: options.headers, errorFactory,
+        signal: options.signal,
       }, wire => ({ ...wire, estimate: runEstimateFromV1Wire(wire.estimate) }));
     },
-    getContext(request, options = {}) {
+    getContext(
+      request: ActionComparisonContextRequest,
+      options: RequestOptions = {},
+    ): Promise<ActionComparisonContext> {
       return httpContract(
         'tenant.v1_action_compare_context.post',
         {
-          pathParams: { pid: projectId }, query: {}, body: { ...request, source: sourceForWire(request.source) },
-          signal: options.signal, headers: options.headers, errorFactory,
+          pathParams: { pid: projectId }, body: { ...request, source: sourceForWire(request.source) },
+          signal: options.signal,
         },
         normalizeActionComparisonContext,
       );
     },
-    async startPreview(request, options = {}) {
+    async startPreview(
+      request: ActionComparisonPreviewRequest,
+      options: RequestOptions = {},
+    ): Promise<ActionComparisonPreviewStart> {
       const start = await httpContract(
         'tenant.v1_action_compare_preview_start.post',
         {
-          pathParams: { pid: projectId }, query: {}, body: {
+          pathParams: { pid: projectId }, body: {
             action: { ...draftForWire(request.action).draft, idempotency_key: request.action.idempotency_key,
               ...(request.action.confirmation === undefined ? {} : { confirmation: request.action.confirmation }) },
             comparison: { ...request.comparison, basis: sourceForWire(request.comparison.basis) },
           },
-          signal: options.signal, headers: options.headers, errorFactory,
+          signal: options.signal,
         },
       );
       previewRuns.registerStarted(start.preview_id);
       return start;
     },
-    async getPreview(previewId, options = {}) {
+    async getPreview(
+      previewId: string,
+      options: RequestOptions = {},
+    ): Promise<ActionComparisonPreviewSnapshot> {
       return actionComparisonPreviewSnapshot(await previewRuns.get(previewId, options));
     },
-    cancelPreview(previewId, options = {}) {
+    cancelPreview(previewId: string, options: RequestOptions = {}): Promise<void> {
       return previewRuns.cancel(previewId, options);
     },
-    async discardPreview(previewId, options = {}) {
+    async discardPreview(previewId: string, options: RequestOptions = {}): Promise<void> {
       await httpContract(
         'tenant.v1_action_preview_cancel.delete',
         {
           pathParams: { pid: projectId, preview_id: previewId },
-          query: { discard: true }, signal: options.signal, headers: options.headers, errorFactory,
+          query: { discard: true }, signal: options.signal,
         },
       );
     },

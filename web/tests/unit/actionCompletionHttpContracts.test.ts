@@ -187,9 +187,7 @@ describe('run-backed action completion domain', () => {
       throw new Error(`Unexpected action completion request: ${path}`);
     }));
     const controller = new AbortController();
-    const completion = createActionCompletionApi(
-      (status, payload) => new Error(`mapped ${status}: ${JSON.stringify(payload)}`),
-    );
+    const completion = createActionCompletionApi();
     const outcome = completion.waitForRunCompletion(
       queuedResult(),
       'map.extract did not complete',
@@ -231,9 +229,7 @@ describe('run-backed action completion domain', () => {
       projectId: projectA,
       signal: controller.signal,
     };
-    const completion = createActionCompletionApi(
-      (status, payload) => new Error(`mapped ${status}: ${JSON.stringify(payload)}`),
-    );
+    const completion = createActionCompletionApi();
     const pending = completion.waitForRunCompletion(
       queuedResult(),
       'map.extract did not complete',
@@ -282,9 +278,7 @@ describe('run-backed action completion domain', () => {
       }
       throw new Error(`Unexpected action completion request: ${path}`);
     }));
-    const completion = createActionCompletionApi(
-      (status, payload) => new Error(`mapped ${status}: ${JSON.stringify(payload)}`),
-    );
+    const completion = createActionCompletionApi();
 
     await expect(completion.waitForRunCompletion(
       queuedResult(),

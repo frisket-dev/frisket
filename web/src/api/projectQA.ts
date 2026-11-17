@@ -34,47 +34,47 @@ export interface ProjectQAApi {
   saveSkillProposal(threadId: string, turnId: string, proposalId: string, body: SkillProposalSaveRequest, signal?: AbortSignal): Promise<SkillProposalSaveResult>;
 }
 
-export function createProjectQAApi(projectId: () => string, errorFactory: (status: number, payload: unknown) => Error): ProjectQAApi {
+export function createProjectQAApi(projectId: () => string): ProjectQAApi {
   const path = (thread_id: string) => ({ pid: projectId(), thread_id });
   return {
     citation: (threadId, citation_id, signal) => httpContract('tenant.qa_citation.get', {
-      pathParams: { ...path(threadId), citation_id }, query: {}, signal, errorFactory,
+      pathParams: { ...path(threadId), citation_id }, signal,
     }),
     list: (signal, offset = 0) => httpContract('tenant.qa_threads.get', {
-      pathParams: { pid: projectId() }, query: { offset, limit: 100 }, signal, errorFactory,
+      pathParams: { pid: projectId() }, query: { offset, limit: 100 }, signal,
     }),
     create: (body, signal) => httpContract('tenant.qa_create_thread.post', {
-      pathParams: { pid: projectId() }, query: {}, body, signal, errorFactory,
+      pathParams: { pid: projectId() }, body, signal,
     }),
     detail: (threadId, signal) => httpContract('tenant.qa_thread.get', {
-      pathParams: path(threadId), query: {}, signal, errorFactory,
+      pathParams: path(threadId), signal,
     }),
     update: (threadId, body, signal) => httpContract('tenant.qa_update_thread.patch', {
-      pathParams: path(threadId), query: {}, body, signal, errorFactory,
+      pathParams: path(threadId), body, signal,
     }),
     delete: async (threadId, signal) => { await httpContract('tenant.qa_delete_thread.delete', {
-      pathParams: path(threadId), query: {}, signal, errorFactory,
+      pathParams: path(threadId), signal,
     }); },
     submit: (threadId, body, signal) => httpContract('tenant.qa_submit_turn.post', {
-      pathParams: path(threadId), query: {}, body, signal, errorFactory,
+      pathParams: path(threadId), body, signal,
     }),
     events: (threadId, query, signal) => httpContract('tenant.qa_events.get', {
-      pathParams: path(threadId), query, signal, errorFactory,
+      pathParams: path(threadId), query, signal,
     }),
     stop: (threadId, turn_id, signal) => httpContract('tenant.qa_stop_turn.post', {
-      pathParams: { ...path(threadId), turn_id }, query: {}, signal, errorFactory,
+      pathParams: { ...path(threadId), turn_id }, signal,
     }),
     report: (threadId, signal) => httpContract('tenant.qa_report.get', {
-      pathParams: path(threadId), query: {}, signal, errorFactory,
+      pathParams: path(threadId), signal,
     }),
     researchOptions: (signal) => httpContract('tenant.qa_research_options.get', {
-      pathParams: { pid: projectId() }, query: {}, signal, errorFactory,
+      pathParams: { pid: projectId() }, signal,
     }),
     resumeResearch: (threadId, turn_id, body, signal) => httpContract('tenant.qa_resume_research.post', {
-      pathParams: { ...path(threadId), turn_id }, query: {}, body, signal, errorFactory,
+      pathParams: { ...path(threadId), turn_id }, body, signal,
     }),
     saveSkillProposal: (threadId, turn_id, proposal_id, body, signal) => httpContract('tenant.qa_save_skill_proposal.post', {
-      pathParams: { ...path(threadId), turn_id, proposal_id }, query: {}, body, signal,
+      pathParams: { ...path(threadId), turn_id, proposal_id }, body, signal,
       errorFactory: skillProposalSaveRequestError,
     }, mapSkillProposalSaveResult),
   };

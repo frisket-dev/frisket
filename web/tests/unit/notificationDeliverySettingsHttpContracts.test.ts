@@ -120,24 +120,6 @@ afterEach(() => {
 });
 
 describe("notification delivery settings HTTP contracts", () => {
-  it("owns the eight settings/delivery methods in its dedicated adapter", async () => {
-    const { createNotificationDeliverySettingsApi } = await import(
-      "../../src/api/notifications"
-    );
-    const api = createNotificationDeliverySettingsApi(() => new Error("fixture"), "p");
-
-    expect(Object.keys(api).sort()).toEqual([
-      "createNotificationChannel",
-      "createNotificationRoute",
-      "listNotificationChannels",
-      "listNotificationDeliveryRequests",
-      "listNotificationRoutes",
-      "patchNotificationChannel",
-      "patchNotificationRoute",
-      "testNotificationRoute",
-    ]);
-  });
-
   it.each([
     ["list channels", () => realApi.listNotificationChannels(), "GET", "/api/projects/p/notification-channels", undefined, { schema_version: "frisket.notification_channels.v1", channels: [channel] }, { schemaVersion: "frisket.notification_channels.v1", channels: [domainChannel] }],
     ["create channel", () => realApi.createNotificationChannel({ kind: "email", name: "Ops", from: "ops@example.com" }), "POST", "/api/projects/p/notification-channels", { kind: "email", name: "Ops", from: "ops@example.com" }, channel, domainChannel],

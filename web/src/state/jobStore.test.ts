@@ -19,7 +19,7 @@ import type {
   RunProgress,
   V1Receipt,
 } from '../api/open';
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 
 const api = createProjectApi('test-project');
 
@@ -137,11 +137,11 @@ function actionReceipt(overrides: Partial<V1Receipt> = {}): V1Receipt {
   };
 }
 
-function projectPort(overrides: Partial<ProjectApiPort> = {}): ProjectApiPort {
-  return new Proxy(api as ProjectApiPort, {
+function projectPort(overrides: Partial<ProjectApi> = {}): ProjectApi {
+  return new Proxy(api as ProjectApi, {
     get(target, property) {
       if (Object.prototype.hasOwnProperty.call(overrides, property)) {
-        return overrides[property as keyof ProjectApiPort];
+        return overrides[property as keyof ProjectApi];
       }
       const value = Reflect.get(target, property, target) as unknown;
       return typeof value === 'function' ? value.bind(target) : value;
@@ -938,7 +938,7 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
       return runSignals.length === 1
         ? terminalRun.promise
         : Promise.resolve(runProgress({ runId: 'run-successor', status: 'running' }));
-    }) as ProjectApiPort['getRunProgress']);
+    }) as ProjectApi['getRunProgress']);
     const synchronousRunSuccessor = {
       then(onFulfilled: (value: RunActionLaunchResult) => void) {
         onFulfilled({ runId: 'run-successor' });
@@ -975,7 +975,7 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
       return queuedSignals.length === 1
         ? terminalQueued.promise
         : Promise.resolve(actionJob({ jobId: 2, status: 'running' }));
-    }) as NonNullable<ProjectApiPort['getActionJob']>);
+    }) as NonNullable<ProjectApi['getActionJob']>);
     const synchronousQueuedSuccessor = {
       then(onFulfilled: (value: RunActionLaunchResult) => void) {
         onFulfilled({ runId: null, jobId: 2, receiptId: null, status: 'queued' });
@@ -1024,7 +1024,7 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
       return runPollIds.length === 1
         ? pendingRunA.promise
         : Promise.resolve(runProgress({ runId, status: 'running' }));
-    }) as ProjectApiPort['getRunProgress']);
+    }) as ProjectApi['getRunProgress']);
     const runAction = vi.fn()
       .mockResolvedValueOnce({ runId: 'run-a' })
       .mockResolvedValueOnce({ runId: 'run-outer-b' })
@@ -1073,7 +1073,7 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
       return queuedPollIds.length === 1
         ? pendingQueuedA.promise
         : Promise.resolve(actionJob({ jobId: numericJobId, status: 'running' }));
-    }) as NonNullable<ProjectApiPort['getActionJob']>);
+    }) as NonNullable<ProjectApi['getActionJob']>);
     const queuedAction = vi.fn()
       .mockResolvedValueOnce({ runId: null, jobId: 1, receiptId: null, status: 'queued' })
       .mockResolvedValueOnce({ runId: null, jobId: 2, receiptId: null, status: 'queued' })
@@ -1191,7 +1191,7 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
       return queuedSignals.length === 1
         ? queuedOld.promise
         : Promise.resolve(actionJob({ jobId: 3, status: 'running' }));
-    }) as NonNullable<ProjectApiPort['getActionJob']>);
+    }) as NonNullable<ProjectApi['getActionJob']>);
     const queuedRunAction = vi.fn()
       .mockResolvedValueOnce({ runId: null, jobId: 1, receiptId: null, status: 'queued' })
       .mockResolvedValueOnce({ runId: null, jobId: 2, receiptId: null, status: 'queued' })
@@ -1226,7 +1226,7 @@ describe('createJobStore — complete 4B cadence, fencing, and transport pins', 
       return runSignals.length === 1
         ? runOld.promise
         : Promise.resolve(runProgress({ runId: 'run-3', status: 'running' }));
-    }) as ProjectApiPort['getRunProgress']);
+    }) as ProjectApi['getRunProgress']);
     const directRunAction = vi.fn()
       .mockResolvedValueOnce({ runId: 'run-1' })
       .mockResolvedValueOnce({ runId: 'run-2' })
@@ -1954,7 +1954,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
   });
 
   it('pre-fences a direct proposal entrypoint re-entered during disposal', async () => {
-    const runProposal = vi.fn<ProjectApiPort['runProposal']>().mockResolvedValue({ run_id: 81 });
+    const runProposal = vi.fn<ProjectApi['runProposal']>().mockResolvedValue({ run_id: 81 });
     const jobs = createJobStore('test-project', projectPort({ runProposal }));
     const launch = deferred<RunActionLaunchResult>();
     let signal: AbortSignal | undefined;
@@ -1981,7 +1981,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
   });
 
   it('pre-fences a confirmed proposal entrypoint re-entered during disposal', async () => {
-    const runProposal = vi.fn<ProjectApiPort['runProposal']>()
+    const runProposal = vi.fn<ProjectApi['runProposal']>()
       .mockRejectedValueOnce(new ConfirmationRequiredError(
         { cost: 1, rows: 2, promise_set_hash: 'proposal-generation-hash' },
         'Confirm proposal generation.',
@@ -2039,7 +2039,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
   });
 
   it('does not publish a proposal cost gate when the prior gate cancel disposes its launch', async () => {
-    const runProposal = vi.fn<ProjectApiPort['runProposal']>().mockRejectedValue(
+    const runProposal = vi.fn<ProjectApi['runProposal']>().mockRejectedValue(
       new ConfirmationRequiredError({ cost: 2, rows: 2 }, 'Replacement proposal gate'),
     );
     const jobs = createJobStore('test-project', projectPort({ runProposal }));
@@ -2122,7 +2122,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
   });
 
   it('does not let a proposal gate overwrite consent published by prior cancellation', async () => {
-    const runProposal = vi.fn<ProjectApiPort['runProposal']>().mockRejectedValue(
+    const runProposal = vi.fn<ProjectApi['runProposal']>().mockRejectedValue(
       new ConfirmationRequiredError({ cost: 2, rows: 2 }, 'Outer proposal gate B'),
     );
     const jobs = createJobStore('test-project', projectPort({ runProposal }));
@@ -2436,7 +2436,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
   });
 
   it('does not run a stale proposal confirmation after disposal', async () => {
-    const runProposal = vi.fn<ProjectApiPort['runProposal']>()
+    const runProposal = vi.fn<ProjectApi['runProposal']>()
       .mockRejectedValueOnce(new ConfirmationRequiredError(
         { cost: 2, rows: 2 },
         'Confirm stale proposal.',
@@ -2479,7 +2479,13 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
 
   it('dispose aborts a typed proposal dispatch and fences its completion', async () => {
     const jobs = createJobStore('job-store-retired-proposal', projectPort());
-    const runAction = vi.spyOn(api, 'runAction').mockResolvedValue({ runId: 'proposal-run' });
+    const response = deferred<Response>();
+    const posted: Array<{ url: string; body: unknown; signal: AbortSignal | null | undefined }> = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      posted.push({ url: String(input), body: JSON.parse(String(init?.body)), signal: init?.signal });
+      return response.promise;
+    });
+    vi.stubGlobal('fetch', fetchMock);
     const deps = {
       refreshSheets: vi.fn(),
       showError: vi.fn(),
@@ -2495,15 +2501,36 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
       },
     } as ActionProposal;
 
-    jobs.start({ ...noopDeps(), ...deps });
-    const launched = jobs.startProposal(proposal);
-    jobs.dispose();
+    try {
+      jobs.start({ ...noopDeps(), ...deps });
+      const launched = jobs.startProposal(proposal);
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      expect(posted[0]?.signal?.aborted).toBe(false);
+      jobs.dispose();
+      expect(posted[0]?.signal?.aborted).toBe(true);
+      response.resolve(new Response(JSON.stringify({
+        schema_version: 'frisket.action_result.v1',
+        action: { kind: 'map.template', action_id: 'proposal-run' },
+        status: 'running',
+        run_id: 4242,
+        receipt_id: null,
+        outputs: [],
+        errors: [],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
 
-    await expect(launched).resolves.toBe(false);
-    expect(runAction).toHaveBeenCalledOnce();
-    expect(runAction.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-    expect(deps.refreshSheets).not.toHaveBeenCalled();
-    expect(deps.showError).not.toHaveBeenCalled();
+      await expect(launched).resolves.toBe(false);
+      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(posted[0]?.url).toBe('/api/projects/job-store-retired-proposal/actions/v1/run');
+      expect(posted[0]?.body).toEqual({
+        ...proposal.spec,
+        idempotency_key: expect.stringContaining('ask-map.template:'),
+      });
+      expect(jobs.store.get().run).toBeNull();
+      expect(deps.refreshSheets).not.toHaveBeenCalled();
+      expect(deps.showError).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -2875,7 +2902,7 @@ describe('createJobStore — startRun / cost gate (parity with the pre-migration
       receipt_schema: {},
       validation_result_schema: {},
     } satisfies ActionCatalogPayload);
-    const runProposal = vi.fn<ProjectApiPort['runProposal']>()
+    const runProposal = vi.fn<ProjectApi['runProposal']>()
       .mockRejectedValueOnce(new ConfirmationRequiredError(
         { cost: 2.1, rows: 25, promise_set_hash: 'proposal-ps-1' },
         'Confirm the proposal quote.',

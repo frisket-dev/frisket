@@ -247,7 +247,7 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
   });
 
-  it('preserves requests, encoding, optional catalog query, defaults, headers, and abort', async () => {
+  it('preserves requests, encoding, optional catalog query, defaults, content types, and abort', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [catalog, catalog, indexes, exported, similarity, hybrid];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -255,32 +255,27 @@ describe('embeddings generated HTTP contracts', () => {
       return jsonResponse(responses.shift());
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer session', 'X-Trace-Id': 'embeddings' },
-    };
+    const options = { signal: controller.signal };
     const api = createEmbeddingsApi(
-      (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
+      'project one',
     );
 
-    await api.embeddingProviderCatalog('project one', {}, options);
+    await api.embeddingProviderCatalog({}, options);
     const providers = await api.embeddingProviderCatalog(
-      'project one',
       { modality: 'text', sourceColumnType: 'markdown' },
       options,
     );
-    const listed = await api.embeddingIndexes('project one', 3, options);
-    const exportResult = await api.exportEmbeddingIndex('project one', 'idx /☃', undefined, options);
+    const listed = await api.embeddingIndexes(3, options);
+    const exportResult = await api.exportEmbeddingIndex('idx /☃', undefined, options);
     const similar = await api.embeddingSimilarityPreview(
-      'project one',
       'idx_1',
       { terms: [{ text: 'needle', weight: 1 }], exclude: [{ text: 'hay', threshold: 0.5 }] },
       { limit: 10 },
       options,
     );
     const hybridResult = await api.embeddingHybridPreview(
-      'project one', 'idx_1', 3, 'needle', { limit: 10 }, options,
+      'idx_1', 3, 'needle', { limit: 10 }, options,
     );
 
     expect(providers[0]?.egress).toBe('local');
@@ -309,29 +304,29 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
     for (const { init } of requests) {
       expect(init?.signal).toBe(controller.signal);
-      const headers = new Headers(init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer session');
-      expect(headers.get('x-trace-id')).toBe('embeddings');
+    }
+    for (const request of requests.slice(0, 3)) {
+      expect(request.init?.headers).toBeUndefined();
     }
     for (const request of requests.slice(3)) {
-      expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
+      expect([...new Headers(request.init?.headers).entries()]).toEqual([
+        ['content-type', 'application/json'],
+      ]);
     }
   });
 
-  it('forwards non-2xx payloads to the scoped error factory', async () => {
-    const errorFactory = vi.fn((status: number, payload: unknown) =>
-      Object.assign(new Error('embedding failed'), { status, payload }),
-    );
+  it('maps non-2xx payloads through the shared contract error mapping', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
     }, 409)));
-    const api = createEmbeddingsApi(errorFactory, { v1ActionSession: readOnlyV1ActionSession });
+    const api = createEmbeddingsApi({ v1ActionSession: readOnlyV1ActionSession }, 'project');
 
-    await expect(api.embeddingIndexes('project', 3)).rejects.toMatchObject({
-      message: 'embedding failed', status: 409,
-    });
-    expect(errorFactory).toHaveBeenCalledWith(409, {
-      detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
+    await expect(api.embeddingIndexes(3)).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 409,
+      message: 'refresh required',
+      code: 'embedding_source_stale',
+      details: { extra: 'private' },
     });
   });
 
@@ -351,11 +346,11 @@ describe('embeddings generated HTTP contracts', () => {
       }],
     })));
     const api = createEmbeddingsApi(
-      (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
+      'project',
     );
 
-    const [index] = await api.embeddingIndexes('project', 3);
+    const [index] = await api.embeddingIndexes(3);
 
     expect(index).toMatchObject({
       allowRemote: false,
@@ -381,16 +376,16 @@ describe('embeddings generated HTTP contracts', () => {
       }],
     })));
     const api = createEmbeddingsApi(
-      (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
+      'project',
     );
 
-    await expect(api.embeddingIndexes('project', 3)).resolves.toMatchObject({
+    await expect(api.embeddingIndexes(3)).resolves.toMatchObject({
       0: { maxCostUsdPerRefresh: null, policyNeedsRepair: true },
     });
   });
 
-  it('normalizes the encoded project scope once before all RealApi embeddings contracts', async () => {
+  it('normalizes the encoded project scope once before all project API embeddings contracts', async () => {
     const requests: string[] = [];
     const responses = [catalog, indexes, exported, similarity, hybrid];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -415,7 +410,7 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
   });
 
-  it('uses the RealApi embeddings error mapper without exposing detail extras', async () => {
+  it('uses the project API embeddings error mapping and carries detail extras as details', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
     }, 409)));
@@ -427,7 +422,7 @@ describe('embeddings generated HTTP contracts', () => {
       status: 409,
       message: 'refresh required',
       code: 'embedding_source_stale',
-      details: undefined,
+      details: { extra: 'private' },
     });
   });
 

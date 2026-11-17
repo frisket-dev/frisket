@@ -31,7 +31,6 @@ import type {
 } from './types';
 import type { V1ActionSession } from './v1ActionSession';
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type ColumnPatchActionParams = GeneratedActionParams['column.patch'];
 type ColumnAddActionParams = GeneratedActionParams['column.add'];
 type ColumnSetTypeActionParams = GeneratedActionParams['column.set_type'];
@@ -55,7 +54,7 @@ interface SheetGridDependencies {
     sheetId: string,
     column: { id: string; name: string },
   ): SheetGridColumnRunInfo | undefined;
-  /** RealApi remains the action-session composition root. */
+  /** The project API remains the action-session composition root. */
   v1ActionSession: Pick<
     V1ActionSession,
     | 'v1ActionSpec'
@@ -63,67 +62,6 @@ interface SheetGridDependencies {
     | 'withV1ActionResult'
     | 'assertCompletedV1ActionResult'
   >;
-}
-
-interface SheetGridDomainApi {
-  listSheets(): Promise<SheetMeta[]>;
-  setSheetTitleColumn(
-    sheetId: string,
-    titleColumnId: string | null,
-  ): Promise<void>;
-  deleteSheet(sheetId: string): Promise<DeleteSheetResult>;
-  getSheetData(
-    sheetId: string,
-    offset: number,
-    limit: number,
-    options?: SheetDataOptions | null,
-  ): Promise<SheetDataPage>;
-  getSheetRows(
-    sheetId: string,
-    offset: number,
-    limit: number,
-    options?: SheetDataOptions | null,
-  ): Promise<{ rows: Row[] }>;
-  getColumnStats(
-    sheetId: string,
-    columnId: string,
-    options?: SheetDataOptions & { force?: boolean },
-  ): Promise<ColumnStats>;
-  locateSheetRow(
-    sheetId: string,
-    rowId: string,
-    options?: SheetDataOptions | null,
-    pageSize?: number,
-  ): Promise<SheetRowLocation>;
-  getColumnById(columnId: string, explicitProjectPathId?: string): Promise<ColumnDef>;
-  refreshSheet(
-    sheetId: string,
-    confirmation?: string,
-  ): Promise<SheetRefreshResult>;
-  updateColumn(columnId: string, patch: ColumnPatch): Promise<ColumnDef>;
-  addRow(sheetId: string, cells?: Record<string, CellValue>): Promise<{ rowId: string; total: number }>;
-  addColumn(
-    sheetId: string,
-    name: string,
-    options?: { type?: string; position?: number | null },
-  ): Promise<AddColumnResult>;
-  deleteRows(sheetId: string, rowIds: string[]): Promise<DeleteRowsResult>;
-  editCells(edits: CellEdit[]): Promise<void>;
-  acceptReplayValue(
-    sheetId: string,
-    columnId: string,
-    rowId: string,
-    generatedValueHash: string,
-    runId: string,
-  ): Promise<void>;
-  acceptReplayValuesInColumn(sheetId: string, columnId: string): Promise<void>;
-  dismissReplayPending(
-    sheetId: string,
-    columnId: string,
-    rowId: string,
-    generatedValueHash: string,
-    runId: string,
-  ): Promise<void>;
 }
 
 interface ProjectIdentity {
@@ -217,15 +155,8 @@ function locateSheetRowQuery(
   return query;
 }
 
-export function createSheetGridDomainApi(
-  errorFactory: ContractErrorFactory,
-  dependencies: SheetGridDependencies,
-  projectId: string,
-): SheetGridDomainApi {
-  const captureProjectIdentity = (explicitProjectPathId?: string): ProjectIdentity => {
-    const cacheId = explicitProjectPathId ?? projectId;
-    return { cacheId, pathId: cacheId };
-  };
+export function createSheetGridApi(dependencies: SheetGridDependencies, projectId: string) {
+  const captureProjectIdentity = (): ProjectIdentity => ({ cacheId: projectId, pathId: projectId });
   function enrichAiColumn<Column extends ColumnDef>(
     project: ProjectIdentity,
     sheetId: string,
@@ -285,7 +216,6 @@ export function createSheetGridDomainApi(
       project.pathId,
       Number(sheetId),
       sheetDataQuery(offset, limit, options),
-      errorFactory,
     );
     const columns = data.columns.map((column) =>
       enrichAiColumn(project, sheetId, column),
@@ -307,7 +237,6 @@ export function createSheetGridDomainApi(
       project.pathId,
       Number(sheetId),
       sheetDataQuery(offset, limit, options),
-      errorFactory,
     );
     return { rows: enrichRows(project, sheetId, offset, data).map((row) => (
       options?.columnIds ? { ...row, loadedColumnIds: options.columnIds } : row
@@ -315,7 +244,7 @@ export function createSheetGridDomainApi(
   }
 
   async function listSheetsForProject(project: ProjectIdentity): Promise<SheetMeta[]> {
-    return listSheetsContract(project.pathId, errorFactory);
+    return listSheetsContract(project.pathId);
   }
 
   async function getColumnByIdForProject(
@@ -395,37 +324,53 @@ export function createSheetGridDomainApi(
   }
 
   return {
-    listSheets() {
+    async listSheets(): Promise<SheetMeta[]> {
       const project = captureProjectIdentity();
       return listSheetsForProject(project);
     },
 
-    setSheetTitleColumn(sheetId, titleColumnId) {
+    /** Set (or, with `null`, clear) the sheet-level row-title override.
+     *  Resolves once persisted; callers refetch (listSheets/refreshSheets) to
+     *  see it reflected. */
+    async setSheetTitleColumn(sheetId: string, titleColumnId: string | null): Promise<void> {
       const project = captureProjectIdentity();
       return updateSheetContract(
         project.pathId,
         Number(sheetId),
         titleColumnId == null ? null : Number(titleColumnId),
-        errorFactory,
       );
     },
 
-    deleteSheet(sheetId) {
+    async deleteSheet(sheetId: string): Promise<DeleteSheetResult> {
       const project = captureProjectIdentity();
-      return deleteSheetContract(project.pathId, Number(sheetId), errorFactory);
+      return deleteSheetContract(project.pathId, Number(sheetId));
     },
 
-    getSheetData(sheetId, offset, limit, options = {}) {
+    async getSheetData(
+      sheetId: string,
+      offset: number,
+      limit: number,
+      options: SheetDataOptions | null = {},
+    ): Promise<SheetDataPage> {
       const project = captureProjectIdentity();
       return getSheetDataForProject(project, sheetId, offset, limit, options);
     },
 
-    getSheetRows(sheetId, offset, limit, options = {}) {
+    async getSheetRows(
+      sheetId: string,
+      offset: number,
+      limit: number,
+      options: SheetDataOptions | null = {},
+    ): Promise<{ rows: Row[] }> {
       const project = captureProjectIdentity();
       return getSheetRowsForProject(project, sheetId, offset, limit, options);
     },
 
-    getColumnStats(sheetId, columnId, options = {}) {
+    async getColumnStats(
+      sheetId: string,
+      columnId: string,
+      options: SheetDataOptions & { force?: boolean } = {},
+    ): Promise<ColumnStats> {
       const project = captureProjectIdentity();
       return getColumnStatsContract(
         project.pathId,
@@ -440,27 +385,25 @@ export function createSheetGridDomainApi(
           ...(options.selection != null ? { selection: JSON.stringify(options.selection) } : {}),
           ...(options.viewId != null ? { view_id: options.viewId } : {}),
         },
-        errorFactory,
       );
     },
 
-    locateSheetRow(sheetId, rowId, options = {}, pageSize = 500) {
+    async locateSheetRow(
+      sheetId: string,
+      rowId: string,
+      options: SheetDataOptions | null = {},
+      pageSize = 500,
+    ): Promise<SheetRowLocation> {
       const project = captureProjectIdentity();
       return locateSheetRowContract(
         project.pathId,
         Number(sheetId),
         Number(rowId),
         locateSheetRowQuery(pageSize, options),
-        errorFactory,
       );
     },
 
-    getColumnById(columnId, explicitProjectPathId) {
-      const project = captureProjectIdentity(explicitProjectPathId);
-      return getColumnByIdForProject(project, columnId);
-    },
-
-    async refreshSheet(sheetId, confirmation) {
+    async refreshSheet(sheetId: string, confirmation?: string): Promise<SheetRefreshResult> {
       const project = captureProjectIdentity();
       const spec = dependencies.v1ActionSession.registeredProjectActionSpec(
         'sheet.refresh', { sheet_id: Number(sheetId) }, project.cacheId,
@@ -480,7 +423,7 @@ export function createSheetGridDomainApi(
       });
     },
 
-    async updateColumn(columnId, patch) {
+    async updateColumn(columnId: string, patch: ColumnPatch): Promise<ColumnDef> {
       const project = captureProjectIdentity();
       let updated: ColumnDef | null = null;
       if (patch.type !== undefined) {
@@ -492,7 +435,10 @@ export function createSheetGridDomainApi(
       return updated ?? columnById(project, columnId);
     },
 
-    async addRow(sheetId, cells = {}) {
+    async addRow(
+      sheetId: string,
+      cells: Record<string, CellValue> = {},
+    ): Promise<{ rowId: string; total: number }> {
       const project = captureProjectIdentity();
       const targetSheetId = Number(sheetId);
       if (!Number.isInteger(targetSheetId) || targetSheetId <= 0) {
@@ -520,7 +466,11 @@ export function createSheetGridDomainApi(
       });
     },
 
-    async addColumn(sheetId, name, options = {}) {
+    async addColumn(
+      sheetId: string,
+      name: string,
+      options: { type?: string; position?: number | null } = {},
+    ): Promise<AddColumnResult> {
       const project = captureProjectIdentity();
       const targetSheetId = Number(sheetId);
       if (!Number.isInteger(targetSheetId) || targetSheetId <= 0) {
@@ -554,7 +504,7 @@ export function createSheetGridDomainApi(
       });
     },
 
-    async deleteRows(sheetId, rowIds) {
+    async deleteRows(sheetId: string, rowIds: string[]): Promise<DeleteRowsResult> {
       const project = captureProjectIdentity();
       const targetSheetId = Number(sheetId);
       if (!Number.isInteger(targetSheetId) || targetSheetId <= 0) {
@@ -585,7 +535,7 @@ export function createSheetGridDomainApi(
       });
     },
 
-    async editCells(edits) {
+    async editCells(edits: CellEdit[]): Promise<void> {
       if (edits.length === 0) return;
       const project = captureProjectIdentity();
       const actionEdits = edits.map((edit) => ({
@@ -617,7 +567,15 @@ export function createSheetGridDomainApi(
       });
     },
 
-    async acceptReplayValue(sheetId, columnId, rowId, generatedValueHash, runId) {
+    /** Replay preserve+surface: accept the fresh generated value for one
+     *  pending cell as a new attributed edit op. */
+    async acceptReplayValue(
+      sheetId: string,
+      columnId: string,
+      rowId: string,
+      generatedValueHash: string,
+      runId: string,
+    ): Promise<void> {
       const project = captureProjectIdentity();
       const params: ReplayAcceptActionParams = {
         sheet_id: Number(sheetId),
@@ -634,7 +592,8 @@ export function createSheetGridDomainApi(
       });
     },
 
-    async acceptReplayValuesInColumn(sheetId, columnId) {
+    /** Accept the fresh value for every pending cell in a column in one op. */
+    async acceptReplayValuesInColumn(sheetId: string, columnId: string): Promise<void> {
       const project = captureProjectIdentity();
       const params: ReplayAcceptColumnActionParams = {
         sheet_id: Number(sheetId),
@@ -650,7 +609,14 @@ export function createSheetGridDomainApi(
       });
     },
 
-    async dismissReplayPending(sheetId, columnId, rowId, generatedValueHash, runId) {
+    /** Durably keep the human edit against a specific fresh generated value. */
+    async dismissReplayPending(
+      sheetId: string,
+      columnId: string,
+      rowId: string,
+      generatedValueHash: string,
+      runId: string,
+    ): Promise<void> {
       const project = captureProjectIdentity();
       const params: ReplayDismissActionParams = {
         sheet_id: Number(sheetId),

@@ -14,16 +14,6 @@ import type { V1Receipt } from './types';
 
 const ACTION_COMPLETION_POLL_INTERVAL_MS = 1000;
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-interface ActionCompletionApi {
-  waitForRunCompletion(
-    result: V1ActionResult,
-    fallbackMessage: string,
-    invocation: ResolvedRunActionInvocation,
-  ): Promise<V1ActionResult>;
-}
-
 /** Receipt refs are the durable output truth once a queued run completes. */
 export function receiptOutputsAsActionOutputs(
   receipt: V1Receipt,
@@ -71,9 +61,7 @@ function waitForPollInterval(signal?: AbortSignal): Promise<void> {
   });
 }
 
-export function createActionCompletionApi(
-  errorFactory: ContractErrorFactory,
-): ActionCompletionApi {
+export function createActionCompletionApi() {
   async function pollRunCompletion(
     result: V1ActionResult,
     runId: string,
@@ -85,7 +73,6 @@ export function createActionCompletionApi(
     const progress = await getRunProgressContract(
       invocation.projectId,
       Number(runId),
-      errorFactory,
       { signal: invocation.signal },
     );
     throwIfActionAborted(invocation.signal);
@@ -100,7 +87,6 @@ export function createActionCompletionApi(
       const receipt = await getReceiptContract(
         invocation.projectId,
         receiptId,
-        errorFactory,
         { signal: invocation.signal },
       );
       throwIfActionAborted(invocation.signal);
@@ -130,7 +116,11 @@ export function createActionCompletionApi(
   }
 
   return {
-    async waitForRunCompletion(result, fallbackMessage, invocation) {
+    async waitForRunCompletion(
+      result: V1ActionResult,
+      fallbackMessage: string,
+      invocation: ResolvedRunActionInvocation,
+    ): Promise<V1ActionResult> {
       throwIfActionAborted(invocation.signal);
       if (result.status === 'completed') return result;
       if (result.run_id == null) {

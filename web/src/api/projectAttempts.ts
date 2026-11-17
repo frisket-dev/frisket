@@ -1,26 +1,16 @@
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import type { AttemptReceiptsPage } from './types';
 
-interface ProjectAttemptsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface ProjectAttemptsApi {
-  listAttemptReceipts(
-    projectId: string,
-    runId?: number | string | null,
-    limit?: number,
-    options?: ProjectAttemptsOptions,
-  ): Promise<AttemptReceiptsPage>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-export function createProjectAttemptsApi(
-  errorFactory: ContractErrorFactory,
-): ProjectAttemptsApi {
+export function createProjectAttemptsApi(projectId: string) {
   return {
-    listAttemptReceipts(projectId, runId, limit = 25, options = {}) {
+    /** Attempt receipts for this project, newest first. `runId` narrows to one
+     *  run; omitting it is the ONLY way to reach a compaction-orphaned attempt,
+     *  whose `run_id` is null by design. */
+    async listAttemptReceipts(
+      runId?: number | string | null,
+      limit = 25,
+      options: RequestOptions = {},
+    ): Promise<AttemptReceiptsPage> {
       return httpContract(
         'tenant.project_attempts.get',
         {
@@ -30,8 +20,6 @@ export function createProjectAttemptsApi(
             run_id: runId != null && runId !== '' ? Number(runId) : undefined,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

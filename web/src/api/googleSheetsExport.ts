@@ -18,12 +18,6 @@ import type {
 const GOOGLE_SHEETS_EXPORT_POLL_INTERVAL_MS = 1000;
 const GOOGLE_SHEETS_EXPORT_MAX_POLLS = 300;
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-interface GoogleSheetsExportApi {
-  exportGoogleSheets(input: GoogleSheetsExportInput): Promise<GoogleSheetsExportResult>;
-}
-
 interface GoogleSheetsExportDependencies {
   v1ActionSession: Pick<
     V1ActionSession,
@@ -98,11 +92,7 @@ function exportParams(input: GoogleSheetsExportInput): Record<string, unknown> {
   };
 }
 
-export function createGoogleSheetsExportApi(
-  errorFactory: ContractErrorFactory,
-  dependencies: GoogleSheetsExportDependencies,
-  projectId: string,
-): GoogleSheetsExportApi {
+export function createGoogleSheetsExportApi(dependencies: GoogleSheetsExportDependencies, projectId: string) {
   async function waitForCompletion(
     result: V1ActionResult,
     projectId: string,
@@ -122,7 +112,7 @@ export function createGoogleSheetsExportApi(
       throw new ApiError(504, 'Google Sheets export: timed out waiting for completion');
     }
 
-    const receipt = await getReceiptContract(projectId, result.receipt_id, errorFactory);
+    const receipt = await getReceiptContract(projectId, result.receipt_id);
     if (receipt.status === 'queued' || receipt.status === 'running') {
       await waitForPollInterval();
       return waitForCompletion(result, projectId, attempt + 1);
@@ -142,7 +132,7 @@ export function createGoogleSheetsExportApi(
   }
 
   return {
-    async exportGoogleSheets(input) {
+    async exportGoogleSheets(input: GoogleSheetsExportInput): Promise<GoogleSheetsExportResult> {
       const params = exportParams(input);
       const spec = dependencies.v1ActionSession.registeredProjectActionSpec(
         'export.google_sheets',

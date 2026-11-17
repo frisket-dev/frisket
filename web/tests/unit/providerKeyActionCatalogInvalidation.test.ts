@@ -1,17 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  createProjectApi,
-  deleteOrgKey,
-  deleteProviderKey,
-  discoverLocalEndpoints,
-  setOrgKey,
-  setProviderKey,
-} from '../../src/api/real';
-import { onActionCatalogInvalidated } from '../../src/api/catalogEvents';
+type RealModule = typeof import('../../src/api/real');
+type CatalogEventsModule = typeof import('../../src/api/catalogEvents');
 
 const projectId = 'provider keys/project +%';
-const projectApi = createProjectApi(projectId);
+let real: RealModule;
+let onActionCatalogInvalidated: CatalogEventsModule['onActionCatalogInvalidated'];
+let projectApi: ReturnType<RealModule['createProjectApi']>;
 const encodedProjectId = encodeURIComponent(projectId);
 const catalogPath = `/api/projects/${encodedProjectId}/actions/v1/catalog`;
 
@@ -49,7 +44,7 @@ function deferred<T>(): {
 const mutations = [
   {
     name: 'local endpoint discovery',
-    invoke: () => discoverLocalEndpoints(),
+    invoke: () => real.discoverLocalEndpoints(),
     returnsVoid: false,
     response: {
       candidates: [
@@ -63,25 +58,25 @@ const mutations = [
   },
   {
     name: 'local set',
-    invoke: () => setProviderKey('openai', 'secret', 'validation-token'),
+    invoke: () => real.setProviderKey('openai', 'secret', 'validation-token'),
     returnsVoid: false,
     response: { schemaVersion: 'frisket.providers.v1', providers: [] },
   },
   {
     name: 'local delete',
-    invoke: () => deleteProviderKey('openai'),
+    invoke: () => real.deleteProviderKey('openai'),
     returnsVoid: false,
     response: { schemaVersion: 'frisket.providers.v1', providers: [] },
   },
   {
     name: 'organization set',
-    invoke: () => setOrgKey('openai', 'secret', 'validation-token'),
+    invoke: () => real.setOrgKey('openai', 'secret', 'validation-token'),
     returnsVoid: true,
     response: { provider: 'openai', hint: '…cret' },
   },
   {
     name: 'organization delete',
-    invoke: () => deleteOrgKey('openai'),
+    invoke: () => real.deleteOrgKey('openai'),
     returnsVoid: true,
     response: { deleted: true },
   },
@@ -109,8 +104,16 @@ const mutations = [
   },
 ] as const;
 
+// The action catalog cache and the invalidation bus are module state; each case
+// starts from fresh modules so a catalog primed by one case cannot satisfy the next.
+beforeEach(async () => {
+  vi.resetModules();
+  real = await import('../../src/api/real');
+  ({ onActionCatalogInvalidated } = await import('../../src/api/catalogEvents'));
+  projectApi = real.createProjectApi(projectId);
+});
+
 afterEach(() => {
-  projectApi.invalidateActionCatalog();
   vi.unstubAllGlobals();
 });
 

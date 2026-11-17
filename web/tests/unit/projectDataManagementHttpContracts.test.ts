@@ -63,18 +63,9 @@ describe('project data-management generated HTTP contracts', () => {
       return jsonResponse(responses.shift());
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer project', 'X-Trace-Id': 'data-management' },
-    };
-    const baseApi = createProjectDataManagementApi((status, payload) =>
-      Object.assign(new Error(`mapped ${status}`), { status, payload }),
-      'hostile /%25 ☃',
-    );
-    const api = createProjectDataManagementApi((status, payload) =>
-      Object.assign(new Error(`mapped ${status}`), { status, payload }),
-      'switched /%25 ☃',
-    );
+    const options = { signal: controller.signal };
+    const baseApi = createProjectDataManagementApi('hostile /%25 ☃');
+    const api = createProjectDataManagementApi('switched /%25 ☃');
     await expect(baseApi.getProjectRetention(options)).resolves.toEqual(retention);
     await expect(api.updateProjectRetention({
       default_evidence: 'pinned',
@@ -111,9 +102,6 @@ describe('project data-management generated HTTP contracts', () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer project');
-      expect(headers.get('x-trace-id')).toBe('data-management');
     }
     for (const request of [requests[1], requests[3], requests[5]]) {
       expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
@@ -124,34 +112,35 @@ describe('project data-management generated HTTP contracts', () => {
   });
 
   it('keeps generic errors, non-JSON fallback, network identity, empty PATCHes, and RealApi methods stable', async () => {
-    const api = createProjectDataManagementApi((status, payload) =>
-      Object.assign(new Error(`mapped ${status}`), { status, payload }),
-      'test-project',
-    );
+    const api = createProjectDataManagementApi('test-project');
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'retention denied' }, 400)));
     await expect(api.getProjectRetention()).rejects.toMatchObject({
-      message: 'mapped 400', status: 400, payload: { detail: 'retention denied' },
-    });
+      name: 'ApiError', status: 400, message: 'retention denied', code: undefined, details: undefined,
+    } satisfies Partial<ApiError>);
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([
       { type: 'missing', loc: ['body', 'mode'], msg: 'Field required' },
     ], 422)));
     await expect(api.updateProjectNetworkPolicy({ mode: 'off' })).rejects.toMatchObject({
-      message: 'mapped 422',
+      name: 'ApiError',
       status: 422,
-      payload: [{ type: 'missing', loc: ['body', 'mode'], msg: 'Field required' }],
-    });
+      message: 'Request failed (HTTP 422)',
+      code: undefined,
+      details: undefined,
+    } satisfies Partial<ApiError>);
 
     vi.stubGlobal('fetch', vi.fn(async () => new Response('service unavailable', {
       status: 503,
       statusText: 'Service Unavailable',
     })));
     await expect(api.getProjectSettings()).rejects.toMatchObject({
-      message: 'mapped 503',
+      name: 'ApiError',
       status: 503,
-      payload: { detail: 'Service Unavailable' },
-    });
+      message: 'Service Unavailable',
+      code: undefined,
+      details: undefined,
+    } satisfies Partial<ApiError>);
 
     const emptyRequests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

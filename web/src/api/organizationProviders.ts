@@ -1,36 +1,10 @@
-import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from "./httpContract";
 import type {
   OrgKeyInfo,
   ProviderCatalog,
   ProviderValidateResult,
 } from "./types";
 
-export interface OrganizationProvidersOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface OrganizationProvidersApi {
-  providerCatalog(options?: OrganizationProvidersOptions): Promise<ProviderCatalog>;
-  listOrgKeys(options?: OrganizationProvidersOptions): Promise<OrgKeyInfo[]>;
-  setOrgKey(
-    provider: string,
-    key: string,
-    validationToken?: string | null,
-    options?: OrganizationProvidersOptions,
-  ): Promise<void>;
-  validateOrgKey(
-    provider: string,
-    key?: string,
-    options?: OrganizationProvidersOptions,
-  ): Promise<ProviderValidateResult>;
-  deleteOrgKey(
-    provider: string,
-    options?: OrganizationProvidersOptions,
-  ): Promise<void>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type OrgKeySaveWire = HttpContractSuccessResponse<"outer.set_org_key.post">;
 type OrgKeyDeleteWire = HttpContractSuccessResponse<"outer.delete_org_key.delete">;
 
@@ -42,74 +16,62 @@ function discardDeletedKey(wire: OrgKeyDeleteWire): void {
   void wire;
 }
 
-export function createOrganizationProvidersApi(
-  errorFactory: ContractErrorFactory,
-): OrganizationProvidersApi {
+export function createOrganizationProvidersApi() {
   return {
-    providerCatalog(options = {}) {
+    providerCatalog(options: RequestOptions = {}): Promise<ProviderCatalog> {
       return httpContract(
         "tenant.provider_catalog.get",
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    listOrgKeys(options = {}) {
+    listOrgKeys(options: RequestOptions = {}): Promise<OrgKeyInfo[]> {
       return httpContract(
         "outer.list_org_keys.get",
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    setOrgKey(provider, key, validationToken, options = {}) {
+    setOrgKey(
+      provider: string,
+      key: string,
+      validationToken?: string | null,
+      options: RequestOptions = {},
+    ): Promise<void> {
       return httpContract(
         "outer.set_org_key.post",
         {
-          pathParams: {},
-          query: {},
           body: { provider, key, validation_token: validationToken ?? null },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         discardSavedKey,
       );
     },
 
-    validateOrgKey(provider, key, options = {}) {
+    validateOrgKey(
+      provider: string,
+      key?: string,
+      options: RequestOptions = {},
+    ): Promise<ProviderValidateResult> {
       return httpContract(
         "outer.validate_org_key.post",
         {
-          pathParams: {},
-          query: {},
           body: key ? { provider, key } : { provider },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    deleteOrgKey(provider, options = {}) {
+    deleteOrgKey(provider: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         "outer.delete_org_key.delete",
         {
           pathParams: { provider },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         discardDeletedKey,
       );

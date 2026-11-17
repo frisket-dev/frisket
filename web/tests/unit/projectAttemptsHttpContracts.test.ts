@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe('project attempts generated HTTP port', () => {
-  it('preserves encoded project path, query bytes, rich receipt leaves, headers, and signal', async () => {
+  it('preserves encoded project path, query bytes, rich receipt leaves, and signal', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
@@ -90,15 +90,12 @@ describe('project attempts generated HTTP port', () => {
     }));
     const controller = new AbortController();
     const { createProjectAttemptsApi } = await import('../../src/api/projectAttempts');
-    const api = createProjectAttemptsApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-    );
+    const api = createProjectAttemptsApi('hostile /%25 ☃');
 
-    await expect(api.listAttemptReceipts('hostile /%25 ☃', 9, 7, {
+    await expect(api.listAttemptReceipts(9, 7, {
       signal: controller.signal,
-      headers: { Authorization: 'Bearer receipts', 'X-Trace-Id': 'attempts' },
     })).resolves.toEqual(page);
-    await api.listAttemptReceipts('hostile /%25 ☃', null, 25);
+    await api.listAttemptReceipts(null, 25);
 
     expect(requests.map(({ input }) => String(input))).toEqual([
       '/api/projects/hostile%20%2F%2525%20%E2%98%83/actions/attempts?limit=7&run_id=9',
@@ -107,28 +104,25 @@ describe('project attempts generated HTTP port', () => {
     expect(requests[0].init?.method).toBe('GET');
     expect(requests[0].init?.body).toBeUndefined();
     expect(requests[0].init?.signal).toBe(controller.signal);
-    const headers = new Headers(requests[0].init?.headers);
-    expect(headers.get('authorization')).toBe('Bearer receipts');
-    expect(headers.get('x-trace-id')).toBe('attempts');
   });
 
-  it('maps declared errors, preserves network identity, and keeps the RealApi method stable', async () => {
+  it('maps declared errors, preserves network identity, and keeps the project API method stable', async () => {
     const { createProjectAttemptsApi } = await import('../../src/api/projectAttempts');
-    const api = createProjectAttemptsApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-    );
+    const api = createProjectAttemptsApi('receipts');
     for (const status of [401, 403, 404, 422, 500]) {
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error-${status}` }, status)));
-      await expect(api.listAttemptReceipts('receipts', null, 25)).rejects.toMatchObject({
-        message: `mapped-${status}`,
+      await expect(api.listAttemptReceipts(null, 25)).rejects.toMatchObject({
+        name: 'ApiError',
         status,
-        payload: { detail: `error-${status}` },
+        message: `error-${status}`,
+        code: undefined,
+        details: undefined,
       });
     }
 
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
-    await expect(api.listAttemptReceipts('receipts')).rejects.toBe(network);
+    await expect(api.listAttemptReceipts()).rejects.toBe(network);
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(page)));
     const real = await import('../../src/api/real');
     const projectApi = real.createProjectApi('hostile /%25 ☃');

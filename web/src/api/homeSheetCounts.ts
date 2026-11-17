@@ -5,7 +5,7 @@ class SheetCountsHttpError extends Error {}
 /** Home-card count adapter. HTTP errors degrade to zero; transport failures
  * reject so the caller retains its existing no-state-update failure path. */
 export function fetchProjectSheetCounts(projectId: string): Promise<{ sheets: number; rows: number }> {
-  return listSheetsContract(projectId, () => new SheetCountsHttpError())
+  return listSheetsContract(projectId, { errorFactory: () => new SheetCountsHttpError() })
     .catch((error: unknown) => {
       if (error instanceof SheetCountsHttpError) return [];
       throw error;

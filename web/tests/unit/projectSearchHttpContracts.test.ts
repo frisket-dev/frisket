@@ -47,21 +47,17 @@ afterEach(() => {
 });
 
 describe('project-search generated HTTP contract', () => {
-  it('posts the typed request to the encoded project URL with caller headers and cancellation', async () => {
+  it('posts the typed request to the encoded project URL with cancellation', async () => {
     const calls: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ input, init });
       return jsonResponse(response);
     }));
     const controller = new AbortController();
-    const api = createProjectSearchApi(
-      (status, payload) => new Error(`${status}:${String(payload)}`),
-      'hostile /%25 ☃',
-    );
+    const api = createProjectSearchApi('hostile /%25 ☃');
 
     await expect(api.searchProject(request, {
       signal: controller.signal,
-      headers: { Authorization: 'Bearer search', 'X-Trace-Id': 'search-contract' },
     })).resolves.toEqual(response);
 
     expect(String(calls[0].input)).toBe(
@@ -72,21 +68,18 @@ describe('project-search generated HTTP contract', () => {
     expect(calls[0].init?.signal).toBe(controller.signal);
     const headers = new Headers(calls[0].init?.headers);
     expect(headers.get('content-type')).toContain('application/json');
-    expect(headers.get('authorization')).toBe('Bearer search');
-    expect(headers.get('x-trace-id')).toBe('search-contract');
   });
 
   it('keeps generic error mapping, network rejection identity, and RealApi compatibility', async () => {
-    const api = createProjectSearchApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'project-1',
-    );
+    const api = createProjectSearchApi('project-1');
     for (const status of [401, 403, 404, 422, 500]) {
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error-${status}` }, status)));
       await expect(api.searchProject(request)).rejects.toMatchObject({
-        message: `mapped-${status}`,
+        name: 'ApiError',
         status,
-        payload: { detail: `error-${status}` },
+        message: `error-${status}`,
+        code: undefined,
+        details: undefined,
       });
     }
 

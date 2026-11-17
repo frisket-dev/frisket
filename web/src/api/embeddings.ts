@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   CreateEmbeddingIndexInput,
   EmbeddingComposedQuery,
@@ -19,59 +19,6 @@ import {
 } from './contractErrors';
 import type { V1ActionSession, V1ActionResult } from './v1ActionSession';
 
-interface EmbeddingsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface EmbeddingsApi {
-  embeddingProviderCatalog(
-    projectId: string,
-    opts: { modality?: string; sourceColumnType?: string },
-    options?: EmbeddingsOptions,
-  ): Promise<EmbeddingProvider[]>;
-  embeddingIndexes(
-    projectId: string,
-    sheetId: number,
-    options?: EmbeddingsOptions,
-  ): Promise<EmbeddingIndexSummary[]>;
-  updateEmbeddingIndexPolicy(
-    projectId: string,
-    input: UpdateEmbeddingIndexPolicyInput,
-  ): Promise<void>;
-  createEmbeddingIndex(projectId: string, input: CreateEmbeddingIndexInput): Promise<string>;
-  refreshEmbeddingIndex(
-    projectId: string,
-    indexId: string,
-    mode: 'incremental' | 'full',
-  ): Promise<{ jobId: number | null; status: string }>;
-  runEmbeddingIndexAnalysis(
-    projectId: string,
-    input: EmbeddingIndexAnalysisInput,
-  ): Promise<EmbeddingIndexAnalysisResult>;
-  exportEmbeddingIndex(
-    projectId: string,
-    indexId: string,
-    opts?: { formats?: string[]; includeVectors?: boolean },
-    options?: EmbeddingsOptions,
-  ): Promise<EmbeddingExportResult>;
-  embeddingSimilarityPreview(
-    projectId: string,
-    indexId: string,
-    query: string | EmbeddingComposedQuery,
-    opts?: { limit?: number },
-    options?: EmbeddingsOptions,
-  ): Promise<EmbeddingSimilarityResult>;
-  embeddingHybridPreview(
-    projectId: string,
-    indexId: string,
-    sheetId: number | null,
-    text: string,
-    opts?: { limit?: number },
-    options?: EmbeddingsOptions,
-  ): Promise<EmbeddingSimilarityResult>;
-}
-
 type EmbeddingsV1ActionSession = Pick<
   V1ActionSession,
   | 'v1ActionSpec'
@@ -85,7 +32,6 @@ interface EmbeddingsApiDependencies {
   v1ActionSession: EmbeddingsV1ActionSession;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type ProviderCatalogWire = HttpContractSuccessResponse<
   'tenant.embedding_provider_catalog.get'
 >;
@@ -321,11 +267,15 @@ async function runEmbeddingAction(
 }
 
 export function createEmbeddingsApi(
-  errorFactory: ContractErrorFactory,
   { v1ActionSession }: EmbeddingsApiDependencies,
-): EmbeddingsApi {
+  projectId: string,
+) {
   return {
-    embeddingProviderCatalog(projectId, opts, options = {}) {
+    /** Compatible embedding providers/models for the picker, by source column type. */
+    async embeddingProviderCatalog(
+      opts: { modality?: string; sourceColumnType?: string },
+      options: RequestOptions = {},
+    ): Promise<EmbeddingProvider[]> {
       return httpContract(
         'tenant.embedding_provider_catalog.get',
         {
@@ -335,28 +285,30 @@ export function createEmbeddingsApi(
             ...(opts.sourceColumnType ? { source_column_type: opts.sourceColumnType } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         mapProviderCatalog,
       );
     },
 
-    embeddingIndexes(projectId, sheetId, options = {}) {
+    /** Existing embedding indexes for a sheet (provider/model + counts + state). */
+    async embeddingIndexes(
+      sheetId: number,
+      options: RequestOptions = {},
+    ): Promise<EmbeddingIndexSummary[]> {
       return httpContract(
         'tenant.embedding_indexes.get',
         {
           pathParams: { pid: projectId },
           query: { sheet_id: sheetId },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         mapIndexes,
       );
     },
 
-    async updateEmbeddingIndexPolicy(projectId, input) {
+    /** Edit an index's maintenance/provider policy (wholesale replace per policy).
+     *  Preauthorization only — the remote/cost gates still fire at refresh time. */
+    async updateEmbeddingIndexPolicy(input: UpdateEmbeddingIndexPolicyInput): Promise<void> {
       const params: Record<string, JsonValue> = { index_id: input.indexId };
       if (input.maintenancePolicy) {
         params.maintenance_policy = {
@@ -386,7 +338,8 @@ export function createEmbeddingsApi(
       await runEmbeddingAction(v1ActionSession, projectId, spec);
     },
 
-    async createEmbeddingIndex(projectId, input) {
+    /** Create an embedding index (metadata only; no provider call). Returns its id. */
+    async createEmbeddingIndex(input: CreateEmbeddingIndexInput): Promise<string> {
       if (input.modality !== 'text') {
         throw new ApiError(
           400,
@@ -421,7 +374,17 @@ export function createEmbeddingsApi(
       return ref.index_id;
     },
 
-    async refreshEmbeddingIndex(projectId, indexId, mode) {
+    /** Manually (re)embed an index. mode 'full' rebuilds; 'incremental' fills gaps.
+     *  embedding.index_refresh is a QUEUED_ACTION_JOB (executor/action_specs.py) —
+     *  the resolved value carries the launched job so callers can track it to
+     *  completion instead of assuming it already finished. `status` is the v1
+     *  action result status at launch time ('completed' when replayed/instant,
+     *  else 'queued'/'running'); `jobId` is null exactly when `status` is
+     *  already terminal. */
+    async refreshEmbeddingIndex(
+      indexId: string,
+      mode: 'incremental' | 'full',
+    ): Promise<{ jobId: number | null; status: string }> {
       const spec = v1ActionSession.registeredProjectActionSpec(
         'embedding.index_refresh',
         { index_id: indexId, mode },
@@ -433,7 +396,11 @@ export function createEmbeddingsApi(
       return { jobId: out.job_id ?? null, status: out.status };
     },
 
-    async runEmbeddingIndexAnalysis(projectId, input) {
+    /** Run a PCA projection / k-means analysis over an index (v1 action contract).
+     *  Returns the minted child sheet id so the UI can open it. */
+    async runEmbeddingIndexAnalysis(
+      input: EmbeddingIndexAnalysisInput,
+    ): Promise<EmbeddingIndexAnalysisResult> {
       const spec = v1ActionSession.registeredProjectActionSpec(
         input.action_id,
         input.params,
@@ -451,12 +418,16 @@ export function createEmbeddingsApi(
       return { sheetId };
     },
 
-    exportEmbeddingIndex(projectId, indexId, opts, options = {}) {
+    /** Export an index's originals + vectors to server artifacts (JSONL/Parquet/Arrow). */
+    async exportEmbeddingIndex(
+      indexId: string,
+      opts?: { formats?: string[]; includeVectors?: boolean },
+      options: RequestOptions = {},
+    ): Promise<EmbeddingExportResult> {
       return httpContract(
         'tenant.embedding_index_export.post',
         {
           pathParams: { pid: projectId, index_id: indexId },
-          query: {},
           body: {
             ...(opts?.formats !== undefined ? { formats: opts.formats } : {}),
             ...(opts?.includeVectors !== undefined
@@ -464,14 +435,18 @@ export function createEmbeddingsApi(
               : {}),
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         mapExport,
       );
     },
 
-    embeddingSimilarityPreview(projectId, indexId, query, opts, options = {}) {
+    /** Show-similar preview for a manual text query over one index. */
+    async embeddingSimilarityPreview(
+      indexId: string,
+      query: string | EmbeddingComposedQuery,
+      opts?: { limit?: number },
+      options: RequestOptions = {},
+    ): Promise<EmbeddingSimilarityResult> {
       const anchor =
         typeof query === 'string'
           ? { kind: 'manual_text_query', text: query }
@@ -484,7 +459,6 @@ export function createEmbeddingsApi(
         'tenant.embedding_similarity_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             query: {
               kind: 'embedding_similarity',
@@ -494,19 +468,24 @@ export function createEmbeddingsApi(
             },
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         mapSimilarity,
       );
     },
 
-    embeddingHybridPreview(projectId, indexId, sheetId, text, opts, options = {}) {
+    /** Hybrid keyword+vector preview: sheet FTS + vector search fused by RRF.
+     *  The per-row `score` is the fused RRF score. */
+    async embeddingHybridPreview(
+      indexId: string,
+      sheetId: number | null,
+      text: string,
+      opts?: { limit?: number },
+      options: RequestOptions = {},
+    ): Promise<EmbeddingSimilarityResult> {
       return httpContract(
         'tenant.embedding_hybrid_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             query: {
               kind: 'embedding_hybrid',
@@ -517,8 +496,6 @@ export function createEmbeddingsApi(
             },
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         mapHybrid,
       );

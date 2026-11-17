@@ -1,8 +1,7 @@
-import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
+import { httpContract, type ContractErrorFactory, type HttpContractSuccessResponse } from "./httpContract";
 
 interface ErrorIntakeOptions {
   signal?: AbortSignal;
-  headers?: HeadersInit;
   credentials?: RequestCredentials;
   keepalive?: boolean;
 }
@@ -23,7 +22,7 @@ interface ClientErrorReportResponse {
   accepted?: boolean | null;
 }
 
-export interface DiagnosticBundleRequest {
+interface DiagnosticBundleRequest {
   message?: string | null;
   route?: string | null;
   context?: Record<string, unknown>;
@@ -31,13 +30,12 @@ export interface DiagnosticBundleRequest {
   recent_client_error_ids?: number[];
 }
 
-export interface DiagnosticBundleResponse {
+interface DiagnosticBundleResponse {
   ok: boolean;
   report_id: number;
   bundle: Record<string, unknown>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type DiagnosticBundleWire =
   HttpContractSuccessResponse<"outer.diagnostic_bundle.post">;
 
@@ -53,47 +51,34 @@ function mapDiagnosticBundle(
   };
 }
 
-interface ErrorIntakeApi {
-  reportClientError(
-    body: ClientErrorReportRequest,
-    options?: ErrorIntakeOptions,
-  ): Promise<ClientErrorReportResponse>;
-  createDiagnosticBundle(
-    body: DiagnosticBundleRequest,
-    options?: ErrorIntakeOptions,
-  ): Promise<DiagnosticBundleResponse>;
-}
-
-export function createErrorIntakeApi(
-  errorFactory: ContractErrorFactory,
-): ErrorIntakeApi {
+export function createErrorIntakeApi(errorFactory?: ContractErrorFactory) {
   return {
-    reportClientError(body, options = {}) {
+    reportClientError(
+      body: ClientErrorReportRequest,
+      options: ErrorIntakeOptions = {},
+    ): Promise<ClientErrorReportResponse> {
       return httpContract(
         "outer.client_errors.post",
         {
-          pathParams: {},
-          query: {},
           body: body as never,
           signal: options.signal,
-          headers: options.headers,
           credentials: options.credentials,
           keepalive: options.keepalive,
           errorFactory,
         },
       );
     },
-    createDiagnosticBundle(body, options = {}) {
+    createDiagnosticBundle(
+      body: DiagnosticBundleRequest,
+      options: ErrorIntakeOptions = {},
+    ): Promise<DiagnosticBundleResponse> {
       return httpContract(
         "outer.diagnostic_bundle.post",
         {
-          pathParams: {},
-          query: {},
           // The wire request is the public route's open sanitized dict; the
           // domain interface above is the shipped sender's actual shape.
           body: body as never,
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapDiagnosticBundle,

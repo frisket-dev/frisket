@@ -8,7 +8,7 @@ import {
   updateSheetContract,
 } from '../../src/api/httpContractRoutes';
 import { ApiError, createProjectApi } from '../../src/api/real';
-import { createSheetGridDomainApi } from '../../src/api/sheetGrid';
+import { createSheetGridApi } from '../../src/api/sheetGrid';
 import { createV1ActionSession } from '../../src/api/v1ActionSession';
 
 let realApi = createProjectApi('test-project');
@@ -58,12 +58,6 @@ function jsonResponse(payload: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-function contractError(status: number, payload: unknown): Error {
-  return new Error(
-    'unexpected contract error ' + status + ': ' + JSON.stringify(payload),
-  );
 }
 
 class MappedContractError extends Error {
@@ -176,8 +170,6 @@ describe('sheet and grid HTTP contracts', () => {
       7,
       9,
       {},
-      contractError,
-      { headers: { 'X-Trace-Id': 'stats-1' } },
     );
     expect(gated).toEqual({
       schemaVersion: 'frisket.column_stats.v1',
@@ -200,9 +192,8 @@ describe('sheet and grid HTTP contracts', () => {
     expect(requests[0]?.init?.method).toBe('GET');
     expect(requests[0]?.init?.body).toBeUndefined();
     expect(new Headers(requests[0]?.init?.headers).has('content-type')).toBe(false);
-    expect(new Headers(requests[0]?.init?.headers).get('x-trace-id')).toBe('stats-1');
 
-    await getColumnStatsContract('project-1', 7, 9, { force: true, scope_row_ids: '2,5', filter: '{"score":{"gt":4}}' }, contractError);
+    await getColumnStatsContract('project-1', 7, 9, { force: true, scope_row_ids: '2,5', filter: '{"score":{"gt":4}}' });
     const statsUrl = new URL(String(requests[1]?.input), 'https://frisket.test');
     expect(statsUrl.pathname).toBe('/api/projects/project-1/sheets/7/columns/9/stats');
     expect(Object.fromEntries(statsUrl.searchParams)).toEqual({ force: 'true', scope_row_ids: '2,5', filter: '{"score":{"gt":4}}' });
@@ -249,7 +240,6 @@ describe('sheet and grid HTTP contracts', () => {
       7,
       9,
       {},
-      contractError,
     )).resolves.toMatchObject({
       column: { id: '9', name: 'score', type: 'number', format: 'currency' },
       missing: 0,
@@ -300,8 +290,7 @@ describe('sheet and grid HTTP contracts', () => {
       7,
       11,
       { page_size: 500 },
-      contractError,
-      { signal: controller.signal, headers: { 'X-Trace-Id': 'locate-1' } },
+      { signal: controller.signal },
     )).resolves.toEqual({
       found: false,
       rowId: '11',
@@ -315,7 +304,6 @@ describe('sheet and grid HTTP contracts', () => {
     expect(forwardedInit?.method).toBe('GET');
     expect(forwardedInit?.body).toBeUndefined();
     expect(forwardedInit?.signal).toBe(controller.signal);
-    expect(new Headers(forwardedInit?.headers).get('x-trace-id')).toBe('locate-1');
     expect(new Headers(forwardedInit?.headers).has('content-type')).toBe(false);
   });
 
@@ -333,7 +321,6 @@ describe('sheet and grid HTTP contracts', () => {
       7,
       11,
       { page_size: 500 },
-      contractError,
       { signal: controller.signal },
     );
     const abortError = new DOMException('cancelled', 'AbortError');
@@ -341,7 +328,7 @@ describe('sheet and grid HTTP contracts', () => {
     await expect(request).rejects.toBe(abortError);
   });
 
-  it('RealApi decodes project once and preserves legacy rowIds scope precedence', async () => {
+  it('project API decodes project once and preserves legacy rowIds scope precedence', async () => {
     realApi = createProjectApi('tenant/a % hostile');
     const requests: Array<RequestInfo | URL> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -386,7 +373,7 @@ describe('sheet and grid HTTP contracts', () => {
     expect(viewUrl.searchParams.has('row_ids')).toBe(false);
   });
 
-  it('RealApi preserves empty rowIds and legacy message-only errors', async () => {
+  it('project API preserves empty rowIds and legacy message-only errors', async () => {
     realApi = createProjectApi('project-1');
     const requests: Array<RequestInfo | URL> = [];
     const responses = [
@@ -447,7 +434,6 @@ describe('sheet and grid HTTP contracts', () => {
       'tenant/project 1',
       7,
       { offset: 0, limit: 0, row_ids: '9,3' },
-      contractError,
     )).resolves.toMatchObject({ total: 0 });
 
     expect(requests).toHaveLength(1);
@@ -457,7 +443,7 @@ describe('sheet and grid HTTP contracts', () => {
     expect(requests[0]?.init?.method).toBe('GET');
   });
 
-  it('sends the sheet update body and merges caller headers with JSON content type', async () => {
+  it('sends the sheet update body with a JSON content type', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
@@ -468,18 +454,13 @@ describe('sheet and grid HTTP contracts', () => {
       'tenant/project 1',
       7,
       null,
-      contractError,
-      { headers: { Authorization: 'Bearer token', 'X-Trace-Id': 'trace-1' } },
     )).resolves.toBeUndefined();
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.input).toBe('/api/projects/tenant%2Fproject%201/sheets/7');
     expect(requests[0]?.init?.method).toBe('PATCH');
     expect(requests[0]?.init?.body).toBe(JSON.stringify({ title_column_id: null }));
-    const headers = new Headers(requests[0]?.init?.headers);
-    expect(headers.get('authorization')).toBe('Bearer token');
-    expect(headers.get('x-trace-id')).toBe('trace-1');
-    expect(headers.get('content-type')).toBe('application/json');
+    expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBe('application/json');
   });
 
   it('maps only the route-specific declared statuses', async () => {
@@ -495,76 +476,74 @@ describe('sheet and grid HTTP contracts', () => {
       (status: number, payload: unknown) => new MappedContractError(status, payload),
     );
 
-    await expect(listSheetsContract('project-1', errorFactory)).rejects.toMatchObject({
+    await expect(listSheetsContract('project-1', { errorFactory })).rejects.toMatchObject({
       name: 'MappedContractError',
       status: 409,
+      payload: { detail: 'schema mismatch' },
     });
+    expect(errorFactory).toHaveBeenCalledOnce();
+    expect(errorFactory).toHaveBeenCalledWith(409, { detail: 'schema mismatch' });
 
     await expect(updateSheetContract(
       'project-1',
       7,
       null,
-      errorFactory,
     )).rejects.toMatchObject({
-      name: 'MappedContractError',
+      name: 'ApiError',
       status: 404,
+      message: 'sheet not found',
     });
 
     await expect(updateSheetContract(
       'project-1',
       7,
       null,
-      errorFactory,
     )).rejects.toMatchObject({
-      name: 'MappedContractError',
+      name: 'ApiError',
       status: 409,
+      message: 'schema mismatch',
     });
 
     await expect(updateSheetContract(
       'project-1',
       7,
       null,
-      errorFactory,
     )).rejects.toMatchObject({
-      name: 'MappedContractError',
+      name: 'ApiError',
       status: 403,
+      message: 'forbidden',
     });
 
     await expect(getSheetDataContract(
       'project-1',
       7,
       { row_ids: 'invalid' },
-      errorFactory,
     )).rejects.toMatchObject({
-      name: 'MappedContractError',
+      name: 'ApiError',
       status: 400,
+      message: 'invalid row_ids',
     });
-    expect(errorFactory).toHaveBeenCalledTimes(5);
   });
 
   it('maps an additional non-2xx status', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => (
       jsonResponse({ detail: 'teapot' }, 418)
     )));
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
 
     await expect(getSheetDataContract(
       'project-1',
       7,
       {},
-      errorFactory,
     )).rejects.toMatchObject({
-      name: 'MappedContractError',
+      name: 'ApiError',
       status: 418,
-      payload: { detail: 'teapot' },
+      message: 'teapot',
+      code: undefined,
+      details: undefined,
     });
-    expect(errorFactory).toHaveBeenCalledOnce();
-    expect(errorFactory).toHaveBeenCalledWith(418, { detail: 'teapot' });
   });
 
-  it('forwards the exact signal and headers and preserves abort rejection', async () => {
+  it('forwards the exact signal and preserves abort rejection', async () => {
     const controller = new AbortController();
     let forwardedInit: RequestInit | undefined;
     vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
@@ -576,16 +555,14 @@ describe('sheet and grid HTTP contracts', () => {
       });
     }));
 
-    const request = listSheetsContract('project-1', contractError, {
+    const request = listSheetsContract('project-1', {
       signal: controller.signal,
-      headers: { 'X-Trace-Id': 'trace-list' },
     });
     const abortError = new DOMException('cancelled', 'AbortError');
     controller.abort(abortError);
 
     await expect(request).rejects.toBe(abortError);
     expect(forwardedInit?.signal).toBe(controller.signal);
-    expect(new Headers(forwardedInit?.headers).get('x-trace-id')).toBe('trace-list');
   });
 
   it('keeps a composite sheet list on the project captured before its first await', async () => {
@@ -708,7 +685,7 @@ describe('sheet and grid HTTP contracts', () => {
         errors: [],
       });
     }));
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('grid-owner-project'),
     }, 'grid-owner-project');
@@ -743,7 +720,7 @@ describe('sheet and grid HTTP contracts', () => {
         receipt_id: null, outputs: [], errors: [],
       });
     }));
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('cell-edit-project'),
     }, 'cell-edit-project');
@@ -785,7 +762,7 @@ describe('sheet and grid HTTP contracts', () => {
         receipt_id: 'receipt-1', outputs: [], errors: [],
       });
     }));
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('replay-project'),
     }, 'replay-project');
@@ -818,7 +795,7 @@ describe('sheet and grid HTTP contracts', () => {
   it('rejects non-JSON nested row cell values before dispatch', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('grid-json-project'),
     }, 'grid-json-project');
@@ -842,7 +819,7 @@ describe('sheet and grid HTTP contracts', () => {
         errors: [],
       });
     }));
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('grid-json-project'),
     }, 'grid-json-project');
@@ -971,7 +948,7 @@ describe('sheet and grid HTTP contracts', () => {
       prompt: 'Remembered prompt',
       model: 'remembered-model',
     }));
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo,
       v1ActionSession: createV1ActionSession('project-a'),
     }, 'project-a');
@@ -1045,7 +1022,7 @@ describe('sheet and grid HTTP contracts', () => {
         }],
       });
     }));
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('project-a'),
     }, 'project-a');
@@ -1061,7 +1038,6 @@ describe('sheet and grid HTTP contracts', () => {
       'project-a',
       7,
       { offset: 500, limit: 500 },
-      contractError,
     )).rejects.toThrow('Full sheet-data response omitted its exact total');
   });
 
@@ -1109,7 +1085,7 @@ describe('sheet and grid HTTP contracts', () => {
         child_count: 0,
       }],
     })));
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo: () => ({ runId: cachedRunId, actionName: 'Cached action', prompt: '', model: `cached-${cachedRunId}` }),
       v1ActionSession: createV1ActionSession('mixed-project'),
     }, 'mixed-project');
@@ -1135,18 +1111,18 @@ describe('sheet and grid HTTP contracts', () => {
     }]);
   });
 
-  it('resolves a column through the domain composite and preserves the local 404', async () => {
+  it('resolves an unpatched column through the sheet list and preserves the local 404', async () => {
     const responses = [sheetListWire, sheetListWire];
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(responses.shift())));
-    const api = createSheetGridDomainApi(contractError, {
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('project-a'),
     }, 'project-a');
 
-    await expect(api.getColumnById('9')).resolves.toMatchObject({
+    await expect(api.updateColumn('9', {})).resolves.toMatchObject({
       id: '9', name: 'Title', type: 'text', width: 240,
     });
-    await expect(api.getColumnById('404')).rejects.toMatchObject({
+    await expect(api.updateColumn('404', {})).rejects.toMatchObject({
       name: 'ApiError', status: 404, message: 'Column 404 was not found',
     });
   });

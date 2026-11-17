@@ -1,69 +1,43 @@
-import { httpContract } from "./httpContract";
+import { httpContract, type RequestOptions } from "./httpContract";
 import type { ApiTokenCreateResponse, ApiTokenInfo } from "./types";
-
-interface ApiTokensOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 interface ApiTokenRevokeResponse {
   ok: boolean;
   revoked: boolean;
 }
 
-interface ApiTokensApi {
-  listApiKeys(options?: ApiTokensOptions): Promise<ApiTokenInfo[]>;
-  createApiKey(
-    name: string,
-    options?: ApiTokensOptions,
-  ): Promise<ApiTokenCreateResponse>;
-  revokeApiKey(
-    tokenId: number | string,
-    options?: ApiTokensOptions,
-  ): Promise<ApiTokenRevokeResponse>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-export function createApiTokensApi(errorFactory: ContractErrorFactory): ApiTokensApi {
+export function createApiTokensApi() {
   return {
-    listApiKeys(options = {}) {
+    listApiKeys(options: RequestOptions = {}): Promise<ApiTokenInfo[]> {
       return httpContract(
         "outer.list_tokens.get",
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    createApiKey(name, options = {}) {
+    createApiKey(name: string, options: RequestOptions = {}): Promise<ApiTokenCreateResponse> {
       return httpContract(
         "outer.create_token.post",
         {
-          pathParams: {},
-          query: {},
           body: { name },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    revokeApiKey(tokenId, options = {}) {
+    revokeApiKey(
+      tokenId: number | string,
+      options: RequestOptions = {},
+    ): Promise<ApiTokenRevokeResponse> {
       return httpContract(
         "outer.revoke_token.delete",
         {
           // Preserve the previous number|string public API and let the route
           // retain responsibility for deciding whether a path value is valid.
           pathParams: { token_id: tokenId as never },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

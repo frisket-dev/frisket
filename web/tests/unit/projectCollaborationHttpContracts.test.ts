@@ -13,7 +13,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('project collaboration generated HTTP contracts', () => {
-  it('preserves raw route inputs, request bodies, headers, abort, and bodyless DELETEs', async () => {
+  it('preserves raw route inputs, request bodies, content types, abort, and bodyless DELETEs', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [
       [{ user_id: 7, email: 'member@example.com', role: 'owner' }],
@@ -28,22 +28,17 @@ describe('project collaboration generated HTTP contracts', () => {
       return jsonResponse(responses.shift());
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer session', 'X-Trace-Id': 'collaboration' },
-    };
-    const api = createProjectCollaborationApi((status, payload) =>
-      Object.assign(new Error('collaboration failed'), { status, payload }),
-    );
+    const options = { signal: controller.signal };
+    const api = createProjectCollaborationApi();
     const projectId = 'project /☃';
     const email = 'member +/☃@example.com';
 
-    await api.listMembers(projectId, options);
-    await api.setMember(projectId, email, 'editor', options);
-    await api.removeMember(projectId, email, options);
-    await api.listInvites(projectId, options);
-    await api.createInvite(projectId, email, 'editor', options);
-    await api.revokeInvite(projectId, '9 /☃', options);
+    await api.listProjectMembers(projectId, options);
+    await api.setProjectMember(projectId, email, 'editor', options);
+    await api.removeProjectMember(projectId, email, options);
+    await api.listProjectInvites(projectId, options);
+    await api.createProjectInvite(projectId, email, 'editor', options);
+    await api.revokeProjectInvite(projectId, '9 /☃', options);
 
     const base = '/api/projects/project%20%2F%E2%98%83';
     const encodedEmail = 'member%20%2B%2F%E2%98%83%40example.com';
@@ -58,9 +53,6 @@ describe('project collaboration generated HTTP contracts', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(6);
     for (const { init } of requests) {
       expect(init?.signal).toBe(controller.signal);
-      const headers = new Headers(init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer session');
-      expect(headers.get('x-trace-id')).toBe('collaboration');
     }
     for (const request of [requests[1], requests[4]]) {
       expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');

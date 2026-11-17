@@ -7,50 +7,41 @@ export type McpServerDraft = Pick<McpServer, 'name' | 'command' | 'args' | 'cwd'
 const mcpServerRequestError = (status: number) =>
   new Error(`MCP server request failed (${status})`);
 
-export function createMcpServersApi() {
+export function createMcpServersApi(projectId: string) {
   return {
-    list(projectId: string): Promise<McpServer[]> {
+    async listMcpServers(): Promise<McpServer[]> {
       return httpContract(
         'tenant.list_mcp_servers.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           errorFactory: mcpServerRequestError,
         },
         (catalog) => catalog.servers,
       );
     },
-    create(projectId: string, draft: McpServerDraft): Promise<McpServer> {
+    async createMcpServer(draft: McpServerDraft): Promise<McpServer> {
       return httpContract('tenant.create_mcp_server.post', {
         pathParams: { pid: projectId },
-        query: {},
         body: draft,
         errorFactory: mcpServerRequestError,
       });
     },
-    update(
-      projectId: string,
-      id: string,
-      patch: Partial<McpServerDraft>,
-    ): Promise<McpServer> {
+    async updateMcpServer(id: string, patch: Partial<McpServerDraft>): Promise<McpServer> {
       return httpContract('tenant.update_mcp_server.patch', {
         pathParams: { pid: projectId, server_id: id },
-        query: {},
         body: patch,
         errorFactory: mcpServerRequestError,
       });
     },
-    remove(projectId: string, id: string): Promise<{ ok: boolean; deleted: boolean }> {
+    async deleteMcpServer(id: string): Promise<{ ok: boolean; deleted: boolean }> {
       return httpContract('tenant.delete_mcp_server.delete', {
         pathParams: { pid: projectId, server_id: id },
-        query: {},
         errorFactory: mcpServerRequestError,
       });
     },
-    test(projectId: string, id: string): Promise<McpServer> {
+    async testMcpServer(id: string): Promise<McpServer> {
       return httpContract('tenant.test_mcp_server.post', {
         pathParams: { pid: projectId, server_id: id },
-        query: {},
         errorFactory: mcpServerRequestError,
       });
     },

@@ -79,7 +79,6 @@ const validation = {
 
 interface Options {
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 interface LocalProvidersApi {
@@ -152,10 +151,7 @@ describe("local provider generated HTTP port", () => {
       return jsonResponse(responses.shift(), status);
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: "Bearer local", "X-Trace-Id": "trace-local-providers" },
-    };
+    const options = { signal: controller.signal };
     const api = await localProvidersApi();
 
     await api.listProviders("project/one", options);
@@ -227,9 +223,11 @@ describe("local provider generated HTTP port", () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get("authorization")).toBe("Bearer local");
-      expect(headers.get("x-trace-id")).toBe("trace-local-providers");
+      expect(request.init?.headers === undefined ? null : [
+        ...new Headers(request.init.headers).entries(),
+      ]).toEqual(request.init?.body === undefined ? null : [
+        ["content-type", "application/json"],
+      ]);
     }
   });
 

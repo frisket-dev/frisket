@@ -44,9 +44,7 @@ describe('admin overview generated HTTP contract', () => {
   it('uses the exact route and preserves top-level and totals extensions', async () => {
     const fetch = vi.fn(async () => jsonResponse(overview));
     vi.stubGlobal('fetch', fetch);
-    const api = createAdminOverviewApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-    );
+    const api = createAdminOverviewApi();
 
     await expect(api.getAdminOverview()).resolves.toEqual(overview);
     expect(fetch).toHaveBeenCalledWith('/api/admin/overview', { method: 'GET' });

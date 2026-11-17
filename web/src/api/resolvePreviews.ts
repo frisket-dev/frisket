@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   ClusterGroup,
   ClusterPreviewResult,
@@ -10,11 +10,6 @@ import type {
   ReplaceRulesPreview,
   ResolveReplaceRuleDraft,
 } from './types';
-
-interface ResolvePreviewOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 interface ClusterPreviewInput {
   sheetId: string;
@@ -48,26 +43,6 @@ type ColumnValuesPreviewWire =
   HttpContractSuccessResponse<'tenant.column_values_preview.post'>;
 type ReplaceRulesPreviewWire =
   HttpContractSuccessResponse<'tenant.replace_rules_preview.post'>;
-
-interface ResolvePreviewsApi {
-  cluster(
-    projectId: string,
-    input: ClusterPreviewInput,
-    options?: ResolvePreviewOptions,
-  ): Promise<ClusterPreviewResult>;
-  columnValues(
-    projectId: string,
-    input: ColumnValuesPreviewInput,
-    options?: ResolvePreviewOptions,
-  ): Promise<ColumnValuesPreview>;
-  replaceRules(
-    projectId: string,
-    input: ReplaceRulesPreviewInput,
-    options?: ResolvePreviewOptions,
-  ): Promise<ReplaceRulesPreview>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 /** Keep this narrow boundary defensive so an older server simply behaves as
  * one without a collection facet. */
@@ -259,15 +234,17 @@ function replaceRulesResult(wire: ReplaceRulesPreviewWire): ReplaceRulesPreview 
 }
 
 export function createResolvePreviewsApi(
-  errorFactory: ContractErrorFactory,
-): ResolvePreviewsApi {
+  projectId: string,
+) {
   return {
-    cluster(projectId, input, options = {}) {
+    async clusterPreview(
+      input: ClusterPreviewInput,
+      options: RequestOptions = {},
+    ): Promise<ClusterPreviewResult> {
       return httpContract(
         'tenant.cluster_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             input_column: input.inputColumn,
@@ -278,19 +255,23 @@ export function createResolvePreviewsApi(
             ...(input.keyTemplate?.trim() ? { key_template: input.keyTemplate.trim() } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         clusterResult,
       );
     },
 
-    columnValues(projectId, input, options = {}) {
+    /** Read-only distinct-value inventory for the RESOLVE authoring surfaces
+     *  (POST /column-values/v1/preview). `search` is a case-insensitive
+     *  substring filter over values; limit defaults server-side to 500 (max
+     *  2000), offset to 0. */
+    async columnValuesPreview(
+      input: ColumnValuesPreviewInput,
+      options: RequestOptions = {},
+    ): Promise<ColumnValuesPreview> {
       return httpContract(
         'tenant.column_values_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             input_column: input.inputColumn,
@@ -300,19 +281,22 @@ export function createResolvePreviewsApi(
             ...(input.valueMode != null ? { value_mode: input.valueMode } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         columnValuesResult,
       );
     },
 
-    replaceRules(projectId, input, options = {}) {
+    /** Read-only rules dry-run for the Replace drawer (POST
+     *  /replace-rules/v1/preview): per-rule first-match-wins counts plus an
+     *  optional single-value live test. */
+    async replaceRulesPreview(
+      input: ReplaceRulesPreviewInput,
+      options: RequestOptions = {},
+    ): Promise<ReplaceRulesPreview> {
       return httpContract(
         'tenant.replace_rules_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             input_column: input.inputColumn,
@@ -326,8 +310,6 @@ export function createResolvePreviewsApi(
             ...(input.testValue != null ? { test_value: input.testValue } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         replaceRulesResult,
       );

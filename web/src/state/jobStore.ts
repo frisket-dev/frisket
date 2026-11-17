@@ -23,7 +23,7 @@ import {
   type SheetMeta,
   type V1Receipt,
 } from '../api/open';
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 import { isActiveRunStatus, isTerminalActionJobStatus } from '../runStatusModel';
 import { mergeDockJobs } from '../workbench/dockJobSummary';
 import type { DockActionJob } from '../workbench/WorkbenchBottomDock';
@@ -170,7 +170,7 @@ export interface JobStoreHandle {
 
 export function createJobStore(
   projectId: string,
-  projectApi: ProjectApiPort,
+  projectApi: ProjectApi,
 ): JobStoreHandle {
   const store = createStore<JobState>(initialJobState());
 

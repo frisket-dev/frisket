@@ -10,43 +10,12 @@ import type {
 import { isDeriveCompositeRequest } from './types';
 import { resolveRunActionInvocation } from './v1ActionSession';
 
-interface ActionEstimateValidationOptions {
-  projectId?: string;
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 type ActionEstimateValidationAction =
   HttpActionEstimateValidationRequest['action'];
 type ActionEstimateWire =
   HttpContractSuccessResponse<'tenant.action_v1_estimate.post'>;
 type ActionParamValidationWire =
   HttpContractSuccessResponse<'tenant.action_v1_validate_params.post'>;
-
-interface ActionEstimateValidationApi {
-  estimate(
-    action: ActionEstimateValidationAction,
-    options?: ActionEstimateValidationOptions,
-  ): Promise<ActionEstimateWire>;
-  validateParams(
-    action: ActionEstimateValidationAction,
-    options?: ActionEstimateValidationOptions,
-  ): Promise<ActionParamValidationWire>;
-}
-
-interface ActionEstimateValidationDomainDependencies {
-  errorFactory: ContractErrorFactory;
-  projectId: string;
-}
-
-interface ActionEstimateValidationDomainApi {
-  estimate(request: ActionExecutionRequest): Promise<RunEstimate>;
-  resolveParams(
-    request: Pick<RegisteredActionRequest, 'action_id' | 'scope' | 'params'>,
-  ): Promise<ActionParamResolution>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 function paramValidationFromV1Wire(
   diagnostics: ActionParamValidationWire['diagnostics'],
@@ -102,64 +71,35 @@ export function runEstimateFromV1Wire(
   };
 }
 
+/** Owns the captured invocation, estimate/validation transport, and
+ * wire-to-public mapping. */
 export function createActionEstimateValidationApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
-): ActionEstimateValidationApi {
+) {
   return {
-    estimate(action, options = {}) {
-      return httpContract(
-        'tenant.action_v1_estimate.post',
-        {
-          pathParams: { pid: options.projectId ?? projectId },
-          query: {},
-          body: { action },
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    validateParams(action, options = {}) {
-      return httpContract(
-        'tenant.action_v1_validate_params.post',
-        {
-          pathParams: { pid: options.projectId ?? projectId },
-          query: {},
-          body: { action },
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-  };
-}
-
-/** RealApi owns the shared action session; this domain owns the captured
- * invocation, estimate/validation transport, and wire-to-public mapping. */
-export function createActionEstimateValidationDomainApi({
-  errorFactory,
-  projectId,
-}: ActionEstimateValidationDomainDependencies): ActionEstimateValidationDomainApi {
-  const actionEstimateValidationApi = createActionEstimateValidationApi(errorFactory, projectId);
-
-  return {
-    async estimate(request) {
+    async estimateAction(request: ActionExecutionRequest): Promise<RunEstimate> {
       if (isDeriveCompositeRequest(request)) request = request.extraction;
       const invocation = resolveRunActionInvocation(undefined, projectId);
-      return runEstimateFromV1Wire((await actionEstimateValidationApi.estimate(
-        request as unknown as ActionEstimateValidationAction,
-        invocation,
-      )).estimate);
+      const wire = await httpContract('tenant.action_v1_estimate.post', {
+        pathParams: { pid: invocation.projectId },
+        body: { action: request as unknown as ActionEstimateValidationAction },
+        signal: invocation.signal,
+      });
+      return runEstimateFromV1Wire(wire.estimate);
     },
 
-    async resolveParams(request) {
-      const wire = await actionEstimateValidationApi.validateParams({
-        action_id: request.action_id,
-        scope: request.scope,
-        params: request.params,
+    async resolveActionParams(
+      request: Pick<RegisteredActionRequest, 'action_id' | 'scope' | 'params'>,
+    ): Promise<ActionParamResolution> {
+      const wire = await httpContract('tenant.action_v1_validate_params.post', {
+        pathParams: { pid: projectId },
+        body: {
+          action: {
+            action_id: request.action_id,
+            scope: request.scope,
+            params: request.params,
+          },
+        },
       });
       const outputs = wire.logical_outputs;
       return {

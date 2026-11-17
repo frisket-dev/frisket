@@ -19,7 +19,7 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ActionCatalogPayload, ProjectInfo, SheetMeta } from '../../src/api/types';
-import type { ProjectApiPort } from '../../src/api/ports';
+import type { ProjectApi } from '../../src/api/ports';
 
 import { ConfirmationRequiredError } from '../../src/api/open';
 import { ProjectExportModals } from '../../src/components/TopNav';
@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 
 const project: ProjectInfo = { id: 'proj-1', name: 'Sheets Desk' };
-const fakeProjectApi = {} as unknown as ProjectApiPort;
+const fakeProjectApi = {} as unknown as ProjectApi;
 const currentSheet: SheetMeta = {
   id: '7',
   name: 'People',

@@ -28,14 +28,12 @@ import { useEditionModule } from '../editions/module';
 import { navigate, useRoute } from '../routes';
 
 /** Configured provider labels for an ARBITRARY project id (the banner probes
- * projects other than the active one). Hoisted to module scope so the network
- * call lives outside the effect (react-doctor no-fetch-in-effect); a missing or
- * failed response yields an empty list rather than throwing. */
-const projectProviderKeysApi = createProjectProviderKeysApi();
-
+ * projects other than the active one). Module scope keeps the network call
+ * outside the effect (react-doctor no-fetch-in-effect); a missing or failed
+ * response yields an empty list rather than throwing. */
 async function fetchProjectProviderKeyLabels(projectId: string): Promise<string[]> {
   try {
-    const payload = await projectProviderKeysApi.getProjectProviderKeys(projectId);
+    const payload = await createProjectProviderKeysApi(projectId).getProjectProviderKeys();
     const labels: string[] = [];
     for (const provider of payload.providers) {
       if (provider.configured) labels.push(provider.label || provider.id || 'provider');

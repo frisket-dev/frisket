@@ -1,26 +1,6 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type { MediaProxyStatus, OrgEnvInfo } from './types';
 
-interface OrganizationOperationsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface OrganizationOperationsApi {
-  listOrgEnvVars(options?: OrganizationOperationsOptions): Promise<OrgEnvInfo[]>;
-  setOrgEnvVar(
-    name: string,
-    value: string,
-    options?: OrganizationOperationsOptions,
-  ): Promise<void>;
-  deleteOrgEnvVar(
-    name: string,
-    options?: OrganizationOperationsOptions,
-  ): Promise<void>;
-  getMediaProxyStatus(options?: OrganizationOperationsOptions): Promise<MediaProxyStatus>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type OrganizationEnvSaveWire =
   HttpContractSuccessResponse<'outer.set_org_env_var.post'>;
 type OrganizationEnvDeleteWire =
@@ -44,61 +24,46 @@ function mapMediaStatus(wire: OrganizationMediaProxyStatusWire): MediaProxyStatu
   };
 }
 
-export function createOrganizationOperationsApi(
-  errorFactory: ContractErrorFactory,
-): OrganizationOperationsApi {
+export function createOrganizationOperationsApi() {
   return {
-    listOrgEnvVars(options = {}) {
+    listOrgEnvVars(options: RequestOptions = {}): Promise<OrgEnvInfo[]> {
       return httpContract(
         'outer.list_org_env_vars.get',
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    setOrgEnvVar(name, value, options = {}) {
+    setOrgEnvVar(name: string, value: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         'outer.set_org_env_var.post',
         {
-          pathParams: {},
-          query: {},
           body: { name, value },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         discardEnvSave,
       );
     },
 
-    deleteOrgEnvVar(name, options = {}) {
+    deleteOrgEnvVar(name: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         'outer.delete_org_env_var.delete',
         {
           pathParams: { name },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         discardEnvDelete,
       );
     },
 
-    getMediaProxyStatus(options = {}) {
+    /** Egress-proxy status for the youtube_provider_blocked remediation card.
+     *  Local tier (no org identity) 404s — callers branch on ApiError.status. */
+    getMediaProxyStatus(options: RequestOptions = {}): Promise<MediaProxyStatus> {
       return httpContract(
         'outer.org_media_proxy_status.get',
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         mapMediaStatus,
       );

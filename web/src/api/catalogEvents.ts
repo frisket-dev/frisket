@@ -1,9 +1,9 @@
 // Action-catalog invalidation bus. Clearing the client's cached
-// catalog (ActionCatalogCache, invoked by RealApi after a provider-secret
-// save/delete) is only half the job — a MOUNTED surface (the Translate form)
+// catalog (ActionCatalogCache, invalidated by real.ts after a provider key or
+// secret save/delete) is only half the job — a MOUNTED surface (the Translate form)
 // keeps rendering its stale snapshot until something re-fetches. This tiny
 // pub/sub lets the api signal "the catalog may have changed" WITHOUT the api
-// depending on React or the FrisketApi interface growing a subscription method:
+// depending on React or the project API growing a subscription method:
 // real.ts emits, useWorkspaceModel subscribes and re-runs its catalog fetch, so
 // a saved DEEPL_API_KEY flips the engine available without a remount.
 

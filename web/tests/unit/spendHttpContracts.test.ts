@@ -39,18 +39,28 @@ describe('spend generated HTTP contract', () => {
     const controller = new AbortController();
     const fetch = vi.fn(async () => jsonResponse(report));
     vi.stubGlobal('fetch', fetch);
-    const api = createSpendApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-    );
+    const api = createSpendApi();
 
     await expect(api.getSpend({
       signal: controller.signal,
-      headers: { Authorization: 'Bearer spend' },
     })).resolves.toEqual(report);
     expect(fetch).toHaveBeenCalledWith('/api/spend', {
       method: 'GET',
       signal: controller.signal,
-      headers: { Authorization: 'Bearer spend' },
+    });
+  });
+
+  it('rejects non-2xx responses with the shared ApiError mapping', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ detail: { code: 'spend_forbidden', message: 'not allowed', scope: 'org' } }, 403),
+    ));
+
+    await expect(createSpendApi().getSpend()).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 403,
+      message: 'not allowed',
+      code: 'spend_forbidden',
+      details: { scope: 'org' },
     });
   });
 

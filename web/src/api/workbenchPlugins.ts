@@ -1,4 +1,4 @@
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import type {
   WorkbenchPluginActivation,
   WorkbenchPluginActivationRequest,
@@ -10,98 +10,59 @@ import type {
   WorkbenchPluginSettings,
 } from './types';
 
-interface WorkbenchPluginsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface WorkbenchPluginsApi {
-  getSettings(
-    projectId: string,
-    pluginId: string,
-    options?: WorkbenchPluginsOptions,
-  ): Promise<WorkbenchPluginSettings>;
-  patchSettings(
-    projectId: string,
-    pluginId: string,
-    values: Record<string, unknown>,
-    options?: WorkbenchPluginsOptions,
-  ): Promise<WorkbenchPluginSettings>;
-  installLocal(
-    projectId: string,
-    input: WorkbenchPluginLocalInstallRequest,
-    options?: WorkbenchPluginsOptions,
-  ): Promise<WorkbenchPluginLocalInstallExecution>;
-  activate(
-    projectId: string,
-    input: WorkbenchPluginActivationRequest,
-    options?: WorkbenchPluginsOptions,
-  ): Promise<WorkbenchPluginActivation>;
-  activateBackend(
-    projectId: string,
-    input: WorkbenchPluginBackendActivationRequest,
-    options?: WorkbenchPluginsOptions,
-  ): Promise<WorkbenchPluginBackendActivation>;
-  disable(
-    projectId: string,
-    pluginId: string,
-    options?: WorkbenchPluginsOptions,
-  ): Promise<WorkbenchPluginInstallStateChange>;
-  uninstall(
-    projectId: string,
-    pluginId: string,
-    options?: WorkbenchPluginsOptions,
-  ): Promise<WorkbenchPluginInstallStateChange>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 export function createWorkbenchPluginsApi(
-  errorFactory: ContractErrorFactory,
-): WorkbenchPluginsApi {
+  projectId: string,
+) {
   return {
-    getSettings(projectId, pluginId, options = {}) {
+    async getWorkbenchPluginSettings(
+      pluginId: string,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginSettings> {
       return httpContract(
         'tenant.workbench_plugin_settings.get',
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    patchSettings(projectId, pluginId, values, options = {}) {
+    async patchWorkbenchPluginSettings(
+      pluginId: string,
+      values: Record<string, unknown>,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginSettings> {
       return httpContract(
         'tenant.patch_workbench_plugin_settings.patch',
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
-          query: {},
           body: { values: values as never },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    installLocal(projectId, input, options = {}) {
+    /** Execute a trusted-local install plan through the backend plugin.load lifecycle. */
+    async installLocalWorkbenchPlugin(
+      input: WorkbenchPluginLocalInstallRequest,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginLocalInstallExecution> {
       const { pluginId, source, arbitraryPackageLoadAllowed } = input;
       return httpContract(
         'tenant.workbench_plugin_local_install_route.post',
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
-          query: {},
           body: { source: source as never, arbitraryPackageLoadAllowed },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    activate(projectId, input, options = {}) {
+    /** Trust-gated workbench activation of manifest metadata from a plugin.load receipt. */
+    async activateWorkbenchPlugin(
+      input: WorkbenchPluginActivationRequest,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginActivation> {
       const {
         pluginId,
         receiptId,
@@ -113,7 +74,6 @@ export function createWorkbenchPluginsApi(
         'tenant.activate_workbench_plugin.post',
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
-          query: {},
           body: {
             receiptId,
             trustAcknowledged,
@@ -121,13 +81,14 @@ export function createWorkbenchPluginsApi(
             arbitraryPackageLoadAllowed,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    activateBackend(projectId, input, options = {}) {
+    async activateWorkbenchPluginBackend(
+      input: WorkbenchPluginBackendActivationRequest,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginBackendActivation> {
       const {
         pluginId,
         trustAcknowledged,
@@ -138,41 +99,38 @@ export function createWorkbenchPluginsApi(
         'tenant.activate_workbench_plugin_backend.post',
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
-          query: {},
           body: {
             trustAcknowledged,
             arbitraryPackageLoadAllowed,
             executableHandlersAllowed,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    disable(projectId, pluginId, options = {}) {
+    async disableWorkbenchPlugin(
+      pluginId: string,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginInstallStateChange> {
       return httpContract(
         'tenant.disable_workbench_plugin_route.post',
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    uninstall(projectId, pluginId, options = {}) {
+    async uninstallWorkbenchPlugin(
+      pluginId: string,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginInstallStateChange> {
       return httpContract(
         'tenant.uninstall_workbench_plugin_route.post',
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

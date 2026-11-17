@@ -6,7 +6,7 @@ import {
 } from './actionLaunch';
 import {
   ApiError,
-  actionLaunchErrorFromContract,
+  errorFromContract,
   v1ErrorMessage,
 } from './contractErrors';
 import type {
@@ -313,7 +313,7 @@ class V1ActionSessionImpl implements V1ActionSession {
 
   constructor(projectId: string) {
     this.projectId = projectId;
-    this.actionLaunchApi = createActionLaunchApi(actionLaunchErrorFromContract, projectId);
+    this.actionLaunchApi = createActionLaunchApi(projectId);
   }
 
   v1ActionSpec(
@@ -419,7 +419,7 @@ class V1ActionSessionImpl implements V1ActionSession {
       signal: invocation.signal,
     });
     if (response.status !== 200) {
-      throw actionLaunchErrorFromContract(response.status, response.result);
+      throw errorFromContract(response.status, response.result);
     }
     throwIfActionAborted(invocation.signal);
     return normalizeV1ActionResult(response.result);

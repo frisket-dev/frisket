@@ -10,30 +10,11 @@ import type {
   TranscribeCompareScratchInput,
 } from './types';
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 function ocrPayload(input: OcrCompareScratchInput): OcrCompareScratchInput {
   return { ...input, ...(input.language !== undefined ? { language: input.language?.trim() || null } : {}) };
 }
 
-interface PreviewComparisonsApi {
-  compareOcrScratch(file: File, input: OcrCompareScratchInput): Promise<ActionPreviewStartWire>;
-  estimateOcrScratch(file: File, input: OcrCompareScratchInput): Promise<RunEstimate>;
-  compareTranscribeScratch(
-    file: File,
-    input: TranscribeCompareScratchInput,
-  ): Promise<ActionPreviewStartWire>;
-  estimateTranscribeScratch(file: File, input: TranscribeCompareScratchInput): Promise<RunEstimate>;
-  compareTopicSegmentationScratch(
-    file: File,
-    input: TopicSegmentationCompareScratchInput,
-  ): Promise<TopicSegmentationCompareScratchResult>;
-}
-
-export function createPreviewComparisonsApi(
-  errorFactory: ContractErrorFactory,
-  projectId: string,
-): PreviewComparisonsApi {
+export function createPreviewComparisonsApi(projectId: string) {
   function upload(file: File, payload: object): FormData {
     const body = new FormData();
     body.append('file', file, file.name);
@@ -41,39 +22,48 @@ export function createPreviewComparisonsApi(
     return body;
   }
   return {
-    compareOcrScratch(file, input) {
+    compareOcrScratch(file: File, input: OcrCompareScratchInput): Promise<ActionPreviewStartWire> {
       return httpContract(
         'tenant.ocr_compare_scratch.post',
-        { pathParams: { pid: projectId }, query: {}, body: upload(file, ocrPayload(input)), errorFactory },
+        { pathParams: { pid: projectId }, body: upload(file, ocrPayload(input)) },
       );
     },
 
-    async estimateOcrScratch(file, input) {
+    async estimateOcrScratch(file: File, input: OcrCompareScratchInput): Promise<RunEstimate> {
       const params = { ...input };
       delete params.confirmation;
       const response = await httpContract('tenant.ocr_compare_scratch_estimate.post', {
-        pathParams: { pid: projectId }, query: {}, body: upload(file, ocrPayload(params)), errorFactory,
+        pathParams: { pid: projectId }, body: upload(file, ocrPayload(params)),
       });
       return runEstimateFromV1Wire(response.estimate);
     },
 
-    compareTranscribeScratch(file, input) {
+    compareTranscribeScratch(
+      file: File,
+      input: TranscribeCompareScratchInput,
+    ): Promise<ActionPreviewStartWire> {
       return httpContract(
         'tenant.transcribe_compare_scratch.post',
-        { pathParams: { pid: projectId }, query: {}, body: upload(file, transcribeCompareWirePayload(input)), errorFactory },
+        { pathParams: { pid: projectId }, body: upload(file, transcribeCompareWirePayload(input)) },
       );
     },
 
-    async estimateTranscribeScratch(file, input) {
+    async estimateTranscribeScratch(
+      file: File,
+      input: TranscribeCompareScratchInput,
+    ): Promise<RunEstimate> {
       const params = { ...input };
       delete params.confirmation;
       const response = await httpContract('tenant.transcribe_compare_scratch_estimate.post', {
-        pathParams: { pid: projectId }, query: {}, body: upload(file, transcribeCompareWirePayload(params)), errorFactory,
+        pathParams: { pid: projectId }, body: upload(file, transcribeCompareWirePayload(params)),
       });
       return runEstimateFromV1Wire(response.estimate);
     },
 
-    compareTopicSegmentationScratch(file, input) {
+    compareTopicSegmentationScratch(
+      file: File,
+      input: TopicSegmentationCompareScratchInput,
+    ): Promise<TopicSegmentationCompareScratchResult> {
       const body = new FormData();
       body.append('file', file, file.name);
       body.append('payload', JSON.stringify({
@@ -82,7 +72,7 @@ export function createPreviewComparisonsApi(
       }));
       return httpContract(
         'tenant.topic_segmentation_compare_scratch.post',
-        { pathParams: { pid: projectId }, query: {}, body, errorFactory },
+        { pathParams: { pid: projectId }, body },
       );
     },
   };

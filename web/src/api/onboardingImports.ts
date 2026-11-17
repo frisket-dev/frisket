@@ -4,13 +4,7 @@ import type {
   HttpImportSessionList,
   HttpImportSessionStatus,
 } from '../generated/openHttpContracts';
-import { actionLaunchErrorFromContract } from './contractErrors';
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
-
-export interface OnboardingImportOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 
 export interface ImportPreparationChild {
   action_id: 'media.read_pdf_text' | 'media.ocr';
@@ -73,16 +67,16 @@ function normalizeImportSession(status: HttpImportSessionStatus): ImportSessionS
   };
 }
 
-interface ImportSessionCreateOptions extends OnboardingImportOptions {
+interface ImportSessionCreateOptions extends RequestOptions {
   sheetName?: string;
 }
 
-interface ImportSessionUploadOptions extends OnboardingImportOptions {
+interface ImportSessionUploadOptions extends RequestOptions {
   logicalPaths: string[];
   batchId: string;
 }
 
-interface ImportSessionUploadSequenceOptions extends OnboardingImportOptions {
+interface ImportSessionUploadSequenceOptions extends RequestOptions {
   onStatus?(status: ImportSessionStatus): void;
 }
 
@@ -138,7 +132,7 @@ export function* chunkImportFiles(
   }
 }
 
-interface CsvImportOptions extends OnboardingImportOptions {
+interface CsvImportOptions extends RequestOptions {
   encoding?: string;
   destinationSheetId?: number;
   appendRequestKey?: string;
@@ -156,8 +150,6 @@ type ImportFollowTheMoneyWire =
 
 type FollowTheMoneyRequest =
   HttpContractOperationMap['tenant.import_followthemoney.post']['request'];
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 /** The bulk-import routes are intentionally kept local until their generated
  * contract lands with the import surface. These are the stable wire shapes the
  * onboarding flow can use without interpreting a plan's decisions. */
@@ -221,51 +213,22 @@ interface SampleProjectSeedResult {
   rows: number;
 }
 
-interface OnboardingImportsApi {
-  seedSampleProject(
-    projectId: string,
-    options?: OnboardingImportOptions,
-  ): Promise<SampleProjectSeedWire>;
-  importCsv(file: File, options?: CsvImportOptions): Promise<ImportCsvWire>;
-  importXlsx(file: File, options?: OnboardingImportOptions): Promise<ImportXlsxWire>;
-  importFiles(files: File[], options?: OnboardingImportOptions): Promise<ImportFilesWire>;
-  importFollowTheMoney(
-    file: File,
-    datasetName?: string,
-    options?: OnboardingImportOptions,
-  ): Promise<ImportFollowTheMoneyWire>;
-  planBulkImport(
-    files: File[],
-    logicalPaths: string[],
-    expandArchive: boolean,
-    options?: OnboardingImportOptions,
-  ): Promise<BulkImportPlan>;
-  executeBulkImport(
-    planId: string,
-    decisions: Record<string, string>,
-    options?: OnboardingImportOptions,
-  ): Promise<BulkImportExecution>;
-}
-
-export function createOnboardingImportsApi(
-  errorFactory: ContractErrorFactory,
-  projectId: string,
-): OnboardingImportsApi {
+export function createOnboardingImportsApi(projectId: string) {
   return {
-    seedSampleProject(projectId, options = {}) {
+    seedSampleProject(
+      projectId: string,
+      options: RequestOptions = {},
+    ): Promise<SampleProjectSeedWire> {
       return httpContract(
         'tenant.seed_sample_project.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    importCsv(file, options = {}) {
+    importCsv(file: File, options: CsvImportOptions = {}): Promise<ImportCsvWire> {
       const body = new FormData();
       body.append('file', file);
       if (options.destinationSheetId) body.append('destination_sheet_id', String(options.destinationSheetId));
@@ -279,31 +242,33 @@ export function createOnboardingImportsApi(
           query: options.encoding ? { encoding: options.encoding } : {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    importXlsx(file, options = {}) {
+    importXlsx(file: File, options: RequestOptions = {}): Promise<ImportXlsxWire> {
       const body = new FormData();
       body.append('file', file);
       return httpContract(
         'tenant.import_xlsx.post',
-        { pathParams: { pid: projectId }, query: {}, body, signal: options.signal, headers: options.headers, errorFactory },
+        { pathParams: { pid: projectId }, body, signal: options.signal },
       );
     },
 
-    importFiles(files, options = {}) {
+    importFiles(files: File[], options: RequestOptions = {}): Promise<ImportFilesWire> {
       const body = new FormData();
       for (const file of files) body.append('files', file);
       return httpContract(
         'tenant.import_files.post',
-        { pathParams: { pid: projectId }, query: {}, body, signal: options.signal, headers: options.headers, errorFactory },
+        { pathParams: { pid: projectId }, body, signal: options.signal },
       );
     },
 
-    importFollowTheMoney(file, datasetName, options = {}) {
+    importFollowTheMoney(
+      file: File,
+      datasetName?: string,
+      options: RequestOptions = {},
+    ): Promise<ImportFollowTheMoneyWire> {
       const body = new FormData();
       body.append('file', file);
       if (datasetName?.trim()) body.append('dataset_name', datasetName.trim());
@@ -311,16 +276,18 @@ export function createOnboardingImportsApi(
         'tenant.import_followthemoney.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: body as FollowTheMoneyRequest,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    planBulkImport(files, logicalPaths, expandArchive, options = {}) {
+    planBulkImport(
+      files: File[],
+      logicalPaths: string[],
+      expandArchive: boolean,
+      options: RequestOptions = {},
+    ): Promise<BulkImportPlan> {
       const body = new FormData();
       for (let index = 0; index < files.length; index += 1) {
         body.append('files', files[index]);
@@ -331,25 +298,23 @@ export function createOnboardingImportsApi(
         'tenant.import_bulk_plan.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    executeBulkImport(planId, decisions, options = {}) {
+    executeBulkImport(
+      planId: string,
+      decisions: Record<string, string>,
+      options: RequestOptions = {},
+    ): Promise<BulkImportExecution> {
       return trackImportSubmission(projectId, { importKind: 'files', format: 'unknown' }, () => httpContract(
         'tenant.import_bulk_execute.post',
         {
           pathParams: { pid: projectId, plan_id: planId },
-          query: {},
           body: { decisions },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       ).then((execution): BulkImportExecution => {
         // Keep the public web type compatible with generated contracts that
@@ -403,7 +368,7 @@ export function createOnboardingImportsApi(
 }
 
 export function seedSampleProject(projectId: string): Promise<SampleProjectSeedResult> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
+  return createOnboardingImportsApi(projectId)
     .seedSampleProject(projectId) as Promise<SampleProjectSeedResult>;
 }
 
@@ -415,7 +380,7 @@ export function importCsv(
   appendRequestKey?: string,
   columnMapping?: Record<string, string | null>,
 ): Promise<ImportCsvWire> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
+  return createOnboardingImportsApi(projectId)
     .importCsv(file, { encoding, destinationSheetId, appendRequestKey, columnMapping });
 }
 
@@ -423,19 +388,19 @@ export function importXlsx(
   projectId: string, file: File, destinationSheetId?: number,
   appendRequestKey?: string, columnMapping?: Record<string, string | null>,
 ): Promise<ImportXlsxWire> {
-  if (!destinationSheetId) return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId).importXlsx(file);
+  if (!destinationSheetId) return createOnboardingImportsApi(projectId).importXlsx(file);
   const body = new FormData();
   body.append('file', file);
   body.append('destination_sheet_id', String(destinationSheetId));
   body.append('append_request_key', appendRequestKey ?? '');
   body.append('column_mapping', JSON.stringify(columnMapping ?? {}));
   return httpContract('tenant.append_xlsx.post', {
-    pathParams: { pid: projectId }, query: {}, body, errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId }, body,
   }) as Promise<ImportXlsxWire>;
 }
 
 export function importFiles(projectId: string, files: File[]): Promise<ImportFilesWire> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId).importFiles(files);
+  return createOnboardingImportsApi(projectId).importFiles(files);
 }
 
 export function createImportSession(
@@ -444,21 +409,17 @@ export function createImportSession(
 ): Promise<ImportSessionStatus> {
   return httpContract('tenant.create_import_session.post', {
     pathParams: { pid: projectId },
-    query: {},
     body: { sheet_name: options.sheetName?.trim() || 'files' },
     signal: options.signal,
-    headers: options.headers,
-    errorFactory: actionLaunchErrorFromContract,
   }, normalizeImportSession);
 }
 
 export function listImportSessions(
   projectId: string,
-  options: OnboardingImportOptions = {},
+  options: RequestOptions = {},
 ): Promise<ImportSessionList> {
   return httpContract('tenant.list_import_sessions.get', {
-    pathParams: { pid: projectId }, query: {}, signal: options.signal,
-    headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId }, signal: options.signal,
   }, (wire): ImportSessionList => ({
     ...wire,
     sessions: wire.sessions.map(normalizeImportSession),
@@ -468,11 +429,10 @@ export function listImportSessions(
 export function getImportSession(
   projectId: string,
   importRef: string,
-  options: OnboardingImportOptions = {},
+  options: RequestOptions = {},
 ): Promise<ImportSessionStatus> {
   return httpContract('tenant.get_import_session.get', {
-    pathParams: { pid: projectId, ref: importRef }, query: {}, signal: options.signal,
-    headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId, ref: importRef }, signal: options.signal,
   }, normalizeImportSession);
 }
 
@@ -495,29 +455,29 @@ export function uploadImportSessionFiles(
   }
   body.append('batch_id', options.batchId);
   return httpContract('tenant.upload_import_session_files.post', {
-    pathParams: { pid: projectId, ref: importRef }, query: {}, body,
-    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId, ref: importRef }, body,
+    signal: options.signal,
   }, normalizeImportSession);
 }
 
-export function sealImportSession(projectId: string, importRef: string, options: OnboardingImportOptions = {}) {
+export function sealImportSession(projectId: string, importRef: string, options: RequestOptions = {}) {
   return httpContract('tenant.seal_import_session.post', {
-    pathParams: { pid: projectId, ref: importRef }, query: {},
-    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId, ref: importRef },
+    signal: options.signal,
   }, normalizeImportSession);
 }
 
-export function cancelImportSession(projectId: string, importRef: string, options: OnboardingImportOptions = {}) {
+export function cancelImportSession(projectId: string, importRef: string, options: RequestOptions = {}) {
   return httpContract('tenant.cancel_import_session.post', {
-    pathParams: { pid: projectId, ref: importRef }, query: {},
-    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId, ref: importRef },
+    signal: options.signal,
   }, normalizeImportSession);
 }
 
-export function resumeImportSession(projectId: string, importRef: string, options: OnboardingImportOptions = {}) {
+export function resumeImportSession(projectId: string, importRef: string, options: RequestOptions = {}) {
   return httpContract('tenant.resume_import_session.post', {
-    pathParams: { pid: projectId, ref: importRef }, query: {},
-    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId, ref: importRef },
+    signal: options.signal,
   }, normalizeImportSession);
 }
 
@@ -525,11 +485,11 @@ export function resolveImportSession(
   projectId: string,
   importRef: string,
   decision: 'keep' | 'remove',
-  options: OnboardingImportOptions = {},
+  options: RequestOptions = {},
 ): Promise<ImportSessionStatus> {
   return httpContract('tenant.resolve_import_session.post', {
-    pathParams: { pid: projectId, ref: importRef }, query: {}, body: { decision },
-    signal: options.signal, headers: options.headers, errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId, ref: importRef }, body: { decision },
+    signal: options.signal,
   }, normalizeImportSession);
 }
 
@@ -561,7 +521,7 @@ export function importFollowTheMoney(
   file: File,
   datasetName?: string,
 ): Promise<ImportFollowTheMoneyWire> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
+  return createOnboardingImportsApi(projectId)
     .importFollowTheMoney(file, datasetName);
 }
 
@@ -570,7 +530,7 @@ export function prepareImportFiles(
   files: File[],
   logicalPaths: string[],
   expandArchive: boolean,
-  options: OnboardingImportOptions = {},
+  options: RequestOptions = {},
 ): Promise<PreparedImportFiles> {
   if (!files.length || files.length !== logicalPaths.length) {
     throw new TypeError('Prepared import files and logical paths must stay aligned.');
@@ -583,11 +543,8 @@ export function prepareImportFiles(
   body.append('expand_archive', String(expandArchive));
   return httpContract('tenant.prepare_import_files.post', {
     pathParams: { pid: projectId },
-    query: {},
     body,
     signal: options.signal,
-    headers: options.headers,
-    errorFactory: actionLaunchErrorFromContract,
   });
 }
 
@@ -595,20 +552,19 @@ export function executeBulkImport(
   projectId: string,
   planId: string,
   decisions: Record<string, string>,
-  options: OnboardingImportOptions = {},
+  options: RequestOptions = {},
 ): Promise<BulkImportExecution> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
+  return createOnboardingImportsApi(projectId)
     .executeBulkImport(planId, decisions, options);
 }
 
 export function prepareImportUrls(
   projectId: string,
   urls: string[],
-  options: OnboardingImportOptions = {},
+  options: RequestOptions = {},
 ): Promise<PreparedImportUrls> {
   return httpContract('tenant.prepare_import_urls.post', {
-    pathParams: { pid: projectId }, query: {}, body: { urls },
-    signal: options.signal, headers: options.headers,
-    errorFactory: actionLaunchErrorFromContract,
+    pathParams: { pid: projectId }, body: { urls },
+    signal: options.signal,
   });
 }

@@ -41,30 +41,21 @@ afterEach(() => {
 });
 
 describe('runtime projection generated HTTP contracts', () => {
-  it('uses exact paths, bodies, one encoding pass, headers, and abort options', async () => {
+  it('uses exact paths, bodies, one encoding pass, content type, and abort options', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
       return jsonResponse(requests.length === 1 ? status : build);
     }));
     const controller = new AbortController();
-    const api = createRuntimeProjectionsApi(
-      (statusCode, payload) => Object.assign(
-        new Error(`mapped-${statusCode}`),
-        { status: statusCode, payload },
-      ),
-      'hostile /%25 ☃',
-    );
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer projection', 'X-Trace-Id': 'runtime-projection' },
-    };
-    await expect(api.status({
+    const api = createRuntimeProjectionsApi('hostile /%25 ☃');
+    const options = { signal: controller.signal };
+    await expect(api.getRuntimeProjectionStatus({
       projectionKind: 'timeline',
       target: { sheetId: 'sheet/1', extension: { kept: true } },
       params: { window: 14 },
     }, options)).resolves.toEqual(status);
-    await expect(api.build({
+    await expect(api.buildRuntimeProjection({
       projectionKind: 'timeline',
       target: { sheetId: 'sheet/1' },
       params: { window: 30 },
@@ -87,54 +78,63 @@ describe('runtime projection generated HTTP contracts', () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer projection');
-      expect(headers.get('x-trace-id')).toBe('runtime-projection');
-      expect(headers.get('content-type')).toBe('application/json');
+      expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
     }
   });
 
   it('preserves error, non-JSON, network, and abort identities without retries', async () => {
-    const errorFactory = vi.fn((statusCode: number, payload: unknown) =>
-      Object.assign(new Error(`mapped-${statusCode}`), { status: statusCode, payload }),
-    );
-    const api = createRuntimeProjectionsApi(errorFactory, 'test-project');
+    const api = createRuntimeProjectionsApi('test-project');
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'invalid_runtime_projection_request', message: 'invalid', field: 'mode' },
     }, 400)));
-    await expect(api.build({
+    await expect(api.buildRuntimeProjection({
       projectionKind: 'timeline', target: { sheetId: 's' }, mode: 'refresh',
-    })).rejects.toMatchObject({ message: 'mapped-400', status: 400 });
-    expect(errorFactory).toHaveBeenCalledWith(400, {
-      detail: { code: 'invalid_runtime_projection_request', message: 'invalid', field: 'mode' },
-    });
+    })).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 400,
+      message: 'invalid',
+      code: 'invalid_runtime_projection_request',
+      details: { field: 'mode' },
+    } satisfies Partial<ApiError>);
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([
       { type: 'missing', loc: ['body', 'projectionKind'], msg: 'Field required' },
     ], 422)));
-    await expect(api.status({ projectionKind: 'timeline', target: { sheetId: 's' } }))
-      .rejects.toMatchObject({ message: 'mapped-422', status: 422 });
+    await expect(api.getRuntimeProjectionStatus({ projectionKind: 'timeline', target: { sheetId: 's' } }))
+      .rejects.toMatchObject({
+        name: 'ApiError',
+        status: 422,
+        message: 'Request failed (HTTP 422)',
+        code: undefined,
+        details: undefined,
+      } satisfies Partial<ApiError>);
 
     vi.stubGlobal('fetch', vi.fn(async () => new Response('upstream unavailable', {
       status: 502,
       statusText: 'Bad Gateway',
     })));
-    await expect(api.status({ projectionKind: 'timeline', target: { sheetId: 's' } }))
-      .rejects.toMatchObject({ message: 'mapped-502', status: 502, payload: { detail: 'Bad Gateway' } });
+    await expect(api.getRuntimeProjectionStatus({ projectionKind: 'timeline', target: { sheetId: 's' } }))
+      .rejects.toMatchObject({
+        name: 'ApiError',
+        status: 502,
+        message: 'Bad Gateway',
+        code: undefined,
+        details: undefined,
+      } satisfies Partial<ApiError>);
 
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
-    await expect(api.status({ projectionKind: 'timeline', target: { sheetId: 's' } })).rejects.toBe(network);
+    await expect(api.getRuntimeProjectionStatus({ projectionKind: 'timeline', target: { sheetId: 's' } })).rejects.toBe(network);
 
     const aborted = new DOMException('cancelled', 'AbortError');
     const fetch = vi.fn(async () => Promise.reject(aborted));
     vi.stubGlobal('fetch', fetch);
-    await expect(api.status({ projectionKind: 'timeline', target: { sheetId: 's' } })).rejects.toBe(aborted);
+    await expect(api.getRuntimeProjectionStatus({ projectionKind: 'timeline', target: { sheetId: 's' } })).rejects.toBe(aborted);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the scoped RealApi factory without exposing producer detail extras', async () => {
+  it('uses the scoped project API factory and carries producer detail extras as details', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: {
         code: 'unsupported_runtime_projection',
@@ -151,7 +151,7 @@ describe('runtime projection generated HTTP contracts', () => {
       status: 404,
       message: 'No trusted projection runtime binding exists',
       code: 'unsupported_runtime_projection',
-      details: undefined,
+      details: { projection_kind: 'timeline', field: 'projectionKind' },
     } satisfies Partial<ApiError>);
 
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(status)));

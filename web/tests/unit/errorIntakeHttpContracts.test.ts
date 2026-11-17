@@ -12,7 +12,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
 describe('error intake HTTP contracts', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('preserves diagnostic-bundle path, body, headers, signal, and domain response', async () => {
+  it('preserves diagnostic-bundle path, body, signal, and domain response', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const wire = {
       ok: true,
@@ -31,7 +31,6 @@ describe('error intake HTTP contracts', () => {
     const errorFactory = vi.fn((status: number, payload: unknown) => new Error(`${status}:${String(payload)}`));
     const api = createErrorIntakeApi(errorFactory);
     const controller = new AbortController();
-    const headers = new Headers({ 'X-Trace-Id': 'bundle' });
     const body = {
       message: 'user report',
       route: '/p/demo',
@@ -42,7 +41,6 @@ describe('error intake HTTP contracts', () => {
 
     const result = await api.createDiagnosticBundle(body, {
       signal: controller.signal,
-      headers,
     });
 
     expect(result).toEqual(wire);
@@ -51,7 +49,6 @@ describe('error intake HTTP contracts', () => {
     expect(requests[0]?.init?.method).toBe('POST');
     expect(requests[0]?.init?.body).toBe(JSON.stringify(body));
     expect(requests[0]?.init?.signal).toBe(controller.signal);
-    expect(new Headers(requests[0]?.init?.headers).get('x-trace-id')).toBe('bundle');
     expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBe('application/json');
     expect(errorFactory).not.toHaveBeenCalled();
   });
@@ -70,6 +67,20 @@ describe('error intake HTTP contracts', () => {
     );
     expect(errorFactory).toHaveBeenCalledWith(429, {
       detail: 'diagnostic report rate limit exceeded',
+    });
+  });
+
+  it('rejects with the shared ApiError mapping when no error factory is supplied', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      jsonResponse({ detail: 'diagnostic report rate limit exceeded' }, 429),
+    ));
+
+    await expect(createErrorIntakeApi().createDiagnosticBundle({ message: 'x' })).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 429,
+      message: 'diagnostic report rate limit exceeded',
+      code: undefined,
+      details: undefined,
     });
   });
 

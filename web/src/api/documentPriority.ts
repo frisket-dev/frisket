@@ -18,7 +18,6 @@ export async function promoteDocumentPriority(
 ): Promise<DocumentPriorityResult> {
   const response = await httpContract('tenant.promote_document_priority.post', {
     pathParams: { pid: projectId },
-    query: {},
     body: {
       sheet_id: target.sheetId,
       row_id: target.rowId,

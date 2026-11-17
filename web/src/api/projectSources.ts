@@ -1,6 +1,6 @@
 import { ApiError, firstNonEmptyString } from './contractErrors';
 import type { GeneratedActionParams } from '../generated/actionTypes';
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   JsonValue,
   SourceConfig,
@@ -13,11 +13,7 @@ import type {
   SourceRunPage,
 } from './types';
 import type { V1ActionSession } from './v1ActionSession';
-
-interface ProjectSourcesOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
+import { isRecord, sqliteTimestampToIso } from './wireValues';
 
 type ProjectSourceListWire =
   HttpContractSuccessResponse<'tenant.list_sources.get'>;
@@ -26,32 +22,10 @@ type ProjectSourceDetailWire =
 type ProjectSourceHealthWire =
   HttpContractSuccessResponse<'tenant.get_source_health_ep.get'>;
 
-interface ProjectSourcesApi {
-  listSources(options?: ProjectSourcesOptions): Promise<SourceInfo[]>;
-  getSource(
-    sourceId: number,
-    runsOffset?: number | null,
-    runsLimit?: number,
-    options?: ProjectSourcesOptions,
-  ): Promise<SourceDetail>;
-  getSourceHealth(
-    sourceId: number,
-    runsOffset?: number | null,
-    runsLimit?: number,
-    options?: ProjectSourcesOptions,
-  ): Promise<SourceHealth>;
-  createSource(input: SourceInput): Promise<SourceInfo>;
-  updateSource(sourceId: number, patch: Partial<SourceInput>): Promise<SourceInfo>;
-  deleteSource(sourceId: number): Promise<void>;
-  fetchSource(sourceId: number): Promise<SourceFetchResult>;
-}
-
 interface ProjectSourcesApiDependencies {
-  errorFactory: ContractErrorFactory;
   v1ActionSession: V1ActionSession;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type ProjectSourceWire = ProjectSourceListWire[number];
 type ProjectSourceRunWire = ProjectSourceDetailWire['runs'][number];
 type ProjectSourceRunPageWire = ProjectSourceDetailWire['runs_page'];
@@ -59,14 +33,6 @@ type SourceCreateParams = GeneratedActionParams['source.create'];
 type SourceUpdateParams = GeneratedActionParams['source.update'];
 type SourceUpdatePatch = SourceUpdateParams['patch'];
 type SourceDeleteParams = GeneratedActionParams['source.delete'];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** sqlite CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC) → ISO. */
-const toIso = (ts: string): string =>
-  ts.includes('T') ? ts : `${ts.replace(' ', 'T')}Z`;
 
 const toSourceInfo = (w: ProjectSourceWire): SourceInfo => ({
   id: w.id,
@@ -77,7 +43,7 @@ const toSourceInfo = (w: ProjectSourceWire): SourceInfo => ({
   sheetId: w.sheet_id,
   schedule: w.schedule,
   enabled: Boolean(w.enabled),
-  lastCheckedAt: w.last_checked_at ? toIso(w.last_checked_at) : null,
+  lastCheckedAt: w.last_checked_at ? sqliteTimestampToIso(w.last_checked_at) : null,
   lastStatus: w.last_status,
   newRowsTotal: w.new_rows_total ?? 0,
 });
@@ -137,7 +103,7 @@ function wireSourceFromV1Ref(ref: Record<string, unknown>): SourceInfo {
     sheetId,
     schedule: typeof ref.schedule === 'string' ? ref.schedule : null,
     enabled: typeof ref.enabled === 'boolean' ? ref.enabled : Boolean(ref.enabled),
-    lastCheckedAt: typeof ref.last_checked_at === 'string' ? toIso(ref.last_checked_at) : null,
+    lastCheckedAt: typeof ref.last_checked_at === 'string' ? sqliteTimestampToIso(ref.last_checked_at) : null,
     lastStatus: typeof ref.last_status === 'string' ? ref.last_status : null,
     newRowsTotal,
   };
@@ -155,8 +121,8 @@ const toSourceRun = (w: ProjectSourceRunWire): SourceRun => ({
   costMicro: w.cost_micro ?? 0,
   receiptId: w.receipt_id ?? null,
   error: w.error ?? null,
-  startedAt: toIso(w.started_at),
-  finishedAt: w.finished_at ? toIso(w.finished_at) : null,
+  startedAt: sqliteTimestampToIso(w.started_at),
+  finishedAt: w.finished_at ? sqliteTimestampToIso(w.finished_at) : null,
 });
 
 const toSourceRunPage = (w: ProjectSourceRunPageWire): SourceRunPage => ({
@@ -181,13 +147,13 @@ const toSourceHealth = (w: ProjectSourceHealthWire): SourceHealth => ({
     enabled: Boolean(w.source.enabled),
     schedule: w.source.schedule,
     sheetId: w.source.sheet_id,
-    createdAt: w.source.created_at ? toIso(w.source.created_at) : null,
+    createdAt: w.source.created_at ? sqliteTimestampToIso(w.source.created_at) : null,
     redactions: w.source.redactions ?? [],
   },
   summary: {
     status: w.summary.status,
-    lastSuccessAt: w.summary.last_success_at ? toIso(w.summary.last_success_at) : null,
-    lastFailureAt: w.summary.last_failure_at ? toIso(w.summary.last_failure_at) : null,
+    lastSuccessAt: w.summary.last_success_at ? sqliteTimestampToIso(w.summary.last_success_at) : null,
+    lastFailureAt: w.summary.last_failure_at ? sqliteTimestampToIso(w.summary.last_failure_at) : null,
     consecutiveFailures: w.summary.consecutive_failures ?? 0,
     newRowsTotal: w.summary.new_rows_total ?? 0,
     newRowsRecent: w.summary.new_rows_recent ?? 0,
@@ -218,8 +184,8 @@ const toSourceHealth = (w: ProjectSourceHealthWire): SourceHealth => ({
     costMicro: run.cost_micro ?? 0,
     receiptId: run.receipt_id ?? null,
     error: run.error_summary ?? null,
-    startedAt: toIso(run.started_at),
-    finishedAt: run.finished_at ? toIso(run.finished_at) : null,
+    startedAt: sqliteTimestampToIso(run.started_at),
+    finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     sourceId: run.source_id,
     opId: run.op_id ?? null,
     errorSummary: run.error_summary ?? null,
@@ -233,9 +199,9 @@ const toSourceHealth = (w: ProjectSourceHealthWire): SourceHealth => ({
     status: job.status,
     attempts: job.attempts ?? 0,
     maxAttempts: job.max_attempts ?? 0,
-    createdAt: job.created_at ? toIso(job.created_at) : null,
-    startedAt: job.started_at ? toIso(job.started_at) : null,
-    finishedAt: job.finished_at ? toIso(job.finished_at) : null,
+    createdAt: job.created_at ? sqliteTimestampToIso(job.created_at) : null,
+    startedAt: job.started_at ? sqliteTimestampToIso(job.started_at) : null,
+    finishedAt: job.finished_at ? sqliteTimestampToIso(job.finished_at) : null,
     refs: job.refs ?? {},
     resultSummary: job.result_summary ?? {},
     errorSummary: job.error_summary ?? null,
@@ -290,26 +256,27 @@ function toSourceUpdatePatch(input: Partial<SourceInput>): SourceUpdatePatch {
   return out;
 }
 
-export function createProjectSourcesApi({
-  errorFactory,
-  v1ActionSession,
-}: ProjectSourcesApiDependencies, projectId: string): ProjectSourcesApi {
+export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesApiDependencies, projectId: string) {
   return {
-    async listSources(options = {}) {
+    /** All configured sources for the project (empty when none). */
+    async listSources(options: RequestOptions = {}): Promise<SourceInfo[]> {
       const wire = await httpContract(
         'tenant.list_sources.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
       return wire.map(toSourceInfo);
     },
 
-    async getSource(sourceId, runsOffset, runsLimit = 50, options = {}) {
+    /** One source with its recent poll history. */
+    async getSource(
+      sourceId: number,
+      runsOffset?: number | null,
+      runsLimit = 50,
+      options: RequestOptions = {},
+    ): Promise<SourceDetail> {
       const wire = await httpContract(
         'tenant.get_source_ep.get',
         {
@@ -319,8 +286,6 @@ export function createProjectSourcesApi({
             runs_limit: runsLimit,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
       return {
@@ -330,7 +295,13 @@ export function createProjectSourcesApi({
       };
     },
 
-    async getSourceHealth(sourceId, runsOffset, runsLimit = 20, options = {}) {
+    /** Redacted operational health for one source. */
+    async getSourceHealth(
+      sourceId: number,
+      runsOffset?: number | null,
+      runsLimit = 20,
+      options: RequestOptions = {},
+    ): Promise<SourceHealth> {
       const wire = await httpContract(
         'tenant.get_source_health_ep.get',
         {
@@ -340,14 +311,12 @@ export function createProjectSourcesApi({
             runs_limit: runsLimit,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
       return toSourceHealth(wire);
     },
 
-    async createSource(input) {
+    async createSource(input: SourceInput): Promise<SourceInfo> {
       const params = toSourceCreateParams(input);
       const spec = v1ActionSession.registeredProjectActionSpec('source.create', params);
       return v1ActionSession.withV1ActionResult(spec, (out) => {
@@ -361,7 +330,7 @@ export function createProjectSourcesApi({
       }, { clearIdempotency: 'finally' });
     },
 
-    async updateSource(sourceId, patch) {
+    async updateSource(sourceId: number, patch: Partial<SourceInput>): Promise<SourceInfo> {
       const params: SourceUpdateParams = {
         source_id: sourceId,
         patch: toSourceUpdatePatch(patch),
@@ -378,7 +347,7 @@ export function createProjectSourcesApi({
       }, { clearIdempotency: 'finally' });
     },
 
-    async deleteSource(sourceId) {
+    async deleteSource(sourceId: number): Promise<void> {
       const params: SourceDeleteParams = { source_id: sourceId };
       const spec = v1ActionSession.registeredProjectActionSpec('source.delete', params);
       await v1ActionSession.withV1ActionResult(
@@ -388,7 +357,9 @@ export function createProjectSourcesApi({
       );
     },
 
-    async fetchSource(sourceId) {
+    /** Manual "fetch now" through generic source.poll. Rejects on ingest failure;
+     *  the failed poll is still recorded in the source's run history. */
+    async fetchSource(sourceId: number): Promise<SourceFetchResult> {
       if (!Number.isInteger(sourceId) || sourceId <= 0) {
         throw new ApiError(400, `Source ${sourceId} is not a valid v1 source ref`);
       }

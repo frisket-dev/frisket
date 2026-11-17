@@ -67,6 +67,9 @@ const SCHEMA_FOR_TYPE: Record<TemporalColumnType, TimelineValue['schema_version'
   timeline_ranges: 'frisket.timeline_ranges.v1',
 };
 
+/** Every schema version a source-bound temporal cell value can carry. */
+export const TIMELINE_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(Object.values(SCHEMA_FOR_TYPE));
+
 const TIME_INPUT_HELP = 'Use seconds (90 or 90.5), a timecode such as 01:30, or an explicit unit such as 90000ms.';
 
 export function isTemporalColumnType(type: ColumnType): type is TemporalColumnType {

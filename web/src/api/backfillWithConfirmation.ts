@@ -15,7 +15,7 @@ import {
   type BackfillResult,
   type RunEstimate,
 } from './open';
-import type { ProjectApiPort } from './ports';
+import type { ProjectApi } from './ports';
 
 /** The confirmation surface both callers already hold — the run controller's
  *  `requestCostConfirmation(estimate, message)`, which presents the shared
@@ -41,7 +41,7 @@ export type CostConfirmationRequester = (
  * through their existing error handling.
  */
 export async function backfillWithConfirmation(
-  api: Pick<ProjectApiPort, 'backfillColumn'>,
+  api: Pick<ProjectApi, 'backfillColumn'>,
   requestConfirmation: CostConfirmationRequester,
   sheetId: string,
   columnName: string,

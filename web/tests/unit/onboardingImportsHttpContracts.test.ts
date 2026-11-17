@@ -9,10 +9,8 @@ vi.mock('pluralize', () => ({
 }));
 
 import { cancelImportSession, chunkImportFiles, createImportSession, importCsv, importFiles, importXlsx, listImportSessions, prepareImportFiles, prepareImportUrls, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
-import {
-  createOnboardingImportsApi,
-  type OnboardingImportOptions,
-} from '../../src/api/onboardingImports';
+import { createOnboardingImportsApi } from '../../src/api/onboardingImports';
+import type { RequestOptions } from '../../src/api/httpContract';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -147,7 +145,7 @@ describe('onboarding/import generated HTTP contracts', () => {
     const onStatus = vi.fn();
 
     const result = await uploadFilesToImportSession(
-      'project-1', initial, files, { onStatus, headers: { 'X-Test': 'progress' } },
+      'project-1', initial, files, { onStatus },
     );
 
     expect(onStatus.mock.calls.map(([status]) => [status.admitted_files, status.sealed])).toEqual([
@@ -208,10 +206,7 @@ describe('onboarding/import generated HTTP contracts', () => {
         value: { dataset_id: 'dataset-1' },
       });
     }));
-    const api = createOnboardingImportsApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'ftm/project',
-    );
+    const api = createOnboardingImportsApi('ftm/project');
     const file = new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' });
 
     await expect(api.importFollowTheMoney(file, 'Entities')).resolves.toMatchObject({
@@ -248,7 +243,7 @@ describe('onboarding/import generated HTTP contracts', () => {
       [first, second],
       ['folder/records.zip', 'folder/notes.txt'],
       true,
-      { headers: { Authorization: 'Bearer archive' }, signal },
+      { signal },
     )).resolves.toMatchObject({ kind: 'pdf_import', draft: { draft_id: 'archive-draft-1' } });
     await expect(prepareImportFiles(
       'project / archive', [first], ['records.zip'], true,
@@ -261,7 +256,7 @@ describe('onboarding/import generated HTTP contracts', () => {
     expect(requests[0].input).toBe('/api/projects/project%20%2F%20archive/import/files/prepare');
     expect(requests[0].init?.method).toBe('POST');
     expect(requests[0].init?.signal).toBe(signal);
-    expect(new Headers(requests[0].init?.headers).get('Authorization')).toBe('Bearer archive');
+    expect(requests[0].init?.headers).toBeUndefined();
     const body = requests[0].init?.body as FormData;
     expect(body.getAll('files')).toEqual([first, second]);
     expect(body.getAll('logical_paths')).toEqual(['folder/records.zip', 'folder/notes.txt']);
@@ -304,15 +299,12 @@ describe('onboarding/import generated HTTP contracts', () => {
             message: 'Imported 2 files.',
           });
     }));
-    const api = createOnboardingImportsApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'bulk/project',
-    ) as unknown as {
+    const api = createOnboardingImportsApi('bulk/project') as unknown as {
       planBulkImport(
-        files: File[], logicalPaths: string[], expandArchive: boolean, options?: OnboardingImportOptions,
+        files: File[], logicalPaths: string[], expandArchive: boolean, options?: RequestOptions,
       ): Promise<{ plan_id: string; questions: unknown[]; proposed_outputs: unknown[] }>;
       executeBulkImport(
-        planId: string, decisions: Record<string, string>, options?: OnboardingImportOptions,
+        planId: string, decisions: Record<string, string>, options?: RequestOptions,
       ): Promise<{
         created: Array<{ id: string; kind: string; sheet_id: number; sheet_name: string; logical_paths: string[] }>;
         failed: unknown[];
@@ -321,10 +313,7 @@ describe('onboarding/import generated HTTP contracts', () => {
         warnings: string[];
       }>;
     };
-    const options = {
-      headers: { Authorization: 'Bearer bulk-import' },
-      signal: new AbortController().signal,
-    };
+    const options = { signal: new AbortController().signal };
     const inbox = new File(['subject,body\nhello,world\n'], 'inbox.csv', { type: 'text/csv' });
     const sent = new File(['subject,body\nreply,thanks\n'], 'sent.csv', { type: 'text/csv' });
 
@@ -365,16 +354,17 @@ describe('onboarding/import generated HTTP contracts', () => {
     expect(planBody.getAll('files')).toEqual([inbox, sent]);
     expect(planBody.getAll('logical_paths')).toEqual(['mail/inbox.csv', 'mail/sent.csv']);
     expect(planBody.get('expand_archive')).toBe('false');
-    expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBeNull();
+    expect(requests[0]?.init?.headers).toBeUndefined();
     expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
       decisions: {
         'matching-csv': 'separate',
       },
     });
-    expect(new Headers(requests[1]?.init?.headers).get('content-type')).toBe('application/json');
+    expect([...new Headers(requests[1]?.init?.headers).entries()]).toEqual([
+      ['content-type', 'application/json'],
+    ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(options.signal);
-      expect(new Headers(request.init?.headers).get('authorization')).toBe('Bearer bulk-import');
     }
   });
 
@@ -386,10 +376,7 @@ describe('onboarding/import generated HTTP contracts', () => {
       message: 'Imported email.',
       warnings: ['mail/bad.eml: <img src="inert">'],
     })));
-    const api = createOnboardingImportsApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'bulk/project',
-    );
+    const api = createOnboardingImportsApi('bulk/project');
 
     await expect(api.executeBulkImport('warning-plan', {})).resolves.toMatchObject({
       first_sheet_id: 17,
@@ -412,10 +399,7 @@ describe('onboarding/import generated HTTP contracts', () => {
       message: '1 output failed.',
       warnings: [],
     })));
-    const api = createOnboardingImportsApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'bulk/project',
-    );
+    const api = createOnboardingImportsApi('bulk/project');
 
     await expect(api.executeBulkImport('failed-email-plan', {})).resolves.toMatchObject({
       failed: [{
@@ -426,7 +410,7 @@ describe('onboarding/import generated HTTP contracts', () => {
     });
   });
 
-  it('uses exact routes, native multipart FormData, headers, and abort', async () => {
+  it('uses exact routes, native multipart FormData without a content type, and abort', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
@@ -446,14 +430,8 @@ describe('onboarding/import generated HTTP contracts', () => {
             : { sheet_id: 7, rows: 2 });
     }));
     const controller = new AbortController();
-    const api = createOnboardingImportsApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'hostile /%25 ☃',
-    );
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer onboarding', 'X-Trace-Id': 'onboarding-import' },
-    };
+    const api = createOnboardingImportsApi('hostile /%25 ☃');
+    const options = { signal: controller.signal };
     const file = new File(['name\nAda\n'], 'rows.csv', { type: 'text/csv' });
     await expect(api.seedSampleProject('hostile /%25 ☃', options)).resolves.toMatchObject({
       sheet_id: 3,
@@ -483,12 +461,8 @@ describe('onboarding/import generated HTTP contracts', () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer onboarding');
-      expect(headers.get('x-trace-id')).toBe('onboarding-import');
+      expect(request.init?.headers).toBeUndefined();
     }
-    expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBeNull();
-    expect(new Headers(requests[1]?.init?.headers).get('content-type')).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(4);
   });
 

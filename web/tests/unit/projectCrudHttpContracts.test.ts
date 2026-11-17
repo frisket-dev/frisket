@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  createProjectContract,
-  deleteProjectContract,
+  createProject,
+  deleteProject,
   getProjectContract,
-  updateProjectContract,
-} from '../../src/api/httpContractRoutes';
+  updateProject,
+} from '../../src/api/httpContractRoutes/projects';
+import { ApiError } from '../../src/api/contractErrors';
 
 const projectWire = {
   id: 'project-1',
@@ -23,22 +24,6 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function contractError(status: number, payload: unknown): Error {
-  return new Error(`unexpected contract error ${status}: ${JSON.stringify(payload)}`);
-}
-
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped contract error ${status}`);
-    this.name = 'MappedContractError';
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -53,7 +38,7 @@ describe('project CRUD HTTP contracts', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      getProjectContract('tenant/project 1', contractError),
+      getProjectContract('tenant/project 1'),
     ).resolves.toMatchObject({ id: 'project-1' });
 
     expect(requests).toHaveLength(1);
@@ -70,7 +55,7 @@ describe('project CRUD HTTP contracts', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      deleteProjectContract('project/1', 'Project One', contractError),
+      deleteProject('project/1', 'Project One'),
     ).resolves.toBeUndefined();
 
     expect(requests).toHaveLength(1);
@@ -102,10 +87,9 @@ describe('project CRUD HTTP contracts', () => {
       return jsonResponse({ ok: true, deleted: 'project/1' });
     });
     vi.stubGlobal('fetch', fetchMock);
-    const errorFactory = vi.fn(contractError);
 
     await expect(
-      deleteProjectContract('project/1', 'Project One', errorFactory),
+      deleteProject('project/1', 'Project One'),
     ).resolves.toBeUndefined();
 
     expect(requests).toHaveLength(2);
@@ -118,7 +102,6 @@ describe('project CRUD HTTP contracts', () => {
       confirm_name: 'Project One',
       project_row_id: 41,
     }));
-    expect(errorFactory).not.toHaveBeenCalled();
   });
 
   it('propagates a malformed project-deletion lifetime challenge without retrying', async () => {
@@ -134,20 +117,18 @@ describe('project CRUD HTTP contracts', () => {
     };
     const fetchMock = vi.fn(async () => jsonResponse(malformed, 422));
     vi.stubGlobal('fetch', fetchMock);
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
 
-    await expect(
-      deleteProjectContract('project/1', 'Project One', errorFactory),
-    ).rejects.toMatchObject({
-      name: 'MappedContractError',
+    const request = deleteProject('project/1', 'Project One');
+    await expect(request).rejects.toBeInstanceOf(ApiError);
+    await expect(request).rejects.toMatchObject({
+      name: 'ApiError',
       status: 422,
-      payload: malformed,
+      message: malformed.detail,
+      code: undefined,
+      details: undefined,
     });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(errorFactory).toHaveBeenCalledOnce();
   });
 
   it('propagates a mismatched project-deletion lifetime challenge without retrying', async () => {
@@ -162,20 +143,18 @@ describe('project CRUD HTTP contracts', () => {
     };
     const fetchMock = vi.fn(async () => jsonResponse(mismatched, 422));
     vi.stubGlobal('fetch', fetchMock);
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
 
-    await expect(
-      deleteProjectContract('project/1', 'Project One', errorFactory),
-    ).rejects.toMatchObject({
-      name: 'MappedContractError',
+    const request = deleteProject('project/1', 'Project One');
+    await expect(request).rejects.toBeInstanceOf(ApiError);
+    await expect(request).rejects.toMatchObject({
+      name: 'ApiError',
       status: 422,
-      payload: mismatched,
+      message: mismatched.detail,
+      code: undefined,
+      details: undefined,
     });
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(errorFactory).toHaveBeenCalledOnce();
   });
 
   it('propagates a second project-deletion lifetime challenge without looping', async () => {
@@ -190,20 +169,18 @@ describe('project CRUD HTTP contracts', () => {
     };
     const fetchMock = vi.fn(async () => jsonResponse(challenge, 422));
     vi.stubGlobal('fetch', fetchMock);
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
 
-    await expect(
-      deleteProjectContract('project/1', 'Project One', errorFactory),
-    ).rejects.toMatchObject({
-      name: 'MappedContractError',
+    const request = deleteProject('project/1', 'Project One');
+    await expect(request).rejects.toBeInstanceOf(ApiError);
+    await expect(request).rejects.toMatchObject({
+      name: 'ApiError',
       status: 422,
-      payload: challenge,
+      message: challenge.detail,
+      code: undefined,
+      details: undefined,
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(errorFactory).toHaveBeenCalledOnce();
   });
 
   it('maps declared and additional non-2xx statuses', async () => {
@@ -213,56 +190,48 @@ describe('project CRUD HTTP contracts', () => {
     ];
     const fetchMock = vi.fn(async () => responses.shift()!);
     vi.stubGlobal('fetch', fetchMock);
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
 
-    await expect(
-      updateProjectContract('project-1', { name: 'Renamed' }, errorFactory),
-    ).rejects.toMatchObject({
-      name: 'MappedContractError',
+    const declared = updateProject('project-1', { name: 'Renamed' });
+    await expect(declared).rejects.toBeInstanceOf(ApiError);
+    await expect(declared).rejects.toMatchObject({
+      name: 'ApiError',
       status: 404,
-      payload: { detail: 'project not found' },
+      message: 'project not found',
+      code: undefined,
+      details: undefined,
     });
-    expect(errorFactory).toHaveBeenCalledOnce();
 
-    await expect(
-      updateProjectContract('project-1', { name: 'Renamed' }, errorFactory),
-    ).rejects.toMatchObject({
-      name: 'MappedContractError',
+    const additional = updateProject('project-1', { name: 'Renamed' });
+    await expect(additional).rejects.toBeInstanceOf(ApiError);
+    await expect(additional).rejects.toMatchObject({
+      name: 'ApiError',
       status: 418,
-      payload: { detail: 'teapot' },
+      message: 'teapot',
+      code: undefined,
+      details: undefined,
     });
-    expect(errorFactory).toHaveBeenCalledTimes(2);
-    expect(errorFactory).toHaveBeenLastCalledWith(418, { detail: 'teapot' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('merges caller headers with JSON content type and honors an explicit override', async () => {
-    const requestInits: RequestInit[] = [];
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      requestInits.push(init ?? {});
+  it('sends the create body as JSON with only the JSON content type header', async () => {
+    const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ input, init });
       return jsonResponse(projectWire);
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await createProjectContract('Project One', contractError, {
-      headers: { Authorization: 'Bearer token', 'X-Trace-Id': 'trace-1' },
-    });
-    await createProjectContract('Project One', contractError, {
-      headers: new Headers({
-        'content-type': 'application/vnd.frisket+json',
-        'x-trace-id': 'trace-2',
-      }),
+    await expect(createProject('Project One')).resolves.toMatchObject({
+      id: 'project-1',
     });
 
-    const mergedHeaders = new Headers(requestInits[0]?.headers);
-    expect(mergedHeaders.get('authorization')).toBe('Bearer token');
-    expect(mergedHeaders.get('x-trace-id')).toBe('trace-1');
-    expect(mergedHeaders.get('content-type')).toBe('application/json');
-
-    const overriddenHeaders = new Headers(requestInits[1]?.headers);
-    expect(overriddenHeaders.get('x-trace-id')).toBe('trace-2');
-    expect(overriddenHeaders.get('content-type')).toBe('application/vnd.frisket+json');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.input).toBe('/api/projects');
+    expect(requests[0]?.init?.method).toBe('POST');
+    expect(requests[0]?.init?.body).toBe(JSON.stringify({ name: 'Project One' }));
+    expect([...new Headers(requests[0]?.init?.headers).entries()]).toEqual([
+      ['content-type', 'application/json'],
+    ]);
   });
 
   it('forwards the exact signal and preserves abort rejection', async () => {
@@ -278,9 +247,7 @@ describe('project CRUD HTTP contracts', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const request = createProjectContract('Project One', contractError, {
-      signal: controller.signal,
-    });
+    const request = createProject('Project One', { signal: controller.signal });
     const abortError = new DOMException('cancelled', 'AbortError');
     controller.abort(abortError);
 

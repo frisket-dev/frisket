@@ -3,7 +3,7 @@ import type {
   HttpSelectorChoicesQuery,
   HttpSelectorChoicesResponse,
 } from '../generated/openHttpContracts';
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 
 export type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../generated/openHttpContracts';
 
@@ -11,32 +11,21 @@ export type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../g
 export type SelectorChoice = HttpSelectorChoicesResponse['groups'][number]['choices'][number];
 export type SelectorSubject = HttpSelectorChoicesQuery['subject'];
 
-interface SelectorChoicesOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface SelectorChoicesApi {
-  getSelectorChoices(
-    projectId: string,
-    query: HttpSelectorChoicesQuery,
-    options?: SelectorChoicesOptions,
-  ): Promise<HttpSelectorChoicesResponse>;
-}
-
 type SelectorChoicesRequest = HttpContractOperationMap['tenant.selector_choices.post']['request'];
 
-function createSelectorChoicesApi(): SelectorChoicesApi {
+function createSelectorChoicesApi() {
   return {
-    getSelectorChoices(projectId, query, options = {}) {
+    getSelectorChoices(
+      projectId: string,
+      query: HttpSelectorChoicesQuery,
+      options: RequestOptions = {},
+    ): Promise<HttpSelectorChoicesResponse> {
       return httpContract(
         'tenant.selector_choices.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: query as SelectorChoicesRequest,
           signal: options.signal,
-          headers: options.headers,
         },
       );
     },

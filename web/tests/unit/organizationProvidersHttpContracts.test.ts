@@ -1,49 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type {
-  OrgKeyInfo,
-  ProviderCatalog,
-  ProviderValidateResult,
-} from "../../src/api/types";
+import type { ApiError } from "../../src/api/contractErrors";
+import type { createOrganizationProvidersApi } from "../../src/api/organizationProviders";
 
-interface Options {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface OrganizationProvidersApi {
-  providerCatalog(options?: Options): Promise<ProviderCatalog>;
-  listOrgKeys(options?: Options): Promise<OrgKeyInfo[]>;
-  setOrgKey(
-    provider: string,
-    key: string,
-    validationToken?: string | null,
-    options?: Options,
-  ): Promise<void>;
-  validateOrgKey(
-    provider: string,
-    key?: string,
-    options?: Options,
-  ): Promise<ProviderValidateResult>;
-  deleteOrgKey(provider: string, options?: Options): Promise<void>;
-}
-
-class MappedContractError extends Error {
-  constructor(
-    readonly status: number,
-    readonly payload: unknown,
-  ) {
-    super(`mapped contract error ${status}`);
-    this.name = "MappedContractError";
-  }
-}
-
-async function organizationProvidersApi(): Promise<OrganizationProvidersApi> {
+async function organizationProvidersApi(): Promise<
+  ReturnType<typeof createOrganizationProvidersApi>
+> {
   const module = await import("../../src/api/organizationProviders");
-  return module.createOrganizationProvidersApi(
-    (status: number, payload: unknown) =>
-      new MappedContractError(status, payload),
-  );
+  return module.createOrganizationProvidersApi();
 }
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -87,13 +51,7 @@ describe("organization provider generated HTTP port", () => {
       }),
     );
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: {
-        Authorization: "Bearer organization",
-        "X-Trace-Id": "org-keys",
-      },
-    };
+    const options = { signal: controller.signal };
     const api = await organizationProvidersApi();
 
     await api.providerCatalog(options);
@@ -126,9 +84,6 @@ describe("organization provider generated HTTP port", () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get("authorization")).toBe("Bearer organization");
-      expect(headers.get("x-trace-id")).toBe("org-keys");
     }
   });
 
@@ -144,15 +99,19 @@ describe("organization provider generated HTTP port", () => {
     const api = await organizationProvidersApi();
 
     await expect(api.validateOrgKey("bogus")).rejects.toMatchObject({
-      name: "MappedContractError",
+      name: "ApiError",
       status: 400,
-      payload: { detail: "unsupported provider" },
-    });
+      message: "unsupported provider",
+      code: undefined,
+      details: undefined,
+    } satisfies Partial<ApiError>);
     await expect(api.validateOrgKey("bogus")).rejects.toMatchObject({
-      name: "MappedContractError",
+      name: "ApiError",
       status: 418,
-      payload: { detail: "teapot" },
-    });
+      message: "teapot",
+      code: undefined,
+      details: undefined,
+    } satisfies Partial<ApiError>);
   });
 
   it("keeps real.ts stable while composing void save/delete commands", async () => {

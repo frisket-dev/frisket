@@ -8,13 +8,7 @@ vi.mock("pluralize", () => ({
   }),
 }));
 
-import type {
-  WatchInfo,
-  WatchInput,
-  WatchRunEventsPage,
-  WatchRunResult,
-  WatchRunsPage,
-} from "../../src/api/types";
+import type { WatchInput } from "../../src/api/types";
 
 const runRow = {
   id: 4,
@@ -176,114 +170,10 @@ function jsonResponse(
   });
 }
 
-interface Options {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
+type WatchesModule = typeof import("../../src/api/watches");
 
-interface WatchesTransport {
-  listWatches(options?: Options): Promise<unknown>;
-  createWatch(body: Record<string, unknown>, options?: Options): Promise<unknown>;
-  updateWatch(
-    watchId: number,
-    body: WatchPatchInput,
-    options?: Options,
-  ): Promise<unknown>;
-  deleteWatch(watchId: number, options?: Options): Promise<unknown>;
-  runWatch(watchId: number, options?: Options): Promise<unknown>;
-  listWatchRuns(
-    watchId: number,
-    offset?: number | null,
-    limit?: number | null,
-    hitsLimit?: number | null,
-    options?: Options,
-  ): Promise<unknown>;
-  listWatchRunEvents(
-    watchId: number,
-    runId: number,
-    offset?: number | null,
-    limit?: number | null,
-    eventKind?: string | null,
-    options?: Options,
-  ): Promise<unknown>;
-}
-
-interface WatchesModule {
-  createWatchesApi(
-    factory: (status: number, payload: unknown) => Error,
-    projectId: string,
-  ): WatchesTransport;
-  createWatchesDomainApi(
-    factory: (status: number, payload: unknown) => Error,
-    projectId: string,
-  ): WatchesDomainTransport;
-}
-
-interface WatchesDomainTransport {
-  listWatches(): Promise<WatchInfo[]>;
-  createWatch(input: WatchInput): Promise<WatchInfo>;
-  updateWatch(watchId: number, input: WatchPatchInput): Promise<WatchInfo>;
-  deleteWatch(watchId: number): Promise<void>;
-  runWatch(watchId: number): Promise<WatchRunResult>;
-  getWatchRuns(
-    watchId: number,
-    offset?: number,
-    limit?: number,
-  ): Promise<WatchRunsPage>;
-  getWatchRunEvents(
-    watchId: number,
-    runId: number,
-    offset?: number,
-    limit?: number,
-    eventKind?: string,
-  ): Promise<WatchRunEventsPage>;
-}
-
-/** The lifecycle PATCH is deliberately narrow: Watch query/binding state is
- * immutable after creation, so it cannot be smuggled through a rename/pause. */
-interface WatchPatchInput {
-  name?: string;
-  enabled?: boolean;
-}
-
-interface WatchesLifecycleProjectApi {
-  updateWatch(watchId: number, input: WatchPatchInput): Promise<WatchInfo>;
-  deleteWatch(watchId: number): Promise<void>;
-}
-
-async function watchesModule(): Promise<WatchesModule | undefined> {
-  const path = "../../src/api/watches";
-  return import(/* @vite-ignore */ path).catch(() => undefined) as Promise<
-    WatchesModule | undefined
-  >;
-}
-
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped watch error ${status}`);
-    this.name = "MappedContractError";
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
-/** The seven browser operations, by adapter method. */
-const methodOperationIds: Record<string, string> = {
-  listWatches: "tenant.list_watches.get",
-  createWatch: "tenant.create_watch.post",
-  updateWatch: "tenant.patch_watch.patch",
-  deleteWatch: "tenant.delete_watch.delete",
-  runWatch: "tenant.run_watch.post",
-  listWatchRuns: "tenant.list_watch_runs.get",
-  listWatchRunEvents: "tenant.list_watch_run_events.get",
-};
-
-/** The realApi methods that must ride the generated transport, and the
- *  operation each one is expected to invoke. */
-const realApiOperationIds: Record<string, string> = {
+/** The seven browser operations, by public method. */
+const watchOperationIds: Record<string, string> = {
   listWatches: "tenant.list_watches.get",
   createWatch: "tenant.create_watch.post",
   updateWatch: "tenant.patch_watch.patch",
@@ -300,7 +190,9 @@ interface TransportCall {
 
 /** Install a scoped mock of the generated transport, run `body` against a
  *  FRESH module registry, then restore. Everything the code under test needs
- *  must be imported INSIDE `body` so it comes from that same registry. */
+ *  must be imported INSIDE `body` so it comes from that same registry. The
+ *  mock applies the caller's response mapper exactly as the real transport
+ *  does. */
 async function withMockedTransport<T>(
   respond: (operationId: string) => unknown,
   body: (calls: TransportCall[], fetchSpy: ReturnType<typeof vi.fn>) => Promise<T>,
@@ -308,9 +200,14 @@ async function withMockedTransport<T>(
   const calls: TransportCall[] = [];
   vi.resetModules();
   vi.doMock("../../src/api/httpContract", () => ({
-    httpContract: (operationId: string, options: TransportCall["options"]) => {
+    httpContract: (
+      operationId: string,
+      options: TransportCall["options"],
+      mapResponse?: (wire: unknown) => unknown,
+    ) => {
       calls.push({ operationId, options });
-      return Promise.resolve(respond(operationId));
+      const wire = respond(operationId);
+      return Promise.resolve(mapResponse ? mapResponse(wire) : wire);
     },
   }));
   const fetchSpy = vi.fn(async () => jsonResponse({}));
@@ -342,22 +239,14 @@ function transportResponse(operationId: string): unknown {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("watchlist generated HTTP transport", () => {
-  it("owns exactly the seven operations and preserves path, query, body, and options", async () => {
-    const module = await watchesModule();
-    expect(
-      module,
-      "INTENDED_F6_RED: watches generated adapter must exist",
-    ).toBeDefined();
-    if (!module) return;
-    const api = module.createWatchesApi(
-      (status, payload) => new MappedContractError(status, payload),
-      "watch-contract",
-    );
+  it("owns exactly the seven operations and preserves path, query, and body", async () => {
+    const module: WatchesModule = await import("../../src/api/watches");
+    const api = module.createWatchesApi("watch-contract");
     expect(Object.keys(api).sort()).toEqual([
       "createWatch",
       "deleteWatch",
-      "listWatchRunEvents",
-      "listWatchRuns",
+      "getWatchRunEvents",
+      "getWatchRuns",
       "listWatches",
       "runWatch",
       "updateWatch",
@@ -382,24 +271,16 @@ describe("watchlist generated HTTP transport", () => {
         return jsonResponse(responses.shift());
       }),
     );
-    const signal = new AbortController().signal;
-    const options = {
-      signal,
-      headers: { Authorization: "Bearer watches", "X-Trace-Id": "f6" },
-    };
 
-    await api.listWatches(options);
-    await api.createWatch(
-      { name: "Budget", view_id: 4 },
-      options,
-    );
-    await api.updateWatch(1, { name: "Renamed" }, options);
-    await api.deleteWatch(1, options);
-    await api.runWatch(1, options);
-    await api.listWatchRuns(1, undefined, undefined, undefined, options);
-    await api.listWatchRuns(1, 2, 3, 4, options);
-    await api.listWatchRunEvents(1, 4, undefined, undefined, undefined, options);
-    await api.listWatchRunEvents(1, 4, 1, 2, "row_entered", options);
+    await api.listWatches();
+    await api.createWatch({ name: "Budget", view_id: 4 });
+    await api.updateWatch(1, { name: "Renamed" });
+    await api.deleteWatch(1);
+    await api.runWatch(1);
+    await api.getWatchRuns(1);
+    await api.getWatchRuns(1, 2, 3);
+    await api.getWatchRunEvents(1, 4);
+    await api.getWatchRunEvents(1, 4, 1, 2, "row_entered");
 
     expect(
       requests.map((request) => [request.input, request.init?.method]),
@@ -409,12 +290,12 @@ describe("watchlist generated HTTP transport", () => {
       ["/api/projects/watch-contract/watches/1", "PATCH"],
       ["/api/projects/watch-contract/watches/1", "DELETE"],
       ["/api/projects/watch-contract/watches/1/run", "POST"],
-      ["/api/projects/watch-contract/watches/1/runs", "GET"],
+      ["/api/projects/watch-contract/watches/1/runs?offset=0&limit=20", "GET"],
+      ["/api/projects/watch-contract/watches/1/runs?offset=2&limit=3", "GET"],
       [
-        "/api/projects/watch-contract/watches/1/runs?offset=2&limit=3&hits_limit=4",
+        "/api/projects/watch-contract/watches/1/runs/4/events?offset=0&limit=50",
         "GET",
       ],
-      ["/api/projects/watch-contract/watches/1/runs/4/events", "GET"],
       [
         "/api/projects/watch-contract/watches/1/runs/4/events" +
           "?offset=1&limit=2&event_kind=row_entered",
@@ -438,12 +319,23 @@ describe("watchlist generated HTTP transport", () => {
       undefined,
       undefined,
     ]);
-    for (const request of requests) {
-      expect(request.init?.signal).toBe(signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get("authorization")).toBe("Bearer watches");
-      expect(headers.get("x-trace-id")).toBe("f6");
-    }
+    expect(
+      requests.map((request) =>
+        request.init?.headers === undefined
+          ? undefined
+          : [...new Headers(request.init.headers).entries()],
+      ),
+    ).toEqual([
+      undefined,
+      [["content-type", "application/json"]],
+      [["content-type", "application/json"]],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 
   it("keeps the preserved realApi domain mapping for watches, runs, and events", async () => {
@@ -560,9 +452,7 @@ describe("watchlist generated HTTP transport", () => {
 
   it("keeps typed lifecycle failures on the public project API", async () => {
     const real = await import("../../src/api/real");
-    const lifecycleApi = real.createProjectApi(
-      "watch-lifecycle-error",
-    ) as unknown as WatchesLifecycleProjectApi;
+    const lifecycleApi = real.createProjectApi("watch-lifecycle-error");
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse({ detail: "watch not found" }, 404)),
@@ -584,27 +474,23 @@ describe("watchlist generated HTTP transport", () => {
   });
 
   it("calls each generated operation with its own id", async () => {
-    const module = await watchesModule();
-    expect(
-      module,
-      "INTENDED_F6_RED: watches generated adapter must exist",
-    ).toBeDefined();
-    if (!module) return;
-
     await withMockedTransport(transportResponse, async (calls) => {
-      const fresh = (await import("../../src/api/watches").catch(
-        () => undefined,
-      )) as WatchesModule | undefined;
-      expect(fresh).toBeDefined();
-      if (!fresh) return;
-      const api = fresh.createWatchesApi(
-        (status, payload) => new MappedContractError(status, payload),
-        "watch-ids",
-      ) as unknown as Record<string, (...args: unknown[]) => unknown>;
+      const fresh: WatchesModule = await import("../../src/api/watches");
+      const api = fresh.createWatchesApi("watch-ids");
+      const invokers: Record<string, () => Promise<unknown>> = {
+        listWatches: () => api.listWatches(),
+        createWatch: () => api.createWatch({ name: "Budget", view_id: 4 }),
+        updateWatch: () => api.updateWatch(1, { enabled: false }),
+        deleteWatch: () => api.deleteWatch(1),
+        runWatch: () => api.runWatch(1),
+        getWatchRuns: () => api.getWatchRuns(1),
+        getWatchRunEvents: () => api.getWatchRunEvents(1, 4),
+      };
+      expect(Object.keys(invokers).sort()).toEqual(Object.keys(api).sort());
 
-      for (const [method, operationId] of Object.entries(methodOperationIds)) {
+      for (const [method, operationId] of Object.entries(watchOperationIds)) {
         calls.length = 0;
-        await api[method](1, 4, 0, 20, undefined, {});
+        await invokers[method]();
         expect(
           calls.map((call) => call.operationId),
           `${method} must call exactly its own generated operation`,
@@ -620,11 +506,8 @@ describe("watchlist generated HTTP transport", () => {
     // response. The lifecycle seam is intentionally narrow: neither PATCH
     // variant can carry a query or a binding edit.
     await withMockedTransport(transportResponse, async (calls) => {
-      const fresh = (await import("../../src/api/watches")) as WatchesModule;
-      const domain = fresh.createWatchesDomainApi(
-        (status, payload) => new MappedContractError(status, payload),
-        "watch-lifecycle",
-      );
+      const fresh: WatchesModule = await import("../../src/api/watches");
+      const domain = fresh.createWatchesApi("watch-lifecycle");
 
       const renamed = await domain.updateWatch(1, { name: "Renamed" });
       const paused = await domain.updateWatch(1, { enabled: false });
@@ -640,7 +523,11 @@ describe("watchlist generated HTTP transport", () => {
         { pid: "watch-lifecycle", watch_id: 1 },
         { pid: "watch-lifecycle", watch_id: 1 },
       ]);
-      expect(calls.map((call) => call.options.query)).toEqual([{}, {}, {}]);
+      expect(calls.map((call) => call.options.query)).toEqual([
+        undefined,
+        undefined,
+        undefined,
+      ]);
       expect(calls[0].options.body).toEqual({ name: "Renamed" });
       expect(calls[1].options.body).toEqual({ enabled: false });
       expect(calls[0].options.body).not.toHaveProperty("query");
@@ -689,9 +576,8 @@ describe("watchlist generated HTTP transport", () => {
           view_id: 4,
         }),
       );
-      const lifecycleApi = projectApi as unknown as WatchesLifecycleProjectApi;
-      await invoke("updateWatch", () => lifecycleApi.updateWatch(1, { enabled: false }));
-      await invoke("deleteWatch", () => lifecycleApi.deleteWatch(1));
+      await invoke("updateWatch", () => projectApi.updateWatch(1, { enabled: false }));
+      await invoke("deleteWatch", () => projectApi.deleteWatch(1));
       await invoke("runWatch", () => projectApi.runWatch(1));
       await invoke("getWatchRuns", () => projectApi.getWatchRuns(1, 2, 3));
       await invoke("getWatchRunEvents", () =>
@@ -701,7 +587,7 @@ describe("watchlist generated HTTP transport", () => {
       expect(
         calls.map((call) => call.operationId),
         "every realApi watch method must ride its generated operation",
-      ).toEqual(Object.values(realApiOperationIds));
+      ).toEqual(Object.values(watchOperationIds));
       expect(
         fetchSpy,
         "no realApi watch method may bypass the generated transport with a direct fetch",
@@ -757,11 +643,8 @@ describe("watchlist generated HTTP transport", () => {
       }
       return transportResponse(operationId);
     }, async (calls) => {
-      const fresh = (await import("../../src/api/watches")) as WatchesModule;
-      const domain = fresh.createWatchesDomainApi(
-        (status, payload) => new MappedContractError(status, payload),
-        "watch-domain-a",
-      );
+      const fresh: WatchesModule = await import("../../src/api/watches");
+      const domain = fresh.createWatchesApi("watch-domain-a");
       const input: WatchInput = {
         name: "Budget",
         view_id: 4,
@@ -801,13 +684,12 @@ describe("watchlist generated HTTP transport", () => {
       expect(calls[0].options.body).not.toHaveProperty("detection_policy");
       expect(calls[0].options.body).not.toHaveProperty("source_view");
       expect(calls[0].options.body).not.toHaveProperty("source_view_id");
-      expect(calls[1].options.query).toEqual({});
-      expect(calls[2].options.query).toEqual({});
+      expect(calls[1].options).not.toHaveProperty("query");
+      expect(calls[2].options).not.toHaveProperty("query");
       expect(calls[2].options).not.toHaveProperty("body");
       expect(calls[3].options.query).toEqual({
         offset: 0,
         limit: 20,
-        hits_limit: undefined,
       });
       expect(calls[4].options.query).toEqual({
         offset: 0,
@@ -833,11 +715,8 @@ describe("watchlist generated HTTP transport", () => {
 
   it("serializes alert configuration by saved View identity without copying criteria", async () => {
     await withMockedTransport(transportResponse, async (calls) => {
-      const fresh = (await import("../../src/api/watches")) as WatchesModule;
-      const domain = fresh.createWatchesDomainApi(
-        (status, payload) => new MappedContractError(status, payload),
-        "watch-independent-filter",
-      );
+      const fresh: WatchesModule = await import("../../src/api/watches");
+      const domain = fresh.createWatchesApi("watch-independent-filter");
 
       await domain.createWatch({
         name: "Open rows",

@@ -41,7 +41,7 @@ import {
   type WorkspaceSessionLease,
 } from './workspaceSessionLease';
 import { createProjectApi } from '../api/real';
-import type { ProjectApiPort, WorkbenchApiPort } from '../api/ports';
+import type { ProjectApi, WorkbenchApiPort } from '../api/ports';
 import {
   createActionCatalogResource,
   createProjectDataResource,
@@ -118,7 +118,7 @@ export interface WorkspaceStores {
   /** Per-project extraction drafts and serialized autosave tails. */
   extractionLayouts: ExtractionLayoutStoreHandle;
   /** Immutable API scoped to this workspace project. */
-  projectApi: ProjectApiPort;
+  projectApi: ProjectApi;
   /** Scope-correct owning commands for the eight persisted chrome fields. */
   chromePreferences: {
     readonly projectId: string;
@@ -161,7 +161,7 @@ export interface WorkspaceStores {
 
 export function createWorkspaceStores(
   projectId: string,
-  projectApi: ProjectApiPort = createProjectApi(projectId),
+  projectApi: ProjectApi = createProjectApi(projectId),
   pluginsAvailable?: PluginAvailability,
 ): WorkspaceStores {
   // Immutable domain ports shared by this project session. Construction

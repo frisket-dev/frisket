@@ -1,56 +1,20 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   ProvenanceManifest,
   RunTraceRow,
   RunTraceRowEvidence,
 } from './types';
-
-interface RunProvenanceOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
+import { actionDisplayNameFromActionKind, sqliteTimestampToIso } from './wireValues';
 
 type RunTraceRowEvidenceWire =
   HttpContractSuccessResponse<'tenant.action_run_trace_row.get'>;
 type ProvenanceManifestWire =
   HttpContractSuccessResponse<'tenant.provenance.get'>;
 
-interface RunProvenanceApi {
-  getRunTraceRow(
-    projectId: string,
-    runId: string,
-    rowId: string,
-    columnId?: string | null,
-    options?: RunProvenanceOptions,
-  ): Promise<RunTraceRowEvidence>;
-  getProvenanceManifest(
-    projectId: string,
-    runsOffset?: number,
-    runsLimit?: number,
-    receiptsOffset?: number,
-    receiptsLimit?: number,
-    options?: RunProvenanceOptions,
-  ): Promise<ProvenanceManifest>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-// FrisketApi keeps numeric route references as strings. The generated route
+// The public API keeps numeric route references as strings. The generated route
 // signatures reflect FastAPI's integers; this cast preserves the established
 // URL bytes without adding a second runtime parser or validator.
 const numericPathRef = (value: string): number => value as unknown as number;
-
-const toIso = (timestamp: string): string =>
-  timestamp.includes('T') ? timestamp : `${timestamp.replace(' ', 'T')}Z`;
-
-function actionDisplayNameFromActionKind(actionKind: string): string {
-  const normalized = actionKind.replace(/[._-]+/g, ' ').trim();
-  if (!normalized) return 'AI run';
-  return normalized
-    .split(/\s+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
 
 function mapTraceRow(row: NonNullable<RunTraceRowEvidenceWire['trace']>['row']): RunTraceRow | null {
   if (row === null) return null;
@@ -146,8 +110,8 @@ function manifest(wire: ProvenanceManifestWire): ProvenanceManifest {
       completedRows: run.completed_rows,
       failedRows: run.failed_rows,
       cost: run.cost,
-      startedAt: run.started_at ? toIso(run.started_at) : null,
-      finishedAt: run.finished_at ? toIso(run.finished_at) : null,
+      startedAt: run.started_at ? sqliteTimestampToIso(run.started_at) : null,
+      finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     })),
     runsPage: {
       schemaVersion: wire.runs_page.schema_version,
@@ -163,7 +127,7 @@ function manifest(wire: ProvenanceManifestWire): ProvenanceManifest {
       actionKind: receipt.action_kind,
       status: receipt.status,
       runId: receipt.run_id == null ? null : String(receipt.run_id),
-      createdAt: receipt.created_at ? toIso(receipt.created_at) : null,
+      createdAt: receipt.created_at ? sqliteTimestampToIso(receipt.created_at) : null,
     })),
     receiptsPage: {
       schemaVersion: wire.receipts_page.schema_version,
@@ -177,9 +141,16 @@ function manifest(wire: ProvenanceManifestWire): ProvenanceManifest {
   };
 }
 
-export function createRunProvenanceApi(errorFactory: ContractErrorFactory): RunProvenanceApi {
+export function createRunProvenanceApi(projectId: string) {
   return {
-    getRunTraceRow(projectId, runId, rowId, columnId, options = {}) {
+    /** Row-scoped trace evidence for "Explain this cell". Keeps large/debug
+     *  runs bounded and returns typed absence states instead of a full row list. */
+    async getRunTraceRow(
+      runId: string,
+      rowId: string,
+      columnId?: string | null,
+      options: RequestOptions = {},
+    ): Promise<RunTraceRowEvidence> {
       return httpContract(
         'tenant.action_run_trace_row.get',
         {
@@ -190,21 +161,19 @@ export function createRunProvenanceApi(errorFactory: ContractErrorFactory): RunP
           },
           query: { column_id: columnId == null ? undefined : numericPathRef(columnId) },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         (wire) => rowEvidence(wire, columnId),
       );
     },
 
-    getProvenanceManifest(
-      projectId,
+    /** Project-level data-flow manifest: which providers/models/actions/runs touched data. */
+    async getProvenanceManifest(
       runsOffset = 0,
       runsLimit = 25,
       receiptsOffset = 0,
       receiptsLimit = 25,
-      options = {},
-    ) {
+      options: RequestOptions = {},
+    ): Promise<ProvenanceManifest> {
       return httpContract(
         'tenant.provenance.get',
         {
@@ -216,8 +185,6 @@ export function createRunProvenanceApi(errorFactory: ContractErrorFactory): RunP
             receipts_limit: receiptsLimit,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         manifest,
       );

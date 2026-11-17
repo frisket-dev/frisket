@@ -1,38 +1,22 @@
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import type { LineageDag, SheetGraphOptions, SheetGraphResult } from './types';
 
-interface GraphLineageOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-interface GraphLineageApi {
-  getLineage(projectId: string, options?: GraphLineageOptions): Promise<LineageDag>;
-  getSheetGraph(
-    projectId: string,
-    input: SheetGraphOptions,
-    options?: GraphLineageOptions,
-  ): Promise<SheetGraphResult>;
-}
-
-export function createGraphLineageApi(errorFactory: ContractErrorFactory): GraphLineageApi {
+export function createGraphLineageApi(projectId: string) {
   return {
-    getLineage(projectId, options = {}) {
+    async getLineage(options: RequestOptions = {}): Promise<LineageDag> {
       return httpContract(
         'tenant.project_lineage.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
 
-    getSheetGraph(projectId, input, options = {}) {
+    async getSheetGraph(
+      input: SheetGraphOptions,
+      options: RequestOptions = {},
+    ): Promise<SheetGraphResult> {
       const setColumn = (value: number | string | null | undefined) => (
         value !== null && value !== undefined && String(value).trim() !== ''
           ? Number(value)
@@ -52,8 +36,6 @@ export function createGraphLineageApi(errorFactory: ContractErrorFactory): Graph
             limit_edges: input.limitEdges ?? 500,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

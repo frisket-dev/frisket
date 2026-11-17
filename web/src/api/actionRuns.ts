@@ -1,6 +1,8 @@
 import { listTableFromNamedResult, namedResultForListTable } from '../actions/listTable';
 import { canonicalJson } from '../actions/canonicalJson';
 import { ApiError, firstNonEmptyString, v1ErrorMessage } from './contractErrors';
+import { createActionCompletionApi } from './actionCompletion';
+import { cancelRunContract, getRunProgressContract } from './httpContractRoutes';
 import {
   resolveRunActionInvocation,
   throwIfActionAborted,
@@ -24,6 +26,7 @@ import {
   type RunProgress,
   type RegisteredActionRequest,
 } from './types';
+import { actionDisplayNameFromActionKind, isRecord } from './wireValues';
 
 interface RunContext {
   actionName: string;
@@ -38,34 +41,6 @@ interface ColumnRunInfo {
   actionName: string;
   prompt: string;
   model: string;
-}
-
-interface ActionRunsDependencies {
-  v1ActionSession: V1ActionSession;
-  runAction(
-    req: ActionExecutionRequest,
-    options?: RunActionInvocationOptions,
-  ): Promise<RunActionLaunchResult>;
-  getRunProgress(
-    projectId: string,
-    runId: number,
-    options: { signal?: AbortSignal },
-  ): Promise<RunProgress>;
-  cancelRun(
-    projectId: string,
-    runId: number,
-    options: { signal?: AbortSignal },
-  ): Promise<unknown>;
-  waitForV1ActionCompletion(
-    result: V1ActionResult,
-    fallbackMessage: string,
-    invocation: ResolvedRunActionInvocation,
-  ): Promise<V1ActionResult>;
-  actionDisplayNameFromActionKind(actionKind: string): string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function firstOutputSheetId(outputs: V1ActionResult['outputs']): string | null {
@@ -83,16 +58,15 @@ class ActionRunsApi {
   private colRunInfo = new Map<string, ColumnRunInfo>();
   /** One execution key per in-memory proposal, stable across a 402 retry. */
   private proposalIdempotencyKeys = new WeakMap<ActionProposal, string>();
-  private readonly dependencies: ActionRunsDependencies;
+  private readonly actionCompletion = createActionCompletionApi();
+  private readonly v1ActionSession: V1ActionSession;
   private readonly defaultProjectId: string;
 
-  constructor(dependencies: ActionRunsDependencies, defaultProjectId: string) {
-    this.dependencies = dependencies;
+  /** The project API owns the one browser session; runs never mint their own
+   * idempotency or run-metadata state. */
+  constructor(v1ActionSession: V1ActionSession, defaultProjectId: string) {
+    this.v1ActionSession = v1ActionSession;
     this.defaultProjectId = defaultProjectId;
-  }
-
-  private get v1ActionSession(): V1ActionSession {
-    return this.dependencies.v1ActionSession;
   }
 
   private runMetaKey(projectId: string, runId: string): string {
@@ -148,7 +122,7 @@ class ActionRunsApi {
       proposal.spec,
       confirmed ? consentedPromiseSetHash : undefined,
     );
-    const { runId, outputSheetId } = await this.dependencies.runAction(request, invocation);
+    const { runId, outputSheetId } = await this.runAction(request, invocation);
     throwIfActionAborted(invocation.signal);
     if (runId === null && outputSheetId) return { run_id: null, output_sheet_id: outputSheetId };
     if (runId === null) throw new ApiError(500, 'Proposal action completed without a run id');
@@ -267,7 +241,7 @@ class ActionRunsApi {
     ) {
       throw new ApiError(400, 'Derive requires a canonical row extraction request.');
     }
-    const extractResult = await this.dependencies.waitForV1ActionCompletion(
+    const extractResult = await this.actionCompletion.waitForRunCompletion(
       await this.v1ActionSession.postV1ActionSpec(extractSpec, invocation),
       'map.extract did not complete before derive.table_from_list',
       invocation,
@@ -324,7 +298,7 @@ class ActionRunsApi {
     invocation: ResolvedRunActionInvocation,
   ): Promise<RunProgress> {
     throwIfActionAborted(invocation.signal);
-    const progress = await this.dependencies.getRunProgress(
+    const progress = await getRunProgressContract(
       invocation.projectId,
       Number(runId),
       { signal: invocation.signal },
@@ -336,7 +310,7 @@ class ActionRunsApi {
       runId: progress.runId || runId,
       actionName: progress.actionName
         || context?.actionName
-        || this.dependencies.actionDisplayNameFromActionKind(progress.actionKind),
+        || actionDisplayNameFromActionKind(progress.actionKind),
       sheetId: progress.sheetId || context?.sheetId || '',
       targetRowIds: context?.rowIds ?? null,
     };
@@ -355,7 +329,7 @@ class ActionRunsApi {
   ): Promise<RunProgress> {
     const invocation = resolveRunActionInvocation(options, this.defaultProjectId);
     throwIfActionAborted(invocation.signal);
-    await this.dependencies.cancelRun(
+    await cancelRunContract(
       invocation.projectId,
       Number(runId),
       { signal: invocation.signal },
@@ -367,7 +341,11 @@ class ActionRunsApi {
     sheetId: string,
     columnName: string,
     confirmed = false,
+    /** Deliberate exact-row retry (run.backfill row_ids): re-run EXACTLY these
+     *  rows regardless of current outcome — including terminal empty_output
+     *  rows the default sweep never touches. Omitted: the default sweep. */
     rowIds?: number[],
+    /** Echo the promise set shown by the 402 being confirmed. */
     consentedPromiseSetHash?: string,
   ): Promise<BackfillResult> {
     const spec = this.v1ActionSession.registeredActionSpec({
@@ -403,8 +381,8 @@ class ActionRunsApi {
 }
 
 export function createActionRunsApi(
-  dependencies: ActionRunsDependencies,
+  v1ActionSession: V1ActionSession,
   defaultProjectId: string,
 ): ActionRunsApi {
-  return new ActionRunsApi(dependencies, defaultProjectId);
+  return new ActionRunsApi(v1ActionSession, defaultProjectId);
 }

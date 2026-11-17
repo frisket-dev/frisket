@@ -100,11 +100,8 @@ export interface EvaluationApi {
   downloadSettings(request: EvaluationRequest): Promise<Blob>;
 }
 
-export function createEvaluationApi(
-  errorFactory: (status: number, payload: unknown) => Error,
-  projectId: string,
-): EvaluationApi {
-  const base = { pathParams: { pid: projectId }, query: {}, errorFactory };
+export function createEvaluationApi(projectId: string): EvaluationApi {
+  const base = { pathParams: { pid: projectId } };
   return {
     getExpectedRows: body => httpContract('tenant.evaluation_rows.post', { ...base, body }),
     getLinks: sheetId => httpContract('tenant.evaluation_links.get', { ...base, query: { sheet_id: sheetId } }, wire => ({ links: wire.links.map(normalizeLink) })),
@@ -140,7 +137,7 @@ export function createEvaluationApi(
     deleteShelfItem: async id => { await httpContract('tenant.evaluation_shelf_delete.delete', {
       ...base, pathParams: { pid: projectId, saved_id: id },
     }); },
-    downloadCsv: body => downloadEvaluation(projectId, 'download.csv', body, errorFactory),
-    downloadSettings: body => downloadEvaluation(projectId, 'settings.json', body, errorFactory),
+    downloadCsv: body => downloadEvaluation(projectId, 'download.csv', body),
+    downloadSettings: body => downloadEvaluation(projectId, 'settings.json', body),
   };
 }

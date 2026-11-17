@@ -36,8 +36,8 @@ import {
 } from '../../src/api/httpContract';
 
 type FixtureOptions = {
-  pathParams: Record<string, unknown>;
-  query: Record<string, unknown>;
+  pathParams?: Record<string, unknown>;
+  query?: Record<string, unknown>;
   body?: unknown;
   fetch?: typeof globalThis.fetch;
   signal?: AbortSignal;
@@ -69,6 +69,9 @@ const bodylessOptions: HttpContractInvokeOptions<'tenant.list_projects.get'> = {
   pathParams: {},
   query: {},
 };
+const parameterlessOptions: HttpContractInvokeOptions<'tenant.list_projects.get'> = {};
+// @ts-expect-error get_project requires its pid path parameter
+const missingPathParams: HttpContractInvokeOptions<'tenant.get_project.get'> = {};
 const invalidBodylessOptions: HttpContractInvokeOptions<'tenant.list_projects.get'> = {
   pathParams: {},
   query: {},
@@ -78,6 +81,8 @@ const invalidBodylessOptions: HttpContractInvokeOptions<'tenant.list_projects.ge
 void requiredBodyOptions;
 void missingRequiredBody;
 void bodylessOptions;
+void parameterlessOptions;
+void missingPathParams;
 void invalidBodylessOptions;
 
 const multipartBodyOptions: HttpContractInvokeOptions<'tenant.import_csv.post'> = {
@@ -114,6 +119,16 @@ describe('generated HTTP contract transport', () => {
       'fixture.status_family.post',
       { pathParams: {}, query: {}, fetch },
     )).resolves.toEqual(payload);
+  });
+
+  it('renders the bare path when pathParams and query are omitted', async () => {
+    const fetch = vi.fn(async () => jsonResponse({ shape: 'parameterless' }));
+
+    await expect(invokeFixtureUnmapped(
+      'fixture.status_family.post',
+      { fetch },
+    )).resolves.toEqual({ shape: 'parameterless' });
+    expect(fetch).toHaveBeenCalledWith('/fixture/status-family', { method: 'POST' });
   });
 
   it('lets type-bypassed path, query, and body values reach the server boundary', async () => {
@@ -332,10 +347,35 @@ describe('generated HTTP contract transport', () => {
       },
       mapResponse,
     )).rejects.toMatchObject({
-      name: 'HttpContractResponseError',
+      name: 'ApiError',
       message: 'Request failed (HTTP 503)',
       status: 503,
-      payload: { detail: 'Request failed (HTTP 503)' },
+      code: undefined,
+      details: undefined,
+    });
+    expect(mapResponse).not.toHaveBeenCalled();
+  });
+
+  it('rejects with the shared ApiError mapping when no error factory is supplied', async () => {
+    const mapResponse = vi.fn((wire: unknown) => wire);
+
+    await expect(invokeFixture(
+      'fixture.status_family.post',
+      {
+        pathParams: {},
+        query: {},
+        fetch: async () => jsonResponse(
+          { detail: { code: 'fixture_conflict', message: 'fixture conflict', field: 'segment' } },
+          409,
+        ),
+      },
+      mapResponse,
+    )).rejects.toMatchObject({
+      name: 'ApiError',
+      message: 'fixture conflict',
+      status: 409,
+      code: 'fixture_conflict',
+      details: { field: 'segment' },
     });
     expect(mapResponse).not.toHaveBeenCalled();
   });

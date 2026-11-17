@@ -1,10 +1,10 @@
-import type { ProjectApiPort } from './ports';
+import type { ProjectApi } from './ports';
 import type { PreviewSampleResult } from './types';
 
 /** Job transport only. Callers retain launch/consent, result composition and
  * whether a failed read retires the server job or merely its local view. */
 export function pollPreviewJob(
-  api: Pick<ProjectApiPort, 'getPreview' | 'cancelPreview'>,
+  api: Pick<ProjectApi, 'getPreview' | 'cancelPreview'>,
   previewId: string,
   policy: {
     signal: AbortSignal;

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { NotificationSummary } from '../../api/open';
-import type { ProjectApiPort } from '../../api/ports';
+import type { ProjectApi } from '../../api/ports';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { createStore } from '../../core/store/createStore';
 
@@ -12,7 +12,7 @@ export function dispatchNotificationsChanged(projectId: string): void {
 
 /** One summary reader per project/API session. The event remains a legacy
  * invalidation adapter; panels own their separate lists and mutations. */
-function createNotificationSummary(api: ProjectApiPort, projectId: string) {
+function createNotificationSummary(api: ProjectApi, projectId: string) {
   const store = createStore<NotificationSummary | null>(null);
   let subscribers = 0;
   let generation = 0;
@@ -53,7 +53,7 @@ function createNotificationSummary(api: ProjectApiPort, projectId: string) {
   };
 }
 
-const summaries = new WeakMap<ProjectApiPort, Map<string, ReturnType<typeof createNotificationSummary>>>();
+const summaries = new WeakMap<ProjectApi, Map<string, ReturnType<typeof createNotificationSummary>>>();
 
 export function useNotificationSummary(): NotificationSummary | null {
   const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();

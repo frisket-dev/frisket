@@ -153,14 +153,11 @@ export function sendProductTelemetry(event: ProductTelemetryEvent, projectId?: s
   const request = projectId
     ? httpContract('tenant.product_telemetry_project.post', {
         pathParams: { pid: projectId },
-        query: {},
         body,
         credentials: 'same-origin',
         keepalive: true,
       })
     : httpContract('tenant.product_telemetry_installation.post', {
-        pathParams: {},
-        query: {},
         body,
         credentials: 'same-origin',
         keepalive: true,

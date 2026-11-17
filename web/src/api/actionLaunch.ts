@@ -2,12 +2,12 @@ import type {
   HttpActionResult,
   HttpActionRunRequest,
 } from '../generated/openHttpContracts';
+import { errorFromContract } from './contractErrors';
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 
 interface ActionLaunchOptions {
   projectId?: string;
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 export type ActionLaunchRequest = HttpActionRunRequest;
@@ -18,8 +18,6 @@ interface ActionLaunchResponse {
   status: number;
   result: ActionLaunchWire;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 class ActionLaunchTransportError extends Error {
   readonly status: number;
@@ -46,7 +44,6 @@ function isActionResult(payload: unknown): payload is HttpActionResult {
 }
 
 export function createActionLaunchApi(
-  errorFactory: ContractErrorFactory,
   defaultProjectId: string,
 ): { launch(action: ActionLaunchRequest, options?: ActionLaunchOptions): Promise<ActionLaunchResponse> } {
   return {
@@ -56,10 +53,8 @@ export function createActionLaunchApi(
           'tenant.v1_action_run.post',
           {
             pathParams: { pid: options.projectId ?? defaultProjectId },
-            query: {},
             body: action,
             signal: options.signal,
-            headers: options.headers,
             errorFactory: (status, payload) => new ActionLaunchTransportError(status, payload),
           },
         );
@@ -69,7 +64,7 @@ export function createActionLaunchApi(
           return { status: error.status, result: error.payload };
         }
         if (error instanceof ActionLaunchTransportError) {
-          throw errorFactory(error.status, error.payload);
+          throw errorFromContract(error.status, error.payload);
         }
         throw error;
       }

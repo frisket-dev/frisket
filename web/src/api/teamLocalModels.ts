@@ -1,94 +1,65 @@
 import { observeSetup, trackSetupSubmission } from '../telemetry/setupTelemetry';
-import { httpContract } from './httpContract';
+import { httpContract, type ContractErrorFactory, type RequestOptions } from './httpContract';
 import type {
   ModelPullDto,
   ModelPullStartResult,
   LocalEndpointCatalog,
 } from './types';
 
-interface TeamLocalModelsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-interface TeamLocalModelsApi {
-  listOrgLocalEndpoints(options?: TeamLocalModelsOptions): Promise<LocalEndpointCatalog>;
-  orgStartArtifactPull(
-    ref: string,
-    unpinnedAcknowledged?: boolean,
-    options?: TeamLocalModelsOptions,
-  ): Promise<ModelPullStartResult>;
-  orgListModelPulls(options?: TeamLocalModelsOptions): Promise<{ pulls: ModelPullDto[] }>;
-  orgGetModelPull(id: number, options?: TeamLocalModelsOptions): Promise<ModelPullDto>;
-  orgCancelModelPull(id: number, options?: TeamLocalModelsOptions): Promise<ModelPullDto>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-export function createTeamLocalModelsApi(
-  errorFactory: ContractErrorFactory,
-): TeamLocalModelsApi {
+export function createTeamLocalModelsApi(errorFactory?: ContractErrorFactory) {
   return {
-    listOrgLocalEndpoints(options = {}) {
+    listOrgLocalEndpoints(options: RequestOptions = {}): Promise<LocalEndpointCatalog> {
       return httpContract(
         'outer.list_org_local_endpoints.get',
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
     },
 
-    orgStartArtifactPull(ref, unpinnedAcknowledged = false, options = {}) {
+    orgStartArtifactPull(
+      ref: string,
+      unpinnedAcknowledged = false,
+      options: RequestOptions = {},
+    ): Promise<ModelPullStartResult> {
       return trackSetupSubmission('organization', 'model', httpContract(
         'outer.post_org_models_pull.post',
         {
-          pathParams: {},
-          query: {},
           body: { ref, unpinned_acknowledged: unpinnedAcknowledged },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       ));
     },
 
-    orgListModelPulls(options = {}) {
+    orgListModelPulls(options: RequestOptions = {}): Promise<{ pulls: ModelPullDto[] }> {
       return httpContract(
         'outer.list_org_model_pulls.get',
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
     },
 
-    orgGetModelPull(id, options = {}) {
+    orgGetModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         'outer.get_org_model_pull.get',
         {
           pathParams: { pull_id: id },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       ).then((pull) => observeSetup('organization', pull));
     },
 
-    orgCancelModelPull(id, options = {}) {
+    orgCancelModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         'outer.cancel_org_model_pull.post',
         {
           pathParams: { pull_id: id },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );

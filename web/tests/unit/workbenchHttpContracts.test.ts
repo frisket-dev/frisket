@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createWorkbenchPluginsApi } from '../../src/api/workbenchPlugins';
 import { getWorkbenchPluginRuntimeIndexContract } from '../../src/api/httpContractRoutes';
+import { ApiError } from '../../src/api/contractErrors';
 
 const settings = {
   schemaVersion: 'frisket.workbench_plugin_settings.v1', projectId: 'p', pluginId: 'plug',
@@ -46,26 +47,18 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-function contractError(status: number, payload: unknown): Error {
-  return new Error(`unexpected contract error ${status}: ${JSON.stringify(payload)}`);
-}
-
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped contract error ${status}`);
-    this.name = 'MappedContractError';
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
-async function expectMapped(request: Promise<unknown>, status: number): Promise<void> {
+async function expectApiError(
+  request: Promise<unknown>,
+  status: number,
+  message: string,
+): Promise<void> {
+  await expect(request).rejects.toBeInstanceOf(ApiError);
   await expect(request).rejects.toMatchObject({
-    name: 'MappedContractError',
+    name: 'ApiError',
     status,
+    message,
+    code: undefined,
+    details: undefined,
   });
 }
 
@@ -82,56 +75,35 @@ describe('existing workbench runtime-index HTTP contract', () => {
       requests.push({ input, init });
       return responses.shift()!;
     }));
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: new Headers({
-        Authorization: 'Bearer token',
-        'Content-Type': 'application/json',
-        'X-Trace-Id': 'trace-workbench',
-      }),
-    };
+    const options = { signal: controller.signal };
 
-    await expectMapped(
-      getWorkbenchPluginRuntimeIndexContract('project/one', errorFactory, options),
+    await expectApiError(
+      getWorkbenchPluginRuntimeIndexContract('project/one', options),
       403,
+      'viewer role required',
     );
-    await expectMapped(
-      getWorkbenchPluginRuntimeIndexContract('project/one', errorFactory, options),
+    await expectApiError(
+      getWorkbenchPluginRuntimeIndexContract('project/one', options),
       409,
+      'project bundle schema mismatch',
     );
 
     expect(requests.map((request) => request.input)).toEqual([
       '/api/projects/project%2Fone/workbench/plugins',
       '/api/projects/project%2Fone/workbench/plugins',
     ]);
-    expect(errorFactory).toHaveBeenCalledTimes(2);
     for (const request of requests) {
       expect(request.init?.method).toBe('GET');
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer token');
-      expect(headers.get('content-type')).toBe('application/json');
-      expect(headers.get('x-trace-id')).toBe('trace-workbench');
+      expect(request.init?.headers).toBeUndefined();
     }
   });
 
   it('maps an additional non-2xx status', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'teapot' }, 418)));
-    const errorFactory = vi.fn(
-      (status: number, payload: unknown) => new MappedContractError(status, payload),
-    );
 
-    await expect(
-      getWorkbenchPluginRuntimeIndexContract('project-1', errorFactory),
-    ).rejects.toMatchObject({
-      name: 'MappedContractError', status: 418, payload: { detail: 'teapot' },
-    });
-    expect(errorFactory).toHaveBeenCalledOnce();
-    expect(errorFactory).toHaveBeenCalledWith(418, { detail: 'teapot' });
+    await expectApiError(getWorkbenchPluginRuntimeIndexContract('project-1'), 418, 'teapot');
   });
 
   it('forwards the exact signal and preserves abort rejection', async () => {
@@ -145,7 +117,7 @@ describe('existing workbench runtime-index HTTP contract', () => {
     }));
 
     const request = getWorkbenchPluginRuntimeIndexContract(
-      'project-1', contractError, { signal: controller.signal },
+      'project-1', { signal: controller.signal },
     );
     const abortError = new DOMException('cancelled', 'AbortError');
     controller.abort(abortError);
@@ -156,7 +128,7 @@ describe('existing workbench runtime-index HTTP contract', () => {
 });
 
 describe('workbench plugin generated HTTP contracts', () => {
-  it('preserves lifecycle URLs, bodies, consent facts, headers, abort, and bodyless changes', async () => {
+  it('preserves lifecycle URLs, bodies, consent facts, content types, abort, and bodyless changes', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [settings, settings, installed, activation, backend, state, state];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -164,30 +136,25 @@ describe('workbench plugin generated HTTP contracts', () => {
       return jsonResponse(responses.shift());
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer session', 'X-Trace-Id': 'workbench' },
-    };
-    const api = createWorkbenchPluginsApi((status, payload) =>
-      Object.assign(new Error('workbench failed'), { status, payload }),
-    );
+    const options = { signal: controller.signal };
+    const api = createWorkbenchPluginsApi('project one');
     const pluginId = 'plug /☃';
     const activateInput = {
       pluginId, receiptId: 'receipt', trustAcknowledged: true,
       permissionsAccepted: ['plugin:trusted_local_backend'], arbitraryPackageLoadAllowed: false,
     };
 
-    await api.getSettings('project one', pluginId, options);
-    await api.patchSettings('project one', pluginId, { 'plug.mode': 'detail' }, options);
-    const localInstall = await api.installLocal('project one', {
+    await api.getWorkbenchPluginSettings(pluginId, options);
+    await api.patchWorkbenchPluginSettings(pluginId, { 'plug.mode': 'detail' }, options);
+    const localInstall = await api.installLocalWorkbenchPlugin({
       pluginId, source: { kind: 'localPath', value: '/plugins/plug' }, arbitraryPackageLoadAllowed: false,
     }, options);
-    await api.activate('project one', activateInput, options);
-    const backendActivation = await api.activateBackend('project one', {
+    await api.activateWorkbenchPlugin(activateInput, options);
+    const backendActivation = await api.activateWorkbenchPluginBackend({
       pluginId, trustAcknowledged: true, arbitraryPackageLoadAllowed: false, executableHandlersAllowed: true,
     }, options);
-    const disabled = await api.disable('project one', pluginId, options);
-    await api.uninstall('project one', pluginId, options);
+    const disabled = await api.disableWorkbenchPlugin(pluginId, options);
+    await api.uninstallWorkbenchPlugin(pluginId, options);
 
     expect(localInstall).toMatchObject({
       source: { submittedPath: '/plugins/plug' },
@@ -220,19 +187,19 @@ describe('workbench plugin generated HTTP contracts', () => {
     ]);
     for (const { init } of requests) {
       expect(init?.signal).toBe(controller.signal);
-      const headers = new Headers(init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer session');
-      expect(headers.get('x-trace-id')).toBe('workbench');
     }
+    expect(requests[0]?.init?.headers).toBeUndefined();
     for (const request of requests.slice(1, 5)) {
-      expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
+      expect([...new Headers(request.init?.headers).entries()]).toEqual([
+        ['content-type', 'application/json'],
+      ]);
     }
     for (const request of requests.slice(5)) {
-      expect(new Headers(request.init?.headers).get('content-type')).toBeNull();
+      expect(request.init?.headers).toBeUndefined();
     }
   });
 
-  it('uses the scoped legacy ApiError mapping without producer details', async () => {
+  it('maps detail-wrapped lifecycle errors to ApiError with the remaining detail keys as details', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'plugin_lifecycle_not_installed', message: 'not installed', details: { private: true } },
     }, 409)));
@@ -241,7 +208,7 @@ describe('workbench plugin generated HTTP contracts', () => {
 
     await expect(projectApi.disableWorkbenchPlugin('plug')).rejects.toMatchObject({
       name: 'ApiError', status: 409, message: 'not installed', code: 'plugin_lifecycle_not_installed',
-      details: undefined,
+      details: { details: { private: true } },
     });
   });
 });

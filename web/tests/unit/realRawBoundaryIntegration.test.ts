@@ -71,7 +71,7 @@ describe('real API raw-boundary composition', () => {
     );
     expect(realApi.workLogExportUrl('pdf')).toBe('work-log-url');
 
-    expect(raw.getMapPointsArrowBuffer).toHaveBeenCalledWith('sheet-1', 'column-1', {});
+    expect(raw.getMapPointsArrowBuffer).toHaveBeenCalledWith('sheet-1', 'column-1');
     const mapError = raw.mapErrorFactory?.(422, 'map column is unavailable');
     expect(mapError).toBeInstanceOf(ApiError);
     expect(mapError).toMatchObject({

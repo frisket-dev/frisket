@@ -17,11 +17,7 @@ import type {
   NotificationStateFilter,
   NotificationSummary,
 } from "./types";
-
-interface NotificationsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
+import { sqliteTimestampToIso } from './wireValues';
 
 type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
   HttpContractOperationMap[Id]["request"],
@@ -33,8 +29,6 @@ type NotificationPageWire =
 type NotificationItemWire = NotificationPageWire["notifications"][number];
 type NotificationSummaryWire =
   HttpContractSuccessResponse<"tenant.notifications_summary.get">;
-type NotificationSeenCountWire =
-  HttpContractSuccessResponse<"tenant.mark_notifications_seen.post">;
 type NotificationActorStateWire =
   HttpContractSuccessResponse<"tenant.mark_notification_read.post">;
 type NotificationChannelWire =
@@ -57,351 +51,6 @@ type NotificationChannelBody =
 type NotificationRouteBody =
   ContractRequestBody<"tenant.create_notification_route.post">;
 
-interface NotificationsApi {
-  listNotifications(
-    state?: string | null,
-    sourceKind?: string | null,
-    sourceRef?: string | null,
-    severity?: string | null,
-    offset?: number | null,
-    limit?: number | null,
-    options?: NotificationsOptions,
-  ): Promise<NotificationPageWire>;
-  notificationsSummary(
-    options?: NotificationsOptions,
-  ): Promise<NotificationSummaryWire>;
-  markNotificationsSeen(
-    body: NotificationFilterBody,
-    options?: NotificationsOptions,
-  ): Promise<NotificationSeenCountWire>;
-  /** The three per-item POSTs are BODYLESS: the routes declare no request
-   *  body, so none rides the wire. (Base's vestigial `{}` bodies are the
-   *  recorded client-side wire delta of this cutover — the F6 runWatch
-   *  precedent.) */
-  markNotificationRead(
-    notificationId: number,
-    options?: NotificationsOptions,
-  ): Promise<NotificationActorStateWire>;
-  ackNotification(
-    notificationId: number,
-    options?: NotificationsOptions,
-  ): Promise<NotificationActorStateWire>;
-  unackNotification(
-    notificationId: number,
-    options?: NotificationsOptions,
-  ): Promise<NotificationActorStateWire>;
-}
-
-/** Channel, route, and delivery-request operations are deliberately isolated
- * from notification reads so the established read adapter retains its exact
- * seven-method contract. */
-interface NotificationDeliverySettingsApi {
-  listNotificationChannels(
-    options?: NotificationsOptions,
-  ): Promise<NotificationChannelsPageWire>;
-  createNotificationChannel(
-    body: NotificationChannelBody,
-    options?: NotificationsOptions,
-  ): Promise<NotificationChannelWire>;
-  patchNotificationChannel(
-    channelId: number,
-    body: NotificationChannelBody,
-    options?: NotificationsOptions,
-  ): Promise<NotificationChannelWire>;
-  listNotificationRoutes(
-    options?: NotificationsOptions,
-  ): Promise<NotificationRoutesPageWire>;
-  createNotificationRoute(
-    body: NotificationRouteBody,
-    options?: NotificationsOptions,
-  ): Promise<NotificationRouteWire>;
-  patchNotificationRoute(
-    routeId: number,
-    body: NotificationRouteBody,
-    options?: NotificationsOptions,
-  ): Promise<NotificationRouteWire>;
-  testNotificationRoute(
-    routeId: number,
-    options?: NotificationsOptions,
-  ): Promise<NotificationDeliveryRequestWire>;
-  listNotificationDeliveryRequests(
-    status?: string | null,
-    routeId?: number | null,
-    channelId?: number | null,
-    notificationId?: number | null,
-    offset?: number | null,
-    limit?: number | null,
-    options?: NotificationsOptions,
-  ): Promise<NotificationDeliveryRequestsPageWire>;
-}
-
-/** The feature-facing port. The generated read and delivery adapters stay
- * private to this module so real.ts composes one notification domain owner
- * and delegates all notification behavior to it. */
-export interface NotificationsDomainApi {
-  listNotifications(params?: NotificationListParams): Promise<NotificationPage>;
-  getNotificationsSummary(): Promise<NotificationSummary>;
-  markNotificationsSeen(filter: NotificationStateFilter): Promise<{ seenCount: number }>;
-  markNotificationRead(notificationId: number): Promise<NotificationActorState>;
-  ackNotification(notificationId: number): Promise<NotificationActorState>;
-  unackNotification(notificationId: number): Promise<NotificationActorState>;
-  listNotificationChannels(): Promise<NotificationChannelsPage>;
-  createNotificationChannel(input: NotificationChannelInput): Promise<NotificationChannel>;
-  updateNotificationChannel(
-    channelId: number,
-    input: Partial<NotificationChannelInput>,
-  ): Promise<NotificationChannel>;
-  listNotificationRoutes(): Promise<NotificationRoutesPage>;
-  createNotificationRoute(input: NotificationRouteInput): Promise<NotificationRoute>;
-  updateNotificationRoute(
-    routeId: number,
-    input: Partial<NotificationRouteInput>,
-  ): Promise<NotificationRoute>;
-  testNotificationRoute(
-    routeId: number,
-    ownerKind?: string,
-  ): Promise<NotificationDeliveryRequest>;
-  listNotificationDeliveryRequests(params?: {
-    status?: NotificationDeliveryRequest["status"];
-    routeId?: number;
-    channelId?: number;
-    notificationId?: number;
-    offset?: number;
-    limit?: number;
-  }): Promise<NotificationDeliveryRequestsPage>;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-export function createNotificationsApi(
-  errorFactory: ContractErrorFactory,
-  projectId: string,
-): NotificationsApi {
-  return {
-    listNotifications(state, sourceKind, sourceRef, severity, offset, limit, options = {}) {
-      return httpContract(
-        "tenant.list_notifications.get",
-        {
-          pathParams: { pid: projectId },
-          // Keep the established query order.
-          query: {
-            state: state ?? undefined,
-            offset: offset ?? undefined,
-            limit: limit ?? undefined,
-            source_kind: sourceKind ?? undefined,
-            source_ref: sourceRef ?? undefined,
-            severity: severity ?? undefined,
-          },
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    notificationsSummary(options = {}) {
-      return httpContract(
-        "tenant.notifications_summary.get",
-        {
-          pathParams: { pid: projectId },
-          query: {},
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    markNotificationsSeen(body, options = {}) {
-      return httpContract(
-        "tenant.mark_notifications_seen.post",
-        {
-          pathParams: { pid: projectId },
-          query: {},
-          body,
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    markNotificationRead(notificationId, options = {}) {
-      return httpContract(
-        "tenant.mark_notification_read.post",
-        {
-          pathParams: { pid: projectId, notification_id: notificationId },
-          query: {},
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    ackNotification(notificationId, options = {}) {
-      return httpContract(
-        "tenant.ack_notification.post",
-        {
-          pathParams: { pid: projectId, notification_id: notificationId },
-          query: {},
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    unackNotification(notificationId, options = {}) {
-      return httpContract(
-        "tenant.unack_notification.post",
-        {
-          pathParams: { pid: projectId, notification_id: notificationId },
-          query: {},
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-  };
-}
-
-export function createNotificationDeliverySettingsApi(
-  errorFactory: ContractErrorFactory,
-  projectId: string,
-): NotificationDeliverySettingsApi {
-  return {
-    listNotificationChannels(options = {}) {
-      return httpContract(
-        "tenant.list_notification_channels.get",
-        {
-          pathParams: { pid: projectId },
-          query: {},
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    createNotificationChannel(body, options = {}) {
-      return httpContract(
-        "tenant.create_notification_channel.post",
-        {
-          pathParams: { pid: projectId },
-          query: {},
-          body,
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    patchNotificationChannel(channelId, body, options = {}) {
-      return httpContract(
-        "tenant.patch_notification_channel.patch",
-        {
-          pathParams: { pid: projectId, channel_id: channelId },
-          query: {},
-          body,
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    listNotificationRoutes(options = {}) {
-      return httpContract(
-        "tenant.list_notification_routes.get",
-        {
-          pathParams: { pid: projectId },
-          query: {},
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    createNotificationRoute(body, options = {}) {
-      return httpContract(
-        "tenant.create_notification_route.post",
-        {
-          pathParams: { pid: projectId },
-          query: {},
-          body,
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    patchNotificationRoute(routeId, body, options = {}) {
-      return httpContract(
-        "tenant.patch_notification_route.patch",
-        {
-          pathParams: { pid: projectId, route_id: routeId },
-          query: {},
-          body,
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    testNotificationRoute(routeId, options = {}) {
-      return httpContract(
-        "tenant.test_notification_route.post",
-        {
-          pathParams: { pid: projectId, route_id: routeId },
-          query: {},
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    listNotificationDeliveryRequests(
-      status,
-      routeId,
-      channelId,
-      notificationId,
-      offset,
-      limit,
-      options = {},
-    ) {
-      return httpContract(
-        "tenant.list_notification_delivery_requests.get",
-        {
-          pathParams: { pid: projectId },
-          query: {
-            // Preserve the handwritten byte order and explicit client defaults.
-            offset: offset ?? 0,
-            limit: limit ?? 20,
-            status: status ?? undefined,
-            route_id: routeId ?? undefined,
-            channel_id: channelId ?? undefined,
-            notification_id: notificationId ?? undefined,
-          },
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-  };
-}
-
-/** sqlite CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC) → ISO. */
-const toNotificationIso = (timestamp: string): string =>
-  timestamp.includes("T") ? timestamp : `${timestamp.replace(" ", "T")}Z`;
-
 const toNotificationItem = (wire: NotificationItemWire): NotificationItem => ({
   id: wire.id,
   sourceKind: wire.source_kind,
@@ -413,12 +62,12 @@ const toNotificationItem = (wire: NotificationItemWire): NotificationItem => ({
   summary: wire.summary,
   severity: wire.severity,
   deepLink: wire.deep_link ?? {},
-  createdAt: toNotificationIso(wire.created_at),
-  updatedAt: toNotificationIso(wire.updated_at),
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
   state: wire.state,
-  seenAt: wire.seen_at ? toNotificationIso(wire.seen_at) : null,
-  readAt: wire.read_at ? toNotificationIso(wire.read_at) : null,
-  acknowledgedAt: wire.acknowledged_at ? toNotificationIso(wire.acknowledged_at) : null,
+  seenAt: wire.seen_at ? sqliteTimestampToIso(wire.seen_at) : null,
+  readAt: wire.read_at ? sqliteTimestampToIso(wire.read_at) : null,
+  acknowledgedAt: wire.acknowledged_at ? sqliteTimestampToIso(wire.acknowledged_at) : null,
   acknowledgedBy: wire.acknowledged_by,
 });
 
@@ -455,11 +104,11 @@ const toNotificationActorState = (
   notificationId: wire.notification_id,
   actorId: wire.actor_id,
   state: wire.state,
-  seenAt: wire.seen_at ? toNotificationIso(wire.seen_at) : null,
-  readAt: wire.read_at ? toNotificationIso(wire.read_at) : null,
-  acknowledgedAt: wire.acknowledged_at ? toNotificationIso(wire.acknowledged_at) : null,
+  seenAt: wire.seen_at ? sqliteTimestampToIso(wire.seen_at) : null,
+  readAt: wire.read_at ? sqliteTimestampToIso(wire.read_at) : null,
+  acknowledgedAt: wire.acknowledged_at ? sqliteTimestampToIso(wire.acknowledged_at) : null,
   acknowledgedBy: wire.acknowledged_by,
-  updatedAt: toNotificationIso(wire.updated_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
 });
 
 const toNotificationChannel = (wire: NotificationChannelWire): NotificationChannel => ({
@@ -470,8 +119,8 @@ const toNotificationChannel = (wire: NotificationChannelWire): NotificationChann
   ownerKind: wire.owner_kind ?? "project",
   config: wire.config,
   hasSecret: Boolean(wire.has_secret),
-  createdAt: toNotificationIso(wire.created_at),
-  updatedAt: toNotificationIso(wire.updated_at),
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
 });
 
 const toNotificationChannelsPage = (
@@ -498,8 +147,8 @@ const toNotificationRoute = (wire: NotificationRouteWire): NotificationRoute => 
   digestTimezone: wire.digest_timezone,
   digestAnchorTime: wire.digest_anchor_time,
   templateKey: wire.template_key,
-  createdAt: toNotificationIso(wire.created_at),
-  updatedAt: toNotificationIso(wire.updated_at),
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
 });
 
 const toNotificationRoutesPage = (
@@ -521,12 +170,12 @@ const toNotificationDeliveryRequest = (
   dedupeKey: wire.dedupe_key,
   status: wire.status,
   jobId: wire.job_id,
-  availableAt: toNotificationIso(wire.available_at),
+  availableAt: sqliteTimestampToIso(wire.available_at),
   lastError: wire.last_error,
   providerRef: wire.provider_ref,
-  createdAt: toNotificationIso(wire.created_at),
-  updatedAt: toNotificationIso(wire.updated_at),
-  sentAt: wire.sent_at ? toNotificationIso(wire.sent_at) : null,
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
+  sentAt: wire.sent_at ? sqliteTimestampToIso(wire.sent_at) : null,
 });
 
 const toNotificationDeliveryRequestsPage = (
@@ -593,96 +242,156 @@ function toWireNotificationFilter(input: NotificationStateFilter): NotificationF
   return out;
 }
 
-export function createNotificationsDomainApi(
-  errorFactory: ContractErrorFactory,
-  projectId: string,
-): NotificationsDomainApi {
-  const reads = createNotificationsApi(errorFactory, projectId);
-  const delivery = createNotificationDeliverySettingsApi(errorFactory, projectId);
+export function createNotificationsApi(projectId: string) {
+  const project = { pid: projectId };
   return {
-    async listNotifications(params = {}) {
-      return toNotificationPage(await reads.listNotifications(
-        params.state ?? "all",
-        params.sourceKind || null,
-        params.sourceRef ? JSON.stringify(toWireJsonObject(params.sourceRef)) : null,
-        params.severity || null,
-        params.offset ?? 0,
-        params.limit ?? 50,
-      ));
+    async listNotifications(params: NotificationListParams = {}) {
+      return httpContract("tenant.list_notifications.get", {
+        pathParams: project,
+        // Keep the established query order.
+        query: {
+          state: params.state ?? "all",
+          offset: params.offset ?? 0,
+          limit: params.limit ?? 50,
+          source_kind: params.sourceKind || undefined,
+          source_ref: params.sourceRef
+            ? JSON.stringify(toWireJsonObject(params.sourceRef))
+            : undefined,
+          severity: params.severity || undefined,
+        },
+      }, toNotificationPage);
     },
 
     async getNotificationsSummary() {
-      return toNotificationSummary(await reads.notificationsSummary());
-    },
-
-    async markNotificationsSeen(filter) {
-      const wire = await reads.markNotificationsSeen(toWireNotificationFilter(filter));
-      return { seenCount: wire.seen_count };
-    },
-
-    async markNotificationRead(notificationId) {
-      return toNotificationActorState(await reads.markNotificationRead(notificationId));
-    },
-
-    async ackNotification(notificationId) {
-      return toNotificationActorState(await reads.ackNotification(notificationId));
-    },
-
-    async unackNotification(notificationId) {
-      return toNotificationActorState(await reads.unackNotification(notificationId));
-    },
-
-    async listNotificationChannels() {
-      return toNotificationChannelsPage(await delivery.listNotificationChannels());
-    },
-
-    async createNotificationChannel(input) {
-      return toNotificationChannel(
-        await delivery.createNotificationChannel(toWireNotificationChannelInput(input)),
+      return httpContract(
+        "tenant.notifications_summary.get",
+        { pathParams: project },
+        toNotificationSummary,
       );
     },
 
-    async updateNotificationChannel(channelId, input) {
-      return toNotificationChannel(
-        await delivery.patchNotificationChannel(
-          channelId,
-          toWireNotificationChannelInput(input),
-        ),
+    async markNotificationsSeen(filter: NotificationStateFilter) {
+      return httpContract(
+        "tenant.mark_notifications_seen.post",
+        { pathParams: project, body: toWireNotificationFilter(filter) },
+        (wire) => ({ seenCount: wire.seen_count }),
+      );
+    },
+
+    /** The three per-item POSTs are bodyless: the routes declare no request body. */
+    async markNotificationRead(notificationId: number) {
+      return httpContract(
+        "tenant.mark_notification_read.post",
+        { pathParams: { ...project, notification_id: notificationId } },
+        toNotificationActorState,
+      );
+    },
+
+    async ackNotification(notificationId: number) {
+      return httpContract(
+        "tenant.ack_notification.post",
+        { pathParams: { ...project, notification_id: notificationId } },
+        toNotificationActorState,
+      );
+    },
+
+    async unackNotification(notificationId: number) {
+      return httpContract(
+        "tenant.unack_notification.post",
+        { pathParams: { ...project, notification_id: notificationId } },
+        toNotificationActorState,
+      );
+    },
+
+    async listNotificationChannels() {
+      return httpContract(
+        "tenant.list_notification_channels.get",
+        { pathParams: project },
+        toNotificationChannelsPage,
+      );
+    },
+
+    async createNotificationChannel(input: NotificationChannelInput) {
+      return httpContract(
+        "tenant.create_notification_channel.post",
+        { pathParams: project, body: toWireNotificationChannelInput(input) },
+        toNotificationChannel,
+      );
+    },
+
+    async updateNotificationChannel(
+      channelId: number,
+      input: Partial<NotificationChannelInput>,
+    ) {
+      return httpContract(
+        "tenant.patch_notification_channel.patch",
+        {
+          pathParams: { ...project, channel_id: channelId },
+          body: toWireNotificationChannelInput(input),
+        },
+        toNotificationChannel,
       );
     },
 
     async listNotificationRoutes() {
-      return toNotificationRoutesPage(await delivery.listNotificationRoutes());
-    },
-
-    async createNotificationRoute(input) {
-      return toNotificationRoute(
-        await delivery.createNotificationRoute(toWireNotificationRouteInput(input)),
+      return httpContract(
+        "tenant.list_notification_routes.get",
+        { pathParams: project },
+        toNotificationRoutesPage,
       );
     },
 
-    async updateNotificationRoute(routeId, input) {
-      return toNotificationRoute(
-        await delivery.patchNotificationRoute(routeId, toWireNotificationRouteInput(input)),
+    async createNotificationRoute(input: NotificationRouteInput) {
+      return httpContract(
+        "tenant.create_notification_route.post",
+        { pathParams: project, body: toWireNotificationRouteInput(input) },
+        toNotificationRoute,
       );
     },
 
-    async testNotificationRoute(routeId, ownerKind) {
+    async updateNotificationRoute(
+      routeId: number,
+      input: Partial<NotificationRouteInput>,
+    ) {
+      return httpContract(
+        "tenant.patch_notification_route.patch",
+        {
+          pathParams: { ...project, route_id: routeId },
+          body: toWireNotificationRouteInput(input),
+        },
+        toNotificationRoute,
+      );
+    },
+
+    async testNotificationRoute(routeId: number, ownerKind?: string) {
       void ownerKind;
-      return toNotificationDeliveryRequest(await delivery.testNotificationRoute(routeId));
+      return httpContract(
+        "tenant.test_notification_route.post",
+        { pathParams: { ...project, route_id: routeId } },
+        toNotificationDeliveryRequest,
+      );
     },
 
-    async listNotificationDeliveryRequests(params = {}) {
-      return toNotificationDeliveryRequestsPage(
-        await delivery.listNotificationDeliveryRequests(
-          params.status,
-          params.routeId,
-          params.channelId,
-          params.notificationId,
-          params.offset,
-          params.limit,
-        ),
-      );
+    async listNotificationDeliveryRequests(params: {
+      status?: NotificationDeliveryRequest["status"];
+      routeId?: number;
+      channelId?: number;
+      notificationId?: number;
+      offset?: number;
+      limit?: number;
+    } = {}) {
+      return httpContract("tenant.list_notification_delivery_requests.get", {
+        pathParams: project,
+        // Keep the established query order and explicit client defaults.
+        query: {
+          offset: params.offset ?? 0,
+          limit: params.limit ?? 20,
+          status: params.status ?? undefined,
+          route_id: params.routeId ?? undefined,
+          channel_id: params.channelId ?? undefined,
+          notification_id: params.notificationId ?? undefined,
+        },
+      }, toNotificationDeliveryRequestsPage);
     },
   };
 }
