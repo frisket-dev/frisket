@@ -654,7 +654,7 @@ async def test_recipe_execute_invalid_target_fails_before_calling(monkeypatch) -
 # --- per-row error isolation through the real MapRunner ---------------------
 
 
-def test_hosted_translate_row_error_stays_per_row(tmp_path, monkeypatch) -> None:
+def test_hosted_translate_row_error_stays_per_row(make_project, monkeypatch) -> None:
     """A 2-row DeepL run where row 1 hits a quota error must still translate
     row 2 — the TranslateEngineError must NOT escape MapRunner's per-row
     boundary and abort the run, and the taxonomy code lands in error_code."""
@@ -662,10 +662,9 @@ def test_hosted_translate_row_error_stays_per_row(tmp_path, monkeypatch) -> None
 
     from frisket.ai.llm import ModelRouter
     from frisket.engine.runner import MapRunner
-    from frisket.engine.store import Project
 
     monkeypatch.setenv("DEEPL_API_KEY", "k:fx")
-    project = Project.create(tmp_path / "t.frisket", name="t")
+    project = make_project("t")
     sheet_id = project.add_sheet("s")
     col = {"statement": project.add_column(sheet_id, "statement", type="text")}
     row_ids = project.add_rows(
@@ -722,17 +721,16 @@ def test_hosted_translate_row_error_stays_per_row(tmp_path, monkeypatch) -> None
 
 
 def test_hosted_translate_preserves_prior_detected_values_when_flag_turns_off(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     """Replacing only translation preserves independently named prior outputs."""
     import asyncio
 
     from frisket.ai.llm import ModelRouter
     from frisket.engine.runner import MapRunner
-    from frisket.engine.store import Project
 
     monkeypatch.setenv("DEEPL_API_KEY", "k:fx")
-    project = Project.create(tmp_path / "t.frisket", name="t")
+    project = make_project("t")
     sheet_id = project.add_sheet("s")
     col = {"statement": project.add_column(sheet_id, "statement", type="text")}
     project.add_rows(sheet_id, [{"statement": "Hello"}], col)

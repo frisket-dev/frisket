@@ -100,26 +100,23 @@ def _spec(sheet_id: int, **extras: Any) -> dict[str, Any]:
     ],
 )
 def test_transcribe_caps_only_resolved_local_parakeet(
-    tmp_path, params, expected
+    make_project, params, expected
 ) -> None:
     assert Recipe().max_row_concurrency({}) is None
-    project = Project.create(tmp_path / "transcribe-concurrency.frisket")
-    try:
-        sheet = project.add_sheet("Audio")
-        project.add_column(sheet, "audio", type="audio")
-        bound = BoundTypedActionRequest.bind(
-            ACTION_REGISTRY.get("media.transcribe"),
-            ActionRequest(
-                action_id="media.transcribe",
-                scope={"kind": "sheet_rows", "sheet_id": sheet},
-                params={"source": "audio", **params},
-                idempotency_key="concurrency",
-            ),
-        )
-        plan = build_typed_map_rows_plan(project, bound)
-        assert plan.program.max_row_concurrency(plan.spec_dict()) == expected
-    finally:
-        project.close()
+    project = make_project("transcribe-concurrency")
+    sheet = project.add_sheet("Audio")
+    project.add_column(sheet, "audio", type="audio")
+    bound = BoundTypedActionRequest.bind(
+        ACTION_REGISTRY.get("media.transcribe"),
+        ActionRequest(
+            action_id="media.transcribe",
+            scope={"kind": "sheet_rows", "sheet_id": sheet},
+            params={"source": "audio", **params},
+            idempotency_key="concurrency",
+        ),
+    )
+    plan = build_typed_map_rows_plan(project, bound)
+    assert plan.program.max_row_concurrency(plan.spec_dict()) == expected
 
 
 def test_durable_run_applies_recipe_cap_and_preserves_uncapped_concurrency(

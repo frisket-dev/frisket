@@ -49,11 +49,10 @@ def _table_counts(project: Any) -> dict[str, int]:
 
 @pytest.mark.parametrize("bad_params", BAD_PARAMS)
 def test_typed_csv_refuses_non_dict_params_before_file_or_project_work(
-    tmp_path: Path, bad_params: Any
+    make_project, bad_params: Any
 ) -> None:
     from frisket.actions.system import validate_root_action
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store import Project
 
     request = {
         "action_id": "import.csv",
@@ -65,17 +64,12 @@ def test_typed_csv_refuses_non_dict_params_before_file_or_project_work(
     validation = validate_root_action(request)
     assert validation.ok is False
     assert validation.error.code == "invalid_action_request"
-    project = Project.create(tmp_path / "invalid-csv.frisket", name="Invalid CSV")
-    try:
-        result = run_action_spec(project, request, project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
-            assert (
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
-            )
-    finally:
-        project.close()
+    project = make_project("Invalid CSV")
+    result = run_action_spec(project, request, project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
+        assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
 def _envelope(kind: str, params: Any) -> dict[str, Any]:
@@ -254,11 +248,10 @@ def test_retired_kind_is_absent_from_catalog_vocabulary_and_launcher_hints() -> 
 
 
 def test_retired_kind_typed_request_is_refused_without_model_calls_or_writes(
-    tmp_path: Path, precheck_spy: list[str], model_call_spy: list[Any]
+    make_project, precheck_spy: list[str], model_call_spy: list[Any]
 ) -> None:
     from frisket.actions.system import validate_root_action
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store import Project
 
     validation = validate_root_action(_retired_typed_request())
     assert validation.ok is False
@@ -266,24 +259,20 @@ def test_retired_kind_typed_request_is_refused_without_model_calls_or_writes(
     assert validation.error.code == "invalid_action_request"
     assert validation.error.action_kind == RETIRED_KIND
 
-    project = Project.create(tmp_path / "retired-typed.frisket", name="Retired")
-    try:
-        before = _table_counts(project)
-        result = run_action_spec(project, _retired_typed_request(), project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert _table_counts(project) == before
-    finally:
-        project.close()
+    project = make_project("Retired")
+    before = _table_counts(project)
+    result = run_action_spec(project, _retired_typed_request(), project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert _table_counts(project) == before
     assert precheck_spy == []
     assert model_call_spy == []
 
 
 def test_retired_kind_legacy_envelope_is_refused_without_model_calls_or_writes(
-    tmp_path: Path, precheck_spy: list[str], model_call_spy: list[Any]
+    make_project, precheck_spy: list[str], model_call_spy: list[Any]
 ) -> None:
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store import Project
 
     result = av.validate_action_spec(_retired_legacy_envelope())
     assert result.ok is False
@@ -296,15 +285,12 @@ def test_retired_kind_legacy_envelope_is_refused_without_model_calls_or_writes(
     # envelope for any kind (by design); it has nothing else to say here.
     assert av.payload_only_action_refusal(_retired_legacy_envelope()) is None
 
-    project = Project.create(tmp_path / "retired-legacy.frisket", name="Retired")
-    try:
-        before = _table_counts(project)
-        ran = run_action_spec(project, _retired_legacy_envelope(), project_id="p")
-        assert ran.status == "failed"
-        assert ran.errors[0].code == "invalid_action_request"
-        assert _table_counts(project) == before
-    finally:
-        project.close()
+    project = make_project("Retired")
+    before = _table_counts(project)
+    ran = run_action_spec(project, _retired_legacy_envelope(), project_id="p")
+    assert ran.status == "failed"
+    assert ran.errors[0].code == "invalid_action_request"
+    assert _table_counts(project) == before
     assert model_call_spy == []
 
 

@@ -272,12 +272,12 @@ def test_media_youtube_cloud_block_surfaces_stable_non_secret_row_diagnosis(
 
 
 def test_media_download_action_supports_tiktok_without_youtube_backfill(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     import frisket.ops.ytdlp as media_ops
 
-    project = Project.create(tmp_path / "media-tiktok.frisket", name="TikTok")
+    project = make_project("TikTok")
     sheet_id = project.add_sheet("Videos")
     columns = {
         "url": project.add_column(sheet_id, "url", type="link"),
@@ -341,13 +341,13 @@ def test_media_download_action_supports_tiktok_without_youtube_backfill(
 
 
 def test_media_download_action_passes_arbitrary_http_domain_to_ytdlp(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     import frisket.ops.ytdlp as media_ops
 
     url = "http://127.0.0.1:8080/custom/video"
-    project = Project.create(tmp_path / "media-arbitrary.frisket", name="Arbitrary")
+    project = make_project("Arbitrary")
     sheet_id = project.add_sheet("Videos")
     columns = {"url": project.add_column(sheet_id, "url", type="link")}
     project.add_rows(sheet_id, [{"url": url}], columns)
@@ -470,14 +470,12 @@ def test_media_download_overwrite_existing_intent_reuses_ai_column_but_protects_
 
 
 def test_media_download_action_keeps_row_level_failures_for_bad_urls(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     import frisket.ops.ytdlp as youtube_ops
 
-    project = Project.create(
-        tmp_path / "media-youtube-download-mixed.frisket", name="YouTube v1 mixed"
-    )
+    project = make_project("YouTube v1 mixed")
     sheet_id, row_ids = _seed_sheet(
         project, urls=[YOUTUBE_WATCH, "not a youtube watch url"]
     )

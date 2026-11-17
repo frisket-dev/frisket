@@ -8,7 +8,6 @@ from decimal import Decimal
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     owned_media_metadata_document,
@@ -164,7 +163,7 @@ def test_audio_rate_lookup_carries_provenance_by_value(
     ],
 )
 def test_transcription_estimate_preserves_audio_rate_provenance(
-    tmp_path,
+    make_project,
     monkeypatch,
     engine: str,
     cost: float | None,
@@ -186,54 +185,51 @@ def test_transcription_estimate_preserves_audio_rate_provenance(
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-audio-quote-key")
     router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
 
-    project = Project.create(tmp_path / "audio-rate.frisket")
-    try:
-        digest = project.add_blob(
-            b"RIFFxxxxWAVEfmt ",
-            filename="audio.wav",
-            mime="audio/wav",
-            metadata=owned_media_metadata_document(
-                probe={"duration_seconds": 2.0, "kind": "audio"}
-            ),
-        )
-        rows = [
-            {
-                "media": MediaBlobStore.media_cell(
-                    digest,
-                    filename="audio.wav",
-                    mime="audio/wav",
-                )
-            }
-        ]
-        sheet = project.add_sheet("Audio")
-        column = project.add_column(sheet, "media", "json")
-        project.add_rows(sheet, rows, {"media": column})
-        action = ACTION_REGISTRY.get("media.transcribe")
-        plan = _typed_map_rows_plan(
-            BoundTypedActionRequest.bind(
-                action,
-                ActionRequest(
-                    action_id=action.action_id,
-                    scope=SheetRows(sheet_id=sheet),
-                    params={"source": "media", "engine": engine},
-                    idempotency_key="audio-rate-estimate",
-                ),
+    project = make_project("audio-rate")
+    digest = project.add_blob(
+        b"RIFFxxxxWAVEfmt ",
+        filename="audio.wav",
+        mime="audio/wav",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": 2.0, "kind": "audio"}
+        ),
+    )
+    rows = [
+        {
+            "media": MediaBlobStore.media_cell(
+                digest,
+                filename="audio.wav",
+                mime="audio/wav",
             )
-        )
-        resolved = resolve_for_action(
-            project,
-            plan.spec,
-            plan.program,
-            composition=open_execution_composition(
-                project,
-                router,
-                ExecutionCompositionContext.direct(),
+        }
+    ]
+    sheet = project.add_sheet("Audio")
+    column = project.add_column(sheet, "media", "json")
+    project.add_rows(sheet, rows, {"media": column})
+    action = ACTION_REGISTRY.get("media.transcribe")
+    plan = _typed_map_rows_plan(
+        BoundTypedActionRequest.bind(
+            action,
+            ActionRequest(
+                action_id=action.action_id,
+                scope=SheetRows(sheet_id=sheet),
+                params={"source": "media", "engine": engine},
+                idempotency_key="audio-rate-estimate",
             ),
         )
-        assert isinstance(resolved, ResolvedExecution)
-        estimate = plan.program.estimate(project, plan.spec, rows, resolution=resolved)
-    finally:
-        project.close()
+    )
+    resolved = resolve_for_action(
+        project,
+        plan.spec,
+        plan.program,
+        composition=open_execution_composition(
+            project,
+            router,
+            ExecutionCompositionContext.direct(),
+        ),
+    )
+    assert isinstance(resolved, ResolvedExecution)
+    estimate = plan.program.estimate(project, plan.spec, rows, resolution=resolved)
     assert estimate is not None
     assert estimate["cost"] == cost
     assert estimate["cost_source"] == source

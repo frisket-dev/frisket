@@ -367,46 +367,43 @@ def test_no_embedding_backend_fails_honestly(tmp_path, monkeypatch):
 
 @pytest.mark.network
 @pytest.mark.real
-def test_local_embedder_path_smoke(tmp_path, monkeypatch):
+def test_local_embedder_path_smoke(make_project, monkeypatch):
     from frisket.ai.embeddings.backends import local_embedder
 
     backend = local_embedder()
     if backend is None:
         pytest.skip("local semantic embedder unavailable")
-    p = Project.create(tmp_path / "real.frisket")
-    try:
-        sheet = p.add_sheet("categories")
-        column = p.add_column(sheet, "label", type="text")
-        rows = p.add_rows(
-            sheet,
-            [{"label": "car trouble"}, {"label": "banana bread recipe"}],
-            {"label": column},
-        )
-        good = _match(
-            p,
-            sheet,
-            "the automobile would not start",
-            target_column="label",
-            match_threshold=0.35,
-            confident_threshold=0.95,
-            backend=backend,
-        )
-        assert good.match_value.value == "car trouble"
-        assert good.matched_row_id.value == rows[0]
-        assert good.match_score.value > 0.35
-        bad = _match(
-            p,
-            sheet,
-            "a quantum mechanics lecture",
-            target_column="label",
-            match_threshold=0.80,
-            confident_threshold=0.95,
-            backend=backend,
-        )
-        assert bad.match_value.value is None
-        assert bad.matched_row_id.value is None
-    finally:
-        p.close()
+    p = make_project("real")
+    sheet = p.add_sheet("categories")
+    column = p.add_column(sheet, "label", type="text")
+    rows = p.add_rows(
+        sheet,
+        [{"label": "car trouble"}, {"label": "banana bread recipe"}],
+        {"label": column},
+    )
+    good = _match(
+        p,
+        sheet,
+        "the automobile would not start",
+        target_column="label",
+        match_threshold=0.35,
+        confident_threshold=0.95,
+        backend=backend,
+    )
+    assert good.match_value.value == "car trouble"
+    assert good.matched_row_id.value == rows[0]
+    assert good.match_score.value > 0.35
+    bad = _match(
+        p,
+        sheet,
+        "a quantum mechanics lecture",
+        target_column="label",
+        match_threshold=0.80,
+        confident_threshold=0.95,
+        backend=backend,
+    )
+    assert bad.match_value.value is None
+    assert bad.matched_row_id.value is None
 
 
 @pytest.mark.parametrize(

@@ -4,7 +4,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import datetime as dt
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -79,45 +78,40 @@ def _runner(project: Project, router: Any | None) -> MapRunner:
 
 
 def test_unparseable_rows_reach_review_through_typed_lifecycle(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "clean-dates.frisket", name="dates")
-    try:
-        sheet_id = project.add_sheet("filings")
-        source_id = project.add_column(sheet_id, "filed", type="text")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"filed": "12/06/2026"}, {"filed": "Sept the first-ish"}],
-            {"filed": source_id},
-        )
-        request = ActionRequest(
-            action_id="map.clean_dates",
-            scope=SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
-            params={"source": "filed"},
-            output_names={"cleaned": "filed_iso"},
-            idempotency_key="clean-dates@behavior",
-        )
+    project = make_project("dates")
+    sheet_id = project.add_sheet("filings")
+    source_id = project.add_column(sheet_id, "filed", type="text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"filed": "12/06/2026"}, {"filed": "Sept the first-ish"}],
+        {"filed": source_id},
+    )
+    request = ActionRequest(
+        action_id="map.clean_dates",
+        scope=SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
+        params={"source": "filed"},
+        output_names={"cleaned": "filed_iso"},
+        idempotency_key="clean-dates@behavior",
+    )
 
-        result = run_typed_map_rows_action(
-            project,
-            "project-1",
-            BoundTypedActionRequest.bind(
-                ACTION_REGISTRY.get(request.action_id), request
-            ),
-            None,
-            _runner,
-        )
+    result = run_typed_map_rows_action(
+        project,
+        "project-1",
+        BoundTypedActionRequest.bind(ACTION_REGISTRY.get(request.action_id), request),
+        None,
+        _runner,
+    )
 
-        assert result.status == "completed"
-        output_id = result.outputs[0].column_id
-        assert output_id is not None
-        assert project.get_values(sheet_id, output_id, row_ids=row_ids) == {
-            row_ids[0]: "2026-12-06",
-            row_ids[1]: None,
-        }
-        queue = review_queue(project, sheet_id=sheet_id)
-        assert queue[0]["confidence"] == 0.0
-        assert "Sept the first-ish" in queue[0]["justification"]
-        assert "Sept the first-ish" in project.get_values(sheet_id, source_id).values()
-    finally:
-        project.close()
+    assert result.status == "completed"
+    output_id = result.outputs[0].column_id
+    assert output_id is not None
+    assert project.get_values(sheet_id, output_id, row_ids=row_ids) == {
+        row_ids[0]: "2026-12-06",
+        row_ids[1]: None,
+    }
+    queue = review_queue(project, sheet_id=sheet_id)
+    assert queue[0]["confidence"] == 0.0
+    assert "Sept the first-ish" in queue[0]["justification"]
+    assert "Sept the first-ish" in project.get_values(sheet_id, source_id).values()

@@ -141,34 +141,29 @@ def test_typed_params_reject_invalid_route_shapes(routes: list[object]) -> None:
         ColumnsFromJsonParams(source_column="api_result", routes=routes)
 
 
-def test_invalid_routes_fail_before_creating_a_run(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "invalid-columns.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        project.add_column(sheet_id, "api_result", type="json")
-        request = ActionRequest.model_validate(
-            typed_map_request(
-                "map.columns_from_json",
-                sheet_id,
-                params={
-                    "source_column": "api_result",
-                    "routes": [
-                        {"name": "score", "path": "$.score"},
-                        {"name": "score_justification", "path": "$.reason"},
-                    ],
-                },
-                output_names={},
-                idempotency_key="invalid-columns@1",
-            )
+def test_invalid_routes_fail_before_creating_a_run(make_project) -> None:
+    project = make_project("invalid-columns")
+    sheet_id = project.add_sheet("data")
+    project.add_column(sheet_id, "api_result", type="json")
+    request = ActionRequest.model_validate(
+        typed_map_request(
+            "map.columns_from_json",
+            sheet_id,
+            params={
+                "source_column": "api_result",
+                "routes": [
+                    {"name": "score", "path": "$.score"},
+                    {"name": "score_justification", "path": "$.reason"},
+                ],
+            },
+            output_names={},
+            idempotency_key="invalid-columns@1",
         )
+    )
 
-        with pytest.raises(ValidationError, match="route output names must be unique"):
-            BoundTypedActionRequest.bind(
-                ACTION_REGISTRY.get(request.action_id), request
-            )
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    finally:
-        project.close()
+    with pytest.raises(ValidationError, match="route output names must be unique"):
+        BoundTypedActionRequest.bind(ACTION_REGISTRY.get(request.action_id), request)
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
 def test_direct_python_extracts_nested_and_array_paths() -> None:
@@ -256,78 +251,69 @@ def test_plan_rejects_non_json_source_column(tmp_path: Path) -> None:
         project.close()
 
 
-def test_plan_accepts_default_hidden_json_source(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "default-hidden.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        source_id = project.add_column(
-            sheet_id, "api_result", type="json", default_hidden=True
-        )
+def test_plan_accepts_default_hidden_json_source(make_project) -> None:
+    project = make_project("default-hidden")
+    sheet_id = project.add_sheet("data")
+    source_id = project.add_column(
+        sheet_id, "api_result", type="json", default_hidden=True
+    )
 
-        plan = _plan(project, _request(sheet_id))
+    plan = _plan(project, _request(sheet_id))
 
-        assert plan.source_columns == ("api_result",)
-        assert plan.source_column_ids == {"api_result": source_id}
-        assert plan.source_column_types == {"api_result": "json"}
-    finally:
-        project.close()
+    assert plan.source_columns == ("api_result",)
+    assert plan.source_column_ids == {"api_result": source_id}
+    assert plan.source_column_types == {"api_result": "json"}
 
 
-def test_plan_rejects_truly_hidden_json_source(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "hidden.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        project.add_column(sheet_id, "plumbing", type="json", hidden=True)
+def test_plan_rejects_truly_hidden_json_source(make_project) -> None:
+    project = make_project("hidden")
+    sheet_id = project.add_sheet("data")
+    project.add_column(sheet_id, "plumbing", type="json", hidden=True)
 
-        with pytest.raises(TypedMapRowsPlanError) as excinfo:
-            _plan(project, _request(sheet_id, source="plumbing"))
-        assert excinfo.value.code == "invalid_input_ref"
-        assert excinfo.value.details == {"columns": ["plumbing"]}
-    finally:
-        project.close()
+    with pytest.raises(TypedMapRowsPlanError) as excinfo:
+        _plan(project, _request(sheet_id, source="plumbing"))
+    assert excinfo.value.code == "invalid_input_ref"
+    assert excinfo.value.details == {"columns": ["plumbing"]}
 
 
-def test_typed_lifecycle_persists_values_receipt_and_replays(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "columns-lifecycle.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        source_id = project.add_column(sheet_id, "api_result", type="json")
-        row_ids = project.add_rows(
-            sheet_id,
-            [
-                {"api_result": {"address": {"city": "Paris"}}},
-                {"api_result": {"address": {}}},
-            ],
-            {"api_result": source_id},
-        )
-        request = typed_map_request(
-            "map.columns_from_json",
-            sheet_id,
-            params={
-                "source_column": "api_result",
-                "routes": [{"name": "city", "path": "$.address.city"}],
-            },
-            output_names={"city": "location"},
-            idempotency_key="columns-lifecycle@1",
-        )
+def test_typed_lifecycle_persists_values_receipt_and_replays(make_project) -> None:
+    project = make_project("columns-lifecycle")
+    sheet_id = project.add_sheet("data")
+    source_id = project.add_column(sheet_id, "api_result", type="json")
+    row_ids = project.add_rows(
+        sheet_id,
+        [
+            {"api_result": {"address": {"city": "Paris"}}},
+            {"api_result": {"address": {}}},
+        ],
+        {"api_result": source_id},
+    )
+    request = typed_map_request(
+        "map.columns_from_json",
+        sheet_id,
+        params={
+            "source_column": "api_result",
+            "routes": [{"name": "city", "path": "$.address.city"}],
+        },
+        output_names={"city": "location"},
+        idempotency_key="columns-lifecycle@1",
+    )
 
-        first = run_typed_map_request(project, request, project_id="columns-lifecycle")
-        replay = run_typed_map_request(project, request, project_id="columns-lifecycle")
+    first = run_typed_map_request(project, request, project_id="columns-lifecycle")
+    replay = run_typed_map_request(project, request, project_id="columns-lifecycle")
 
-        assert first.status == "completed", first.errors
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == first.receipt_id
-        assert replay.run_id == first.run_id
-        assert [(output.kind, output.name) for output in first.outputs] == [
-            ("column", "location")
-        ]
-        output_id = first.outputs[0].column_id
-        assert output_id is not None
-        assert project.get_values(sheet_id, output_id, row_ids=row_ids) == {
-            row_ids[0]: "Paris",
-            row_ids[1]: None,
-        }
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-    finally:
-        project.close()
+    assert first.status == "completed", first.errors
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == first.receipt_id
+    assert replay.run_id == first.run_id
+    assert [(output.kind, output.name) for output in first.outputs] == [
+        ("column", "location")
+    ]
+    output_id = first.outputs[0].column_id
+    assert output_id is not None
+    assert project.get_values(sheet_id, output_id, row_ids=row_ids) == {
+        row_ids[0]: "Paris",
+        row_ids[1]: None,
+    }
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1

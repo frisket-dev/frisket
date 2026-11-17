@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import ExecutorDeps
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.execution.promises import Promise, PromiseSet
@@ -42,9 +41,9 @@ def _paid_claims() -> PromiseSet:
 
 
 def test_same_project_principals_cannot_borrow_preapproval_or_exact_consent(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "shared.frisket")
+    project = make_project("shared")
     spec = transcription_spec()
     promises = _paid_claims()
     alice = ConsentCoverage("hosted-user:alice", Decimal("2.00"))

@@ -180,7 +180,7 @@ def _seeded_app_with_audio_row(
 
 
 def test_anchor_o1_atomic_prepare_reuses_the_resolution_provider(
-    tmp_path,
+    make_project,
     monkeypatch,
     counting_composition_factory,
 ):
@@ -188,60 +188,56 @@ def test_anchor_o1_atomic_prepare_reuses_the_resolution_provider(
 
     for name in ("FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN", "MODAL_TOKEN_ID"):
         monkeypatch.delenv(name, raising=False)
-    from frisket.engine.store import Project
 
-    project = Project.create(tmp_path / "o1-provider-reuse.frisket")
-    try:
-        sheet_id = project.add_sheet("Episodes")
-        media_column = project.add_column(sheet_id, "media", type="audio")
-        blob = project.add_blob(
-            b"RIFFxxxxWAVEfmt O1",
-            filename="ep1.wav",
-            mime="audio/wav",
-            metadata=owned_media_metadata_document(
-                probe={"duration_seconds": 2.0, "kind": "audio"}
-            ),
-        )
-        project.add_rows(
-            sheet_id,
-            [{"media": media_cell(blob, mime="audio/wav", filename="ep1.wav")}],
-            {"media": media_column},
-        )
-        plan = build_typed_map_rows_plan(
-            project, typed_action_for_request(_request(sheet_id))
-        )
-        composition_factory, counting_providers = counting_composition_factory
-        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        composition = composition_factory(
-            project, router, ExecutionCompositionContext.direct()
-        )
-        runner = MapRunner(
+    project = make_project("o1-provider-reuse")
+    sheet_id = project.add_sheet("Episodes")
+    media_column = project.add_column(sheet_id, "media", type="audio")
+    blob = project.add_blob(
+        b"RIFFxxxxWAVEfmt O1",
+        filename="ep1.wav",
+        mime="audio/wav",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": 2.0, "kind": "audio"}
+        ),
+    )
+    project.add_rows(
+        sheet_id,
+        [{"media": media_cell(blob, mime="audio/wav", filename="ep1.wav")}],
+        {"media": media_column},
+    )
+    plan = build_typed_map_rows_plan(
+        project, typed_action_for_request(_request(sheet_id))
+    )
+    composition_factory, counting_providers = counting_composition_factory
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+    composition = composition_factory(
+        project, router, ExecutionCompositionContext.direct()
+    )
+    runner = MapRunner(
+        project,
+        router,
+        allow_action_lifecycle_only_recipes=True,
+        authority=build_attempt_authority(
             project,
-            router,
-            allow_action_lifecycle_only_recipes=True,
-            authority=build_attempt_authority(
-                project,
-                composition=composition,
-            ),
-            execution_composition=composition,
+            composition=composition,
+        ),
+        execution_composition=composition,
+    )
+    output_fields = [dict(field) for field in plan.output_fields]
+
+    project.db.execute("BEGIN IMMEDIATE")
+    try:
+        runner.prepare_admitted_run(
+            plan.spec_dict(),
+            program=plan.program,
+            confirmed=False,
+            output_fields=output_fields,
         )
-        output_fields = [dict(field) for field in plan.output_fields]
-
-        project.db.execute("BEGIN IMMEDIATE")
-        try:
-            runner.prepare_admitted_run(
-                plan.spec_dict(),
-                program=plan.program,
-                confirmed=False,
-                output_fields=output_fields,
-            )
-        finally:
-            project.db.rollback()
-
-        assert len(counting_providers) == 1
-        assert counting_providers[0].probe_counts == {"local": 1}
     finally:
-        project.close()
+        project.db.rollback()
+
+    assert len(counting_providers) == 1
+    assert counting_providers[0].probe_counts == {"local": 1}
 
 
 def test_anchor_o1_open_selfhost_local_run_pays_no_rent(

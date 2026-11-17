@@ -1,4 +1,3 @@
-from frisket.engine.store import Project
 from frisket.actions.python import PythonParams
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import discover_references
@@ -71,30 +70,27 @@ def test_descriptor_owns_catalog_metadata_and_recipe_has_no_source_override() ->
 
 
 def test_research_descriptor_types_are_enforced_by_its_custom_resolver(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "research-source.frisket", name="Research")
-    try:
-        sheet_id = project.add_sheet("Inputs")
-        project.add_column(sheet_id, "recording", type="audio")
-        from frisket.engine.executor.actions import run_action_spec
+    project = make_project("Research")
+    sheet_id = project.add_sheet("Inputs")
+    project.add_column(sheet_id, "recording", type="audio")
+    from frisket.engine.executor.actions import run_action_spec
 
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "research.answer",
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-                "params": {
-                    "source": ["recording"],
-                    "question": {"text": "What happened?"},
-                    "model": "anthropic/claude-haiku-4-5",
-                },
-                "idempotency_key": "research-invalid-source",
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "research.answer",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+            "params": {
+                "source": ["recording"],
+                "question": {"text": "What happened?"},
+                "model": "anthropic/claude-haiku-4-5",
             },
-            project_id="source",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_input_ref"
-        assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0
-    finally:
-        project.close()
+            "idempotency_key": "research-invalid-source",
+        },
+        project_id="source",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_input_ref"
+    assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0

@@ -41,8 +41,8 @@ _ZERO_WRITE_TABLES = ("ops", "runs", "results", "receipts", "model_calls")
 _MISSING = object()
 
 
-def test_preview_runner_receives_composed_browser_runtime(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "browser-preview.frisket", name="Preview")
+def test_preview_runner_receives_composed_browser_runtime(make_project) -> None:
+    project = make_project("Preview")
     browser = object()
     runner = SimpleNamespace(op_context_extras={})
     try:

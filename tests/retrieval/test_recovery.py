@@ -58,8 +58,10 @@ def test_unusable_retrieval_cache_is_preserved_and_rebuilt_on_open(tmp_path, kin
         assert len(list(path.glob("retrieval-unusable-*"))) == 1
 
 
-def test_open_defers_repair_while_initial_sidecar_creation_is_locked(tmp_path) -> None:
-    project = Project.create(tmp_path / "sidecar-creation-race.frisket")
+def test_open_defers_repair_while_initial_sidecar_creation_is_locked(
+    make_project,
+) -> None:
+    project = make_project("sidecar-creation-race")
     writer: sqlite3.Connection | None = None
     try:
         sheet = project.add_sheet("Notes")
@@ -123,33 +125,26 @@ def test_project_open_does_not_wait_for_current_sidecar_writer(tmp_path) -> None
 
 
 def test_project_database_failure_does_not_quarantine_healthy_sidecar(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     from frisket import search_index
 
-    project = Project.create(tmp_path / "project-db-failure.frisket")
-    try:
-        with RetrievalStore(project).open():
-            pass
-        project.set_meta(PROJECT_SIDECAR_META_KEY, "stale-sidecar")
-        failure = sqlite3.DatabaseError("project database write failed")
-        failure.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+    project = make_project("project-db-failure")
+    with RetrievalStore(project).open():
+        pass
+    project.set_meta(PROJECT_SIDECAR_META_KEY, "stale-sidecar")
+    failure = sqlite3.DatabaseError("project database write failed")
+    failure.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
 
-        def fail_project_binding(_project) -> str:
-            raise failure
+    def fail_project_binding(_project) -> str:
+        raise failure
 
-        monkeypatch.setattr(
-            search_index, "bind_retrieval_sidecar", fail_project_binding
-        )
-        with pytest.raises(
-            sqlite3.DatabaseError, match="project database write failed"
-        ):
-            prepare_retrieval_on_open(project)
+    monkeypatch.setattr(search_index, "bind_retrieval_sidecar", fail_project_binding)
+    with pytest.raises(sqlite3.DatabaseError, match="project database write failed"):
+        prepare_retrieval_on_open(project)
 
-        assert (project.path / "project.retrieval.db").is_file()
-        assert not list(project.path.glob("retrieval-unusable-*"))
-    finally:
-        project.close()
+    assert (project.path / "project.retrieval.db").is_file()
+    assert not list(project.path.glob("retrieval-unusable-*"))
 
 
 @pytest.mark.parametrize("version", ["1", "999"])
