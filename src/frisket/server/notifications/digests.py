@@ -7,14 +7,14 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 from frisket.server.notifications.delivery import NotificationRenderedMessage
-from frisket.server.notifications.producers import (
-    NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,
-)
-from frisket.server.notifications.service import (
+from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     _loads_list,
     _loads_object,
     _severity_rank,
+)
+from frisket.notifications.producers import (
+    NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,
 )
 from frisket.engine.store import Project
 

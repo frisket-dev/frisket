@@ -72,6 +72,8 @@ from frisket.server.exports.sheet_csv import (
 from frisket.server.exports.work_log import build_work_log_payload, work_log_markdown
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.notifications.emit import emit_notification_candidate
+from frisket.notifications.producers import export_notification_candidate
 from frisket.ops.integrations.google_sheets import (
     normalize_google_sheets_destination,
     normalize_google_sheets_tabs,
@@ -576,9 +578,6 @@ def _emit_export_notification(project: Project, result: ActionResult) -> None:
     if result.status not in {"completed", "failed"}:
         return
     try:
-        from frisket.server.notifications.producers import export_notification_candidate
-        from frisket.server.notifications.service import emit_notification_candidate
-
         artifact_ref = _export_notification_artifact_ref(result)
         errors = [
             str(error.message)

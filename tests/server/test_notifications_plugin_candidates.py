@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.server.notifications.candidates import validate_notification_candidate
-from frisket.server.notifications.service import (
+from frisket.notifications.candidates import validate_notification_candidate
+from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     emit_notification_candidate,
 )

@@ -129,8 +129,8 @@
    "src/frisket/ai/embeddings/scope.py::_safe_obj",
    "src/frisket/engine/jobs/notifications_delivery.py::_loads_object",
    "src/frisket/engine/store/notifications.py::_loads_json_object",
+   "src/frisket/notifications/emit.py::_loads_object",
    "src/frisket/server/embedding_catalog.py::_safe_obj",
-   "src/frisket/server/notifications/service.py::_loads_object",
    "src/frisket/upgrades/project/domain_migration.py::_historical_object"
   ],
   [
@@ -344,8 +344,8 @@
   ],
   [
    "src/frisket/engine/store/notifications.py::_loads_json_list",
-   "src/frisket/server/embedding_catalog.py::_safe_list",
-   "src/frisket/server/notifications/service.py::_loads_list"
+   "src/frisket/notifications/emit.py::_loads_list",
+   "src/frisket/server/embedding_catalog.py::_safe_list"
   ],
   [
    "src/frisket/engine/store/ocr_word_stream.py::_loads",

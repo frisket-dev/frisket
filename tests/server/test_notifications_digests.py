@@ -24,11 +24,11 @@ from frisket.server.notifications.digests import (
     due_digest_window_for_route,
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
-from frisket.server.notifications.service import (
+from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     emit_notification_candidate,
-    normalize_route_input,
 )
+from frisket.server.notifications.service import normalize_route_input
 from frisket.engine.store import Project
 
 

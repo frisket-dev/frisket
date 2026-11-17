@@ -25,10 +25,13 @@ from frisket.server.notifications.delivery import (
     default_delivery_runtime,
     redact_delivery_provider_result,
 )
-from frisket.server.notifications.producers import (
+from frisket.notifications.emit import (
+    NotificationEmitResult,
+    emit_notification_candidate,
+)
+from frisket.notifications.producers import (
     delivery_health_notification_candidate,
 )
-from frisket.server.notifications.service import NotificationEmitResult
 from frisket.project_identity import ProjectStorageKey, validate_project_slug
 from frisket.engine.store import Project
 from frisket.engine.store.notifications import TERMINAL_REQUEST_STATUSES
@@ -1043,8 +1046,6 @@ def _emit_delivery_health_notification(
     if candidate is None:
         return
     try:
-        from frisket.server.notifications.service import emit_notification_candidate
-
         emit_notification_candidate(project, candidate)
     except Exception:  # noqa: BLE001 - delivery status must remain terminal
         return

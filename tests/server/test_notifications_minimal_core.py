@@ -10,7 +10,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
-from frisket.server.notifications.service import emit_notification_candidate
+from frisket.notifications.emit import emit_notification_candidate
 from frisket.search_index import drain_index
 
 

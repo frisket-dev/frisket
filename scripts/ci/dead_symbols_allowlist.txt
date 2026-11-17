@@ -140,6 +140,7 @@ src/frisket/features/temporal/transcript_boundaries.py::TranscriptBoundaryResult
 src/frisket/features/alerts/service.py::evaluate_alert  test-only
 src/frisket/features/alerts/service.py::resolve_alert_check  test-only
 src/frisket/ingest.py::ingest_rss  test-only
+src/frisket/notifications/producers.py::run_transition_notification_candidate  test-only
 src/frisket/operability/control/app_env.py::<module>  frisket-cloud
 src/frisket/operability/control/env_manifest.py::classify_name  frisket-cloud
 src/frisket/operability/control/env_manifest.py::known_names  frisket-cloud
@@ -174,7 +175,6 @@ src/frisket/sdk/ops/transcribe_engines.py::transcription_model_calls  test-only
 src/frisket/search.py::search_sheet  test-only
 src/frisket/server/exports/sheet_csv.py::render_export_csv  test-only
 src/frisket/server/import_admission.py::ImportAdmissionLease.transferred  frisket-cloud
-src/frisket/server/notifications/producers.py::run_transition_notification_candidate  test-only
 src/frisket/server/notifications/secrets.py::StaticNotificationSecretResolver  test-only
 src/frisket/server/provider_config.py::save_search_provider  test-only
 src/frisket/server/services/action_preview_jobs.py::ActionPreviewJobRegistry.has_active_jobs  frisket-cloud

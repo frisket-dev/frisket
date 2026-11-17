@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 
-from frisket.server.notifications.candidates import validate_notification_candidate
-from frisket.server.notifications.producers import (
+from frisket.notifications.candidates import validate_notification_candidate
+from frisket.notifications.producers import (
     run_transition_notification_candidate,
 )
 

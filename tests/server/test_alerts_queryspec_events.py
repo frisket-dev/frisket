@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
-from frisket.server.notifications.candidates import validate_notification_candidate
+from frisket.notifications.candidates import validate_notification_candidate
 from frisket.contracts.query_spec import (
     QUERY_SPEC_VERSION,
     normalize_detection_policy,

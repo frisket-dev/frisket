@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionResult
-from frisket.server.notifications.service import LOCAL_ACTOR_ID
+from frisket.notifications.emit import LOCAL_ACTOR_ID
 from frisket.server.routes.action_runs import register_action_run_routes
 from frisket.server.services.action_runs import ActionRunResponse
 

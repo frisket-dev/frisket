@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
 from frisket.search_index import drain_index
-from frisket.server.notifications.producers import (
+from frisket.notifications.producers import (
     run_transition_notification_candidate,
 )
 

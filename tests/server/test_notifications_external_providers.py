@@ -17,9 +17,9 @@ from frisket.server.notifications.providers import (
     notification_provider_for_channel,
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.emit import emit_notification_candidate
 from frisket.server.notifications.service import (
     create_notification_test_request,
-    emit_notification_candidate,
     normalize_channel_input,
 )
 from frisket.engine.store import Project
