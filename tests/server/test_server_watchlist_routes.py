@@ -164,11 +164,11 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
         params={"event_kind": "bad"},
     )
     assert bad_event.status_code == 400
-    assert bad_event.json()["detail"] == "unsupported watch run event kind"
+    assert bad_event.json()["detail"] == "unsupported alert check event kind"
 
     wrong_run = client.get("/api/projects/p/watches/9/runs/404/events")
     assert wrong_run.status_code == 404
-    assert wrong_run.json()["detail"] == "alert run not found"
+    assert wrong_run.json()["detail"] == "alert check not found"
 
 
 def _run_payload(run_id: int, *, watch_id: int) -> dict[str, Any]:
@@ -324,9 +324,9 @@ class _FakeWatchService:
             )
         )
         if run_id == 404:
-            raise WatchRunNotFound("alert run not found")
+            raise WatchRunNotFound("alert check not found")
         if event_kind == "bad":
-            raise WatchRequestError("unsupported watch run event kind")
+            raise WatchRequestError("unsupported alert check event kind")
         return {
             "schema_version": "frisket.watch_run_events_page.v1",
             "order": "asc",

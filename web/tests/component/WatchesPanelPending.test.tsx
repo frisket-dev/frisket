@@ -236,7 +236,7 @@ describe('WatchesPanel pending actions', () => {
     fireEvent.click(alphaButton);
 
     expect(alphaButton).toBeDisabled();
-    expect(alphaButton).toHaveAccessibleName('Running Alpha…');
+    expect(alphaButton).toHaveAccessibleName('Checking Alpha…');
     expect(betaButton).toBeEnabled();
     fireEvent.click(betaButton);
     // React has not needed to publish the first pending state for the second
@@ -322,7 +322,7 @@ describe('WatchesPanel pending actions', () => {
     harness.render(<WatchesPanel canEdit />);
     const remountedRun = await screen.findByTestId('run-watch');
     expect(remountedRun).toBeDisabled();
-    expect(remountedRun).toHaveAccessibleName('Running Alpha…');
+    expect(remountedRun).toHaveAccessibleName('Checking Alpha…');
     fireEvent.click(remountedRun);
     expect(projectApi.runWatch).toHaveBeenCalledTimes(1);
 

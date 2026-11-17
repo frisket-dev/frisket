@@ -98,8 +98,8 @@ function blockedEmbeddingIndexId(watch: WatchInfo): string | null {
 }
 
 function runSummary(run: WatchRun | null): string {
-  if (!run) return 'Never run';
-  if (run.status === 'error') return run.errorCode ?? run.error ?? 'Run failed';
+  if (!run) return 'Never checked';
+  if (run.status === 'error') return run.errorCode ?? run.error ?? 'Check failed';
   return `${run.matchedRows.toLocaleString()} matched · ${run.newRows.toLocaleString()} new`;
 }
 
@@ -324,7 +324,7 @@ function useWatchesPanelController(canEdit: boolean) {
     void request()
       .then((result) => {
         outcome = {
-          status: `Finished running ${result.watch.name}.`,
+          status: `Finished checking ${result.watch.name}.`,
           error: null,
           errorCode: null,
           watch: result.watch,
@@ -346,7 +346,7 @@ function useWatchesPanelController(canEdit: boolean) {
   }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, watchRunLinkHandle]);
 
   const runWatch = useCallback((watchId: number) => {
-    runWatchAction(watchId, 'run', 'Running alert…', () => projectApi.runWatch(watchId));
+    runWatchAction(watchId, 'run', 'Checking alert…', () => projectApi.runWatch(watchId));
   }, [projectApi, runWatchAction]);
 
   const updateWatch = useCallback((
@@ -639,7 +639,7 @@ function WatchRunHistory({
               <StatusChip tone={run.status === 'ok' ? 'success' : run.status === 'error' ? 'error' : 'neutral'} size="sm" uppercase>{run.status}</StatusChip>
               <span className="panel-item-meta panel-item-main">
                 {run.status === 'error'
-                  ? (run.errorCode ?? run.error ?? 'Run failed')
+                  ? (run.errorCode ?? run.error ?? 'Check failed')
                   : `${run.matchedRows.toLocaleString()} matched · ${run.newRows.toLocaleString()} new`}
               </span>
             </div>
@@ -750,8 +750,8 @@ function WatchItem({
             type="button"
             className="icon-btn"
             // A Watch run always performs a complete fresh evaluation.
-            title={`Run ${watch.name} — manual evaluation; a full fresh check, not a resume`}
-            aria-label={isRunning ? `Running ${watch.name}…` : `Run ${watch.name} — manual evaluation; a full fresh check, not a resume`}
+            title={`Check ${watch.name} now — a full fresh check, not a resume`}
+            aria-label={isRunning ? `Checking ${watch.name}…` : `Check ${watch.name} now — a full fresh check, not a resume`}
             aria-busy={isRunning}
             data-testid="run-watch"
             disabled={isPending}
@@ -790,7 +790,7 @@ function WatchItem({
             disabled={isPending}
             onClick={() => onRefreshIndex(watch.id, blockedIndexId)}
           >
-            <RefreshCw size={11} className={isRefreshingIndex ? 'spin' : undefined} /> {isRefreshingIndex ? 'Refreshing index…' : 'Refresh index & re-run'}
+            <RefreshCw size={11} className={isRefreshingIndex ? 'spin' : undefined} /> {isRefreshingIndex ? 'Refreshing index…' : 'Refresh index & check again'}
           </Button>
         )}
       </div>
@@ -829,7 +829,7 @@ function WatchItem({
           confirmLabel={isDeleting ? 'Deleting…' : 'Delete alert'}
           onCancel={closeDeleteDialog} onConfirm={confirmDelete}>
           <p className="modal-body-text">
-            Deleting this alert means its run history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
+            Deleting this alert means its check history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
           </p>
           {mutationError && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
         </ConfirmDialog>
@@ -849,7 +849,7 @@ function WatchItem({
           aria-expanded={expanded}
           onClick={() => onToggleRuns(watch.id)}
         >
-          <RunChevron size={11} /> Runs
+          <RunChevron size={11} /> Checks
         </Button>
       </div>
       {expanded && (

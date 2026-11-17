@@ -1076,7 +1076,7 @@
       "id": "frisket.core.view.source_runs",
       "kind": "view",
       "ownerPluginId": "frisket.core",
-      "title": "Runs",
+      "title": "Checks",
       "icon": "ListChecks",
       "placements": [
         {

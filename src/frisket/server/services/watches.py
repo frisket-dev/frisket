@@ -227,9 +227,9 @@ class WatchService:
             raise WatchNotFound("alert not found")
         run = project.get_watch_run(run_id)
         if run is None or int(run["watch_id"]) != int(watch_id):
-            raise WatchRunNotFound("alert run not found")
+            raise WatchRunNotFound("alert check not found")
         if event_kind is not None and event_kind not in ALLOWED_EVENT_KINDS:
-            raise WatchRequestError("unsupported watch run event kind")
+            raise WatchRequestError("unsupported alert check event kind")
         events = [
             decode_watch_run_event(row)
             for row in project.watch_run_events(

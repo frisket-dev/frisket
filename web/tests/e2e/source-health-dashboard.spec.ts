@@ -242,5 +242,5 @@ test('source health drawer shows redacted status, deltas, costs, warnings, and r
 
   await page.getByTestId(`source-health-${seeded.neverId}`).click();
   await page.getByTestId('source-detail-tab-health').click();
-  await expect(page.getByTestId(`source-health-status-${seeded.neverId}`)).toHaveText('never run');
+  await expect(page.getByTestId(`source-health-status-${seeded.neverId}`)).toHaveText('never checked');
 });

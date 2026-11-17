@@ -51,7 +51,7 @@ def watch_run_notification_candidate(
     if event_count != 1:
         title += "s"
     summary = (
-        f"Run #{int(run_id)} matched {matched_rows} rows, "
+        f"Check #{int(run_id)} matched {matched_rows} rows, "
         f"including {new_rows} new rows."
     )
     if event_kinds:

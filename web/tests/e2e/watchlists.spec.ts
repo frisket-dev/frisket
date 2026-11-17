@@ -260,7 +260,7 @@ test('editable Watch controls preserve failed state and describe delete conseque
   await renamed.getByTestId('pause-watch').click();
   expect(patches).toContainEqual({ enabled: false });
   await expect(renamed.getByTestId('watch-status')).toHaveText('Paused');
-  await expect(renamed.getByTestId('run-watch')).toHaveAccessibleName(/manual evaluation/i);
+  await expect(renamed.getByTestId('run-watch')).toHaveAccessibleName(/full fresh check/i);
   await expect(renamed.getByTestId('run-watch')).toBeEnabled();
   await renamed.getByTestId('resume-watch').click();
   expect(patches).toContainEqual({ enabled: true });

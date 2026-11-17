@@ -909,7 +909,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                 "unsupported_source_config",
                 "The poller rejected the source configuration.",
             ),
-            ("source_poll_failed", "The poll failed and recorded an error source run."),
+            ("source_poll_failed", "The poll failed and recorded a failed feed check."),
             write_failure="Source poll publication and receipt could not be written.",
         ),
         (

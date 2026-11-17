@@ -112,7 +112,7 @@ POLL = action(
     title="Poll feed",
     description=(
         "Poll a registered feed, deduplicate new and revised items, and record "
-        "the feed run, cursor and provider in a receipt."
+        "the feed check, cursor and provider in a receipt."
     ),
     category=ActionCategory.SOURCES,
     run=poll_source,
