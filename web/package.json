@@ -37,6 +37,7 @@
     "storybook:typecheck": "tsc -p tsconfig.storybook.json",
     "inventory": "npm run storybook:build && playwright test --config playwright/playwright.inventory.config.ts",
     "inventory:typecheck": "tsc -p tsconfig.inventory.json",
+    "tests:typecheck": "tsc -p tsconfig.tests.json",
     "doctor": "python3 ../scripts/e2e/checklog.py --kind shell --label web-doctor -- react-doctor . --yes --blocking none --output-dir .react-doctor",
     "doctor:score": "python3 ../scripts/e2e/checklog.py --kind shell --label web-doctor-score -- node scripts/check-react-doctor-score.mjs",
     "doctor:gate": "python3 ../scripts/e2e/checklog.py --kind shell --label web-doctor-gate -- node scripts/check-react-doctor-gate.mjs",

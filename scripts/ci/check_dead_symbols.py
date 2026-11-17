@@ -79,10 +79,15 @@ SKIP_DIRS = {
 }
 # Gate data names modules and symbols without using them.
 SKIP_FILES = {
+    "comment_history_baseline.json",
     "dead_symbols_allowlist.txt",
     "duplicate_functions_baseline.json",
     "import_boundaries.json",
     "ruff_ratchet_baseline.json",
+    "suppressions_baseline.json",
+    "test_collection_allowlist.txt",
+    "type_ratchet_baseline.json",
+    "web_tests_type_baseline.json",
 }
 TEXT_SUFFIXES = {
     ".cjs", ".js", ".json", ".md", ".mjs", ".rs", ".sh", ".toml", ".ts", ".tsx",

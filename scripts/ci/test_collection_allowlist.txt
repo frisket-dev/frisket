@@ -1,0 +1,3 @@
+# Test-named files no runner collects directly: <path>  <reason>. Shrink only.
+tests/authoring/test_workbench_placement_policy.py  helper module with no tests; tests/authoring/test_plugin_sdk_contract_parity.py loads it by path
+tests/engine/test_column_patch_executor.py  executor_harness case module (CASES only); tests/executor_harness.py parametrizes it

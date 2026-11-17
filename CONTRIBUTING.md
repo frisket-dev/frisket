@@ -76,6 +76,22 @@ file or function means renaming its baseline key by hand. Locally,
 checkout as a consumer. From `web/`, `npm run knip` reports unused files,
 exports and dependencies (not yet a CI gate).
 
+The same shrink-only rule covers these gates too. `check_suppressions.py`
+budgets suppression comments (`noqa`, `type: ignore`, `pragma: no cover`,
+`eslint-disable`, `@ts-expect-error`, ...), `as any`/`as unknown as`/`as
+never` casts and test skips that probe no environment; `.only` is never
+allowed. `lint_comment_history.py` freezes comments that carry dates, ticket
+slugs, review provenance or unfinished-work markers. `type_ratchet.py` runs
+pinned pyright (basic mode, `pyrightconfig.json`) over `src/frisket`; its
+baseline is measured in the CI environment (`uv sync --dev --extra
+entities`), and a pyright bump re-records it with `--update` in the bump's
+commit. `web_tests_type_ratchet.py` type-checks `web/tests` through
+`npm run tests:typecheck` (`web/tsconfig.tests.json`), which vitest and
+Playwright never do. Fix these by satisfying the check, not by adding another
+suppression. Finally, `check_test_collection.py --python`, `--sidecar` and
+`--web` fail when a test file is collected by no pytest, vitest or Playwright
+configuration; rename or move the file into a runner's pattern.
+
 ### Store transactions
 
 Write transactions in `src/frisket/engine/store` and `src/frisket/engine/jobs`

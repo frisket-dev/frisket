@@ -159,6 +159,7 @@ jobs:
       # below runs in its OWN locked env, and collecting it here imports a
       # package the shared env deliberately does not install.
       - run: uv run --no-sync pytest -q tests
+      - run: uv run --no-sync python ../scripts/ci/check_test_collection.py --sidecar
       # The CUDA worker is an isolated locked leaf. Its tests are CPU mocks,
       # but installing its own environment catches dependency/API drift that
       # the intentionally light shared sidecar environment cannot see.
@@ -215,6 +216,18 @@ jobs:
       - run: uv run --no-sync python scripts/ci/ruff_ratchet.py
       - run: uv run --no-sync python scripts/ci/check_dead_symbols.py
       - run: uv run --no-sync python scripts/ci/check_duplicate_functions.py
+      # Suppression comments, debt skips and history comments only shrink
+      # (Python and TS; the web job runs both too so frontend-only changes
+      # are counted).
+      - run: uv run --no-sync python scripts/ci/check_suppressions.py
+      - run: uv run --no-sync python scripts/ci/lint_comment_history.py
+      # Pinned pyright (pyrightconfig.json, basic mode) over src/frisket:
+      # per-file error counts only shrink. Measured in this job's environment.
+      - name: Type-checker ratchet
+        run: uv run --no-sync python scripts/ci/type_ratchet.py
+      # Every tests/ test file is collected by pytest (default and opt-in
+      # marker runs); the sidecar and web jobs check their own runners.
+      - run: uv run --no-sync python scripts/ci/check_test_collection.py --python
 
   test-engine:
     name: Python tests (execution core)
@@ -485,8 +498,14 @@ jobs:
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
       - run: uv sync --frozen --no-dev
       - run: python3 scripts/ci/lint_web_source_hygiene.py
+      - run: python3 scripts/ci/check_suppressions.py
+      - run: python3 scripts/ci/lint_comment_history.py
       - run: npm run lint
         working-directory: web
+      # Vitest and Playwright transpile without type-checking; per-file
+      # TypeScript error counts in web/tests only shrink.
+      - run: python3 scripts/ci/web_tests_type_ratchet.py
+      - run: python3 scripts/ci/check_test_collection.py --web
       # Run the full frontend unit/component suite separately from the build:
       # TypeScript and bundling checks do not execute behavioral tests.
       - run: npm run test:unit
