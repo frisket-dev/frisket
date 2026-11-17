@@ -53,6 +53,7 @@ from frisket.actions.core import (
     MapBatch,
     ModelRows,
     _DirectModelRows,
+    _ProjectAction,
     ModelRowsEvaluationContext,
     OutputField,
     RegisteredAction,
@@ -301,7 +302,10 @@ class _TypedMapRowsProgram(Recipe):
     ) -> None:
         self.name = action.action_id
         self.description = action.definition.description
-        self._terminal = action.definition.run
+        terminal = action.definition.run
+        if not isinstance(terminal, (MapRows, ModelRows, _ProjectAction)):
+            raise TypeError(f"{action.action_id} cannot run as a row program")
+        self._terminal = terminal
         self.required_source_columns = frozenset(
             ref.column for ref in discover_references(params) if ref.required
         )
@@ -330,16 +334,15 @@ class _TypedMapRowsProgram(Recipe):
         )
         self._file_capabilities = _FILE_CAPABILITIES
         self._uses_row_files = any(
-            cap in getattr(self._terminal, "capabilities", ())
-            for cap in self._file_capabilities
+            cap in self._terminal.capabilities for cap in self._file_capabilities
         )
-        if PythonEvaluator in getattr(self._terminal, "capabilities", ()):
+        if PythonEvaluator in self._terminal.capabilities:
             self.allow_all_empty_input = all(
                 not ref.required or ref.allow_missing
                 for ref in discover_references(params)
             )
         self.capture_source_cells = any(
-            cap in getattr(self._terminal, "capabilities", ())
+            cap in self._terminal.capabilities
             for cap in (
                 VisualCutsReader,
                 TopicSectionsReader,
@@ -369,24 +372,16 @@ class _TypedMapRowsProgram(Recipe):
             self.prompt_source_columns = tuple(
                 reference.column for reference in discover_references(prompt_inputs)
             )
-        if PdfTablesReader in getattr(self._terminal, "capabilities", ()):
+        if PdfTablesReader in self._terminal.capabilities:
             from frisket.engine.executor.pdf_tables_read import PdfResultEvidence
 
             self._pdf_evidence = PdfResultEvidence()
         if self._uses_row_files:
             self.capture_result_evidence = self._capture_file_result_evidence
-        self._uses_document_converter = DocumentConverter in getattr(
-            self._terminal, "capabilities", ()
-        )
-        self._uses_transcriber = Transcriber in getattr(
-            self._terminal, "capabilities", ()
-        )
-        self._uses_native_pdf_text = NativePdfTextReader in getattr(
-            self._terminal, "capabilities", ()
-        )
-        self._uses_translator = Translator in getattr(
-            self._terminal, "capabilities", ()
-        )
+        self._uses_document_converter = DocumentConverter in self._terminal.capabilities
+        self._uses_transcriber = Transcriber in self._terminal.capabilities
+        self._uses_native_pdf_text = NativePdfTextReader in self._terminal.capabilities
+        self._uses_translator = Translator in self._terminal.capabilities
         if (
             self._uses_row_files
             or self._uses_document_converter
@@ -408,21 +403,18 @@ class _TypedMapRowsProgram(Recipe):
             self.execution_capability = ROUTED_CAPABILITIES[capability]
             self.cost_class = "metered"
         if any(
-            cap in getattr(self._terminal, "capabilities", ())
+            cap in self._terminal.capabilities
             for cap in (HttpRequester, FileFetcher, MediaDownloader)
         ):
             self.disable_failure_halt = True
         # Downloading bytes with the local fetch/yt-dlp host has no provider
         # purchase. Arbitrary authored API calls may spend money; absence of
         # a price remains unknown for that capability alone.
-        if HttpRequester in getattr(self._terminal, "capabilities", ()):
+        if HttpRequester in self._terminal.capabilities:
             self.cost_class = "unpriceable"
-        if (
-            WebSearcher in getattr(self._terminal, "capabilities", ())
-            and self.cost_class == "free"
-        ):
+        if WebSearcher in self._terminal.capabilities and self.cost_class == "free":
             self.cost_class = "metered"
-        if OpenCorporates in getattr(self._terminal, "capabilities", ()):
+        if OpenCorporates in self._terminal.capabilities:
             if runtime_binding is None:
                 raise TypeError("OpenCorporates requires an installed action binding")
             self.cost_class = "unpriceable"
@@ -457,7 +449,7 @@ class _TypedMapRowsProgram(Recipe):
         )
 
     def estimate(self, project, spec, rows, *, resolution=None):
-        if OpenCorporates in getattr(self._terminal, "capabilities", ()):
+        if OpenCorporates in self._terminal.capabilities:
             return {
                 "cost": None,
                 "cost_source": "external_metered_declared",
@@ -486,12 +478,12 @@ class _TypedMapRowsProgram(Recipe):
                 else None
             ),
         )
-        if Transcriber in getattr(self._terminal, "capabilities", ()):
+        if Transcriber in self._terminal.capabilities:
             estimate["audio_seconds"] = (
                 resolution.resolution.estimate_basis.quantity_hint
             )
 
-        if HttpRequester in getattr(self._terminal, "capabilities", ()):
+        if HttpRequester in self._terminal.capabilities:
             estimate.update(cost=None, cost_source="unknown")
         return estimate
 
@@ -500,18 +492,17 @@ class _TypedMapRowsProgram(Recipe):
         return [dict(field) for field in self._output_fields]
 
     def max_row_concurrency(self, spec):
-        if OpenCorporates in getattr(self._terminal, "capabilities", ()):
+        if OpenCorporates in self._terminal.capabilities:
             return 1
         if any(
-            cap in getattr(self._terminal, "capabilities", ())
-            for cap in (McpExtractor, Classifier)
+            cap in self._terminal.capabilities for cap in (McpExtractor, Classifier)
         ):
             return 1
-        if MediaDownloader in getattr(self._terminal, "capabilities", ()):
+        if MediaDownloader in self._terminal.capabilities:
             from frisket.engine.executor.media_download import download_max_concurrency
 
             return download_max_concurrency()
-        if OcrReader in getattr(self._terminal, "capabilities", ()):
+        if OcrReader in self._terminal.capabilities:
             from frisket.ops.ocr_engines import (
                 ENGINE_ALIASES,
                 LIGHT_ENGINE,
@@ -522,7 +513,7 @@ class _TypedMapRowsProgram(Recipe):
             engine = spec.get("engine") or LIGHT_ENGINE
             if ENGINE_ALIASES.get(engine, engine) in RUN_SCOPED_ENGINES:
                 return rapidocr_topology().workers
-        if Transcriber in getattr(self._terminal, "capabilities", ()):
+        if Transcriber in self._terminal.capabilities:
             from frisket.sdk.ops.transcribe_engines import (
                 transcription_max_row_concurrency,
             )
@@ -531,10 +522,10 @@ class _TypedMapRowsProgram(Recipe):
         return None
 
     def requires_row_effect_checkpoint(self, spec):
-        return OpenCorporates in getattr(self._terminal, "capabilities", ())
+        return OpenCorporates in self._terminal.capabilities
 
     def run_provenance_model(self, spec):
-        if Classifier in getattr(self._terminal, "capabilities", ()):
+        if Classifier in self._terminal.capabilities:
             from frisket.engine.executor.classify_read import (
                 classifier_provenance_model,
             )
@@ -602,7 +593,7 @@ class _TypedMapRowsProgram(Recipe):
                 attempt = attempt_in_scope(ctx.extras)
                 self._file_writer = attempt.attempt_id if attempt is not None else None
             bindings = []
-            for capability in getattr(self._terminal, "capabilities", ()):
+            for capability in self._terminal.capabilities:
                 if capability is Classifier:
                     from frisket.engine.executor.classify_read import AdmittedClassifier
                     from frisket.engine.executor.decision_read import (
@@ -970,7 +961,7 @@ class _TypedMapRowsProgram(Recipe):
         ctx: OpContext,
     ) -> PreparedRowPublication:
         bindings = self._capability_bindings.get()
-        if getattr(self._terminal, "capabilities", ()) and bindings is None:
+        if self._terminal.capabilities and bindings is None:
             raise RuntimeError("typed row capabilities require an invocation scope")
         try:
             row = Row(row_values)
@@ -1017,7 +1008,7 @@ class _TypedMapRowsProgram(Recipe):
                 if capability is OpenCorporates
                 else binding
                 for capability, binding in zip(
-                    getattr(self._terminal, "capabilities", ()),
+                    self._terminal.capabilities,
                     bindings or (),
                     strict=True,
                 )
@@ -1031,7 +1022,7 @@ class _TypedMapRowsProgram(Recipe):
                 (
                     binding
                     for capability, binding in zip(
-                        getattr(self._terminal, "capabilities", ()),
+                        self._terminal.capabilities,
                         row_bindings,
                         strict=True,
                     )
@@ -1048,7 +1039,7 @@ class _TypedMapRowsProgram(Recipe):
                 else None,
             )
             for capability, binding in zip(
-                getattr(self._terminal, "capabilities", ()), row_bindings, strict=True
+                self._terminal.capabilities, row_bindings, strict=True
             ):
                 if capability is PdfTablesReader:
                     self._pdf_evidence.capture(
@@ -1096,7 +1087,7 @@ class _TypedMapRowsProgram(Recipe):
                                 )
                             )
                         break
-        if Researcher in getattr(self._terminal, "capabilities", ()) and any(
+        if Researcher in self._terminal.capabilities and any(
             call.get("kind") == "research_answer" and call.get("unverified_memory")
             for call in calls
         ):
@@ -1419,7 +1410,7 @@ class _TypedMapRowsProgram(Recipe):
                 **kwargs,
             )
         if any(
-            capability in getattr(self._terminal, "capabilities", ())
+            capability in self._terminal.capabilities
             for capability in (OcrReader, NativePdfTextReader)
         ):
             from frisket.engine.executor.ocr_evidence import write_ocr_evidence
@@ -1453,13 +1444,13 @@ class _TypedMapBatchProgram(_TypedMapRowsProgram):
     ) -> dict[int, PreparedRowPublication]:
         del spec
         bindings = self._capability_bindings.get()
-        if getattr(self._terminal, "capabilities", ()) and bindings is None:
+        if self._terminal.capabilities and bindings is None:
             raise RuntimeError("typed batch capabilities require an invocation scope")
         row_ids = tuple(values_by_row)
         batch_bindings = [
             binding.bind_rows(row_ids) if capability is CensusDemographics else binding
             for capability, binding in zip(
-                getattr(self._terminal, "capabilities", ()), bindings or (), strict=True
+                self._terminal.capabilities, bindings or (), strict=True
             )
         ]
         rows = Rows({row_id: Row(values) for row_id, values in values_by_row.items()})
@@ -1565,7 +1556,11 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
             runtime_binding,
             preserve_invalid_source_columns,
         )
-        self._response_model = self._terminal.response_model
+        terminal = action.definition.run
+        if not isinstance(terminal, ModelRows):
+            raise TypeError(f"{action.action_id} is not a model_rows action")
+        self._model_rows = terminal
+        self._response_model = terminal.response_model
         self._response_schema = compile_output_schema(
             self._response_model, output_fields=resolved_output_fields
         )
@@ -1595,8 +1590,8 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
         del spec
         response = self._response_model.model_validate(data)
         produced = (
-            self._terminal.complete(self._params, Row(row_values), response)
-            if self._terminal.complete is not None
+            self._model_rows.complete(self._params, Row(row_values), response)
+            if self._model_rows.complete is not None
             else RowResult(output=response)
         )
         if inspect.isawaitable(produced):
@@ -1625,12 +1620,12 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
                 spec,
                 prompt_source_columns=self.prompt_source_columns,
             )
-        if self._terminal.evaluation is None:
-            prompt = self._terminal.renderer(self._params, Row(row_values))
+        if self._model_rows.evaluation is None:
+            prompt = self._model_rows.renderer(self._params, Row(row_values))
         else:
             if self._evaluation_context is None:
                 raise TypeError("evaluation model_rows is missing its frozen context")
-            prompt = self._terminal.renderer(
+            prompt = self._model_rows.renderer(
                 self._params, Row(row_values), self._evaluation_context
             )
         if not isinstance(prompt, ModelPrompt):

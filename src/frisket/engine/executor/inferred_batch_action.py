@@ -107,21 +107,17 @@ class _StagedBatchProgram(_TypedMapBatchProgram):
                     )
                     self._staged_rows_remaining -= 1
                     continue
-                produced = (
-                    RowError(*error)
-                    if error
-                    else RowResult(
-                        output=self._terminal.output_model.model_construct(
-                            **{self._resolved_output_fields[0].key: value}
-                        ),
-                        warnings=warnings,
+                if error:
+                    result[row_id] = self._row_error_publication(RowError(*error))
+                else:
+                    result[row_id] = self._prepare_publication(
+                        RowResult(
+                            output=self._terminal.output_model.model_construct(
+                                **{self._resolved_output_fields[0].key: value}
+                            ),
+                            warnings=warnings,
+                        )
                     )
-                )
-                result[row_id] = (
-                    self._row_error_publication(produced)
-                    if error
-                    else self._prepare_publication(produced)
-                )
                 self._staged_rows_remaining -= 1
         except BaseException:
             self.close_stage()
