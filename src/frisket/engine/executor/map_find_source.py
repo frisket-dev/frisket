@@ -458,7 +458,7 @@ def resolve_find_sources(
             if len(ocr_sources) > 1:
                 return ActionError(
                     code="source_ocr_ambiguous",
-                    message="Several current OCR evidence links ground this text cell",
+                    message="Several current OCR citations ground this text cell",
                     action_kind=params.action_kind,
                     field="params.source",
                     details={"sheet_id": params.sheet_id, "row_id": row_id},

@@ -67,7 +67,7 @@ describe('ArtifactSource media coverage', () => {
 
   it('keeps a PDF viewer and source link when no rendered pages were saved', () => {
     render(<ArtifactSource artifact={mediaArtifact('application/pdf')} />);
-    expect(screen.getByRole('document', { name: 'Evidence PDF: Source' })).toBeInTheDocument();
+    expect(screen.getByRole('document', { name: 'Cited PDF: Source' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'source' })).toHaveAttribute('href', '/source');
   });
 

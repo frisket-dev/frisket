@@ -430,7 +430,7 @@ def test_nonempty_typed_transcript_with_invalid_evidence_produces_plain_warning(
     assert [item.transcript_column_name for item in resolved] == ["transcript"]
     assert warnings == (
         'Transcript "legacy transcript" was not inherited because its current '
-        "timestamp evidence is missing, stale, or ambiguous.",
+        "timestamp citations are missing, stale, or ambiguous.",
     )
 
 

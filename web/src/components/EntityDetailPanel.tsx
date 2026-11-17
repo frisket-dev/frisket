@@ -91,7 +91,7 @@ export function EntityDetailPanel({
       case 'frisket.investigative.view.entity_evidence':
         return (
           <div className="entity-detail-panel" data-testid="entity-detail-evidence-panel">
-            Evidence opens through contributed row and cell evidence surfaces when available.
+            Citations open from row and cell details when available.
           </div>
         );
       case 'frisket.investigative.view.entity_connections':

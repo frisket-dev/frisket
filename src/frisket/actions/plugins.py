@@ -42,7 +42,7 @@ LOAD = action(
     ),
     name="load",
     title="Load plugin manifest",
-    description="Validate a local plugin package and record durable evidence without activating it.",
+    description="Validate a local plugin package and record a receipt without activating it.",
     category=ActionCategory.SOURCES,
     run=load_plugin,
     form="plugin_manifest_load",

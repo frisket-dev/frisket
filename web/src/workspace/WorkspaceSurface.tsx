@@ -380,7 +380,7 @@ export function WorkspacePrimarySurface() {
       >
         {gridContribution}
         <EvidenceWorkbenchViewFrame host="mainView">
-          <Suspense fallback={<PanelLoading className="grid-host" label="Loading evidence…" />}>
+          <Suspense fallback={<PanelLoading className="grid-host" label="Loading citation…" />}>
             <LazyEvidenceViewer
               key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
               evidenceLinkId={evidenceViewerState.linkId}

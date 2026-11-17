@@ -166,8 +166,8 @@ export function EvidenceMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }
 
   const player = isVideo ? (
     <div className="evidence-video-frame">
-      <video {...shared} data-testid="evidence-video" aria-label={`Evidence video: ${label}`}>
-        <track kind="captions" src={captionsUrl} srcLang="en" label="Evidence captions" default />
+      <video {...shared} data-testid="evidence-video" aria-label={`Cited video: ${label}`}>
+        <track kind="captions" src={captionsUrl} srcLang="en" label="Citation captions" default />
       </video>
       {artifact.spans.filter((span) => {
         const start = selectorNumber(span, 'start_ms');
@@ -178,8 +178,8 @@ export function EvidenceMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }
         emphasized={emphasizedSpanIds.includes(span.stable_id)} coordinateSpace="frame_normalized" />)}
     </div>
   ) : (
-    <audio {...shared} data-testid="evidence-audio" aria-label={`Evidence audio: ${label}`}>
-      <track kind="captions" src={captionsUrl} srcLang="en" label="Evidence captions" default />
+    <audio {...shared} data-testid="evidence-audio" aria-label={`Cited audio: ${label}`}>
+      <track kind="captions" src={captionsUrl} srcLang="en" label="Citation captions" default />
     </audio>
   );
 

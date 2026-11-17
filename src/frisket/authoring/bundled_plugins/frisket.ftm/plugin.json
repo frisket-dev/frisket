@@ -267,7 +267,7 @@
             "kind": "none",
             "requires_confirmation": false
           },
-          "description": "Export selected investigative rowsets using their FtM mappings to a downloadable ZIP, including entity JSONL, validation, mappings, and source-reference evidence.",
+          "description": "Export selected investigative rowsets using their FtM mappings to a downloadable ZIP, including entity JSONL, validation, mappings, and source citations.",
           "errors": [
             {
               "code": "invalid_action_request",

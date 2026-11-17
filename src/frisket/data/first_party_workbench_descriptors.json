@@ -628,7 +628,7 @@
       "id": "frisket.core.view.evidence",
       "kind": "view",
       "ownerPluginId": "frisket.core",
-      "title": "Evidence",
+      "title": "Citation",
       "icon": "FileText",
       "placements": [
         {
@@ -708,7 +708,7 @@
       "id": "frisket.core.panel.provenance",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Provenance",
+      "title": "Receipts",
       "icon": "ShieldCheck",
       "placements": [
         {
@@ -850,7 +850,7 @@
       "id": "frisket.core.row_inspector.section.evidence",
       "kind": "inspectorSection",
       "ownerPluginId": "frisket.core",
-      "title": "Evidence",
+      "title": "Citations",
       "icon": "FileText",
       "placements": [
         {
@@ -973,7 +973,7 @@
       "id": "frisket.investigative.view.entity_evidence",
       "kind": "view",
       "ownerPluginId": "frisket.investigative",
-      "title": "Evidence",
+      "title": "Citations",
       "icon": "FileText",
       "placements": [
         {

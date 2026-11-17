@@ -81,7 +81,7 @@ FTM_EXPORT = action(
     description=(
         "Export selected investigative rowsets using their FtM mappings to a "
         "downloadable ZIP, including entity JSONL, validation, mappings, and "
-        "source-reference evidence."
+        "source citations."
     ),
     category=ActionCategory.CONVERT,
     form="generated",

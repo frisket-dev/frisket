@@ -457,7 +457,7 @@ function ToolbarOverflowMenu() {
             }}
           >
             <ShieldCheck size={13} className="menu-item-icon" />
-            <span className="menu-item-name">Provenance</span>
+            <span className="menu-item-name">Receipts</span>
           </button>
           {activeHiddenColumns.length > 0 && (
             <button

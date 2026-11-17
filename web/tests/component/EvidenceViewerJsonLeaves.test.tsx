@@ -384,7 +384,7 @@ describe('search evidence locations', () => {
       scopeSpanIds={['phrase:first', 'phrase:second']} mode="pane" onClose={() => {}} />);
     expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '2');
     expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(2);
-    expect(within(screen.getByRole('heading', { name: 'Evidence' }).closest('header')!).queryByText(/media_ocr_grounding|active/)).not.toBeInTheDocument();
+    expect(within(screen.getByRole('heading', { name: 'Citation' }).closest('header')!).queryByText(/media_ocr_grounding|active/)).not.toBeInTheDocument();
   });
 
   it('keeps a primary span selected even when a match list contains only its companions', async () => {

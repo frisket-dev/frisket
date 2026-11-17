@@ -261,7 +261,7 @@ test('region-grounded citation: the DOCKED pane (not the modal) renders the page
   await expect(viewer.getByTestId('evidence-export-ref')).toContainText(seeded.linkStableId);
 
   // Closing the pane returns to the empty-state placeholder.
-  await viewer.getByRole('button', { name: 'Close evidence viewer' }).click();
+  await viewer.getByRole('button', { name: 'Close citation viewer' }).click();
   await expect(page.getByTestId('answers-evidence-empty')).toBeVisible();
 });
 

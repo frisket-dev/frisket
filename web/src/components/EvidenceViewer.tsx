@@ -125,11 +125,11 @@ export function EvidenceViewer({
         onClose={onClose}
       />
       {state.phase === 'loading' && (
-        <PanelLoading testId="evidence-viewer-loading" label="Loading evidence…" />
+        <PanelLoading testId="evidence-viewer-loading" label="Loading citation…" />
       )}
       {state.phase === 'error' && (
         <div className="panel-notice" data-tone="warning" data-testid="evidence-viewer-error">
-          Could not load evidence: {state.message}
+          Could not load citation: {state.message}
         </div>
       )}
       {state.phase === 'done' && (
@@ -161,7 +161,7 @@ export function EvidenceViewer({
 
   if (mode === 'pane') {
     return (
-      <section className="evidence-viewer-shell evidence-viewer-pane" data-testid="evidence-viewer" aria-label="Evidence viewer">
+      <section className="evidence-viewer-shell evidence-viewer-pane" data-testid="evidence-viewer" aria-label="Citation viewer">
         {content}
       </section>
     );
@@ -172,7 +172,7 @@ export function EvidenceViewer({
       <dialog
         ref={dialogRef}
         className="evidence-viewer-shell"
-        aria-label="Evidence viewer"
+        aria-label="Citation viewer"
         onCancel={(event) => {
           event.preventDefault();
           onClose();
@@ -199,7 +199,7 @@ function EvidenceViewerHeader({
   return (
     <header className="evidence-viewer-header">
       <div>
-        <h2>{sourceProvenance ? 'Source provenance' : 'Evidence'}</h2>
+        <h2>{sourceProvenance ? 'Source provenance' : 'Citation'}</h2>
         {state.phase === 'done' && state.payload.link.status !== 'active' && (
           <div className="evidence-viewer-subtitle">
             {state.payload.link.status === 'stale' ? 'Source may have changed' : state.payload.link.status}
@@ -211,14 +211,14 @@ function EvidenceViewerHeader({
           <button
             type="button"
             className="icon-btn"
-            aria-label="Open evidence beside grid"
-            title="Open evidence beside grid"
+            aria-label="Open citation beside grid"
+            title="Open citation beside grid"
             onClick={onOpenCompanion}
           >
             <ExternalLink size={16} />
           </button>
         )}
-        <WindowCloseButton label="Close evidence viewer" onClick={onClose} />
+        <WindowCloseButton label="Close citation viewer" onClick={onClose} />
       </div>
     </header>
   );
@@ -299,7 +299,7 @@ function EvidencePayloadView({
         )}
         {orderedArtifacts.length === 0 ? (
           <div className="panel-notice" data-tone="warning" data-testid="evidence-viewer-empty">
-            This evidence link has no source spans.
+            This citation has no source spans.
           </div>
         ) : (
           orderedArtifacts.map((artifact) => (

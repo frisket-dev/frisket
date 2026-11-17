@@ -412,7 +412,7 @@ register_column_type(
     validate=_is_text,
     presentation={"renderer": "text", "userSelectable": False},
     description=(
-        "Transcript text backed by host-written, source-bound temporal evidence."
+        "Transcript text backed by host-written, source-bound timestamp citations."
     ),
     core=True,
 )

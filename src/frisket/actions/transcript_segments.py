@@ -24,7 +24,7 @@ def transcript_segments(
 TRANSCRIPT_SEGMENTS = action(
     name="transcript_segments",
     title="Split transcript",
-    description="Create transcript excerpts using complete intersecting chunks and their exact timestamp evidence.",
+    description="Create transcript excerpts using complete intersecting chunks and their exact timestamp citations.",
     category=ActionCategory.CONVERT,
     run=create_sheet(transcript_segments),
     examples=(

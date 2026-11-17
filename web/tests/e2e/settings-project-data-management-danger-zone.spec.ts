@@ -125,13 +125,13 @@ test('Project General owns identity/delete and Data Management owns exports rete
   await evidenceDefault.click();
   const evidenceMenu = page.getByTestId('project-evidence-default-menu');
   await expect(evidenceMenu).toContainText(
-    'Manual compaction may remove supporting run evidence; sheet results stay.',
+    'Manual compaction may remove run citations; sheet results stay.',
   );
   await expect(evidenceMenu).toContainText(
-    'Keep supporting run evidence when this project is manually compacted.',
+    'Keep run citations when this project is manually compacted.',
   );
   await expect(evidenceMenu).toContainText(
-    'Keep output-linked evidence as part of the stored result.',
+    'Keep result citations as part of the stored result.',
   );
   await evidenceMenu.getByRole('option', { name: /Pinned/ }).click();
   await expect(page.getByText('Retention policy saved')).toBeVisible();

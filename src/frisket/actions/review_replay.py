@@ -132,7 +132,7 @@ REVIEW_DECISION = action(
     title="Review decision",
     description=(
         "Record or clear an accept or reject decision for the current "
-        "generated result cell, with an optional note and pinned receipt evidence. "
+        "generated result cell, with an optional note and a pinned receipt. "
         "Clearing keeps the current visible cell value and its review note."
     ),
     category=ActionCategory.CLEANUP,

@@ -1228,7 +1228,7 @@ class ProjectQATools:
                 },
             }
             prepared = self._source_handle(
-                label=f"Prepared evidence · {span['title'] or citation['label']}",
+                label=f"Prepared citation · {span['title'] or citation['label']}",
                 source_kind="evidence",
                 locator=evidence_locator,
                 excerpt=span["text"],

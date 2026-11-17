@@ -307,9 +307,9 @@ function runTraceAbsenceMessage(status: RunTraceRowEvidence['status']): ReactNod
     case 'row_not_in_run':
       return 'This row is not in the run trace. It may not have been part of the run.';
     case 'missing':
-      return 'Trace evidence for this row is missing.';
+      return 'Trace data for this row is missing.';
     case 'recorded':
-      return 'Trace evidence for this row was recorded, but no row payload is available.';
+      return 'Trace data for this row was recorded, but no row payload is available.';
   }
 }
 
