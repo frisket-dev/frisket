@@ -63,7 +63,7 @@ def _repository_url() -> str:
         if normalized is not None:
             return normalized
 
-    assert False, (
+    raise AssertionError(
         "identity gate requires an auditable GitHub repository origin: no "
         f"github.com remote found among {remote_names!r} and GITHUB_REPOSITORY "
         "is not set"

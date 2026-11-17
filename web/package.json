@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
+    "knip": "knip --no-progress",
     "lint": "python3 ../scripts/e2e/checklog.py --kind shell --label web-lint --shell \"eslint . && depcruise src --config .dependency-cruiser.cjs && node scripts/check-substrate-boundaries.mjs\"",
     "depcruise": "python3 ../scripts/e2e/checklog.py --kind shell --label web-depcruise -- depcruise src --config .dependency-cruiser.cjs",
     "check:boundaries": "node scripts/check-substrate-boundaries.mjs",
@@ -46,7 +47,18 @@
       "src/entries/local.tsx",
       "src/entries/team.tsx",
       "src/main.tsx"
-    ]
+    ],
+    "playwright": {
+      "config": [
+        "playwright/playwright*.config.ts"
+      ],
+      "entry": [
+        "tests/**/*.spec.ts",
+        "tests/**/*.setup.ts",
+        "playwright/*.global-setup.ts",
+        "tests/inventory/setup.ts"
+      ]
+    }
   },
   "dependencies": {
     "@deck.gl/aggregation-layers": "^9.3.4",
@@ -96,6 +108,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
     "jsdom": "^29.1.1",
+    "knip": "^5.88.1",
     "react": "^18.3.1",
     "react-doctor": "^0.5.4",
     "react-dom": "^18.3.1",

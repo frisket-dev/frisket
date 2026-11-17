@@ -1923,9 +1923,8 @@ def _run_reserved_maprunner_action(
         # terminalizing the run. The action boundary now has enough durable
         # identity to write the normal typed failed/resumable receipt instead
         # of deleting its reservation as a generic RuntimeError.
-        logger.error(
+        logger.exception(
             "reserved_maprunner_sandbox_teardown_terminalized",
-            exc_info=True,
             extra={
                 "event": "reserved_maprunner_sandbox_teardown_terminalized",
                 "action_kind": action.kind,

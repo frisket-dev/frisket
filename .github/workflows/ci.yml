@@ -209,6 +209,12 @@ jobs:
       # scripts/ci/import_boundaries.json checked against the real source tree
       # (the single boundary system).
       - run: uv run --no-sync python scripts/ci/check_import_boundaries.py --source-root src --config scripts/ci/import_boundaries.json
+      # Shrink-only cleanup ratchets: frozen ruff complexity/argument/
+      # local-import counts, symbols and modules production never reaches
+      # (tests do not count), and near-duplicate functions.
+      - run: uv run --no-sync python scripts/ci/ruff_ratchet.py
+      - run: uv run --no-sync python scripts/ci/check_dead_symbols.py
+      - run: uv run --no-sync python scripts/ci/check_duplicate_functions.py
 
   test-engine:
     name: Python tests (execution core)

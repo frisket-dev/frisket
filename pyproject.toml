@@ -277,6 +277,30 @@ dev = [
     "ruff>=0.15.16",
 ]
 
+[tool.ruff.lint]
+extend-select = [
+    "B006", "B011", "B033", "EXE", "G", "INT", "LOG", "PLE", "RUF100",
+    "T10", "TID", "W", "YTT",
+]
+# Codes cited by existing `noqa` comments for rules this config does not
+# enable; RUF100 keeps them instead of reporting them as unused. The
+# complexity/import codes are enforced by scripts/ci/ruff_ratchet.py.
+external = [
+    "A", "ANN", "ARG", "B", "BLE", "C901", "D", "N", "PLC0415", "PLR0912",
+    "PLR0913", "PLR0915", "S", "SLF",
+]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 12
+max-statements = 50
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["C901", "PLR0912", "PLR0913", "PLR0915"]
+
 [tool.pytest.ini_options]
 addopts = "-m 'not gap and not network and not plugin_contract'"
 # executor_harness.py holds the shared parametrized lifecycle tests for the

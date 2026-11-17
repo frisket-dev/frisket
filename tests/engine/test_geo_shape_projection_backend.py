@@ -8,12 +8,12 @@ import pytest
 # declared core dep, but skip clearly if a host lacks it rather than pass silently.
 pytest.importorskip("shapely")
 
-from frisket.engine.projections.point_backend import (  # noqa: E402
+from frisket.engine.projections.point_backend import (
     GEO_SIDECAR_FILENAME,
     GeoProjectionBackend,
     GeoProjectionError,
 )
-from frisket.engine.store import Project  # noqa: E402
+from frisket.engine.store import Project
 
 
 def _polygon(lon0: float, lat0: float, size: float = 0.02) -> dict:

@@ -179,7 +179,7 @@ def validate_regex_pattern(pattern: str, *, trusted: bool) -> None:
             )
     try:
         _compile_anchored(pattern)
-    except regex.error as exc:  # noqa: F841 - re-raised as registration error
+    except regex.error as exc:
         raise MatcherRegistrationError(f"path_regex does not compile: {exc}") from exc
 
 

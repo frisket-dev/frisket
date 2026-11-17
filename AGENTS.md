@@ -12,9 +12,12 @@ paid or external runs.
 - Web (from `web/`): `npx vitest run`; types: `npx tsc -b` (the root
   tsconfig uses project references; `tsc --noEmit` alone checks no files).
 - Lint: `ruff check src tests` and `ruff format --check src tests`,
-  plus the gates in `scripts/ci/lint_*.py` and
+  plus the gates in `scripts/ci/lint_*.py`,
   `scripts/ci/check_import_boundaries.py --source-root src
-  --config scripts/ci/import_boundaries.json`.
+  --config scripts/ci/import_boundaries.json`, and the shrink-only
+  ratchets `scripts/ci/ruff_ratchet.py`,
+  `scripts/ci/check_dead_symbols.py` and
+  `scripts/ci/check_duplicate_functions.py`. Web: `npm run knip`.
 - Sidecar (from `sidecar/`): `uv run --no-sync pytest -q tests`.
 
 ## Conventions
@@ -32,6 +35,20 @@ paid or external runs.
   never as a routine upgrade.
 - Prefer deleting dead code over commenting it out; a change that only
   adds is worth a second look.
+- A path that supersedes another deletes the old one in the same change;
+  no shims, aliases or compatibility wrappers.
+- Code reached only by tests is not shipped. Parity oracles and reference
+  implementations live under `tests/`.
+- No function whose body only forwards its own parameters; no ABC or
+  Protocol with a single implementation.
+- One owner per lifecycle primitive: call the shared driver, never copy a
+  sibling's skeleton and edit it.
+- State a fact once and derive the rest: no hand-written twin of a
+  generated type, no table keyed by action id outside the registry.
+- Validate at the boundary into a typed model, then trust it: no
+  `dict[str, Any]` across layers, no re-validating internal values.
+- Ratchet baselines and allowlists only shrink. Never regenerate one
+  upward to make a change pass; restructure the change instead.
 - Don't edit `README.md`; Jonathan maintains it. If docs should change,
   suggest the wording in your PR description instead.
 - See CONTRIBUTING.md for PR and testing expectations.

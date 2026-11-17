@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import tempfile
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -555,7 +556,7 @@ class CloudConnectionClient:
         method: str,
         path: str,
         *,
-        allowed_statuses: set[int] = {200},
+        allowed_statuses: Collection[int] = (200,),
         **kwargs: Any,
     ) -> httpx.Response:
         try:

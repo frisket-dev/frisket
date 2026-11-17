@@ -19,9 +19,9 @@ from frisket.retrieval.contracts import (
 from frisket.retrieval.service import search_with_encoding
 from frisket.search_index import (
     SearchIndexNotReady,
-    drain_index,  # noqa: F401 -- explicit maintenance API
-    index_batch,  # noqa: F401 -- bounded worker API
-    index_needs_work,  # noqa: F401 -- scheduling API
+    drain_index,
+    index_batch,
+    index_needs_work,
 )
 
 
