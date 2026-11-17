@@ -23,6 +23,7 @@ def _load(name: str) -> ModuleType:
 ruff_ratchet = _load("ruff_ratchet")
 dead = _load("check_dead_symbols")
 dup = _load("check_duplicate_functions")
+route_idioms = _load("lint_route_error_idioms")
 
 
 def test_ruff_ratchet_flags_increases_and_new_files_only():
@@ -84,3 +85,32 @@ def test_class_body_binding_defines_a_method_and_is_not_a_use():
     assert found["facade.py::Facade.read"] == "read"
     assert found["facade.py::Facade.renamed"] == "renamed"
     assert "facade.py::Facade.limit" not in found
+
+
+def test_route_error_idioms_count_per_function_and_only_shrink(tmp_path):
+    routes = tmp_path / "routes"
+    routes.mkdir()
+    (routes / "r.py").write_text(
+        "def register(app):\n"
+        "    def handler():\n"
+        "        try:\n"
+        "            work()\n"
+        "        except ValueError as exc:\n"
+        "            raise HTTPException(400, str(exc)) from exc\n"
+        "        raise HTTPException(404, 'outside an except block')\n"
+        "    def forked():\n"
+        "        return JSONResponse(status_code=409, content={})\n"
+        "    def ok():\n"
+        "        return JSONResponse(content={})\n"
+    )
+    route_idioms.REPO = tmp_path
+    found = route_idioms.offenders(routes)
+    assert found == {
+        "routes/r.py::register.handler: except -> raise HTTPException": 1,
+        "routes/r.py::register.forked: return JSONResponse(status_code=)": 1,
+    }
+    assert route_idioms.compare(found, found) == []
+    grown = route_idioms.compare(found, {**found, next(iter(found)): 0})
+    assert len(grown) == 1 and "allowlist: 0" in grown[0]
+    stale = route_idioms.compare({}, found)
+    assert len(stale) == 2 and all("no longer offends" in line for line in stale)

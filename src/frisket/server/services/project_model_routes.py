@@ -23,6 +23,7 @@ from frisket.project_settings import (
     write_project_settings,
 )
 from frisket.server.provider_config import build_provider_catalog
+from frisket.server.route_errors import register_typed_error
 from frisket.server.workspace import Workspace
 
 
@@ -31,8 +32,17 @@ class ProjectModelRouteError(ValueError):
 
     def __init__(self, status: int, code: str, message: str) -> None:
         super().__init__(message)
-        self.status = status
+        self.status_code = status
         self.code = code
+
+
+def register_project_model_route_error(app: Any) -> None:
+    """Render ProjectModelRouteError for every route that mutates model routes."""
+    register_typed_error(
+        app,
+        ProjectModelRouteError,
+        detail=lambda exc: {"code": exc.code, "message": str(exc)},
+    )
 
 
 @dataclass(frozen=True)

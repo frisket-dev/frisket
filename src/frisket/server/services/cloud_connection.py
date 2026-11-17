@@ -49,7 +49,7 @@ from frisket.server.services.project_model_routes import (
 class CloudConnectionServiceError(RuntimeError):
     def __init__(self, status: int, message: str) -> None:
         super().__init__(message)
-        self.status = status
+        self.status_code = status
 
 
 @dataclass

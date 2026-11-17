@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
@@ -43,7 +43,7 @@ from frisket.contracts.http.resolve_previews import (
 )
 from frisket.preview.common import ComparePreviewError
 from frisket.server import schemas
-from frisket.server.route_errors import http_error_responses
+from frisket.server.route_errors import http_error_responses, register_typed_error
 from frisket.server.services.previews import PreviewRequestError, PreviewService
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 
@@ -79,18 +79,13 @@ _TRANSCRIBE_SCRATCH = _ScratchKind(
 )
 
 
-def _preview_error_response(
-    exc: PreviewRequestError | ComparePreviewError,
-) -> JSONResponse:
-    return JSONResponse(
-        status_code=400,
-        content=V1ActionError(
-            code=exc.code,
-            message=exc.message,
-            field=exc.field,
-            details=dict(exc.details or {}),
-        ).model_dump(mode="json"),
-    )
+def _preview_error_body(exc: PreviewRequestError) -> dict:
+    return V1ActionError(
+        code=exc.code,
+        message=exc.message,
+        field=exc.field,
+        details=exc.details,
+    ).model_dump(mode="json")
 
 
 async def _scratch_input(
@@ -128,6 +123,10 @@ def register_preview_routes(
     service: PreviewService,
     action_preview_service: ActionPreviewRunService | None = None,
 ) -> None:
+    register_typed_error(
+        app, PreviewRequestError, 400, _preview_error_body, bare_json=True
+    )
+
     @app.post("/api/projects/{pid}/queries/v1/preview")
     def query_preview(pid: str, body: schemas.QueryPreviewBody) -> dict:
         """Synchronous, receipt-free query preview.
@@ -144,22 +143,16 @@ def register_preview_routes(
         ``query_preview`` endpoint-catalog entry are retired in that same
         change.
         """
-        try:
-            return service.query_preview(
-                pid,
-                query=body.query,
-                limit=body.limit,
-                offset=body.offset,
-            )
-        except PreviewRequestError as exc:
-            raise HTTPException(400, exc.query_detail()) from exc
+        return service.query_preview(
+            pid,
+            query=body.query,
+            limit=body.limit,
+            offset=body.offset,
+        )
 
     @app.post("/api/projects/{pid}/ocr/compare-preview")
     async def ocr_compare_preview(pid: str, body: schemas.OcrComparePreviewBody):
-        try:
-            return await service.ocr_compare_preview(pid, payload=body.model_dump())
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return await service.ocr_compare_preview(pid, payload=body.model_dump())
 
     async def _prepare_scratch(
         kind: _ScratchKind,
@@ -204,8 +197,8 @@ def register_preview_routes(
                     "estimate": action_preview_service.scratch_estimate(pid, plan),
                 }
             )
-        except (ComparePreviewError, PreviewRequestError) as exc:
-            return _preview_error_response(exc)
+        except ComparePreviewError as exc:
+            raise PreviewRequestError.from_domain(exc) from exc
 
     async def _scratch_start(
         kind: _ScratchKind, request: Request, pid: str, upload: tuple[UploadFile, str]
@@ -229,8 +222,8 @@ def register_preview_routes(
                     status_code=response.status_code, content=response.payload
                 )
             return ActionPreviewStartResponse.model_validate(response.payload)
-        except (ComparePreviewError, PreviewRequestError) as exc:
-            return _preview_error_response(exc)
+        except ComparePreviewError as exc:
+            raise PreviewRequestError.from_domain(exc) from exc
 
     @app.post(
         "/api/projects/{pid}/ocr/compare-scratch/estimate",
@@ -325,12 +318,9 @@ def register_preview_routes(
             payload = body.model_dump()
         else:
             payload = body.root
-        try:
-            return TranslateComparisonResponse.model_validate(
-                await service.translate_compare_scratch(pid, payload=payload)
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return TranslateComparisonResponse.model_validate(
+            await service.translate_compare_scratch(pid, payload=payload)
+        )
 
     @app.post(
         "/api/projects/{pid}/topic-segmentation/compare-scratch",
@@ -348,19 +338,16 @@ def register_preview_routes(
     ):
         """Compare topic segmentation over TXT/SRT/VTT — scratch, no writes."""
 
-        try:
-            transcript_bytes, parsed = await _scratch_input(
-                file, payload, context="Topic Compare scratch"
+        transcript_bytes, parsed = await _scratch_input(
+            file, payload, context="Topic Compare scratch"
+        )
+        return TopicSegmentationCompareScratchResponse.model_validate(
+            await service.topic_segmentation_compare_scratch(
+                pid,
+                transcript_bytes=transcript_bytes,
+                payload=parsed,
             )
-            return TopicSegmentationCompareScratchResponse.model_validate(
-                await service.topic_segmentation_compare_scratch(
-                    pid,
-                    transcript_bytes=transcript_bytes,
-                    payload=parsed,
-                )
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        )
 
     @app.post(
         "/api/projects/{pid}/column-values/v1/preview",
@@ -376,18 +363,15 @@ def register_preview_routes(
         The read-only enumeration surface for the resolve.substitute /
         resolve.combine authoring UIs: frequency-sorted ``{value, count}``
         rows with search + paging."""
-        try:
-            return service.column_values_preview(
-                pid,
-                sheet_id=body.sheet_id,
-                input_column=body.input_column,
-                search=body.search,
-                limit=body.limit,
-                offset=body.offset,
-                value_mode=body.value_mode,
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return service.column_values_preview(
+            pid,
+            sheet_id=body.sheet_id,
+            input_column=body.input_column,
+            search=body.search,
+            limit=body.limit,
+            offset=body.offset,
+            value_mode=body.value_mode,
+        )
 
     @app.post(
         "/api/projects/{pid}/entity-mentions/v1/preview",
@@ -407,18 +391,15 @@ def register_preview_routes(
         surface groups with exact full-sheet distinct-row counts, every raw
         spelling behind each group, and the ``entity_eq`` selector that
         reproduces that same row count as a grid filter."""
-        try:
-            return service.entity_mentions_preview(
-                pid,
-                sheet_id=body.sheet_id,
-                column_id=body.column_id,
-                search=body.search,
-                type=body.type,
-                limit=body.limit,
-                offset=body.offset,
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return service.entity_mentions_preview(
+            pid,
+            sheet_id=body.sheet_id,
+            column_id=body.column_id,
+            search=body.search,
+            type=body.type,
+            limit=body.limit,
+            offset=body.offset,
+        )
 
     @app.post(
         "/api/projects/{pid}/entity-mentions/v1/documents",
@@ -437,19 +418,16 @@ def register_preview_routes(
         inventory and the wrong shape for a per-click drill-down; this filters
         the same per-mention stream to one group and pages the rows, so the two
         surfaces cannot disagree about a group's numbers."""
-        try:
-            return service.entity_mention_documents(
-                pid,
-                sheet_id=body.sheet_id,
-                column_id=body.column_id,
-                type=body.type,
-                fingerprint=body.fingerprint,
-                text=body.text,
-                limit=body.limit,
-                offset=body.offset,
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return service.entity_mention_documents(
+            pid,
+            sheet_id=body.sheet_id,
+            column_id=body.column_id,
+            type=body.type,
+            fingerprint=body.fingerprint,
+            text=body.text,
+            limit=body.limit,
+            offset=body.offset,
+        )
 
     @app.post(
         "/api/projects/{pid}/entity-mentions/v1/occurrences",
@@ -468,21 +446,18 @@ def register_preview_routes(
         snippet is drawn at coordinates the substrate still vouches for or not
         at all. A cell whose text changed after extraction returns the mismatch
         reason and no occurrences rather than a window cut in the wrong place."""
-        try:
-            return service.entity_mention_occurrences(
-                pid,
-                sheet_id=body.sheet_id,
-                row_id=body.row_id,
-                column_id=body.column_id,
-                type=body.type,
-                fingerprint=body.fingerprint,
-                text=body.text,
-                limit=body.limit,
-                offset=body.offset,
-                snippet_radius=body.snippet_radius,
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return service.entity_mention_occurrences(
+            pid,
+            sheet_id=body.sheet_id,
+            row_id=body.row_id,
+            column_id=body.column_id,
+            type=body.type,
+            fingerprint=body.fingerprint,
+            text=body.text,
+            limit=body.limit,
+            offset=body.offset,
+            snippet_radius=body.snippet_radius,
+        )
 
     @app.post(
         "/api/projects/{pid}/replace-rules/v1/preview",
@@ -499,17 +474,14 @@ def register_preview_routes(
         commit uses (Python ``re``), returning per-rule match counts, the
         unmatched leftovers, and an optional single test-value trace for the
         live tester — so the UI can never disagree with Apply."""
-        try:
-            return service.replace_rules_preview(
-                pid,
-                sheet_id=body.sheet_id,
-                input_column=body.input_column,
-                rules=body.rules,
-                unmatched=body.unmatched,
-                test_value=body.test_value,
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return service.replace_rules_preview(
+            pid,
+            sheet_id=body.sheet_id,
+            input_column=body.input_column,
+            rules=body.rules,
+            unmatched=body.unmatched,
+            test_value=body.test_value,
+        )
 
     @app.post(
         "/api/projects/{pid}/clusters/v1/preview",
@@ -530,16 +502,13 @@ def register_preview_routes(
         staleness guard. Semantic clustering errors (``embedding_backend_
         unavailable``) rather than silently falling back to fingerprint.
         """
-        try:
-            return service.cluster_preview(
-                pid,
-                sheet_id=body.sheet_id,
-                input_column=body.input_column,
-                method=body.method,
-                min_size=body.min_size,
-                threshold=body.threshold,
-                ngram_size=body.ngram_size,
-                key_template=body.key_template,
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return service.cluster_preview(
+            pid,
+            sheet_id=body.sheet_id,
+            input_column=body.input_column,
+            method=body.method,
+            min_size=body.min_size,
+            threshold=body.threshold,
+            ngram_size=body.ngram_size,
+            key_template=body.key_template,
+        )
