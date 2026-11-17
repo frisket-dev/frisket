@@ -189,14 +189,11 @@ jobs:
       - run: uv sync --dev --extra entities
       - run: uv run --no-sync ruff check src tests
       - run: uv run --no-sync ruff format --check src tests
-      # Tests never read repository source as text.
-      # Heuristic scan; legitimate survivors carry `# rule19: <reason>`.
-      - run: uv run --no-sync python scripts/ci/lint_test_source_reads.py
+      # Test token rules: no reads of repository source (`# rule19:`), no
+      # raw sleep/monotonic/Thread (`# realtime:`), no sys.executable spawns
+      # (`# subprocess-boundary:`); their allowlists only shrink.
+      - run: uv run --no-sync python scripts/ci/lint_test_tokens.py
       - run: uv run --no-sync python scripts/ci/check_cell_write_ownership.py
-      # Raw sleep/monotonic/Thread calls make tests timing-dependent, so the
-      # deterministic-time allowlist only shrinks.
-      - run: uv run --no-sync python scripts/ci/lint_test_deterministic_time.py
-      - run: uv run --no-sync python scripts/ci/lint_test_subprocess_spawns.py
       # The routed dispatch files may read only their pinned pre-route env
       # fallbacks; placement facts arrive on the ConnectionConfig.
       - run: uv run --no-sync python scripts/ci/lint_placement_env_reads.py

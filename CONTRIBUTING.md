@@ -296,7 +296,7 @@ read historical values by ID, without substituting a same-name successor.
 - Each test should own a distinct behavior, security, or durability risk.
   Prefer runtime and public-boundary checks. Do not inspect source text or AST
   shape unless the test executes the artifact or compares independently
-  maintained artifacts; `scripts/ci/lint_test_source_reads.py` enforces this.
+  maintained artifacts; `scripts/ci/lint_test_tokens.py` enforces this.
   Mark a legitimate exception inline with `# rule19: <reason>`.
 - Keep the behavior under test real. Fake external services when needed, but
   avoid replacing our executor or store in tests meant to prove execution or
