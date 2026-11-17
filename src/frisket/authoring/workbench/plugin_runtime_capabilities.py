@@ -7,7 +7,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from frisket.authoring import column_types
 from frisket.authoring.plugin_registry import (
@@ -1069,7 +1069,7 @@ def _assert_backend_contribution_conflicts(
             _raise_backend_contribution_conflict("job_handler", job_handler_id)
 
 
-def _raise_backend_contribution_conflict(kind: str, contribution_id: str) -> None:
+def _raise_backend_contribution_conflict(kind: str, contribution_id: str) -> NoReturn:
     raise WorkbenchPluginActivationError(
         "plugin_backend_activation_conflict",
         f"plugin backend contribution conflicts with existing {kind}: {contribution_id}",

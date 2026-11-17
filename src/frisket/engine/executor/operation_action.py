@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, NoReturn
 
 from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
@@ -73,7 +73,7 @@ def _refuse(
     action_kind: str,
     field: str | None = None,
     details: Mapping[str, Any] | None = None,
-) -> None:
+) -> NoReturn:
     raise _Refusal(
         ActionError(
             code=code,

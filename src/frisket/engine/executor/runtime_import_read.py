@@ -8,7 +8,7 @@ from copy import deepcopy
 import hashlib
 import json
 from itertools import islice
-from typing import Any
+from typing import Any, NoReturn
 
 from frisket.actions.import_runtime import RuntimeImportParams
 from frisket.actions.types import (
@@ -80,7 +80,7 @@ class AdmittedRuntimeImporter:
         self._closed = True
         self._resources.close()
 
-    def _failed(self, plan: Mapping[str, Any]) -> None:
+    def _failed(self, plan: Mapping[str, Any]) -> NoReturn:
         errors = plan.get("errors")
         first = errors[0] if isinstance(errors, list) and errors else {}
         first = first if isinstance(first, dict) else {}

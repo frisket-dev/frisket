@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import Any, Awaitable, Iterable, Protocol
+from typing import Any, Awaitable, Iterable, NoReturn, Protocol
 
 from frisket.ai.models.usage_counts import sum_known_counts
 from frisket.ai.llm.types import (
@@ -936,7 +936,7 @@ def _iter_trace_records(path: Path) -> Iterable[dict[str, Any]]:
             yield record
 
 
-def _invalid_json_constant(value: str) -> None:
+def _invalid_json_constant(value: str) -> NoReturn:
     raise ValueError(f"invalid JSON number: {value}")
 
 

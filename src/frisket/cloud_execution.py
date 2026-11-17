@@ -21,6 +21,7 @@ from typing import (
     BinaryIO,
     Literal,
     Mapping,
+    NoReturn,
     Protocol,
     TypeAlias,
     runtime_checkable,
@@ -920,7 +921,7 @@ class HttpCloudExecutionTransport:
     @staticmethod
     def _raise_error(
         response: httpx.Response, *, create_admission: bool = False
-    ) -> None:
+    ) -> NoReturn:
         update_required = response.status_code == 426
         try:
             error = CloudErrorResponse.model_validate(response.json())

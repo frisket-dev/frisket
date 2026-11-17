@@ -16,7 +16,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any, NoReturn, TypeAlias
 
 
 SQLiteValue: TypeAlias = str | int | float | None
@@ -53,7 +53,7 @@ _CANONICAL_INTEGER = re.compile(r"-?(?:0|[1-9]\d*)\Z")
 _SURROGATE_CODE_UNITS = re.compile(r"[\ud800-\udfff]")
 
 
-def _reject_non_json_constant(value: str) -> None:
+def _reject_non_json_constant(value: str) -> NoReturn:
     raise ValueError(f"non-JSON numeric constant: {value}")
 
 

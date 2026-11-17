@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Mapping
+from typing import Any, Mapping, NoReturn
 
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
@@ -27,7 +27,7 @@ def refuse(
     action_kind: str,
     field: str,
     details: Mapping[str, Any] | None = None,
-) -> None:
+) -> NoReturn:
     raise Refusal(
         ActionError(
             code=code,

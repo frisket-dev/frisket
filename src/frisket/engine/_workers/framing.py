@@ -13,7 +13,7 @@ import struct
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, NoReturn
 
 
 def encode_frame(frame: dict[str, Any]) -> bytes:
@@ -24,7 +24,7 @@ def encode_frame(frame: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
-def reject_constant(value: str) -> None:
+def reject_constant(value: str) -> NoReturn:
     """``json.loads`` ``parse_constant`` hook that bars ``NaN``/``Infinity``."""
 
     raise ValueError(f"non-finite JSON number is not allowed: {value}")
@@ -46,7 +46,7 @@ class FrameCodec:
     max_response_bytes: int
     error_type: type[Exception]
 
-    def _error(self, message: str) -> None:
+    def _error(self, message: str) -> NoReturn:
         raise self.error_type(message)
 
     def _decode_object(self, data: bytes) -> dict[str, Any]:

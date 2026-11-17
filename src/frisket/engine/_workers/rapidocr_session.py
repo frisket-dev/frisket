@@ -20,7 +20,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from frisket.engine.sandbox import fence
 from frisket.engine.sandbox import shim as sandbox_shim
@@ -291,7 +291,7 @@ def _validate_error(value: Any) -> dict[str, str]:
     return {"code": code, "message": message}
 
 
-def _raise_fatal(frame: dict[str, Any]) -> None:
+def _raise_fatal(frame: dict[str, Any]) -> NoReturn:
     _require_exact_fields(frame, {"schema_version", "type", "error"}, frame="fatal")
     if frame.get("type") != "fatal":
         raise RapidOCRSessionFailure("the RapidOCR worker returned an invalid fatal")

@@ -18,7 +18,7 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import urlparse
 
 from frisket.remote import config_store
@@ -40,7 +40,7 @@ class UsageError(ValueError):
 class _Parser(argparse.ArgumentParser):
     """Argparse that reports usage problems on the validation exit code."""
 
-    def error(self, message: str) -> Any:  # noqa: D102 - argparse contract
+    def error(self, message: str) -> NoReturn:  # noqa: D102 - argparse contract
         raise UsageError(f"{self.prog}: {message}")
 
 
