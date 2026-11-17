@@ -421,9 +421,8 @@ def _seed_queued_media_project(
 
 
 def test_queued_sandbox_teardown_keeps_typed_receipt_and_failed_job(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "queued-teardown"))
     project_id, sheet_id, row_ids = _seed_queued_media_project(
         client, name="Queued teardown", row_count=2
     )
@@ -499,9 +498,8 @@ def test_queued_sandbox_teardown_keeps_typed_receipt_and_failed_job(
 
 
 def test_queued_internal_halt_can_be_recovered_by_direct_backfill(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "queued-backfill"))
     project_id, sheet_id, row_ids = _seed_queued_media_project(
         client, name="Queued backfill", row_count=2
     )

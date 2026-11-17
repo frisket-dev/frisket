@@ -39,7 +39,6 @@ from fastapi.testclient import TestClient
 from frisket.engine.jobs.worker import Worker
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.server.app import create_app
 from frisket.team.app import TeamConfig, create_team_app
 from frisket.team.oauth_connections import TeamOAuthConnectionService
 from frisket.team.schema import users
@@ -352,7 +351,7 @@ class TestResolverWiringIsUnconditional:
 
 
 def test_bare_local_tier_has_no_resolver_and_the_action_reports_unavailable(
-    tmp_path: Path,
+    client,
 ) -> None:
     """The other half, in the same file as the team-side fix for a single
     before/after record (test_google_sheets_connected_account_hint.py covers
@@ -360,7 +359,6 @@ def test_bare_local_tier_has_no_resolver_and_the_action_reports_unavailable(
     what `frisket <workspace-dir>` actually runs, no team wrapper at all --
     has no resolver, and the catalog says so instead of the action just
     failing at run time."""
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Local"}).json()["id"]
     catalog = client.get(f"/api/projects/{pid}/actions/v1/catalog")
     assert catalog.status_code == 200, catalog.text

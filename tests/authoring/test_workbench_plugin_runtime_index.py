@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 import pytest
 
 from frisket.authoring.workbench import plugin_runtime_status as plugin_runtime
-from frisket.server.app import create_app
 
 
 def _write_manifest(tmp_path: Path, *, plugin_id: str = "frisket-ndjson") -> Path:
@@ -224,8 +223,8 @@ def test_workbench_plugin_runtime_index_byte_contract(
 
 def test_workbench_plugin_runtime_index_projects_loaded_manifest_receipts(
     tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post(
         "/api/projects", json={"name": "Workbench plugin index"}
     ).json()["id"]
@@ -273,8 +272,8 @@ def test_workbench_plugin_runtime_index_projects_loaded_manifest_receipts(
 
 def test_workbench_plugin_runtime_index_projects_frontend_component_bindings(
     tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post(
         "/api/projects", json={"name": "Workbench plugin frontend bindings"}
     ).json()["id"]
@@ -353,8 +352,8 @@ def test_workbench_plugin_runtime_index_projects_frontend_component_bindings(
 
 def test_workbench_plugin_runtime_index_filters_invalid_frontend_component_bindings(
     tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post(
         "/api/projects", json={"name": "Workbench plugin invalid frontend bindings"}
     ).json()["id"]

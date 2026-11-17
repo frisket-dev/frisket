@@ -175,8 +175,7 @@ def _add_pdf_row(project) -> tuple[int, int]:
     return sheet_id, row_id
 
 
-def test_ocr_preview_route_preserves_bare_v1_action_error_shape(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_ocr_preview_route_preserves_bare_v1_action_error_shape(client) -> None:
     pid = client.post("/api/projects", json={"name": "OCR Error"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet_id, row_id = _add_pdf_row(project)

@@ -24,7 +24,6 @@ from typing import Any
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.engine.executor import ExecutorDeps
 from frisket.ai.llm import (
@@ -52,7 +51,6 @@ from frisket.sdk.ops.transcribe_engines import LocalTranscribeUnsupportedError
 from frisket.engine.runner import MapRunner, MissingProviderKey
 from frisket.engine.runner.validation import ClaimsGate
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 
 PROJECT_ID = "project-error-diagnose"
@@ -494,8 +492,7 @@ def test_map_classify_missing_provider_key_is_a_typed_run_confirm_error(tmp_path
 # /api/diagnose: same probe module as `frisket doctor`
 
 
-def test_diagnose_route_reports_providers_local_endpoints_and_static_assets(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_diagnose_route_reports_providers_local_endpoints_and_static_assets(client):
     resp = client.get("/api/diagnose")
     assert resp.status_code == 200
     body = resp.json()

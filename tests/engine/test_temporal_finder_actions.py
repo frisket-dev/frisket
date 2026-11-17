@@ -215,10 +215,9 @@ def test_topic_finder_validation_rejects_unknown_engine_and_settings() -> None:
 
 
 def test_visual_finder_queues_multi_row_map_and_keeps_row_errors(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id, project = _project(client, "Visual finder")
     sheet_id = project.add_sheet("Videos")
     video_column_id = project.add_column(sheet_id, "video", "video")
@@ -755,10 +754,9 @@ def _seed_timestamped_transcripts(
 
 
 def test_topic_finder_uses_exact_engine_and_persists_ranges_and_provenance(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id, project = _project(client, "Topic finder")
     sheet_id, row_ids, _transcript_column_id, source_link = (
         _seed_timestamped_transcripts(project)

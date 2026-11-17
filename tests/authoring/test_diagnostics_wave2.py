@@ -736,8 +736,7 @@ def test_run_diagnostics_exposes_all_new_info_keys(tmp_path, make_project):
 # The project rides on the PATH (diagnose-project-on-the-path-v1).
 
 
-def test_diagnose_route_reports_new_probes(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_diagnose_route_reports_new_probes(client):
     resp = client.get("/api/diagnose")
     assert resp.status_code == 200
     info = resp.json()["info"]
@@ -767,14 +766,13 @@ def test_diagnose_route_resolves_plugin_health_for_a_real_project(
     assert plugin_health["installed"] > 0
 
 
-def test_diagnose_route_bad_project_id_refuses_instead_of_degrading(tmp_path):
+def test_diagnose_route_bad_project_id_refuses_instead_of_degrading(client):
     """The degrade-to-200 was a project-existence oracle; it now 404s.
 
     On an edition with a role ladder the ladder refuses first (403). On the
     core app there is no ladder, so the workspace's own lookup answers.
     """
 
-    client = TestClient(create_app(tmp_path / "ws"))
     resp = client.get("/api/projects/does-not-exist/diagnose")
     assert resp.status_code == 404, resp.text
 

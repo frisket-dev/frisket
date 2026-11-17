@@ -1049,9 +1049,8 @@ def test_model_rows_all_failed_receipt_keeps_complete_run_counts(
 
 
 def test_model_rows_live_validation_rejects_incompatible_template_type(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Places"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Places")

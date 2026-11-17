@@ -10,11 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 import frisket.preview.ocr as ocr_compare
 from frisket.engine.store.media_blobs import media_cell
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 
 
@@ -165,10 +163,9 @@ def _install_fakes(
 
 
 def test_ocr_compare_preview_http_route_is_read_only_and_returns_contract(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     pid = client.post("/api/projects", json={"name": "OCR Preview"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet_id, row_id, column_id, digest = _add_pdf_row(project)

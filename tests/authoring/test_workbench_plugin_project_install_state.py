@@ -225,8 +225,7 @@ def test_workbench_plugin_disable_is_project_scoped_and_uninstall_is_workspace_w
         _reset_default_registry_for_tests()
 
 
-def test_workbench_plugin_lifecycle_rejects_unknown_plugin(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_workbench_plugin_lifecycle_rejects_unknown_plugin(client) -> None:
     project_id = client.post(
         "/api/projects", json={"name": "Workbench plugin lifecycle unknown"}
     ).json()["id"]

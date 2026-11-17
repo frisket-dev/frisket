@@ -24,7 +24,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from frisket.team.security.secrets import decrypt_secret, encrypt_secret
-from frisket.server.app import create_app
 from frisket.authoring.workbench.plugin_subprocess import (
     _missing_project_plugin_secrets,
     _project_plugin_secrets,
@@ -68,8 +67,7 @@ def _write_scoped_secret(project, *, plugin_id: str, name: str, value: str) -> N
     project.db.commit()
 
 
-def test_two_plugins_same_env_name_are_isolated(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_two_plugins_same_env_name_are_isolated(client) -> None:
     pid = client.post("/api/projects", json={"name": "Isolation"}).json()["id"]
     project = client.app.state.workspace.get(pid)
 
@@ -89,8 +87,7 @@ def test_two_plugins_same_env_name_are_isolated(tmp_path) -> None:
     ) == {"SHARED_KEY": "value-b"}
 
 
-def test_plugin_does_not_siphon_unowned_core_project_secret(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_plugin_does_not_siphon_unowned_core_project_secret(client) -> None:
     pid = client.post("/api/projects", json={"name": "No siphon"}).json()["id"]
 
     saved = client.post(
@@ -118,8 +115,7 @@ def test_plugin_does_not_siphon_unowned_core_project_secret(tmp_path) -> None:
     )
 
 
-def test_setting_plugin_secret_does_not_mutate_global_project_secret(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_setting_plugin_secret_does_not_mutate_global_project_secret(client) -> None:
     pid = client.post("/api/projects", json={"name": "No poison"}).json()["id"]
     _install_and_activate(client, pid)
 
@@ -151,8 +147,7 @@ def test_setting_plugin_secret_does_not_mutate_global_project_secret(tmp_path) -
     ) == {"DEMO_API_KEY": "plugin-owned-value"}
 
 
-def test_plugin_cannot_set_reserved_core_credential_name(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_plugin_cannot_set_reserved_core_credential_name(client) -> None:
     pid = client.post("/api/projects", json={"name": "Reserved"}).json()["id"]
     _install_and_activate(client, pid)
 
@@ -165,8 +160,7 @@ def test_plugin_cannot_set_reserved_core_credential_name(tmp_path) -> None:
     assert "sk-should-be-refused" not in refused.text
 
 
-def test_plugin_does_not_read_reserved_core_credential(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_plugin_does_not_read_reserved_core_credential(client) -> None:
     pid = client.post("/api/projects", json={"name": "Reserved read"}).json()["id"]
 
     project = client.app.state.workspace.get(pid)

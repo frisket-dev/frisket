@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.contracts.action import Receipt, ReceiptEvidence, ReceiptIO
 from frisket.engine.store import Project
@@ -20,7 +19,6 @@ from frisket.engine.store.streaming_import import (
     DuplicateStreamingPublication,
     StreamingSheetWriter,
 )
-from frisket.server.app import create_app
 
 
 COLUMNS = [
@@ -395,8 +393,7 @@ def test_staging_producer_links_admitted_receipt_before_publish(make_project) ->
     writer.abort()
 
 
-def test_committed_batches_stay_hidden_until_atomic_publish(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_committed_batches_stay_hidden_until_atomic_publish(client) -> None:
     created = client.post("/api/projects", json={"name": "Streaming project"})
     assert created.status_code == 200, created.text
     project_id = created.json()["id"]
@@ -691,9 +688,8 @@ def test_context_failure_aborts_after_multiple_committed_batches(
 
 
 def test_receipt_insert_failure_cannot_partially_publish(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "publish-failure-workspace"))
     created = client.post("/api/projects", json={"name": "Failed publication"})
     assert created.status_code == 200, created.text
     project_id = created.json()["id"]

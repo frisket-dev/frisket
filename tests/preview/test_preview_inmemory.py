@@ -420,8 +420,7 @@ def test_preview_empty_row_ids_rejected_via_route(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # routes / job lifecycle
 # --------------------------------------------------------------------------- #
-def test_preview_route_start_poll_done_writes_nothing(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_preview_route_start_poll_done_writes_nothing(client) -> None:
     pid, project, sheet_id, row_ids = _route_project(client, ["alpha", "beta", "gamma"])
     before = _counts(project)
 
@@ -523,8 +522,7 @@ def test_exact_empty_ner_scope_is_refused_before_a_preview_starts(
     assert _counts(project) == before
 
 
-def test_preview_route_unknown_id_is_404(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_preview_route_unknown_id_is_404(client) -> None:
     pid, _project, _sheet_id, _row_ids = _route_project(client, ["a"])
     resp = client.get(f"{PREVIEW_URL.format(pid=pid)}/does-not-exist")
     assert resp.status_code == 404, resp.text
@@ -636,8 +634,7 @@ def test_paid_preview_wrong_confirmation_cannot_authorize_effect(
     assert project.db.total_changes == before_changes
 
 
-def test_preview_route_unsupported_action_kind_is_4xx(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_preview_route_unsupported_action_kind_is_4xx(client) -> None:
     pid, _project, sheet_id, _row_ids = _route_project(client, ["a"])
     # reduce.* is not a reserved-maprunner (map) action -> preview unsupported.
     body = {

@@ -9,7 +9,6 @@ import struct
 import wave
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.ops.media_metadata import MEDIA_METADATA_FORMAT_REGISTRY
 from frisket.ops.media_probe import (
@@ -19,7 +18,6 @@ from frisket.ops.media_probe import (
 )
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.engine.jobs.worker import Worker
-from frisket.server.app import create_app
 from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     backfill_blob_metadata,
@@ -241,8 +239,7 @@ def test_forced_refresh_replaces_only_probe_namespace(make_project, monkeypatch)
     assert MediaBlobStore(project).blob_row(digest)["source_url"] == source_url
 
 
-def test_file_import_stores_probe_metadata_and_identity_cell(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_file_import_stores_probe_metadata_and_identity_cell(client):
     pid = client.post("/api/projects", json={"name": "Meta"}).json()["id"]
     response = client.post(
         f"/api/projects/{pid}/import/files",
@@ -341,8 +338,7 @@ def test_billable_provider_transcribe_unknown_without_duration(
         runner.prepare_run(plan.spec_dict(), program=plan.program)
 
 
-def test_metadata_backfill_endpoint_updates_blank_blobs(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_metadata_backfill_endpoint_updates_blank_blobs(client):
     pid = client.post("/api/projects", json={"name": "Backfill"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     digest = project.add_blob(b"hello\nworld", filename="a.txt", mime="text/plain")

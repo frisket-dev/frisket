@@ -7,7 +7,6 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.team.security.secrets import decrypt_secret
-from frisket.server.app import create_app
 
 
 PLUGIN_ID = "demo.env_settings"
@@ -52,9 +51,8 @@ def _env_list(client: TestClient, project_id: str) -> dict[str, Any]:
 
 
 def test_plugin_project_env_vars_are_project_scoped_encrypted_and_redacted(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_a = client.post("/api/projects", json={"name": "Plugin env A"}).json()["id"]
     project_b = client.post("/api/projects", json={"name": "Plugin env B"}).json()["id"]
     _install_and_activate_env_plugin(client, project_a)
