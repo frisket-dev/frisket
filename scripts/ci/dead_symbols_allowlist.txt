@@ -56,7 +56,6 @@ src/frisket/contracts/http/cloud_connection.py::CloudDeviceListResponse  frisket
 src/frisket/contracts/http/cloud_connection.py::CloudDeviceRevokeResponse  frisket-cloud
 src/frisket/contracts/http/endpoint_catalog.py::base_endpoint_groups  frisket-cloud
 src/frisket/contracts/models_gateway_roster.py::models_gateway_roster_from_capabilities  frisket-cloud
-src/frisket/engine/_workers/indra_ocr_artifacts.py::indra_ocr_ready  unreferenced
 src/frisket/engine/_workers/local_engine_lease.py::_reset_lease_state_for_tests  test-only
 src/frisket/engine/_workers/rapidocr_session.py::RapidOCRProcessPool.started_workers  test-only
 src/frisket/engine/executor/action_families/exports.py::_remove_path  unreferenced

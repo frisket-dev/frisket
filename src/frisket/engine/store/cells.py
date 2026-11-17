@@ -32,6 +32,7 @@ from frisket.engine.store.current_value_windows import prepared_text_sizes
 from frisket.engine.store.prepared_content import decode_logical_value
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.value_codec import decode_stored_value
+from .transactions import write_transaction
 
 # Column types live in the pluggable registry (frisket.column_types) — the
 # core types are registered there on the same seam plugins use. COLUMN_TYPES
@@ -518,10 +519,7 @@ def add_row_with_undo(
 ) -> int:
     """Append one hand-entered row and its undo op atomically."""
     cur = project.db.cursor()
-    owns_transaction = not project.db.in_transaction
-    try:
-        if owns_transaction:
-            cur.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db, commit=not project.db.in_transaction):
         base = cur.execute(
             "SELECT COALESCE(MAX(position),0) FROM rows WHERE sheet_id=?",
             (sheet_id,),
@@ -576,13 +574,7 @@ def add_row_with_undo(
         from .changes import ChangeStore
 
         ChangeStore(project).close(op_id)
-        if owns_transaction:
-            project.db.commit()
         return row_id
-    except Exception:
-        if owns_transaction:
-            project.db.rollback()
-        raise
 
 
 def row_count(project: Any, sheet_id: int) -> int:

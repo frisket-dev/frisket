@@ -9,6 +9,7 @@ import pytest
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.base import OpContext
 from frisket.engine._workers import spacy_session as sessions
+from frisket.engine.sandbox import shim
 
 
 @pytest.fixture
@@ -59,7 +60,7 @@ def worker(monkeypatch, tmp_path):
         launches.append(kwargs)
         return handle
 
-    monkeypatch.setattr(sessions.shim, "open_sandboxed_process", open_process)
+    monkeypatch.setattr(shim, "open_sandboxed_process", open_process)
     return handle, calls, launches
 
 

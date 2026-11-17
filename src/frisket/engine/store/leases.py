@@ -20,6 +20,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from frisket.engine.store.transactions import write_transaction
 
 _TOKEN_COLUMN = "refresh_claim_token"
 _EXPIRES_COLUMN = "refresh_lease_expires_at"
@@ -88,19 +89,16 @@ def acquire_lease(
     token = new_lease_token(token_prefix)
     now = datetime.now(timezone.utc)
     expiry = lease_expiry(now, lease_seconds)
-    try:
-        db.execute("BEGIN IMMEDIATE")
+    with write_transaction(db):
         row = db.execute(
             f"SELECT * FROM {table} WHERE {id_column}=?", (id_value,)
         ).fetchone()
         if row is None:
-            db.rollback()
             return None
         held = lease_held(row[token_column], row[expires_column], now) and (
             held_requires(row) if held_requires is not None else True
         )
         if held:
-            db.rollback()
             return None
         extra = dict(acquire_set or {})
         assignments = ", ".join(
@@ -112,11 +110,7 @@ def acquire_lease(
             f"UPDATE {table} SET {assignments} WHERE {id_column}=?",
             (token, expiry, *extra.values(), id_value),
         )
-        db.commit()
         return token
-    except Exception:
-        db.rollback()
-        raise
 
 
 def release_lease(

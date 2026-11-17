@@ -9,6 +9,7 @@ from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.changes import start_change
 from frisket.engine.store.op_log import append_op
 from frisket.engine.store.structural_changes import note_row_membership_change
+from frisket.engine.store.transactions import write_transaction
 
 
 class SheetDeleteNotFound(LookupError):
@@ -101,8 +102,7 @@ def delete_sheet(project: Any, sheet_id: int) -> dict[str, Any]:
     """Hide containment without deleting independently retained derived data."""
     if project.db.in_transaction:
         raise RuntimeError("sheet deletion cannot run in a caller-owned transaction")
-    with project.db:
-        project.db.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db):
         sheet = project.db.execute(
             "SELECT id,name FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
         ).fetchone()

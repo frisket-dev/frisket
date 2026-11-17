@@ -7,6 +7,10 @@ finds literal and partly-literal f-string SQL passed to sqlite-style
 outside its proof boundary; callers must keep table names static or use the
 owning store API. Static runs updates inspect assignment targets, not predicates
 or right-hand expressions. Unknown runs assignment targets require the run owner.
+
+Write-transaction boundaries have one owner too: in the store and job modules
+the ``"BEGIN IMMEDIATE"`` literal belongs to ``store/transactions.py``; the
+remaining hand-written boundaries are an exact, shrink-only list.
 """
 
 from __future__ import annotations
@@ -97,6 +101,29 @@ RUN_FIELD_OWNERS: Mapping[str, tuple[str, ...]] = {
     ),
     "cancel_requested_at": (_RUN_STORE, "src/frisket/engine/store/changes.py"),
 }
+
+
+TRANSACTION_SCOPE = ("src/frisket/engine/store", "src/frisket/engine/jobs")
+TRANSACTION_OWNER = "src/frisket/engine/store/transactions.py"
+# Boundaries that do not fit ``write_transaction``: savepoint scopes, busy
+# retries, commit flags that also commit a caller's transaction, deferred
+# read-or-write scopes, separate databases, and the job queue's dialect seam.
+# Shrink-only: an entry that no longer spells the literal fails the check.
+HAND_WRITTEN_TRANSACTIONS = frozenset(
+    {
+        "src/frisket/engine/jobs/queue.py",
+        "src/frisket/engine/jobs/rate_limiter.py",
+        "src/frisket/engine/store/blob_metadata.py",
+        "src/frisket/engine/store/cells.py",
+        "src/frisket/engine/store/column_descriptors.py",
+        "src/frisket/engine/store/effect_checkpoints.py",
+        "src/frisket/engine/store/evaluation.py",
+        "src/frisket/engine/store/execution_routes.py",
+        "src/frisket/engine/store/project_blobs.py",
+        "src/frisket/engine/store/result_generations.py",
+        "src/frisket/engine/store/runs.py",
+    }
+)
 
 
 _IDENT = r'(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_]\w*)'
@@ -284,6 +311,47 @@ def check_paths(
     return violations
 
 
+def _spells_begin_immediate(path: Path) -> list[int]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and node.value.strip().upper().startswith("BEGIN IMMEDIATE")
+    ]
+
+
+def check_transaction_owners(
+    *,
+    root: Path,
+    scope: Iterable[str] = TRANSACTION_SCOPE,
+    owner: str = TRANSACTION_OWNER,
+    allowed: frozenset[str] = HAND_WRITTEN_TRANSACTIONS,
+) -> list[str]:
+    problems: list[str] = []
+    spelled: set[str] = set()
+    for directory in scope:
+        for path in sorted((root / directory).rglob("*.py")):
+            relative = path.relative_to(root).as_posix()
+            lines = _spells_begin_immediate(path)
+            if not lines:
+                continue
+            spelled.add(relative)
+            if relative != owner and relative not in allowed:
+                problems.extend(
+                    f"{relative}:{line}: BEGIN IMMEDIATE outside {owner}; "
+                    "use write_transaction"
+                    for line in lines
+                )
+    problems.extend(
+        f"{relative}: no longer spells BEGIN IMMEDIATE; delete it from "
+        "HAND_WRITTEN_TRANSACTIONS"
+        for relative in sorted(allowed - spelled)
+    )
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -305,7 +373,10 @@ def main(argv: list[str] | None = None) -> int:
             f"{'.' + violation.field if violation.field else ''} "
             "is outside its named owner"
         )
-    return 1 if violations else 0
+    problems = [] if args.paths else check_transaction_owners(root=args.root)
+    for problem in problems:
+        print(problem)
+    return 1 if violations or problems else 0
 
 
 if __name__ == "__main__":

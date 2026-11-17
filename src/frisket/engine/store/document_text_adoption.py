@@ -18,6 +18,7 @@ from .document_text import (
     is_generation_free_document_text_target,
 )
 from .value_codec import PreparedContentRef
+from .transactions import require_transaction
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,8 +40,7 @@ def adopt_document_text_role(
     """
 
     db = project.db
-    if not db.in_transaction:
-        raise RuntimeError("document text adoption requires a caller transaction")
+    require_transaction(db, "document text adoption")
     existing = document_text_role(project, source_column_id=source_column_id)
     role = ensure_document_text_role(
         project,

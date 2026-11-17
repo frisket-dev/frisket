@@ -22,6 +22,7 @@ from .import_sessions import (
 )
 from .receipts import ReceiptStore
 from .streaming_import import StreamingSheetPublication, StreamingSheetWriter
+from .transactions import write_transaction
 
 
 @dataclass(frozen=True)
@@ -161,8 +162,7 @@ class PdfSplitWriter(StreamingSheetWriter):
 
     def _discard_failed_setup(self) -> None:
         db = self.project.db
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             operation = db.execute(
                 "SELECT undo_info FROM ops WHERE id=?", (self._op_id,)
             ).fetchone()
@@ -181,10 +181,6 @@ class PdfSplitWriter(StreamingSheetWriter):
             )
             sessions = ImportSessionStore(self.project)
             sessions.discard_setup(sessions.get(self._session_id))
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
 
     def finalize_session(
         self, *, expected_cursor: int, keep_cancelled: bool = False
@@ -196,8 +192,7 @@ class PdfSplitWriter(StreamingSheetWriter):
 
     def _reserve_sources(self, sources: list[PdfSplitSource], *, replace: bool) -> None:
         db = self.project.db
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             self._require_split_writer(0)
             db.executemany(
                 "INSERT INTO import_session_pdf_sources "
@@ -274,10 +269,6 @@ class PdfSplitWriter(StreamingSheetWriter):
             if replace:
                 undo["replaced_rows_import_session_id"] = self._session_id
             self.project.set_undo_info(self._op_id, undo, commit=False)
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
 
     def publish_source(
         self,
@@ -293,8 +284,7 @@ class PdfSplitWriter(StreamingSheetWriter):
         if committed_bytes < 0:
             raise ValueError("committed bytes must be nonnegative")
         db = self.project.db
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             session = self._require_split_writer(expected_cursor)
             source = db.execute(
                 "SELECT * FROM import_session_pdf_sources WHERE session_id=? AND ordinal=? AND state='pending'",
@@ -371,10 +361,6 @@ class PdfSplitWriter(StreamingSheetWriter):
             self._advance(
                 expected_cursor, rows=len(row_ids), committed_bytes=committed_bytes
             )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         self._row_count += len(row_ids)
         return row_ids
 
@@ -401,8 +387,7 @@ class PdfSplitWriter(StreamingSheetWriter):
         if not error:
             raise ValueError("source error must be non-empty")
         db = self.project.db
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             self._require_split_writer(expected_cursor)
             changed = db.execute(
                 "UPDATE import_session_pdf_sources SET state='failed',error=? "
@@ -412,10 +397,6 @@ class PdfSplitWriter(StreamingSheetWriter):
             if changed.rowcount != 1:
                 raise ImportSessionConflict("split source checkpoint is unavailable")
             self._advance(expected_cursor)
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
 
     def finalize(
         self,
@@ -426,8 +407,7 @@ class PdfSplitWriter(StreamingSheetWriter):
     ) -> StreamingSheetPublication:
         """Release the protected writer; Redo only restores saved publications."""
         db = self.project.db
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             self._require_session()
             session = ImportSessionStore(self.project).require_writer(
                 self._session_id,
@@ -500,10 +480,6 @@ class PdfSplitWriter(StreamingSheetWriter):
                 keep=status in ("partial", "cancelled", "failed"),
                 enumeration_complete=not counts.get("pending", 0),
             )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         self._closed = True
         self._publication = StreamingSheetPublication(
             sheet_id=self.sheet_id,

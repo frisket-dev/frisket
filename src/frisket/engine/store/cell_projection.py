@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Collection
+from frisket.engine.store.transactions import write_transaction
 
 SMALL_WRITE_LIMIT = 512
 HEAD_COLUMNS = (
@@ -141,13 +142,11 @@ def repair_current_cells(project: object, *, limit: int = SMALL_WRITE_LIMIT) -> 
         raise RuntimeError("bounded repair owns its transaction")
     if not 1 <= limit <= SMALL_WRITE_LIMIT:
         raise ValueError(f"repair limit must be between 1 and {SMALL_WRITE_LIMIT}")
-    db.execute("BEGIN IMMEDIATE")
-    try:
+    with write_transaction(db):
         work = db.execute(
             "SELECT * FROM current_cell_repair ORDER BY id LIMIT 1"
         ).fetchone()
         if work is None:
-            db.commit()
             return 0
         start = max(work["row_id_start"], work["cursor"] + 1)
         rows = db.execute(
@@ -164,8 +163,4 @@ def repair_current_cells(project: object, *, limit: int = SMALL_WRITE_LIMIT) -> 
                 "UPDATE current_cell_repair SET cursor=?,row_id_start=? WHERE id=? AND cursor=?",
                 (end, end + 1, work["id"], work["cursor"]),
             )
-        db.commit()
         return len(rows)
-    except BaseException:
-        db.rollback()
-        raise

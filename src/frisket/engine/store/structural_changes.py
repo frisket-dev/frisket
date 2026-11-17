@@ -6,6 +6,7 @@ import sqlite3
 from collections.abc import Iterable
 
 from .current_cells import refresh_current_cells
+from .transactions import require_transaction
 
 
 def note_row_membership_change(
@@ -15,8 +16,7 @@ def note_row_membership_change(
     already_refreshed_columns: Iterable[int] = (),
 ) -> None:
     """Invalidate every affected column once, including empty source columns."""
-    if not db.in_transaction:
-        raise RuntimeError("membership changes require a caller-owned transaction")
+    require_transaction(db, "membership change")
     columns = {
         int(row[0])
         for sheet_id in set(sheet_ids)
@@ -40,8 +40,7 @@ def note_row_additions(
     """
     from .current_cells import _enqueue_region
 
-    if not db.in_transaction:
-        raise RuntimeError("row additions require a caller-owned transaction")
+    require_transaction(db, "row addition")
     rows = sorted(set(row_ids))
     if not rows:
         return
@@ -88,8 +87,7 @@ _MEMBERSHIP_FIELDS = {
 def record_structural_changes(db, op_id, info):
     import json
 
-    if not db.in_transaction:
-        raise RuntimeError("structural changes require a caller-owned transaction")
+    require_transaction(db, "structural change")
     for field, (kind, before, after) in _MEMBERSHIP_FIELDS.items():
         if info.get(field):
             db.execute(
@@ -123,8 +121,7 @@ def record_structural_changes(db, op_id, info):
 
 def project_structural_changes(db, op_id, *, object_ids=None):
     """Project only the touched identities from their winning active Change."""
-    if not db.in_transaction:
-        raise RuntimeError("structural projection requires a caller-owned transaction")
+    require_transaction(db, "structural projection")
     # Scope stays in SQLite, including a million-row import. A structural edit
     # never replays or traverses downstream content. Most cell Changes have no
     # membership effects; avoid planning a whole structural window for them.

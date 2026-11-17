@@ -13,6 +13,7 @@ import json
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
+from frisket.engine.store.transactions import write_transaction
 
 
 CONSUMED_SOURCE_SCHEMA_SQL = """
@@ -902,10 +903,7 @@ def verify_bundle(
         return "unknown"
     state = "unknown" if equal is None else ("fresh" if equal else "stale")
     # No provider work: a source edit races only this small cache publication.
-    started = not project.db.in_transaction
-    if started:
-        project.db.execute("BEGIN IMMEDIATE")
-    try:
+    with write_transaction(project.db, commit=not project.db.in_transaction):
         if capture_revisions(project, capture) != revisions:
             state = "unknown"
         project.db.execute(
@@ -918,12 +916,6 @@ def verify_bundle(
                 bundle["input_fingerprint"] if capture["kind"] == "aggregate" else "",
             ),
         )
-        if started:
-            project.db.commit()
-    except BaseException:
-        if started:
-            project.db.rollback()
-        raise
     return state
 
 

@@ -13,6 +13,7 @@ from .import_sessions import ImportSessionConflict, ImportSessionStore
 from .keyed_updates import ValidatedKeyedInput, typed_key
 from .keyed_publication import index_keyed_targets, publish_keyed_records
 from .table_import_intake import TableImportPlan
+from .transactions import write_transaction
 
 
 def index_targets(
@@ -85,8 +86,7 @@ def publish_keyed_page(
         for column in plan.columns
         if column.source_index not in plan.update.key_source_indices
     ]
-    try:
-        db.execute("BEGIN IMMEDIATE")
+    with write_transaction(db):
         session = ImportSessionStore(project).require_writer(
             writer._session_id, writer._writer_authority, expected_cursor
         )
@@ -144,9 +144,5 @@ def publish_keyed_page(
             raise ImportSessionConflict(
                 "import session changed during keyed publication"
             )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
     writer._row_count += matched
     return matched

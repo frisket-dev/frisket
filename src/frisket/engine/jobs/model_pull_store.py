@@ -29,9 +29,9 @@ from collections.abc import Iterator
 import sqlalchemy as sa
 
 from frisket.engine.jobs.queue import (
-    _SQLITE_BEGIN_IMMEDIATE_OPT,
     _now,
     _parse,
+    engine_write_transaction,
     jobs_metadata,
     jobs_table,
 )
@@ -231,26 +231,6 @@ def _job_terminal_status(engine: sa.engine.Engine, job_id: int) -> str | None:
     return str(row.status) if row is not None else None
 
 
-@contextmanager
-def _write_transaction(engine: sa.engine.Engine):
-    """Mirrors ``JobQueue._write_transaction`` (queue.py) for this module's
-    own read-then-write callers. On SQLite it opts into ``BEGIN IMMEDIATE``
-    (the write lock taken up front, on the SAME engine ``JobQueue.__init__``
-    already installed the listener on) so a SELECT followed by an UPDATE in
-    one transaction never risks the classic deferred-to-reserved lock
-    upgrade deadlock; on Postgres it is an ordinary transaction. Used by
-    ``_read_repair``'s atomic recheck (below) so the linked job's status and
-    the pull row's write commit as one unit."""
-    if engine.dialect.name == "sqlite":
-        with engine.connect() as conn:
-            conn = conn.execution_options(**{_SQLITE_BEGIN_IMMEDIATE_OPT: True})
-            with conn.begin():
-                yield conn
-    else:
-        with engine.begin() as conn:
-            yield conn
-
-
 def _repair_values(row: ModelPullRow, job_status: str | None) -> dict[str, Any] | None:
     """Derive the same terminal recovery facts for passive and repairing reads."""
     if row.job_id is None:
@@ -316,7 +296,7 @@ def _read_repair(
     # BEGIN IMMEDIATE serializes writers instead (FOR UPDATE is omitted there).
     job_id = row.job_id
     c = model_pulls_table.c
-    with _write_transaction(engine) as cx:
+    with engine_write_transaction(engine) as cx:
         fresh = cx.execute(
             sa.select(jobs_table.c.status)
             .where(jobs_table.c.id == job_id)
@@ -699,7 +679,7 @@ def uninstalling_ref(
     passive byte checks remain authoritative and removal is idempotent.
     """
     c = model_pulls_table.c
-    with _write_transaction(engine) as cx:
+    with engine_write_transaction(engine) as cx:
         active = cx.execute(
             sa.select(sa.func.count())
             .select_from(model_pulls_table)

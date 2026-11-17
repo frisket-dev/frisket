@@ -191,53 +191,12 @@ def _enqueue_refresh_action_run(
     return result.job_id
 
 
-def _refresh_already_pending(
-    queue: JobQueue,
-    project_id: str,
-    dedupe_key: str,
-    *,
-    storage_org_id: int | None,
-) -> bool:
-    # Indexed, unbounded lookup on the dedupe_key ref column (idx_jobs_dedupe) so
-    # an older queued/running job can never be missed behind a result cap — the
-    # job's dedupe_key is also persisted in payload for replay/inspection.
-    return (
-        queue.find_job_by_refs(
-            EMBEDDING_REFRESH_ENQUEUE_KIND,
-            statuses=("queued", "running"),
-            project_id=project_id,
-            storage_org_id=storage_org_id,
-            dedupe_key=dedupe_key,
-        )
-        is not None
-    )
-
-
 # A scheduled job's dedupe_key encodes its cadence-window bucket, so "any job with
 # this key, in ANY terminal or live state" means "this cadence attempt already
 # ran". Unlike source-append (pending-only), a blocked/failed/done scheduled
 # attempt must NOT be retried until the next window — otherwise a remote index
 # whose refresh blocks on a cost gate would re-enqueue every scan.
 _ALL_JOB_STATUSES = ("queued", "running", "done", "failed", "cancelled")
-
-
-def _scheduled_attempt_already_seen(
-    queue: JobQueue,
-    project_id: str,
-    dedupe_key: str,
-    *,
-    storage_org_id: int | None,
-) -> bool:
-    return (
-        queue.find_job_by_refs(
-            EMBEDDING_REFRESH_ENQUEUE_KIND,
-            statuses=_ALL_JOB_STATUSES,
-            project_id=project_id,
-            storage_org_id=storage_org_id,
-            dedupe_key=dedupe_key,
-        )
-        is not None
-    )
 
 
 def enqueue_source_append_refreshes(
@@ -264,11 +223,16 @@ def enqueue_source_append_refreshes(
     for idx in indexes:
         index_id = idx["id"]
         dedupe_key = refresh_dedupe_key(index_id, trigger_ref, appended)
-        if _refresh_already_pending(
-            queue,
-            project_id,
-            dedupe_key,
-            storage_org_id=storage_org_id,
+        # Indexed, unbounded lookup on the dedupe_key ref column, so an older
+        # queued/running job is never missed behind a result cap.
+        if (
+            queue.find_job_by_refs(
+                EMBEDDING_REFRESH_ENQUEUE_KIND,
+                project_id=project_id,
+                storage_org_id=storage_org_id,
+                dedupe_key=dedupe_key,
+            )
+            is not None
         ):
             continue
         job_id = _enqueue_refresh_action_run(
@@ -375,11 +339,15 @@ def enqueue_due_scheduled_refreshes(
                 continue
             index_id = idx["id"]
             dedupe_key = scheduled_refresh_dedupe_key(index_id, interval, now=now)
-            if _scheduled_attempt_already_seen(
-                queue,
-                project_id,
-                dedupe_key,
-                storage_org_id=storage_org_id,
+            if (
+                queue.find_job_by_refs(
+                    EMBEDDING_REFRESH_ENQUEUE_KIND,
+                    statuses=_ALL_JOB_STATUSES,
+                    project_id=project_id,
+                    storage_org_id=storage_org_id,
+                    dedupe_key=dedupe_key,
+                )
+                is not None
             ):
                 continue
             trigger_ref = {

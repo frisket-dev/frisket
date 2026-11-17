@@ -9,6 +9,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from .transactions import require_transaction
+
 from .value_codec import (
     PreparedContentRef,
     SQLiteValue,
@@ -101,10 +103,6 @@ class PreparedContentStore:
 
         return self.project.db
 
-    def _require_transaction(self) -> None:
-        if not self.db.in_transaction:
-            raise RuntimeError("prepared content writes require a caller transaction")
-
     def _operation(self, producing_op_id: int) -> int:
         op_id = _positive_int(producing_op_id, "producing_op_id")
         row = self.db.execute("SELECT status FROM ops WHERE id=?", (op_id,)).fetchone()
@@ -186,7 +184,7 @@ class PreparedContentStore:
     ) -> PreparedContentRef:
         """Create one immutable set and selector without owning the transaction."""
 
-        self._require_transaction()
+        require_transaction(self.db, "prepared content write")
         op_id = self._operation(producing_op_id)
         artifact_id, page_count = self._artifact(source_artifact_id)
         prepared = _page_drafts(pages)
@@ -224,7 +222,7 @@ class PreparedContentStore:
     ) -> PreparedContentRef:
         """Add another selector for an existing immutable set."""
 
-        self._require_transaction()
+        require_transaction(self.db, "prepared content write")
         content_set_id = _positive_int(set_id, "set_id")
         selected = (
             None if page_number is None else _positive_int(page_number, "page_number")
@@ -262,7 +260,7 @@ class PreparedContentStore:
         the caller's write transaction and check the owning cell's identity.
         """
 
-        self._require_transaction()
+        require_transaction(self.db, "prepared content write")
         op_id = self._operation(producing_op_id)
         base_id = _positive_int(base_ref_id, "base_ref_id")
         base = self.db.execute(
@@ -342,7 +340,7 @@ class PreparedContentStore:
         allow_partial: bool = False,
     ) -> PreparedContentRef | None:
         """Copy available pages into a child artifact with local page numbers."""
-        self._require_transaction()
+        require_transaction(self.db, "prepared content write")
         self._operation(producing_op_id)
         first = _positive_int(first_page, "first_page")
         last = _positive_int(last_page, "last_page")

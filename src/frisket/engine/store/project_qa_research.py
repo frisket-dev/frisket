@@ -8,6 +8,7 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
+from frisket.engine.store.transactions import write_transaction
 
 
 WRITE_MODES = frozenset({"ask_each", "ask_overwrite", "full_access"})
@@ -115,16 +116,8 @@ class ProjectQAResearchStore:
 
     def _write(self, write: Callable[[sqlite3.Connection], Any]) -> Any:
         db = self.db
-        if db.in_transaction:
+        with write_transaction(db, commit=not db.in_transaction):
             return write(db)
-        db.execute("BEGIN IMMEDIATE")
-        try:
-            result = write(db)
-            db.commit()
-            return result
-        except BaseException:
-            db.rollback()
-            raise
 
     @staticmethod
     def _run_record(row: sqlite3.Row | None) -> dict[str, Any]:

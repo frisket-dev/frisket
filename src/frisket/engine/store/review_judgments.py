@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 from typing import Any
+from .transactions import require_transaction
 
 JUDGMENT_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS result_judgment_changes (
@@ -47,8 +48,7 @@ def _value(info, target, field, after):
 
 
 def record_judgment_changes(db, op_id: int, info) -> None:
-    if not db.in_transaction:
-        raise RuntimeError("judgment changes require a caller transaction")
+    require_transaction(db, "judgment change")
     for field in ("state", "decision", "note"):
         section = "review_states" if field == "state" else "review_metadata"
         for target in info.get(section + "_after", {}):
@@ -66,8 +66,7 @@ def record_judgment_changes(db, op_id: int, info) -> None:
 def project_judgments(project: Any, op_id: int) -> None:
     """Recompute only targets touched by a Change, after its applicability changes."""
     db = project.db
-    if not db.in_transaction:
-        raise RuntimeError("judgment projection requires a caller transaction")
+    require_transaction(db, "judgment projection")
     targets = db.execute(
         "SELECT DISTINCT target FROM result_judgment_changes WHERE op_id=?", (op_id,)
     ).fetchall()

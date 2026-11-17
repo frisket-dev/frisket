@@ -232,3 +232,25 @@ db.executescript("UPDATE runs SET params='status=failed; UPDATE runs SET status=
 db.execute("/* UPDATE execution_attempts SET state='effected' */ SELECT 1")
 """
     assert _scan(tmp_path, source) == []
+
+
+def test_begin_immediate_belongs_to_the_transaction_owner(tmp_path: Path):
+    # rule19: synthetic modules verify the transaction-owner gate without a repo.
+    store = tmp_path / "src/store"
+    store.mkdir(parents=True)
+    (store / "transactions.py").write_text('db.execute("BEGIN IMMEDIATE")\n')
+    (store / "rogue.py").write_text('db.execute("BEGIN IMMEDIATE")\n')
+    (store / "prose.py").write_text('"""Runs under BEGIN IMMEDIATE."""\n')
+    (store / "listed.py").write_text('db.execute("begin immediate")\n')
+    problems = checker.check_transaction_owners(
+        root=tmp_path,
+        scope=("src/store",),
+        owner="src/store/transactions.py",
+        allowed=frozenset({"src/store/listed.py", "src/store/gone.py"}),
+    )
+    assert problems == [
+        "src/store/rogue.py:1: BEGIN IMMEDIATE outside src/store/transactions.py; "
+        "use write_transaction",
+        "src/store/gone.py: no longer spells BEGIN IMMEDIATE; delete it from "
+        "HAND_WRITTEN_TRANSACTIONS",
+    ]

@@ -434,14 +434,14 @@ def enqueue_enclosure_downloads(
         return []
     job_ids: list[int] = []
     for row_id in row_ids:
-        if _enclosure_download_already_pending(
-            queue,
+        if queue.find_job_by_refs(
+            ENCLOSURE_DOWNLOAD_KIND,
             project_id=project_id,
+            storage_org_id=storage_org_id,
             sheet_id=sheet_id,
             row_id=row_id,
-            workspace_root=workspace_root,
-            storage_org_id=storage_org_id,
-        ) or _enclosure_row_already_queued_or_downloaded(
+            workspace_root=str(workspace_root),
+        ) is not None or _enclosure_row_already_queued_or_downloaded(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -486,29 +486,6 @@ def enqueue_enclosure_downloads(
                     exc_info=True,
                 )
     return job_ids
-
-
-def _enclosure_download_already_pending(
-    queue: JobQueue,
-    *,
-    project_id: str,
-    storage_org_id: int | None,
-    sheet_id: int,
-    row_id: int,
-    workspace_root: Path,
-) -> bool:
-    return (
-        queue.find_job_by_refs(
-            ENCLOSURE_DOWNLOAD_KIND,
-            statuses=("queued", "running"),
-            project_id=project_id,
-            storage_org_id=storage_org_id,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            workspace_root=str(workspace_root),
-        )
-        is not None
-    )
 
 
 def _enclosure_row_already_queued_or_downloaded(
@@ -581,27 +558,6 @@ def _source_stale_for_notification(row: Any, *, now: datetime) -> bool:
     return last is not None and last + (interval * 2) <= now
 
 
-def _poll_already_pending(
-    queue: JobQueue,
-    *,
-    project_id: str,
-    storage_org_id: int | None,
-    source_id: int,
-    workspace_root: Path,
-) -> bool:
-    return (
-        queue.find_job_by_refs(
-            SOURCE_POLL_KIND,
-            statuses=("queued", "running"),
-            project_id=project_id,
-            storage_org_id=storage_org_id,
-            source_id=source_id,
-            workspace_root=str(workspace_root),
-        )
-        is not None
-    )
-
-
 def enqueue_due_source_polls(
     *,
     workspace_root: str | Path,
@@ -630,12 +586,15 @@ def enqueue_due_source_polls(
                 continue
             if not due:
                 continue
-            if _poll_already_pending(
-                queue,
-                project_id=project_id,
-                storage_org_id=storage_org_id,
-                source_id=source_id,
-                workspace_root=root,
+            if (
+                queue.find_job_by_refs(
+                    SOURCE_POLL_KIND,
+                    project_id=project_id,
+                    storage_org_id=storage_org_id,
+                    source_id=source_id,
+                    workspace_root=str(root),
+                )
+                is not None
             ):
                 continue
             src = _source_dict(row)

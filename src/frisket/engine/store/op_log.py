@@ -22,6 +22,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
 )
 from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _valid_review_metadata(value: Any) -> bool:
@@ -534,19 +535,16 @@ def step_operation(
 
 def undo(project: Any) -> int | None:
     """Step back one applied op. Returns the op id undone, or None."""
-    try:
-        project.db.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db):
         try:
             transition = step_operation(project, "undo")
         except OperationUnavailable:
             project.db.rollback()
             return None
         except IrreversibleOperation as exc:
-            project.db.rollback()
             row = exc.args[0]
             raise ValueError(f"op {row['id']} ({row['kind']}) is irreversible")
         except ClaimedOperation as exc:
-            project.db.rollback()
             claim = exc.claim
             raise ValueError(
                 "output_column_busy: operation "
@@ -554,39 +552,27 @@ def undo(project: Any) -> int | None:
                 f"touches actively claimed column {claim['column_id']}"
             )
         except CorruptOperation as exc:
-            project.db.rollback()
             raise ValueError(str(exc)) from exc
-        project.db.commit()
-    except BaseException:
-        project.db.rollback()
-        raise
     if not transition.pending_review_count_unchanged:
         project.refresh_pending_review_summary()
     return int(transition.target["id"])
 
 
 def redo(project: Any) -> int | None:
-    try:
-        project.db.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db):
         try:
             transition = step_operation(project, "redo")
         except OperationUnavailable:
             project.db.rollback()
             return None
         except ClaimedOperation as exc:
-            project.db.rollback()
             claim = exc.claim
             raise ValueError(
                 "output_column_busy: operation "
                 f"{exc.op_id} touches actively claimed column {claim['column_id']}"
             )
         except CorruptOperation as exc:
-            project.db.rollback()
             raise ValueError(str(exc)) from exc
-        project.db.commit()
-    except BaseException:
-        project.db.rollback()
-        raise
     if not transition.pending_review_count_unchanged:
         project.refresh_pending_review_summary()
     return int(transition.target["id"])

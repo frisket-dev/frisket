@@ -12,17 +12,16 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 import sqlalchemy as sa
 
 from frisket.engine.jobs.queue import (
-    _SQLITE_BEGIN_IMMEDIATE_OPT,
     _now,
     _parse,
+    engine_write_transaction,
     jobs_metadata,
 )
 
@@ -161,19 +160,7 @@ class SearchPreparationStore:
         if engine is None:
             raise TypeError("search preparation requires a SQL-backed job queue")
         self.engine: sa.engine.Engine = engine
-        self._is_sqlite = engine.dialect.name == "sqlite"
         self.workspace_root = workspace_root
-
-    @contextmanager
-    def _write(self) -> Iterator[sa.Connection]:
-        with self.engine.connect() as cx:
-            if self._is_sqlite:
-                cx = cx.execution_options(**{_SQLITE_BEGIN_IMMEDIATE_OPT: True})
-                with cx.begin():
-                    yield cx
-            else:
-                with cx.begin():
-                    yield cx
 
     @staticmethod
     def _batch(row: Any) -> SearchPreparationBatchRow:
@@ -277,7 +264,7 @@ class SearchPreparationStore:
             updated_at=now,
         )
         try:
-            with self._write() as cx:
+            with engine_write_transaction(self.engine) as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
         except sa.exc.IntegrityError:
             existing = (
@@ -329,7 +316,7 @@ class SearchPreparationStore:
             updated_at=now,
         )
         try:
-            with self._write() as cx:
+            with engine_write_transaction(self.engine) as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
         except sa.exc.IntegrityError:
             existing = self._for_intent(
@@ -376,7 +363,7 @@ class SearchPreparationStore:
             else c.storage_org_id == storage_org_id
         )
         try:
-            with self._write() as cx:
+            with engine_write_transaction(self.engine) as cx:
                 existing = cx.execute(
                     sa.select(search_preparation_batches_table)
                     .where(
@@ -472,7 +459,7 @@ class SearchPreparationStore:
             updated_at=now,
         )
         try:
-            with self._write() as cx:
+            with engine_write_transaction(self.engine) as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
         except sa.exc.IntegrityError:
             existing = self._for_intent(
@@ -543,7 +530,7 @@ class SearchPreparationStore:
             else c.storage_org_id == storage_org_id
         )
         body = dict(plan)
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             result = cx.execute(
                 search_preparation_batches_table.update()
                 .where(
@@ -738,7 +725,7 @@ class SearchPreparationStore:
             if storage_org_id is None
             else c.storage_org_id == storage_org_id
         )
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             row = cx.execute(
                 sa.select(
                     c.plan_hash,
@@ -802,7 +789,7 @@ class SearchPreparationStore:
         new_id = "search-prep-" + uuid.uuid4().hex
         now = _now()
         body = dict(plan)
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             old = cx.execute(
                 sa.select(search_preparation_batches_table)
                 .where(
@@ -897,7 +884,7 @@ class SearchPreparationStore:
             else c.storage_org_id == storage_org_id
         )
         body = dict(plan)
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             result = cx.execute(
                 search_preparation_batches_table.update()
                 .where(
@@ -927,7 +914,7 @@ class SearchPreparationStore:
             if storage_org_id is None
             else c.storage_org_id == storage_org_id
         )
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             result = cx.execute(
                 search_preparation_batches_table.update()
                 .where(c.id == batch_id, c.project_id == project_id, predicate)
@@ -956,7 +943,7 @@ class SearchPreparationStore:
             if storage_org_id is None
             else c.storage_org_id == storage_org_id
         )
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             result = cx.execute(
                 search_preparation_batches_table.update()
                 .where(
@@ -988,7 +975,7 @@ class SearchPreparationStore:
             if storage_org_id is None
             else c.storage_org_id == storage_org_id
         )
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             result = cx.execute(
                 search_preparation_batches_table.update()
                 .where(
@@ -1017,7 +1004,7 @@ class SearchPreparationStore:
         b = search_preparation_batches_table.c
         ch = search_preparation_children_table.c
         now = _now()
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             batch = cx.execute(
                 sa.select(b.stop_requested_at)
                 .where(
@@ -1068,7 +1055,7 @@ class SearchPreparationStore:
     ) -> bool:
         c = search_preparation_children_table.c
         b = search_preparation_batches_table.c
-        with self._write() as cx:
+        with engine_write_transaction(self.engine) as cx:
             result = cx.execute(
                 search_preparation_children_table.update()
                 .where(

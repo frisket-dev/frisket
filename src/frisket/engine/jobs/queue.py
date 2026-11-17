@@ -30,7 +30,7 @@ import logging
 import os
 import threading
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -476,6 +476,24 @@ def _queue_engine_url(locator: str | Path) -> str:
 
 _SQLITE_BEGIN_IMMEDIATE_OPT = "frisket_sqlite_begin_immediate"
 
+
+@contextmanager
+def engine_write_transaction(engine: sa.engine.Engine) -> Iterator[sa.Connection]:
+    """Run one read-then-write transaction on a job-store engine.
+
+    On SQLite it opts in to ``BEGIN IMMEDIATE``: the write lock is taken up
+    front so a select followed by an update never deadlocks two writers on a
+    shared-to-reserved lock upgrade, and the claim seam's exactly-once fencing
+    holds.  On Postgres it is an ordinary transaction (row locks do the
+    fencing).  Read-only paths use ``engine.connect()`` and stay deferred.
+    """
+    with engine.connect() as conn:
+        if engine.dialect.name == "sqlite":
+            conn = conn.execution_options(**{_SQLITE_BEGIN_IMMEDIATE_OPT: True})
+        with conn.begin():
+            yield conn
+
+
 _SQLITE_INIT_LOCKS: dict[str, threading.Lock] = {}
 _SQLITE_INIT_LOCKS_GUARD = threading.Lock()
 
@@ -735,10 +753,10 @@ class JobQueue:
                 if self._is_sqlite:
                     with _sqlite_initialization_lock(self.engine):
                         _negotiate_sqlite_wal(self.engine)
-                        with self._write_transaction() as cx:
+                        with engine_write_transaction(self.engine) as cx:
                             ensure_current_queue_schema(cx)
                 else:
-                    with self._write_transaction() as cx:
+                    with engine_write_transaction(self.engine) as cx:
                         ensure_current_queue_schema(cx)
             except BaseException:
                 self.engine.dispose()
@@ -818,7 +836,7 @@ class JobQueue:
         if self._hosted_storage:
             _validate_hosted_attribution(refs, body)
         try:
-            with self._write_transaction() as cx:
+            with engine_write_transaction(self.engine) as cx:
                 return cx.execute(
                     jobs_table.insert().values(
                         kind=kind,
@@ -917,7 +935,7 @@ class JobQueue:
         if not self._is_sqlite:
             select_next = select_next.with_for_update(skip_locked=True)
         try:
-            with self._write_transaction() as cx:
+            with engine_write_transaction(self.engine) as cx:
                 jid = cx.execute(select_next).scalar_one_or_none()
                 if jid is None:
                     return None
@@ -972,7 +990,7 @@ class JobQueue:
             if storage_org_id is None
             else c.storage_org_id == storage_org_id
         )
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             result = cx.execute(
                 jobs_table.update()
                 .where(
@@ -996,7 +1014,7 @@ class JobQueue:
             raise ValueError("handler authority id is required")
         c = jobs_table.c
         a = job_handler_authorities_table.c
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             authority = cx.execute(
                 sa.select(a.worker_id).where(
                     a.authority_id == authority_id,
@@ -1042,7 +1060,7 @@ class JobQueue:
         direct queue executors that use ``complete``/``fail`` themselves; the
         product Worker always supplies the token returned by ``claim``.
         """
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             released = self._acknowledge_handler_exit_on_connection(
                 cx,
                 job_id=job_id,
@@ -1193,7 +1211,7 @@ class JobQueue:
         """
         c = job_handler_authorities_table.c
         heartbeat = worker_heartbeats_table.c
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             if not self._is_sqlite:
                 # Lock the table to fence a concurrent first-heartbeat insert.
                 cx.execute(
@@ -1220,30 +1238,13 @@ class JobQueue:
             live_worker=False,
         )
 
-    @contextmanager
-    def _write_transaction(self):
-        """Every read-then-write transaction runs here. On SQLite it opts in to
-        ``BEGIN IMMEDIATE`` — the write lock is taken up front so a select
-        followed by an update never deadlocks two workers on a shared→reserved
-        lock upgrade, and the claim seam's exactly-once fencing holds. On
-        Postgres it is an ordinary transaction (row locks do the fencing).
-        Read-only methods use ``engine.connect()`` and stay deferred."""
-        if self._is_sqlite:
-            with self.engine.connect() as conn:
-                conn = conn.execution_options(**{_SQLITE_BEGIN_IMMEDIATE_OPT: True})
-                with conn.begin():
-                    yield conn
-        else:
-            with self.engine.begin() as conn:
-                yield conn
-
     def heartbeat(
         self, job_id: int, worker_id: str, *, lease_seconds: float = 60.0
     ) -> bool:
         """Extend the lease on a job this worker holds. False = lost it
         (lease expired and someone recovered the job) — abandon the work."""
         c = jobs_table.c
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             res = cx.execute(
                 jobs_table.update()
                 .where(c.id == job_id, c.locked_by == worker_id, c.status == "running")
@@ -1256,7 +1257,7 @@ class JobQueue:
     def report_progress(self, job_id: int, attempt: int, progress: dict) -> bool:
         """Update nonterminal progress only for the currently claimed attempt."""
         c = jobs_table.c
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             result = cx.execute(
                 jobs_table.update()
                 .where(
@@ -1272,7 +1273,7 @@ class JobQueue:
         """Mark done. False if this worker no longer holds the job."""
         c = jobs_table.c
         now = self._clock()
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             row = cx.execute(
                 sa.select(jobs_table)
                 .where(c.id == job_id, c.locked_by == worker_id, c.status == "running")
@@ -1333,7 +1334,7 @@ class JobQueue:
         now = self._clock()
         c = jobs_table.c
         terminal_job: Job | None = None
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             row = cx.execute(
                 sa.select(jobs_table)
                 .where(c.id == job_id, c.locked_by == worker_id, c.status == "running")
@@ -1393,7 +1394,7 @@ class JobQueue:
         )
         job_to_cancel: Job | None = None
         previous_status: str | None = None
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             row = cx.execute(
                 sa.select(jobs_table)
                 .where(*scope_filters, cancellable)
@@ -1437,7 +1438,7 @@ class JobQueue:
         if require_unstarted:
             filters.append(c.attempts == 0)
         job_to_cancel: Job | None = None
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             row = cx.execute(
                 sa.select(jobs_table).where(*filters).with_for_update()
             ).first()
@@ -1503,7 +1504,7 @@ class JobQueue:
         c = jobs_table.c
         recovered = 0
         terminal_jobs: list[Job] = []
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             rows = cx.execute(
                 sa.select(jobs_table)
                 .where(c.status == "running", c.lease_expires_at < now)
@@ -1553,7 +1554,7 @@ class JobQueue:
         if stored_error is None:
             stored_error = "queue_job_failed: operation failed"
         c = jobs_table.c
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             res = cx.execute(
                 jobs_table.update()
                 .where(c.id == job_id, c.status == "queued")
@@ -1582,7 +1583,7 @@ class JobQueue:
         sorted list of this worker's registered handler kinds."""
         stamp = now or self._clock()
         c = worker_heartbeats_table.c
-        with self._write_transaction() as cx:
+        with engine_write_transaction(self.engine) as cx:
             updated = cx.execute(
                 worker_heartbeats_table.update()
                 .where(c.worker_id == worker_id)

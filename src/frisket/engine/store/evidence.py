@@ -29,6 +29,7 @@ from frisket.engine.store.retrieval_lifecycle import (
     RETRIEVAL_EVIDENCE_LINK_ROLES,
     touch_binding_revisions,
 )
+from frisket.engine.store.transactions import require_transaction, write_transaction
 
 
 CELL_EVIDENCE_SCHEMA_VERSION = "frisket.cell_evidence.v1"
@@ -415,11 +416,8 @@ def record_evidence_link(
     if layer_family is not None and not _LAYER_FAMILY_RE.fullmatch(layer_family):
         raise ValueError(f"invalid layer_family: {layer_family!r}")
     link_stable_id = stable_id or _stable_id("evidence_link")
-    owns_transaction = not project.db.in_transaction
     cur = project.db.cursor()
-    try:
-        if owns_transaction:
-            cur.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db, commit=not project.db.in_transaction):
         cur.execute(
             "INSERT INTO evidence_links ("
             "stable_id, subject_kind, subject_ref_json, sheet_id, row_id, "
@@ -471,12 +469,6 @@ def record_evidence_link(
             and column_id > 0
         ):
             touch_binding_revisions(project.db, [(row_id, column_id)])
-        if owns_transaction:
-            project.db.commit()
-    except Exception:
-        if owns_transaction:
-            project.db.rollback()
-        raise
     return _link_row(project, link_id)
 
 
@@ -493,8 +485,7 @@ def copy_evidence_links(
     The caller owns the publication transaction. Spans remain shared immutable
     sources; only their associations and the link ownership are copied.
     """
-    if not project.db.in_transaction:
-        raise RuntimeError("evidence copies require a caller-owned transaction")
+    require_transaction(project.db, "evidence copy")
     if not copies:
         return
     payload = _json_dumps(
@@ -1136,11 +1127,8 @@ def mark_evidence_stale_for_cell_refs(
     around the write step, so it commits its own update.
     """
 
-    owns_transaction = not project.db.in_transaction
     stale_ids: list[str] = []
-    try:
-        if owns_transaction:
-            project.db.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db, commit=not project.db.in_transaction):
         for target in targets:
             ref = target.get("current_value_ref")
             match_all = bool(target.get("match_all_active"))
@@ -1209,12 +1197,6 @@ def mark_evidence_stale_for_cell_refs(
                 continue
             stale_ids.extend(str(row["stable_id"]) for row in rows)
             project.db.execute(update_sql, update_params)
-        if owns_transaction:
-            project.db.commit()
-    except Exception:
-        if owns_transaction:
-            project.db.rollback()
-        raise
     return stale_ids
 
 

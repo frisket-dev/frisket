@@ -22,6 +22,7 @@ from frisket.engine.store.import_intake import (
 )
 from frisket.authoring import column_types
 from frisket.table_import import DateOrder, SourceKind, TableReadSettings, TargetType
+from frisket.engine.store.transactions import write_transaction
 
 
 TABLE_PROVIDER_SCHEMA = "frisket.table_import_provider.v1"
@@ -814,8 +815,7 @@ def replace_table_dedup_keys(
     if state.phase != "draft":
         raise ValueError("table dedup snapshot is frozen")
     with _open_table_db(directory) as db:
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             row = db.execute(
                 "SELECT revision FROM dedup_meta WHERE singleton=1"
             ).fetchone()
@@ -838,11 +838,7 @@ def replace_table_dedup_keys(
                 "UPDATE dedup_meta SET revision=? WHERE singleton=1",
                 (next_revision,),
             )
-            db.commit()
             return next_revision
-        except BaseException:
-            db.rollback()
-            raise
 
 
 def table_key_exists(directory: Path, value: str) -> bool:
