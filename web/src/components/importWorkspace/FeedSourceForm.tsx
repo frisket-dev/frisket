@@ -210,8 +210,8 @@ export function FeedSourceForm({
           <strong>Populate feed?</strong>
         </div>
         <p className="modal-body-text">
-          Run <strong>{populate.source.name}</strong> now to pull in its rows
-          — the same fetch as Poll now in Feeds. You can run it again
+          Import <strong>{populate.source.name}</strong> now to pull in its rows
+          — the same fetch as Poll now in Feeds. You can import it again
           later either way.
         </p>
         {populate.error && (
