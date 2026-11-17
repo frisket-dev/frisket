@@ -611,16 +611,13 @@ class Project:
     )
     notification_channel = notifications.notification_channel
     notification_channels = notifications.notification_channels
-    enabled_notification_channels = notifications.enabled_notification_channels
     update_notification_channel = notifications.update_notification_channel
     public_notification_channel = notifications.public_notification_channel
-    public_notification_channels = notifications.public_notification_channels
     notification_route = notifications.notification_route
     notification_routes = notifications.notification_routes
     create_notification_route = notifications.create_notification_route
     update_notification_route = notifications.update_notification_route
     public_notification_route = notifications.public_notification_route
-    public_notification_routes = notifications.public_notification_routes
     notification_digest_run = notifications.notification_digest_run
     notification_digest_run_by_route_window = (
         notifications.notification_digest_run_by_route_window
