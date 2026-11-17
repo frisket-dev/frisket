@@ -6,7 +6,6 @@ from frisket.ai.embeddings import EmbeddingGateway, EmbeddingStore
 from frisket.ai.embeddings.backends import _FASTEMBED_ALIASES, local_embedder
 from frisket.ai.embeddings.capabilities import embedding_capabilities
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 
 _BGE_SMALL = "BAAI/bge-small-en-v1.5"
 _BGE_LARGE = "BAAI/bge-large-en-v1.5"
@@ -48,10 +47,10 @@ def _create(project, sheet, model, key):
     )
 
 
-def test_create_with_chosen_model_sets_its_dimension(tmp_path):
+def test_create_with_chosen_model_sets_its_dimension(make_project):
     # The chosen model's dimension flows into the space at create (metadata only,
     # no download): bge-large is 1024-d, distinct from the 384-d default.
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project = make_project("p")
     sheet = project.add_sheet("s")
     project.add_column(sheet, "headline")
     store = EmbeddingStore(project)
@@ -108,10 +107,10 @@ def test_catalog_numbers_are_sourced_from_fastembed_not_invented():
         assert abs(cap["size_gb"] - float(ref["size_in_GB"])) < 0.05
 
 
-def test_size_guard_blocks_oversized_model(tmp_path, monkeypatch):
+def test_size_guard_blocks_oversized_model(make_project, monkeypatch):
     # The picked model's on-disk size must be under the cap BEFORE any download.
     monkeypatch.setenv("FRISKET_EMBEDDING_MAX_MODEL_GB", "0.1")
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project = make_project("p")
     sheet = project.add_sheet("s")
     project.add_column(sheet, "headline")
 
@@ -147,10 +146,10 @@ _E5_LARGE = "intfloat/multilingual-e5-large"  # ~2.24 GB, not curated
     local_embedder() is None,
     reason="needs fastembed installed to resolve a custom model id from its registry",
 )
-def test_create_with_custom_fastembed_model_id(tmp_path):
+def test_create_with_custom_fastembed_model_id(make_project):
     # A fastembed-supported id NOT in the curated list must still create, with the
     # space dimension taken from the fastembed registry (bge-base is 768-d).
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project = make_project("p")
     sheet = project.add_sheet("s")
     project.add_column(sheet, "headline")
     store = EmbeddingStore(project)
@@ -163,10 +162,10 @@ def test_create_with_custom_fastembed_model_id(tmp_path):
     assert "bge-base" in space["actual_model_id"]
 
 
-def test_unsupported_model_id_rejected(tmp_path):
+def test_unsupported_model_id_rejected(make_project):
     # A model id that is neither curated nor fastembed-supported must fail with a
     # typed error and write NO space/index rows.
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project = make_project("p")
     sheet = project.add_sheet("s")
     project.add_column(sheet, "headline")
 
@@ -186,11 +185,11 @@ def test_unsupported_model_id_rejected(tmp_path):
     local_embedder() is None,
     reason="needs fastembed installed to resolve a large custom model's size",
 )
-def test_size_guard_applies_to_custom_fastembed_id(tmp_path, monkeypatch):
+def test_size_guard_applies_to_custom_fastembed_id(make_project, monkeypatch):
     # The size guard must apply to a synthesized custom-id capability too: a large
     # custom fastembed model (~2.24 GB) is blocked when the cap is set low.
     monkeypatch.setenv("FRISKET_EMBEDDING_MAX_MODEL_GB", "0.5")
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project = make_project("p")
     sheet = project.add_sheet("s")
     project.add_column(sheet, "headline")
 
@@ -199,7 +198,7 @@ def test_size_guard_applies_to_custom_fastembed_id(tmp_path, monkeypatch):
     assert res.errors[0].code == "embedding_model_too_large"
 
 
-def test_token_limit_guard_surfaces_truncated_inputs(tmp_path):
+def test_token_limit_guard_surfaces_truncated_inputs(make_project):
     # An input far over the model's max_input_tokens is silently truncated by the
     # provider; the refresh must SURFACE the count of likely-truncated items
     # (truncated_items) in the result/receipt so the user can see it.
@@ -217,7 +216,7 @@ def test_token_limit_guard_surfaces_truncated_inputs(tmp_path):
                 modality=modality,
             )
 
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project = make_project("p")
     sheet = project.add_sheet("s")
     col = project.add_column(sheet, "headline")
     # One short row + one row FAR over a 512-token model (100k chars ≈ 25k tokens).

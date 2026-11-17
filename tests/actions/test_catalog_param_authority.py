@@ -10,7 +10,6 @@ from frisket.actions.system import typed_action_for_request
 from frisket.actions.types import ActionParams, ColumnRef
 from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.executor.group_summary_action import run_typed_group_summary_action
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import instance_principal
 from frisket.execution.consent_coverage import ConsentCoverage
 
@@ -75,7 +74,7 @@ def test_rich_source_kinds_follow_direct_column_types_not_template_types(
     ],
 )
 def test_group_confirmation_reports_actual_quote_reason_before_effects(
-    tmp_path, monkeypatch, model, reason, decline_price
+    make_project, monkeypatch, model, reason, decline_price
 ):
     if decline_price:
         from types import SimpleNamespace
@@ -91,37 +90,34 @@ def test_group_confirmation_reports_actual_quote_reason_before_effects(
         monkeypatch.setattr(
             "frisket.execution.pricing_policy.default_pricing_policy", lambda: policy
         )
-    project = Project.create(tmp_path / "group-quote.frisket")
-    try:
-        deps = ExecutorDeps(
-            consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
-        )
-        sheet = project.add_sheet("Reports")
-        column = project.add_column(sheet, "body", type="text")
-        project.add_rows(sheet, [{"body": "A public report. " * 80}], {"body": column})
-        bound = typed_action_for_request(
-            {
-                "action_id": "reduce.group_summary",
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-                "params": {
-                    "source": ["body"],
-                    "model": model,
-                    "instruction": "Summarize.",
-                },
-                "sheet_name": "Summary",
-                "idempotency_key": "quote",
-            }
-        )
-        before = tuple(project.db.iterdump())
-        result = run_typed_group_summary_action(project, "quote", bound, deps=deps)
-        assert result.status == "needs_confirmation", result.errors
-        assert result.errors[0].details["reason"] == reason
-        assert (result.errors[0].details["estimate"]["cost"] is None) is (
-            model == "anthropic/unpriced-test"
-        )
-        if decline_price:
-            assert result.errors[0].details["estimate"]["billed_cost"] is None
-        assert result.errors[0].details["promise_set_hash"]
-        assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
+    project = make_project("group-quote")
+    deps = ExecutorDeps(
+        consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
+    )
+    sheet = project.add_sheet("Reports")
+    column = project.add_column(sheet, "body", type="text")
+    project.add_rows(sheet, [{"body": "A public report. " * 80}], {"body": column})
+    bound = typed_action_for_request(
+        {
+            "action_id": "reduce.group_summary",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {
+                "source": ["body"],
+                "model": model,
+                "instruction": "Summarize.",
+            },
+            "sheet_name": "Summary",
+            "idempotency_key": "quote",
+        }
+    )
+    before = tuple(project.db.iterdump())
+    result = run_typed_group_summary_action(project, "quote", bound, deps=deps)
+    assert result.status == "needs_confirmation", result.errors
+    assert result.errors[0].details["reason"] == reason
+    assert (result.errors[0].details["estimate"]["cost"] is None) is (
+        model == "anthropic/unpriced-test"
+    )
+    if decline_price:
+        assert result.errors[0].details["estimate"]["billed_cost"] is None
+    assert result.errors[0].details["promise_set_hash"]
+    assert tuple(project.db.iterdump()) == before

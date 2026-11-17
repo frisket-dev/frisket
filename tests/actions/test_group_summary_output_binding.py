@@ -17,7 +17,6 @@ from frisket.actions.group_summary_types import (
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import typed_action_for_request, validate_root_action
 from frisket.engine.executor.group_summary_action import prepare_group_summary_action
-from frisket.engine.store import Project
 
 
 @pytest.fixture
@@ -84,7 +83,7 @@ def test_fixed_group_outputs_refuse_invalid_names_before_preparation(
 
 
 def test_group_binding_catalog_and_preparation_share_fixed_columns(
-    registered, tmp_path
+    registered, make_project
 ):
     definition, calls = registered
     names = {"group": "Bucket", "rows": "Contributors", "summary": "Overview"}
@@ -98,24 +97,21 @@ def test_group_binding_catalog_and_preparation_share_fixed_columns(
     ] == expected
     assert not hints.get("dynamic_outputs")
     assert calls == []
-    project = Project.create(tmp_path / "summary.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        assert sheet == 1
-        column = project.add_column(sheet, "body", type="text")
-        project.add_rows(sheet, [{"body": "A report."}], {"body": column})
-        prepared = prepare_group_summary_action(project, bound)
-        assert [
-            (field["key"], field["column_type"]) for field in prepared.output_fields
-        ] == expected
-        assert prepared.operation.group_column_name == "Bucket"
-        assert prepared.operation.row_count_column_name == "Contributors"
-        assert prepared.operation.summary_column_name == "Overview"
-        assert len(calls) == 1
-        assert project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 0
-        assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
-    finally:
-        project.close()
+    project = make_project("summary")
+    sheet = project.add_sheet("Documents")
+    assert sheet == 1
+    column = project.add_column(sheet, "body", type="text")
+    project.add_rows(sheet, [{"body": "A report."}], {"body": column})
+    prepared = prepare_group_summary_action(project, bound)
+    assert [
+        (field["key"], field["column_type"]) for field in prepared.output_fields
+    ] == expected
+    assert prepared.operation.group_column_name == "Bucket"
+    assert prepared.operation.row_count_column_name == "Contributors"
+    assert prepared.operation.summary_column_name == "Overview"
+    assert len(calls) == 1
+    assert project.db.execute("SELECT count(*) FROM receipts").fetchone()[0] == 0
+    assert project.db.execute("SELECT count(*) FROM sheets").fetchone()[0] == 1
 
 
 def test_group_preparation_retains_defensive_name_validation(registered):

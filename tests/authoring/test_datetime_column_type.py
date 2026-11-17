@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
 from frisket.authoring import column_types
 from frisket.contracts.actions.schemas.imports import normalize_import_value
-from frisket.engine.store import Project
 from frisket.iso_datetimes import parse_iso_datetime
 
 
@@ -59,30 +57,27 @@ def test_datetime_has_a_distinct_renderer_without_a_date_facet() -> None:
 
 
 def test_datetime_round_trips_naive_and_aware_values_as_exact_text(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "datetimes.frisket", name="datetimes")
-    try:
-        sheet_id = project.add_sheet("Dates")
-        column_id = project.add_column(sheet_id, "When", type="datetime")
-        values = [
-            "2026-06-12T14:30:00",
-            "2026-06-12T14:30:00-05:30",
-        ]
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"When": value} for value in values],
-            {"When": column_id},
-        )
+    project = make_project("datetimes")
+    sheet_id = project.add_sheet("Dates")
+    column_id = project.add_column(sheet_id, "When", type="datetime")
+    values = [
+        "2026-06-12T14:30:00",
+        "2026-06-12T14:30:00-05:30",
+    ]
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"When": value} for value in values],
+        {"When": column_id},
+    )
 
-        assert project.get_values(sheet_id, column_id, row_ids) == dict(
-            zip(row_ids, values, strict=True)
+    assert project.get_values(sheet_id, column_id, row_ids) == dict(
+        zip(row_ids, values, strict=True)
+    )
+    assert {
+        str(row["value_kind"])
+        for row in project.db.execute(
+            "SELECT value_kind FROM cells WHERE column_id=?", (column_id,)
         )
-        assert {
-            str(row["value_kind"])
-            for row in project.db.execute(
-                "SELECT value_kind FROM cells WHERE column_id=?", (column_id,)
-            )
-        } == {"text"}
-    finally:
-        project.close()
+    } == {"text"}

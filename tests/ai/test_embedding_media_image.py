@@ -81,8 +81,8 @@ def _create_image_index(project, sheet):
 @pytest.mark.network
 @pytest.mark.real
 @_needs_image
-def test_real_image_embedding_end_to_end(tmp_path):
-    project = Project.create(tmp_path / "p.frisket", name="p")
+def test_real_image_embedding_end_to_end(make_project):
+    project = make_project("p")
     sheet = project.add_sheet("s")
     col = project.add_column(sheet, "pic", type="image")
     rows = _add_image_rows(project, sheet, col)
@@ -137,8 +137,8 @@ def test_real_image_embedding_end_to_end(tmp_path):
     assert score is not None and 0.0 < score <= 1.0
 
 
-def test_page_scoped_pdf_is_refused_before_image_gateway_dispatch(tmp_path):
-    project = Project.create(tmp_path / "pdf.frisket", name="pdf")
+def test_page_scoped_pdf_is_refused_before_image_gateway_dispatch(make_project):
+    project = make_project("pdf")
     sheet = project.add_sheet("pages")
     column = project.add_column(sheet, "pic", type="file")
     blob = project.add_blob(

@@ -481,58 +481,53 @@ def test_admitted_roles_are_preserved_even_for_preferred_parent(seeded, monkeypa
     } == {"join_left", "join_right"}
 
 
-def test_distinct_list_item_tokens_share_one_canonical_row_membership(tmp_path):
-    project = Project.create(tmp_path / "list-contributors")
-    try:
-        sheet = project.add_sheet("Source")
-        column = project.add_column(sheet, "items", type="json")
-        row_id = project.add_rows(
-            sheet, [{"items": ["alpha", "beta"]}], {"items": column}
-        )[0]
-        registered = RegisteredAction(
-            "test.list_aggregate",
-            action(
-                name="list_aggregate",
-                title="Aggregate",
-                description="Aggregate list items",
-                category=ActionCategory.CONVERT,
-                run=create_sheet(aggregate_list_items),
-            ),
-        )
-        bound = BoundTypedActionRequest.bind(
-            registered,
-            ActionRequest(
-                action_id=registered.action_id,
-                scope={"kind": "project"},
-                sheet_name="Aggregate",
-                params={
-                    "source": {"kind": "column", "sheet_id": sheet, "column_id": column}
-                },
-                idempotency_key="aggregate",
-            ),
-        )
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        output_sheet = result.outputs[0].sheet_id
-        assert (
-            project.db.execute(
-                "SELECT parent_row_id FROM rows WHERE sheet_id=?", (output_sheet,)
-            ).fetchone()[0]
-            is None
-        )
-        membership = project.db.execute(
-            "SELECT source_row_id,role FROM materialized_row_sources WHERE op_id=?",
-            (result.op_ids[0],),
-        ).fetchall()
-        assert [(row[0], row[1]) for row in membership] == [
-            (row_id, "aggregate_source")
-        ]
-        assert (
-            run_typed_create_sheet_action(project, "p", bound).receipt_id
-            == result.receipt_id
-        )
-    finally:
-        project.close()
+def test_distinct_list_item_tokens_share_one_canonical_row_membership(make_project):
+    project = make_project("list-contributors")
+    sheet = project.add_sheet("Source")
+    column = project.add_column(sheet, "items", type="json")
+    row_id = project.add_rows(sheet, [{"items": ["alpha", "beta"]}], {"items": column})[
+        0
+    ]
+    registered = RegisteredAction(
+        "test.list_aggregate",
+        action(
+            name="list_aggregate",
+            title="Aggregate",
+            description="Aggregate list items",
+            category=ActionCategory.CONVERT,
+            run=create_sheet(aggregate_list_items),
+        ),
+    )
+    bound = BoundTypedActionRequest.bind(
+        registered,
+        ActionRequest(
+            action_id=registered.action_id,
+            scope={"kind": "project"},
+            sheet_name="Aggregate",
+            params={
+                "source": {"kind": "column", "sheet_id": sheet, "column_id": column}
+            },
+            idempotency_key="aggregate",
+        ),
+    )
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    output_sheet = result.outputs[0].sheet_id
+    assert (
+        project.db.execute(
+            "SELECT parent_row_id FROM rows WHERE sheet_id=?", (output_sheet,)
+        ).fetchone()[0]
+        is None
+    )
+    membership = project.db.execute(
+        "SELECT source_row_id,role FROM materialized_row_sources WHERE op_id=?",
+        (result.op_ids[0],),
+    ).fetchall()
+    assert [(row[0], row[1]) for row in membership] == [(row_id, "aggregate_source")]
+    assert (
+        run_typed_create_sheet_action(project, "p", bound).receipt_id
+        == result.receipt_id
+    )
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,6 @@ import time
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import Project
 
 fastapi_testclient = pytest.importorskip("fastapi.testclient")
 
@@ -106,27 +105,24 @@ def test_golden_import_xlsx_gauntlet(client):
     assert set(body["columns"]) == {"sku", "qty", "price"}
 
 
-def test_golden_import_perf_bulk_rows(tmp_path):
+def test_golden_import_perf_bulk_rows(make_project):
     """Perf smoke: bulk-ingest a five-figure row count and assert the
     single-transaction add_rows path stays well under budget. The headline
     100k-row run on the real backend is the manual/live extension of this."""
     n = 20_000
-    p = Project.create(tmp_path / "perf.frisket", name="golden-perf")
-    try:
-        sheet = p.add_sheet("big")
-        cols = {"id": p.add_column(sheet, "id"), "val": p.add_column(sheet, "val")}
-        records = [{"id": str(i), "val": f"row-{i}"} for i in range(n)]
+    p = make_project("golden-perf")
+    sheet = p.add_sheet("big")
+    cols = {"id": p.add_column(sheet, "id"), "val": p.add_column(sheet, "val")}
+    records = [{"id": str(i), "val": f"row-{i}"} for i in range(n)]
 
-        t0 = time.perf_counter()
-        p.add_rows(sheet, records, cols)
-        elapsed = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    p.add_rows(sheet, records, cols)
+    elapsed = time.perf_counter() - t0
 
-        (count,) = p.db.execute(
-            "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (sheet,)
-        ).fetchone()
-        assert count == n
-        # Generous ceiling: a regression that drops the single-transaction
-        # bulk path (e.g. per-row commits) blows straight past this.
-        assert elapsed < 30.0, f"bulk insert of {n} rows took {elapsed:.1f}s"
-    finally:
-        p.close()
+    (count,) = p.db.execute(
+        "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (sheet,)
+    ).fetchone()
+    assert count == n
+    # Generous ceiling: a regression that drops the single-transaction
+    # bulk path (e.g. per-row commits) blows straight past this.
+    assert elapsed < 30.0, f"bulk insert of {n} rows took {elapsed:.1f}s"

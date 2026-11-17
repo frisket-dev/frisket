@@ -2,7 +2,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
-from pathlib import Path
 from typing import Annotated, Any
 
 import pytest
@@ -38,7 +37,6 @@ from frisket.actions.types import (
 )
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 
 
 def test_model_backed_catalog_is_derived_from_model_rows_contract() -> None:
@@ -373,67 +371,64 @@ class _AnswerAdapter:
     ],
 )
 def test_control_like_physical_names_publish_and_replay_as_values(
-    tmp_path: Path,
+    make_project,
     output_name: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # This test must observe the request-level consent challenge regardless of
     # the host's standing preapproval setting.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = Project.create(tmp_path / "control-names.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        source_id = project.add_column(sheet_id, "body")
-        project.add_rows(sheet_id, [{"body": "A real answer"}], {"body": source_id})
-        adapter = _AnswerAdapter()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "fixture"},
-            use_env_keys=False,
-            cache=None,
-            cache_mode="off",
-            max_retries=0,
-        )
-        router._adapters["anthropic"] = adapter
-        body = {
-            "action_id": "map.ask",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-            "params": {
-                "source": ["body"],
-                "model": "anthropic/claude-haiku-4-5",
-                "question": "What does the source say?",
-            },
-            "output_names": {"answer": output_name},
-            "idempotency_key": "control-names",
-        }
-        quoted = run_action_spec(project, body, project_id="test", router=router)
-        assert quoted.status == "needs_confirmation"
-        assert adapter.requests == []
-        body["confirmation"] = quoted.errors[0].details["promise_set_hash"]
-        result = run_action_spec(project, body, project_id="test", router=router)
-        assert result.status == "completed", result.errors
-        column = next(c for c in project.columns(sheet_id) if c["name"] == output_name)
-        assert list(project.get_values(sheet_id, column["id"]).values()) == [
-            "A real answer"
-        ]
-        cell = project.db.execute(
-            "SELECT error, error_code, confidence, justification, outcome FROM results WHERE column_id=?",
-            (column["id"],),
-        ).fetchone()
-        assert tuple(cell) == (None, None, None, None, "ok")
-        receipt = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?",
-                (result.receipt_id,),
-            ).fetchone()[0]
-        )
-        [output] = receipt["outputs"]
-        assert output["name"] == output_name
-        assert output["ref"]["role"] == "answer"
-        assert set(adapter.requests[0].schema["properties"]) == {"answer"}
-        replay = run_action_spec(project, body, project_id="test", router=router)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-        assert len(adapter.requests) == 1
-    finally:
-        project.close()
+    project = make_project("control-names")
+    sheet_id = project.add_sheet("Rows")
+    source_id = project.add_column(sheet_id, "body")
+    project.add_rows(sheet_id, [{"body": "A real answer"}], {"body": source_id})
+    adapter = _AnswerAdapter()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "fixture"},
+        use_env_keys=False,
+        cache=None,
+        cache_mode="off",
+        max_retries=0,
+    )
+    router._adapters["anthropic"] = adapter
+    body = {
+        "action_id": "map.ask",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+        "params": {
+            "source": ["body"],
+            "model": "anthropic/claude-haiku-4-5",
+            "question": "What does the source say?",
+        },
+        "output_names": {"answer": output_name},
+        "idempotency_key": "control-names",
+    }
+    quoted = run_action_spec(project, body, project_id="test", router=router)
+    assert quoted.status == "needs_confirmation"
+    assert adapter.requests == []
+    body["confirmation"] = quoted.errors[0].details["promise_set_hash"]
+    result = run_action_spec(project, body, project_id="test", router=router)
+    assert result.status == "completed", result.errors
+    column = next(c for c in project.columns(sheet_id) if c["name"] == output_name)
+    assert list(project.get_values(sheet_id, column["id"]).values()) == [
+        "A real answer"
+    ]
+    cell = project.db.execute(
+        "SELECT error, error_code, confidence, justification, outcome FROM results WHERE column_id=?",
+        (column["id"],),
+    ).fetchone()
+    assert tuple(cell) == (None, None, None, None, "ok")
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?",
+            (result.receipt_id,),
+        ).fetchone()[0]
+    )
+    [output] = receipt["outputs"]
+    assert output["name"] == output_name
+    assert output["ref"]["role"] == "answer"
+    assert set(adapter.requests[0].schema["properties"]) == {"answer"}
+    replay = run_action_spec(project, body, project_id="test", router=router)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
+    assert len(adapter.requests) == 1

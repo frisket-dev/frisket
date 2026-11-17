@@ -193,8 +193,8 @@ def test_limit_and_threshold(env):
     ]
 
 
-def test_saved_limit_above_public_cap_remains_valid(tmp_path):
-    project = Project.create(tmp_path / "large-sim.frisket", name="large-sim")
+def test_saved_limit_above_public_cap_remains_valid(make_project):
+    project = make_project("large-sim")
     sheet = project.add_sheet("documents")
     cols = {"headline": project.add_column(sheet, "headline")}
     texts = [f"document {index:03d}" for index in range(501)]
@@ -594,8 +594,8 @@ def test_typed_preview_uses_cached_remote_query_without_admission(
     assert tuple(spend) == spend_before
 
 
-def test_manual_text_blocks_remote_egress_without_policy(tmp_path):
-    project = Project.create(tmp_path / "remote.frisket", name="remote")
+def test_manual_text_blocks_remote_egress_without_policy(make_project):
+    project = make_project("remote")
     sheet = project.add_sheet("animals")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": t} for t in _VECTORS], cols)
@@ -614,8 +614,8 @@ def test_manual_text_blocks_remote_egress_without_policy(tmp_path):
     project.close()
 
 
-def test_manual_text_honors_effective_network_policy_before_remote_call(tmp_path):
-    project = Project.create(tmp_path / "network-off.frisket", name="network-off")
+def test_manual_text_honors_effective_network_policy_before_remote_call(make_project):
+    project = make_project("network-off")
     sheet = project.add_sheet("animals")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": text} for text in _VECTORS], cols)
@@ -640,8 +640,8 @@ def test_manual_text_honors_effective_network_policy_before_remote_call(tmp_path
     project.close()
 
 
-def test_manual_text_runs_when_policy_allows(tmp_path):
-    project = Project.create(tmp_path / "remote2.frisket", name="remote2")
+def test_manual_text_runs_when_policy_allows(make_project):
+    project = make_project("remote2")
     sheet = project.add_sheet("animals")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": t} for t in _VECTORS], cols)
@@ -786,8 +786,8 @@ def test_row_anchor_wrong_stored_dimension_is_space_mismatch(env):
 # --------------------------------------------------------------------------
 
 
-def test_no_starvation_with_many_hidden_higher_ranked_rows(tmp_path):
-    project = Project.create(tmp_path / "starve.frisket", name="starve")
+def test_no_starvation_with_many_hidden_higher_ranked_rows(make_project):
+    project = make_project("starve")
     sheet = project.add_sheet("animals")
     cols = {"headline": project.add_column(sheet, "headline")}
     # cat (anchor) + 70 near (identical to cat) + 2 far visible rows

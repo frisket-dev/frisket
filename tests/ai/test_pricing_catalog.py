@@ -16,7 +16,6 @@ from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest, SheetRows
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
 from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
@@ -69,8 +68,8 @@ def test_catalog_rejects_negative_and_nonfinite_env_prices(monkeypatch):
         external_pricing_catalog()
 
 
-def test_typed_program_estimates_use_catalog(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "pricing.frisket")
+def test_typed_program_estimates_use_catalog(make_project, monkeypatch):
+    project = make_project("pricing")
     sheet_id = project.add_sheet("Places")
     address = project.add_column(sheet_id, "address", type="text")
     point = project.add_column(sheet_id, "point", type="geo_point")

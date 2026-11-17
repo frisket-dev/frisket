@@ -13,7 +13,6 @@ from frisket.authoring.plugin_registry import (
     default_registry,
 )
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.engine.store import Project
 from frisket.server.app import create_app
 from frisket.authoring.workbench import plugin_subprocess
 
@@ -442,7 +441,7 @@ def test_plugin_importer_subprocess_frame_adapter_spools_and_validates(
 
 
 def test_trusted_local_importer_frames_have_no_fixed_10000_row_ceiling(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """Trusted-local importers keep their own streaming adapter semantics.
 
@@ -453,38 +452,35 @@ def test_trusted_local_importer_frames_have_no_fixed_10000_row_ceiling(
         _ImporterPlanBuilder,
     )
 
-    project = Project.create(tmp_path / "plugin-frames.frisket", name="Plugin frames")
-    try:
-        builder = _ImporterPlanBuilder(
-            project,
-            binding=SimpleNamespace(
-                plugin="trusted.local",
-                kind="trusted.local.importer",
-                handler_key="trusted.local:rows",
-            ),
-            source_label="generated.ndjson",
-        )
-        builder.handle_frame(
-            {
-                "type": "schema",
-                "columns": [{"name": "name", "type": "text"}],
-            }
-        )
-        for index in range(10_001):
-            builder.handle_frame({"type": "row", "row": {"name": f"record-{index}"}})
-        builder.handle_frame({"type": "done", "row_count": 10_001})
+    project = make_project("Plugin frames")
+    builder = _ImporterPlanBuilder(
+        project,
+        binding=SimpleNamespace(
+            plugin="trusted.local",
+            kind="trusted.local.importer",
+            handler_key="trusted.local:rows",
+        ),
+        source_label="generated.ndjson",
+    )
+    builder.handle_frame(
+        {
+            "type": "schema",
+            "columns": [{"name": "name", "type": "text"}],
+        }
+    )
+    for index in range(10_001):
+        builder.handle_frame({"type": "row", "row": {"name": f"record-{index}"}})
+    builder.handle_frame({"type": "done", "row_count": 10_001})
 
-        plan = builder.finish()
+    plan = builder.finish()
 
-        assert plan.get("status") != "failed", plan
-        assert plan["streaming"]["row_count"] == 10_001
-        assert iter(plan["rows"]) is plan["rows"]
-        rows = list(plan["rows"])
-        assert len(rows) == 10_001
-        assert rows[-1] == {"name": "record-10000"}
-        assert builder.stream.closed
-    finally:
-        project.close()
+    assert plan.get("status") != "failed", plan
+    assert plan["streaming"]["row_count"] == 10_001
+    assert iter(plan["rows"]) is plan["rows"]
+    rows = list(plan["rows"])
+    assert len(rows) == 10_001
+    assert rows[-1] == {"name": "record-10000"}
+    assert builder.stream.closed
 
 
 def test_plugin_importer_malformed_frame_returns_bounded_domain_error(

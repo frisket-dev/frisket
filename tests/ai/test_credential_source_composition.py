@@ -7,7 +7,6 @@ from frisket.engine.jobs.runs import _router_for
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.server.workspace import Workspace
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimless_test_model_calls
 
@@ -35,44 +34,43 @@ def test_credential_sources_reject_unknown_or_secret_like_values() -> None:
         )
 
 
-def test_durable_fact_store_rejects_unknown_credential_source(tmp_path) -> None:
-    project = Project.create(tmp_path / "invalid-fact.frisket", name="invalid-fact")
-    try:
-        sheet_id = project.add_sheet("Facts")
-        column_id = project.add_column(sheet_id, "value")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"value": "input"}],
-            {"value": column_id},
-        )[0]
-        op_id = project.append_op("map", {"recipe": "invalid-fact"})
-        run_store = RunResultStore(project)
-        run_id = run_store.start_run(op_id, sheet_id, "test.invalid_fact")
-        with pytest.raises(ValueError, match="unsupported credential source"):
-            write_claimless_test_model_calls(
-                project,
-                run_id,
-                [
-                    {
-                        "row_id": row_id,
-                        "column_id": column_id,
-                        "model_calls": [
-                            {
-                                "fact_version": "frisket.model-call-fact.v1",
-                                "capability": "llm.complete",
-                                "engine": "openai/test",
-                                "credential_source": "real-secret",
-                            }
-                        ],
-                    }
-                ],
-            )
-    finally:
-        project.close()
+def test_durable_fact_store_rejects_unknown_credential_source(make_project) -> None:
+    project = make_project("invalid-fact")
+    sheet_id = project.add_sheet("Facts")
+    column_id = project.add_column(sheet_id, "value")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"value": "input"}],
+        {"value": column_id},
+    )[0]
+    op_id = project.append_op("map", {"recipe": "invalid-fact"})
+    run_store = RunResultStore(project)
+    run_id = run_store.start_run(op_id, sheet_id, "test.invalid_fact")
+    with pytest.raises(ValueError, match="unsupported credential source"):
+        write_claimless_test_model_calls(
+            project,
+            run_id,
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": column_id,
+                    "model_calls": [
+                        {
+                            "fact_version": "frisket.model-call-fact.v1",
+                            "capability": "llm.complete",
+                            "engine": "openai/test",
+                            "credential_source": "real-secret",
+                        }
+                    ],
+                }
+            ],
+        )
 
 
-def test_workspace_preserves_mixed_org_and_platform_sources(tmp_path) -> None:
-    project = Project.create(tmp_path / "project.frisket", name="project")
+def test_workspace_preserves_mixed_org_and_platform_sources(
+    tmp_path, make_project
+) -> None:
+    project = make_project("project")
     base = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "org-value", "anthropic": "platform-value"},
@@ -88,7 +86,7 @@ def test_workspace_preserves_mixed_org_and_platform_sources(tmp_path) -> None:
         project.close()
 
 
-def test_injected_router_without_a_declared_source_refuses(tmp_path) -> None:
+def test_injected_router_without_a_declared_source_refuses(make_project) -> None:
     """The worker cannot know whose key an injected router carries.
 
     It used to guess ``platform_key``, which is a FALSE label in a
@@ -98,39 +96,33 @@ def test_injected_router_without_a_declared_source_refuses(tmp_path) -> None:
     happened to be the only injector. The provenance is now required at the
     effect site, so an injector that omits it fails loudly and by name.
     """
-    project = Project.create(tmp_path / "undeclared.frisket", name="undeclared")
-    try:
-        undeclared = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"openai": "operator-env-value"},
-        )
-        assert not undeclared.has_explicit_key_source("openai")
-        with pytest.raises(ValueError, match="must declare the provenance"):
-            # A project-key layer forces the composition branch; before the
-            # fix this returned a router stamping openai as "platform_key".
-            _router_for(project, undeclared, keys={"anthropic": "org-value"})
-    finally:
-        project.close()
+    project = make_project("undeclared")
+    undeclared = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "operator-env-value"},
+    )
+    assert not undeclared.has_explicit_key_source("openai")
+    with pytest.raises(ValueError, match="must declare the provenance"):
+        # A project-key layer forces the composition branch; before the
+        # fix this returned a router stamping openai as "platform_key".
+        _router_for(project, undeclared, keys={"anthropic": "org-value"})
 
 
-def test_injected_router_with_a_declared_source_keeps_it(tmp_path) -> None:
+def test_injected_router_with_a_declared_source_keeps_it(make_project) -> None:
     """The declared token survives composition unchanged — the fence above
     refuses the undeclared case without rewriting the declared one."""
-    project = Project.create(tmp_path / "declared.frisket", name="declared")
-    try:
-        declared = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"openai": "operator-env-value"},
-            key_sources={"openai": "local"},
-        )
-        composed = _router_for(project, declared, keys={"anthropic": "org-value"})
-        assert composed.configured_key_sources()["openai"] == "local"
-        assert composed.configured_key_sources()["anthropic"] == "org_byok"
-    finally:
-        project.close()
+    project = make_project("declared")
+    declared = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "operator-env-value"},
+        key_sources={"openai": "local"},
+    )
+    composed = _router_for(project, declared, keys={"anthropic": "org-value"})
+    assert composed.configured_key_sources()["openai"] == "local"
+    assert composed.configured_key_sources()["anthropic"] == "org_byok"
 
 
-def test_local_queued_env_key_is_operator_owned(tmp_path, monkeypatch) -> None:
+def test_local_queued_env_key_is_operator_owned(make_project, monkeypatch) -> None:
     for name in (
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
@@ -139,22 +131,21 @@ def test_local_queued_env_key_is_operator_owned(tmp_path, monkeypatch) -> None:
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "local-operator-value")
-    project = Project.create(tmp_path / "project.frisket", name="project")
-    try:
-        composed = _router_for(project, None)
-        assert composed.configured_key_sources()["openai"] == "local"
-    finally:
-        project.close()
+    project = make_project("project")
+    composed = _router_for(project, None)
+    assert composed.configured_key_sources()["openai"] == "local"
 
 
-def test_router_for_composed_branch_carries_local_endpoints(tmp_path) -> None:
+def test_router_for_composed_branch_carries_local_endpoints(
+    tmp_path, make_project
+) -> None:
     """The org-resolver/hosted reconstruction branch of ``router_for``
     (workspace.py) used to build a
     fresh ``ModelRouter`` from scratch without threading the injected base
     router's ``local_endpoints`` forward -- silently losing any configured
     endpoint identity/origin/token/edge_auth the moment a project- or org-key layer
     forced a reconstruction."""
-    project = Project.create(tmp_path / "project.frisket", name="project")
+    project = make_project("project")
     endpoint = LocalModelEndpointConfig(
         endpoint_id="heavy",
         display_name="Heavy internal",

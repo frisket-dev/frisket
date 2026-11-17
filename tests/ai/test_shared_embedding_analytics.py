@@ -134,8 +134,10 @@ async def test_project_encoder_persists_same_space_used_by_shared_cache(tmp_path
         project.close()
 
 
-def test_custom_project_model_discovers_dimension_from_first_admitted_batch(tmp_path):
-    project = Project.create(tmp_path / "custom-analytics.frisket")
+def test_custom_project_model_discovers_dimension_from_first_admitted_batch(
+    make_project,
+):
+    project = make_project("custom-analytics")
     events = []
 
     def embed(texts):
