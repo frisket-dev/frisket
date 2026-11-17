@@ -209,6 +209,7 @@ def test_sparse_mbox_over_six_gib_has_no_source_wide_size_refusal(
 
 def test_large_email_import_stages_bounded_batches_then_publishes_atomically(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_path = tmp_path / "archive.mbox"
@@ -219,7 +220,7 @@ def test_large_email_import_stages_bounded_batches_then_publishes_atomically(
         attachment=attachment_bytes,
         attachment_index=MESSAGE_COUNT - 1,
     )
-    project = Project.create(tmp_path / "large.frisket", name="Large email import")
+    project = make_project("Large email import")
     checkpoints: list[int] = []
     batch_size = table_action._TABLE_BATCH_SIZE
 
@@ -289,7 +290,7 @@ def test_large_email_import_stages_bounded_batches_then_publishes_atomically(
 
 
 def test_many_eml_sources_keep_compact_identity_and_full_replay_authority(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     sources = [
         {
@@ -309,7 +310,7 @@ def test_many_eml_sources_keep_compact_identity_and_full_replay_authority(
     }
     action = _action(key="import_email@sha256:many-eml")
     action["params"]["sources"] = sources
-    project = Project.create(tmp_path / "many.frisket", name="Many email sources")
+    project = make_project("Many email sources")
     try:
         first = run_action_spec(
             project,
@@ -383,13 +384,14 @@ def test_many_eml_sources_keep_compact_identity_and_full_replay_authority(
 
 def test_email_import_failure_after_staged_batches_publishes_nothing(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_path = tmp_path / "archive.mbox"
     _write_archive(
         source_path, 6, attachment=b"staged before failure", attachment_index=0
     )
-    project = Project.create(tmp_path / "failed.frisket", name="Failed email import")
+    project = make_project("Failed email import")
     reached_late_failure = False
     empty = {
         table: 0

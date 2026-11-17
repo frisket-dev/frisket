@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
 
 
 def test_source_store_preserves_source_run_lifecycle(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "sources.frisket", name="Sources")
+    project = make_project("Sources")
     store = SourceStore(project)
 
     source_id = store.add_source(

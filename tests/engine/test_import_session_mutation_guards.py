@@ -49,116 +49,102 @@ def _session(project: Project) -> StreamingSheetWriter:
 
 
 def test_session_producer_can_append_but_base_removal_and_edits_are_blocked(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "writes.frisket", name="writes")
-    try:
-        writer = _session(project)
-        row_id = writer.append_page(
-            [{"value": "one"}], expected_cursor=0, next_cursor=1
-        )[0]
-        session = ImportSessionStore(project).get("import:guard")
-        assert session is not None and session.producer_id is not None
-        column_id = int(project.columns(writer.sheet_id)[0]["id"])
+    project = make_project("writes")
+    writer = _session(project)
+    row_id = writer.append_page([{"value": "one"}], expected_cursor=0, next_cursor=1)[0]
+    session = ImportSessionStore(project).get("import:guard")
+    assert session is not None and session.producer_id is not None
+    column_id = int(project.columns(writer.sheet_id)[0]["id"])
 
-        project.db.execute("BEGIN IMMEDIATE")
-        with pytest.raises(ImportInProgress) as removal:
-            remove_base_cells(
-                project.db,
-                producer_id=session.producer_id,
-                column_ids=[column_id],
-                row_ids=[row_id],
-            )
-        project.db.rollback()
-        assert removal.value.session_id == "import:guard"
+    project.db.execute("BEGIN IMMEDIATE")
+    with pytest.raises(ImportInProgress) as removal:
+        remove_base_cells(
+            project.db,
+            producer_id=session.producer_id,
+            column_ids=[column_id],
+            row_ids=[row_id],
+        )
+    project.db.rollback()
+    assert removal.value.session_id == "import:guard"
 
-        project.db.execute("BEGIN IMMEDIATE")
-        with pytest.raises(ImportInProgress):
-            replace_base_cells(
-                project.db,
-                producer_id=session.producer_id,
-                column_ids=[column_id],
-                row_ids=[row_id],
-                cells=[],
-            )
-        project.db.rollback()
+    project.db.execute("BEGIN IMMEDIATE")
+    with pytest.raises(ImportInProgress):
+        replace_base_cells(
+            project.db,
+            producer_id=session.producer_id,
+            column_ids=[column_id],
+            row_ids=[row_id],
+            cells=[],
+        )
+    project.db.rollback()
 
-        project.db.execute("BEGIN IMMEDIATE")
-        with pytest.raises(ImportInProgress):
-            insert_edits(
-                project.db,
-                op_id=session.op_id,
-                edits=[EditCellWrite(row_id=row_id, column_id=column_id, value="edit")],
-            )
-        project.db.rollback()
-        assert project.get_values(writer.sheet_id, column_id)[row_id] == "one"
-    finally:
-        project.close()
+    project.db.execute("BEGIN IMMEDIATE")
+    with pytest.raises(ImportInProgress):
+        insert_edits(
+            project.db,
+            op_id=session.op_id,
+            edits=[EditCellWrite(row_id=row_id, column_id=column_id, value="edit")],
+        )
+    project.db.rollback()
+    assert project.get_values(writer.sheet_id, column_id)[row_id] == "one"
 
 
 @pytest.mark.parametrize("token", ["claim:stale", "claim:guard"])
-def test_import_replacement_requires_current_writer_token(tmp_path, token):
-    project = Project.create(tmp_path / "writer.frisket", name="writer")
-    try:
-        writer = _session(project)
-        row_id = writer.append_page(
-            [{"value": "one"}], expected_cursor=0, next_cursor=1
-        )[0]
-        session = ImportSessionStore(project).get("import:guard")
-        column_id = int(project.columns(writer.sheet_id)[0]["id"])
-        project.db.execute("BEGIN IMMEDIATE")
+def test_import_replacement_requires_current_writer_token(make_project, token):
+    project = make_project("writer")
+    writer = _session(project)
+    row_id = writer.append_page([{"value": "one"}], expected_cursor=0, next_cursor=1)[0]
+    session = ImportSessionStore(project).get("import:guard")
+    column_id = int(project.columns(writer.sheet_id)[0]["id"])
+    project.db.execute("BEGIN IMMEDIATE")
 
-        def replace():
-            return replace_base_cells(
-                project.db,
-                producer_id=session.producer_id,
-                column_ids=[column_id],
-                row_ids=[row_id],
-                cells=[BaseCellWrite(row_id, column_id, "prepared")],
-                import_writer_authority=token,
-            )
+    def replace():
+        return replace_base_cells(
+            project.db,
+            producer_id=session.producer_id,
+            column_ids=[column_id],
+            row_ids=[row_id],
+            cells=[BaseCellWrite(row_id, column_id, "prepared")],
+            import_writer_authority=token,
+        )
 
-        if token == "claim:stale":
-            with pytest.raises(ImportInProgress):
-                replace()
-            project.db.rollback()
-            assert project.get_values(writer.sheet_id, column_id)[row_id] == "one"
-        else:
-            assert replace() == 1
-            project.db.commit()
-            assert project.get_values(writer.sheet_id, column_id)[row_id] == "prepared"
-
-    finally:
-        project.close()
+    if token == "claim:stale":
+        with pytest.raises(ImportInProgress):
+            replace()
+        project.db.rollback()
+        assert project.get_values(writer.sheet_id, column_id)[row_id] == "one"
+    else:
+        assert replace() == 1
+        project.db.commit()
+        assert project.get_values(writer.sheet_id, column_id)[row_id] == "prepared"
 
 
 def test_result_write_sheet_delete_blocked_but_undo_cancels_import(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "boundaries.frisket", name="boundaries")
-    try:
-        writer = _session(project)
-        session = ImportSessionStore(project).get("import:guard")
-        assert session is not None
-        run_id = RunResultStore(project).start_run(
-            session.op_id, writer.sheet_id, "map.classify"
-        )
+    project = make_project("boundaries")
+    writer = _session(project)
+    session = ImportSessionStore(project).get("import:guard")
+    assert session is not None
+    run_id = RunResultStore(project).start_run(
+        session.op_id, writer.sheet_id, "map.classify"
+    )
 
-        with pytest.raises(ImportInProgress):
-            with write_transaction(project.db):
-                RunResultStore(project).mark_run_results_verified(run_id)
-        with pytest.raises(ImportInProgress):
-            project.delete_sheet(writer.sheet_id)
-        project.undo()
-        assert project.sheets() == []
-        assert ImportSessionStore(project).get(session.id).state == "removed"
-        project.redo()
-        assert project.sheets()[0]["id"] == writer.sheet_id
-        assert ImportSessionStore(project).get(session.id).state == "removed"
-        with pytest.raises(ImportSessionConflict):
-            writer.append_page([{"value": "late"}], expected_cursor=0, next_cursor=1)
-    finally:
-        project.close()
+    with pytest.raises(ImportInProgress):
+        with write_transaction(project.db):
+            RunResultStore(project).mark_run_results_verified(run_id)
+    with pytest.raises(ImportInProgress):
+        project.delete_sheet(writer.sheet_id)
+    project.undo()
+    assert project.sheets() == []
+    assert ImportSessionStore(project).get(session.id).state == "removed"
+    project.redo()
+    assert project.sheets()[0]["id"] == writer.sheet_id
+    assert ImportSessionStore(project).get(session.id).state == "removed"
+    with pytest.raises(ImportSessionConflict):
+        writer.append_page([{"value": "late"}], expected_cursor=0, next_cursor=1)
 
 
 @pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
@@ -183,9 +169,9 @@ def test_only_importing_sheet_is_frozen(tmp_path: Path, state: str) -> None:
 
 @pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
 def test_bundle_export_refuses_unresolved_import_in_captured_snapshot(
-    tmp_path: Path, state: str, monkeypatch
+    tmp_path: Path, make_project, state: str, monkeypatch
 ) -> None:
-    project = Project.create(tmp_path / "source.frisket", name="source")
+    project = make_project("source")
     target = tmp_path / "export.zip"
     try:
         writer = _session(project)
@@ -254,24 +240,23 @@ def test_export_service_sanitizes_storage_failure(
 
 
 @pytest.mark.parametrize("state", ["completed", "kept", "removed"])
-def test_bundle_export_round_trips_resolved_import(tmp_path: Path, state: str) -> None:
-    project = Project.create(tmp_path / "source.frisket", name="source")
-    try:
-        writer = _session(project)
-        writer.append_page([{"value": "one"}], expected_cursor=0, next_cursor=1)
-        if state == "completed":
-            writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+def test_bundle_export_round_trips_resolved_import(
+    tmp_path: Path, make_project, state: str
+) -> None:
+    project = make_project("source")
+    writer = _session(project)
+    writer.append_page([{"value": "one"}], expected_cursor=0, next_cursor=1)
+    if state == "completed":
+        writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+    else:
+        writer.cancel(expected_cursor=1)
+        if state == "kept":
+            writer.finalize_session(expected_cursor=1, keep_cancelled=True)
         else:
-            writer.cancel(expected_cursor=1)
-            if state == "kept":
-                writer.finalize_session(expected_cursor=1, keep_cancelled=True)
-            else:
-                writer.remove_session(expected_cursor=1)
-        archive = project.export(tmp_path / "export.zip")
-        restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
-        try:
-            assert ImportSessionStore(restored).get("import:guard").state == state
-        finally:
-            restored.close()
+            writer.remove_session(expected_cursor=1)
+    archive = project.export(tmp_path / "export.zip")
+    restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
+    try:
+        assert ImportSessionStore(restored).get("import:guard").state == state
     finally:
-        project.close()
+        restored.close()

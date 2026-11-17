@@ -15,7 +15,6 @@ from frisket.contracts.action import (
 )
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
@@ -184,9 +183,11 @@ def test_result_from_receipt_projects_replay_outputs() -> None:
     assert [output.row_ids for output in result.outputs] == [[31], [], [32]]
 
 
-def test_result_from_receipt_reconstructs_map_columns(tmp_path, monkeypatch) -> None:
+def test_result_from_receipt_reconstructs_map_columns(
+    make_project, monkeypatch
+) -> None:
     runtime = importlib.import_module("frisket.engine.executor.action_receipts")
-    project = Project.create(tmp_path / "api-receipt.frisket")
+    project = make_project("api-receipt")
     calls = []
 
     def transport(request):

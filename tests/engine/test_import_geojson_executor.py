@@ -320,6 +320,7 @@ def test_import_geojson_replay_survives_source_deletion(
 
 def test_import_geojson_skip_invalid_geometry_quarantines_and_records_evidence(
     tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.contracts.action import Receipt
     from frisket.engine.executor import run_action_spec
@@ -381,76 +382,68 @@ def test_import_geojson_skip_invalid_geometry_quarantines_and_records_evidence(
         }
 
     # Default (reject) keeps the shipped fail-fast behavior on a mixed file.
-    reject_project = Project.create(tmp_path / "reject.frisket", name="Reject")
-    try:
-        reject = run_action_spec(
-            reject_project,
-            _action(key="import_geojson_reject@sha256:stable", on_invalid=None),
-            project_id="project-reject",
-        )
-        assert reject.status == "failed"
-        assert reject.errors[0].code == "unsupported_geojson_geometry"
-    finally:
-        reject_project.close()
+    reject_project = make_project("Reject")
+    reject = run_action_spec(
+        reject_project,
+        _action(key="import_geojson_reject@sha256:stable", on_invalid=None),
+        project_id="project-reject",
+    )
+    assert reject.status == "failed"
+    assert reject.errors[0].code == "unsupported_geojson_geometry"
 
     # skip quarantines the bad feature: keeps its row with an empty geometry
     # cell (properties survive) and records the skipped index in the receipt.
-    project = Project.create(tmp_path / "skip.frisket", name="Skip")
-    try:
-        result = run_action_spec(
-            project,
-            _action(key="import_geojson_skip@sha256:stable", on_invalid="skip"),
-            project_id="project-skip",
-        )
-        assert result.status == "completed", result.errors
+    project = make_project("Skip")
+    result = run_action_spec(
+        project,
+        _action(key="import_geojson_skip@sha256:stable", on_invalid="skip"),
+        project_id="project-skip",
+    )
+    assert result.status == "completed", result.errors
 
-        sheet = project.db.execute(
-            "SELECT * FROM sheets WHERE name='Quarantine'"
-        ).fetchone()
-        assert project.row_count(int(sheet["id"])) == 3
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=?", (sheet["id"],)
-            ).fetchall()
-        }
-        geometries = list(
-            project.get_values(
-                int(sheet["id"]), int(columns["geometry"]["id"])
-            ).values()
-        )
-        names = list(
-            project.get_values(int(sheet["id"]), int(columns["name"]["id"])).values()
-        )
-        # The middle (quarantined) feature keeps its row + properties, empty geo.
-        assert [g["type"] if g else None for g in geometries] == [
-            "Polygon",
-            None,
-            "Point",
-        ]
-        assert names == ["Good Polygon", "Bad Geometry", "Good Point"]
-        receipt_row = project.db.execute(
-            "SELECT * FROM receipts WHERE id=?", (result.receipt_id,)
-        ).fetchone()
-        receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
-        source = next(
-            item.ref for item in receipt.inputs if "skipped_features" in item.ref
-        )
-        assert source["line_count"] == 3
-        assert source["skipped_features"] == [1]
-        geojson_path.unlink()
-        replay = run_action_spec(
-            project,
-            _action(key="import_geojson_skip@sha256:stable", on_invalid="skip"),
-            project_id="project-skip",
-        )
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-    finally:
-        project.close()
+    sheet = project.db.execute(
+        "SELECT * FROM sheets WHERE name='Quarantine'"
+    ).fetchone()
+    assert project.row_count(int(sheet["id"])) == 3
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=?", (sheet["id"],)
+        ).fetchall()
+    }
+    geometries = list(
+        project.get_values(int(sheet["id"]), int(columns["geometry"]["id"])).values()
+    )
+    names = list(
+        project.get_values(int(sheet["id"]), int(columns["name"]["id"])).values()
+    )
+    # The middle (quarantined) feature keeps its row + properties, empty geo.
+    assert [g["type"] if g else None for g in geometries] == [
+        "Polygon",
+        None,
+        "Point",
+    ]
+    assert names == ["Good Polygon", "Bad Geometry", "Good Point"]
+    receipt_row = project.db.execute(
+        "SELECT * FROM receipts WHERE id=?", (result.receipt_id,)
+    ).fetchone()
+    receipt = Receipt.model_validate(json.loads(receipt_row["body"]))
+    source = next(item.ref for item in receipt.inputs if "skipped_features" in item.ref)
+    assert source["line_count"] == 3
+    assert source["skipped_features"] == [1]
+    geojson_path.unlink()
+    replay = run_action_spec(
+        project,
+        _action(key="import_geojson_skip@sha256:stable", on_invalid="skip"),
+        project_id="project-skip",
+    )
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
 
 
-def test_import_geojson_accepts_bare_feature_and_geometry(tmp_path: Path) -> None:
+def test_import_geojson_accepts_bare_feature_and_geometry(
+    tmp_path: Path, make_project
+) -> None:
     from frisket.contracts.action import Receipt
     from frisket.engine.executor import run_action_spec
 
@@ -499,63 +492,59 @@ def test_import_geojson_accepts_bare_feature_and_geometry(tmp_path: Path) -> Non
         return sheet, columns, geometries, receipt
 
     # Bare Feature (not wrapped in a FeatureCollection).
-    project = Project.create(tmp_path / "bare.frisket", name="Bare")
-    try:
-        bare_feature = {
-            "type": "Feature",
-            "id": "solo-1",
-            "properties": {"name": "Solo Park"},
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [
-                    [
-                        [-73.99, 40.75],
-                        [-73.98, 40.75],
-                        [-73.98, 40.76],
-                        [-73.99, 40.75],
-                    ]
-                ],
-            },
-        }
-        _sheet, _columns, geometries, receipt = _run(
-            project,
-            bare_feature,
-            name="BareFeature",
-            key="import_geojson_bare_feature@sha256:stable",
-            params={
-                "property_columns": [{"name": "name", "type": "text"}],
-                "include_feature_id": True,
-            },
-        )
-        assert len(geometries) == 1
-        assert geometries[0]["type"] == "Polygon"
-        assert any(item.ref.get("row_count") == 1 for item in receipt.outputs)
+    project = make_project("Bare")
+    bare_feature = {
+        "type": "Feature",
+        "id": "solo-1",
+        "properties": {"name": "Solo Park"},
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [
+                [
+                    [-73.99, 40.75],
+                    [-73.98, 40.75],
+                    [-73.98, 40.76],
+                    [-73.99, 40.75],
+                ]
+            ],
+        },
+    }
+    _sheet, _columns, geometries, receipt = _run(
+        project,
+        bare_feature,
+        name="BareFeature",
+        key="import_geojson_bare_feature@sha256:stable",
+        params={
+            "property_columns": [{"name": "name", "type": "text"}],
+            "include_feature_id": True,
+        },
+    )
+    assert len(geometries) == 1
+    assert geometries[0]["type"] == "Polygon"
+    assert any(item.ref.get("row_count") == 1 for item in receipt.outputs)
 
-        # Bare Geometry (a naked GeoJSON geometry object, no Feature wrapper).
-        bare_geometry = {"type": "Point", "coordinates": [-73.5, 40.5]}
-        sheet, columns, geometries, receipt = _run(
-            project,
-            bare_geometry,
-            name="BareGeometry",
-            key="import_geojson_bare_geometry@sha256:stable",
-            params={"property_columns": [], "include_feature_id": True},
-        )
-        assert len(geometries) == 1
-        assert geometries[0]["type"] == "Point"
-        assert any(item.ref.get("row_count") == 1 for item in receipt.outputs)
-        # A bare geometry carries no id → the feature_id cell is empty.
-        fid_values = list(
-            project.get_values(
-                int(sheet["id"]), int(columns["feature_id"]["id"])
-            ).values()
-        )
-        assert fid_values == [None]
-    finally:
-        project.close()
+    # Bare Geometry (a naked GeoJSON geometry object, no Feature wrapper).
+    bare_geometry = {"type": "Point", "coordinates": [-73.5, 40.5]}
+    sheet, columns, geometries, receipt = _run(
+        project,
+        bare_geometry,
+        name="BareGeometry",
+        key="import_geojson_bare_geometry@sha256:stable",
+        params={"property_columns": [], "include_feature_id": True},
+    )
+    assert len(geometries) == 1
+    assert geometries[0]["type"] == "Point"
+    assert any(item.ref.get("row_count") == 1 for item in receipt.outputs)
+    # A bare geometry carries no id → the feature_id cell is empty.
+    fid_values = list(
+        project.get_values(int(sheet["id"]), int(columns["feature_id"]["id"])).values()
+    )
+    assert fid_values == [None]
 
 
 def test_import_geojson_accepts_point_line_and_collection_geometries(
     tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.authoring import column_types
     from frisket.engine.executor import run_action_spec
@@ -622,52 +611,45 @@ def test_import_geojson_accepts_point_line_and_collection_geometries(
         ],
     }
     geojson_path = _write_geojson(tmp_path, "shapes.geojson", body)
-    project = Project.create(tmp_path / "shapes.frisket", name="Shapes GeoJSON")
-    try:
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "import.geojson",
-                "scope": {"kind": "project"},
-                "sheet_name": "Shapes",
-                "params": {
-                    "source": {
-                        "kind": "file",
-                        "path": str(geojson_path),
-                        "label": "shapes.geojson",
-                    },
-                    "geometry_column": "geometry",
-                    "property_columns": [],
-                    "include_feature_id": True,
-                    "strict_properties": False,
+    project = make_project("Shapes GeoJSON")
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "import.geojson",
+            "scope": {"kind": "project"},
+            "sheet_name": "Shapes",
+            "params": {
+                "source": {
+                    "kind": "file",
+                    "path": str(geojson_path),
+                    "label": "shapes.geojson",
                 },
-                "idempotency_key": "import_geojson_shapes@sha256:stable",
+                "geometry_column": "geometry",
+                "property_columns": [],
+                "include_feature_id": True,
+                "strict_properties": False,
             },
-            project_id="project-shapes",
-        )
-        assert result.status == "completed", result.errors
+            "idempotency_key": "import_geojson_shapes@sha256:stable",
+        },
+        project_id="project-shapes",
+    )
+    assert result.status == "completed", result.errors
 
-        sheet = project.db.execute(
-            "SELECT * FROM sheets WHERE name='Shapes'"
-        ).fetchone()
-        assert sheet is not None
-        assert project.row_count(int(sheet["id"])) == 3
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=?", (sheet["id"],)
-            ).fetchall()
-        }
-        assert columns["geometry"]["type"] == "geo_shape"
-        geometries = list(
-            project.get_values(
-                int(sheet["id"]), int(columns["geometry"]["id"])
-            ).values()
-        )
-        assert [g["type"] for g in geometries] == [
-            "Point",
-            "LineString",
-            "GeometryCollection",
-        ]
-    finally:
-        project.close()
+    sheet = project.db.execute("SELECT * FROM sheets WHERE name='Shapes'").fetchone()
+    assert sheet is not None
+    assert project.row_count(int(sheet["id"])) == 3
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=?", (sheet["id"],)
+        ).fetchall()
+    }
+    assert columns["geometry"]["type"] == "geo_shape"
+    geometries = list(
+        project.get_values(int(sheet["id"]), int(columns["geometry"]["id"])).values()
+    )
+    assert [g["type"] for g in geometries] == [
+        "Point",
+        "LineString",
+        "GeometryCollection",
+    ]

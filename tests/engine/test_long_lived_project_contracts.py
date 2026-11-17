@@ -254,33 +254,30 @@ def test_result_writes_update_failed_state_by_batch_delta(tmp_path: Path) -> Non
         project.close()
 
 
-def test_run_scope_records_large_scope_in_chunks(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "large-scope.frisket")
-    try:
-        sheet_id = project.add_sheet("events")
-        text_col = project.add_column(sheet_id, "text")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"text": f"row-{index}"} for index in range(1005)],
-            {"text": text_col},
-        )
-        op_id = project.append_op("map", {"action_kind": "map.classify"}, label="large")
+def test_run_scope_records_large_scope_in_chunks(make_project) -> None:
+    project = make_project("large-scope")
+    sheet_id = project.add_sheet("events")
+    text_col = project.add_column(sheet_id, "text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"text": f"row-{index}"} for index in range(1005)],
+        {"text": text_col},
+    )
+    op_id = project.append_op("map", {"action_kind": "map.classify"}, label="large")
 
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet_id,
-            "map.classify",
-            total_rows=len(row_ids),
-            row_ids=row_ids,
-        )
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.classify",
+        total_rows=len(row_ids),
+        row_ids=row_ids,
+    )
 
-        assert RunResultStore(project).run_row_scope(run_id) == row_ids
-        row_count = project.db.execute(
-            "SELECT row_count FROM run_scopes WHERE run_id=?", (run_id,)
-        ).fetchone()
-        assert row_count["row_count"] == len(row_ids)
-    finally:
-        project.close()
+    assert RunResultStore(project).run_row_scope(run_id) == row_ids
+    row_count = project.db.execute(
+        "SELECT row_count FROM run_scopes WHERE run_id=?", (run_id,)
+    ).fetchone()
+    assert row_count["row_count"] == len(row_ids)
 
 
 def test_run_scope_write_failure_rolls_back_run_and_marker(tmp_path: Path) -> None:

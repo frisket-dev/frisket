@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
-
-from frisket.engine.store import Project
 
 
-def test_run_action_spec_rejects_non_object_payload(tmp_path: Path) -> None:
+def test_run_action_spec_rejects_non_object_payload(make_project) -> None:
     actions = importlib.import_module("frisket.engine.executor.actions")
-    project = Project.create(tmp_path / "invalid.frisket", name="Invalid action")
+    project = make_project("Invalid action")
 
     result = actions.run_action_spec(
         project,

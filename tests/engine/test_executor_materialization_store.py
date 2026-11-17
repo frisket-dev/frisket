@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 
-from frisket.engine.store import Project
 from frisket.engine.store.materialization import (
     EdgeTableColumnSpec,
     EdgeTablePlan,
@@ -15,9 +13,9 @@ from frisket.engine.store.materialization import (
 
 
 def test_materialization_store_writes_and_reads_active_membership(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "materialization.frisket", name="Mat")
+    project = make_project("Mat")
     source_sheet_id = project.add_sheet("People")
     name_col = project.add_column(source_sheet_id, "name", type="text")
     row_ids = project.add_rows(
@@ -66,7 +64,7 @@ def test_materialization_store_writes_and_reads_active_membership(
     assert historical == write.membership_rows
 
 
-def test_refresh_versions_group_contributors_and_undo_restores_prior_set(tmp_path):
+def test_refresh_versions_group_contributors_and_undo_restores_prior_set(make_project):
     from frisket.engine.store.derived_updates import (
         MaterializedIdentity,
         DerivedRefreshRow,
@@ -80,85 +78,80 @@ def test_refresh_versions_group_contributors_and_undo_restores_prior_set(tmp_pat
         write_contributor_table,
     )
 
-    project = Project.create(tmp_path / "group-membership.frisket")
-    try:
-        source = project.add_sheet("Source")
-        col = project.add_column(source, "name", type="text")
-        source_rows = project.add_rows(
-            source, [{"name": name} for name in ["a", "b", "c"]], {"name": col}
-        )
-        project.db.execute("BEGIN IMMEDIATE")
-        columns = [MaterializedColumnSpec("group", "text")]
-        write = write_contributor_table(
-            project.db.cursor(),
-            ContributorTablePlan(
-                action_kind="test.group",
-                label="group",
-                target_sheet_name="Groups",
-                parent_sheet_id=source,
-                op_spec={},
-                columns=columns,
-                rows=[
-                    ContributorMaterializedRow(
-                        values={"group": "one"},
-                        sources=[(row, "aggregate_source") for row in source_rows[:2]],
-                    )
-                ],
-                refresh_identity=MaterializedIdentity("group", ["one"]),
-            ),
-        )
-        project.db.commit()
-        project.db.execute("BEGIN IMMEDIATE")
-        config = refresh_config(
-            project.db.execute(
-                "SELECT * FROM ops WHERE id=?", (write.op_id,)
-            ).fetchone()
-        )
-        from frisket.engine.store.changes import ChangeStore
-
-        refresh_op = project.append_op(
-            "sheet.refresh", {"sheet_id": write.sheet_id}, commit=False
-        )
-        changes = ChangeStore(project)
-        changes.start(refresh_op)
-        new_ids = reconcile_rows_into_open_change(
-            project.db,
-            op_id=refresh_op,
-            sheet_id=write.sheet_id,
-            config=config,
+    project = make_project("group-membership")
+    source = project.add_sheet("Source")
+    col = project.add_column(source, "name", type="text")
+    source_rows = project.add_rows(
+        source, [{"name": name} for name in ["a", "b", "c"]], {"name": col}
+    )
+    project.db.execute("BEGIN IMMEDIATE")
+    columns = [MaterializedColumnSpec("group", "text")]
+    write = write_contributor_table(
+        project.db.cursor(),
+        ContributorTablePlan(
+            action_kind="test.group",
+            label="group",
+            target_sheet_name="Groups",
+            parent_sheet_id=source,
+            op_spec={},
             columns=columns,
             rows=[
-                DerivedRefreshRow(
+                ContributorMaterializedRow(
                     values={"group": "one"},
-                    key="one",
-                    sources=[(row, "aggregate_source") for row in source_rows[1:]],
+                    sources=[(row, "aggregate_source") for row in source_rows[:2]],
                 )
             ],
-        )
-        changes.close(refresh_op)
-        project.db.commit()
-        assert new_ids == write.row_ids
-        current = active_materialized_row_sources(
-            project.db.cursor(), materialized_row_ids=new_ids
-        )
-        assert [row["source_row_id"] for row in current] == source_rows[1:]
-        project.undo()
-        restored = active_materialized_row_sources(
-            project.db.cursor(), materialized_row_ids=new_ids
-        )
-        assert [row["source_row_id"] for row in restored] == source_rows[:2]
-        assert (
-            len(
-                active_materialized_row_sources(
-                    project.db.cursor(),
-                    materialized_row_ids=new_ids,
-                    include_historical=True,
-                )
+            refresh_identity=MaterializedIdentity("group", ["one"]),
+        ),
+    )
+    project.db.commit()
+    project.db.execute("BEGIN IMMEDIATE")
+    config = refresh_config(
+        project.db.execute("SELECT * FROM ops WHERE id=?", (write.op_id,)).fetchone()
+    )
+    from frisket.engine.store.changes import ChangeStore
+
+    refresh_op = project.append_op(
+        "sheet.refresh", {"sheet_id": write.sheet_id}, commit=False
+    )
+    changes = ChangeStore(project)
+    changes.start(refresh_op)
+    new_ids = reconcile_rows_into_open_change(
+        project.db,
+        op_id=refresh_op,
+        sheet_id=write.sheet_id,
+        config=config,
+        columns=columns,
+        rows=[
+            DerivedRefreshRow(
+                values={"group": "one"},
+                key="one",
+                sources=[(row, "aggregate_source") for row in source_rows[1:]],
             )
-            == 4
+        ],
+    )
+    changes.close(refresh_op)
+    project.db.commit()
+    assert new_ids == write.row_ids
+    current = active_materialized_row_sources(
+        project.db.cursor(), materialized_row_ids=new_ids
+    )
+    assert [row["source_row_id"] for row in current] == source_rows[1:]
+    project.undo()
+    restored = active_materialized_row_sources(
+        project.db.cursor(), materialized_row_ids=new_ids
+    )
+    assert [row["source_row_id"] for row in restored] == source_rows[:2]
+    assert (
+        len(
+            active_materialized_row_sources(
+                project.db.cursor(),
+                materialized_row_ids=new_ids,
+                include_historical=True,
+            )
         )
-    finally:
-        project.close()
+        == 4
+    )
 
 
 def test_materialized_lineage_upgrade_preserves_edges_and_foreign_keys():

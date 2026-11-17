@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import get_args
 
 import pytest
 
 from frisket.contracts.action import Receipt, ReceiptIO
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import (
     FINISHED_RECEIPT_STATUSES,
     ReceiptStatus,
@@ -50,7 +48,7 @@ def _receipt(
     ],
 )
 def test_receipt_status_vocabulary_and_finished_inserts(
-    tmp_path: Path,
+    make_project,
     status: str,
     is_finished: bool,
 ) -> None:
@@ -65,7 +63,7 @@ def test_receipt_status_vocabulary_and_finished_inserts(
     assert set(get_args(ReceiptStatus)) == expected_vocabulary
     assert (status in FINISHED_RECEIPT_STATUSES) is is_finished
 
-    project = Project.create(tmp_path / "status-vocabulary.frisket", name="Receipts")
+    project = make_project("Receipts")
     store = ReceiptStore(project)
     receipt = _receipt(f"receipt_{status}", status=status).model_copy(
         update={"idempotency_key": f"idem_{status}"}
@@ -79,9 +77,9 @@ def test_receipt_status_vocabulary_and_finished_inserts(
 
 
 def test_receipt_store_round_trips_sorted_receipt_body_and_guarded_updates(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "receipts.frisket", name="Receipts")
+    project = make_project("Receipts")
     store = ReceiptStore(project)
     receipt = _receipt()
 
@@ -130,8 +128,8 @@ def test_receipt_store_round_trips_sorted_receipt_body_and_guarded_updates(
     assert store.find_by_id("receipt_1") is None
 
 
-def test_receipt_store_finished_insert_and_body_fetch_helpers(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "finished_receipts.frisket", name="Receipts")
+def test_receipt_store_finished_insert_and_body_fetch_helpers(make_project) -> None:
+    project = make_project("Receipts")
     store = ReceiptStore(project)
     sheet_id = project.add_sheet("Receipt Runs")
     op_id = project.append_op("fixture", {"kind": "receipt-store"})
