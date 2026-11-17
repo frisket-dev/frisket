@@ -27,6 +27,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
+from frisket.engine.jobs.queue import inserted_id
 from frisket.team.auth_challenges import AuthChallengeStore
 from frisket.team.schema import (
     memberships,
@@ -53,10 +54,7 @@ class IdentityStore:
 
     def _create_org(self, name: str) -> int:
         """Create an identity org. Editions override to attach their own state."""
-        org_id = self.cx.execute(orgs.insert().values(name=name)).inserted_primary_key[
-            0
-        ]
-        return int(org_id)
+        return inserted_id(self.cx.execute(orgs.insert().values(name=name)))
 
     @staticmethod
     def _email(email: str) -> str:
@@ -158,9 +156,9 @@ class IdentityStore:
         ).first()
         if invite is not None:
             if row is None:
-                user_id = self.cx.execute(
-                    users.insert().values(email=clean_email)
-                ).inserted_primary_key[0]
+                user_id = inserted_id(
+                    self.cx.execute(users.insert().values(email=clean_email))
+                )
                 row = self.cx.execute(
                     sa.select(users).where(users.c.id == user_id)
                 ).first()
@@ -191,9 +189,9 @@ class IdentityStore:
             row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
             return self.user_payload(row, new=new, org_id=org_id)
         if row is None:
-            user_id = self.cx.execute(
-                users.insert().values(email=clean_email)
-            ).inserted_primary_key[0]
+            user_id = inserted_id(
+                self.cx.execute(users.insert().values(email=clean_email))
+            )
             if self._provision_org_id is not None:
                 # A server does not expose public account registration. New
                 # identities must arrive through an invite; first ownership is

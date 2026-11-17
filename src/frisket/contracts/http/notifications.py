@@ -9,7 +9,7 @@ different cluster and stay untyped.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Final, Literal, get_args
 
 from pydantic import (
     BaseModel,
@@ -27,8 +27,14 @@ from frisket.contracts.http.models import WireModel
 # (frisket.server.notifications.service). Restated here because the contracts
 # package stays out of the service layer; the backend contract test pins them
 # against the producer's own constants.
-NOTIFICATION_PAGE_SCHEMA_VERSION = "frisket.notifications_page.v1"
-NOTIFICATION_SUMMARY_SCHEMA_VERSION = "frisket.notifications_summary.v1"
+NotificationPageSchemaVersion = Literal["frisket.notifications_page.v1"]
+NOTIFICATION_PAGE_SCHEMA_VERSION: Final[NotificationPageSchemaVersion] = get_args(
+    NotificationPageSchemaVersion
+)[0]
+NotificationSummarySchemaVersion = Literal["frisket.notifications_summary.v1"]
+NOTIFICATION_SUMMARY_SCHEMA_VERSION: Final[NotificationSummarySchemaVersion] = get_args(
+    NotificationSummarySchemaVersion
+)[0]
 
 
 class _CompatibleRequest(BaseModel):
@@ -103,7 +109,7 @@ class NotificationItem(WireModel):
 
 
 class NotificationPage(WireModel):
-    schema_version: Literal[NOTIFICATION_PAGE_SCHEMA_VERSION]
+    schema_version: NotificationPageSchemaVersion
     order: Literal["desc"]
     offset: int
     limit: int
@@ -120,7 +126,7 @@ class NotificationSummarySourceRef(WireModel):
 
 
 class NotificationSummary(WireModel):
-    schema_version: Literal[NOTIFICATION_SUMMARY_SCHEMA_VERSION]
+    schema_version: NotificationSummarySchemaVersion
     total: int
     unseen: int
     seen: int

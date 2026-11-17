@@ -35,6 +35,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import sqlalchemy as sa
 from filelock import FileLock
@@ -494,6 +495,14 @@ def engine_write_transaction(engine: sa.engine.Engine) -> Iterator[sa.Connection
             yield conn
 
 
+def inserted_id(result: sa.CursorResult[Any]) -> int:
+    """The integer primary key of the one row a single-row INSERT added."""
+    key = result.inserted_primary_key
+    if key is None:
+        raise RuntimeError("the INSERT reported no inserted primary key")
+    return int(key[0])
+
+
 _SQLITE_INIT_LOCKS: dict[str, threading.Lock] = {}
 _SQLITE_INIT_LOCKS_GUARD = threading.Lock()
 
@@ -837,7 +846,7 @@ class JobQueue:
             _validate_hosted_attribution(refs, body)
         try:
             with engine_write_transaction(self.engine) as cx:
-                return cx.execute(
+                inserted = cx.execute(
                     jobs_table.insert().values(
                         kind=kind,
                         payload=json.dumps(body),
@@ -867,7 +876,8 @@ class JobQueue:
                         available_at=now + timedelta(seconds=delay_seconds),
                         created_at=now,
                     )
-                ).inserted_primary_key[0]
+                )
+                return inserted_id(inserted)
         except sa.exc.IntegrityError:
             # Return the concurrent winner of the active-job dedupe race.
             if refs["dedupe_key"] is None or refs["project_id"] is None:

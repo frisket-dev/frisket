@@ -32,6 +32,7 @@ from frisket.engine.jobs.queue import (
     _now,
     _parse,
     engine_write_transaction,
+    inserted_id,
     jobs_metadata,
     jobs_table,
 )
@@ -426,7 +427,7 @@ def create_or_get_active(
                         initiated_by=initiated_by,
                     )
                 )
-                new_id = result.inserted_primary_key[0]
+                new_id = inserted_id(result)
         except sa.exc.IntegrityError:
             same_ref = _active_row(
                 engine, workspace_root=workspace_root, model_ref=model_ref

@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Final, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel
 
 from frisket.authoring.workbench.contracts import (
-    FRONTEND_COMPONENT_BINDING_SCHEMA_VERSION,
-    PLUGIN_INSTALL_STATE_SCHEMA_VERSION,
-    RUNTIME_INDEX_SCHEMA_VERSION,
-    RUNTIME_PLUGIN_SCHEMA_VERSION,
-    WORKBENCH_DESCRIPTOR_PACKAGE_SCHEMA_VERSION,
+    FrontendComponentBindingSchemaVersion,
+    PluginInstallStateSchemaVersion,
+    RuntimeIndexSchemaVersion,
+    RuntimePluginSchemaVersion,
+    WorkbenchDescriptorPackageSchemaVersion,
 )
 from frisket.contracts.http.import_errors import ImportSourceErrorGroup
 
 
-ACTION_JOB_SCHEMA_VERSION = "frisket.job.v1"
-ACTION_JOBS_PAGE_SCHEMA_VERSION = "frisket.job_list.v1"
+ActionJobSchemaVersion = Literal["frisket.job.v1"]
+ACTION_JOB_SCHEMA_VERSION: Final[ActionJobSchemaVersion] = get_args(
+    ActionJobSchemaVersion
+)[0]
 PROJECT_SCHEMA_VERSION = "frisket.project.v1"
 
 
@@ -745,7 +747,7 @@ class ActionJobContext(WireModel):
 
 
 class ActionJob(WireModel):
-    schema_version: Literal[ACTION_JOB_SCHEMA_VERSION]
+    schema_version: ActionJobSchemaVersion
     project_id: str
     job_id: int
     kind: str
@@ -767,7 +769,7 @@ class ActionJob(WireModel):
 
 
 class ActionJobsPage(WireModel):
-    schema_version: Literal[ACTION_JOBS_PAGE_SCHEMA_VERSION]
+    schema_version: Literal["frisket.job_list.v1"]
     project_id: str
     jobs: list[ActionJob]
 
@@ -784,9 +786,7 @@ class WorkbenchPluginRequirements(WireModel):
 
 
 class WorkbenchFrontendComponentBinding(WireModel):
-    schema_version: Literal[FRONTEND_COMPONENT_BINDING_SCHEMA_VERSION] = Field(
-        alias="schemaVersion"
-    )
+    schema_version: FrontendComponentBindingSchemaVersion = Field(alias="schemaVersion")
     contribution_id: str = Field(alias="contributionId")
     module_key: str = Field(alias="moduleKey")
     component_key: str = Field(alias="componentKey")
@@ -795,7 +795,7 @@ class WorkbenchFrontendComponentBinding(WireModel):
 
 
 class WorkbenchDescriptorPackageSummary(WireModel):
-    schema_version: Literal[WORKBENCH_DESCRIPTOR_PACKAGE_SCHEMA_VERSION] = Field(
+    schema_version: WorkbenchDescriptorPackageSchemaVersion = Field(
         alias="schemaVersion"
     )
     source_path: str = Field(alias="sourcePath")
@@ -804,9 +804,7 @@ class WorkbenchDescriptorPackageSummary(WireModel):
 
 
 class WorkbenchPluginRuntimePlugin(WireModel):
-    schema_version: Literal[RUNTIME_PLUGIN_SCHEMA_VERSION] = Field(
-        alias="schemaVersion"
-    )
+    schema_version: RuntimePluginSchemaVersion = Field(alias="schemaVersion")
     plugin_id: str = Field(alias="pluginId")
     version: str
     install_state: str = Field(alias="installState")
@@ -826,9 +824,9 @@ class WorkbenchPluginRuntimePlugin(WireModel):
     requires: WorkbenchPluginRequirements
     arbitrary_package_load_allowed: bool = Field(alias="arbitraryPackageLoadAllowed")
     registry_activated: bool = Field(alias="registryActivated")
-    install_state_schema_version: (
-        Literal[PLUGIN_INSTALL_STATE_SCHEMA_VERSION] | None
-    ) = Field(alias="installStateSchemaVersion")
+    install_state_schema_version: PluginInstallStateSchemaVersion | None = Field(
+        alias="installStateSchemaVersion"
+    )
     disabled_reason: str | None = Field(alias="disabledReason")
     install_failure: dict[str, JsonValue] | None = Field(
         default=None,
@@ -847,14 +845,14 @@ class WorkbenchPluginRuntimePlugin(WireModel):
 
 
 class WorkbenchFirstPartyDescriptorPackage(WireModel):
-    schema_version: Literal[WORKBENCH_DESCRIPTOR_PACKAGE_SCHEMA_VERSION] = Field(
+    schema_version: WorkbenchDescriptorPackageSchemaVersion = Field(
         alias="schemaVersion"
     )
     descriptors: list[dict[str, JsonValue]]
 
 
 class WorkbenchPluginRuntimeIndex(WireModel):
-    schema_version: Literal[RUNTIME_INDEX_SCHEMA_VERSION] = Field(alias="schemaVersion")
+    schema_version: RuntimeIndexSchemaVersion = Field(alias="schemaVersion")
     project_id: str = Field(alias="projectId")
     arbitrary_package_load_allowed: bool = Field(alias="arbitraryPackageLoadAllowed")
     receipt_scan_limit: int = Field(alias="receiptScanLimit")
@@ -868,14 +866,28 @@ class WorkbenchPluginRuntimeIndex(WireModel):
 # Producer schema literals for the plugin settings/lifecycle wires (restated:
 # the contracts package stays out of the plugin runtime layer; the backend
 # contract test pins them against the producer constants).
-WORKBENCH_PLUGIN_SETTINGS_SCHEMA_VERSION = "frisket.workbench_plugin_settings.v1"
-WORKBENCH_PLUGIN_ACTIVATION_SCHEMA_VERSION = "frisket.workbench_plugin_activation.v1"
-WORKBENCH_PLUGIN_BACKEND_ACTIVATION_SCHEMA_VERSION = (
+WorkbenchPluginSettingsSchemaVersion = Literal["frisket.workbench_plugin_settings.v1"]
+WORKBENCH_PLUGIN_SETTINGS_SCHEMA_VERSION: Final[
+    WorkbenchPluginSettingsSchemaVersion
+] = get_args(WorkbenchPluginSettingsSchemaVersion)[0]
+WorkbenchPluginActivationSchemaVersion = Literal[
+    "frisket.workbench_plugin_activation.v1"
+]
+WORKBENCH_PLUGIN_ACTIVATION_SCHEMA_VERSION: Final[
+    WorkbenchPluginActivationSchemaVersion
+] = get_args(WorkbenchPluginActivationSchemaVersion)[0]
+WorkbenchPluginBackendActivationSchemaVersion = Literal[
     "frisket.workbench_plugin_backend_activation.v1"
-)
-WORKBENCH_PLUGIN_INSTALL_PLAN_EXECUTION_SCHEMA_VERSION = (
+]
+WORKBENCH_PLUGIN_BACKEND_ACTIVATION_SCHEMA_VERSION: Final[
+    WorkbenchPluginBackendActivationSchemaVersion
+] = get_args(WorkbenchPluginBackendActivationSchemaVersion)[0]
+WorkbenchPluginInstallPlanExecutionSchemaVersion = Literal[
     "frisket.plugin_install_plan_execution.v1"
-)
+]
+WORKBENCH_PLUGIN_INSTALL_PLAN_EXECUTION_SCHEMA_VERSION: Final[
+    WorkbenchPluginInstallPlanExecutionSchemaVersion
+] = get_args(WorkbenchPluginInstallPlanExecutionSchemaVersion)[0]
 
 
 class _WorkbenchCompatibleRequest(CoerciveRequest):
@@ -928,9 +940,7 @@ class WorkbenchPluginSettingOption(WireModel):
 
 
 class WorkbenchPluginSettings(WireModel):
-    schema_version: Literal[WORKBENCH_PLUGIN_SETTINGS_SCHEMA_VERSION] = Field(
-        alias="schemaVersion"
-    )
+    schema_version: WorkbenchPluginSettingsSchemaVersion = Field(alias="schemaVersion")
     project_id: str = Field(alias="projectId")
     plugin_id: str = Field(alias="pluginId")
     can_mutate: bool = Field(alias="canMutate")
@@ -942,8 +952,8 @@ class WorkbenchPluginInstallExecution(WireModel):
     failed-plan 4xx bodies, so ``install_failure`` stays the open failure
     object the runtime index already uses."""
 
-    schema_version: Literal[WORKBENCH_PLUGIN_INSTALL_PLAN_EXECUTION_SCHEMA_VERSION] = (
-        Field(alias="schemaVersion")
+    schema_version: WorkbenchPluginInstallPlanExecutionSchemaVersion = Field(
+        alias="schemaVersion"
     )
     project_id: str = Field(alias="projectId")
     plugin_id: str = Field(alias="pluginId")
@@ -972,7 +982,7 @@ class WorkbenchPluginActivation(WireModel):
     (``arbitrary_package_load_allowed``, ``permissions_accepted``) ride by
     value, never summarized."""
 
-    schema_version: Literal[WORKBENCH_PLUGIN_ACTIVATION_SCHEMA_VERSION] = Field(
+    schema_version: WorkbenchPluginActivationSchemaVersion = Field(
         alias="schemaVersion"
     )
     project_id: str = Field(alias="projectId")
@@ -994,7 +1004,7 @@ class WorkbenchPluginBackendActivation(WireModel):
     so the grant flags ride by value; the ``registered*`` structures are
     per-plugin variable leaves and stay open JSON."""
 
-    schema_version: Literal[WORKBENCH_PLUGIN_BACKEND_ACTIVATION_SCHEMA_VERSION] = Field(
+    schema_version: WorkbenchPluginBackendActivationSchemaVersion = Field(
         alias="schemaVersion"
     )
     project_id: str = Field(alias="projectId")
@@ -1022,9 +1032,7 @@ class WorkbenchPluginBackendActivation(WireModel):
 class WorkbenchPluginInstallState(WireModel):
     """Shared disable/uninstall result: the persisted install-state row."""
 
-    schema_version: Literal[PLUGIN_INSTALL_STATE_SCHEMA_VERSION] = Field(
-        alias="schemaVersion"
-    )
+    schema_version: PluginInstallStateSchemaVersion = Field(alias="schemaVersion")
     project_id: str = Field(alias="projectId")
     plugin_id: str = Field(alias="pluginId")
     receipt_id: str = Field(alias="receiptId")
@@ -1043,7 +1051,6 @@ class WorkbenchPluginInstallState(WireModel):
 
 __all__ = [
     "ACTION_JOB_SCHEMA_VERSION",
-    "ACTION_JOBS_PAGE_SCHEMA_VERSION",
     "PROJECT_SCHEMA_VERSION",
     "WORKBENCH_PLUGIN_ACTIVATION_SCHEMA_VERSION",
     "WORKBENCH_PLUGIN_BACKEND_ACTIVATION_SCHEMA_VERSION",

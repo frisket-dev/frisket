@@ -15,6 +15,7 @@ import sqlalchemy as sa
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 
+from frisket.engine.jobs.queue import inserted_id
 from frisket.team.db import locked_transaction
 from frisket.team.schema import (
     PASSWORD_RESET_PREFIX,
@@ -137,7 +138,7 @@ def claim_first_owner(
         ).scalar_one_or_none()
         if existing is not None:
             raise SetupError("owner email is already in use")
-        user_id = int(
+        user_id = inserted_id(
             cx.execute(
                 users.insert().values(
                     email=clean_email,
@@ -145,7 +146,7 @@ def claim_first_owner(
                     password_hash=password_hash,
                     default_org_id=org_id,
                 )
-            ).inserted_primary_key[0]
+            )
         )
         cx.execute(
             memberships.insert().values(

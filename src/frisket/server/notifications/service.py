@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from typing import Any, TypedDict
+from typing import Any, Final, TypedDict
 
 from frisket.server.notifications.candidates import (
     NotificationCandidate,
@@ -20,15 +20,19 @@ from frisket.server.notifications.candidates import (
 from frisket.server.notifications.producers import (
     NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,
 )
+from frisket.contracts.http.notifications import (
+    NotificationActorState,
+    NotificationItem,
+)
 from frisket.redaction import DEFAULT_LOG_STRING_MAX_CHARS, redact_text, redact_value
 from frisket.engine.store import Project
 
 LOCAL_ACTOR_ID = "local:project"
-NOTIFICATION_PAGE_SCHEMA_VERSION = "frisket.notifications_page.v1"
-NOTIFICATION_SUMMARY_SCHEMA_VERSION = "frisket.notifications_summary.v1"
-NOTIFICATION_CHANNELS_SCHEMA_VERSION = "frisket.notification_channels.v1"
-NOTIFICATION_ROUTES_SCHEMA_VERSION = "frisket.notification_routes.v1"
-NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION = (
+NOTIFICATION_PAGE_SCHEMA_VERSION: Final = "frisket.notifications_page.v1"
+NOTIFICATION_SUMMARY_SCHEMA_VERSION: Final = "frisket.notifications_summary.v1"
+NOTIFICATION_CHANNELS_SCHEMA_VERSION: Final = "frisket.notification_channels.v1"
+NOTIFICATION_ROUTES_SCHEMA_VERSION: Final = "frisket.notification_routes.v1"
+NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION: Final = (
     "frisket.notification_delivery_requests.v1"
 )
 NOTIFICATION_EMIT_RESULT_SCHEMA_VERSION = "frisket.notification_emit_result.v2"
@@ -238,39 +242,39 @@ def create_notification_test_request(
     )
 
 
-def public_notification_item(row: Any) -> dict[str, Any]:
-    return {
-        "id": int(row["id"]),
-        "source_kind": row["source_kind"],
-        "source_ref": _loads_object(row["source_ref"]),
-        "source_event_ids": _loads_list(row["source_event_ids"]),
-        "event_count": int(row["event_count"]),
-        "event_kinds": _loads_list(row["event_kinds"]),
-        "title": row["title"],
-        "summary": row["summary"],
-        "severity": row["severity"],
-        "deep_link": _loads_object(row["deep_link"]),
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-        "state": row["actor_state"],
-        "seen_at": row["seen_at"],
-        "read_at": row["read_at"],
-        "acknowledged_at": row["acknowledged_at"],
-        "acknowledged_by": row["acknowledged_by"],
-    }
+def public_notification_item(row: Any) -> NotificationItem:
+    return NotificationItem(
+        id=int(row["id"]),
+        source_kind=row["source_kind"],
+        source_ref=_loads_object(row["source_ref"]),
+        source_event_ids=_loads_list(row["source_event_ids"]),
+        event_count=int(row["event_count"]),
+        event_kinds=_loads_list(row["event_kinds"]),
+        title=row["title"],
+        summary=row["summary"],
+        severity=row["severity"],
+        deep_link=_loads_object(row["deep_link"]),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+        state=row["actor_state"],
+        seen_at=row["seen_at"],
+        read_at=row["read_at"],
+        acknowledged_at=row["acknowledged_at"],
+        acknowledged_by=row["acknowledged_by"],
+    )
 
 
-def public_actor_state(state: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "notification_id": int(state["notification_id"]),
-        "actor_id": state["actor_id"],
-        "state": state["state"],
-        "seen_at": state["seen_at"],
-        "read_at": state["read_at"],
-        "acknowledged_at": state["acknowledged_at"],
-        "acknowledged_by": state["acknowledged_by"],
-        "updated_at": state["updated_at"],
-    }
+def public_actor_state(state: dict[str, Any]) -> NotificationActorState:
+    return NotificationActorState(
+        notification_id=int(state["notification_id"]),
+        actor_id=state["actor_id"],
+        state=state["state"],
+        seen_at=state["seen_at"],
+        read_at=state["read_at"],
+        acknowledged_at=state["acknowledged_at"],
+        acknowledged_by=state["acknowledged_by"],
+        updated_at=state["updated_at"],
+    )
 
 
 def normalize_channel_input(

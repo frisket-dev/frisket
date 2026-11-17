@@ -6,6 +6,19 @@ from dataclasses import dataclass
 import json
 from typing import Any
 
+from frisket.contracts.http.notifications import (
+    AckResult,
+    NotificationActorState,
+    NotificationChannel,
+    NotificationChannelsPage,
+    NotificationDeliveryRequest,
+    NotificationDeliveryRequestsPage,
+    NotificationPage,
+    NotificationRoute,
+    NotificationRoutesPage,
+    NotificationSummary,
+    SeenResult,
+)
 from frisket.engine.jobs import (
     enqueue_notification_delivery,
     enqueue_notification_emit_result,
@@ -66,7 +79,7 @@ class NotificationService:
         severity: str | None,
         offset: int,
         limit: int,
-    ) -> dict[str, Any]:
+    ) -> NotificationPage:
         if state not in NOTIFICATION_STATES:
             raise NotificationRequestError("unsupported notification state")
         project = self._workspace.get(project_id)
@@ -96,7 +109,7 @@ class NotificationService:
             visible_delivery_route_ids=visibility.route_ids,
             visible_delivery_channel_ids=visibility.channel_ids,
         )
-        return {
+        return NotificationPage(
             **offset_page_meta(
                 schema_version=NOTIFICATION_PAGE_SCHEMA_VERSION,
                 order="desc",
@@ -105,10 +118,10 @@ class NotificationService:
                 total=total,
                 item_count=len(rows),
             ),
-            "notifications": [public_notification_item(row) for row in rows],
-        }
+            notifications=[public_notification_item(row) for row in rows],
+        )
 
-    def summary(self, project_id: str, request: Any) -> dict[str, Any]:
+    def summary(self, project_id: str, request: Any) -> NotificationSummary:
         project = self._workspace.get(project_id)
         context = _notification_actor_context(request)
         visibility = _notification_delivery_visibility(project, context)
@@ -117,28 +130,31 @@ class NotificationService:
             visible_delivery_route_ids=visibility.route_ids,
             visible_delivery_channel_ids=visibility.channel_ids,
         )
-        return {
-            "schema_version": NOTIFICATION_SUMMARY_SCHEMA_VERSION,
-            **summary,
-        }
+        return NotificationSummary(
+            schema_version=NOTIFICATION_SUMMARY_SCHEMA_VERSION, **summary
+        )
 
-    def mark_seen(self, project_id: str, request: Any, body: dict[str, Any]) -> dict:
+    def mark_seen(
+        self, project_id: str, request: Any, body: dict[str, Any]
+    ) -> SeenResult:
         project = self._workspace.get(project_id)
         filters = self._normalize_filter_body(body)
         count = project.mark_notifications_seen(
             actor_id=_notification_actor_id(request),
             **filters,
         )
-        return {"seen_count": count}
+        return SeenResult(seen_count=count)
 
-    def bulk_ack(self, project_id: str, request: Any, body: dict[str, Any]) -> dict:
+    def bulk_ack(
+        self, project_id: str, request: Any, body: dict[str, Any]
+    ) -> AckResult:
         project = self._workspace.get(project_id)
         filters = self._normalize_filter_body(body)
         count = project.acknowledge_notifications(
             actor_id=_notification_actor_id(request),
             **filters,
         )
-        return {"acknowledged_count": count}
+        return AckResult(acknowledged_count=count)
 
     def emit(
         self, project_id: str, request: Any, body: dict[str, Any]
@@ -164,7 +180,7 @@ class NotificationService:
 
     def mark_read(
         self, project_id: str, request: Any, notification_id: int
-    ) -> dict[str, Any]:
+    ) -> NotificationActorState:
         project = self._workspace.get(project_id)
         self._ensure_notification(project, notification_id)
         state = project.mark_notification_read(
@@ -174,7 +190,7 @@ class NotificationService:
 
     def ack(
         self, project_id: str, request: Any, notification_id: int
-    ) -> dict[str, Any]:
+    ) -> NotificationActorState:
         project = self._workspace.get(project_id)
         self._ensure_notification(project, notification_id)
         state = project.acknowledge_notification(
@@ -184,7 +200,7 @@ class NotificationService:
 
     def unack(
         self, project_id: str, request: Any, notification_id: int
-    ) -> dict[str, Any]:
+    ) -> NotificationActorState:
         project = self._workspace.get(project_id)
         self._ensure_notification(project, notification_id)
         state = project.unacknowledge_notification(
@@ -194,22 +210,24 @@ class NotificationService:
 
     def list_channels(
         self, project_id: str, request: Any | None = None
-    ) -> dict[str, Any]:
+    ) -> NotificationChannelsPage:
         project = self._workspace.get(project_id)
         context = _notification_actor_context(request)
         project.ensure_default_in_app_notification_channel()
-        return {
-            "schema_version": NOTIFICATION_CHANNELS_SCHEMA_VERSION,
-            "channels": [
-                project.public_notification_channel(int(row["id"]))
+        return NotificationChannelsPage(
+            schema_version=NOTIFICATION_CHANNELS_SCHEMA_VERSION,
+            channels=[
+                NotificationChannel.model_validate(
+                    project.public_notification_channel(int(row["id"]))
+                )
                 for row in project.notification_channels()
                 if _channel_visible_to_actor(row, context)
             ],
-        }
+        )
 
     def create_channel(
         self, project_id: str, request: Any | None, body: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> NotificationChannel:
         project = self._workspace.get(project_id)
         context = _notification_actor_context(request)
         try:
@@ -219,11 +237,12 @@ class NotificationService:
                 body,
                 context,
             )
-            return project.create_notification_channel(**data)
+            created = project.create_notification_channel(**data)
         except NotificationRequestError:
             raise
         except ValueError as exc:
             raise NotificationRequestError(str(exc)) from exc
+        return NotificationChannel.model_validate(created)
 
     def patch_channel(
         self,
@@ -231,7 +250,7 @@ class NotificationService:
         request: Any | None,
         channel_id: int,
         body: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> NotificationChannel:
         project = self._workspace.get(project_id)
         row = project.notification_channel(channel_id)
         if row is None:
@@ -276,7 +295,7 @@ class NotificationService:
             next_config = normalized["config"]
             if owner_kind == "user":
                 next_config = _with_channel_owner(next_config, owner_ref)
-            return project.update_notification_channel(
+            updated = project.update_notification_channel(
                 channel_id,
                 name=body.get("name"),
                 enabled=body.get("enabled") if "enabled" in body else None,
@@ -288,24 +307,27 @@ class NotificationService:
             )
         except ValueError as exc:
             raise NotificationRequestError(str(exc)) from exc
+        return NotificationChannel.model_validate(updated)
 
     def list_routes(
         self, project_id: str, request: Any | None = None
-    ) -> dict[str, Any]:
+    ) -> NotificationRoutesPage:
         project = self._workspace.get(project_id)
         context = _notification_actor_context(request)
-        return {
-            "schema_version": NOTIFICATION_ROUTES_SCHEMA_VERSION,
-            "routes": [
-                project.public_notification_route(int(row["id"]))
+        return NotificationRoutesPage(
+            schema_version=NOTIFICATION_ROUTES_SCHEMA_VERSION,
+            routes=[
+                NotificationRoute.model_validate(
+                    project.public_notification_route(int(row["id"]))
+                )
                 for row in project.notification_routes()
                 if _route_visible_to_actor(row, context)
             ],
-        }
+        )
 
     def create_route(
         self, project_id: str, request: Any | None, body: dict[str, Any]
-    ) -> dict[str, Any]:
+    ) -> NotificationRoute:
         project = self._workspace.get(project_id)
         context = _notification_actor_context(request)
         try:
@@ -316,11 +338,12 @@ class NotificationService:
                 body,
                 context=context,
             )
-            return project.create_notification_route(**data)
+            created = project.create_notification_route(**data)
         except NotificationRequestError:
             raise
         except ValueError as exc:
             raise NotificationRequestError(str(exc)) from exc
+        return NotificationRoute.model_validate(created)
 
     def patch_route(
         self,
@@ -328,7 +351,7 @@ class NotificationService:
         request: Any | None,
         route_id: int,
         body: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> NotificationRoute:
         project = self._workspace.get(project_id)
         row = project.notification_route(route_id)
         if row is None:
@@ -351,7 +374,7 @@ class NotificationService:
                 context=context,
                 existing=row,
             )
-            return project.update_notification_route(
+            updated = project.update_notification_route(
                 route_id,
                 name=data["name"],
                 enabled=data["enabled"],
@@ -390,10 +413,11 @@ class NotificationService:
             raise
         except ValueError as exc:
             raise NotificationRequestError(str(exc)) from exc
+        return NotificationRoute.model_validate(updated)
 
     def test_route(
         self, project_id: str, request: Any | None, route_id: int
-    ) -> dict[str, Any]:
+    ) -> NotificationDeliveryRequest:
         project = self._workspace.get(project_id)
         row = project.notification_route(route_id)
         if row is None:
@@ -415,12 +439,15 @@ class NotificationService:
                 request_id=int(created["id"]),
                 project_opener=self._workspace.project_opener,
             )
-            return project.public_notification_delivery_request(int(created["id"]))
+            delivery_request = project.public_notification_delivery_request(
+                int(created["id"])
+            )
         except ValueError as exc:
             message = str(exc)
             if "not found" in message:
                 raise NotificationRouteNotFound("notification route not found") from exc
             raise NotificationRequestError(message) from exc
+        return NotificationDeliveryRequest.model_validate(delivery_request)
 
     def list_delivery_requests(
         self,
@@ -433,7 +460,7 @@ class NotificationService:
         notification_id: int | None,
         offset: int,
         limit: int,
-    ) -> dict[str, Any]:
+    ) -> NotificationDeliveryRequestsPage:
         if status is not None and status not in DELIVERY_STATUSES:
             raise NotificationRequestError("unsupported notification delivery status")
         project = self._workspace.get(project_id)
@@ -459,7 +486,7 @@ class NotificationService:
             visible_route_ids=visibility.route_ids,
             visible_channel_ids=visibility.channel_ids,
         )
-        return {
+        return NotificationDeliveryRequestsPage(
             **offset_page_meta(
                 schema_version=NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION,
                 order="desc",
@@ -468,11 +495,13 @@ class NotificationService:
                 total=total,
                 item_count=len(rows),
             ),
-            "delivery_requests": [
-                project.public_notification_delivery_request(int(row["id"]))
+            delivery_requests=[
+                NotificationDeliveryRequest.model_validate(
+                    project.public_notification_delivery_request(int(row["id"]))
+                )
                 for row in rows
             ],
-        }
+        )
 
     def deliver(
         self, project_id: str, notification_id: int, body: dict[str, Any]

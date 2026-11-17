@@ -8,7 +8,7 @@ caller receives.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel
 
@@ -95,7 +95,7 @@ class ActionParamValidationResult(WireModel):
     runtime_setup: EngineSetup | InstructionsSetup | None = None
 
 
-ACTION_PREFLIGHT_ERROR_RESPONSES = {
+ACTION_PREFLIGHT_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {"model": HttpError | ActionError},
     **{status: {"model": HttpError} for status in (401, 403, 404, 422, 500)},
 }

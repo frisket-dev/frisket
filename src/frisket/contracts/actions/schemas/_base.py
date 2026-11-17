@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal, get_args
 
 from typing_extensions import NotRequired, Required, TypedDict
 
@@ -23,13 +23,27 @@ from frisket.authoring import column_types
 from frisket.contracts.actions.schemas._validators import nonblank
 
 
-ACTION_SCHEMA_VERSION = "frisket.action.v2"
-ACTION_CATALOG_SCHEMA_VERSION = "frisket.action_catalog.v2"
+ActionSchemaVersion = Literal["frisket.action.v2"]
+ACTION_SCHEMA_VERSION: Final[ActionSchemaVersion] = get_args(ActionSchemaVersion)[0]
+ActionCatalogSchemaVersion = Literal["frisket.action_catalog.v2"]
+ACTION_CATALOG_SCHEMA_VERSION: Final[ActionCatalogSchemaVersion] = get_args(
+    ActionCatalogSchemaVersion
+)[0]
 CURRENT_ACTION_AUTHORING_CONTRACT_VERSION = 1
-ACTION_ERROR_SCHEMA_VERSION = "frisket.action_error.v1"
-ACTION_VALIDATION_SCHEMA_VERSION = "frisket.action_validation.v1"
-ACTION_RESULT_SCHEMA_VERSION = "frisket.action_result.v1"
-RECEIPT_SCHEMA_VERSION = "frisket.receipt.v1"
+ActionErrorSchemaVersion = Literal["frisket.action_error.v1"]
+ACTION_ERROR_SCHEMA_VERSION: Final[ActionErrorSchemaVersion] = get_args(
+    ActionErrorSchemaVersion
+)[0]
+ActionValidationSchemaVersion = Literal["frisket.action_validation.v1"]
+ACTION_VALIDATION_SCHEMA_VERSION: Final[ActionValidationSchemaVersion] = get_args(
+    ActionValidationSchemaVersion
+)[0]
+ActionResultSchemaVersion = Literal["frisket.action_result.v1"]
+ACTION_RESULT_SCHEMA_VERSION: Final[ActionResultSchemaVersion] = get_args(
+    ActionResultSchemaVersion
+)[0]
+ReceiptSchemaVersion = Literal["frisket.receipt.v1"]
+RECEIPT_SCHEMA_VERSION: Final[ReceiptSchemaVersion] = get_args(ReceiptSchemaVersion)[0]
 MAX_IMPORT_ROWS_COLUMNS = 256
 MAX_CELL_EDITS = 1_000
 
@@ -138,7 +152,7 @@ class ProjectScopePolicy(ContractModel):
 
 
 class ActionSpec(ContractModel):
-    schema_version: Literal[ACTION_SCHEMA_VERSION] = ACTION_SCHEMA_VERSION
+    schema_version: ActionSchemaVersion = ACTION_SCHEMA_VERSION
     kind: str = Field(min_length=1)
     params: dict[str, Any]
     row_scope: SheetRowScope | None = None
@@ -149,7 +163,7 @@ class ActionSpec(ContractModel):
 
 
 class ActionError(ContractModel):
-    schema_version: Literal[ACTION_ERROR_SCHEMA_VERSION] = ACTION_ERROR_SCHEMA_VERSION
+    schema_version: ActionErrorSchemaVersion = ACTION_ERROR_SCHEMA_VERSION
     code: str
     message: str
     action_kind: str | None = None
@@ -233,7 +247,7 @@ class ActionOutput(ContractModel):
 
 
 class ActionResult(ContractModel):
-    schema_version: Literal[ACTION_RESULT_SCHEMA_VERSION] = ACTION_RESULT_SCHEMA_VERSION
+    schema_version: ActionResultSchemaVersion = ACTION_RESULT_SCHEMA_VERSION
     action: ActionIdentity
     status: ActionResultStatus
     project_id: str
@@ -274,7 +288,7 @@ class ReceiptEvidence(ContractModel):
 
 
 class Receipt(ContractModel):
-    schema_version: Literal[RECEIPT_SCHEMA_VERSION] = RECEIPT_SCHEMA_VERSION
+    schema_version: ReceiptSchemaVersion = RECEIPT_SCHEMA_VERSION
     receipt_id: str
     project_id: str
     action_id: str
@@ -366,9 +380,7 @@ class ActionCatalogEntry(ContractModel):
 
 
 class ActionCatalog(ContractModel):
-    schema_version: Literal[ACTION_CATALOG_SCHEMA_VERSION] = (
-        ACTION_CATALOG_SCHEMA_VERSION
-    )
+    schema_version: ActionCatalogSchemaVersion = ACTION_CATALOG_SCHEMA_VERSION
     action_schema: dict[str, Any]
     error_schema: dict[str, Any]
     result_schema: dict[str, Any]
@@ -378,9 +390,7 @@ class ActionCatalog(ContractModel):
 
 
 class ActionValidationResult(ContractModel):
-    schema_version: Literal[ACTION_VALIDATION_SCHEMA_VERSION] = (
-        ACTION_VALIDATION_SCHEMA_VERSION
-    )
+    schema_version: ActionValidationSchemaVersion = ACTION_VALIDATION_SCHEMA_VERSION
     ok: bool
     action: ActionSpec | None = None
     params: dict[str, Any] | None = None

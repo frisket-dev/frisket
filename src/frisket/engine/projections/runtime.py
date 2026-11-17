@@ -18,8 +18,6 @@ from frisket.engine.store import Project
 
 STATUS_REQUEST_SCHEMA = "frisket.runtime_projection_status_request.v1"
 BUILD_REQUEST_SCHEMA = "frisket.runtime_projection_build_request.v1"
-STATUS_SCHEMA = "frisket.runtime_projection_status.v1"
-BUILD_PLAN_SCHEMA = "frisket.runtime_projection_build_plan.v1"
 
 MAX_RUNTIME_PROJECTION_JSON_BYTES = 100_000
 
@@ -84,7 +82,9 @@ class RuntimeProjectionOutputs(_StrictRuntimeModel):
 
 
 class RuntimeProjectionStatus(_StrictRuntimeModel):
-    schema_version: Literal[STATUS_SCHEMA] = Field(alias="schemaVersion")
+    schema_version: Literal["frisket.runtime_projection_status.v1"] = Field(
+        alias="schemaVersion"
+    )
     status: Literal["ready", "stale", "missing", "building", "failed"]
     freshness: RuntimeProjectionFreshness
     outputs: RuntimeProjectionOutputs = Field(default_factory=RuntimeProjectionOutputs)
@@ -103,7 +103,9 @@ class RuntimeProjectionBuild(_StrictRuntimeModel):
 
 
 class RuntimeProjectionBuildPlan(_StrictRuntimeModel):
-    schema_version: Literal[BUILD_PLAN_SCHEMA] = Field(alias="schemaVersion")
+    schema_version: Literal["frisket.runtime_projection_build_plan.v1"] = Field(
+        alias="schemaVersion"
+    )
     status: Literal["accepted", "noop", "failed"]
     build: RuntimeProjectionBuild
     outputs: RuntimeProjectionOutputs = Field(default_factory=RuntimeProjectionOutputs)

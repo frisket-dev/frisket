@@ -20,7 +20,7 @@ from frisket.engine.jobs.model_pull import (
     ModelPullEnqueueError,
     schedule_model_pull,
 )
-from frisket.engine.jobs.queue import MODEL_PULL_KIND
+from frisket.engine.jobs.queue import MODEL_PULL_KIND, inserted_id
 from frisket.server import provider_config
 from frisket.contracts.http.organization_providers import (
     OrganizationKeyDelete,
@@ -762,7 +762,7 @@ def register_operational_routes(
                     ),
                 )
             )
-            record_id = int(inserted.inserted_primary_key[0])
+            record_id = inserted_id(inserted)
             keep = (
                 cx.execute(
                     sa.select(client_errors.c.id)

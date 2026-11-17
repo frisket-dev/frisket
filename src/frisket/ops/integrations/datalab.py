@@ -95,7 +95,7 @@ import hashlib
 import html as html_module
 import re
 import time
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, NoReturn
 
 import httpx
 
@@ -149,7 +149,7 @@ def _validation_detail(body: Any) -> str:
     return ""
 
 
-def _raise_for_error_status(status: int, body: Any) -> None:
+def _raise_for_error_status(status: int, body: Any) -> NoReturn:
     detail = _validation_detail(body)
     suffix = f": {detail}" if detail else ""
     if status == 401:

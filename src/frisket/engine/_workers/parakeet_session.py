@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Callable
+from typing import Any, Callable, NoReturn
 
 from frisket.engine.sandbox import shim as sandbox_shim
 from frisket.engine.sandbox.shim import SandboxPolicy
@@ -210,7 +210,7 @@ def _validate_ready(frame: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _raise_validated_fatal(frame: dict[str, Any]) -> None:
+def _raise_validated_fatal(frame: dict[str, Any]) -> NoReturn:
     _require_exact_fields(frame, {"schema_version", "type", "error"}, frame="fatal")
     if frame.get("type") != "fatal":
         raise ParakeetSessionFailure(

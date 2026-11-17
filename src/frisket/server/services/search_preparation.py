@@ -9,7 +9,7 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 from frisket.contracts.http.search_preparation import (
     MAX_INDEXING_SHEET_NAMES,
@@ -1142,7 +1142,7 @@ class SearchPreparationService:
         *,
         may_setup_models: bool,
         may_run_actions: bool,
-    ) -> None:
+    ) -> NoReturn:
         refreshed = self.store.replan(
             row.id,
             project_id=row.project_id,

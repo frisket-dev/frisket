@@ -6,10 +6,11 @@ import argparse
 import json
 import os
 from pathlib import Path
+from typing import NoReturn
 
 
 class _MachineReadableParser(argparse.ArgumentParser):
-    def error(self, _message: str) -> None:
+    def error(self, _message: str) -> NoReturn:
         raise ValueError("invalid reset-drain arguments")
 
 

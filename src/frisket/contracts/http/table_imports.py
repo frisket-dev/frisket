@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal, get_args
 
 from pydantic import Field, StringConstraints
 
 from frisket.contracts.http.models import WireModel
 
 
-TABLE_IMPORT_SCHEMA_VERSION = "frisket.table_import.v1"
+TableImportSchemaVersion = Literal["frisket.table_import.v1"]
+TABLE_IMPORT_SCHEMA_VERSION: Final[TableImportSchemaVersion] = get_args(
+    TableImportSchemaVersion
+)[0]
 TABLE_IMPORT_LARGE_PASTE_WARNING_BYTES = 20 * 1024 * 1024
 
 TableImportFormat = Literal["delimited", "xlsx", "xls", "ods"]
@@ -274,7 +277,7 @@ class TableImportDestination(WireModel):
 
 
 class TableImportCommitResponse(WireModel):
-    schema_version: Literal[TABLE_IMPORT_SCHEMA_VERSION]
+    schema_version: TableImportSchemaVersion
     draft_id: str
     status: Literal["accepted"]
     import_ref: str
@@ -285,7 +288,7 @@ class TableImportCommitResponse(WireModel):
 
 
 class TableImportDraft(WireModel):
-    schema_version: Literal[TABLE_IMPORT_SCHEMA_VERSION]
+    schema_version: TableImportSchemaVersion
     id: str
     draft_id: str
     state: Literal[

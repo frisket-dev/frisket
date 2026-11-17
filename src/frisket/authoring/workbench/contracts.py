@@ -6,20 +6,37 @@ from collections.abc import Iterable
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Final, Literal, get_args
 
 from frisket.contracts.plugin import (
     PLUGIN_MANIFEST_SCHEMA_VERSION,
 )
 
 
-FRONTEND_COMPONENT_BINDING_SCHEMA_VERSION = (
+FrontendComponentBindingSchemaVersion = Literal[
     "frisket.workbench_plugin_frontend_component_binding.v1"
-)
-PLUGIN_INSTALL_STATE_SCHEMA_VERSION = "frisket.workbench_plugin_install_state.v1"
-RUNTIME_INDEX_SCHEMA_VERSION = "frisket.workbench_plugin_runtime_index.v1"
-RUNTIME_PLUGIN_SCHEMA_VERSION = "frisket.workbench_plugin_runtime_plugin.v1"
-WORKBENCH_DESCRIPTOR_PACKAGE_SCHEMA_VERSION = "frisket.workbench_descriptor_package.v1"
+]
+FRONTEND_COMPONENT_BINDING_SCHEMA_VERSION: Final[
+    FrontendComponentBindingSchemaVersion
+] = get_args(FrontendComponentBindingSchemaVersion)[0]
+PluginInstallStateSchemaVersion = Literal["frisket.workbench_plugin_install_state.v1"]
+PLUGIN_INSTALL_STATE_SCHEMA_VERSION: Final[PluginInstallStateSchemaVersion] = get_args(
+    PluginInstallStateSchemaVersion
+)[0]
+RuntimeIndexSchemaVersion = Literal["frisket.workbench_plugin_runtime_index.v1"]
+RUNTIME_INDEX_SCHEMA_VERSION: Final[RuntimeIndexSchemaVersion] = get_args(
+    RuntimeIndexSchemaVersion
+)[0]
+RuntimePluginSchemaVersion = Literal["frisket.workbench_plugin_runtime_plugin.v1"]
+RUNTIME_PLUGIN_SCHEMA_VERSION: Final[RuntimePluginSchemaVersion] = get_args(
+    RuntimePluginSchemaVersion
+)[0]
+WorkbenchDescriptorPackageSchemaVersion = Literal[
+    "frisket.workbench_descriptor_package.v1"
+]
+WORKBENCH_DESCRIPTOR_PACKAGE_SCHEMA_VERSION: Final[
+    WorkbenchDescriptorPackageSchemaVersion
+] = get_args(WorkbenchDescriptorPackageSchemaVersion)[0]
 WORKBENCH_PANEL_SCHEMA_VERSION = "frisket.workbench.panel.v1"
 WORKBENCH_VIEW_SCHEMA_VERSION = "frisket.workbench.view.v1"
 WORKBENCH_COMMAND_SCHEMA_VERSION = "frisket.command.v1"

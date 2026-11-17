@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
-from typing import Any, BinaryIO, Protocol
+from typing import Any, BinaryIO, NoReturn, Protocol
 
 from frisket.project_identity import ProjectStorageKey
 from frisket.engine.store.disk_capacity import require_disk_headroom
@@ -309,7 +309,7 @@ class S3ProjectBlobStore:
         return code, raw_status if isinstance(raw_status, int) else None
 
     @classmethod
-    def _raise_store_error(cls, exc: Exception, *, digest: str) -> None:
+    def _raise_store_error(cls, exc: Exception, *, digest: str) -> NoReturn:
         code, status = cls._error_parts(exc)
         if status == 404 or code in {"404", "NoSuchKey", "NotFound", "NoSuchObject"}:
             raise BlobNotFoundError(f"no such blob: {digest}") from exc

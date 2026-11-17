@@ -7,7 +7,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal, get_args
 
 from pydantic import (
     AfterValidator,
@@ -19,7 +19,10 @@ from pydantic import (
     model_validator,
 )
 
-PLUGIN_MANIFEST_SCHEMA_VERSION = "frisket.plugin.v1"
+PluginManifestSchemaVersion = Literal["frisket.plugin.v1"]
+PLUGIN_MANIFEST_SCHEMA_VERSION: Final[PluginManifestSchemaVersion] = get_args(
+    PluginManifestSchemaVersion
+)[0]
 MAX_PLUGIN_MANIFEST_BYTES = 1_000_000
 PLUGIN_ID_SEGMENT = r"[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?"
 PLUGIN_ID_RE = re.compile(rf"^{PLUGIN_ID_SEGMENT}(?:\.{PLUGIN_ID_SEGMENT})*$")
@@ -507,9 +510,7 @@ class PluginManifestSetting(PluginContractModel):
 
 
 class PluginManifest(PluginContractModel):
-    schema_version: Literal[PLUGIN_MANIFEST_SCHEMA_VERSION] = (
-        PLUGIN_MANIFEST_SCHEMA_VERSION
-    )
+    schema_version: PluginManifestSchemaVersion = PLUGIN_MANIFEST_SCHEMA_VERSION
     id: str
     version: str
     contributes: PluginManifestContributes

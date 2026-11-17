@@ -13,11 +13,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Annotated, Any, Final, Literal, Union
+from typing import Annotated, Any, Final, Literal, Union, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
-RUNTIME_OPERATOR_PLAN_SCHEMA_VERSION: Final = "frisket.runtime_operator_plan.v1"
+RuntimeOperatorPlanSchemaVersion = Literal["frisket.runtime_operator_plan.v1"]
+RUNTIME_OPERATOR_PLAN_SCHEMA_VERSION: Final[RuntimeOperatorPlanSchemaVersion] = (
+    get_args(RuntimeOperatorPlanSchemaVersion)[0]
+)
 
 # Bounds are protocol facts, not transport implementation details.
 PLUGIN_ACTION_WALL_SECONDS = 60
@@ -219,7 +222,7 @@ ProjectionFrame = Annotated[
 
 
 class RuntimeOperatorPlan(PluginRpcModel):
-    schema_version: Literal[RUNTIME_OPERATOR_PLAN_SCHEMA_VERSION] = Field(
+    schema_version: RuntimeOperatorPlanSchemaVersion = Field(
         default=RUNTIME_OPERATOR_PLAN_SCHEMA_VERSION,
         alias="schemaVersion",
     )

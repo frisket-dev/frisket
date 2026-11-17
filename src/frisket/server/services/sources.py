@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from frisket.contracts.http.project_sources import (
+    ProjectSourceDetail,
+    ProjectSourceHealth,
+    ProjectSourceList,
+)
 from frisket.server.paging import offset_page_meta
 from frisket.server.workspace import Workspace
 from frisket.server.sources.health import SourceHealthNotFound, build_source_health
@@ -19,9 +24,11 @@ class SourceService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
-    def list_sources(self, project_id: str) -> list[dict[str, Any]]:
+    def list_sources(self, project_id: str) -> ProjectSourceList:
         project = self._workspace.get(project_id)
-        return [_source_dict(row) for row in SourceStore(project).sources()]
+        return ProjectSourceList.model_validate(
+            [_source_dict(row) for row in SourceStore(project).sources()]
+        )
 
     def get_source(
         self,
@@ -30,7 +37,7 @@ class SourceService:
         *,
         runs_offset: int,
         runs_limit: int,
-    ) -> dict[str, Any]:
+    ) -> ProjectSourceDetail:
         project = self._workspace.get(project_id)
         source_store = SourceStore(project)
         row = source_store.get_source(source_id)
@@ -67,7 +74,7 @@ class SourceService:
                 and any(run["id"] == latest_run["id"] for run in runs)
             ),
         }
-        return out
+        return ProjectSourceDetail.model_validate(out)
 
     def get_source_health(
         self,
@@ -76,7 +83,7 @@ class SourceService:
         *,
         runs_offset: int,
         runs_limit: int,
-    ) -> dict[str, Any]:
+    ) -> ProjectSourceHealth:
         project = self._workspace.get(project_id)
         jobs = self._workspace.queue.list_project_jobs(
             project_id,
@@ -85,7 +92,7 @@ class SourceService:
             limit=100,
         )
         try:
-            return build_source_health(
+            health = build_source_health(
                 project,
                 source_id,
                 runs_offset=runs_offset,
@@ -94,6 +101,7 @@ class SourceService:
             )
         except SourceHealthNotFound as exc:
             raise SourceNotFound("source not found") from exc
+        return ProjectSourceHealth.model_validate(health)
 
 
 def _source_dict(row: Any) -> dict[str, Any]:

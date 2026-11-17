@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, NoReturn
 
 RenderFn = Callable[[str], str]
 
@@ -69,7 +69,7 @@ class InvalidJsonBodyTemplate(ValueError):
     """
 
 
-def _reject_json_constant(value: str) -> Any:
+def _reject_json_constant(value: str) -> NoReturn:
     raise ValueError(f"non-finite JSON constant is not allowed: {value}")
 
 

@@ -5,6 +5,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from frisket.contracts.http.views_lenses import (
+    SavedView,
+    SavedViewDelete,
+    SavedViewList,
+    SavedViewResolved,
+)
 from frisket.engine.views.evaluate import open_selection
 from frisket.engine.views.specs import normalize_view_spec, stored_selection
 from frisket.server.workspace import Workspace
@@ -27,11 +33,15 @@ class ViewService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
-    def list_views(self, project_id: str, *, sheet_id: int | None = None):
+    def list_views(
+        self, project_id: str, *, sheet_id: int | None = None
+    ) -> SavedViewList:
         project = self._workspace.get(project_id)
-        return [_view_dict(row) for row in project.views(sheet_id=sheet_id)]
+        return SavedViewList(
+            [_view_dict(row) for row in project.views(sheet_id=sheet_id)]
+        )
 
-    def get_view(self, project_id: str, view_id: int):
+    def get_view(self, project_id: str, view_id: int) -> SavedView:
         return _view_dict(_require_view(self._workspace.get(project_id), view_id))
 
     def create_view(
@@ -41,7 +51,7 @@ class ViewService:
         name: str,
         selection: dict[str, Any],
         presentation: dict[str, Any] | None = None,
-    ):
+    ) -> SavedView:
         project = self._workspace.get(project_id)
         spec = _normalize_spec(
             project, {"selection": selection, "presentation": presentation or {}}
@@ -49,7 +59,7 @@ class ViewService:
         view_id = project.add_view(_required_name(name), spec=spec)
         return _view_dict(project.get_view(view_id))
 
-    def rename_view(self, project_id: str, view_id: int, *, name: str):
+    def rename_view(self, project_id: str, view_id: int, *, name: str) -> SavedView:
         project = self._workspace.get(project_id)
         _require_view(project, view_id)
         project.update_view(view_id, name=_required_name(name))
@@ -62,7 +72,7 @@ class ViewService:
         *,
         selection: dict[str, Any],
         presentation: dict[str, Any] | None = None,
-    ):
+    ) -> SavedView:
         project = self._workspace.get(project_id)
         _require_view(project, view_id)
         project.update_view(
@@ -73,13 +83,15 @@ class ViewService:
         )
         return _view_dict(project.get_view(view_id))
 
-    def delete_view(self, project_id: str, view_id: int):
+    def delete_view(self, project_id: str, view_id: int) -> SavedViewDelete:
         project = self._workspace.get(project_id)
         _require_view(project, view_id)
         project.delete_view(view_id)
-        return {"ok": True, "deleted": view_id}
+        return SavedViewDelete(ok=True, deleted=view_id)
 
-    def resolve_view(self, project_id: str, view_id: int, *, limit: int, offset: int):
+    def resolve_view(
+        self, project_id: str, view_id: int, *, limit: int, offset: int
+    ) -> SavedViewResolved:
         from frisket.ai.embeddings.similarity import SimilarityError
         from frisket.retrieval.query import RetrievalQueryError
 
@@ -101,7 +113,7 @@ class ViewService:
                     }
                     for hit in selected.hits(offset=offset, limit=limit)
                 ]
-                return {
+                resolved = {
                     "view_id": view_id,
                     "query_hash": selected.query_hash,
                     "refs": refs,
@@ -113,6 +125,7 @@ class ViewService:
             raise ViewRequestError(
                 code=getattr(exc, "code", "selection_unavailable"), message=str(exc)
             ) from exc
+        return SavedViewResolved.model_validate(resolved)
 
 
 def _require_view(project: Any, view_id: int):
@@ -128,11 +141,11 @@ def _required_name(value: str) -> str:
     return name
 
 
-def _view_dict(row):
+def _view_dict(row) -> SavedView:
     data = dict(row)
     data["spec"] = json.loads(data["spec"])
     data["unavailable_reason"] = data["spec"].get("unavailable_reason")
-    return data
+    return SavedView.model_validate(data)
 
 
 def _normalize_spec(project, spec):
