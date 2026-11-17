@@ -5,6 +5,14 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from frisket.contracts.http.watches import (
+    Watch,
+    WatchDelete,
+    WatchList,
+    WatchRunEventsPage,
+    WatchRunResult,
+    WatchRunsPage,
+)
 from frisket.engine.jobs import enqueue_notification_emit_result
 from frisket.server.paging import offset_page_meta
 from frisket.server.workspace import Workspace
@@ -40,9 +48,11 @@ class WatchService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
-    def list_watches(self, project_id: str) -> list[dict[str, Any]]:
+    def list_watches(self, project_id: str) -> WatchList:
         project = self._workspace.get(project_id)
-        return [_watch_dict(project, row) for row in project.watches()]
+        return WatchList.model_validate(
+            [_watch_dict(project, row) for row in project.watches()]
+        )
 
     def create_watch(
         self,
@@ -53,7 +63,7 @@ class WatchService:
         detection_policy: dict[str, Any] | None,
         enabled: bool,
         schedule: str | None = "@hourly",
-    ) -> dict[str, Any]:
+    ) -> Watch:
         project = self._workspace.get(project_id)
         watch_name = name.strip()
         if not watch_name:
@@ -77,9 +87,9 @@ class WatchService:
             )
         except ValueError as exc:
             raise WatchRequestError(str(exc)) from exc
-        return _watch_dict(project, project.get_watch(watch_id))
+        return Watch.model_validate(_watch_dict(project, project.get_watch(watch_id)))
 
-    def run_watch(self, project_id: str, watch_id: int) -> dict[str, Any]:
+    def run_watch(self, project_id: str, watch_id: int) -> WatchRunResult:
         project = self._workspace.get(project_id)
         row = project.get_watch(watch_id)
         if row is None:
@@ -106,12 +116,14 @@ class WatchService:
             project_opener=self._workspace.project_opener,
         )
         run = evaluation["run"]
-        return {
-            "schema_version": "frisket.watch_run.v1",
-            "watch": _watch_dict(project, project.get_watch(watch_id)),
-            "run": _watch_run_dict(project, run),
-            "hits": evaluation["hits"],
-        }
+        return WatchRunResult.model_validate(
+            {
+                "schema_version": "frisket.watch_run.v1",
+                "watch": _watch_dict(project, project.get_watch(watch_id)),
+                "run": _watch_run_dict(project, run),
+                "hits": evaluation["hits"],
+            }
+        )
 
     def patch_watch(
         self,
@@ -119,7 +131,7 @@ class WatchService:
         watch_id: int,
         *,
         fields: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> Watch:
         if not fields:
             raise WatchRequestError("at least one watch field is required")
         unsupported = set(fields) - {"name", "enabled", "detection_policy", "schedule"}
@@ -160,13 +172,13 @@ class WatchService:
             raise WatchRequestError(str(exc)) from exc
         if row is None:
             raise WatchNotFound("watch not found")
-        return _watch_dict(project, row)
+        return Watch.model_validate(_watch_dict(project, row))
 
-    def delete_watch(self, project_id: str, watch_id: int) -> dict[str, Any]:
+    def delete_watch(self, project_id: str, watch_id: int) -> WatchDelete:
         project = self._workspace.get(project_id)
         if not project.delete_watch(watch_id):
             raise WatchNotFound("watch not found")
-        return {"ok": True, "deleted": int(watch_id)}
+        return WatchDelete(ok=True, deleted=int(watch_id))
 
     def list_watch_runs(
         self,
@@ -176,7 +188,7 @@ class WatchService:
         offset: int,
         limit: int,
         hits_limit: int,
-    ) -> dict[str, Any]:
+    ) -> WatchRunsPage:
         project = self._workspace.get(project_id)
         if project.get_watch(watch_id) is None:
             raise WatchNotFound("watch not found")
@@ -185,18 +197,20 @@ class WatchService:
             for row in project.watch_runs_page(watch_id, offset=offset, limit=limit)
         ]
         total = project.watch_runs_total(watch_id)
-        return {
-            **offset_page_meta(
-                schema_version="frisket.watch_runs_page.v1",
-                order="desc",
-                offset=offset,
-                limit=limit,
-                total=total,
-                item_count=len(runs),
-            ),
-            "hits_limit": hits_limit,
-            "runs": runs,
-        }
+        return WatchRunsPage.model_validate(
+            {
+                **offset_page_meta(
+                    schema_version="frisket.watch_runs_page.v1",
+                    order="desc",
+                    offset=offset,
+                    limit=limit,
+                    total=total,
+                    item_count=len(runs),
+                ),
+                "hits_limit": hits_limit,
+                "runs": runs,
+            }
+        )
 
     def list_watch_run_events(
         self,
@@ -207,7 +221,7 @@ class WatchService:
         offset: int,
         limit: int,
         event_kind: str | None,
-    ) -> dict[str, Any]:
+    ) -> WatchRunEventsPage:
         project = self._workspace.get(project_id)
         if project.get_watch(watch_id) is None:
             raise WatchNotFound("watch not found")
@@ -226,17 +240,19 @@ class WatchService:
             )
         ]
         total = project.watch_run_events_total(run_id, event_kind=event_kind)
-        return {
-            **offset_page_meta(
-                schema_version=WATCH_RUN_EVENT_SCHEMA_VERSION,
-                order="asc",
-                offset=offset,
-                limit=limit,
-                total=total,
-                item_count=len(events),
-            ),
-            "events": events,
-        }
+        return WatchRunEventsPage.model_validate(
+            {
+                **offset_page_meta(
+                    schema_version=WATCH_RUN_EVENT_SCHEMA_VERSION,
+                    order="asc",
+                    offset=offset,
+                    limit=limit,
+                    total=total,
+                    item_count=len(events),
+                ),
+                "events": events,
+            }
+        )
 
 
 def _json_obj(value: Any, *, field: str) -> dict[str, Any]:
