@@ -17,8 +17,8 @@ from frisket.server.services.selector_choices import (
     SelectorModelsGatewayStatusFor,
 )
 from frisket.server.services.project_model_routes import (
-    ProjectModelRouteError,
     ProjectModelRoutesService,
+    register_project_model_route_error,
 )
 from frisket.server.workspace import Workspace
 
@@ -31,6 +31,7 @@ def register_selector_choices_routes(
     edition: str = "solo",
     models_gateway_status_for: SelectorModelsGatewayStatusFor | None = None,
 ) -> None:
+    register_project_model_route_error(app)
     service = SelectorChoiceService(
         workspace, edition=edition, models_gateway_status_for=models_gateway_status_for
     )
@@ -70,15 +71,9 @@ def register_selector_choices_routes(
                 status_code=403,
                 detail="Project editor access is required to change model routes.",
             )
-        try:
-            selected = model_routes.set_route(
-                pid, body.model_id, body.route, request_context=request
-            )
-        except ProjectModelRouteError as exc:
-            raise HTTPException(
-                status_code=exc.status,
-                detail={"code": exc.code, "message": str(exc)},
-            ) from exc
+        selected = model_routes.set_route(
+            pid, body.model_id, body.route, request_context=request
+        )
         return ProjectModelRouteResponse(
             model_id=selected.model_id,
             route=selected.route,

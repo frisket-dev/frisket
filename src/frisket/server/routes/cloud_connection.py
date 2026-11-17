@@ -15,7 +15,7 @@ from frisket.contracts.http.cloud_connection import (
     ProjectCloudRoutingPatch,
     ProjectCloudRoutingResponse,
 )
-from frisket.server.route_errors import http_error_responses
+from frisket.server.route_errors import http_error_responses, register_typed_error
 from frisket.server.services.cloud_connection import (
     CloudConnectionService,
     CloudConnectionServiceError,
@@ -25,11 +25,7 @@ from frisket.server.services.cloud_connection import (
 def register_cloud_connection_routes(
     app: FastAPI, *, service: CloudConnectionService
 ) -> None:
-    @app.exception_handler(CloudConnectionServiceError)
-    async def cloud_connection_error(_request, exc: CloudConnectionServiceError):
-        from fastapi.responses import JSONResponse
-
-        return JSONResponse(status_code=exc.status, content={"detail": str(exc)})
+    register_typed_error(app, CloudConnectionServiceError)
 
     @app.get(
         "/api/cloud-connection",

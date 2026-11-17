@@ -42,6 +42,7 @@ from frisket.preview.translate import (
     TranslateComparePreviewError,
     compare_translate_scratch,
 )
+from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
 
 
@@ -60,12 +61,15 @@ class PreviewRequestError(ValueError):
         self.field = field
         self.details = dict(details or {})
 
-    def query_detail(self) -> dict[str, Any]:
-        return {
-            "code": self.code,
-            "message": self.message,
-            "field": self.field,
-        }
+    @classmethod
+    def from_domain(cls, exc: Any) -> PreviewRequestError:
+        """Carry a preview domain error's code/message/field/details as-is."""
+        return cls(
+            code=exc.code,
+            message=exc.message,
+            field=exc.field,
+            details=getattr(exc, "details", None),
+        )
 
 
 class PreviewService:
@@ -88,10 +92,8 @@ class PreviewService:
                 offset=offset,
             )
         except QueryPreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
+            raise RouteError(
+                400, {"code": exc.code, "message": exc.message, "field": exc.field}
             ) from exc
         return query_preview_payload(preview)
 
@@ -133,12 +135,7 @@ class PreviewService:
                 key_template=key_template,
             )
         except ClusterPreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc
         return cluster_preview_payload(preview)
 
     def column_values_preview(
@@ -168,12 +165,7 @@ class PreviewService:
                 value_mode=value_mode,
             )
         except ColumnValuesPreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc
 
     def entity_mentions_preview(
         self,
@@ -205,12 +197,7 @@ class PreviewService:
                 offset=offset,
             )
         except EntityMentionsPreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc
 
     def entity_mention_documents(
         self,
@@ -242,12 +229,7 @@ class PreviewService:
                 offset=offset,
             )
         except EntityMentionsPreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc
 
     def entity_mention_occurrences(
         self,
@@ -283,12 +265,7 @@ class PreviewService:
                 snippet_radius=snippet_radius,
             )
         except EntityMentionsPreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc
 
     def replace_rules_preview(
         self,
@@ -316,12 +293,7 @@ class PreviewService:
                 test_value=test_value,
             )
         except ReplaceRulesPreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc
 
     async def ocr_compare_preview(
         self,
@@ -333,12 +305,7 @@ class PreviewService:
         try:
             return await compare_ocr_preview(project, payload)
         except OcrComparePreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc
 
     async def topic_segmentation_compare_scratch(
         self,
@@ -361,12 +328,7 @@ class PreviewService:
                 payload,
             )
         except TopicSegmentationCompareError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc
 
     async def translate_compare_scratch(
         self,
@@ -383,9 +345,4 @@ class PreviewService:
         try:
             return await compare_translate_scratch(project, payload)
         except TranslateComparePreviewError as exc:
-            raise PreviewRequestError(
-                code=exc.code,
-                message=exc.message,
-                field=exc.field,
-                details=exc.details,
-            ) from exc
+            raise PreviewRequestError.from_domain(exc) from exc

@@ -6,9 +6,7 @@ thumbnail bytes; downstream media actions remain explicit user work.
 
 from __future__ import annotations
 
-import hashlib
 import importlib
-import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -19,15 +17,19 @@ from frisket.server.sources.media_metadata import (
     entry_published_at as _entry_published_at,
     thumbnail_url as _thumbnail_url,
     string_value as _string_value,
-    redact_provider_message as _redact_provider_message,
-    redact_warning as _redact_warning,
 )
+from frisket.redaction import redact_text
 from frisket.server.sources.progress import listing_progress_options
 from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
     SourcePollResult,
+    config_positive_int,
+    free_listing_result,
+    hash_json,
+    provider_error_text,
     register_source_poller,
+    text_hash,
 )
 from frisket.features.url_classification.matchers import host_matches_domain
 
@@ -48,13 +50,7 @@ def _is_youtube_or_short_host(host: str) -> bool:
 
 YOUTUBE_PLAYLIST_KIND = "youtube_playlist"
 YOUTUBE_CHANNEL_KIND = "youtube_channel"
-# The collection enumerators the one-shot ``derive.collection_expand`` shares
-# with the recurring pollers (ExpansionHint.enumerator names one of these).
-YOUTUBE_COLLECTION_ENUMERATORS = frozenset(
-    {YOUTUBE_CHANNEL_KIND, YOUTUBE_PLAYLIST_KIND}
-)
 YOUTUBE_CURSOR_SCHEMA = "frisket.youtube_cursor.v1"
-YOUTUBE_SOURCE_SCHEMA = "frisket.source.youtube.v1"
 DEFAULT_PAGE_SIZE = 100
 _PLAYLIST_ID_RE = re.compile(r"^[A-Za-z0-9_-]{2,}$")
 _CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{6,}$")
@@ -71,10 +67,8 @@ class YouTubePlaylistListing:
     playlist_id: str
     entries: list[dict[str, Any]]
     playlist_title: str | None = None
-    # The playlist-level owner (yt-dlp's top-level info.channel_id/channel —
-    # see list_youtube_playlist_with_ytdlp), used as the poll-time fallback
-    # for entries whose OWN channel fields are null (extract_flat omits
-    # per-entry channel data).
+    # The playlist-level owner, used as the poll-time fallback for entries whose
+    # own channel fields are null (extract_flat omits per-entry channel data).
     channel_id: str | None = None
     channel_title: str | None = None
     provider_facts: dict[str, Any] = field(default_factory=dict)
@@ -91,53 +85,66 @@ class YouTubeChannelListing:
     warnings: list[str] = field(default_factory=list)
 
 
+YouTubeListing = YouTubePlaylistListing | YouTubeChannelListing
+_Identity = dict[str, str | None]
+
+
 @dataclass(frozen=True)
-class YouTubePlaylistConfig:
-    playlist_id: str
-    playlist_url: str
+class YouTubeCollectionKind:
+    """What differs between the playlist and channel collections.
+
+    ``identity`` keys are the provider keyword arguments, the persisted cursor
+    keys and the receipt identity keys, so they must not change.
+    """
+
+    kind: str
+    noun: str
+    value_keys: tuple[str, ...]
+    conflicting_keys: tuple[str, ...]
+    conflict_error: str
+    parse_identity: Callable[[Any], tuple[_Identity | None, str | None]]
+    collection_url: Callable[[_Identity], str]
+    list_with_ytdlp: Callable[..., YouTubeListing]
+    title_field: str
+    # Channel listings resolve the canonical id/handle; a playlist poll keeps
+    # the configured playlist id in its cursor.
+    poll_identity_from_listing: bool
+
+
+@dataclass(frozen=True)
+class YouTubeCollectionConfig:
+    url: str
+    identity: _Identity
     max_pages_per_poll: int | None
     item_cap: int | None
 
 
-@dataclass(frozen=True)
-class YouTubeChannelConfig:
-    channel_url: str
-    max_pages_per_poll: int | None
-    item_cap: int | None
-    channel_id: str | None = None
-    channel_handle: str | None = None
-
-
-YouTubePlaylistProvider = Callable[
-    [str],
-    YouTubePlaylistListing,
-]
-
-
-class YouTubePlaylistPoller:
-    kind = YOUTUBE_PLAYLIST_KIND
-
+class YouTubeCollectionPoller:
     def __init__(
         self,
-        provider: Callable[..., YouTubePlaylistListing] | None = None,
+        spec: YouTubeCollectionKind,
+        provider: Callable[..., YouTubeListing] | None = None,
     ) -> None:
-        self._provider = provider or list_youtube_playlist_with_ytdlp
+        self.kind = spec.kind
+        self._spec = spec
+        self._provider = provider or spec.list_with_ytdlp
         self._uses_default_provider = provider is None
 
     def validate_config(self, source: dict[str, Any]) -> str | None:
-        _config, error = _resolve_playlist_config(source)
+        _config, error = _resolve_config(self._spec, source)
         return error
 
     def poll(self, ctx: SourcePollContext) -> SourcePollResult:
-        config, error = _resolve_playlist_config(ctx.source)
+        spec = self._spec
+        config, error = _resolve_config(spec, ctx.source)
         if error:
             raise ValueError(error)
 
         assert config is not None
         try:
             listing = self._provider(
-                config.playlist_url,
-                playlist_id=config.playlist_id,
+                config.url,
+                **config.identity,
                 max_pages=config.max_pages_per_poll,
                 item_cap=config.item_cap,
                 **(
@@ -148,7 +155,7 @@ class YouTubePlaylistPoller:
             )
         except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
             raise YouTubeProviderError(
-                f"YouTube playlist provider failed: {_redact_provider_message(exc)}"
+                f"YouTube {spec.noun} provider failed: {provider_error_text(exc)}"
             ) from exc
 
         entries = list(listing.entries or [])
@@ -160,36 +167,21 @@ class YouTubePlaylistPoller:
         if effective_cap is not None:
             entries = entries[:effective_cap]
 
-        items: list[SourcePollItem] = []
-        warnings = [_redact_warning(warning) for warning in listing.warnings]
-        seen_video_ids: list[str] = []
-        newest_published_at: str | None = None
-        for position, entry in enumerate(entries, start=1):
-            item, item_warnings = _poll_item_from_entry(
-                entry,
-                playlist_id=config.playlist_id,
-                position=position,
-                # The playlist-level owner fills an entry's channel_id/
-                # channel_title when the entry's own are absent (the
-                # flat-listing case).
-                channel_id_fallback=listing.channel_id,
-                channel_title_fallback=listing.channel_title,
-            )
-            warnings.extend(item_warnings)
-            if item is None:
-                continue
-            items.append(item)
-            video_id = str(item.row["video_id"])
-            seen_video_ids.append(video_id)
-            published_at = item.published_at
-            if published_at and (
-                newest_published_at is None or published_at > newest_published_at
-            ):
-                newest_published_at = published_at
-
+        identity = (
+            _listing_identity(config, listing)
+            if spec.poll_identity_from_listing
+            else dict(config.identity)
+        )
+        warnings = [redact_text(warning) for warning in listing.warnings]
+        items, item_warnings = _shape_entries(spec, config, listing, identity, entries)
+        warnings.extend(item_warnings)
+        seen_video_ids = [str(item.row["video_id"]) for item in items]
+        newest_published_at = max(
+            (item.published_at for item in items if item.published_at), default=None
+        )
         if truncated:
             warnings.append(
-                f"youtube_playlist item cap reached; limited to {effective_cap} items"
+                f"{spec.kind} item cap reached; limited to {effective_cap} items"
             )
 
         pages_fetched = _positive_int(
@@ -197,209 +189,134 @@ class YouTubePlaylistPoller:
             default=_estimated_pages(len(entries)),
             maximum=config.max_pages_per_poll,
         )
-        cursor_after = {
+        truncated = bool(truncated or listing.provider_facts.get("truncated"))
+        shared = {
             "schema_version": YOUTUBE_CURSOR_SCHEMA,
-            "provider": "youtube",
-            "source_kind": YOUTUBE_PLAYLIST_KIND,
-            "playlist_id": config.playlist_id,
+            **identity,
             "items_seen": len(seen_video_ids),
-            "seen_video_ids_hash": _hash_json(sorted(seen_video_ids)),
             "newest_published_at": newest_published_at,
             "pages_fetched": pages_fetched,
             "max_pages_per_poll": config.max_pages_per_poll,
             "item_cap": config.item_cap,
-            "truncated": bool(truncated or listing.provider_facts.get("truncated")),
-            "warning_count": len(warnings),
+            "truncated": truncated,
         }
-        provider_use = [
-            {
+        return free_listing_result(
+            items,
+            warnings,
+            cursor={
+                **shared,
                 "provider": "youtube",
-                "service": str(listing.provider_facts.get("service") or "yt-dlp"),
-                "source_kind": YOUTUBE_PLAYLIST_KIND,
-                "playlist_id": config.playlist_id,
-                "playlist_url_hash": _text_hash(config.playlist_url),
-                "items_returned": len(entries),
-                "items_materialized": len(items),
-                "pages_fetched": pages_fetched,
-                "max_pages_per_poll": config.max_pages_per_poll,
-                "item_cap": config.item_cap,
-                "download": False,
-                "external_api": True,
-                "cost_actual": 0.0,
-                **{
-                    str(k): v
-                    for k, v in listing.provider_facts.items()
-                    if k not in {"service", "pages_fetched"}
-                },
-            }
-        ]
-        return SourcePollResult(
-            items=items,
-            cursor_after=cursor_after,
-            warnings=warnings,
-            provider_use=provider_use,
-            cost={"cost_micro": 0},
+                "source_kind": spec.kind,
+                "seen_video_ids_hash": hash_json(sorted(seen_video_ids)),
+            },
             summary={
-                "schema_version": YOUTUBE_CURSOR_SCHEMA,
-                "playlist_id": config.playlist_id,
-                "playlist_title": listing.playlist_title,
+                **shared,
+                spec.title_field: getattr(listing, spec.title_field),
                 "channel_title": listing.channel_title,
-                "items_seen": len(seen_video_ids),
                 "items_materialized": len(items),
-                "warnings": len(warnings),
-                "pages_fetched": pages_fetched,
-                "max_pages_per_poll": config.max_pages_per_poll,
-                "item_cap": config.item_cap,
-                "truncated": bool(truncated or listing.provider_facts.get("truncated")),
-                "newest_published_at": newest_published_at,
             },
-        )
-
-
-class YouTubeChannelPoller:
-    kind = YOUTUBE_CHANNEL_KIND
-
-    def __init__(
-        self,
-        provider: Callable[..., YouTubeChannelListing] | None = None,
-    ) -> None:
-        self._provider = provider or list_youtube_channel_with_ytdlp
-        self._uses_default_provider = provider is None
-
-    def validate_config(self, source: dict[str, Any]) -> str | None:
-        _config, error = _resolve_channel_config(source)
-        return error
-
-    def poll(self, ctx: SourcePollContext) -> SourcePollResult:
-        config, error = _resolve_channel_config(ctx.source)
-        if error:
-            raise ValueError(error)
-
-        assert config is not None
-        try:
-            listing = self._provider(
-                config.channel_url,
-                channel_id=config.channel_id,
-                channel_handle=config.channel_handle,
-                max_pages=config.max_pages_per_poll,
-                item_cap=config.item_cap,
-                **(
-                    {"on_progress": ctx.on_progress, "should_cancel": ctx.should_cancel}
-                    if self._uses_default_provider
-                    else {}
-                ),
-            )
-        except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
-            raise YouTubeProviderError(
-                f"YouTube channel provider failed: {_redact_provider_message(exc)}"
-            ) from exc
-
-        entries = list(listing.entries or [])
-        effective_cap = _effective_item_cap(
-            max_pages=config.max_pages_per_poll,
-            item_cap=config.item_cap,
-        )
-        truncated = effective_cap is not None and len(entries) > effective_cap
-        if effective_cap is not None:
-            entries = entries[:effective_cap]
-
-        channel_id = listing.channel_id or config.channel_id
-        channel_handle = listing.channel_handle or config.channel_handle
-        channel_title = listing.channel_title
-        items: list[SourcePollItem] = []
-        warnings = [_redact_warning(warning) for warning in listing.warnings]
-        seen_video_ids: list[str] = []
-        newest_published_at: str | None = None
-        for position, entry in enumerate(entries, start=1):
-            item, item_warnings = _poll_item_from_entry(
-                entry,
-                playlist_id=None,
-                position=position,
-                warning_kind=YOUTUBE_CHANNEL_KIND,
-                channel_id_fallback=channel_id,
-                channel_title_fallback=channel_title,
-            )
-            warnings.extend(item_warnings)
-            if item is None:
-                continue
-            items.append(item)
-            video_id = str(item.row["video_id"])
-            seen_video_ids.append(video_id)
-            published_at = item.published_at
-            if published_at and (
-                newest_published_at is None or published_at > newest_published_at
-            ):
-                newest_published_at = published_at
-
-        if truncated:
-            warnings.append(
-                f"youtube_channel item cap reached; limited to {effective_cap} items"
-            )
-
-        pages_fetched = _positive_int(
-            listing.provider_facts.get("pages_fetched"),
-            default=_estimated_pages(len(entries)),
-            maximum=config.max_pages_per_poll,
-        )
-        cursor_after = {
-            "schema_version": YOUTUBE_CURSOR_SCHEMA,
-            "provider": "youtube",
-            "source_kind": YOUTUBE_CHANNEL_KIND,
-            "channel_id": channel_id,
-            "channel_handle": channel_handle,
-            "items_seen": len(seen_video_ids),
-            "seen_video_ids_hash": _hash_json(sorted(seen_video_ids)),
-            "newest_published_at": newest_published_at,
-            "pages_fetched": pages_fetched,
-            "max_pages_per_poll": config.max_pages_per_poll,
-            "item_cap": config.item_cap,
-            "truncated": bool(truncated or listing.provider_facts.get("truncated")),
-            "warning_count": len(warnings),
-        }
-        provider_use = [
-            {
+            provider_use={
                 "provider": "youtube",
                 "service": str(listing.provider_facts.get("service") or "yt-dlp"),
-                "source_kind": YOUTUBE_CHANNEL_KIND,
-                "channel_id": channel_id,
-                "channel_handle": channel_handle,
-                "channel_url_hash": _text_hash(config.channel_url),
+                "source_kind": spec.kind,
+                **identity,
+                f"{spec.noun}_url_hash": text_hash(config.url),
                 "items_returned": len(entries),
                 "items_materialized": len(items),
                 "pages_fetched": pages_fetched,
                 "max_pages_per_poll": config.max_pages_per_poll,
                 "item_cap": config.item_cap,
                 "download": False,
-                "external_api": True,
-                "cost_actual": 0.0,
                 **{
                     str(k): v
                     for k, v in listing.provider_facts.items()
                     if k not in {"service", "pages_fetched"}
                 },
-            }
-        ]
-        return SourcePollResult(
-            items=items,
-            cursor_after=cursor_after,
-            warnings=warnings,
-            provider_use=provider_use,
-            cost={"cost_micro": 0},
-            summary={
-                "schema_version": YOUTUBE_CURSOR_SCHEMA,
-                "channel_id": channel_id,
-                "channel_handle": channel_handle,
-                "channel_title": channel_title,
-                "items_seen": len(seen_video_ids),
-                "items_materialized": len(items),
-                "warnings": len(warnings),
-                "pages_fetched": pages_fetched,
-                "max_pages_per_poll": config.max_pages_per_poll,
-                "item_cap": config.item_cap,
-                "truncated": bool(truncated or listing.provider_facts.get("truncated")),
-                "newest_published_at": newest_published_at,
             },
         )
+
+
+def _listing_identity(
+    config: YouTubeCollectionConfig, listing: YouTubeListing
+) -> _Identity:
+    return {
+        key: getattr(listing, key) or value for key, value in config.identity.items()
+    }
+
+
+def _shape_entries(
+    spec: YouTubeCollectionKind,
+    config: YouTubeCollectionConfig,
+    listing: YouTubeListing,
+    identity: _Identity,
+    entries: list[dict[str, Any]],
+) -> tuple[list[SourcePollItem], list[str]]:
+    """Shape listed entries into poll items, skipping unavailable/id-less ones.
+
+    The listing-level owner fills an entry's channel fields when the entry's
+    own are absent (yt-dlp's flat playlist listing omits them per entry).
+    """
+    items: list[SourcePollItem] = []
+    warnings: list[str] = []
+    for position, entry in enumerate(entries, start=1):
+        item, item_warnings = _poll_item_from_entry(
+            entry,
+            playlist_id=config.identity.get("playlist_id"),
+            position=position,
+            warning_kind=spec.kind,
+            channel_id_fallback=listing.channel_id or identity.get("channel_id"),
+            channel_title_fallback=listing.channel_title,
+        )
+        warnings.extend(item_warnings)
+        if item is not None:
+            items.append(item)
+    return items, warnings
+
+
+def _ytdlp_listing(
+    url: str,
+    *,
+    noun: str,
+    extract_flat: str | bool,
+    bounded_cap: int | None,
+    progress: tuple[Any, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    """List a collection with yt-dlp metadata extraction only."""
+    try:
+        yt_dlp = importlib.import_module("yt_dlp")
+    except ImportError as exc:
+        raise YouTubeProviderError(
+            f"yt-dlp provider unavailable for YouTube {noun} source polling"
+        ) from exc
+
+    opts = {
+        "extract_flat": extract_flat,
+        "ignoreerrors": True,
+        "noplaylist": False,
+        "no_warnings": True,
+        "noprogress": True,
+        "quiet": True,
+        "skip_download": True,
+    }
+    opts.update(listing_progress_options(*progress, bounded_cap))
+    if bounded_cap is not None:
+        opts["playlistend"] = bounded_cap
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
+    except Exception as exc:  # noqa: BLE001 - provider message is redacted upstream
+        raise YouTubeProviderError(
+            f"yt-dlp {noun} listing failed: {provider_error_text(exc)}"
+        ) from exc
+    facts = {
+        "service": "yt-dlp",
+        "extractor": info.get("extractor_key") or info.get("extractor"),
+        "playlist_count": info.get("playlist_count") or len(entries),
+        "pages_fetched": _estimated_pages(len(entries)),
+        "truncated": bounded_cap is not None and len(entries) >= bounded_cap,
+    }
+    return info, entries, {k: v for k, v in facts.items() if v is not None}
 
 
 def list_youtube_playlist_with_ytdlp(
@@ -411,73 +328,24 @@ def list_youtube_playlist_with_ytdlp(
     on_progress=None,
     should_cancel=None,
 ) -> YouTubePlaylistListing:
-    """List playlist entries with yt-dlp metadata extraction only."""
-    try:
-        yt_dlp = importlib.import_module("yt_dlp")
-    except ImportError as exc:
-        raise YouTubeProviderError(
-            "yt-dlp provider unavailable for YouTube playlist source polling"
-        ) from exc
-
-    bounded_cap = _effective_item_cap(max_pages=max_pages, item_cap=item_cap)
-    opts = {
-        "extract_flat": "in_playlist",
-        "ignoreerrors": True,
-        "noplaylist": False,
-        "no_warnings": True,
-        "noprogress": True,
-        "quiet": True,
-        "skip_download": True,
-    }
-    opts.update(listing_progress_options(on_progress, should_cancel, bounded_cap))
-    if bounded_cap is not None:
-        opts["playlistend"] = bounded_cap
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(playlist_url, download=False)
-            entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
-    except Exception as exc:  # noqa: BLE001 - provider message is redacted upstream
-        raise YouTubeProviderError(
-            f"yt-dlp playlist listing failed: {_redact_provider_message(exc)}"
-        ) from exc
-    facts = {
-        "service": "yt-dlp",
-        "extractor": info.get("extractor_key") or info.get("extractor"),
-        "playlist_count": info.get("playlist_count") or len(entries),
-        "pages_fetched": _estimated_pages(len(entries)),
-        "truncated": bounded_cap is not None and len(entries) >= bounded_cap,
-    }
+    info, entries, facts = _ytdlp_listing(
+        playlist_url,
+        noun="playlist",
+        extract_flat="in_playlist",
+        bounded_cap=_effective_item_cap(max_pages=max_pages, item_cap=item_cap),
+        progress=(on_progress, should_cancel),
+    )
     return YouTubePlaylistListing(
         playlist_id=str(info.get("id") or playlist_id),
         entries=entries,
-        # The playlist's own title (distinct from any per-video title in
-        # `entries`) -- yt-dlp's extract_flat playlist metadata carries it
-        # directly on the top-level info dict, same as a channel's `title`
-        # (see list_youtube_channel_with_ytdlp below): the URL
-        # 'youtube.com/watch?v=...&list=...' is not a name -- this is.
         playlist_title=info.get("title"),
-        # The playlist-LEVEL owner: yt-dlp's `extract_flat` per-entry dicts
-        # carry NO channel/uploader/channel_id/uploader_id at all (confirmed
-        # against yt-dlp's own extractor --
-        # yt_dlp/extractor/youtube/_tab.py's `_extract_metadata_from_tabs`
-        # populates `channel`/`channel_id`/`uploader`/`uploader_id` ONLY on
-        # the top-level playlist `info` dict, from the playlist page's
-        # owner/byline renderer -- never per-entry; YouTube's flat listing
-        # omits per-video channel data entirely, only `title` survives).
-        # These become `_poll_item_from_entry`'s channel_id_fallback/
-        # channel_title_fallback below, same fallback keys the channel
-        # poller already reads (`info.get("channel_id") or
-        # info.get("uploader_id")`, `info.get("channel") or
-        # info.get("uploader")`). ASSUMPTION: single-owner playlist -- every
-        # entry in a YouTube playlist shares one uploader, so applying the
-        # playlist's owner to every null-channel entry is safe unconditionally
-        # (nothing to skip). A playlist provider that someday reports
-        # heterogeneous per-entry ownership should carry it on the entry
-        # itself, which already wins over this fallback in
-        # `_poll_item_from_entry`.
+        # yt-dlp's extract_flat per-entry dicts carry no channel/uploader data;
+        # the playlist page's owner is only on the top-level info dict. A
+        # playlist has one uploader, so the owner applies to every entry whose
+        # own channel fields are absent.
         channel_id=info.get("channel_id") or info.get("uploader_id"),
         channel_title=info.get("channel") or info.get("uploader"),
-        provider_facts={k: v for k, v in facts.items() if v is not None},
+        provider_facts=facts,
     )
 
 
@@ -491,79 +359,27 @@ def list_youtube_channel_with_ytdlp(
     on_progress=None,
     should_cancel=None,
 ) -> YouTubeChannelListing:
-    """List channel uploads with yt-dlp metadata extraction only."""
-    try:
-        yt_dlp = importlib.import_module("yt_dlp")
-    except ImportError as exc:
-        raise YouTubeProviderError(
-            "yt-dlp provider unavailable for YouTube channel source polling"
-        ) from exc
-
-    bounded_cap = _effective_item_cap(max_pages=max_pages, item_cap=item_cap)
-    opts = {
+    info, entries, facts = _ytdlp_listing(
+        channel_url,
+        noun="channel",
         # Channel tab entries returned by flat extraction omit per-video fields
         # such as upload_date/timestamp and description. Resolve each bounded
-        # entry's metadata so the source contract can populate published_at and
-        # description; skip_download still prevents media acquisition.
-        "extract_flat": False,
-        "ignoreerrors": True,
-        "noplaylist": False,
-        "no_warnings": True,
-        "noprogress": True,
-        "quiet": True,
-        "skip_download": True,
-    }
-    opts.update(listing_progress_options(on_progress, should_cancel, bounded_cap))
-    if bounded_cap is not None:
-        opts["playlistend"] = bounded_cap
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(channel_url, download=False)
-            entries = [entry for entry in info["entries"] if isinstance(entry, dict)]
-    except Exception as exc:  # noqa: BLE001 - provider message is redacted upstream
-        raise YouTubeProviderError(
-            f"yt-dlp channel listing failed: {_redact_provider_message(exc)}"
-        ) from exc
-    resolved_channel_id = (
-        info.get("channel_id") or info.get("uploader_id") or channel_id
+        # entry's metadata so the source contract can populate published_at
+        # and description; skip_download still prevents media acquisition.
+        extract_flat=False,
+        bounded_cap=_effective_item_cap(max_pages=max_pages, item_cap=item_cap),
+        progress=(on_progress, should_cancel),
     )
     resolved_handle = info.get("channel") or channel_handle
     if resolved_handle and not resolved_handle.startswith("@"):
         resolved_handle = channel_handle
-    facts = {
-        "service": "yt-dlp",
-        "extractor": info.get("extractor_key") or info.get("extractor"),
-        "playlist_count": info.get("playlist_count") or len(entries),
-        "pages_fetched": _estimated_pages(len(entries)),
-        "truncated": bounded_cap is not None and len(entries) >= bounded_cap,
-    }
     return YouTubeChannelListing(
         entries=entries,
-        channel_id=resolved_channel_id,
+        channel_id=info.get("channel_id") or info.get("uploader_id") or channel_id,
         channel_handle=resolved_handle,
         channel_title=info.get("title") or info.get("uploader"),
-        provider_facts={k: v for k, v in facts.items() if v is not None},
+        provider_facts=facts,
     )
-
-
-def register_youtube_playlist_poller(
-    provider: Callable[..., YouTubePlaylistListing] | None = None,
-    *,
-    replace: bool = False,
-) -> YouTubePlaylistPoller:
-    poller = YouTubePlaylistPoller(provider=provider)
-    register_source_poller(poller, replace=replace)
-    return poller
-
-
-def register_youtube_channel_poller(
-    provider: Callable[..., YouTubeChannelListing] | None = None,
-    *,
-    replace: bool = False,
-) -> YouTubeChannelPoller:
-    poller = YouTubeChannelPoller(provider=provider)
-    register_source_poller(poller, replace=replace)
-    return poller
 
 
 def _effective_item_cap(*, max_pages: int | None, item_cap: int | None) -> int | None:
@@ -582,10 +398,8 @@ def _effective_item_cap(*, max_pages: int | None, item_cap: int | None) -> int |
 class CollectionEnumeration:
     """One-shot enumeration of a YouTube collection (channel/playlist).
 
-    The read-only sibling of a recurring source poll: same config resolution
-    (``_resolve_*_config``), same yt-dlp provider (``list_youtube_*_with_ytdlp``),
-    and the same ``_poll_item_from_entry`` row shaping — so the recurring poller
-    and the one-shot ``derive.collection_expand`` cannot drift.
+    The read-only sibling of a recurring source poll: the same config
+    resolution, provider and row shaping as ``YouTubeCollectionPoller``.
 
     ``preview_count`` is the extract_flat TOTAL (the cost-gate input, from
     ``playlist_count``); ``rows`` is the shaped, provider-capped list of item rows.
@@ -597,32 +411,6 @@ class CollectionEnumeration:
     truncated: bool
     identity: dict[str, Any]
     provider_facts: dict[str, Any]
-
-
-def _shape_collection_rows(
-    entries: list[dict[str, Any]],
-    *,
-    playlist_id: str | None,
-    warning_kind: str,
-    channel_id_fallback: str | None = None,
-    channel_title_fallback: str | None = None,
-) -> list[dict[str, Any]]:
-    """Shape enumerated entries into item rows via the SAME per-entry shaper the
-    pollers use (``_poll_item_from_entry``), skipping unavailable/id-less entries."""
-    rows: list[dict[str, Any]] = []
-    for position, entry in enumerate(entries, start=1):
-        item, _warnings = _poll_item_from_entry(
-            entry,
-            playlist_id=playlist_id,
-            position=position,
-            warning_kind=warning_kind,
-            channel_id_fallback=channel_id_fallback,
-            channel_title_fallback=channel_title_fallback,
-        )
-        if item is None:
-            continue
-        rows.append(dict(item.row))
-    return rows
 
 
 def enumerate_youtube_collection(
@@ -645,71 +433,28 @@ def enumerate_youtube_collection(
     """
     if enumerator not in YOUTUBE_COLLECTION_ENUMERATORS:
         raise ValueError(f"unknown youtube collection enumerator: {enumerator}")
+    spec = _COLLECTION_KINDS[enumerator]
     bounded_cap = None if item_cap is None else max(1, int(item_cap))
-
-    if enumerator == YOUTUBE_CHANNEL_KIND:
-        config, error = _resolve_channel_config({"config": {"url": url}})
-        if error:
-            raise ValueError(error)
-        assert config is not None
-        call = provider or list_youtube_channel_with_ytdlp
-        listing = call(
-            config.channel_url,
-            channel_id=config.channel_id,
-            channel_handle=config.channel_handle,
-            max_pages=config.max_pages_per_poll,
-            item_cap=bounded_cap,
-        )
-        entries = (
-            listing.entries if bounded_cap is None else listing.entries[:bounded_cap]
-        )
-        identity = {
-            "channel_id": listing.channel_id or config.channel_id,
-            "channel_handle": listing.channel_handle or config.channel_handle,
-            "channel_title": listing.channel_title,
-            "channel_url": config.channel_url,
-        }
-        provider_facts = dict(listing.provider_facts)
-        rows = _shape_collection_rows(
-            entries,
-            playlist_id=None,
-            warning_kind=YOUTUBE_CHANNEL_KIND,
-            channel_id_fallback=identity["channel_id"],
-            channel_title_fallback=identity["channel_title"],
-        )
-    else:  # YOUTUBE_PLAYLIST_KIND
-        config, error = _resolve_playlist_config({"config": {"url": url}})
-        if error:
-            raise ValueError(error)
-        assert config is not None
-        call = provider or list_youtube_playlist_with_ytdlp
-        listing = call(
-            config.playlist_url,
-            playlist_id=config.playlist_id,
-            max_pages=config.max_pages_per_poll,
-            item_cap=bounded_cap,
-        )
-        entries = (
-            listing.entries if bounded_cap is None else listing.entries[:bounded_cap]
-        )
-        identity = {
-            "playlist_id": listing.playlist_id or config.playlist_id,
-            "playlist_url": config.playlist_url,
-            "playlist_title": listing.playlist_title,
-        }
-        provider_facts = dict(listing.provider_facts)
-        rows = _shape_collection_rows(
-            entries,
-            playlist_id=config.playlist_id,
-            warning_kind=YOUTUBE_PLAYLIST_KIND,
-            # Same playlist-owner poll-time fallback as
-            # YouTubePlaylistPoller.poll -- this one-shot enumerator shares
-            # _poll_item_from_entry with the recurring poller, so it must
-            # share the fallback too.
-            channel_id_fallback=listing.channel_id,
-            channel_title_fallback=listing.channel_title,
-        )
-
+    config, error = _resolve_config(spec, {"config": {"url": url}})
+    if error:
+        raise ValueError(error)
+    assert config is not None
+    listing = (provider or spec.list_with_ytdlp)(
+        config.url,
+        **config.identity,
+        max_pages=config.max_pages_per_poll,
+        item_cap=bounded_cap,
+    )
+    entries = listing.entries if bounded_cap is None else listing.entries[:bounded_cap]
+    resolved = _listing_identity(config, listing)
+    identity = {
+        **resolved,
+        spec.title_field: getattr(listing, spec.title_field),
+        f"{spec.noun}_url": config.url,
+    }
+    items, _warnings = _shape_entries(spec, config, listing, resolved, entries)
+    rows = [dict(item.row) for item in items]
+    provider_facts = dict(listing.provider_facts)
     preview_count = _positive_int(
         provider_facts.get("playlist_count"), default=len(rows), maximum=None
     )
@@ -725,72 +470,63 @@ def enumerate_youtube_collection(
     )
 
 
-_COLLECTION_KIND_LABEL = {
-    YOUTUBE_PLAYLIST_KIND: "YouTube playlist",
-    YOUTUBE_CHANNEL_KIND: "YouTube channel",
-}
-
-
 def collection_display_name(enumerator: str, identity: dict[str, Any], url: str) -> str:
-    """Name a YouTube playlist source after the playlist itself. yt-dlp's
-    enumeration
-    metadata carries the collection's own title (``identity["playlist_title"]``
-    / ``identity["channel_title"]`` -- see ``enumerate_youtube_collection``);
-    use it. Fall back to a URL-labeled placeholder ONLY when the title is
-    absent (a private/unlisted playlist yt-dlp couldn't name, or a provider
-    that never returned one) -- never let a raw watch/playlist URL stand in
-    for a name when a real title is available.
+    """Name a YouTube collection source after the collection itself.
+
+    Falls back to a URL-labeled placeholder only when the title is absent (a
+    private/unlisted playlist yt-dlp couldn't name, or a provider that never
+    returned one): a raw watch/playlist URL is not a name.
     """
-    title_key = (
-        "channel_title" if enumerator == YOUTUBE_CHANNEL_KIND else "playlist_title"
-    )
-    title = _string_value(identity.get(title_key))
+    spec = _COLLECTION_KINDS.get(enumerator)
+    title_field = spec.title_field if spec else "playlist_title"
+    title = _string_value(identity.get(title_field))
     if title:
         return title
-    label = _COLLECTION_KIND_LABEL.get(enumerator, "YouTube collection")
+    label = f"YouTube {spec.noun}" if spec else "YouTube collection"
     return f"{label}: {url}"
 
 
-def _resolve_playlist_config(
+def _resolve_config(
+    spec: YouTubeCollectionKind,
     source: dict[str, Any],
-) -> tuple[YouTubePlaylistConfig | None, str | None]:
+) -> tuple[YouTubeCollectionConfig | None, str | None]:
     config = source.get("config") if isinstance(source.get("config"), dict) else {}
     assert isinstance(config, dict)
-    if config.get("channel_id") or config.get("channel_handle"):
-        return None, "youtube_playlist supports playlist URL or playlist_id only"
-    playlist_value = (
-        config.get("playlist_id")
-        or config.get("playlist_url")
-        or config.get("url")
-        or source.get("url")
-    )
-    playlist_id, id_error = _playlist_id_from_value(playlist_value)
+    if any(config.get(key) for key in spec.conflicting_keys):
+        return None, spec.conflict_error
+    for key in spec.value_keys:
+        value = config.get(key)
+        if value:
+            break
+    else:
+        value = source.get("url")
+    identity, id_error = spec.parse_identity(value)
     if id_error:
         return None, id_error
 
-    assert playlist_id is not None
-    max_pages, pages_error = _config_positive_int(
+    assert identity is not None
+    max_pages, pages_error = config_positive_int(
         config,
         "max_pages_per_poll",
         default=None,
         maximum=None,
-        source_kind=YOUTUBE_PLAYLIST_KIND,
+        source_kind=spec.kind,
     )
     if pages_error:
         return None, pages_error
-    item_cap, cap_error = _config_positive_int(
+    item_cap, cap_error = config_positive_int(
         config,
         "max_items_per_poll",
         default=(None if max_pages is None else max_pages * DEFAULT_PAGE_SIZE),
         maximum=None,
-        source_kind=YOUTUBE_PLAYLIST_KIND,
+        source_kind=spec.kind,
     )
     if cap_error:
         return None, cap_error
     return (
-        YouTubePlaylistConfig(
-            playlist_id=playlist_id,
-            playlist_url=_playlist_url(playlist_id),
+        YouTubeCollectionConfig(
+            url=spec.collection_url(identity),
+            identity=identity,
             max_pages_per_poll=max_pages,
             item_cap=item_cap,
         ),
@@ -798,56 +534,7 @@ def _resolve_playlist_config(
     )
 
 
-def _resolve_channel_config(
-    source: dict[str, Any],
-) -> tuple[YouTubeChannelConfig | None, str | None]:
-    config = source.get("config") if isinstance(source.get("config"), dict) else {}
-    assert isinstance(config, dict)
-    if config.get("playlist_id") or config.get("playlist_url"):
-        return None, "youtube_channel supports channel URL, channel_id, or @handle only"
-    channel_value = (
-        config.get("channel_id")
-        or config.get("channel_handle")
-        or config.get("channel_url")
-        or config.get("url")
-        or source.get("url")
-    )
-    parsed, id_error = _channel_identity_from_value(channel_value)
-    if id_error:
-        return None, id_error
-
-    assert parsed is not None
-    max_pages, pages_error = _config_positive_int(
-        config,
-        "max_pages_per_poll",
-        default=None,
-        maximum=None,
-        source_kind=YOUTUBE_CHANNEL_KIND,
-    )
-    if pages_error:
-        return None, pages_error
-    item_cap, cap_error = _config_positive_int(
-        config,
-        "max_items_per_poll",
-        default=(None if max_pages is None else max_pages * DEFAULT_PAGE_SIZE),
-        maximum=None,
-        source_kind=YOUTUBE_CHANNEL_KIND,
-    )
-    if cap_error:
-        return None, cap_error
-    return (
-        YouTubeChannelConfig(
-            channel_url=_channel_url(parsed),
-            channel_id=parsed.get("channel_id"),
-            channel_handle=parsed.get("channel_handle"),
-            max_pages_per_poll=max_pages,
-            item_cap=item_cap,
-        ),
-        None,
-    )
-
-
-def _playlist_id_from_value(value: Any) -> tuple[str | None, str | None]:
+def _playlist_identity_from_value(value: Any) -> tuple[_Identity | None, str | None]:
     if not isinstance(value, str) or not value.strip():
         return None, "youtube_playlist sources require playlist_id or playlist URL"
     text = value.strip()
@@ -859,7 +546,7 @@ def _playlist_id_from_value(value: Any) -> tuple[str | None, str | None]:
         playlist_id = (parse_qs(parsed.query).get("list") or [""])[0].strip()
         if playlist_id:
             if _PLAYLIST_ID_RE.fullmatch(playlist_id):
-                return playlist_id, None
+                return {"playlist_id": playlist_id}, None
             return None, "youtube_playlist playlist_id is invalid"
         path = parsed.path.rstrip("/")
         if path.startswith(("/channel/", "/@", "/c/", "/user/")):
@@ -869,12 +556,10 @@ def _playlist_id_from_value(value: Any) -> tuple[str | None, str | None]:
         return None, "youtube_playlist does not support channel handles yet"
     if not _PLAYLIST_ID_RE.fullmatch(text):
         return None, "youtube_playlist playlist_id is invalid"
-    return text, None
+    return {"playlist_id": text}, None
 
 
-def _channel_identity_from_value(
-    value: Any,
-) -> tuple[dict[str, str] | None, str | None]:
+def _channel_identity_from_value(value: Any) -> tuple[_Identity | None, str | None]:
     if not isinstance(value, str) or not value.strip():
         return (
             None,
@@ -892,44 +577,26 @@ def _channel_identity_from_value(
         if len(parts) >= 2 and parts[0] == "channel":
             channel_id = parts[1].strip()
             if _CHANNEL_ID_RE.fullmatch(channel_id):
-                return {"channel_id": channel_id}, None
+                return {"channel_id": channel_id, "channel_handle": None}, None
             return None, "youtube_channel channel_id is invalid"
         if len(parts) >= 1 and parts[0].startswith("@"):
             handle = parts[0].strip()
             if _CHANNEL_HANDLE_RE.fullmatch(handle):
-                return {"channel_handle": handle}, None
+                return {"channel_id": None, "channel_handle": handle}, None
             return None, "youtube_channel channel_handle is invalid"
         if len(parts) >= 2 and parts[0] in {"c", "user"}:
             slug = parts[1].strip()
             if re.fullmatch(r"[A-Za-z0-9._-]{3,80}", slug):
-                return {"channel_handle": f"@{slug}"}, None
+                return {"channel_id": None, "channel_handle": f"@{slug}"}, None
             return None, "youtube_channel channel URL slug is invalid"
         return None, "youtube_channel URL must identify a channel or @handle"
     if text.startswith("@"):
         if _CHANNEL_HANDLE_RE.fullmatch(text):
-            return {"channel_handle": text}, None
+            return {"channel_id": None, "channel_handle": text}, None
         return None, "youtube_channel channel_handle is invalid"
     if _CHANNEL_ID_RE.fullmatch(text):
-        return {"channel_id": text}, None
+        return {"channel_id": text, "channel_handle": None}, None
     return None, "youtube_channel channel_id or @handle is invalid"
-
-
-def _config_positive_int(
-    config: dict[str, Any],
-    field_name: str,
-    *,
-    default: int | None,
-    maximum: int | None,
-    source_kind: str,
-) -> tuple[int | None, str | None]:
-    value = config.get(field_name, default)
-    if value is None and default is None:
-        return None, None
-    if type(value) is not int or value <= 0:
-        return None, f"{source_kind} {field_name} must be a positive integer"
-    if maximum is not None and value > maximum:
-        return None, f"{source_kind} {field_name} must be <= {maximum}"
-    return int(value), None
 
 
 def _poll_item_from_entry(
@@ -1027,16 +694,15 @@ def _entry_unavailable(entry: dict[str, Any]) -> bool:
     )
 
 
-def _playlist_url(playlist_id: str) -> str:
-    return f"https://www.youtube.com/playlist?list={playlist_id}"
+def _playlist_url(identity: _Identity) -> str:
+    return f"https://www.youtube.com/playlist?list={identity['playlist_id']}"
 
 
-def _channel_url(identity: dict[str, str]) -> str:
-    channel_id = identity.get("channel_id")
+def _channel_url(identity: _Identity) -> str:
+    channel_id = identity["channel_id"]
     if channel_id:
         return f"https://www.youtube.com/channel/{channel_id}/videos"
-    handle = identity["channel_handle"]
-    return f"https://www.youtube.com/{handle}/videos"
+    return f"https://www.youtube.com/{identity['channel_handle']}/videos"
 
 
 def _watch_url(video_id: str) -> str:
@@ -1074,17 +740,37 @@ def _normalized_item_hash(row: dict[str, Any], media: list[dict[str, Any]]) -> s
         },
         "media": media,
     }
-    return _hash_json(payload)
+    return hash_json(payload)
 
 
-def _hash_json(value: Any) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+YOUTUBE_PLAYLIST = YouTubeCollectionKind(
+    kind=YOUTUBE_PLAYLIST_KIND,
+    noun="playlist",
+    value_keys=("playlist_id", "playlist_url", "url"),
+    conflicting_keys=("channel_id", "channel_handle"),
+    conflict_error="youtube_playlist supports playlist URL or playlist_id only",
+    parse_identity=_playlist_identity_from_value,
+    collection_url=_playlist_url,
+    list_with_ytdlp=list_youtube_playlist_with_ytdlp,
+    title_field="playlist_title",
+    poll_identity_from_listing=False,
+)
+YOUTUBE_CHANNEL = YouTubeCollectionKind(
+    kind=YOUTUBE_CHANNEL_KIND,
+    noun="channel",
+    value_keys=("channel_id", "channel_handle", "channel_url", "url"),
+    conflicting_keys=("playlist_id", "playlist_url"),
+    conflict_error="youtube_channel supports channel URL, channel_id, or @handle only",
+    parse_identity=_channel_identity_from_value,
+    collection_url=_channel_url,
+    list_with_ytdlp=list_youtube_channel_with_ytdlp,
+    title_field="channel_title",
+    poll_identity_from_listing=True,
+)
+_COLLECTION_KINDS = {spec.kind: spec for spec in (YOUTUBE_PLAYLIST, YOUTUBE_CHANNEL)}
+# The collection enumerators the one-shot ``derive.collection_expand`` shares
+# with the recurring pollers (ExpansionHint.enumerator names one of these).
+YOUTUBE_COLLECTION_ENUMERATORS = frozenset(_COLLECTION_KINDS)
 
-
-def _text_hash(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-register_youtube_playlist_poller()
-register_youtube_channel_poller()
+for _spec in _COLLECTION_KINDS.values():
+    register_source_poller(YouTubeCollectionPoller(_spec))

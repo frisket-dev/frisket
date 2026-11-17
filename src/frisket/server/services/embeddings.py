@@ -46,10 +46,6 @@ EMBEDDING_EXPORT_MEDIA = {
 }
 
 
-class EmbeddingRouteError(RouteError):
-    pass
-
-
 @dataclass(frozen=True)
 class EmbeddingExportDownload:
     path: Path
@@ -93,7 +89,7 @@ class EmbeddingRouteService:
                     return _embedding_hybrid_preview_payload(snapshot, result)
             except SearchIndexNotReady as exc:
                 if attempt:
-                    raise EmbeddingRouteError(
+                    raise RouteError(
                         409,
                         {
                             "code": "search_index_not_ready",
@@ -162,7 +158,7 @@ class EmbeddingRouteService:
                 "field": getattr(err, "field", None) if err else None,
                 **(getattr(err, "details", None) or {}),
             }
-            raise EmbeddingRouteError(400, detail)
+            raise RouteError(400, detail)
         return {
             "schema_version": "frisket.embedding_index_export_result.v1",
             "index_id": index_id,
@@ -178,18 +174,18 @@ class EmbeddingRouteService:
     ) -> EmbeddingExportDownload:
         media = EMBEDDING_EXPORT_MEDIA.get(fmt)
         if media is None:
-            raise EmbeddingRouteError(404, "unknown export format")
+            raise RouteError(404, "unknown export format")
         project = self._workspace.get(project_id)
         index = EmbeddingStore(project).get_index(index_id)
         if index is None:
-            raise EmbeddingRouteError(404, "no such embedding index")
+            raise RouteError(404, "no such embedding index")
         path = embedding_export_dir(project) / f"{index_id}.embeddings.{fmt}"
         if not path.is_file():
-            raise EmbeddingRouteError(404, "no export artifact; run an export first")
+            raise RouteError(404, "no export artifact; run an export first")
         reason = freshness_reason(index, index_freshness(project, index))
         code = freshness_error_code(reason)
         if code is not None:
-            raise EmbeddingRouteError(
+            raise RouteError(
                 409,
                 {
                     "code": code,
@@ -202,7 +198,7 @@ class EmbeddingRouteService:
             )
         recorded = _managed_embedding_exports(project, index_id).get(fmt)
         if recorded is None:
-            raise EmbeddingRouteError(
+            raise RouteError(
                 409,
                 {
                     "code": "embedding_export_artifact_missing",
@@ -212,7 +208,7 @@ class EmbeddingRouteService:
             )
         error = index_export_replay_error(project, recorded[1], artifact_path=path)
         if error is not None:
-            raise EmbeddingRouteError(
+            raise RouteError(
                 409,
                 {"code": error.code, "message": error.message, "field": "index_id"},
             )
@@ -226,7 +222,7 @@ class EmbeddingRouteService:
         project = self._workspace.get(project_id)
         index = EmbeddingStore(project).get_index(index_id)
         if index is None:
-            raise EmbeddingRouteError(404, "no such embedding index")
+            raise RouteError(404, "no such embedding index")
         reason = freshness_reason(index, index_freshness(project, index))
         error_code = freshness_error_code(reason)
         recorded = _managed_embedding_exports(project, index_id)
@@ -278,14 +274,14 @@ class EmbeddingRouteService:
             gate = embedding_search_freshness_error(project, index_id)
             if gate is not None:
                 code, message = gate
-                raise EmbeddingRouteError(
+                raise RouteError(
                     400,
                     {"code": code, "message": message, "field": "embedding_index_id"},
                 )
 
 
-def _embedding_request_error(exc: SimilarityError) -> EmbeddingRouteError:
-    return EmbeddingRouteError(
+def _embedding_request_error(exc: SimilarityError) -> RouteError:
+    return RouteError(
         400,
         {
             "code": exc.code,

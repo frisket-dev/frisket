@@ -40,9 +40,14 @@ from frisket.engine.jobs.model_pull import (
 )
 from frisket.engine.jobs.queue import SERVER_SCOPED_JOB_PAYLOAD_KEY
 from frisket.server import provider_config
-from frisket.server.route_errors import RouteError, http_error_responses
+from frisket.server.route_errors import (
+    RouteError,
+    http_error_responses,
+    register_typed_error,
+)
 from frisket.server.services.project_model_routes import (
     ProjectModelRouteError,
+    register_project_model_route_error,
     ProjectModelRoutesService,
 )
 from frisket.server.workspace import Workspace
@@ -54,8 +59,10 @@ _pull_dto = model_pull_store.to_dto
 
 
 def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> None:
+    register_project_model_route_error(app)
     root = workspace.root
     model_routes = ProjectModelRoutesService(workspace)
+    register_typed_error(app, provider_config.UnknownProviderError, 400)
 
     @app.get(
         "/api/providers",
@@ -123,13 +130,10 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                 normalized_provider,
                 body.key,
             )
-        except ProjectModelRouteError as exc:
-            raise HTTPException(
-                exc.status,
-                {"code": exc.code, "message": str(exc)},
-            ) from exc
-        except provider_config.UnknownProviderError as exc:
-            raise HTTPException(400, str(exc)) from exc
+        except ProjectModelRouteError:
+            # Rendered by its app-level handler; the ValueError below must not
+            # swallow it.
+            raise
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return provider_config.build_provider_catalog(root, dict(os.environ))
@@ -141,17 +145,9 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         responses=http_error_responses(400, 409, 500),
     )
     def delete_provider_key(provider: str) -> LocalProviderCatalog:
-        try:
-            normalized_provider = provider_config.normalize_provider(provider)
-            model_routes.pin_all_projects()
-            provider_config.delete_local_provider_key(root, normalized_provider)
-        except ProjectModelRouteError as exc:
-            raise HTTPException(
-                exc.status,
-                {"code": exc.code, "message": str(exc)},
-            ) from exc
-        except provider_config.UnknownProviderError as exc:
-            raise HTTPException(400, str(exc)) from exc
+        normalized_provider = provider_config.normalize_provider(provider)
+        model_routes.pin_all_projects()
+        provider_config.delete_local_provider_key(root, normalized_provider)
         return provider_config.build_provider_catalog(root, dict(os.environ))
 
     @app.post(
@@ -587,10 +583,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
     def validate_provider_key(
         provider: str, body: ProviderValidationRequest
     ) -> ProviderValidationResponse:
-        try:
-            normalized = provider_config.normalize_provider(provider)
-        except provider_config.UnknownProviderError as exc:
-            raise HTTPException(400, str(exc)) from exc
+        normalized = provider_config.normalize_provider(provider)
         env = dict(os.environ)
         key = (
             (body.key or "").strip()

@@ -10,8 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Protocol
 from collections.abc import Callable
+
+from frisket.redaction import redact_text
 
 
 @dataclass(frozen=True)
@@ -102,3 +105,64 @@ def encode_cursor(value: str | dict[str, Any] | None) -> str | None:
     if isinstance(value, str):
         return value
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def free_listing_result(
+    items: list[SourcePollItem],
+    warnings: list[str],
+    *,
+    cursor: dict[str, Any],
+    summary: dict[str, Any],
+    provider_use: dict[str, Any],
+) -> SourcePollResult:
+    """Result of an unbilled external listing poll.
+
+    ``provider_use`` keys (including provider-reported facts) win over the
+    external/zero-cost markers; warning counts are taken from the final list.
+    """
+    return SourcePollResult(
+        items=items,
+        cursor_after={**cursor, "warning_count": len(warnings)},
+        warnings=warnings,
+        provider_use=[{"external_api": True, "cost_actual": 0.0, **provider_use}],
+        cost={"cost_micro": 0},
+        summary={**summary, "warnings": len(warnings)},
+    )
+
+
+def provider_error_text(exc: BaseException) -> str:
+    """Redacted provider failure text for source-run records and warnings."""
+    return redact_text(str(exc) or exc.__class__.__name__)
+
+
+def config_positive_int(
+    config: dict[str, Any],
+    field_name: str,
+    *,
+    source_kind: str,
+    default: int | None,
+    maximum: int | None,
+) -> tuple[int | None, str | None]:
+    """Read an optional positive-int config knob; the error names the knob."""
+    value = config.get(field_name, default)
+    if value is None and default is None:
+        return None, None
+    if type(value) is not int or value <= 0:
+        return None, f"{source_kind} {field_name} must be a positive integer"
+    if maximum is not None and value > maximum:
+        return None, f"{source_kind} {field_name} must be <= {maximum}"
+    return int(value), None
+
+
+def hash_json(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+    return text_hash(encoded)
+
+
+def text_hash(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def iso_timestamp(value: datetime) -> str:
+    dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")

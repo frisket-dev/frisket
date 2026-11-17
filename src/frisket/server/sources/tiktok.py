@@ -11,7 +11,6 @@ from urllib.parse import urlsplit
 
 from .media_metadata import (
     entry_published_at,
-    redact_provider_message,
     string_value,
     thumbnail_url,
 )
@@ -20,6 +19,7 @@ from .runtime import (
     SourcePollContext,
     SourcePollItem,
     SourcePollResult,
+    provider_error_text,
     register_source_poller,
 )
 
@@ -111,7 +111,7 @@ class TikTokProfilePoller:
             entries = list(islice(listing["entries"], cap))
         except Exception as exc:
             raise RuntimeError(
-                f"TikTok profile listing failed: {redact_provider_message(exc)}"
+                f"TikTok profile listing failed: {provider_error_text(exc)}"
             ) from exc
         items = []
         warnings = []

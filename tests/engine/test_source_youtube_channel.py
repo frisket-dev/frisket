@@ -26,7 +26,8 @@ from frisket.server.sources.runtime import (
 from frisket.server.sources.youtube import (
     YOUTUBE_CHANNEL_KIND,
     YouTubeChannelListing,
-    YouTubeChannelPoller,
+    YOUTUBE_CHANNEL,
+    YouTubeCollectionPoller,
     list_youtube_channel_with_ytdlp,
 )
 from frisket.engine.store import Project
@@ -213,7 +214,9 @@ def test_youtube_channel_solo_poll_materializes_legacy_cap_plus_one(
     provider = FakeYouTubeChannelProvider(
         [_listing(entries, pages_fetched=6, playlist_count=501)]
     )
-    register_source_poller(YouTubeChannelPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_CHANNEL, provider=provider), replace=True
+    )
     source = _youtube_channel_source()
     source["config"].pop("max_pages_per_poll")
 
@@ -269,7 +272,9 @@ def test_default_youtube_channel_name_resolves_to_channel_title(
     provider = FakeYouTubeChannelProvider(
         [_listing([_video("namedchan1", "Named upload")])]
     )
-    register_source_poller(YouTubeChannelPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_CHANNEL, provider=provider), replace=True
+    )
     project = Project.create(tmp_path / "youtube-channel-name.frisket", name="YouTube")
     try:
         result = run_action_spec(
@@ -383,7 +388,9 @@ def test_youtube_channel_source_poll_materializes_metadata_rows_and_dedupes(
             _listing(third_entries, pages_fetched=1),
         ]
     )
-    register_source_poller(YouTubeChannelPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_CHANNEL, provider=provider), replace=True
+    )
 
     project = Project.create(tmp_path / "youtube-channel.frisket", name="YouTube")
     try:
@@ -611,7 +618,9 @@ def test_youtube_channel_accepts_channel_url_id_and_handle_configs(
                 )
             ]
         )
-        register_source_poller(YouTubeChannelPoller(provider=provider), replace=True)
+        register_source_poller(
+            YouTubeCollectionPoller(YOUTUBE_CHANNEL, provider=provider), replace=True
+        )
         project = Project.create(
             tmp_path / f"youtube-channel-case-{index}.frisket",
             name=f"Case {index}",
@@ -676,7 +685,9 @@ def test_youtube_channel_validation_caps_and_provider_failure_redaction(
             )
         ]
     )
-    register_source_poller(YouTubeChannelPoller(provider=capped_provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_CHANNEL, provider=capped_provider), replace=True
+    )
     capped_project = Project.create(tmp_path / "capped.frisket", name="Capped")
     try:
         capped = run_action_spec(
@@ -717,7 +728,8 @@ def test_youtube_channel_validation_caps_and_provider_failure_redaction(
         )
 
     register_source_poller(
-        YouTubeChannelPoller(provider=failing_provider), replace=True
+        YouTubeCollectionPoller(YOUTUBE_CHANNEL, provider=failing_provider),
+        replace=True,
     )
     failed_project = Project.create(tmp_path / "failed.frisket", name="Failed")
     try:
@@ -759,7 +771,9 @@ def test_youtube_channel_scheduled_source_dispatches_generic_source_poll(
     provider = FakeYouTubeChannelProvider(
         [_listing([_video("schedchan1", "Scheduled upload")], pages_fetched=1)]
     )
-    register_source_poller(YouTubeChannelPoller(provider=provider), replace=True)
+    register_source_poller(
+        YouTubeCollectionPoller(YOUTUBE_CHANNEL, provider=provider), replace=True
+    )
 
     workspace = tmp_path / "ws"
     workspace.mkdir()

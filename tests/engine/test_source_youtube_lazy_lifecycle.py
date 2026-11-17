@@ -65,7 +65,7 @@ def test_lazy_listing_lifecycle_and_error_redaction(monkeypatch, kind, page_fail
         ) as error:
             provider("https://www.youtube.com/example", **kwargs)
         assert "secret-value" not in str(error.value)
-        assert "<redacted>" in str(error.value)
+        assert "[REDACTED]" in str(error.value)
     else:
         result = provider("https://www.youtube.com/example", **kwargs)
         assert result.entries == [{"id": "video-1", "title": "Video"}]

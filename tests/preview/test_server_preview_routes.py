@@ -315,12 +315,23 @@ def test_scratch_compare_upload_checks_size_before_parsing_payload() -> None:
         "topic_segmentation_compare_scratch",
     }
     assert route_names <= functions.keys()
-    for route_name in route_names:
-        assert any(
-            isinstance(node.func, ast.Name) and node.func.id == "_scratch_input"
-            for node in ast.walk(functions[route_name])
-            if isinstance(node, ast.Call)
+
+    def reaches_scratch_input(name: str, seen: set[str]) -> bool:
+        called = {
+            node.func.id
+            for node in ast.walk(functions[name])
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        if "_scratch_input" in called:
+            return True
+        seen.add(name)
+        return any(
+            reaches_scratch_input(callee, seen)
+            for callee in called & functions.keys() - seen
         )
+
+    for route_name in route_names:
+        assert reaches_scratch_input(route_name, set())
 
     calls = [
         node

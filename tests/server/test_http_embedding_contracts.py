@@ -20,7 +20,7 @@ from frisket.server import embedding_catalog
 from frisket.server.routes.embeddings import register_embedding_routes
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.services import embeddings as embedding_services
-from frisket.server.services.embeddings import EmbeddingRouteError
+from frisket.server.route_errors import RouteError
 
 
 CATALOG_PAYLOAD = {
@@ -169,7 +169,7 @@ class _EmbeddingService:
     def __init__(self) -> None:
         self.similarity_query: dict[str, Any] | None = None
         self.export_args: tuple[Any, ...] | None = None
-        self.export_error: EmbeddingRouteError | None = None
+        self.export_error: RouteError | None = None
         self.extra_response_field = False
         self.indexes_payload: dict[str, Any] = INDEXES_PAYLOAD
 
@@ -361,7 +361,7 @@ def test_corrupt_maintenance_policy_leaf_renders_byte_for_byte() -> None:
 
 def test_error_envelope_passes_code_and_details_through() -> None:
     client, service = _client()
-    service.export_error = EmbeddingRouteError(
+    service.export_error = RouteError(
         400,
         {
             "code": "embedding_export_failed",

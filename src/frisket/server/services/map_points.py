@@ -35,10 +35,6 @@ class MapPointsTransport:
     headers: dict[str, str]
 
 
-class MapPointsRouteError(RouteError):
-    pass
-
-
 # The map view's descriptor world is plugin-owned: the map view arrives via
 # the bundled geo plugin's descriptor package, and this service refuses with
 # a typed 409 (`map_points_binding_missing`) when the project has no active
@@ -67,7 +63,7 @@ class MapPointsService:
         project = self._workspace.get(project_id)
         parsed_bbox = _parse_bbox(bbox)
         if format_ != "arrow":
-            raise MapPointsRouteError(
+            raise RouteError(
                 400,
                 {
                     "code": "unsupported_format",
@@ -89,7 +85,7 @@ class MapPointsService:
                     cap=filter_cap,
                 )
             except SheetRowSetError as exc:
-                raise MapPointsRouteError(
+                raise RouteError(
                     400, {"code": "invalid_filter", "message": str(exc)}
                 ) from exc
             filter_truncated = filter_total > len(row_ids)
@@ -121,7 +117,7 @@ class MapPointsService:
                     "sheet_not_found": 404,
                     "map_points_binding_missing": 409,
                 }.get(exc.code, 400)
-                raise MapPointsRouteError(
+                raise RouteError(
                     http_status, {"code": exc.code, "message": exc.message}
                 ) from exc
         finally:
@@ -202,7 +198,7 @@ def _parse_bbox(raw: str | None) -> tuple[float, float, float, float] | None:
         return None
     parts = raw.split(",")
     if len(parts) != 4:
-        raise MapPointsRouteError(
+        raise RouteError(
             400,
             {
                 "code": "invalid_bbox",
@@ -212,12 +208,12 @@ def _parse_bbox(raw: str | None) -> tuple[float, float, float, float] | None:
     try:
         min_lon, min_lat, max_lon, max_lat = (float(x) for x in parts)
     except ValueError as exc:
-        raise MapPointsRouteError(
+        raise RouteError(
             400,
             {"code": "invalid_bbox", "message": "bbox values must be numbers"},
         ) from exc
     if min_lon > max_lon or min_lat > max_lat:
-        raise MapPointsRouteError(
+        raise RouteError(
             400,
             {
                 "code": "invalid_bbox",
@@ -336,7 +332,7 @@ def _map_points_runtime_projection_headers(
             params=params,
         )
     except ProjectionRuntimeError as exc:
-        raise MapPointsRouteError(502, _runtime_projection_error_detail(exc)) from exc
+        raise RouteError(502, _runtime_projection_error_detail(exc)) from exc
 
     headers = {
         "X-Frisket-Runtime-Projection-Kind": projection_kind,
@@ -363,11 +359,9 @@ def _map_points_runtime_projection_headers(
                 mode="refresh",
             )
         except ProjectionRuntimeError as exc:
-            raise MapPointsRouteError(
-                502, _runtime_projection_error_detail(exc)
-            ) from exc
+            raise RouteError(502, _runtime_projection_error_detail(exc)) from exc
         if build.status == "failed":
-            raise MapPointsRouteError(
+            raise RouteError(
                 502,
                 {
                     "code": "runtime_projection_build_failed",
