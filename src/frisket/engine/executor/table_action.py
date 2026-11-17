@@ -1452,7 +1452,7 @@ def _run_reserved_table(
             else "project_write_failed",
             message=str(exc)
             if isinstance(exc, (TimelineError, TableError))
-            else "Transcript segments could not be materialized",
+            else "Table rows could not be materialized",
             action_kind=action.kind,
         )
     if not owns_receipt:
@@ -1463,7 +1463,7 @@ def _run_reserved_table(
         action_kind=action.kind,
         stored_receipt=ReceiptStore(project).find_by_id(reserved_receipt_id),
         error=error,
-        project_write_failed_message="Transcript segments receipt could not be finalized.",
+        project_write_failed_message="Table receipt could not be finalized.",
     )
 
 
