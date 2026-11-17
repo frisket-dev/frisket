@@ -55,23 +55,29 @@ import sys
 
 import frisket.cli as cli
 
-importlib.import_module("frisket.cli.action")
-action = cli.action_cmd
+commands = cli._subcommands()
+eager = sorted(
+    module
+    for module in {target.partition(":")[0] for target, _ in commands.values()}
+    if module != "frisket.cli" and module in sys.modules
+)
+assert eager == [], eager
+
+action_module = importlib.import_module("frisket.cli.action")
 for _ in range(2):
+    assert cli._load(commands["action"][0]) is action_module.action
     try:
-        cli.action_cmd(["--help"])
+        cli._load(commands["action"][0])(["--help"])
     except SystemExit as exc:
         assert exc.code == 0
-    assert cli.action_cmd is action
 assert "frisket.actions.system" not in sys.modules
 
-importlib.import_module("frisket.cli.plugin")
-plugin = cli.plugin_cmd
+plugin_module = importlib.import_module("frisket.cli.plugin")
+assert cli._load(commands["plugin"][0]) is plugin_module.plugin
 try:
-    cli.plugin_cmd(["--help"])
+    cli._load(commands["plugin"][0])(["--help"])
 except SystemExit as exc:
     assert exc.code == 0
-assert cli.plugin_cmd is plugin
 """
     proc = subprocess.run(
         [sys.executable, "-c", script],

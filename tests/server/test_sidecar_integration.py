@@ -1168,7 +1168,7 @@ def test_doctor_reports_sidecar_capabilities(monkeypatch, capsys):
     and reports per-engine up/down — exercised through the real doctor()."""
     import httpx as _httpx
 
-    import frisket.cli as cli
+    from frisket.cli.doctor import doctor
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
@@ -1197,7 +1197,7 @@ def test_doctor_reports_sidecar_capabilities(monkeypatch, capsys):
         )
 
     monkeypatch.setattr(_httpx, "get", fake_get)
-    assert cli.doctor_cmd() == 0  # sidecar info never fails the doctor
+    assert doctor() == 0  # sidecar info never fails the doctor
     out = capsys.readouterr().out
     assert "models sidecar" in out
     # Doctor makes other HTTP probes too (e.g. the yt-dlp version check) —
@@ -1211,10 +1211,10 @@ def test_doctor_reports_sidecar_capabilities(monkeypatch, capsys):
 def test_doctor_quiet_skip_without_url(monkeypatch, capsys):
     """No FRISKET_MODELS_URL → a quiet note, never a probe, never a
     failure."""
-    import frisket.cli as cli
+    from frisket.cli.doctor import doctor
 
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
-    assert cli.doctor_cmd() == 0
+    assert doctor() == 0
     out = capsys.readouterr().out
     assert "FRISKET_MODELS_URL unset" in out
 
