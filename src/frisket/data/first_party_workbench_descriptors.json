@@ -791,7 +791,7 @@
       "id": "frisket.core.view.output_column_collision",
       "kind": "view",
       "ownerPluginId": "frisket.core",
-      "title": "Overwrite existing column",
+      "title": "Replace existing column",
       "icon": "AlertTriangle",
       "placements": [
         {

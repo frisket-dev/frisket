@@ -1148,7 +1148,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("invalid_replay_target", "The replay target does not exist."),
             ("mixed_origin_column_unsupported", "Replay requires one current origin."),
-            ("stale_replay", "The regenerated run or value identity changed."),
+            ("stale_replay", "The newer run or value identity changed."),
             (
                 "output_column_busy",
                 "The generated column is claimed by a running action.",
@@ -1179,7 +1179,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("invalid_replay_target", "The replay target does not exist."),
             ("mixed_origin_column_unsupported", "Replay requires one current origin."),
-            ("stale_replay", "The regenerated run or value identity changed."),
+            ("stale_replay", "The newer run or value identity changed."),
             write_failure="The replay dismissal and receipt could not be written.",
         ),
         ("read_pending_value", "write_replay_dismissal"),

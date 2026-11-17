@@ -168,9 +168,9 @@ REPLAY_ACCEPT = action(
         ),
     ),
     name="accept",
-    title="Accept regenerated value",
+    title="Accept newer value",
     description=(
-        "Accept one exact current regenerated value as an attributed, undoable "
+        "Accept one exact current newer value as an attributed, undoable "
         "edit after checking its run and value identity."
     ),
     category=ActionCategory.CLEANUP,
@@ -181,7 +181,7 @@ REPLAY_ACCEPT = action(
 REPLAY_ACCEPT_COLUMN = action(
     examples=(ReplayAcceptColumnParams(sheet_id=1, column_id=1),),
     name="accept_column",
-    title="Accept regenerated column values",
+    title="Accept newer column values",
     description=(
         "Accept every pending value in a single-origin generated column as one "
         "undoable edit operation."
@@ -204,7 +204,7 @@ REPLAY_DISMISS = action(
     name="dismiss",
     title="Keep edit",
     description=(
-        "Keep a human edit against one exact regenerated run and value identity "
+        "Keep a human edit against one exact newer run and value identity "
         "so an identical value remains dismissed."
     ),
     category=ActionCategory.CLEANUP,

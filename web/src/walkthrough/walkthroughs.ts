@@ -1218,7 +1218,7 @@ export const MULTILINGUAL_NAMES_WALKTHROUGH: WalkthroughDefinition = {
       title: 'Apply the reviewed mapping',
       instruction: 'Click Apply to write the default latin_text_clean column.',
       target: { kind: 'field', id: 'resolve-apply' },
-      expected: 'The reviewed canonical value is written without overwriting either source column.',
+      expected: 'The reviewed canonical value is written without replacing either source column.',
       advance: 'click-target',
     },
     {

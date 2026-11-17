@@ -283,7 +283,7 @@ def _exact_replay_value(
     if current_hash != expected_hash:
         _refuse(
             "stale_replay",
-            "The regenerated value changed before the replay decision.",
+            "The newer value changed before the replay decision.",
             action_kind=action_kind,
             field="params.generated_value_hash",
             details={
@@ -540,7 +540,7 @@ class _ReplayValueAcceptor(_CallOnce):
             ):
                 _refuse(
                     "stale_replay",
-                    "The pending regenerated value changed before acceptance.",
+                    "The pending newer value changed before acceptance.",
                     action_kind=self._action.kind,
                     field="params.generated_value_hash",
                 )
@@ -561,7 +561,7 @@ class _ReplayValueAcceptor(_CallOnce):
             op_id = _write_edit_overlay(
                 self._project,
                 self._cur,
-                label="accept regenerated value",
+                label="accept newer value",
                 spec=spec,
                 targets=[
                     {
@@ -626,7 +626,7 @@ class _ReplayColumnAcceptor(_CallOnce):
             op_id = _write_edit_overlay(
                 self._project,
                 self._cur,
-                label="accept regenerated values (column)",
+                label="accept newer values (column)",
                 spec=spec,
                 targets=[
                     {
@@ -707,7 +707,7 @@ class _ReplayValueDismissor(_CallOnce):
             ):
                 _refuse(
                     "stale_replay",
-                    "The pending regenerated value changed before dismissal.",
+                    "The pending newer value changed before dismissal.",
                     action_kind=self._action.kind,
                     field="params.generated_value_hash",
                 )

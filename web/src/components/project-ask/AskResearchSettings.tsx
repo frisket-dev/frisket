@@ -80,7 +80,7 @@ export function AskResearchSettings({
           aria-label="Write access"
           options={[
             { value: 'ask_each', label: 'Ask before each action' },
-            { value: 'ask_overwrite', label: 'Ask before overwriting' },
+            { value: 'ask_overwrite', label: 'Ask before replacing' },
             { value: 'full_access', label: 'Full access' },
           ]}
           onValueChange={(writeMode) => update({ write_mode: writeMode as AskResearchWriteMode })}
