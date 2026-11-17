@@ -356,8 +356,8 @@ export function PluginManager({
       )}
       {lifecycleEnabled && !allowLocalInstall && (
         <div className="panel-empty" data-testid="plugin-manager-local-install-disabled">
-          Local plugin install is unavailable in hosted workspaces because the service cannot read
-          paths or uploads from your computer.
+          Local plugin install is unavailable on Team and Cloud servers because the server cannot
+          read paths or uploads from your computer.
         </div>
       )}
       {status && (

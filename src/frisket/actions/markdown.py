@@ -64,7 +64,7 @@ TO_MARKDOWN = action(
         "Engine-selectable: local 'markitdown' (default, offline) or "
         "'trafilatura_html' (HTML extraction), 'docling'/"
         "'chandra' (sidecar, layout-aware / experimental document VLM), or "
-        "'datalab' (hosted Marker API, pay-per-call)."
+        "'datalab' (remote Marker API, pay-per-call)."
     ),
     category=ActionCategory.EXTRACT,
     examples=(ToMarkdownParams(source="document"),),

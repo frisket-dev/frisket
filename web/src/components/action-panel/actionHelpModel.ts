@@ -49,7 +49,7 @@ export const BUILTIN_ACTION_HELP: Partial<Record<string, { how: string; goodFor:
     goodFor: 'Preparing addresses for a map or comparing records by location.',
   },
   'map.translate': {
-    how: 'Translates each selected text value between the chosen languages with the selected local or hosted engine.',
+    how: 'Translates each selected text value between the chosen languages with the selected local or remote engine.',
     goodFor: 'Making multilingual records searchable and reviewable while preserving the original column.',
   },
   'research.web_search': {

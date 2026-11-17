@@ -672,12 +672,12 @@ def _subcommands() -> dict[str, tuple[str, str]]:
         ),
         "queue": (
             "frisket.cli.queue:queue_admin",
-            "provision and migrate the hosted run queue",
+            "provision and migrate the Postgres run queue",
         ),
         "worker": ("frisket.cli:worker", "run the background worker by itself"),
         "hosted-worker": (
             "frisket.cli:hosted_worker",
-            "run the public-hosted worker with code execution disabled",
+            "run the Cloud worker with code execution disabled",
         ),
         "doctor": (
             "frisket.cli.doctor:doctor",

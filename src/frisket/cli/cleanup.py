@@ -16,7 +16,7 @@ def cleanup(argv: list[str]) -> int:
             "Reclaim unused local blob files. Stop Frisket, independent workers, "
             "MCP clients and any scripts using this workspace first. The launcher "
             "lock detects normal servers, not every possible reader or writer. "
-            "Defaults to a dry run; this is not an online or hosted cleanup tool."
+            "Defaults to a dry run; this is not an online or server cleanup tool."
         ),
     )
     parser.add_argument("project", help="path to an existing .frisket project bundle")

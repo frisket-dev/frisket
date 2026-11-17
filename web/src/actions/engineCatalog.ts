@@ -89,7 +89,7 @@ export function tierForEngine(engine: EngineOption): EngineTier {
 const ENGINE_TIER_LABELS: Record<EngineTier, string> = {
   local: 'Local',
   sidecar: 'Sidecar',
-  hosted: 'Hosted',
+  hosted: 'Remote',
 };
 
 export function engineTierLabel(tier: EngineTier): string {

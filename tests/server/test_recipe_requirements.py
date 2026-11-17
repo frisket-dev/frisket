@@ -287,7 +287,7 @@ def test_media_and_geo_actions_explain_prerequisites(tmp_path):
     assert census_params["include_moe"]["default"] is False
     # The sole provider remains real served metadata, not an inert Params choice.
     assert [(engine["id"], engine["label"]) for engine in census_hints["engines"]] == [
-        ("us_census_acs", "US Census ACS 5-year enrichment (hosted)")
+        ("us_census_acs", "US Census ACS 5-year enrichment (remote)")
     ]
     assert census_hints["cost_source"] == "free_public_api"
 
@@ -326,6 +326,6 @@ def test_media_and_geo_actions_explain_prerequisites(tmp_path):
     assert geocode_params["engine"]["default"] == "auto"
     assert geocode_params["include_lat_lon"]["default"] is False
     assert [(engine["id"], engine["label"]) for engine in geocode_hints["engines"]] == [
-        ("opencage", "OpenCage geocoder (hosted, pay-per-row)"),
-        ("nominatim", "Nominatim geocoder (hosted, rate-limited)"),
+        ("opencage", "OpenCage geocoder (remote, pay-per-row)"),
+        ("nominatim", "Nominatim geocoder (remote, rate-limited)"),
     ]

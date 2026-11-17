@@ -176,7 +176,7 @@ function adminJobIdentity(job: AdminJob): string {
   const runId = refString(refs, 'run_id');
   const sourceId = refString(refs, 'source_id');
   const sheetId = refString(refs, 'sheet_id');
-  if (orgId) bits.push(`org ${orgId}`);
+  if (orgId) bits.push(`organization ${orgId}`);
   if (projectId) bits.push(`project ${projectId}`);
   if (runId) bits.push(`run ${runId}`);
   if (sourceId) bits.push(`source ${sourceId}`);
@@ -213,7 +213,7 @@ function copyAdminJob(job: AdminJob): void {
 function adminAuditSubject(event: AdminAuditEvent): string {
   if (event.object_type && event.object_id) return `${event.object_type} ${event.object_id}`;
   if (event.project_id != null) return `project ${String(event.project_id)}`;
-  if (event.org_id != null) return `org ${String(event.org_id)}`;
+  if (event.org_id != null) return `organization ${String(event.org_id)}`;
   return event.source;
 }
 
@@ -226,7 +226,7 @@ function adminAuditActor(event: AdminAuditEvent): string {
 function adminAuditScope(event: AdminAuditEvent): string {
   const bits = [];
   if (event.org_name || event.org_id != null) {
-    bits.push(event.org_name ?? `org ${String(event.org_id)}`);
+    bits.push(event.org_name ?? `organization ${String(event.org_id)}`);
   }
   if (event.project_name || event.project_id != null) {
     bits.push(event.project_name ?? `project ${String(event.project_id)}`);
@@ -436,7 +436,7 @@ function AdminUsersPanel({
     const email = inviteEmail.trim();
     if (!email || !activeOrgId) return;
     const org = orgs.find((item) => item.id === activeOrgId);
-    setPendingInvite({ orgId: activeOrgId, orgName: org?.name ?? `org ${activeOrgId}`, email });
+    setPendingInvite({ orgId: activeOrgId, orgName: org?.name ?? `organization ${activeOrgId}`, email });
     setAction((current) => ({ ...current, error: null, notice: null }));
   };
 
@@ -604,7 +604,7 @@ function AdminUsersTable({
     <table className="admin-table admin-users-table" data-testid="admin-users-table">
       <thead>
         <tr>
-          <th>Org</th>
+          <th>Organization</th>
           <th>Email</th>
           <th>Role</th>
           <th>Joined</th>
@@ -681,7 +681,7 @@ function AdminInvitesTable({
     <table className="admin-table admin-invites-table" data-testid="admin-invites-table">
       <thead>
         <tr>
-          <th>Org</th>
+          <th>Organization</th>
           <th>Pending invite</th>
           <th>Expires</th>
           <th>Actions</th>
@@ -789,7 +789,7 @@ function AdminAuditPanel({
           value={orgId}
           onChange={(event) => changeOrg(event.target.value)}
         >
-          <option value="">All orgs</option>
+          <option value="">All organizations</option>
           {orgs.map((org) => (
             <option key={org.id} value={org.id}>{org.name}</option>
           ))}

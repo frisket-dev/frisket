@@ -81,7 +81,7 @@ test('local tier renders hosted-only organization sections as disabled', async (
   await expect(page.getByTestId('settings-workspace')).toBeVisible();
   await expect(page.getByTestId('settings-disabled-organization-ai-providers')).toBeVisible();
   await expect(page.getByTestId('settings-disabled-organization-ai-providers')).toContainText(
-    'Hosted organization settings are unavailable in local mode.',
+    'Organization settings are unavailable in local mode.',
   );
 });
 

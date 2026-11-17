@@ -811,7 +811,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "datalab",
-    "label": "Datalab hosted OCR (hosted, pay-per-call)",
+    "label": "Datalab OCR (remote, pay-per-call)",
     "tier": "hosted",
     "billable": true,
     "available": false,

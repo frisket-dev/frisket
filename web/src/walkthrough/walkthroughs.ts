@@ -472,7 +472,7 @@ const COUNCIL_AUDIO_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'choose-transcription-engine',
       title: 'Choose a transcription engine',
-      instruction: 'Open the engine picker and choose an available local, sidecar, or hosted speech-to-text engine.',
+      instruction: 'Open the engine picker and choose an available local, sidecar, or remote speech-to-text engine.',
       target: { kind: 'tour', id: 'action-engine-selector' },
       advance: 'next-button',
     },
