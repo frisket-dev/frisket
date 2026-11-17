@@ -18,6 +18,7 @@ from frisket.notifications.candidates import (
 )
 from frisket.notifications.producers import (
     NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,
+    requires_explicit_route,
 )
 from frisket.redaction import DEFAULT_LOG_STRING_MAX_CHARS, redact_text, redact_value
 
@@ -63,7 +64,12 @@ def emit_notification_candidate(
     candidate: dict[str, Any] | NotificationCandidate,
     *,
     actor_id: str = LOCAL_ACTOR_ID,
-) -> NotificationEmitResult:
+) -> NotificationEmitResult | None:
+    """Record or refresh one notification item and plan its deliveries.
+
+    Returns None when the candidate is opt-in and no route that existed when
+    it occurred asks for it; nothing is stored then.
+    """
     normalized = validate_notification_candidate(dict(candidate))
     safe_source_ref = redact_value(
         normalized["source_ref"],
@@ -96,6 +102,17 @@ def emit_notification_candidate(
 
     existing = project.notification_item_by_dedupe_key(dedupe_key)
     deduped = existing is not None
+    if existing is None and not _requested_by_a_route(
+        project,
+        {
+            "source_kind": normalized["source_kind"],
+            "source_ref": _json(source_ref),
+            "event_kinds": _json(event_kinds),
+            "severity": normalized["severity"],
+        },
+        occurred_at=normalized.get("occurred_at"),
+    ):
+        return None
     if existing is None:
         try:
             notification_id = project.insert_notification_item(
@@ -216,10 +233,38 @@ def _event_kinds_for_candidate(
     return sorted({str(row["event_kind"]) for row in rows})
 
 
+def _requested_by_a_route(
+    project: Project, item: dict[str, Any], *, occurred_at: str | None
+) -> bool:
+    if not requires_explicit_route(str(item["source_kind"]), str(item["severity"])):
+        return True
+    for route in project.notification_routes(enabled_only=True):
+        channel = project.notification_channel(int(route["channel_id"]))
+        if channel is None or not bool(channel["enabled"]):
+            continue
+        if route_admits_item(route, item, occurred_at=occurred_at):
+            return True
+    return False
+
+
 def _route_matches_item(route: Any, item: Any) -> bool:
-    if str(route["delivery_mode"]) != "immediate":
-        return False
+    return str(route["delivery_mode"]) == "immediate" and route_admits_item(
+        route, item, occurred_at=str(item["created_at"])
+    )
+
+
+def route_admits_item(route: Any, item: Any, *, occurred_at: str | None) -> bool:
+    """Whether a route's filters admit an item, whatever its delivery mode.
+
+    An opt-in item is admitted only by a route that names its source kind and
+    already existed (unchanged) when the item's fact occurred.
+    """
     route_source_kind = route["source_kind"]
+    if requires_explicit_route(str(item["source_kind"]), str(item["severity"])) and (
+        not route_source_kind
+        or (occurred_at is not None and str(route["updated_at"]) > occurred_at)
+    ):
+        return False
     if route_source_kind and route_source_kind != item["source_kind"]:
         return False
     source_ref_match = _loads_object(route["source_ref_match_json"])

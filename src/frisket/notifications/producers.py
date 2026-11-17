@@ -19,12 +19,24 @@ _RUN_STATUSES = {
     "orphaned",
     "needs_user_action",
 }
-_PROGRESS_STATUSES = {"queued", "running", "partial"}
+_PROGRESS_STATUSES = {"queued", "running"}
 _SOURCE_HEALTH_STATUSES = {"failed", "stale", "recovered"}
 _EXPORT_STATUSES = {"ready", "failed"}
 _DELIVERY_HEALTH_STATUSES = {"failed", "cancelled", "skipped"}
 
 NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND = "notification_delivery"
+RUN_SOURCE_KIND = "run"
+
+
+def requires_explicit_route(source_kind: str, severity: str) -> bool:
+    """Whether only a route naming this source kind may receive the item.
+
+    Info-level run outcomes (clean completions, plain cancellations) are
+    opt-in: a person who runs many actions receives them only by routing runs
+    explicitly. A route for every source kind never receives them, and no
+    item is stored unless such a route asks for it.
+    """
+    return source_kind == RUN_SOURCE_KIND and severity == "info"
 
 
 def run_transition_notification_candidate(
@@ -38,9 +50,13 @@ def run_transition_notification_candidate(
     error: str | None = None,
     completed_rows: int | None = None,
     failed_rows: int | None = None,
+    finished_at: str | None = None,
     payload: dict[str, Any] | None = None,
 ) -> NotificationCandidate | None:
     normalized_status = _normalize_status(status)
+    failed_row_count = _completed_failed_row_count(normalized_status, failed_rows)
+    if failed_row_count is not None:
+        normalized_status = "completed"
     if normalized_status in _PROGRESS_STATUSES:
         return None
     if normalized_status not in _RUN_STATUSES:
@@ -59,31 +75,43 @@ def run_transition_notification_candidate(
         source_ref["stalled_reason"] = stalled_reason
     if reason:
         source_ref["reason"] = reason
-    candidate_payload: dict[str, Any] = dict(payload or {})
-    if action_kind:
-        candidate_payload["action_kind"] = action_kind
-    if error:
-        candidate_payload["error"] = error
-    if completed_rows is not None:
-        candidate_payload["completed_rows"] = int(completed_rows)
-    if failed_rows is not None:
-        candidate_payload["failed_rows"] = int(failed_rows)
-    candidate = {
-        "source_kind": "run",
+    candidate_payload = _run_payload(
+        payload,
+        action_kind=action_kind,
+        error=error,
+        completed_rows=completed_rows,
+        failed_rows=failed_rows,
+    )
+    candidate: dict[str, Any] = {
+        "source_kind": RUN_SOURCE_KIND,
         "source_ref": source_ref,
         "dedupe_key": f"run:{project_id}:{int(run_id)}:{reason_key}",
-        "title": _run_title(normalized_status, run_id=int(run_id)),
-        "summary": _run_summary(
-            normalized_status,
-            run_id=int(run_id),
-            stalled_reason=stalled_reason,
-            reason=reason,
-            error=error,
+        "title": (
+            _run_title(normalized_status, run_id=int(run_id))
+            if failed_row_count is None
+            else f"Run completed with {_failed_rows_label(failed_row_count)} #{run_id}"
         ),
-        "severity": _run_severity(normalized_status, stalled_reason=stalled_reason),
+        "summary": (
+            _run_summary(
+                normalized_status,
+                run_id=int(run_id),
+                stalled_reason=stalled_reason,
+                reason=reason,
+                error=error,
+            )
+            if failed_row_count is None
+            else f"Run {run_id} completed with {_failed_rows_label(failed_row_count)}."
+        ),
+        "severity": _run_severity(
+            normalized_status,
+            stalled_reason=stalled_reason,
+            with_failed_rows=failed_row_count is not None,
+        ),
         "deep_link": {"kind": "run", "project_id": project_id, "run_id": int(run_id)},
         "payload": candidate_payload,
     }
+    if finished_at:
+        candidate["occurred_at"] = finished_at
     return validate_notification_candidate(candidate)
 
 
@@ -348,12 +376,54 @@ def _delivery_health_summary(
     return f"Notification delivery request {request_id} is {status}."
 
 
-def _run_severity(status: str, *, stalled_reason: str | None) -> str:
+def _run_severity(
+    status: str, *, stalled_reason: str | None, with_failed_rows: bool
+) -> str:
     if status == "orphaned" and stalled_reason == "queue_job_missing":
         return "critical"
     if status in {"failed", "stalled", "orphaned", "needs_user_action"}:
         return "warning"
+    if with_failed_rows:
+        return "warning"
     return "info"
+
+
+def _run_payload(
+    payload: dict[str, Any] | None,
+    *,
+    action_kind: str | None,
+    error: str | None,
+    completed_rows: int | None,
+    failed_rows: int | None,
+) -> dict[str, Any]:
+    candidate_payload: dict[str, Any] = dict(payload or {})
+    if action_kind:
+        candidate_payload["action_kind"] = action_kind
+    if error:
+        candidate_payload["error"] = error
+    if completed_rows is not None:
+        candidate_payload["completed_rows"] = int(completed_rows)
+    if failed_rows is not None:
+        candidate_payload["failed_rows"] = int(failed_rows)
+    return candidate_payload
+
+
+def _completed_failed_row_count(status: str, failed_rows: int | None) -> int | None:
+    """Failed rows of a completion that is not clean, else None.
+
+    A partial result is a completion in which some rows failed, even when the
+    count is unknown (reported as 0).
+    """
+    count = int(failed_rows or 0)
+    if status == "partial" or (status == "completed" and count > 0):
+        return count
+    return None
+
+
+def _failed_rows_label(count: int) -> str:
+    if count <= 0:
+        return "failed rows"
+    return f"{count} failed row{'s' if count != 1 else ''}"
 
 
 def _run_title(status: str, *, run_id: int) -> str:

@@ -76,8 +76,8 @@ def run_outcome_notification_candidate(
     project: Project, run_id: int
 ) -> NotificationCandidate | None:
     run = project.db.execute(
-        "SELECT status, params, action_kind, completed_rows, failed_rows "
-        "FROM runs WHERE id=?",
+        "SELECT status, params, action_kind, completed_rows, failed_rows, "
+        "finished_at FROM runs WHERE id=?",
         (run_id,),
     ).fetchone()
     if run is None or str(run["status"]) not in _TERMINAL_RUN_STATUSES:
@@ -108,5 +108,6 @@ def run_outcome_notification_candidate(
         error=error,
         completed_rows=int(run["completed_rows"] or 0),
         failed_rows=int(run["failed_rows"] or 0),
+        finished_at=None if run["finished_at"] is None else str(run["finished_at"]),
         payload={} if halt is None else {"halted_reason": halt[1]},
     )

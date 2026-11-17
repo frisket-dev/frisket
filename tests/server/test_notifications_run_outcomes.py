@@ -68,12 +68,18 @@ def _run_notifications(client: TestClient, pid: str) -> list[dict[str, Any]]:
     ]
 
 
-def _route(client: TestClient, pid: str, *, severity_min: str) -> int:
+def _route(
+    client: TestClient,
+    pid: str,
+    *,
+    severity_min: str,
+    source_kind: str | None = "run",
+) -> int:
     channel = client.post(
         f"/api/projects/{pid}/notification-channels",
         json={
             "kind": "slack",
-            "name": f"Runs {severity_min}",
+            "name": f"{source_kind or 'all'} {severity_min}",
             "webhook_secret_ref": "env:FRISKET_TEST_UNSET_SLACK_WEBHOOK",
             "channel_label": "#runs",
             "enabled": True,
@@ -83,9 +89,9 @@ def _route(client: TestClient, pid: str, *, severity_min: str) -> int:
     route = client.post(
         f"/api/projects/{pid}/notification-routes",
         json={
-            "name": f"Runs {severity_min}",
+            "name": f"{source_kind or 'all'} {severity_min}",
             "channel_id": channel.json()["id"],
-            "source_kind": "run",
+            "source_kind": source_kind,
             "severity_min": severity_min,
         },
     )
@@ -157,6 +163,7 @@ def test_redelivered_job_notifies_a_terminal_run_whose_emit_was_lost(
 ) -> None:
     client = _client(tmp_path)
     pid, sheet_id = _project(client)
+    _route(client, pid, severity_min="info")
     queued = _queue_run(client, pid, sheet_id)
 
     def lost(*_args: Any, **_kwargs: Any) -> None:
@@ -184,6 +191,7 @@ def test_failed_queue_job_notifies_a_warning_once(tmp_path: Path) -> None:
     client = _client(tmp_path)
     pid, sheet_id = _project(client)
     warning_route = _route(client, pid, severity_min="warning")
+    all_route = _route(client, pid, severity_min="info", source_kind=None)
     queued = _queue_run(client, pid, sheet_id)
     run_id = int(queued["run_id"])
     queue = client.app.state.workspace.queue
@@ -202,11 +210,14 @@ def test_failed_queue_job_notifies_a_warning_once(tmp_path: Path) -> None:
     assert item["source_ref"]["status"] == "failed"
     assert "worker crashed" in item["summary"]
     assert _routed_notification_ids(client, pid, warning_route) == {item["id"]}
+    # Problems reach routes for every source kind as well.
+    assert _routed_notification_ids(client, pid, all_route) == {item["id"]}
 
 
-def test_cancelled_run_notifies_once(tmp_path: Path) -> None:
+def test_cancelled_run_notifies_a_run_route_once(tmp_path: Path) -> None:
     client = _client(tmp_path)
     pid, sheet_id = _project(client)
+    route_id = _route(client, pid, severity_min="info")
     queued = _queue_run(client, pid, sheet_id)
     run_id = int(queued["run_id"])
 
@@ -219,6 +230,7 @@ def test_cancelled_run_notifies_once(tmp_path: Path) -> None:
     assert item["title"] == f"Run cancelled #{run_id}"
     assert item["severity"] == "info"
     assert item["source_ref"]["status"] == "cancelled"
+    assert _routed_notification_ids(client, pid, route_id) == {item["id"]}
 
 
 def test_emit_failure_leaves_the_cancelled_run_and_receipt_intact(
@@ -375,6 +387,7 @@ def test_halted_run_needs_user_action_and_its_backfill_notifies_its_own_run(
 ) -> None:
     client = _client(tmp_path)
     pid, sheet_id, row_ids = _media_project(client)
+    _route(client, pid, severity_min="info")
     calls = 0
     halt = True
 
@@ -458,6 +471,7 @@ def test_action_job_that_opens_its_run_in_the_worker_notifies_that_run(
 ) -> None:
     client = _client(tmp_path)
     pid = client.post("/api/projects", json={"name": "Formula notices"}).json()["id"]
+    _route(client, pid, severity_min="info")
     project = client.app.state.workspace.get(pid)
     sheet = project.add_sheet("Numbers")
     amount = project.add_column(sheet, "amount", type="number")
@@ -484,3 +498,78 @@ def test_action_job_that_opens_its_run_in_the_worker_notifies_that_run(
         "run_id": receipt.run_id,
         "status": "completed",
     }
+
+
+def test_clean_completion_stores_nothing_without_a_route_for_runs(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    pid, sheet_id = _project(client)
+    every_source = _route(client, pid, severity_min="info", source_kind=None)
+    problems_only = _route(client, pid, severity_min="warning")
+    queued = _queue_run(client, pid, sheet_id)
+
+    drain_queue(client)
+
+    project = client.app.state.workspace.get(pid)
+    run = project.db.execute(
+        "SELECT status, failed_rows FROM runs WHERE id=?", (queued["run_id"],)
+    ).fetchone()
+    assert (run["status"], run["failed_rows"]) == ("completed", 0)
+    assert _run_notifications(client, pid) == []
+    assert _routed_notification_ids(client, pid, every_source) == set()
+    assert _routed_notification_ids(client, pid, problems_only) == set()
+
+
+def test_a_route_for_runs_added_later_does_not_backfill_a_completion(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    pid, sheet_id = _project(client)
+    queued = _queue_run(client, pid, sheet_id)
+    drain_queue(client)
+    assert _run_notifications(client, pid) == []
+
+    project = client.app.state.workspace.get(pid)
+    # The route is created strictly after the run finished.
+    project.db.execute(
+        "UPDATE runs SET finished_at=datetime('now', '-1 minute') WHERE id=?",
+        (queued["run_id"],),
+    )
+    project.db.commit()
+    route_id = _route(client, pid, severity_min="info")
+    _redeliver_project_run(client, int(queued["job_id"]))
+    emit_run_outcome_notification(project, int(queued["run_id"]))
+
+    assert _run_notifications(client, pid) == []
+    assert _routed_notification_ids(client, pid, route_id) == set()
+
+
+def test_completion_with_failed_rows_is_a_warning_for_every_route(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    pid, sheet_id = _project(client)
+    every_source = _route(client, pid, severity_min="warning", source_kind=None)
+    spec = queued_python_run_spec(sheet_id, "title", "checked")
+    spec["code"] = (
+        "if row['title'] == 'Bridge repair':\n"
+        "    raise ValueError('unreadable title')\n"
+        "result = row['title']"
+    )
+    response = post_canonical_run_spec_as_v1_action(client, pid, spec, confirmed=True)
+    assert response.status_code == 200, response.text
+    run_id = int(response.json()["run_id"])
+
+    drain_queue(client)
+
+    project = client.app.state.workspace.get(pid)
+    run = project.db.execute(
+        "SELECT status, failed_rows FROM runs WHERE id=?", (run_id,)
+    ).fetchone()
+    assert (run["status"], run["failed_rows"]) == ("completed", 1)
+    [item] = _run_notifications(client, pid)
+    assert item["title"] == f"Run completed with 1 failed row #{run_id}"
+    assert item["summary"] == f"Run {run_id} completed with 1 failed row."
+    assert item["severity"] == "warning"
+    assert _routed_notification_ids(client, pid, every_source) == {item["id"]}

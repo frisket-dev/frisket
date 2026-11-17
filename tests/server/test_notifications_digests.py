@@ -24,6 +24,7 @@ from frisket.server.notifications.digests import (
     due_digest_window_for_route,
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.producers import run_transition_notification_candidate
 from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     emit_notification_candidate,
@@ -491,3 +492,53 @@ def test_notification_digest_handler_uses_payload_workspace_root(
         assert request["job_id"] is not None
     finally:
         project.close()
+
+
+def test_info_run_outcomes_reach_only_digest_routes_for_runs(tmp_path: Path) -> None:
+    project_id = "digest-run-outcomes"
+    project = _create_project(tmp_path, project_id)
+    _slack, email = _channels(project)
+    digest = {
+        "channel_id": email["id"],
+        "delivery_mode": "digest",
+        "digest_cadence": "daily",
+        "digest_timezone": "UTC",
+        "digest_anchor_time": "09:00",
+    }
+    every_source = project.create_notification_route(name="Everything", **digest)
+    runs_only = project.create_notification_route(
+        name="Runs", source_kind="run", **digest
+    )
+    project.db.execute(
+        "UPDATE notification_routes SET created_at=?, updated_at=?",
+        ("2026-06-01 00:00:00", "2026-06-01 00:00:00"),
+    )
+    project.db.commit()
+    candidate = run_transition_notification_candidate(
+        project_id=project_id,
+        run_id=7,
+        status="completed",
+        completed_rows=2,
+        failed_rows=0,
+        finished_at="2026-06-29 10:15:00",
+    )
+    assert candidate is not None
+    emitted = emit_notification_candidate(project, candidate)
+    assert emitted is not None
+    assert emitted["planned_delivery_requests"] == []
+    project.db.execute(
+        "UPDATE notification_items SET created_at=?, updated_at=? WHERE id=?",
+        ("2026-06-29 10:15:00", "2026-06-29 10:15:00", emitted["notification_id"]),
+    )
+    project.db.commit()
+    now = datetime(2026, 6, 30, 9, 5, tzinfo=UTC)
+
+    assert (
+        compose_notification_digest(project, every_source["id"], now=now)["item_count"]
+        == 0
+    )
+    runs_digest = compose_notification_digest(project, runs_only["id"], now=now)
+    assert project.notification_digest_item_ids(runs_digest["id"]) == [
+        emitted["notification_id"]
+    ]
+    project.close()

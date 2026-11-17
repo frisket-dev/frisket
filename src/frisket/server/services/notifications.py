@@ -165,6 +165,11 @@ class NotificationService:
                 body,
                 actor_id=_notification_actor_id(request),
             )
+            if result is None:
+                raise NotificationRequestError(
+                    "notification not stored: no route asks for this source kind "
+                    "at this severity"
+                )
             enqueue_notification_emit_result(
                 self._workspace.queue,
                 workspace_root=self._workspace.root,

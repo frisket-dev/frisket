@@ -9,9 +9,8 @@ from typing import Any
 from frisket.server.notifications.delivery import NotificationRenderedMessage
 from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
-    _loads_list,
-    _loads_object,
     _severity_rank,
+    route_admits_item,
 )
 from frisket.notifications.producers import (
     NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,
@@ -200,23 +199,7 @@ def _eligible_digest_items(
 def _route_matches_digest_item(route: Any, item: Any) -> bool:
     if str(item["source_kind"]) == NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND:
         return False
-    route_source_kind = route["source_kind"]
-    if route_source_kind and route_source_kind != item["source_kind"]:
-        return False
-    source_ref_match = _loads_object(route["source_ref_match_json"])
-    if source_ref_match:
-        item_source_ref = _loads_object(item["source_ref"])
-        for key, value in source_ref_match.items():
-            if item_source_ref.get(key) != value:
-                return False
-    route_event_kinds = {str(value) for value in _loads_list(route["event_kinds_json"])}
-    if route_event_kinds:
-        item_event_kinds = {str(value) for value in _loads_list(item["event_kinds"])}
-        if not item_event_kinds.intersection(route_event_kinds):
-            return False
-    return _severity_rank(str(item["severity"])) >= _severity_rank(
-        str(route["severity_min"])
-    )
+    return route_admits_item(route, item, occurred_at=str(item["created_at"]))
 
 
 def _window(
