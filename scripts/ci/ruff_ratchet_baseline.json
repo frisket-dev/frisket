@@ -382,11 +382,8 @@
   "src/frisket/team/operational_routes.py": 2,
   "src/frisket/team/policy.py": 1,
   "src/frisket/upgrades/project/domain_identity_migration.py": 3,
-  "src/frisket/upgrades/project/domain_migration.py": 1,
   "src/frisket/upgrades/project/domain_view_migration.py": 1,
-  "src/frisket/upgrades/project/extraction_recipes.py": 1,
-  "src/frisket/upgrades/project/prepared_content_migration.py": 1,
-  "src/frisket/upgrades/project/typed_storage_migration.py": 1
+  "src/frisket/upgrades/project/extraction_recipes.py": 1
  },
  "PLC0415": {
   "src/frisket/actions/classify.py": 1,
@@ -446,7 +443,7 @@
   "src/frisket/authoring/workbench/plugin_runtime_status.py": 2,
   "src/frisket/authoring/workbench/plugin_subprocess_importers.py": 1,
   "src/frisket/authoring/workbench/plugin_subprocess_projections.py": 1,
-  "src/frisket/cli/__init__.py": 57,
+  "src/frisket/cli/__init__.py": 32,
   "src/frisket/cli/action.py": 7,
   "src/frisket/cli/cleanup.py": 4,
   "src/frisket/cli/doctor.py": 3,
@@ -813,7 +810,7 @@
   "src/frisket/upgrades/project/__init__.py": 2,
   "src/frisket/upgrades/project/chain.py": 3,
   "src/frisket/upgrades/project/domain_identity_migration.py": 1,
-  "src/frisket/upgrades/project/domain_migration.py": 21,
+  "src/frisket/upgrades/project/domain_migration.py": 20,
   "src/frisket/upgrades/project/historical_current_cells.py": 1,
   "src/frisket/upgrades/project/typed_storage_migration.py": 2,
   "tests/action_test_helpers.py": 3,
@@ -1910,7 +1907,7 @@
   "src/frisket/engine/jobs/notifications_delivery.py": 4,
   "src/frisket/engine/jobs/notifications_digest.py": 2,
   "src/frisket/engine/jobs/pdf_split.py": 2,
-  "src/frisket/engine/jobs/queue.py": 5,
+  "src/frisket/engine/jobs/queue.py": 3,
   "src/frisket/engine/jobs/queue_health.py": 1,
   "src/frisket/engine/jobs/queue_runtime_monitor.py": 1,
   "src/frisket/engine/jobs/runs.py": 4,
@@ -1967,7 +1964,7 @@
   "src/frisket/engine/store/pdf_split.py": 1,
   "src/frisket/engine/store/pdf_split_text.py": 1,
   "src/frisket/engine/store/prepared_content.py": 1,
-  "src/frisket/engine/store/project.py": 20,
+  "src/frisket/engine/store/project.py": 2,
   "src/frisket/engine/store/project_blobs.py": 4,
   "src/frisket/engine/store/project_qa.py": 5,
   "src/frisket/engine/store/project_qa_research.py": 3,
@@ -2352,7 +2349,6 @@
   "src/frisket/team/app.py": 1,
   "src/frisket/team/browser_auth_routes.py": 1,
   "src/frisket/team/operational_routes.py": 1,
-  "src/frisket/upgrades/project/domain_migration.py": 1,
-  "src/frisket/upgrades/project/typed_storage_migration.py": 1
+  "src/frisket/upgrades/project/domain_migration.py": 1
  }
 }
