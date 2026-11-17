@@ -10,16 +10,6 @@ from frisket.engine.executor.joined_tables_read import (
     JoinRefreshAdmission,
     validate_joined_tables_source,
 )
-from frisket.engine.store import Project
-
-
-@pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "join.frisket")
-    try:
-        yield project
-    finally:
-        project.close()
 
 
 def sheet(project, name, rows, types=None):

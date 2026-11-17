@@ -16,13 +16,6 @@ from frisket.engine.store import Project
 from frisket.querysets import SheetRowSetError, resolve_sheet_filter_rows
 
 
-@pytest.fixture
-def project(tmp_path):
-    value = Project.create(tmp_path / "list-filter.frisket", name="lists")
-    yield value
-    value.close()
-
-
 def _filter(column: str, *selectors: dict) -> str:
     return json.dumps({column: {"list_contains_any": list(selectors)}})
 

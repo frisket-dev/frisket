@@ -22,13 +22,6 @@ from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "failed.frisket", name="failed")
-    yield p
-    p.close()
-
-
 def _failed_filter(column_name: str, value: str) -> str:
     return json.dumps({column_name: {"failed": value}})
 

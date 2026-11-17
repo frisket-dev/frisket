@@ -86,13 +86,6 @@ def _cols(db, table: str) -> set[str]:
     return {r["name"] for r in db.execute(f"PRAGMA table_info({table})")}
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "t.frisket", name="t")
-    yield p
-    p.close()
-
-
 def _seed_head(store: RouteStore):
     promise_set = store.append_promise_set(promises=PROMISES, predecessor_id=None)
     route = store.append_route(

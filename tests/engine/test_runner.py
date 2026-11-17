@@ -62,13 +62,6 @@ def test_confirmation_echo_is_not_part_of_durable_prompt_identity() -> None:
     assert prompt_hash_of(recipe, retry) == before
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
-
-
 def classify_spec(sheet_id, context="Test rows."):
     return _typed_map_rows_plan(
         typed_action_for_request(

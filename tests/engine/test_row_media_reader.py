@@ -3,7 +3,7 @@
 import asyncio
 import io
 import json
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
@@ -20,7 +20,6 @@ from frisket.engine.executor.row_media_read import (
     AdmittedFrameExtractor,
 )
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell
 
 
@@ -56,12 +55,6 @@ async def bound_media(
     finally:
         await owner.aclose()
         stager.close()
-
-
-@pytest.fixture
-def project(tmp_path):
-    with closing(Project.create(tmp_path / "media.frisket")) as project:
-        yield project
 
 
 def fake_media(monkeypatch):

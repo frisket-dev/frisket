@@ -8,21 +8,11 @@ from frisket.engine.executor.page_capture import (
     _web_capture_page_add_output_column,
 )
 from frisket.contracts.action import ActionError
-from frisket.engine.store import Project
 from frisket.engine.store.changes import start_change
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.output_families import OutputFamilyStore
 from frisket.engine.store.op_log import append_op
 from frisket.engine.store.runs import RunResultStore
-
-
-@pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "active-columns.frisket")
-    try:
-        yield project
-    finally:
-        project.close()
 
 
 def _undone_column(project, sheet, name, *, type="text"):

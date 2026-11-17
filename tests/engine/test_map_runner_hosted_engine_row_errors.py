@@ -11,7 +11,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -24,13 +23,6 @@ from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from runner_test_helpers import run_with_output_claim
-
-
-@pytest.fixture
-def project(tmp_path: Path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
 
 
 class _FakeHostedRecipe(Recipe):

@@ -25,13 +25,6 @@ PNG_1X1 = (
 )
 
 
-@pytest.fixture
-def project(tmp_path: Path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
-
-
 # --------------------------------------------------------------------------- #
 # image_part
 # --------------------------------------------------------------------------- #

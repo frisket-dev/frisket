@@ -26,13 +26,6 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "geo.frisket", name="geo")
-    yield p
-    p.close()
-
-
 def _seed(project: Project):
     """A sheet with a source geo_point column: 2 valid, 1 out-of-range, 1 empty."""
     sheet = project.add_sheet("places")

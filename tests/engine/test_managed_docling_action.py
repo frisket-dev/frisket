@@ -3,7 +3,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from contextlib import closing
 
 import pytest
 
@@ -19,14 +18,6 @@ from frisket.execution.provider import (
     open_execution_composition,
 )
 from frisket.execution.promises import Promise
-
-
-@pytest.fixture
-def project(tmp_path):
-    with closing(
-        Project.create(tmp_path / "managed-docling.frisket", name="docs")
-    ) as p:
-        yield p
 
 
 def _seed_pdf(project: Project) -> tuple[int, int]:
