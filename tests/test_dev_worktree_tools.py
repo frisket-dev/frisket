@@ -211,6 +211,27 @@ def test_worker_count_leaves_room_for_current_load(cpus, load, cap, expected):
     assert suite.worker_count(cpus, load, cap) == expected
 
 
+@pytest.mark.parametrize(
+    ("cpus", "load", "expected"),
+    [
+        (10, 21.0, 4),
+        (10, 0.0, 8),
+        (16, 3.0, 8),
+        (4, 150.0, 2),
+        (2, 9.0, 2),
+        (None, 0.0, 2),
+    ],
+)
+def test_full_run_never_starves_below_the_floor(cpus, load, expected):
+    assert suite.worker_count(cpus, load, 8, full=True) == expected
+
+
+def test_worker_reason_names_count_and_cause():
+    text = suite.worker_reason(4, 10, 21.0, override=False, full=True)
+    assert text.startswith("4 workers") and "load 21.0" in text and "floor 4" in text
+    assert "explicit -n" in suite.worker_reason(3, 10, 0.0, override=True, full=True)
+
+
 def test_known_failures_file_maps_node_ids_to_diagnoses(tmp_path):
     known = tmp_path / "known.txt"
     known.write_text(
