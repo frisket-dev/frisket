@@ -294,6 +294,9 @@ def _terminalize_claimless_direct_failure(
             },
         )
         return ctx.fail("project_write_failed", project_write_failed_message)
+    except BaseException:
+        project.db.rollback()
+        raise
     return _result_from_receipt(failed)
 
 
@@ -478,6 +481,9 @@ def _running_receipt_stale_result(
             f"failed to clear stale running receipt: {exc}",
             field="idempotency_key",
         )
+    except BaseException:
+        project.db.rollback()
+        raise
 
     return ctx.fail(
         "idempotency_stale_running",
@@ -614,10 +620,11 @@ def _reserve_running_action_receipt(
         )
         if commit:
             project.db.commit()
-    except Exception:
-        if commit:
-            project.db.rollback()
-        else:
+    except BaseException as exc:
+        if not commit:
+            raise
+        project.db.rollback()
+        if not isinstance(exc, Exception):
             raise
         logger.debug(
             "action_failed",
@@ -1320,7 +1327,7 @@ def _bind_receipt_to_prepared_run(
             )
         if commit:
             project.db.commit()
-    except Exception:
+    except BaseException:
         if commit:
             project.db.rollback()
         raise
@@ -1387,6 +1394,9 @@ def _mark_queued_action_enqueued(
             exc_info=True,
             extra={"event": "queued_receipt_mark_failed", "receipt_id": receipt_id},
         )
+    except BaseException:
+        project.db.rollback()
+        raise
 
 
 def _release_queued_output_claim_if_terminal(
@@ -1426,6 +1436,9 @@ def _cleanup_queued_action_reservation(
             exc_info=True,
             extra={"event": "queued_receipt_delete_failed", "receipt_id": receipt_id},
         )
+    except BaseException:
+        project.db.rollback()
+        raise
 
 
 def _delete_reserved_action_receipt(
@@ -1457,6 +1470,9 @@ def _delete_reserved_action_receipt(
             exc_info=True,
             extra={"event": "action_failed", "action_kind": action_kind},
         )
+    except BaseException:
+        project.db.rollback()
+        raise
 
 
 def _cleanup_reserved_receipt_on_failed_result(
@@ -1580,6 +1596,10 @@ def _finalize_reserved_action_receipt(
             },
         )
         return ctx.fail("project_write_failed", "project write failed")
+    except BaseException:
+        if commit:
+            project.db.rollback()
+        raise
     return None
 
 
