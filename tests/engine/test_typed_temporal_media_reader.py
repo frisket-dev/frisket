@@ -18,6 +18,7 @@ from frisket.actions.types import (
     DynamicTableResult,
     RowSource,
 )
+from frisket.engine.executor import table_action
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
@@ -243,3 +244,21 @@ def test_grounded_media_cannot_be_reparented_or_detached(media, change):
         project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
     )
     assert all(not path.exists() for path in paths)
+
+
+def test_temporal_table_write_failure_does_not_name_transcript_segments(
+    media, monkeypatch
+):
+    def split(params: CustomParams, reader: TemporalMediaReader) -> DynamicTableResult:
+        return reader.read(params.recording, params.excerpts)
+
+    def fail_write(*_args, **_kwargs):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(table_action, "_perform_table_in_txn", fail_write)
+    result = _run(media, split)
+    assert result.status == "failed"
+    error = result.errors[0]
+    assert error.code == "project_write_failed"
+    assert "Transcript" not in error.message
+    assert error.message == "Table rows could not be materialized"

@@ -104,7 +104,6 @@ def test_finalize_reserved_receipt_reports_lost_reservation(tmp_path: Path) -> N
             project_id=PROJECT_ID,
             receipt=_receipt(status="completed"),
             reservation_lost_message="test reservation was lost",
-            update_failed_message="test receipt update failed",
             result_from_existing_fn=_unexpected_existing_result,
         )
 
@@ -135,7 +134,6 @@ def test_finalize_reserved_receipt_preserves_existing_terminal_result(
             project_id=PROJECT_ID,
             receipt=_receipt(status="completed"),
             reservation_lost_message="test reservation was lost",
-            update_failed_message="test receipt update failed",
             result_from_existing_fn=_unexpected_existing_result,
         )
 
@@ -164,7 +162,6 @@ def test_finalize_reserved_receipt_commits_callback_atomically(tmp_path: Path) -
             project_id=PROJECT_ID,
             receipt=_receipt(status="completed"),
             reservation_lost_message="test reservation was lost",
-            update_failed_message="test receipt update failed",
             result_from_existing_fn=_unexpected_existing_result,
             before_commit=lambda: project.db.execute(
                 "INSERT INTO meta (key, value) VALUES ('callback', 'written')"
@@ -205,7 +202,6 @@ def test_finalize_reserved_receipt_rolls_back_callback_failure(tmp_path: Path) -
             project_id=PROJECT_ID,
             receipt=_receipt(status="completed"),
             reservation_lost_message="test reservation was lost",
-            update_failed_message="test receipt update failed",
             result_from_existing_fn=_unexpected_existing_result,
             before_commit=fail_after_write,
         )

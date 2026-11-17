@@ -12,6 +12,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import PolledSource, SourcePoller, SourcePollSelector
@@ -25,14 +26,12 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
-    ExecutorContext,
     ExecutorDeps,
-    _ActionCoreSpec,
+    ExecutorContext,
     _TypedProjectEnvelope,
 )
 from frisket.engine.executor.action_lifecycle import (
-    _run_action_core_spec,
-    _child_sheet_deterministic_result_from_existing,
+    _run_typed_plain_action,
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store import Project
@@ -128,11 +127,7 @@ def run_typed_source_poll_action(
     terminal = bound.action.definition.run
     if not supports_typed_source_poll_action(terminal):
         raise TypeError("typed source poll executor requires a polling capability")
-    envelope = _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    envelope = _typed_params_envelope(bound)
 
     def resolve(project_: Project, params: Any) -> Any:
         capability = _SourcePoller(
@@ -169,12 +164,12 @@ def run_typed_source_poll_action(
         return capability.resolved
 
     params_hash = typed_request_hash(bound)
-    spec = _ActionCoreSpec(
-        kind=envelope.kind,
-        params_model=terminal.params_model,
-        body_kind="plain",
-        params_hash_fn=lambda _action: params_hash,
-        result_from_existing_fn=_child_sheet_deterministic_result_from_existing(),
+    return _run_typed_plain_action(
+        project,
+        bound,
+        envelope,
+        ctx=ExecutorContext(project_id=project_id, deps=ExecutorDeps()),
+        params_hash=params_hash,
         plain_resolve_fn=resolve,
         plain_perform_in_txn_fn=_perform_source_poll_in_txn,
         plain_persist_failure=True,
@@ -183,13 +178,6 @@ def run_typed_source_poll_action(
             message="Source poll publication and receipt could not be written.",
             action_kind=action.kind,
         ),
-    )
-    return _run_action_core_spec(
-        project,
-        envelope,
-        bound.params,
-        spec=spec,
-        ctx=ExecutorContext(project_id=project_id, deps=ExecutorDeps()),
     )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 from uuid import uuid4
 
@@ -19,10 +20,11 @@ from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.executor.action_reservations import (
     _receipt_for_idempotency,
     _reserve_running_action_receipt,
+    _reserved_receipt_result_from_existing,
 )
 from frisket.engine.executor.action_support import (
     _estimate_confirmation_reason,
-    _failed_result,
+    ActionCtx,
 )
 from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
 from frisket.engine.executor import group_summary_runtime as runtime
@@ -177,25 +179,26 @@ def run_typed_group_summary_action(
     existing = _recover_stale_receipt_attempt(project, existing, identity)
     recovery_run = runtime._recoverable_group_run(project, existing, identity)
     if existing is not None and recovery_run is None:
-        return runtime._reduce_group_summary_result_from_existing_receipt(
+        return _reserved_receipt_result_from_existing(
             project,
             existing,
             params_hash=identity,
             project_id=project_id,
             action=action,
+            replay_error_fn=partial(
+                runtime._reduce_group_summary_replay_error, project
+            ),
         )
     try:
         if prepared is None:
             prepared = prepare_group_summary_action(project, bound)
     except (TypeError, ValueError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=exc.error
+        return ActionCtx(project_id, action.kind).failed(
+            exc.error
             if isinstance(exc, GroupSummaryRefused)
             else ActionError(
                 code="invalid_params", message=str(exc), action_kind=action.kind
-            ),
+            )
         )
     estimate = rate_estimate(prepared.estimate, policy=default_pricing_policy())
     price = quoted_usd(estimate)
@@ -244,30 +247,19 @@ def run_typed_group_summary_action(
             project.effective_network_policy() == "off"
             and provider_from_model_id(prepared.operation.model) != "ollama"
         ):
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code="network_disabled",
-                    message="Project network access is disabled",
-                    action_kind=action.kind,
-                ),
+            return ActionCtx(project_id, action.kind).fail(
+                "network_disabled", "Project network access is disabled"
             )
         try:
             assert_provider_spend_cap(
                 project, provider_from_model_id(prepared.operation.model)
             )
         except ProviderKeyRefusal as exc:
-            return _failed_result(
-                project_id=project_id,
-                action_kind=action.kind,
-                error=ActionError(
-                    code=exc.error_code,
-                    message=exc.action_message(),
-                    action_kind=action.kind,
-                    field=exc.field,
-                    details=dict(exc.details),
-                ),
+            return ActionCtx(project_id, action.kind).fail(
+                exc.error_code,
+                exc.action_message(),
+                field=exc.field,
+                details=dict(exc.details),
             )
     if recovery_run is not None:
         reservation = {
@@ -288,7 +280,9 @@ def run_typed_group_summary_action(
             params_hash=identity,
             project_id=project_id,
             reservation_kind="reduce_group_summary_idempotency_reservation",
-            result_from_existing_fn=runtime._reduce_group_summary_result_from_existing_receipt,
+            replay_error_fn=partial(
+                runtime._reduce_group_summary_replay_error, project
+            ),
         )
     if isinstance(reservation, ActionResult):
         return reservation
@@ -316,9 +310,7 @@ def run_typed_group_summary_action(
         if isinstance(computations, ActionError):
             if publication.envelope is None and recovery_run is None:
                 ReceiptStore(project).delete_running(reservation["receipt_id"])
-            return _failed_result(
-                project_id=project_id, action_kind=action.kind, error=computations
-            )
+            return ActionCtx(project_id, action.kind).failed(computations)
         result = runtime._write_reduce_group_summary_result(
             project,
             action,
@@ -344,11 +336,7 @@ def run_typed_group_summary_action(
             if isinstance(exc, (GroupPublicationError, ResultEvidenceWriteFailed))
             else "model_run_failed"
         )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(code=code, message=str(exc), action_kind=action.kind),
-        )
+        return ActionCtx(project_id, action.kind).fail(code, str(exc))
     finally:
         publication.close()
         prepared.resolved["groups"].close()

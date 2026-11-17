@@ -34,7 +34,7 @@ from frisket.engine.store.temporal_ingress import preflight_typed_rows_for_persi
 from frisket.table_import import TableReadSettings
 
 from .action_jobs import ActionJobEnvelope, _result_from_existing_action_job_receipt
-from .action_support import _failed_result
+from .action_support import ActionCtx
 from .import_sources import open_local_file_reader
 from .map_rows_action import typed_request_hash
 from .table_import_admission import admit_table_import
@@ -76,13 +76,11 @@ def _existing_result(
         None,
     )
     if previous is not None and previous != request_hash:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=bound.request.action_id,
-            error=ActionError(
+        return ActionCtx(project_id, bound.request.action_id).failed(
+            ActionError(
                 code="idempotency_conflict",
                 message="This request key already identifies a different import update.",
-            ),
+            )
         )
     if previous == request_hash and receipt.status in {
         "completed",
@@ -358,11 +356,7 @@ def run_typed_update(
             records_kind=records_kind,
         )
     except (ValueError, OSError, TypeError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=bound.request.action_id,
-            error=failure(exc),
-        )
+        return ActionCtx(project_id, bound.request.action_id).failed(failure(exc))
     if isinstance(admitted, ActionResult):
         return admitted
     frozen, envelope = admitted
@@ -515,13 +509,11 @@ def run_rows_updater(
         if updater.replay is not None:
             return updater.replay
         if updater.frozen is None:
-            return _failed_result(
-                project_id=project_id,
-                action_kind=bound.request.action_id,
-                error=failure
+            return ActionCtx(project_id, bound.request.action_id).failed(
+                failure
                 or ActionError(
                     code="import_update_failed", message="No update was requested"
-                ),
+                )
             )
         return _finalize_update(
             project,

@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -19,8 +21,23 @@ from frisket.ai.llm.types import provider_from_model_id
 from frisket.ai.models.metadata import (
     model_calls_cost_actual as _model_calls_cost_actual,
 )
+from frisket.actions.types import RowError
 from frisket.engine.runner import (
+    BatchRowLimitExceeded,
     CostGate,
+    EmptyInputColumns,
+    InvalidTargetRows,
+    InvalidTargetSheet,
+    NetworkDisabled,
+    OutputColumnExists,
+    ProviderKeyRefusal,
+)
+from frisket.engine.runner.validation import ExecutionResolutionRefused
+from frisket.engine.store.result_generations import GenerationDeclarationConflict
+from frisket.execution.attempt_authority import DependentChoiceRefusal
+from frisket.execution.runtime_binding import (
+    ExecutionRouteVerificationFailed,
+    RouteBindingUnavailable,
 )
 
 
@@ -40,6 +57,130 @@ def _row_input_action_error(action_kind: str, error: Any) -> ActionError:
     )
 
 
+@dataclass(frozen=True)
+class RefusalSite:
+    """Where a runner guard refusal surfaced; the facts its error fields read."""
+
+    action_kind: str
+    has_row_scope: bool
+    program: Any = None
+    output_claim_field: str | None = None
+
+
+_RefusalFields = Callable[[Any, RefusalSite], dict[str, Any]]
+
+# Each runner guard refusal maps to one ActionError shape wherever it is caught.
+# Sites choose which of these they catch and own their own cleanup.
+_REFUSAL_FIELDS: tuple[tuple[type[Exception], _RefusalFields], ...] = (
+    (
+        ProviderKeyRefusal,
+        lambda exc, site: {
+            "code": exc.error_code,
+            "message": exc.action_message(),
+            "field": exc.field,
+            "details": dict(exc.details),
+        },
+    ),
+    (
+        NetworkDisabled,
+        lambda exc, site: {
+            "code": "network_disabled",
+            "message": str(exc),
+            "details": {"capability": exc.capability},
+        },
+    ),
+    (
+        ExecutionResolutionRefused,
+        lambda exc, site: {"code": exc.family, "message": str(exc)},
+    ),
+    (
+        OutputColumnExists,
+        lambda exc, site: {
+            "code": "output_column_exists",
+            "message": str(exc),
+            "field": site.output_claim_field,
+            "details": {"columns": exc.columns},
+        },
+    ),
+    (
+        GenerationDeclarationConflict,
+        lambda exc, site: {
+            "code": "output_column_exists",
+            "message": str(exc),
+            "field": site.output_claim_field,
+        },
+    ),
+    (
+        InvalidTargetSheet,
+        lambda exc, site: {
+            "code": "invalid_input_ref",
+            "message": str(exc),
+            "field": "row_scope.sheet_id" if site.has_row_scope else "params.sheet_id",
+            "details": {"sheet_id": exc.sheet_id},
+        },
+    ),
+    (
+        InvalidTargetRows,
+        lambda exc, site: {
+            "code": "invalid_input_ref",
+            "message": str(exc),
+            "field": "row_scope.selector.membership.row_ids"
+            if site.has_row_scope
+            else "params.row_ids",
+            "details": {"missing": exc.missing},
+        },
+    ),
+    (
+        EmptyInputColumns,
+        lambda exc, site: {
+            "code": "empty_input_column",
+            "message": str(exc),
+            "field": "params.input_columns"
+            if site.program is None
+            else site.program.empty_input_error_field,
+            "details": {"columns": exc.columns},
+        },
+    ),
+    (
+        BatchRowLimitExceeded,
+        lambda exc, site: {
+            "code": "batch_row_limit_exceeded",
+            "message": str(exc),
+            "details": {"row_count": exc.row_count, "max_rows": exc.max_rows},
+        },
+    ),
+    (
+        RouteBindingUnavailable,
+        lambda exc, site: {"code": "no_live_target", "message": exc.remedy},
+    ),
+    (
+        ExecutionRouteVerificationFailed,
+        lambda exc, site: {"code": exc.code, "message": str(exc)},
+    ),
+    (
+        # An internal composition defect, never consent_missing: no
+        # confirmation repairs wiring.
+        DependentChoiceRefusal,
+        lambda exc, site: {
+            "code": exc.code,
+            "message": f"{exc.remedy} This is an internal composition defect in "
+            "Frisket, not a consent gap: re-running or re-confirming "
+            "will refuse identically until the dispatch path is fixed.",
+        },
+    ),
+)
+
+
+def refusal_error(exc: Exception, site: RefusalSite) -> ActionError:
+    """Project a runner guard refusal onto its ActionError."""
+    if isinstance(exc, RowError):
+        return _row_input_action_error(site.action_kind, exc)
+    for refusal_type, fields in _REFUSAL_FIELDS:
+        if isinstance(exc, refusal_type):
+            return ActionError(action_kind=site.action_kind, **fields(exc, site))
+    raise TypeError(f"{type(exc).__name__} is not a mapped runner refusal")
+
+
 def _failed_result(
     *,
     project_id: str,
@@ -57,6 +198,25 @@ def _failed_result(
         project_id=project_id,
         errors=[error],
     )
+
+
+@dataclass(frozen=True)
+class ActionCtx:
+    """The project and action kind a host reports its failures under."""
+
+    project_id: str
+    kind: str
+
+    def error(self, code: str, message: str, **fields: Any) -> ActionError:
+        return ActionError(code=code, message=message, action_kind=self.kind, **fields)
+
+    def fail(self, code: str, message: str, **fields: Any) -> ActionResult:
+        return self.failed(self.error(code, message, **fields))
+
+    def failed(self, error: ActionError) -> ActionResult:
+        return _failed_result(
+            project_id=self.project_id, action_kind=self.kind, error=error
+        )
 
 
 def _params_hash(action: ActionSpec) -> str:

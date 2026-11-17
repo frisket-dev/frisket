@@ -200,7 +200,6 @@ def test_reserved_finalization_does_not_rewrite_terminal_receipt(tmp_path, statu
             project_id="p",
             receipt=stored.model_copy(update={"status": "completed", "errors": []}),
             reservation_lost_message="lost",
-            update_failed_message="failed",
             require_running_status=False,
             before_commit=forbidden,
         )

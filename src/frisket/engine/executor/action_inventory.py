@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, BinaryIO, Callable, ContextManager, Literal, Mapping, Protocol
 
 from pydantic import BaseModel
@@ -49,6 +50,24 @@ class _TypedProjectEnvelope:
     params: Mapping[str, Any]
     row_scope: None = None
     confirmation: str | None = None
+
+
+def _typed_params_envelope(bound: Any) -> _TypedProjectEnvelope:
+    """The identity of a typed request whose params are its validated model."""
+    return _TypedProjectEnvelope(
+        kind=bound.action.action_id,
+        idempotency_key=bound.request.idempotency_key,
+        params=bound.params.model_dump(mode="json"),
+    )
+
+
+def _typed_request_envelope(bound: Any) -> _TypedProjectEnvelope:
+    """The identity of a typed request whose params are its frozen request body."""
+    return _TypedProjectEnvelope(
+        kind=bound.action.action_id,
+        idempotency_key=bound.request.idempotency_key,
+        params=MappingProxyType(dict(bound.request.params)),
+    )
 
 
 @dataclass(frozen=True)

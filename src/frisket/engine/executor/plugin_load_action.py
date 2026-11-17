@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import PluginManifestLoader, PluginManifestRecord
@@ -18,14 +19,13 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
-    ExecutorContext,
     ExecutorDeps,
-    _ActionCoreSpec,
+    ExecutorContext,
     _TypedProjectEnvelope,
 )
 from frisket.engine.executor.action_lifecycle import (
     _child_sheet_deterministic_result_from_existing,
-    _run_action_core_spec,
+    _run_typed_plain_action,
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store.receipts import ReceiptStore
@@ -76,11 +76,7 @@ def run_typed_plugin_load_action(
     terminal = bound.action.definition.run
     if not supports_typed_plugin_load_action(terminal):
         raise TypeError("typed plugin executor requires a manifest loader action")
-    envelope = _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    envelope = _typed_params_envelope(bound)
     request_hash = typed_request_hash(bound)
 
     def evidence_error(error: PluginLoadEvidenceError) -> ActionError:
@@ -185,22 +181,16 @@ def run_typed_plugin_load_action(
             receipt_id=receipt_id,
         )
 
-    spec = _ActionCoreSpec(
-        kind=envelope.kind,
-        params_model=terminal.params_model,
-        body_kind="plain",
-        params_hash_fn=lambda _action: request_hash,
+    return _run_typed_plain_action(
+        project,
+        bound,
+        envelope,
+        ctx=ExecutorContext(project_id=project_id, deps=ExecutorDeps()),
+        params_hash=request_hash,
         result_from_existing_fn=_child_sheet_deterministic_result_from_existing(
             validate_replay
         ),
         plain_resolve_fn=resolve,
         plain_perform_in_txn_fn=perform,
         plain_exception_error_fn=write_error,
-    )
-    return _run_action_core_spec(
-        project,
-        envelope,
-        bound.params,
-        spec=spec,
-        ctx=ExecutorContext(project_id=project_id, deps=ExecutorDeps()),
     )

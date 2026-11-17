@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.entity_package_types import (
@@ -30,11 +31,10 @@ from frisket.contracts.action import ActionError, ActionResult, Receipt
 from frisket.engine.executor.action_inventory import ExecutorDeps, _TypedProjectEnvelope
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
-    _DirectActionFinalizeMetadata,
-    _finalize_direct_reserved_action_receipt,
+    _finalize_reserved_action_receipt,
     _reserve_running_action_receipt,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.invocation_context import HostInvocationContext
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.query_action import QueryPreviewCapability
@@ -133,7 +133,7 @@ def _existing_result(project, existing, *, params_hash, project_id, action, **_i
             error = _export_artifact_replay_error(receipt)
         if error is None:
             return _result_from_receipt(receipt)
-    return _failed_result(project_id=project_id, action_kind=action.kind, error=error)
+    return ActionCtx(project_id, action.kind).failed(error)
 
 
 def _artifact_target(ref: dict[str, Any]) -> str | None:
@@ -154,16 +154,13 @@ class CallableInvocation:
 
     def _persist(self, receipt, *, before_commit=None, commit=True):
         try:
-            failure = _finalize_direct_reserved_action_receipt(
+            failure = _finalize_reserved_action_receipt(
                 self.project,
                 self.action,
                 params_hash=receipt.params_hash,
                 project_id=receipt.project_id,
                 receipt=receipt,
-                finalize=_DirectActionFinalizeMetadata(
-                    action_kind=self.action.kind,
-                    result_from_existing_fn=_existing_result,
-                ),
+                result_from_existing_fn=_existing_result,
                 before_commit=before_commit,
                 commit=commit,
             )
@@ -257,11 +254,7 @@ def run_typed_callable_action(
     missing = set(terminal.capabilities) - _CALLABLE_CAPABILITIES.keys()
     if missing:
         raise TypeError("plain-callable capability has no host adapter")
-    action = _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    action = _typed_params_envelope(bound)
     plugin_secrets = None
     if PluginSecrets in terminal.injections:
         from frisket.authoring.workbench.native_plugin_secrets import HostPluginSecrets
@@ -383,9 +376,7 @@ def run_callable_invocation(
     try:
         result = invocation.finish(status=status, value=value, error=error)
     except CallablePrimitiveError as exc:
-        return _failed_result(
-            project_id=project_id, action_kind=action.kind, error=exc.error
-        )
+        return ActionCtx(project_id, action.kind).failed(exc.error)
     if invocation.receipt.exports:
         _emit_export_notification(project, result)
     return result

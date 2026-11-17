@@ -17,6 +17,12 @@ from typing import Any, Callable, Mapping
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import SchemaValidator
 
+from frisket.engine.executor.action_inventory import (
+    _QueuedActionSpec,
+    _TypedProjectEnvelope,
+    _queued_payload_codecs,
+    _typed_request_envelope,
+)
 from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.actions.geospatial_types import Geocoder, CensusDemographics
 from frisket.actions.document_types import DocumentConverter
@@ -94,7 +100,10 @@ from frisket.engine.executor.action_reservations import (
     _queued_receipt_job_id,
 )
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.executor.action_support import _failed_result, _model_call_units
+from frisket.engine.executor.action_support import (
+    ActionCtx,
+    _model_call_units,
+)
 from frisket.engine.executor.action_support import (
     _external_cost_requires_confirmation_error,
     _model_cost_requires_confirmation_error,
@@ -2626,16 +2635,6 @@ def _typed_map_rows_plan(
     )
 
 
-@dataclass(frozen=True)
-class _TypedExecutionEnvelope:
-    """Only the identity the durable executor needs from a typed request."""
-
-    kind: str
-    idempotency_key: str
-    params: Mapping[str, Any]
-    row_scope: None = None
-
-
 def normalized_typed_request_identity(
     bound: BoundTypedActionRequest,
 ) -> dict[str, Any]:
@@ -2880,11 +2879,7 @@ def typed_map_rows_replay_result(
                 # either reconcile a stopped handler or resume an explicitly
                 # halted direct writer from its retained checkpoints.
                 return None
-    action = _TypedExecutionEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=MappingProxyType(dict(bound.request.params)),
-    )
+    action = _typed_request_envelope(bound)
     result = _reserved_receipt_result_from_existing(
         project,
         existing,
@@ -3548,7 +3543,7 @@ def typed_queued_map_spec(
     bound: BoundTypedActionRequest,
     *,
     initial_plan: TypedMapRowsPlan | None = None,
-) -> tuple[_TypedExecutionEnvelope, Any, Recipe]:
+) -> tuple[_TypedProjectEnvelope, Any, Recipe]:
     """Build one generic queued-project adapter for a typed map request.
 
     The returned internal envelope is structural execution identity, not a
@@ -3556,19 +3551,11 @@ def typed_queued_map_spec(
     this function again in the worker process to reconstruct the program.
     """
 
-    from frisket.engine.executor.action_inventory import (
-        _QueuedActionSpec,
-        _queued_payload_codecs,
-    )
     from frisket.engine.store.output_claims import OutputColumnClaimStore
 
     unresolved = initial_plan or _typed_map_rows_plan(bound)
     terminal_policy = _MapTerminalPolicy.for_terminal(bound.action.definition.run)
-    action = _TypedExecutionEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=MappingProxyType(dict(bound.request.params)),
-    )
+    action = _typed_request_envelope(bound)
 
     def params_hash_fn(_envelope: Any) -> str:
         return typed_request_hash(bound)
@@ -3890,7 +3877,6 @@ def typed_queued_map_spec(
             project_id=str(kwargs["project_id"]),
             receipt=receipt,
             reservation_lost_message=f"{action.kind} reservation was lost",
-            update_failed_message=f"{action.kind} receipt update failed",
             replay_error_fn=_typed_replay_error(project, bound),
             require_running_status=False,
             before_commit=release_output_claim,
@@ -3957,7 +3943,7 @@ def run_typed_map_rows_action(
     replay = typed_map_rows_replay_result(project, project_id, bound)
     if replay is not None:
         return replay
-    envelope = _TypedExecutionEnvelope(
+    envelope = _TypedProjectEnvelope(
         kind=action.action_id,
         idempotency_key=request.idempotency_key,
         params=MappingProxyType(dict(request.params)),
@@ -3974,10 +3960,8 @@ def run_typed_map_rows_action(
     try:
         plan = build_typed_map_rows_plan(project, bound)
     except (TypeError, ValueError, ValidationError) as exc:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.action_id,
-            error=_typed_plan_error(action.action_id, exc),
+        return ActionCtx(project_id, action.action_id).failed(
+            _typed_plan_error(action.action_id, exc)
         )
 
     return _run_reserved_maprunner_action(

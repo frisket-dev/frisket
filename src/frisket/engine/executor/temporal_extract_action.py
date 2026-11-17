@@ -27,7 +27,7 @@ from frisket.engine.executor.action_reservations import (
     _reserve_running_action_receipt,
     _reserved_receipt_result_from_existing,
 )
-from frisket.engine.executor.action_support import _failed_result
+from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.temporal_extract_publication import (
     StagedExtractClip,
@@ -282,14 +282,8 @@ def run_typed_temporal_extract_action(
         kind, bound.request.idempotency_key, bound.params.model_dump(mode="json")
     )
     if (reserved_action_id is None) != (reserved_receipt_id is None):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="Reservation ids must be supplied together",
-                action_kind=kind,
-            ),
+        return ActionCtx(project_id, kind).fail(
+            "project_write_failed", "Reservation ids must be supplied together"
         )
     if reserved_receipt_id is not None:
         prior = _reserved_extract_preflight(
@@ -302,7 +296,7 @@ def run_typed_temporal_extract_action(
         if isinstance(prior, ActionResult):
             return prior
         if isinstance(prior, ActionError):
-            return _failed_result(project_id=project_id, action_kind=kind, error=prior)
+            return ActionCtx(project_id, kind).failed(prior)
     else:
         stored = ReceiptStore(project).find_by_idempotency_key(
             bound.request.idempotency_key
@@ -327,7 +321,7 @@ def run_typed_temporal_extract_action(
                 error=failure,
                 action_kind=kind,
             )
-        return _failed_result(project_id=project_id, action_kind=kind, error=failure)
+        return ActionCtx(project_id, kind).failed(failure)
     if reserved_receipt_id is None:
         reservation = _reserve_running_action_receipt(
             project,
@@ -335,7 +329,6 @@ def run_typed_temporal_extract_action(
             params_hash=params_hash,
             project_id=project_id,
             reservation_kind="temporal_extract_range",
-            result_from_existing_fn=_reserved_receipt_result_from_existing,
         )
         if isinstance(reservation, ActionResult):
             return reservation
@@ -402,12 +395,10 @@ def run_typed_temporal_extract_action(
         LOG.debug("Temporal extraction failed", exc_info=True)
         failure = _extract_failure(error, kind)
         if queued and failure.code == "temporal_materializer_unavailable":
-            return _failed_result(
-                project_id=project_id,
-                action_kind=kind,
-                error=failure.model_copy(
+            return ActionCtx(project_id, kind).failed(
+                failure.model_copy(
                     update={"details": {**failure.details, "retryable": True}}
-                ),
+                )
             )
         return _terminalize_extract_failure(
             project,

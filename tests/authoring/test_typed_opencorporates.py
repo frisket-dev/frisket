@@ -480,7 +480,7 @@ def test_cancel_after_response_keeps_host_facts_without_child_outcome(
     installed, monkeypatch
 ):
     from frisket.engine.executor.action_inventory import ExecutorDeps
-    from frisket.engine.executor.actions import _composed_map_runner_factory
+    from frisket.engine.executor.actions import _default_map_runner_factory
     from frisket.engine.store.runs import RunResultStore
 
     _, project, project_id, sheet, _, calls, _ = installed
@@ -501,7 +501,7 @@ def test_cancel_after_response_keeps_host_facts_without_child_outcome(
     body, _ = confirm(project, project_id, request(sheet))
 
     def factory(project, router):
-        runner = _composed_map_runner_factory()(project, router)
+        runner = _default_map_runner_factory(project, router)
         runner.should_cancel = RunResultStore(project).cancellation_requested
         return runner
 

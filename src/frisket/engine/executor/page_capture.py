@@ -46,7 +46,7 @@ from frisket.engine.executor.action_reservations import (
     _reserved_receipt_result_from_existing,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
 )
 from frisket.sdk.replay import _replay_output_column_row
 from frisket.engine.store import Project
@@ -586,14 +586,8 @@ def _finalize_web_capture_page_failed_receipt(
             exc_info=True,
             extra={"event": "action_failed", "action_kind": action.kind},
         )
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="project write failed",
-                action_kind=action.kind,
-            ),
+        return ActionCtx(project_id, action.kind).fail(
+            "project_write_failed", "project write failed"
         )
     return _result_from_receipt(receipt)
 

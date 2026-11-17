@@ -28,11 +28,13 @@ from frisket.engine.executor.action_inventory import (
     _QueuedActionInventoryEntry,
     _QueuedPayloadCodec,
 )
+from frisket.engine.executor.action_receipts import receipt_status_from_failures
 from frisket.engine.executor.action_reservations import (
-    QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND,
     QUEUED_ACTION_RUN_MARKER_PARAM,
-    QUEUED_ACTION_RUN_MARKER_SCHEMA,
     _queued_action_lifecycle_adapter,
+    _queued_action_run_marker,
+    _queued_receipt_job_id,
+    _queued_receipt_prepared_attempt_id,
 )
 from frisket.engine.executor.action_specs import ResolvedAction
 from frisket.engine.executor.project_run_terminalization import (
@@ -209,14 +211,9 @@ class QueuedV1PayloadEnvelope:
                 terminal_status = run_status
                 receipt_status = run_status
             else:
-                failed_rows = int(run["failed_rows"] or 0)
-                total_rows = int(run["total_rows"] or 0)
-                if failed_rows:
-                    receipt_status = (
-                        "failed"
-                        if total_rows and failed_rows >= total_rows
-                        else "partial"
-                    )
+                receipt_status = receipt_status_from_failures(
+                    int(run["failed_rows"] or 0), int(run["total_rows"] or 0)
+                )
         return self.entry.finalize_action(
             project,
             self.action,
@@ -499,14 +496,12 @@ def queued_v1_payload_envelope(
         and str(params_hash) != request.expected_params_hash
     ):
         return None
-    marker = runner_spec.get(QUEUED_ACTION_RUN_MARKER_PARAM)
-    if marker != {
-        "schema_version": QUEUED_ACTION_RUN_MARKER_SCHEMA,
-        "action_kind": action_kind,
-        "receipt_id": str(receipt_id),
-        "action_id": str(action_id),
-        "params_hash": str(params_hash),
-    }:
+    if runner_spec.get(QUEUED_ACTION_RUN_MARKER_PARAM) != _queued_action_run_marker(
+        action_kind=action_kind,
+        receipt_id=str(receipt_id),
+        action_id=str(action_id),
+        params_hash=str(params_hash),
+    ):
         return None
     return QueuedV1PayloadEnvelope(
         entry=request.entry,
@@ -577,13 +572,12 @@ def queued_v1_run_authorizes_action_lifecycle(
     }
     if not isinstance(persisted_spec, dict) or persisted_spec != candidate_spec:
         return False
-    if persisted_spec.get(QUEUED_ACTION_RUN_MARKER_PARAM) != {
-        "schema_version": QUEUED_ACTION_RUN_MARKER_SCHEMA,
-        "action_kind": envelope.action.kind,
-        "receipt_id": envelope.receipt_id,
-        "action_id": envelope.action_id,
-        "params_hash": envelope.params_hash,
-    }:
+    if persisted_spec.get(QUEUED_ACTION_RUN_MARKER_PARAM) != _queued_action_run_marker(
+        action_kind=envelope.action.kind,
+        receipt_id=envelope.receipt_id,
+        action_id=envelope.action_id,
+        params_hash=envelope.params_hash,
+    ):
         return False
     receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
     if not (
@@ -625,17 +619,8 @@ def queued_v1_prepared_attempt_id(
         or receipt.status not in {"queued", "running"}
     ):
         return None
-    matches = [
-        evidence.ref
-        for evidence in receipt.evidence
-        if evidence.ref.get("kind") == QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND
-        and evidence.ref.get("queue_kind") == "project.run"
-        and evidence.ref.get("run_id") == run_id
-    ]
-    if len(matches) != 1:
-        return None
-    attempt_id = matches[0].get("attempt_id")
-    if not isinstance(attempt_id, str) or not attempt_id:
+    attempt_id = _queued_receipt_prepared_attempt_id(receipt)
+    if attempt_id is None:
         return None
     attempt = project.db.execute(
         "SELECT run_id,state FROM execution_attempts WHERE id=?",
@@ -782,17 +767,6 @@ def queued_v1_finalize_action_result(
     )
 
 
-def _queued_receipt_job_id(receipt: Receipt) -> int | None:
-    for item in receipt.evidence:
-        ref = item.ref
-        if ref.get("queue_kind") != "project.run":
-            continue
-        job_id = ref.get("job_id")
-        if isinstance(job_id, int) and not isinstance(job_id, bool):
-            return job_id
-    return None
-
-
 def queued_v1_terminal_receipt_transition(
     project: Project,
     payload: Mapping[str, Any] | None = None,
@@ -919,23 +893,8 @@ def queued_v1_terminal_receipt_transition(
             claimless_direct_effect=claimless_direct_effect,
         )
     else:
-        prepared_attempt_ids = (
-            []
-            if receipt is None
-            else [
-                item.ref.get("attempt_id")
-                for item in receipt.evidence
-                if item.ref.get("kind") == "queued_action_run_prepared"
-                and item.ref.get("queue_kind") == "project.run"
-                and item.ref.get("run_id") == run_id
-            ]
-        )
         prepared_attempt_id = (
-            prepared_attempt_ids[0]
-            if len(prepared_attempt_ids) == 1
-            and isinstance(prepared_attempt_ids[0], str)
-            and prepared_attempt_ids[0]
-            else None
+            None if receipt is None else _queued_receipt_prepared_attempt_id(receipt)
         )
         prepared_attempt = (
             project.db.execute(

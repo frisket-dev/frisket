@@ -30,6 +30,8 @@ from frisket.engine.store.receipts import (
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.execution.dispatch_control import DispatchControl
 from frisket.engine.executor.action_specs import declared_queued_action_job_kinds
+from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
+from frisket.engine.executor.action_support import ActionCtx, _new_id, _params_hash
 
 
 ACTION_JOB_SCHEMA_VERSION = "frisket.action_job.v1"
@@ -547,20 +549,11 @@ def _existing_action_job_reservation_or_result(
     params_hash: str,
 ) -> dict[str, str] | ActionResult:
     """Project an exact replay or recover an unpublished prepared intent."""
-    from frisket.engine.executor.action_support import _failed_result
-
     if existing.params_hash != params_hash:
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="idempotency_conflict",
-                message=(
-                    "idempotency_key was already used with different normalized params"
-                ),
-                action_kind=action.kind,
-                field="idempotency_key",
-            ),
+        return ActionCtx(project_id, action.kind).fail(
+            "idempotency_conflict",
+            "idempotency_key was already used with different normalized params",
+            field="idempotency_key",
         )
     receipt = existing.parsed()
     job_id = _action_job_receipt_job_id(receipt)
@@ -593,12 +586,7 @@ def reserve_queued_action_job_receipt(
     queued project run stores the same snapshot on ``runs``.
     """
 
-    from frisket.engine.executor.action_support import (
-        _failed_result,
-        _new_id,
-        _params_hash,
-    )
-
+    ctx = ActionCtx(project_id, action.kind)
     params_hash = params_hash or _params_hash(action)
     encoded_edition_context = (
         None
@@ -663,15 +651,10 @@ def reserve_queued_action_job_receipt(
                 ]
                 if pins and pins != [prepared_input]:
                     project.db.rollback()
-                    return _failed_result(
-                        project_id=project_id,
-                        action_kind=action.kind,
-                        error=ActionError(
-                            code="idempotency_conflict",
-                            message="Prepared operation differs from its reserved intent.",
-                            action_kind=action.kind,
-                            field="idempotency_key",
-                        ),
+                    return ctx.fail(
+                        "idempotency_conflict",
+                        "Prepared operation differs from its reserved intent.",
+                        field="idempotency_key",
                     )
                 if not pins:
                     pinned = ReceiptStore(project).update_body_status(
@@ -698,15 +681,7 @@ def reserve_queued_action_job_receipt(
         project.db.rollback()
         if not isinstance(exc, Exception):
             raise
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=ActionError(
-                code="project_write_failed",
-                message="project write failed",
-                action_kind=action.kind,
-            ),
-        )
+        return ctx.fail("project_write_failed", "project write failed")
     return {
         "action_id": action_id,
         "receipt_id": receipt_id,
@@ -722,7 +697,6 @@ def reserve_typed_action_job(
     edition_run_context: Mapping[str, Any] | None = None,
 ) -> ActionJobEnvelope | ActionResult:
     """Reserve canonical intent without invoking a worker-resolved callable."""
-    from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
     if not _supports_typed_action_job(bound):
@@ -825,17 +799,8 @@ def bind_typed_action_job(
             )
         return bound
     except (KeyError, TypeError, ValueError) as exc:
-        from frisket.engine.executor.action_support import _failed_result
-
-        return _failed_result(
-            project_id=envelope.project_id,
-            action_kind=envelope.action_kind,
-            error=ActionError(
-                code="invalid_action_request",
-                message=str(exc),
-                action_kind=envelope.action_kind,
-                field="action",
-            ),
+        return ActionCtx(envelope.project_id, envelope.action_kind).fail(
+            "invalid_action_request", str(exc), field="action"
         )
 
 

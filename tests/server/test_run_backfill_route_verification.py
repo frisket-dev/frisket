@@ -1,6 +1,6 @@
 """Route-verification coverage: run.backfill resumes a routed recipe through
-the DIRECT v1 action path (``_default_map_runner_factory`` /
-``_composed_map_runner_factory``, engine/executor/actions.py), which — before
+the DIRECT v1 action path (``_default_map_runner_factory``,
+engine/executor/actions.py), which — before
 this fix — built its ``MapRunner`` with NO verification wired at all.
 A routed, consent-gated transcription run could therefore backfill new rows
 with zero verification: a revoked/lowered standing consent never re-gated,

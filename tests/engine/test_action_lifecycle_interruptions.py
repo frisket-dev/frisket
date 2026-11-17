@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from frisket.contracts.action import Receipt
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor import action_lifecycle as lifecycle
+from frisket.engine.executor import action_reservations
 from frisket.engine.executor.action_families import exports
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
@@ -181,6 +182,32 @@ def test_interruption_after_begin_rolls_back_acquired_transaction(
     assert not project.db.in_transaction
     assert _snapshot(project) == before
     project.db.commit()
+    assert _snapshot(project) == before
+
+
+@pytest.mark.parametrize("owner", ["reserve", "delete"])
+@pytest.mark.parametrize("failure", FAILURES[:3])
+def test_reservation_owner_interruption_after_begin_rolls_back(
+    project, monkeypatch, owner, failure
+):
+    before = _snapshot(project)
+    error = failure("interrupted after BEGIN")
+    _interrupt_begin(project, monkeypatch, error, after=True)
+    with pytest.raises(failure) as caught:
+        if owner == "reserve":
+            action_reservations._reserve_running_action_receipt(
+                project,
+                _action(),
+                params_hash="hash",
+                project_id="p",
+                reservation_kind="test_reservation",
+            )
+        else:
+            action_reservations._delete_reserved_action_receipt(
+                project, "receipt_missing", action_kind="derive.test"
+            )
+    assert caught.value is error
+    assert not project.db.in_transaction
     assert _snapshot(project) == before
 
 

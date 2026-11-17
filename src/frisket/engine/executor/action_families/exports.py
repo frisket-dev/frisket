@@ -37,14 +37,13 @@ from frisket.engine.executor.action_inventory import (
     _TypedProjectEnvelope,
 )
 from frisket.engine.executor.action_reservations import (
-    _direct_action_finalize_metadata,
-    _finalize_direct_reserved_action_receipt,
+    _finalize_reserved_action_receipt,
     _receipt_for_idempotency,
     _reserve_running_action_receipt,
     _reserved_receipt_result_from_existing,
 )
 from frisket.engine.executor.action_support import (
-    _failed_result,
+    ActionCtx,
 )
 from frisket.engine.runner.confirmation_context import (
     ActionScope,
@@ -1325,11 +1324,7 @@ def _run_export_google_sheets(
         confirmation=confirmation,
     )
     if isinstance(admission, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=admission,
-        )
+        return ActionCtx(project_id, action.kind).failed(admission)
     client = admission.client
     connection_for_client = admission.connection
     connection_metadata = _google_sheets_connection_metadata(
@@ -1339,11 +1334,7 @@ def _run_export_google_sheets(
 
     tabs_or_error = _google_sheets_tabs_for_source(project, action, params)
     if isinstance(tabs_or_error, ActionError):
-        return _failed_result(
-            project_id=project_id,
-            action_kind=action.kind,
-            error=tabs_or_error,
-        )
+        return ActionCtx(project_id, action.kind).failed(tabs_or_error)
     tabs = tabs_or_error
     # Receipt helpers consume host-observed operation inputs. The independent
     # canonical request hash above still owns idempotency.
@@ -1364,7 +1355,6 @@ def _run_export_google_sheets(
             params_hash=params_hash,
             project_id=project_id,
             reservation_kind="export_google_sheets_idempotency_reservation",
-            result_from_existing_fn=_reserved_receipt_result_from_existing,
             params_model=GoogleSheetsExportRequest,
         )
         if isinstance(reservation, ActionResult):
@@ -1394,7 +1384,7 @@ def _run_export_google_sheets(
             tabs=tabs,
             connection=connection_metadata,
         )
-        finalized = _finalize_export_google_sheets_receipt(
+        finalized = _finalize_reserved_action_receipt(
             project,
             action,
             params_hash=params_hash,
@@ -1612,7 +1602,7 @@ def _run_export_google_sheets(
         tabs=tabs,
         connection=connection_metadata,
     )
-    finalized = _finalize_export_google_sheets_receipt(
+    finalized = _finalize_reserved_action_receipt(
         project,
         action,
         params_hash=params_hash,
@@ -1621,29 +1611,6 @@ def _run_export_google_sheets(
         require_running_status=finalize_requires_running,
     )
     return finalized or result
-
-
-def _finalize_export_google_sheets_receipt(
-    project: Project,
-    action: ActionSpec,
-    *,
-    params_hash: str,
-    project_id: str,
-    receipt: Receipt,
-    require_running_status: bool = True,
-) -> ActionResult | None:
-    return _finalize_direct_reserved_action_receipt(
-        project,
-        action,
-        params_hash=params_hash,
-        project_id=project_id,
-        receipt=receipt,
-        finalize=_direct_action_finalize_metadata(
-            action.kind,
-            result_from_existing_fn=_reserved_receipt_result_from_existing,
-            require_running_status=require_running_status,
-        ),
-    )
 
 
 def _google_sheets_connection_metadata(
