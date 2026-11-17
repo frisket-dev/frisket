@@ -1,20 +1,14 @@
 """One route-service error envelope.
 
-Every route-facing service used to mint its own ``*RouteError`` (four shapes:
-``.detail: str`` on ValueError, ``.detail`` on Exception, ``.detail: Any``,
-and ``.content`` + ``bare_json``) and every route re-decided the
-HTTPException-vs-bare-JSONResponse wire fork in its own except-block.
+Routes raise through their service and write no except-block: a service
+raises ``RouteError`` (or a typed error registered once with
+``register_typed_error``) and the app-level handlers render it.
 
-Now there is one ``RouteError`` and one app-level handler registered in
-``create_app`` (``register_route_error_handler``), so routes raise through
-their service and write NO except-block. Per-service subclasses (e.g.
-``ImportCsvRouteError(RouteError)``) remain for isinstance scoping only.
-
-Wire format is unchanged:
-- default: ``{"detail": <content>}`` with the error status — byte-identical to
+Wire format:
+- default: ``{"detail": <content>}`` with the error status, byte-identical to
   FastAPI's ``HTTPException(status_code, detail)`` handler output;
 - ``bare_json=True``: ``<content>`` itself as the JSON body (the action-runs
-  contract responses that predate the envelope).
+  and preview contract responses).
 
 Unexpected exceptions also use a sanitized ``{"detail": "Internal Server
 Error"}`` JSON response. The original exception is logged, never reflected to
@@ -106,14 +100,19 @@ def register_typed_error(
     exception_types: ExceptionTypes,
     status_code: int | None = None,
     detail: Any | Callable[[Exception], Any] = str,
+    *,
+    bare_json: bool = False,
 ) -> None:
-    # Deliberately never registers a broad ValueError or KeyError handler.
+    # Deliberately never registers a broad ValueError, KeyError or
+    # PermissionError handler: those are raised by unrelated code paths.
     async def _handler(_request: Request, exc: Exception) -> JSONResponse:
         code = status_code if status_code is not None else getattr(exc, "status_code")
         content = detail(exc) if callable(detail) else detail
         if content is None:
             content = getattr(exc, "detail")
-        return JSONResponse(status_code=code, content={"detail": content})
+        return JSONResponse(
+            status_code=code, content=content if bare_json else {"detail": content}
+        )
 
     types = (
         exception_types if isinstance(exception_types, tuple) else (exception_types,)

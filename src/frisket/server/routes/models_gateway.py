@@ -14,7 +14,10 @@ from frisket.contracts.http.models_gateway import (
 )
 from frisket.server.route_errors import http_error_responses
 from frisket.server.services.models_gateway import ModelsGatewayService
-from frisket.server.services.project_model_routes import ProjectModelRouteError
+from frisket.server.services.project_model_routes import (
+    ProjectModelRouteError,
+    register_project_model_route_error,
+)
 
 
 class ModelsGatewayAPIRoute(APIRoute):
@@ -38,6 +41,7 @@ class ModelsGatewayAPIRoute(APIRoute):
 def register_models_gateway_routes(
     app: FastAPI, *, service: ModelsGatewayService
 ) -> None:
+    register_project_model_route_error(app)
     router = APIRouter(route_class=ModelsGatewayAPIRoute)
 
     @router.get(
@@ -71,11 +75,10 @@ def register_models_gateway_routes(
                 token=body.token,
                 validation_token=body.validation_token,
             )
-        except ProjectModelRouteError as exc:
-            raise HTTPException(
-                exc.status,
-                {"code": exc.code, "message": str(exc)},
-            ) from exc
+        except ProjectModelRouteError:
+            # Rendered by its app-level handler; the ValueError below must not
+            # swallow it.
+            raise
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 

@@ -11,10 +11,6 @@ from frisket.server.route_errors import RouteError
 from frisket.server.workspace import Workspace
 
 
-class SheetGraphRouteError(RouteError):
-    pass
-
-
 class SheetGraphService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
@@ -45,7 +41,7 @@ class SheetGraphService:
         try:
             return build_sheet_graph(project, sheet_id=sheet_id, config=config)
         except SheetGraphError as exc:
-            raise SheetGraphRouteError(
+            raise RouteError(
                 exc.status_code,
                 {"code": exc.code, "message": exc.message},
             ) from exc

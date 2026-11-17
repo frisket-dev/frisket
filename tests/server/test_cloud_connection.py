@@ -572,7 +572,7 @@ def test_concurrent_completed_polls_reuse_connected_state(tmp_path):
     assert service.sign_out().revocation == "revoked"
     with pytest.raises(CloudConnectionServiceError) as exc_info:
         service.poll_authorization(authorization_id)
-    assert exc_info.value.status == 404
+    assert exc_info.value.status_code == 404
     service.close()
 
 
@@ -660,7 +660,7 @@ def test_minted_token_is_revoked_if_connection_cannot_be_persisted(
         service.poll_authorization(authorization_id)
 
     if isinstance(exc_info.value, CloudConnectionServiceError):
-        assert exc_info.value.status == 503
+        assert exc_info.value.status_code == 503
     else:
         assert str(exc_info.value) == "unexpected pin failure"
     assert ("DELETE", "/api/desktop/v1/session") in requests
@@ -734,7 +734,7 @@ def test_write_then_raise_does_not_retain_revoked_token(
     with pytest.raises(CloudConnectionServiceError) as exc_info:
         service.poll_authorization(authorization_id)
 
-    assert exc_info.value.status == 503
+    assert exc_info.value.status_code == 503
     profile = store.load()
     connection = profile.connection
     assert (connection.access_token if connection else None) == existing_token
@@ -798,7 +798,7 @@ def test_sign_out_cancels_pending_device_authorizations(tmp_path):
 
     with pytest.raises(CloudConnectionServiceError) as exc_info:
         service.poll_authorization(started.id)
-    assert exc_info.value.status == 404
+    assert exc_info.value.status_code == 404
     service.close()
 
 

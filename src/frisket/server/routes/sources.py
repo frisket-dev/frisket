@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 
 from frisket.contracts.http.project_sources import (
     ProjectSourceDetail,
@@ -10,7 +10,7 @@ from frisket.contracts.http.project_sources import (
     ProjectSourceList,
 )
 from frisket.server.paging import PageLimit100, PageOffset
-from frisket.server.route_errors import http_error_responses
+from frisket.server.route_errors import http_error_responses, register_typed_error
 from frisket.server.services.sources import SourceNotFound, SourceService
 
 
@@ -19,6 +19,8 @@ def register_source_routes(
     *,
     service: SourceService,
 ) -> None:
+    register_typed_error(app, SourceNotFound, 404, "source not found")
+
     @app.get(
         "/api/projects/{pid}/sources",
         response_model=ProjectSourceList,
@@ -39,15 +41,12 @@ def register_source_routes(
         runs_offset: PageOffset = 0,
         runs_limit: PageLimit100 = 50,
     ) -> ProjectSourceDetail:
-        try:
-            return service.get_source(
-                pid,
-                source_id,
-                runs_offset=runs_offset,
-                runs_limit=runs_limit,
-            )
-        except SourceNotFound as exc:
-            raise HTTPException(404, "source not found") from exc
+        return service.get_source(
+            pid,
+            source_id,
+            runs_offset=runs_offset,
+            runs_limit=runs_limit,
+        )
 
     @app.get(
         "/api/projects/{pid}/sources/{source_id}/health",
@@ -61,12 +60,9 @@ def register_source_routes(
         runs_offset: PageOffset = 0,
         runs_limit: PageLimit100 = 20,
     ) -> ProjectSourceHealth:
-        try:
-            return service.get_source_health(
-                pid,
-                source_id,
-                runs_offset=runs_offset,
-                runs_limit=runs_limit,
-            )
-        except SourceNotFound as exc:
-            raise HTTPException(404, "source not found") from exc
+        return service.get_source_health(
+            pid,
+            source_id,
+            runs_offset=runs_offset,
+            runs_limit=runs_limit,
+        )

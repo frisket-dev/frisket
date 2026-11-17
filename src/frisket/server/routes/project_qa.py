@@ -31,28 +31,21 @@ from frisket.engine.store.project_qa import (
 from frisket.engine.store.project_qa_research import ProjectQAResearchConflictError
 from frisket.server.route_errors import (
     http_error_responses,
+    register_typed_error,
     reject_unknown_query_parameters,
 )
 from frisket.server.services.project_qa import ProjectQAService
 from frisket.server.services.project_qa_skills import ProjectQASkillConflict
 from frisket.server.services.skills import SkillLibraryError
-from frisket.server.services.project_qa_tools import ProjectQAScopeError
 
 
 @contextmanager
 def _errors():
+    # PermissionError, ValueError and SkillLibraryError are raised by unrelated
+    # code too, so they are mapped here for Ask routes only; Ask's typed store
+    # errors are registered app-wide in register_project_qa_routes.
     try:
         yield
-    except ProjectQAScopeError as exc:
-        raise HTTPException(422, str(exc)) from exc
-    except ProjectQANotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    except ProjectQASkillConflict as exc:
-        raise HTTPException(409, exc.detail()) from exc
-    except ProjectQAConflictError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    except ProjectQAResearchConflictError as exc:
-        raise HTTPException(409, str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(403, str(exc)) from exc
     except SkillLibraryError as exc:
@@ -70,6 +63,11 @@ def _actor(request: Request) -> str | None:
 
 
 def register_project_qa_routes(app: FastAPI, *, service: ProjectQAService) -> None:
+    register_typed_error(app, ProjectQANotFoundError, 404)
+    register_typed_error(app, ProjectQASkillConflict, 409, lambda exc: exc.detail())
+    register_typed_error(
+        app, (ProjectQAConflictError, ProjectQAResearchConflictError), 409
+    )
     errors = http_error_responses(401, 403, 404, 409, 422, 500)
     path = "/api/projects/{pid}/qa/threads"
 

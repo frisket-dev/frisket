@@ -202,6 +202,9 @@ jobs:
       # container-type re-guards on params are unreachable and stay deleted
       # (WARM-01).
       - run: uv run --no-sync python scripts/ci/lint_precheck_container_guards.py
+      # Routes map an exception type to HTTP once (register_typed_error) or
+      # raise RouteError; the per-handler idioms only shrink.
+      - run: uv run --no-sync python scripts/ci/lint_route_error_idioms.py
       # Import-boundary gate: the declarative rules in
       # scripts/ci/import_boundaries.json checked against the real source tree
       # (the single boundary system).

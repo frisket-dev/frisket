@@ -24,10 +24,6 @@ from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
 
 
-class ImportUrlsRouteError(RouteError):
-    pass
-
-
 class ImportUrlsPrepareService:
     def __init__(self, workspace: Workspace, *, pdf_import_service: Any):
         self._workspace = workspace
@@ -37,7 +33,7 @@ class ImportUrlsPrepareService:
         self, project_id: str, *, request: Request, urls: list[str]
     ) -> dict[str, Any]:
         if not urls:
-            raise ImportUrlsRouteError(400, "no urls")
+            raise RouteError(400, "no urls")
         project = self._workspace.get(project_id)
         factory = self._workspace.executor_deps_factory
         deps = (
@@ -45,9 +41,7 @@ class ImportUrlsPrepareService:
         ) or ExecutorDeps()
         limit = deps.url_import_limits.max_urls if deps.url_import_limits else None
         if limit is not None and len(urls) > limit:
-            raise ImportUrlsRouteError(
-                400, f"URL count exceeds the deployment limit of {limit}"
-            )
+            raise RouteError(400, f"URL count exceeds the deployment limit of {limit}")
         enabled = enabled_workbench_plugin_ids(project)
         root = project.path / ".bulk_import_staging"
         staging = root / f".draft-urls-{secrets.token_urlsafe(18)}"
@@ -58,7 +52,7 @@ class ImportUrlsPrepareService:
             downloaded = 0
             for index, url in enumerate(urls, start=1):
                 if await request.is_disconnected():
-                    raise ImportUrlsRouteError(499, "URL preparation was cancelled")
+                    raise RouteError(499, "URL preparation was cancelled")
                 entry = await await_thread_worker(
                     _acquire_one, staging, index, url.strip(), enabled
                 )

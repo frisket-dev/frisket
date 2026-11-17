@@ -6,10 +6,11 @@ from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, Callable, Literal
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from frisket.server.downloads import unlink_best_effort
+from frisket.server.route_errors import register_typed_error
 from frisket.server.services.project_exports import (
     ProjectExportError,
     ProjectExportService,
@@ -77,6 +78,8 @@ def register_sheet_dataset_export_route(
     *,
     service: SheetDatasetExportService,
 ) -> None:
+    register_typed_error(app, SheetDatasetExportError, detail=None)
+
     @app.get("/api/projects/{pid}/exports/sheets")
     def export_sheet_dataset(
         pid: str,
@@ -99,35 +102,10 @@ def register_sheet_dataset_export_route(
         with one tab per selected sheet. Include attachments packages either
         format with the referenced stored files in a ZIP.
         """
-        try:
-            if (
-                format_ == "csv"
-                and len(set(sheet_ids)) == 1
-                and not include_attachments
-            ):
-                export = service.stream_csv(
-                    pid,
-                    sheet_ids,
-                    filter_=filter_,
-                    sort=sort,
-                    scope_row_ids=scope_row_ids,
-                    selection=selection,
-                    view_id=view_id,
-                    formula_policy=formula_policy,
-                )
-                return _ClosingStreamingResponse(
-                    export.chunks,
-                    close=export.close,
-                    media_type=export.media_type,
-                    headers={
-                        "Content-Disposition": f'attachment; filename="{export.filename}"'
-                    },
-                )
-            export = service.export(
+        if format_ == "csv" and len(set(sheet_ids)) == 1 and not include_attachments:
+            export = service.stream_csv(
                 pid,
                 sheet_ids,
-                format_=format_,
-                include_attachments=include_attachments,
                 filter_=filter_,
                 sort=sort,
                 scope_row_ids=scope_row_ids,
@@ -135,8 +113,26 @@ def register_sheet_dataset_export_route(
                 view_id=view_id,
                 formula_policy=formula_policy,
             )
-        except SheetDatasetExportError as exc:
-            raise HTTPException(exc.status_code, exc.detail) from exc
+            return _ClosingStreamingResponse(
+                export.chunks,
+                close=export.close,
+                media_type=export.media_type,
+                headers={
+                    "Content-Disposition": f'attachment; filename="{export.filename}"'
+                },
+            )
+        export = service.export(
+            pid,
+            sheet_ids,
+            format_=format_,
+            include_attachments=include_attachments,
+            filter_=filter_,
+            sort=sort,
+            scope_row_ids=scope_row_ids,
+            selection=selection,
+            view_id=view_id,
+            formula_policy=formula_policy,
+        )
         if isinstance(export, SheetDatasetFile):
             return _ClosingFileResponse(
                 export.path,
@@ -200,6 +196,8 @@ def register_project_export_routes(
     *,
     service: ProjectExportService,
 ) -> None:
+    register_typed_error(app, ProjectExportError, detail=None)
+
     @app.get("/api/projects/{pid}/actions/export")
     def action_export(pid: str) -> dict:
         """Programmatic export-link discovery (``export_project``).
@@ -224,22 +222,19 @@ def register_project_export_routes(
         include_traces: bool = False,
         mode: Literal["bundle", "db"] = "bundle",
     ) -> FileResponse:
-        try:
-            if mode == "db":
-                export = service.export_database(pid)
-                return _ClosingFileResponse(
-                    export.path,
-                    media_type="application/vnd.sqlite3",
-                    filename=export.filename,
-                    close=partial(unlink_best_effort, export.path),
-                )
-            export = service.export_bundle(
-                pid,
-                include_media=include_media,
-                include_traces=include_traces,
+        if mode == "db":
+            export = service.export_database(pid)
+            return _ClosingFileResponse(
+                export.path,
+                media_type="application/vnd.sqlite3",
+                filename=export.filename,
+                close=partial(unlink_best_effort, export.path),
             )
-        except ProjectExportError as exc:
-            raise HTTPException(exc.status_code, exc.detail) from exc
+        export = service.export_bundle(
+            pid,
+            include_media=include_media,
+            include_traces=include_traces,
+        )
         return _ClosingFileResponse(
             export.path,
             media_type="application/gzip",

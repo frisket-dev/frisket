@@ -437,6 +437,37 @@ class SearchPreparationService:
             ensure_semantic_setup=self._ensure_pdf_semantic_setup,
         )
 
+    def _settle(self, row: SearchPreparationBatchRow) -> None:
+        self.store.mark_settled(
+            row.id, project_id=row.project_id, storage_org_id=row.storage_org_id
+        )
+
+    def _pending_for_receipt(
+        self, project_id: str, receipt_id: str
+    ) -> SearchPreparationBatchRow | None:
+        return self.store.for_receipt(
+            storage_org_id=self.workspace.queue_storage_org_id,
+            project_id=project_id,
+            receipt_id=receipt_id,
+            include_pending=True,
+        )
+
+    def _planned_batch(
+        self, project_id: str, batch_id: str, *required: str
+    ) -> SearchPreparationBatchRow:
+        """Load a planned batch, 404 when absent or missing ``required`` facts."""
+        try:
+            row = self.store.get(
+                batch_id,
+                project_id=project_id,
+                storage_org_id=self.workspace.queue_storage_org_id,
+            )
+        except KeyError as exc:
+            raise RouteError(404, "search preparation batch was not found") from exc
+        if row.plan is None or any(getattr(row, name) is None for name in required):
+            raise RouteError(404, "search preparation batch was not found")
+        return row
+
     def create_from_pdf_import(self, project_id: str, **kwargs: Any) -> Any:
         return self._pdf_imports().create(project_id, **kwargs)
 
@@ -450,19 +481,10 @@ class SearchPreparationService:
     def abandon_pdf_import(
         self, project_id: str, *, receipt_id: str, import_ref: str
     ) -> None:
-        pending = self.store.for_receipt(
-            storage_org_id=self.workspace.queue_storage_org_id,
-            project_id=project_id,
-            receipt_id=receipt_id,
-            include_pending=True,
-        )
+        pending = self._pending_for_receipt(project_id, receipt_id)
         if pending is None or pending.import_ref != import_ref:
             return
-        self.store.mark_settled(
-            pending.id,
-            project_id=project_id,
-            storage_org_id=self.workspace.queue_storage_org_id,
-        )
+        self._settle(pending)
 
     def _ensure_pdf_semantic_setup(
         self,
@@ -536,11 +558,8 @@ class SearchPreparationService:
                 and session.state in {"kept", "completed"}
                 and not header.cancel_requested
             ):
-                pending = self.store.for_receipt(
-                    storage_org_id=self.workspace.queue_storage_org_id,
-                    project_id=project_id,
-                    receipt_id=str(header.envelope["receipt_id"]),
-                    include_pending=True,
+                pending = self._pending_for_receipt(
+                    project_id, str(header.envelope["receipt_id"])
                 )
                 if pending is None:
                     self.reserve_pdf_import(
@@ -597,12 +616,7 @@ class SearchPreparationService:
         sheet_id: int,
         row_ids: Sequence[int] | None = None,
     ) -> str | None:
-        existing = self.store.for_receipt(
-            storage_org_id=self.workspace.queue_storage_org_id,
-            project_id=project_id,
-            receipt_id=receipt_id,
-            include_pending=True,
-        )
+        existing = self._pending_for_receipt(project_id, receipt_id)
         if existing is None:
             project = self.workspace.get(project_id)
             imported = project.db.execute(
@@ -615,12 +629,7 @@ class SearchPreparationService:
                 self.reserve_pdf_import(
                     project_id, receipt_id=receipt_id, import_ref=str(imported[0])
                 )
-                existing = self.store.for_receipt(
-                    storage_org_id=self.workspace.queue_storage_org_id,
-                    project_id=project_id,
-                    receipt_id=receipt_id,
-                    include_pending=True,
-                )
+                existing = self._pending_for_receipt(project_id, receipt_id)
         if existing is not None and existing.import_ref is not None:
             project = self.workspace.get(project_id)
             try:
@@ -637,11 +646,7 @@ class SearchPreparationService:
                 return existing.id
         if not self.automatic_enabled(project_id):
             if existing is not None and existing.plan is None:
-                self.store.mark_settled(
-                    existing.id,
-                    project_id=project_id,
-                    storage_org_id=self.workspace.queue_storage_org_id,
-                )
+                self._settle(existing)
             return None
         if existing is not None and existing.plan is not None:
             return existing.id
@@ -684,11 +689,7 @@ class SearchPreparationService:
         if pending.stop_requested_at is not None or pending.settled_at is not None:
             return None
         if not self.automatic_enabled(pending.project_id):
-            self.store.mark_settled(
-                pending.id,
-                project_id=pending.project_id,
-                storage_org_id=pending.storage_org_id,
-            )
+            self._settle(pending)
             return None
         if pending.sheet_id is None or pending.captured_sources is None:
             return None
@@ -742,11 +743,7 @@ class SearchPreparationService:
         plan["source_cutoff"] = pending.source_cutoff
         plan["admission_policy"] = "automatic_local"
         if not plan["items"] and planning_error is None:
-            self.store.mark_settled(
-                pending.id,
-                project_id=pending.project_id,
-                storage_org_id=pending.storage_org_id,
-            )
+            self._settle(pending)
             return None
         batch = self.store.hydrate_pending_plan(
             pending.id,
@@ -786,12 +783,7 @@ class SearchPreparationService:
         self, project_id: str, receipt_id: str
     ) -> tuple[Literal["pending", "available", "none"], str | None]:
         """Read durable handoff availability without advancing preparation."""
-        row = self.store.for_receipt(
-            storage_org_id=self.workspace.queue_storage_org_id,
-            project_id=project_id,
-            receipt_id=receipt_id,
-            include_pending=True,
-        )
+        row = self._pending_for_receipt(project_id, receipt_id)
         if row is None:
             return "none", None
         # Failed, stopped, and completed plans remain available for review,
@@ -829,11 +821,7 @@ class SearchPreparationService:
             return None
         if not self.automatic_enabled(project_id):
             if pending is not None:
-                self.store.mark_settled(
-                    pending.id,
-                    project_id=project_id,
-                    storage_org_id=self.workspace.queue_storage_org_id,
-                )
+                self._settle(pending)
             return None
         return self._reserve_and_complete_automatic(
             project_id,
@@ -960,16 +948,7 @@ class SearchPreparationService:
         may_setup_models: bool = True,
         may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
-        try:
-            row = self.store.get(
-                batch_id,
-                project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
-            )
-        except KeyError as exc:
-            raise RouteError(404, "search preparation batch was not found") from exc
-        if row.plan is None:
-            raise RouteError(404, "search preparation batch was not found")
+        row = self._planned_batch(project_id, batch_id)
         return self._project(
             row,
             may_setup_models=may_setup_models,
@@ -987,16 +966,7 @@ class SearchPreparationService:
         may_setup_models: bool = True,
         may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
-        try:
-            row = self.store.get(
-                batch_id,
-                project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
-            )
-        except KeyError as exc:
-            raise RouteError(404, "search preparation batch was not found") from exc
-        if row.plan is None or row.sheet_id is None:
-            raise RouteError(404, "search preparation batch was not found")
+        row = self._planned_batch(project_id, batch_id, "sheet_id")
         if (
             row.plan_hash != plan_hash
             or row.decision is not None
@@ -1056,16 +1026,7 @@ class SearchPreparationService:
         initiated_by: str | None,
         may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
-        try:
-            row = self.store.get(
-                batch_id,
-                project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
-            )
-        except KeyError as exc:
-            raise RouteError(404, "search preparation batch was not found") from exc
-        if row.plan is None or row.sheet_id is None or row.plan_hash is None:
-            raise RouteError(404, "search preparation batch was not found")
+        row = self._planned_batch(project_id, batch_id, "sheet_id", "plan_hash")
         if row.stop_requested_at is not None:
             raise RouteError(409, "search preparation was stopped")
         if row.errors:
@@ -1288,12 +1249,7 @@ class SearchPreparationService:
         self, project_id: str, receipt_id: str, *, lock_timeout: float = -1
     ) -> None:
         """Resume one durable reviewed import from an external worker."""
-        row = self.store.for_receipt(
-            storage_org_id=self.workspace.queue_storage_org_id,
-            project_id=project_id,
-            receipt_id=receipt_id,
-            include_pending=True,
-        )
+        row = self._pending_for_receipt(project_id, receipt_id)
         if row is not None and row.import_ref is not None:
             self._recover_pending_import(row, lock_timeout=lock_timeout)
 
@@ -1321,20 +1277,12 @@ class SearchPreparationService:
                         self._start_next_setup(row)
                         self._advance(row)
                 except KeyError:
-                    self.store.mark_settled(
-                        row.id,
-                        project_id=row.project_id,
-                        storage_org_id=row.storage_org_id,
-                    )
+                    self._settle(row)
                 except Exception as exc:
                     # One broken project or transient open must not starve the
                     # rest of this stable page. Leave it active for retry.
                     if getattr(exc, "status_code", None) in {404, 422}:
-                        self.store.mark_settled(
-                            row.id,
-                            project_id=row.project_id,
-                            storage_org_id=row.storage_org_id,
-                        )
+                        self._settle(row)
                         continue
                     LOG.warning(
                         "search preparation intent recovery failed",
@@ -1383,20 +1331,12 @@ class SearchPreparationService:
     def _recover_pending_materialization(self, row: SearchPreparationBatchRow) -> None:
         job = self.workspace.queue.get(row.materialization_job_id)
         if job is None or job.status in {"failed", "cancelled"}:
-            self.store.mark_settled(
-                row.id,
-                project_id=row.project_id,
-                storage_org_id=row.storage_org_id,
-            )
+            self._settle(row)
             return
         if job.status != "done":
             return
         if row.sheet_id is None or not row.row_ids:
-            self.store.mark_settled(
-                row.id,
-                project_id=row.project_id,
-                storage_org_id=row.storage_org_id,
-            )
+            self._settle(row)
             return
         self._reserve_and_complete_automatic(
             row.project_id,
@@ -1412,22 +1352,14 @@ class SearchPreparationService:
             self._complete_automatic_plan(row)
             return
         if row.import_ref is None or row.trigger_receipt_id is None:
-            self.store.mark_settled(
-                row.id,
-                project_id=row.project_id,
-                storage_org_id=row.storage_org_id,
-            )
+            self._settle(row)
             return
         project = self.workspace.get(row.project_id)
         session = ImportSessionStore(project).get(row.import_ref)
         if session is None:
             receipt = ReceiptStore(project).find_by_id(row.trigger_receipt_id)
             if receipt is None or receipt.status in {"cancelled", "failed"}:
-                self.store.mark_settled(
-                    row.id,
-                    project_id=row.project_id,
-                    storage_org_id=row.storage_org_id,
-                )
+                self._settle(row)
             return
         directory = import_intake_dir(project.path, row.import_ref)
         try:
@@ -1443,20 +1375,12 @@ class SearchPreparationService:
                 session.state not in {"active", "paused", "cancelled"}
                 and scheduled >= session.cursor
             ):
-                self.store.mark_settled(
-                    row.id,
-                    project_id=row.project_id,
-                    storage_org_id=row.storage_org_id,
-                )
+                self._settle(row)
             return
         if session.state in {"active", "paused", "cancelled"}:
             return
         if session.state == "removed" or session.sheet_id is None:
-            self.store.mark_settled(
-                row.id,
-                project_id=row.project_id,
-                storage_org_id=row.storage_org_id,
-            )
+            self._settle(row)
             return
         self.create_after_import(
             row.project_id,
@@ -1473,16 +1397,7 @@ class SearchPreparationService:
         page_number: int | None,
         column_id: int | None = None,
     ) -> SearchPreparationTextSamples:
-        try:
-            row = self.store.get(
-                batch_id,
-                project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
-            )
-        except KeyError as exc:
-            raise RouteError(404, "search preparation batch was not found") from exc
-        if row.plan is None or row.sheet_id is None:
-            raise RouteError(404, "search preparation batch was not found")
+        row = self._planned_batch(project_id, batch_id, "sheet_id")
         project = self.workspace.get(project_id)
         samples: list[SearchPreparationTextSample] = []
         for item in row.plan.get("items", []):
@@ -1600,11 +1515,7 @@ class SearchPreparationService:
         if row.plan is None or row.sheet_id is None:
             return
         if row.stop_requested_at is not None or row.errors:
-            self.store.mark_settled(
-                row.id,
-                project_id=row.project_id,
-                storage_org_id=row.storage_org_id,
-            )
+            self._settle(row)
             return
         setup = setup or self._setup_snapshot()
         planned_by_ref = {m["setup_ref"]: m for m in row.plan["models"]}
@@ -1860,11 +1771,7 @@ class SearchPreparationService:
             requirement = live.get(planned["setup_ref"])
             if requirement is None:
                 if planned["required"]:
-                    self.store.mark_settled(
-                        row.id,
-                        project_id=row.project_id,
-                        storage_org_id=row.storage_org_id,
-                    )
+                    self._settle(row)
                     return
                 continue
             ready = requirement is not None and (
@@ -1883,11 +1790,7 @@ class SearchPreparationService:
             pull = latest.get(planned["setup_ref"])
             if planned["setup_ref"] in row.selected_setup_refs and pull is not None:
                 if pull.status in {"failed", "cancelled"}:
-                    self.store.mark_settled(
-                        row.id,
-                        project_id=row.project_id,
-                        storage_org_id=row.storage_org_id,
-                    )
+                    self._settle(row)
                     return
             if row.decision == "prepare" and (
                 planned["required"] or planned["setup_ref"] in row.selected_setup_refs
@@ -1916,11 +1819,7 @@ class SearchPreparationService:
             and children[key].job_id is not None
             for key in expected
         ):
-            self.store.mark_settled(
-                row.id,
-                project_id=row.project_id,
-                storage_org_id=row.storage_org_id,
-            )
+            self._settle(row)
 
     @staticmethod
     def _source_item_current(

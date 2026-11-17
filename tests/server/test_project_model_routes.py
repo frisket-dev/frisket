@@ -230,7 +230,7 @@ def test_explicit_route_persists_before_setup_and_rejects_unknown_model(
     }
     with pytest.raises(ProjectModelRouteError) as exc_info:
         service.set_route(project_id, "unknown/model", "own")
-    assert exc_info.value.status == 422
+    assert exc_info.value.status_code == 422
     assert exc_info.value.code == "unknown_model"
 
 
@@ -273,7 +273,7 @@ def test_cloud_route_rejects_eligible_model_missing_from_known_inventory(
     with pytest.raises(ProjectModelRouteError) as exc_info:
         ProjectModelRoutesService(workspace).set_route(project_id, MODEL, "cloud")
 
-    assert exc_info.value.status == 409
+    assert exc_info.value.status_code == 409
     assert exc_info.value.code == "cloud_route_unsupported"
 
 
@@ -324,7 +324,7 @@ def test_route_pinning_turns_unreadable_target_configuration_into_typed_refusal(
     with pytest.raises(ProjectModelRouteError) as exc_info:
         ProjectModelRoutesService(workspace).pin_ready_routes(project_id)
 
-    assert exc_info.value.status == 409
+    assert exc_info.value.status_code == 409
     assert exc_info.value.code == "model_route_configuration_unavailable"
     assert str(exc_info.value) == "Fix the target configuration and retry."
     assert read_project_settings(workspace.get(project_id)).model_execution_routes == {}
@@ -362,7 +362,7 @@ def test_explicit_local_model_cannot_be_switched_to_cloud(
             "cloud",
         )
 
-    assert exc_info.value.status == 409
+    assert exc_info.value.status_code == 409
     assert exc_info.value.code == "cloud_route_unsupported"
 
 

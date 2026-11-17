@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Query
 
 from frisket.contracts.http.history_review import HistoryPage
 from frisket.contracts.http.onboarding_imports import SampleProjectSeedResponse
-from frisket.server.route_errors import http_error_responses
+from frisket.server.route_errors import http_error_responses, register_typed_error
 from frisket.server.services.project_debug import ProjectDebugService
 from frisket.server.services.project_history import ProjectHistoryService
 from frisket.server.services.project_timing import ProjectTimingService
@@ -63,13 +63,12 @@ def register_sample_project_routes(
     *,
     service: SampleProjectSeedService,
 ) -> None:
+    register_typed_error(app, SampleProjectSeedError, 500)
+
     @app.post(
         "/api/projects/{pid}/seed-sample",
         response_model=SampleProjectSeedResponse,
         responses=http_error_responses(401, 403, 404, 422, 500),
     )
     def seed_sample_project(pid: str) -> dict:
-        try:
-            return service.seed(pid)
-        except SampleProjectSeedError as exc:
-            raise HTTPException(500, str(exc)) from exc
+        return service.seed(pid)

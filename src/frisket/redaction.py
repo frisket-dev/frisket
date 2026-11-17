@@ -100,6 +100,10 @@ _SENSITIVE_SUFFIXES = (
     "_database_url",
     "_dsn",
 )
+# Sensitive words a key may end with without a separator ("accesstoken",
+# "mytoken"); camelCase keys are split before matching ("clientSecret").
+_GLUED_SENSITIVE_SUFFIXES = ("token", "secret", "password", "passwd", "apikey")
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _SENSITIVE_URL_KEYS = frozenset(
     {
         "access_token",
@@ -246,13 +250,15 @@ def canonical_error_code(
 
 
 def _normalize_key(value: str) -> str:
-    return value.strip().lower().replace("-", "_")
+    return _CAMEL_BOUNDARY_RE.sub("_", value.strip()).lower().replace("-", "_")
 
 
 def _is_sensitive_key(value: str) -> bool:
     normalized = _normalize_key(value)
-    return normalized in _SENSITIVE_KEYS or any(
-        normalized.endswith(suffix) for suffix in _SENSITIVE_SUFFIXES
+    return (
+        normalized in _SENSITIVE_KEYS
+        or normalized.endswith(_SENSITIVE_SUFFIXES)
+        or normalized.replace("_", "").endswith(_GLUED_SENSITIVE_SUFFIXES)
     )
 
 

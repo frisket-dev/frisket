@@ -6,7 +6,6 @@ as media metadata under ``link_only`` and are never downloaded by this poller.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -16,11 +15,18 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from frisket.redaction import redact_text
 from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
     SourcePollResult,
+    config_positive_int,
+    free_listing_result,
+    hash_json,
+    iso_timestamp,
+    provider_error_text,
     register_source_poller,
+    text_hash,
 )
 
 COURTLISTENER_DOCKET_KIND = "courtlistener_docket"
@@ -30,16 +36,6 @@ COURTLISTENER_PAGE_SIZE = 500
 MAX_CURSOR_ITEM_HASH_BYTES = 200_000
 COURTLISTENER_BASE_URL = "https://www.courtlistener.com"
 _DOCKET_ID_RE = re.compile(r"^[1-9][0-9]*$")
-_SENSITIVE_RE = re.compile(
-    r"(?i)(api[_-]?key|authorization|cookie|token|password|secret)"
-    r"(\s*[:=]\s*(?:bearer\s+)?)?[^\s,;&]+"
-)
-_STRUCTURED_SECRET_RE = re.compile(
-    r"(?i)((?:[\"']?(?:api[_-]?key|authorization|cookie|token|password|secret)"
-    r"[\"']?\s*[:=]\s*[\"']?(?:bearer\s+)?)"
-    r"[^\"'\s,;&}]+)"
-)
-_URL_CREDENTIAL_RE = re.compile(r"(?i)(https?://)([^/\s:@]+):([^@\s/]+)@")
 _ALLOWED_CONFIG_KEYS = frozenset(
     {
         "schema_version",
@@ -142,7 +138,7 @@ class CourtListenerDocketPoller:
             )
         except Exception as exc:  # noqa: BLE001 - source.poll stores failures
             raise CourtListenerProviderError(
-                f"CourtListener docket provider failed: {_redact_provider_message(exc)}"
+                f"CourtListener docket provider failed: {provider_error_text(exc)}"
             ) from exc
 
         docket = listing.docket
@@ -163,7 +159,7 @@ class CourtListenerDocketPoller:
             else []
         )
 
-        warnings = [_redact_warning(warning) for warning in listing.warnings]
+        warnings = [redact_text(warning) for warning in listing.warnings]
         if truncated:
             warnings.append(
                 "courtlistener_docket entry cap reached; limited to "
@@ -209,33 +205,44 @@ class CourtListenerDocketPoller:
             for document, _entry in documents
         ]
         party_item_ids = [_party_item_id(config.docket_id, party) for party in parties]
-        cursor_after = {
+        shared = {
             "schema_version": COURTLISTENER_CURSOR_SCHEMA,
             "source_kind": COURTLISTENER_DOCKET_KIND,
             "docket_id": config.docket_id,
-            "docket_url_hash": _text_hash(config.docket_url),
+            "docket_url_hash": text_hash(config.docket_url),
             "entry_count": len(entries),
             "party_count": len(parties),
             "document_count": len(documents),
-            "entry_ids_hash": _hash_json(sorted(entry_item_ids)),
-            "party_ids_hash": _hash_json(sorted(party_item_ids)),
-            "document_ids_hash": _hash_json(sorted(document_item_ids)),
-            "item_hashes": item_hashes,
-            "last_poll_completed_at": _iso_timestamp(self._now()),
             "max_entries_per_poll": config.max_entries_per_poll,
             "truncated": truncated,
-            "warning_count": len(warnings),
             "recap_pdf_policy": config.recap_pdf_policy,
         }
-        provider_use = [
-            {
+        return free_listing_result(
+            items,
+            warnings,
+            cursor={
+                **shared,
+                "entry_ids_hash": hash_json(sorted(entry_item_ids)),
+                "party_ids_hash": hash_json(sorted(party_item_ids)),
+                "document_ids_hash": hash_json(sorted(document_item_ids)),
+                "item_hashes": item_hashes,
+                "last_poll_completed_at": iso_timestamp(self._now()),
+            },
+            summary={
+                **shared,
+                "items_materialized": len(items),
+                "matched_keyword_rows": sum(
+                    1 for item in items if item.row.get("matched_keywords")
+                ),
+            },
+            provider_use={
                 "provider": "courtlistener",
                 "service": str(
                     listing.provider_facts.get("service") or "courtlistener_api"
                 ),
                 "source_kind": COURTLISTENER_DOCKET_KIND,
                 "docket_id": config.docket_id,
-                "docket_url_hash": _text_hash(config.docket_url),
+                "docket_url_hash": shared["docket_url_hash"],
                 "entries_returned": len(raw_entries),
                 "entries_materialized": len(entries),
                 "parties_materialized": len(parties),
@@ -246,39 +253,12 @@ class CourtListenerDocketPoller:
                 "recap_pdf_policy": config.recap_pdf_policy,
                 "max_entries_per_poll": config.max_entries_per_poll,
                 "download": False,
-                "external_api": True,
-                "cost_actual": 0.0,
                 **{
                     str(k): v
                     for k, v in listing.provider_facts.items()
                     if k != "service"
                 },
-            }
-        ]
-        summary = {
-            "schema_version": COURTLISTENER_CURSOR_SCHEMA,
-            "source_kind": COURTLISTENER_DOCKET_KIND,
-            "docket_id": config.docket_id,
-            "docket_url_hash": _text_hash(config.docket_url),
-            "entry_count": len(entries),
-            "party_count": len(parties),
-            "document_count": len(documents),
-            "items_materialized": len(items),
-            "matched_keyword_rows": sum(
-                1 for item in items if item.row.get("matched_keywords")
-            ),
-            "recap_pdf_policy": config.recap_pdf_policy,
-            "max_entries_per_poll": config.max_entries_per_poll,
-            "truncated": truncated,
-            "warnings": len(warnings),
-        }
-        return SourcePollResult(
-            items=items,
-            cursor_after=cursor_after,
-            warnings=warnings,
-            provider_use=provider_use,
-            cost={"cost_micro": 0},
-            summary=summary,
+            },
         )
 
 
@@ -346,7 +326,7 @@ def fetch_courtlistener_docket(
             "service": "courtlistener_api",
             "endpoints_called": endpoints_called,
             "token_present": bool(token),
-            "docket_url_hash": _text_hash(docket_url),
+            "docket_url_hash": text_hash(docket_url),
             "entries_truncated": entry_results.truncated,
         },
     )
@@ -411,9 +391,10 @@ def _resolve_config(
     recap_pdf_policy = raw_config.get("recap_pdf_policy", "link_only")
     if recap_pdf_policy != "link_only":
         return None, "courtlistener_docket recap_pdf_policy must be link_only"
-    max_entries, entries_error = _config_positive_int(
+    max_entries, entries_error = config_positive_int(
         raw_config,
         "max_entries_per_poll",
+        source_kind=COURTLISTENER_DOCKET_KIND,
         default=None,
         maximum=None,
     )
@@ -533,23 +514,6 @@ def _config_bool(
     if type(value) is not bool:
         return False, f"courtlistener_docket {field_name} must be a boolean"
     return bool(value), None
-
-
-def _config_positive_int(
-    config: dict[str, Any],
-    field_name: str,
-    *,
-    default: int | None,
-    maximum: int | None,
-) -> tuple[int | None, str | None]:
-    value = config.get(field_name, default)
-    if value is None and default is None:
-        return None, None
-    if type(value) is not int or value <= 0:
-        return None, f"courtlistener_docket {field_name} must be a positive integer"
-    if maximum is not None and value > maximum:
-        return None, f"courtlistener_docket {field_name} must be <= {maximum}"
-    return int(value), None
 
 
 def _docket_snapshot_item(
@@ -807,7 +771,7 @@ def _get_courtlistener_json(
     except Exception as exc:  # noqa: BLE001 - caller redacts
         raise CourtListenerProviderError(
             f"CourtListener API request failed for {endpoint}: "
-            f"{_redact_provider_message(exc)}"
+            f"{provider_error_text(exc)}"
         ) from exc
     return payload
 
@@ -932,50 +896,11 @@ def _normalized_item_hash(
         "row": {key: value for key, value in row.items() if key != "source_raw"},
         "media": media or [],
     }
-    return _hash_json(payload)
-
-
-def _hash_json(value: Any) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return hash_json(payload)
 
 
 def _json_size(value: Any) -> int:
     return len(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
-
-
-def _text_hash(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _iso_timestamp(value: datetime) -> str:
-    dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
-
-
-def _redact_provider_message(exc: BaseException) -> str:
-    message = str(exc) or exc.__class__.__name__
-    message = _SENSITIVE_RE.sub(r"\1=<redacted>", message)
-    message = _STRUCTURED_SECRET_RE.sub(
-        lambda m: _redact_secret_match(m.group(1)), message
-    )
-    return _URL_CREDENTIAL_RE.sub(r"\1<redacted>@", message)
-
-
-def _redact_warning(warning: Any) -> str:
-    message = _SENSITIVE_RE.sub(r"\1=<redacted>", str(warning))
-    message = _STRUCTURED_SECRET_RE.sub(
-        lambda m: _redact_secret_match(m.group(1)), message
-    )
-    return _URL_CREDENTIAL_RE.sub(r"\1<redacted>@", message)
-
-
-def _redact_secret_match(value: str) -> str:
-    for separator in (":", "="):
-        if separator in value:
-            key = value.split(separator, 1)[0]
-            return f"{key}{separator}<redacted>"
-    return "<redacted>"
 
 
 register_courtlistener_docket_poller()
