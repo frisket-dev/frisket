@@ -35,3 +35,4 @@ web/storybook-static/
 web/screenshots/
 .codex
 .claude
+/.worktree-env
