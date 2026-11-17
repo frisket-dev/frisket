@@ -37,6 +37,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.server.runtime_settings import save_workspace_cost_preapproval_usd
 from frisket.server.mcp import HostedBackend, LocalBackend, create_mcp_server
+from frisket.server.mcp import server as mcp_server
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.mcp.server import ActionToolSpec, RegisteredActionToolSpec
 from frisket.actions.classify import ClassifyParams, classify_prompt
@@ -2241,8 +2242,6 @@ class TestServerConstruction:
 def test_mcp_help_prints_usage_without_touching_the_filesystem(
     flag, tmp_path, monkeypatch, capsys
 ) -> None:
-    from frisket.server.mcp import server as mcp_server
-
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as exit_info:
         mcp_server.main([flag])
@@ -2254,8 +2253,6 @@ def test_mcp_help_prints_usage_without_touching_the_filesystem(
 def test_mcp_refuses_unknown_flags_without_creating_a_workspace(
     tmp_path, monkeypatch, capsys
 ) -> None:
-    from frisket.server.mcp import server as mcp_server
-
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as exit_info:
         mcp_server.main(["--bogus"])

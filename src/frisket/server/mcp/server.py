@@ -251,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--hosted",
         action="store_true",
-        help="act as a client of the hosted API (FRISKET_BASE_URL + FRISKET_PAT)",
+        help="act as a client of the Cloud API (FRISKET_BASE_URL + FRISKET_PAT)",
     )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
     backend: LocalBackend | HostedBackend
