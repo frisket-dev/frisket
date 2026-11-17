@@ -8,9 +8,18 @@ from typing import Any
 
 import pytest
 
-from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
+from executor_harness import (
+    CatalogEntry,
+    ExecutorCase,
+    Gate,
+    case_env,
+    operator_files_patch,
+)
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 def _png_header(width: int, height: int) -> bytes:
@@ -79,24 +88,26 @@ def test_pre_upgrade_file_import_receipt_replays_without_source_url(
         ).hexdigest()
     )
     project = make_project("legacy-files")
-    first = run_action_spec(project, request, project_id="p")
+    first = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert first.status == "completed", first.errors
     project.db.execute(
         "UPDATE receipts SET params_hash=? WHERE id=?", (old_hash, first.receipt_id)
     )
     project.db.commit()
-    replay = run_action_spec(project, request, project_id="p")
+    replay = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == first.receipt_id
     explicit_null = _import_files_action(path)
     explicit_null["params"]["files"][0]["source_url"] = None
     assert (
-        run_action_spec(project, explicit_null, project_id="p").receipt_id
+        run_action_spec(
+            project, explicit_null, project_id="p", deps=OPERATOR_FILES
+        ).receipt_id
         == first.receipt_id
     )
     changed = _import_files_action(path)
     changed["params"]["files"][0]["source_url"] = "https://example.com/file.png"
-    conflict = run_action_spec(project, changed, project_id="p")
+    conflict = run_action_spec(project, changed, project_id="p", deps=OPERATOR_FILES)
     assert conflict.status == "failed"
     assert conflict.errors[0].code == "idempotency_conflict"
 
@@ -228,6 +239,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
 CASES = [
     ExecutorCase(
         kind="import.files",
+        patch=operator_files_patch,
         catalog=CatalogEntry(
             execution_mode="whole_project",
             async_mode="sync",

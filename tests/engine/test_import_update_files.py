@@ -10,6 +10,8 @@ from openpyxl import Workbook
 from frisket.engine.executor import ExecutorDeps, ImportWorkloadLimits
 from frisket.engine.executor.actions import run_action_spec
 
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
+
 
 def _source(tmp_path, kind, rows):
     path = tmp_path / f"source.{kind}"
@@ -88,7 +90,7 @@ def test_file_mapping_unmapped_fields_and_undo(tmp_path, project, kind):
         ],
     )
     request = _request(kind, source, sheet)
-    result = run_action_spec(project, request, project_id="p")
+    result = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     assert result.action.kind == f"import.update_{kind}"
     assert result.outputs[0].ref["edit_count"] == 1
@@ -97,7 +99,7 @@ def test_file_mapping_unmapped_fields_and_undo(tmp_path, project, kind):
     assert project.undo() == result.change_ids[0]
     assert project.get_values(sheet, columns["qty"])[rows[0]] == 3
     source.unlink()
-    replay = run_action_spec(project, request, project_id="p")
+    replay = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert replay.receipt_id == result.receipt_id
 
 
@@ -107,7 +109,10 @@ def test_blank_policy_on_missing_trailing_field(tmp_path, project, kind, keep):
     sheet, columns, rows = _seed(project)
     source = _source(tmp_path, kind, [["code", "amount"], ["A1"]])
     result = run_action_spec(
-        project, _request(kind, source, sheet, keep=keep), project_id="p"
+        project,
+        _request(kind, source, sheet, keep=keep),
+        project_id="p",
+        deps=OPERATOR_FILES,
     )
     assert result.status == "completed", result.errors
     assert project.get_values(sheet, columns["qty"])[rows[0]] == (3 if keep else None)
@@ -122,7 +127,10 @@ def test_deployment_row_limit_rejects_before_any_publication(tmp_path, project, 
         project,
         _request(kind, source, sheet),
         project_id="p",
-        deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=1)),
+        deps=ExecutorDeps(
+            operator_local_files=True,
+            import_workload_limits=ImportWorkloadLimits(max_rows=1),
+        ),
     )
     assert result.status == "failed"
     assert result.errors[0].code == "import_workload_limit_exceeded"
@@ -134,7 +142,9 @@ def test_deployment_row_limit_rejects_before_any_publication(tmp_path, project, 
 def test_invalid_numeric_input_is_refused_before_publication(tmp_path, project, kind):
     sheet, columns, rows = _seed(project)
     source = _source(tmp_path, kind, [["code", "amount"], ["A1", "not a number"]])
-    result = run_action_spec(project, _request(kind, source, sheet), project_id="p")
+    result = run_action_spec(
+        project, _request(kind, source, sheet), project_id="p", deps=OPERATOR_FILES
+    )
     assert result.status == "failed"
     assert project.get_values(sheet, columns["qty"])[rows[0]] == 3
 
@@ -153,7 +163,9 @@ def test_only_mapped_xlsx_formulas_require_cached_values(
     workbook.active[f"{formula_column}2"] = "=1+1"
     workbook.save(source)
     workbook.close()
-    result = run_action_spec(project, _request("xlsx", source, sheet), project_id="p")
+    result = run_action_spec(
+        project, _request("xlsx", source, sheet), project_id="p", deps=OPERATOR_FILES
+    )
     if formula_column == "C":
         assert result.status == "completed", result.errors
         assert project.get_values(sheet, columns["qty"])[rows[0]] == 11

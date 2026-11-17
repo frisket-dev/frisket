@@ -18,6 +18,8 @@ from frisket.engine.store.streaming_import import StreamingSheetWriter
 from frisket.sdk import ActionParams, TableResult, TableRow, action, create_sheet
 from frisket.engine.store.transactions import write_transaction
 
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
+
 
 class NumberParams(ActionParams):
     count: int = 1001
@@ -102,7 +104,10 @@ def test_table_result_is_lazy_and_host_consumes_original_iterator_once(
         project,
         "p",
         _bound(numbers),
-        deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=2)),
+        deps=ExecutorDeps(
+            operator_local_files=True,
+            import_workload_limits=ImportWorkloadLimits(max_rows=2),
+        ),
     )
     assert result.status == "completed", result.errors
     project.db.set_trace_callback(None)
@@ -113,7 +118,9 @@ def test_table_result_is_lazy_and_host_consumes_original_iterator_once(
     ref = result.outputs[0].ref
     assert ref["row_count"] == 1001
     assert set(ref["columns"]) == {"Value"}
-    replay = run_typed_create_sheet_action(project, "p", _bound(numbers))
+    replay = run_typed_create_sheet_action(
+        project, "p", _bound(numbers), deps=OPERATOR_FILES
+    )
     assert replay.receipt_id == result.receipt_id
     assert events == ["closed"]
 
@@ -124,7 +131,9 @@ def _materialized_result(project, tmp_path, kind):
         return TableResult(rows=tuple(rows) if kind == "custom.tuple" else rows)
 
     if kind.startswith("custom."):
-        return run_typed_create_sheet_action(project, "p", _bound(numbers))
+        return run_typed_create_sheet_action(
+            project, "p", _bound(numbers), deps=OPERATOR_FILES
+        )
     params = {"columns": [{"name": "number", "type": "integer"}]}
     if kind == "import.rows":
         params["rows"] = [{"number": n} for n in range(1001)]
@@ -142,6 +151,7 @@ def _materialized_result(project, tmp_path, kind):
             "idempotency_key": "numbers",
         },
         project_id="p",
+        deps=OPERATOR_FILES,
     )
 
 
@@ -226,6 +236,7 @@ def test_whole_sheet_undo_redo_preserves_hidden_columns_with_output_claims(
                 "idempotency_key": "sheet-transition",
             },
             project_id="p",
+            deps=OPERATOR_FILES,
         )
         assert result.status == "completed", result.errors
         sheet_id = result.outputs[0].ref["sheet_id"]
@@ -313,9 +324,13 @@ def test_late_producer_failure_removes_committed_hidden_batches(
     project = make_project("project")
     if failure is KeyboardInterrupt:
         with pytest.raises(KeyboardInterrupt):
-            run_typed_create_sheet_action(project, "p", _bound(numbers))
+            run_typed_create_sheet_action(
+                project, "p", _bound(numbers), deps=OPERATOR_FILES
+            )
     else:
-        result = run_typed_create_sheet_action(project, "p", _bound(numbers))
+        result = run_typed_create_sheet_action(
+            project, "p", _bound(numbers), deps=OPERATOR_FILES
+        )
         assert result.status == "failed"
         assert result.errors[0].code == "project_write_failed"
     assert closed == [True]

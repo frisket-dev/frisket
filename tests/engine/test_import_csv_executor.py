@@ -7,10 +7,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from executor_harness import CatalogEntry, ExecutorCase, Gate
+from executor_harness import CatalogEntry, ExecutorCase, Gate, operator_files_patch
 from frisket.engine.store import Project
 from helpers import run_cli
 from action_test_helpers import write_json
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 CSV_BODY = (
     "summary,source_url,score\n"
@@ -162,6 +165,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
 CASES = [
     ExecutorCase(
         kind="import.csv",
+        patch=operator_files_patch,
         catalog=CatalogEntry(
             execution_mode="whole_project",
             async_mode="sync",
@@ -292,7 +296,9 @@ def test_import_csv_default_allows_more_than_10000_file_rows(
     action["params"]["columns"] = [{"name": "name", "type": "text"}]
 
     project = make_project("Large CSV")
-    result = run_action_spec(project, action, project_id="large-csv")
+    result = run_action_spec(
+        project, action, project_id="large-csv", deps=OPERATOR_FILES
+    )
 
     assert result.status == "completed", result.errors
     sheet = project.db.execute(
@@ -332,7 +338,9 @@ def test_import_csv_executes_a_real_source_larger_than_5mb(
     action["params"]["columns"] = [{"name": "name", "type": "text"}]
 
     project = make_project("Over 5 MB")
-    result = run_action_spec(project, action, project_id="over-5mb")
+    result = run_action_spec(
+        project, action, project_id="over-5mb", deps=OPERATOR_FILES
+    )
 
     assert result.status == "completed", result.errors
     sheet = project.db.execute(
@@ -397,7 +405,9 @@ def test_csv_field_policy_is_stable_across_concurrent_imports(
         project = make_project(f"parallel-{index}")
         action = _import_csv_action(path)
         action["params"]["columns"] = [{"name": "name", "type": "text"}]
-        result = run_action_spec(project, action, project_id="parallel")
+        result = run_action_spec(
+            project, action, project_id="parallel", deps=OPERATOR_FILES
+        )
         assert result.status == "completed", result.errors
         return project.row_count(result.outputs[0].sheet_id)
 
@@ -484,6 +494,7 @@ def test_typed_file_imports_accept_10001_rows_without_a_deployment_cap(
                 "idempotency_key": f"many-{kind}",
             },
             project_id="p",
+            deps=OPERATOR_FILES,
         )
         assert result.status == "completed", result.errors
         assert result.outputs[0].ref["row_count"] == count

@@ -17,6 +17,8 @@ from frisket.engine.executor import BoundLocalFile, ExecutorDeps, run_action_spe
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
+
 openpyxl = pytest.importorskip("openpyxl")
 
 
@@ -273,7 +275,10 @@ def test_xlsx_public_execution_normalizes_once_renames_and_replays(tmp_path, pro
             idempotency_key="xlsx-once",
         )
         result = run_action_spec(
-            project, request.model_dump(mode="json"), project_id="p"
+            project,
+            request.model_dump(mode="json"),
+            project_id="p",
+            deps=OPERATOR_FILES,
         )
         assert result.status == "completed", result.errors
         assert calls == ["Ada", "Grace"]
@@ -301,14 +306,20 @@ def test_xlsx_public_execution_normalizes_once_renames_and_replays(tmp_path, pro
         }
         source.unlink()
         replay = run_action_spec(
-            project, request.model_dump(mode="json"), project_id="p"
+            project,
+            request.model_dump(mode="json"),
+            project_id="p",
+            deps=OPERATOR_FILES,
         )
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == result.receipt_id
         assert calls == ["Ada", "Grace"]
         changed = request.model_copy(update={"sheet_name": "Changed"})
         conflict = run_action_spec(
-            project, changed.model_dump(mode="json"), project_id="p"
+            project,
+            changed.model_dump(mode="json"),
+            project_id="p",
+            deps=OPERATOR_FILES,
         )
         assert conflict.status == "failed"
         assert conflict.errors[0].code == "idempotency_conflict"
@@ -331,7 +342,9 @@ def test_xlsx_late_invalid_cell_never_publishes_partial_sheet(tmp_path, project)
         },
         idempotency_key="xlsx-late",
     )
-    result = run_action_spec(project, request.model_dump(mode="json"), project_id="p")
+    result = run_action_spec(
+        project, request.model_dump(mode="json"), project_id="p", deps=OPERATOR_FILES
+    )
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_xlsx_value"
     assert result.errors[0].details["line"] == 1202

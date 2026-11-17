@@ -7,8 +7,11 @@ from typing import Any
 
 import pytest
 
-from executor_harness import CatalogEntry, ExecutorCase
+from executor_harness import CatalogEntry, ExecutorCase, operator_files_patch
 from frisket.engine.store import Project
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "geo"
 
@@ -122,6 +125,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
 CASES = [
     ExecutorCase(
         kind="import.kml",
+        patch=operator_files_patch,
         catalog=CatalogEntry(
             execution_mode="whole_project",
             async_mode="sync",
@@ -189,6 +193,7 @@ def test_import_kmz_polygons_and_extended_data_columns(
             ],
         ),
         project_id="project-nps",
+        deps=OPERATOR_FILES,
     )
     assert result.status == "completed", result.errors
 

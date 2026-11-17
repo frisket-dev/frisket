@@ -53,7 +53,7 @@ def _records(params: Any, kind: str, deps: Any):
         from frisket.actions.imports import import_csv as producer
     else:
         from frisket.actions.import_xlsx import import_xlsx as producer
-    with open_local_file_reader(deps.local_file_sources) as reader:
+    with open_local_file_reader(deps) as reader:
         table_rows = producer(params, reader).rows
         if not isinstance(table_rows, Iterable):
             raise TypeError(f"{kind} must produce a synchronous row iterable")

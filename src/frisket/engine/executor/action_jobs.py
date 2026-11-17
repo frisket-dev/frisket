@@ -1127,16 +1127,20 @@ def run_action_run_job(
             )
         except KeyError:
             declared = None  # Composition-owned custom executors may have no public declaration.
+        snapshot = project.db.execute(
+            "SELECT edition_run_context FROM receipts WHERE id=?", (receipt_id,)
+        ).fetchone()[0]
+        product_edition = product_edition_from_snapshot(
+            json.loads(snapshot) if snapshot else None
+        )
+        # Only the local edition leaves its receipts unstamped; a job admitted
+        # by any multi-user edition never opens request-supplied server paths.
+        operator_local_files = product_edition is None
         if declared is not None:
-            snapshot = project.db.execute(
-                "SELECT edition_run_context FROM receipts WHERE id=?", (receipt_id,)
-            ).fetchone()[0]
             refusal = action_admission_error(
                 project,
                 declared,
-                edition=product_edition_from_snapshot(
-                    json.loads(snapshot) if snapshot else None
-                ),
+                edition=product_edition,
                 runtime_binding=installed[1] if installed is not None else None,
             )
             if refusal is not None:
@@ -1205,7 +1209,11 @@ def run_action_run_job(
                         project,
                         envelope.project_id,
                         bound,
-                        replace(deps or ExecutorDeps(), cancelled=should_cancel),
+                        replace(
+                            deps or ExecutorDeps(),
+                            cancelled=should_cancel,
+                            operator_local_files=operator_local_files,
+                        ),
                     )
 
                 executor = _rows_updater_executor
@@ -1224,7 +1232,25 @@ def run_action_run_job(
                     run_typed_table_action_job,
                 )
 
-                executor = run_typed_table_action_job
+                def _table_executor(
+                    project: Any,
+                    envelope: ActionJobEnvelope,
+                    *,
+                    execution: DispatchControl,
+                    deps: ExecutorDeps | None = None,
+                ) -> ActionResult:
+                    return run_typed_table_action_job(
+                        project,
+                        envelope,
+                        execution=execution,
+                        deps=replace(
+                            deps or ExecutorDeps(),
+                            operator_local_files=operator_local_files,
+                        ),
+                    )
+
+                executor = _table_executor
+
         if executor is None:
             return action_job_missing_handler_result(
                 project,

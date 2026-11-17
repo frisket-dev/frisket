@@ -28,12 +28,12 @@ def bind_import_sources(
 
 
 @contextmanager
-def open_local_file_reader(
-    sources: Mapping[str, BoundLocalFile] | None = None,
-) -> Iterator[AdmittedLocalFileReader]:
+def open_local_file_reader(deps: ExecutorDeps) -> Iterator[AdmittedLocalFileReader]:
     """Open a reader while leaving borrowed source streams to their caller."""
 
-    reader = AdmittedLocalFileReader(sources)
+    reader = AdmittedLocalFileReader(
+        deps.local_file_sources, operator_paths=deps.operator_local_files
+    )
     try:
         yield reader
     finally:

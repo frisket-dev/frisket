@@ -20,6 +20,9 @@ from frisket.actions.types import DynamicOutput, TableError, TableRow
 from frisket.authoring.column_types import register_column_type, unregister_column_type
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 class MemoryFiles:
@@ -232,7 +235,7 @@ def test_public_import_normalizes_once_and_preserves_renamed_descriptors(
             request["output_names"]["feature_id"] = "Identifier"
         else:
             request["output_names"].update(name="Name", description="Description")
-        result = run_action_spec(project, request, project_id="p")
+        result = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
         assert result.status == "completed", result.errors
         assert calls == ["Place"]
         sheet = result.outputs[0].ref
@@ -258,7 +261,7 @@ def test_public_import_normalizes_once_and_preserves_renamed_descriptors(
             "byte_count": len(raw),
         }
         path.unlink()
-        replay = run_action_spec(project, request, project_id="p")
+        replay = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
         assert replay.status == "completed", replay.errors
         assert replay.receipt_id == result.receipt_id
         assert calls == ["Place"]
@@ -266,7 +269,9 @@ def test_public_import_normalizes_once_and_preserves_renamed_descriptors(
             **request,
             "output_names": {**request["output_names"], "geometry": "Changed"},
         }
-        conflict = run_action_spec(project, changed, project_id="p")
+        conflict = run_action_spec(
+            project, changed, project_id="p", deps=OPERATOR_FILES
+        )
         assert conflict.status == "failed"
         assert conflict.errors[0].code == "idempotency_conflict"
     finally:
@@ -299,13 +304,13 @@ def test_late_geometry_rejection_publishes_nothing_and_skip_retains_properties(
     request = _request(
         path, format_name, property_columns=[{"name": "title", "type": "text"}]
     )
-    rejected = run_action_spec(project, request, project_id="p")
+    rejected = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert rejected.status == "failed"
     assert rejected.errors[0].code == f"unsupported_{format_name}_geometry"
     for table in ("sheets", "columns", "rows", "changes", "receipts"):
         assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
     request["params"]["on_invalid_geometry"] = "skip"
-    imported = run_action_spec(project, request, project_id="p")
+    imported = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert imported.status == "completed", imported.errors
     sheet = imported.outputs[0].ref
     assert sheet["row_count"] == 3
@@ -321,7 +326,7 @@ def test_late_geometry_rejection_publishes_nothing_and_skip_retains_properties(
     assert source["label"] == "places"
     assert source["fingerprint"] == "sha256:" + hashlib.sha256(raw).hexdigest()
     path.unlink()
-    replay = run_action_spec(project, request, project_id="p")
+    replay = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == imported.receipt_id
     assert ReceiptStore(project).parsed_by_id(replay.receipt_id) == receipt

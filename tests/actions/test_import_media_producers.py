@@ -88,7 +88,7 @@ def test_files_keep_input_order_and_emit_opaque_handles(tmp_path):
     params = ImportFilesParams(
         files=[{"path": str(second)}, {"path": str(first), "filename": "named.png"}]
     )
-    reader, blobs = AdmittedLocalFileReader(), _Stager()
+    reader, blobs = AdmittedLocalFileReader(operator_paths=True), _Stager()
     try:
         table = import_files(params, reader, blobs)
         rows = [row.output.root for row in table.rows]
@@ -107,7 +107,7 @@ def test_files_open_and_stage_only_rows_consumed(tmp_path):
     first.write_bytes(b"first")
     missing = tmp_path / "not-opened.bin"
     params = ImportFilesParams(files=[{"path": str(first)}, {"path": str(missing)}])
-    reader, blobs = AdmittedLocalFileReader(), _Stager()
+    reader, blobs = AdmittedLocalFileReader(operator_paths=True), _Stager()
     try:
         table = import_files(params, reader, blobs)
         rows = iter(table.rows)
@@ -150,7 +150,7 @@ def test_pdf_extraction_failure_keeps_row_and_original_document(tmp_path, monkey
 
     monkeypatch.setattr(pypdf._page.PageObject, "extract_text", extract_text)
     params = ImportPdfParams(source={"kind": "file", "path": str(source)})
-    reader, blobs = AdmittedLocalFileReader(), _Stager()
+    reader, blobs = AdmittedLocalFileReader(operator_paths=True), _Stager()
     try:
         table = import_pdf(params, reader, blobs, _Renderer(blobs))
         assert not blobs.files  # Source staging and text extraction are lazy.
@@ -194,7 +194,7 @@ def test_pdf_identical_page_bytes_keep_distinct_document_page_roles(tmp_path):
     source = tmp_path / "document.pdf"
     source.write_bytes(_pdf_bytes(100, 100))
 
-    reader, blobs = AdmittedLocalFileReader(), _Stager()
+    reader, blobs = AdmittedLocalFileReader(operator_paths=True), _Stager()
     try:
         table = import_pdf(
             ImportPdfParams(source={"kind": "file", "path": str(source)}),
@@ -222,7 +222,7 @@ def test_pdf_identical_page_bytes_keep_distinct_document_page_roles(tmp_path):
 def test_pdf_without_pages_refuses(tmp_path):
     source = tmp_path / "empty.pdf"
     source.write_bytes(_pdf_bytes())
-    reader = AdmittedLocalFileReader()
+    reader = AdmittedLocalFileReader(operator_paths=True)
     blobs = _Stager()
     try:
         with pytest.raises(TableError) as caught:

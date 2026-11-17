@@ -31,6 +31,9 @@ from helpers import stub_rapidocr_run_scope
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
 from tests.engine.test_row_effect_checkpoint_boundary_fixes import _age_silent_attempt
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 PROJECT_ID = "pdf-page-content-flow"
@@ -92,6 +95,7 @@ def _import_pdf(project: Project, source: Path, *, key: str) -> Any:
             "idempotency_key": key,
         },
         project_id=PROJECT_ID,
+        deps=OPERATOR_FILES,
     )
 
 
@@ -117,6 +121,7 @@ def _convert(
             "idempotency_key": key,
         },
         project_id=PROJECT_ID,
+        deps=OPERATOR_FILES,
     )
 
 
@@ -276,6 +281,7 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
             ),
             project_id=PROJECT_ID,
             router=router,
+            deps=OPERATOR_FILES,
         )
         assert extracted.status == "completed", extracted.errors
         assert len(adapter.requests) == 1
@@ -402,7 +408,7 @@ def test_ocr_checkpoint_crash_replays_compact_prepared_page(
         "idempotency_key": "ocr-checkpoint-replay",
     }
     with pytest.raises(InterruptedAfterOcrReturn):
-        run_action_spec(project, action, project_id=PROJECT_ID)
+        run_action_spec(project, action, project_id=PROJECT_ID, deps=OPERATOR_FILES)
     checkpoint = project.db.execute(
         "SELECT * FROM effect_checkpoints WHERE family='row_effect'"
     ).fetchone()
@@ -494,6 +500,7 @@ def test_real_local_ocr_when_installed(tmp_path: Path, make_project) -> None:
             "idempotency_key": "actual-local-ocr",
         },
         project_id=PROJECT_ID,
+        deps=OPERATOR_FILES,
     )
     assert result.status == "completed", result.errors
     text_id = _column_id(project, sheet_id, "ocr_text")

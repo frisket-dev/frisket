@@ -16,6 +16,8 @@ from frisket.engine.executor.table_action import run_typed_create_sheet_action
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.sdk import ActionParams, TableResult, TableRow, action, create_sheet
 
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
+
 
 def _request(tmp_path, kind):
     path = tmp_path / kind
@@ -68,15 +70,18 @@ def test_typed_import_budget_replay_and_retired_envelope_refusal(
         project,
         request,
         project_id="p",
-        deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=1)),
+        deps=ExecutorDeps(
+            operator_local_files=True,
+            import_workload_limits=ImportWorkloadLimits(max_rows=1),
+        ),
     )
     assert refused.status == "failed"
     assert refused.errors[0].code == "import_workload_limit_exceeded"
     assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-    completed = run_action_spec(project, request, project_id="p")
+    completed = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert completed.status == "completed", completed.errors
     path.unlink()
-    replay = run_action_spec(project, request, project_id="p")
+    replay = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert replay.receipt_id == completed.receipt_id
     legacy = {
         "schema_version": "frisket.action.v2",
@@ -89,7 +94,7 @@ def test_typed_import_budget_replay_and_retired_envelope_refusal(
         },
         "idempotency_key": request["idempotency_key"],
     }
-    refused = run_action_spec(project, legacy, project_id="p")
+    refused = run_action_spec(project, legacy, project_id="p", deps=OPERATOR_FILES)
     assert refused.status == "failed"
     assert refused.receipt_id is None
     assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
@@ -131,6 +136,7 @@ def test_xlsx_header_projection_requires_explicit_unambiguous_mapping(
             "idempotency_key": "header-check",
         },
         project_id="p",
+        deps=OPERATOR_FILES,
     )
     if accepted:
         assert result.status == "completed", result.errors
@@ -196,7 +202,7 @@ def test_file_facts_override_producer_claims_and_keep_quarantine_on_replay(
         idempotency_key="observed-source",
     )
     bound = BoundTypedActionRequest.bind(registry.get("custom.source"), request)
-    result = run_typed_create_sheet_action(project, "p", bound)
+    result = run_typed_create_sheet_action(project, "p", bound, deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
     source = next(
@@ -219,7 +225,7 @@ def test_file_facts_override_producer_claims_and_keep_quarantine_on_replay(
         }
     ]
     path.unlink()
-    replay = run_typed_create_sheet_action(project, "p", bound)
+    replay = run_typed_create_sheet_action(project, "p", bound, deps=OPERATOR_FILES)
     assert replay.receipt_id == result.receipt_id
     assert calls == [True]
     assert (

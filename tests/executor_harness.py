@@ -35,6 +35,7 @@ from typing import Any, Literal
 import pytest
 
 from frisket.contracts.action import ActionResult, ActionSpec
+from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.store import Project
 from action_test_helpers import counts as table_counts
 
@@ -335,6 +336,12 @@ def run_action_with_confirmation(
     else:
         retry["params"]["consented_promise_set_hash"] = context_hash
     return run_action_spec(project, retry, **run_kwargs)
+
+
+def operator_files_patch(_monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Run a case as the local operator, who may name server file paths."""
+
+    return {"deps": ExecutorDeps(operator_local_files=True)}
 
 
 @contextmanager

@@ -12,6 +12,9 @@ from typing import Any
 from frisket.engine.store import Project
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 PROJECT_ID = "project-vision-extract-chain"
@@ -159,6 +162,7 @@ def test_vision_image_extract_chain_derives_people_from_map_extract_list(
         project,
         _import_files_action(*image_paths),
         project_id=PROJECT_ID,
+        deps=OPERATOR_FILES,
     )
     assert imported.status == "completed"
     sheet_id = next(
@@ -189,6 +193,7 @@ def test_vision_image_extract_chain_derives_people_from_map_extract_list(
         extract_action,
         project_id=PROJECT_ID,
         router=router,
+        deps=OPERATOR_FILES,
     )
     assert extracted.status == "completed"
     assert extracted.run_id is not None
@@ -253,6 +258,7 @@ def test_vision_image_extract_chain_derives_people_from_map_extract_list(
         extract_action,
         project_id=PROJECT_ID,
         router=router,
+        deps=OPERATOR_FILES,
     )
     assert replayed_extract.status == "completed"
     assert replayed_extract.receipt_id == extracted.receipt_id
@@ -272,9 +278,7 @@ def test_vision_image_extract_chain_derives_people_from_map_extract_list(
 
     assert validate_root_action(derive_action).ok is True
     derived = run_action_with_exact_confirmation(
-        project,
-        derive_action,
-        project_id=PROJECT_ID,
+        project, derive_action, project_id=PROJECT_ID, deps=OPERATOR_FILES
     )
     assert derived.status == "completed"
     assert derived.receipt_id is not None
@@ -344,9 +348,7 @@ def test_vision_image_extract_chain_derives_people_from_map_extract_list(
 
     before_replay = _counts(project)
     replay = run_action_with_exact_confirmation(
-        project,
-        derive_action,
-        project_id=PROJECT_ID,
+        project, derive_action, project_id=PROJECT_ID, deps=OPERATOR_FILES
     )
     assert replay.status == "completed"
     assert replay.receipt_id == derived.receipt_id
@@ -363,9 +365,7 @@ def test_vision_image_extract_chain_derives_people_from_map_extract_list(
     )
     before_bad_source = _counts(project)
     bad = run_action_with_exact_confirmation(
-        project,
-        bad_source,
-        project_id=PROJECT_ID,
+        project, bad_source, project_id=PROJECT_ID, deps=OPERATOR_FILES
     )
     assert bad.status == "failed"
     assert bad.errors[0].code == "invalid_input_ref"

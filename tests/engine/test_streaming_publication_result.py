@@ -10,6 +10,9 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from tests.engine.test_import_csv_typed_boundaries import _action, _counts
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 def test_postcommit_receipt_read_failure_cannot_report_uncommitted_import(
@@ -36,7 +39,7 @@ def test_postcommit_receipt_read_failure_cannot_report_uncommitted_import(
     monkeypatch.setattr(ReceiptStore, "find_by_id", fail_postcommit_read)
 
     project = make_project("Import")
-    result = run_action_spec(project, request, project_id="p")
+    result = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     assert result.errors == []
     assert len(publications) == 1
@@ -61,7 +64,7 @@ def test_postcommit_receipt_read_failure_cannot_report_uncommitted_import(
     # Replay uses its existing idempotency lookup, never republishes, and
     # does not need the original source or the failed read-by-id operation.
     path.unlink()
-    replay = run_action_spec(project, request, project_id="p")
+    replay = run_action_spec(project, request, project_id="p", deps=OPERATOR_FILES)
     assert replay == result
     assert _counts(project) == before
     assert len(publications) == 1

@@ -12,6 +12,8 @@ from frisket.engine.store import Project
 from frisket.engine.store.streaming_import import StreamingSheetWriter
 from tests.engine.test_import_csv_executor import _import_csv_action
 
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
+
 
 def _counts(project: Project) -> dict[str, int]:
     return {
@@ -33,11 +35,11 @@ def test_csv_completed_replay_does_not_reopen_deleted_source(
     path.write_bytes(b"value\r\n1\r\n2\r\n")
     project = make_project("Replay")
     action = _action(path)
-    first = run_action_spec(project, action, project_id="p")
+    first = run_action_spec(project, action, project_id="p", deps=OPERATOR_FILES)
     assert first.status == "completed", first.errors
     before = _counts(project)
     path.unlink()
-    replay = run_action_spec(project, action, project_id="p")
+    replay = run_action_spec(project, action, project_id="p", deps=OPERATOR_FILES)
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == first.receipt_id
     assert replay.change_ids == first.change_ids
@@ -53,7 +55,7 @@ def test_csv_same_key_rejects_changed_request_without_source_access(
     path.write_text("value\n1\n")
     project = make_project("Conflict")
     action = _action(path)
-    first = run_action_spec(project, action, project_id="p")
+    first = run_action_spec(project, action, project_id="p", deps=OPERATOR_FILES)
     assert first.status == "completed", first.errors
     before = _counts(project)
     path.unlink()
@@ -66,7 +68,9 @@ def test_csv_same_key_rejects_changed_request_without_source_access(
         changed_action["params"]["sources"][0]["encoding"] = "cp1252"
     else:
         changed_action["output_names"] = {"value": "Other column"}
-    result = run_action_spec(project, changed_action, project_id="p")
+    result = run_action_spec(
+        project, changed_action, project_id="p", deps=OPERATOR_FILES
+    )
     assert result.status == "failed"
     assert result.errors[0].code == "idempotency_conflict"
     assert _counts(project) == before
@@ -85,7 +89,8 @@ def test_csv_finite_row_budget_never_leaves_partial_sheet(
         _action(path),
         project_id="p",
         deps=ExecutorDeps(
-            import_workload_limits=ImportWorkloadLimits(max_rows=max_rows)
+            operator_local_files=True,
+            import_workload_limits=ImportWorkloadLimits(max_rows=max_rows),
         ),
     )
     if max_rows == 1:
@@ -134,7 +139,7 @@ def test_csv_multiple_source_dialects_preserve_schema_values_and_raw_read_facts(
         "source_label_column": "origin",
     }
     action["output_names"] = {"amount": "Price", "origin": "Source"}
-    result = run_action_spec(project, action, project_id="p")
+    result = run_action_spec(project, action, project_id="p", deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     sheet_id = result.outputs[0].sheet_id
     columns = {
@@ -199,7 +204,9 @@ def test_csv_late_value_error_aborts_already_committed_hidden_batches(
         return result
 
     monkeypatch.setattr(StreamingSheetWriter, "append_rows", observe_append)
-    result = run_action_spec(project, _action(path), project_id="p")
+    result = run_action_spec(
+        project, _action(path), project_id="p", deps=OPERATOR_FILES
+    )
     assert appended_batches > 0
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_csv_value"

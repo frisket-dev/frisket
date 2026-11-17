@@ -11,6 +11,8 @@ from frisket.engine.store import Project
 from tests.engine.test_import_ndjson_executor import _import_ndjson_action
 from tests.engine.test_temporal_persistence_ingress import _range_value, _seed_project
 
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
+
 
 def _counts(project: Project) -> dict[str, int]:
     return {
@@ -43,7 +45,7 @@ def test_ndjson_uses_physical_lines_and_declared_encoding(
     project = make_project("Lines")
     action = _action(path)
     action["params"]["encoding"] = encoding
-    result = run_action_spec(project, action, project_id="p")
+    result = run_action_spec(project, action, project_id="p", deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     sheet_id = result.outputs[0].sheet_id
     (column,) = project.columns(sheet_id)
@@ -75,7 +77,7 @@ def test_ndjson_refusal_keeps_physical_line_and_column_without_partial_writes(
     project = make_project("Invalid")
     before = _counts(project)
     result = run_action_spec(
-        project, _action(path, type_name=type_name), project_id="p"
+        project, _action(path, type_name=type_name), project_id="p", deps=OPERATOR_FILES
     )
     assert result.status == "failed"
     error = result.errors[0]
@@ -94,7 +96,9 @@ def test_ndjson_empty_file_publishes_declared_empty_schema(
     path = tmp_path / "empty.ndjson"
     path.write_bytes(b"\n  \r\n")
     project = make_project("Empty")
-    result = run_action_spec(project, _action(path), project_id="p")
+    result = run_action_spec(
+        project, _action(path), project_id="p", deps=OPERATOR_FILES
+    )
     assert result.status == "completed", result.errors
     assert project.row_count(result.outputs[0].sheet_id) == 0
     assert len(project.columns(result.outputs[0].sheet_id)) == 1
@@ -110,7 +114,7 @@ def test_ndjson_decode_failure_never_publishes(
     action = _action(path)
     action["params"]["encoding"] = encoding
     before = _counts(project)
-    result = run_action_spec(project, action, project_id="p")
+    result = run_action_spec(project, action, project_id="p", deps=OPERATOR_FILES)
     assert result.status == "failed"
     assert result.errors[0].code == "ndjson_parse_failed"
     assert _counts(project) == before
@@ -126,7 +130,7 @@ def test_ndjson_preserves_file_values_descriptor_attributes_and_output_names(
     action = _action(path, type_name="file")
     action["params"]["columns"][0].update(format="plain_text", hidden=True)
     action["output_names"] = {"value": "Document"}
-    result = run_action_spec(project, action, project_id="p")
+    result = run_action_spec(project, action, project_id="p", deps=OPERATOR_FILES)
     assert result.status == "completed", result.errors
     (column,) = project.columns(result.outputs[0].sheet_id, include_hidden=True)
     assert column["name"] == "Document"
@@ -151,7 +155,8 @@ def test_ndjson_row_budget_is_host_policy_and_never_partially_publishes(
         _action(path, type_name="integer"),
         project_id="p",
         deps=ExecutorDeps(
-            import_workload_limits=ImportWorkloadLimits(max_rows=max_rows)
+            operator_local_files=True,
+            import_workload_limits=ImportWorkloadLimits(max_rows=max_rows),
         ),
     )
     if max_rows is not None and row_count > max_rows:
@@ -176,7 +181,9 @@ def test_ndjson_receipt_failure_rolls_back_sheet_rows_and_operation(
     )
     project.db.commit()
     before = _counts(project)
-    result = run_action_spec(project, _action(path), project_id="p")
+    result = run_action_spec(
+        project, _action(path), project_id="p", deps=OPERATOR_FILES
+    )
     assert result.status == "failed"
     assert result.errors[0].code == "project_write_failed"
     assert _counts(project) == before
@@ -199,7 +206,10 @@ def test_ndjson_temporal_values_require_project_context(
         path.write_text(json.dumps({"value": value}) + "\n")
         before = _counts(project)
         result = run_action_spec(
-            project, _action(path, type_name="timeline_range"), project_id="p"
+            project,
+            _action(path, type_name="timeline_range"),
+            project_id="p",
+            deps=OPERATOR_FILES,
         )
         if missing_anchor:
             assert result.status == "failed"

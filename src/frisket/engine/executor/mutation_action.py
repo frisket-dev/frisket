@@ -463,7 +463,7 @@ class _RowsAppender(_CallOnce):
     def append_csv(self, params: Any) -> AppendedRows:
         from frisket.actions.imports import import_csv
 
-        with open_local_file_reader(self._file_sources) as reader:
+        with open_local_file_reader(self._file_deps) as reader:
             produced = import_csv(params, reader)
             if not isinstance(produced.rows, Iterable):
                 raise TypeError("import_csv must produce synchronous rows")
@@ -476,7 +476,7 @@ class _RowsAppender(_CallOnce):
     def append_xlsx(self, params: Any) -> AppendedRows:
         from frisket.actions.import_xlsx import import_xlsx
 
-        with open_local_file_reader(self._file_sources) as reader:
+        with open_local_file_reader(self._file_deps) as reader:
             produced = import_xlsx(params, reader)
             if not isinstance(produced.rows, Iterable):
                 raise TypeError("import_xlsx must produce synchronous rows")
@@ -1743,7 +1743,7 @@ def _capability_factory(
             params_hash,
             max_rows=limits.max_rows if limits is not None else None,
         )
-        capability._file_sources = deps.local_file_sources
+        capability._file_deps = deps
         return capability
     return capability_type(project, cur, action, params_hash)
 

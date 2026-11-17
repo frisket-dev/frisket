@@ -7,8 +7,17 @@ from typing import Any
 
 import pytest
 
-from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
+from executor_harness import (
+    CatalogEntry,
+    ExecutorCase,
+    Gate,
+    case_env,
+    operator_files_patch,
+)
 from frisket.engine.store import Project
+from frisket.engine.executor.action_inventory import ExecutorDeps
+
+OPERATOR_FILES = ExecutorDeps(operator_local_files=True)
 
 
 def _write_geojson(dir_path: Path, name: str, body: dict[str, Any]) -> Path:
@@ -244,6 +253,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
 CASES = [
     ExecutorCase(
         kind="import.geojson",
+        patch=operator_files_patch,
         catalog=CatalogEntry(
             execution_mode="whole_project",
             async_mode="sync",
@@ -393,6 +403,7 @@ def test_import_geojson_skip_invalid_geometry_quarantines_and_records_evidence(
         reject_project,
         _action(key="import_geojson_reject@sha256:stable", on_invalid=None),
         project_id="project-reject",
+        deps=OPERATOR_FILES,
     )
     assert reject.status == "failed"
     assert reject.errors[0].code == "unsupported_geojson_geometry"
@@ -404,6 +415,7 @@ def test_import_geojson_skip_invalid_geometry_quarantines_and_records_evidence(
         project,
         _action(key="import_geojson_skip@sha256:stable", on_invalid="skip"),
         project_id="project-skip",
+        deps=OPERATOR_FILES,
     )
     assert result.status == "completed", result.errors
 
@@ -442,6 +454,7 @@ def test_import_geojson_skip_invalid_geometry_quarantines_and_records_evidence(
         project,
         _action(key="import_geojson_skip@sha256:stable", on_invalid="skip"),
         project_id="project-skip",
+        deps=OPERATOR_FILES,
     )
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == result.receipt_id
@@ -475,6 +488,7 @@ def test_import_geojson_accepts_bare_feature_and_geometry(
                 "idempotency_key": key,
             },
             project_id=f"project-{name}",
+            deps=OPERATOR_FILES,
         )
         assert result.status == "completed", result.errors
         sheet = project.db.execute(
@@ -638,6 +652,7 @@ def test_import_geojson_accepts_point_line_and_collection_geometries(
             "idempotency_key": "import_geojson_shapes@sha256:stable",
         },
         project_id="project-shapes",
+        deps=OPERATOR_FILES,
     )
     assert result.status == "completed", result.errors
 

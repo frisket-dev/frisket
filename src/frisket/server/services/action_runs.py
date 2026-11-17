@@ -567,6 +567,8 @@ class ActionRunService:
                     request_deps = replace(
                         request_deps, local_file_sources=admitted_sources
                     )
+                elif self._workspace.admits_server_paths:
+                    request_deps = replace(request_deps, operator_local_files=True)
             return request_deps
 
         queued_result = queue_v1_action_run(
