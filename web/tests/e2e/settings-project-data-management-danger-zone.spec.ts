@@ -143,7 +143,7 @@ test('Project General owns identity/delete and Data Management owns exports rete
   await data.getByTestId('compact-confirm-input').fill('COMPACT');
   await expect(compactButton).toBeEnabled();
   await compactButton.click();
-  await expect(page.getByText('Compaction reclaimed 1024 bytes and removed 1 blob.')).toBeVisible();
+  await expect(page.getByText('Compaction reclaimed 1 KB and removed 1 blob.')).toBeVisible();
   expect(compacted).toBe(true);
 
   await page.goto('/p/alpha/settings/project/general');
