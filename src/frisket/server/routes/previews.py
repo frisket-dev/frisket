@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from frisket.contracts.action import ActionError as V1ActionError
@@ -39,6 +41,7 @@ from frisket.contracts.http.resolve_previews import (
     ReplaceRulesPreviewRequest,
     ReplaceRulesPreviewResponse,
 )
+from frisket.preview.common import ComparePreviewError
 from frisket.server import schemas
 from frisket.server.route_errors import http_error_responses
 from frisket.server.services.previews import PreviewRequestError, PreviewService
@@ -49,7 +52,36 @@ from frisket.server.services.action_preview_runs import ActionPreviewRunService
 _SCRATCH_MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 
 
-def _preview_error_response(exc: PreviewRequestError) -> JSONResponse:
+@dataclass(frozen=True)
+class _ScratchKind:
+    """What differs between the OCR and transcription scratch compare routes."""
+
+    context: str
+    service_label: str
+    prepare_method: str
+    estimate_model: type[BaseModel]
+    estimate_schema: str
+
+
+_OCR_SCRATCH = _ScratchKind(
+    context="OCR compare scratch",
+    service_label="OCR",
+    prepare_method="prepare_ocr_scratch",
+    estimate_model=OcrCompareScratchEstimateResponse,
+    estimate_schema="frisket.ocr_compare_estimate.v1",
+)
+_TRANSCRIBE_SCRATCH = _ScratchKind(
+    context="Transcribe compare scratch",
+    service_label="transcription",
+    prepare_method="prepare_transcribe_scratch",
+    estimate_model=TranscribeCompareScratchEstimateResponse,
+    estimate_schema="frisket.transcribe_compare_estimate.v1",
+)
+
+
+def _preview_error_response(
+    exc: PreviewRequestError | ComparePreviewError,
+) -> JSONResponse:
     return JSONResponse(
         status_code=400,
         content=V1ActionError(
@@ -129,6 +161,77 @@ def register_preview_routes(
         except PreviewRequestError as exc:
             return _preview_error_response(exc)
 
+    async def _prepare_scratch(
+        kind: _ScratchKind,
+        request: Request,
+        pid: str,
+        upload: tuple[UploadFile, str],
+        *,
+        starting: bool,
+    ):
+        if action_preview_service is None:
+            raise RuntimeError(
+                f"{kind.service_label} scratch preview service is unavailable"
+            )
+        media_bytes, parsed = await _scratch_input(*upload, context=kind.context)
+        confirmation = parsed.pop("confirmation", None) if starting else None
+        if confirmation is not None and not isinstance(confirmation, str):
+            raise PreviewRequestError(
+                code="invalid_params",
+                message="confirmation must be a string",
+                field="confirmation",
+            )
+        prepared = await run_in_threadpool(
+            getattr(action_preview_service, kind.prepare_method),
+            pid,
+            media_bytes,
+            parsed,
+            request_context=request,
+        )
+        return prepared, confirmation
+
+    async def _scratch_estimate(
+        kind: _ScratchKind, request: Request, pid: str, upload: tuple[UploadFile, str]
+    ):
+        try:
+            (plan, source, *_execution), _ = await _prepare_scratch(
+                kind, request, pid, upload, starting=False
+            )
+            return kind.estimate_model.model_validate(
+                {
+                    "schema_version": kind.estimate_schema,
+                    "source": source,
+                    "estimate": action_preview_service.scratch_estimate(pid, plan),
+                }
+            )
+        except (ComparePreviewError, PreviewRequestError) as exc:
+            return _preview_error_response(exc)
+
+    async def _scratch_start(
+        kind: _ScratchKind, request: Request, pid: str, upload: tuple[UploadFile, str]
+    ):
+        try:
+            prepared, confirmation = await _prepare_scratch(
+                kind, request, pid, upload, starting=True
+            )
+            plan, _source, router, composition, execution_context = prepared
+            response = await run_in_threadpool(
+                action_preview_service.start_scratch_preview,
+                pid,
+                plan,
+                confirmation=confirmation,
+                router=router,
+                composition=composition,
+                execution_context=execution_context,
+            )
+            if response.status_code != 202:
+                return JSONResponse(
+                    status_code=response.status_code, content=response.payload
+                )
+            return ActionPreviewStartResponse.model_validate(response.payload)
+        except (ComparePreviewError, PreviewRequestError) as exc:
+            return _preview_error_response(exc)
+
     @app.post(
         "/api/projects/{pid}/ocr/compare-scratch/estimate",
         response_model=OcrCompareScratchEstimateResponse,
@@ -144,46 +247,7 @@ def register_preview_routes(
         file: UploadFile = File(...),
         payload: str = Form(...),
     ):
-        from frisket.preview.ocr import OcrComparePreviewError
-
-        try:
-            if action_preview_service is None:
-                raise RuntimeError("OCR scratch preview service is unavailable")
-            media_bytes, parsed = await _scratch_input(
-                file, payload, context="OCR compare scratch"
-            )
-            (
-                plan,
-                source,
-                _router,
-                _composition,
-                _execution_context,
-            ) = await run_in_threadpool(
-                action_preview_service.prepare_ocr_scratch,
-                pid,
-                media_bytes,
-                parsed,
-                request_context=request,
-            )
-            estimate = action_preview_service.scratch_estimate(pid, plan)
-            return OcrCompareScratchEstimateResponse.model_validate(
-                {
-                    "schema_version": "frisket.ocr_compare_estimate.v1",
-                    "source": source,
-                    "estimate": estimate,
-                }
-            )
-        except OcrComparePreviewError as exc:
-            return _preview_error_response(
-                PreviewRequestError(
-                    code=exc.code,
-                    message=exc.message,
-                    field=exc.field,
-                    details=exc.details,
-                )
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return await _scratch_estimate(_OCR_SCRATCH, request, pid, (file, payload))
 
     @app.post(
         "/api/projects/{pid}/ocr/compare-scratch",
@@ -202,60 +266,7 @@ def register_preview_routes(
         payload: str = Form(...),
     ):
         """Start one accounted OCR candidate over transient dropped media."""
-
-        from frisket.preview.ocr import OcrComparePreviewError
-
-        try:
-            if action_preview_service is None:
-                raise RuntimeError("OCR scratch preview service is unavailable")
-            media_bytes, parsed = await _scratch_input(
-                file, payload, context="OCR compare scratch"
-            )
-            confirmation = parsed.pop("confirmation", None)
-            if confirmation is not None and not isinstance(confirmation, str):
-                raise PreviewRequestError(
-                    code="invalid_params",
-                    message="confirmation must be a string",
-                    field="confirmation",
-                )
-            (
-                plan,
-                _source,
-                router,
-                composition,
-                execution_context,
-            ) = await run_in_threadpool(
-                action_preview_service.prepare_ocr_scratch,
-                pid,
-                media_bytes,
-                parsed,
-                request_context=request,
-            )
-            response = await run_in_threadpool(
-                action_preview_service.start_scratch_preview,
-                pid,
-                plan,
-                confirmation=confirmation,
-                router=router,
-                composition=composition,
-                execution_context=execution_context,
-            )
-            if response.status_code != 202:
-                return JSONResponse(
-                    status_code=response.status_code, content=response.payload
-                )
-            return ActionPreviewStartResponse.model_validate(response.payload)
-        except OcrComparePreviewError as exc:
-            return _preview_error_response(
-                PreviewRequestError(
-                    code=exc.code,
-                    message=exc.message,
-                    field=exc.field,
-                    details=exc.details,
-                )
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return await _scratch_start(_OCR_SCRATCH, request, pid, (file, payload))
 
     @app.post(
         "/api/projects/{pid}/transcribe/compare-scratch/estimate",
@@ -272,50 +283,9 @@ def register_preview_routes(
         file: UploadFile = File(...),
         payload: str = Form(...),
     ):
-        from frisket.server.services.scratch_transcribe import (
-            TranscribeComparePreviewError,
+        return await _scratch_estimate(
+            _TRANSCRIBE_SCRATCH, request, pid, (file, payload)
         )
-
-        try:
-            if action_preview_service is None:
-                raise RuntimeError(
-                    "transcription scratch preview service is unavailable"
-                )
-            media_bytes, parsed = await _scratch_input(
-                file, payload, context="Transcribe compare scratch"
-            )
-            (
-                plan,
-                source,
-                _router,
-                _composition,
-                _execution_context,
-            ) = await run_in_threadpool(
-                action_preview_service.prepare_transcribe_scratch,
-                pid,
-                media_bytes,
-                parsed,
-                request_context=request,
-            )
-            estimate = action_preview_service.scratch_estimate(pid, plan)
-            return TranscribeCompareScratchEstimateResponse.model_validate(
-                {
-                    "schema_version": "frisket.transcribe_compare_estimate.v1",
-                    "source": source,
-                    "estimate": estimate,
-                }
-            )
-        except TranscribeComparePreviewError as exc:
-            return _preview_error_response(
-                PreviewRequestError(
-                    code=exc.code,
-                    message=exc.message,
-                    field=exc.field,
-                    details=exc.details,
-                )
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
 
     @app.post(
         "/api/projects/{pid}/transcribe/compare-scratch",
@@ -334,64 +304,7 @@ def register_preview_routes(
         payload: str = Form(...),
     ):
         """Start one accounted transcription over transient dropped media."""
-
-        from frisket.server.services.scratch_transcribe import (
-            TranscribeComparePreviewError,
-        )
-
-        try:
-            if action_preview_service is None:
-                raise RuntimeError(
-                    "transcription scratch preview service is unavailable"
-                )
-            media_bytes, parsed = await _scratch_input(
-                file, payload, context="Transcribe compare scratch"
-            )
-            confirmation = parsed.pop("confirmation", None)
-            if confirmation is not None and not isinstance(confirmation, str):
-                raise PreviewRequestError(
-                    code="invalid_params",
-                    message="confirmation must be a string",
-                    field="confirmation",
-                )
-            (
-                plan,
-                _source,
-                router,
-                composition,
-                execution_context,
-            ) = await run_in_threadpool(
-                action_preview_service.prepare_transcribe_scratch,
-                pid,
-                media_bytes,
-                parsed,
-                request_context=request,
-            )
-            response = await run_in_threadpool(
-                action_preview_service.start_scratch_preview,
-                pid,
-                plan,
-                confirmation=confirmation,
-                router=router,
-                composition=composition,
-                execution_context=execution_context,
-            )
-            if response.status_code != 202:
-                return JSONResponse(
-                    status_code=response.status_code, content=response.payload
-                )
-            return ActionPreviewStartResponse.model_validate(response.payload)
-        except TranscribeComparePreviewError as exc:
-            return _preview_error_response(
-                PreviewRequestError(
-                    code=exc.code,
-                    message=exc.message,
-                    field=exc.field,
-                    details=exc.details,
-                )
-            )
-        except PreviewRequestError as exc:
-            return _preview_error_response(exc)
+        return await _scratch_start(_TRANSCRIBE_SCRATCH, request, pid, (file, payload))
 
     @app.post(
         "/api/projects/{pid}/translate/compare-scratch",
