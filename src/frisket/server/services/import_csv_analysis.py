@@ -7,22 +7,10 @@ import csv
 import io
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, BinaryIO
 
 from frisket.server.services.import_csv_errors import ImportCsvRouteError
 from frisket.server.services.import_inference import infer_column_type, sniff_markdown
-
-
-@dataclass(frozen=True)
-class CsvUploadAnalysis:
-    source_encoding: str
-    delimiter: str
-    decimal_separator: str
-    fieldnames: list[str]
-    sample_records: list[dict[str, str | None]]
-    row_count: int
-    columns: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -105,95 +93,8 @@ _SUPPORTED_ENCODINGS: dict[str, str] = {
 }
 
 
-def _decode_upload(raw_bytes: bytes, *, declared: str | None) -> tuple[str, str]:
-    """Return the CSV text and the codec that produced it.
-
-    Decoding is strict everywhere.  The uploaded bytes are the user's data:
-    they are staged unchanged and this only decides which codec the executor
-    is told to read them back with.
-    """
-    if declared is not None:
-        resolved = _SUPPORTED_ENCODINGS.get(declared)
-        if resolved is None:
-            supported = ", ".join(_SUPPORTED_ENCODINGS)
-            raise ImportCsvRouteError(
-                400,
-                f"unsupported CSV encoding {declared!r}; choose one of: {supported}",
-            )
-        candidates: tuple[str, ...] = (resolved,)
-    else:
-        candidates = next(
-            (
-                (encoding,)
-                for mark, encoding in _BOM_ENCODINGS
-                if raw_bytes.startswith(mark)
-            ),
-            _ENCODING_LADDER,
-        )
-    for candidate in candidates:
-        try:
-            return raw_bytes.decode(candidate), candidate
-        except UnicodeDecodeError:
-            continue
-    tried = ", ".join(candidates)
-    raise ImportCsvRouteError(
-        400,
-        f"CSV file is not valid {tried}. Nothing was changed. Re-upload it with "
-        "?encoding=<name> using one of the supported character encodings, or "
-        "re-save it as UTF-8.",
-    )
-
-
-def _analyze_upload(raw_bytes: bytes, *, encoding: str | None) -> CsvUploadAnalysis:
-    """Decode and parse once for both preview and the eventual write."""
-
-    raw, source_encoding = _decode_upload(raw_bytes, declared=encoding)
-    delimiter = _detect_csv_delimiter(raw)
-    decimal_separator = "," if delimiter == ";" else "."
-    reader = csv.DictReader(io.StringIO(raw), delimiter=delimiter)
-    sample_records: list[dict[str, str | None]] = []
-    row_count = 0
-    for record in reader:
-        row_count += 1
-        if len(sample_records) < 50:
-            sample_records.append(record)
-    if row_count == 0:
-        raise ImportCsvRouteError(400, "empty CSV")
-
-    fieldnames = list(reader.fieldnames or sample_records[0].keys())
-    columns: list[dict[str, Any]] = []
-    for col_name in fieldnames:
-        samples = [record.get(col_name) for record in sample_records]
-        column_type = infer_column_type(
-            col_name,
-            samples,
-            decimal_separator=decimal_separator,
-        )
-        column: dict[str, Any] = {"name": col_name, "type": column_type}
-        if column_type == "text" and sniff_markdown(samples):
-            column["format"] = "markdown"
-        columns.append(column)
-
-    return CsvUploadAnalysis(
-        source_encoding=source_encoding,
-        delimiter=delimiter,
-        decimal_separator=decimal_separator,
-        fieldnames=fieldnames,
-        sample_records=sample_records,
-        row_count=row_count,
-        columns=columns,
-    )
-
-
 _PATH_SAMPLE_BYTES = 64 * 1024
 _PATH_READ_BYTES = 1024 * 1024
-
-
-def inspect_csv_header(path: Path) -> tuple[list[str], str, str, str]:
-    """Inspect only a bounded prefix for deterministic bulk planning."""
-
-    with path.open("rb") as source:
-        return inspect_csv_header_stream(source)
 
 
 def inspect_csv_header_stream(
@@ -232,28 +133,6 @@ def inspect_csv_header_stream(
         delimiter,
         "," if delimiter == ";" else ".",
     )
-
-
-def scan_csv_file(
-    path: Path,
-    *,
-    logical_path: str,
-    encoding: str | None = None,
-    force_text_columns: bool = False,
-) -> CsvFileScan:
-    """Validate an entire CSV and infer types with bounded working memory."""
-
-    source = path.open("rb")
-    try:
-        return scan_csv_stream(
-            source,
-            logical_path=logical_path,
-            encoding=encoding,
-            force_text_columns=force_text_columns,
-        )
-    except Exception:
-        source.close()
-        raise
 
 
 def scan_csv_stream(
@@ -361,11 +240,6 @@ def _strict_header(header: list[str]) -> list[str]:
     if len(names) != len(set(names)):
         raise ImportCsvRouteError(400, "CSV headers must be unique")
     return names
-
-
-def _resolve_path_encoding(path: Path, *, declared: str | None) -> str:
-    with path.open("rb") as source:
-        return _resolve_stream_encoding(source, declared=declared)
 
 
 def _resolve_stream_encoding(source: BinaryIO, *, declared: str | None) -> str:

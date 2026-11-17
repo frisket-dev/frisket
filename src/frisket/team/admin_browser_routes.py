@@ -30,12 +30,6 @@ from frisket.contracts.http.admin_browser import (
     AdminBrowserUpdateRoleResult,
     AdminBrowserUsersV1,
 )
-from frisket.contracts.http.admin_operations import (
-    AdminAuditResponse,
-    AdminErrorsResponse,
-    AdminJobsResponse,
-    AdminUsersResponse,
-)
 from frisket.engine.jobs.projection import admin_job_payload
 from frisket.server.route_errors import http_error_responses
 from frisket.team.admin_browser_service import (
@@ -222,7 +216,7 @@ def register_admin_browser_routes(
     run_queue: Any,
     workspace_root: Path,
 ) -> None:
-    """Register the ten browser operations without changing legacy wires."""
+    """Register the ten browser operations and the CLI's user listing."""
 
     def require_admin(request: Request) -> dict[str, Any]:
         return require_user(request, browser=True, admin=True)
@@ -277,7 +271,7 @@ def register_admin_browser_routes(
     @app.get(
         "/api/admin/users",
         name="admin_list_users",
-        response_model=AdminUsersResponse,
+        response_model=AdminBrowserUsersV1,
         responses=http_error_responses(401, 403, 500),
     )
     @app.get(
@@ -408,13 +402,6 @@ def register_admin_browser_routes(
         return {"ok": True, "org_id": org_id, **result}
 
     @app.get(
-        "/api/admin/jobs",
-        name="admin_jobs",
-        response_model=AdminJobsResponse,
-        response_model_exclude_unset=True,
-        responses=http_error_responses(401, 403, 500),
-    )
-    @app.get(
         "/api/admin/browser/jobs",
         response_model=AdminBrowserJobsV1,
         response_model_exclude_unset=True,
@@ -509,12 +496,6 @@ def register_admin_browser_routes(
         )
         return JSONResponse(body.model_dump(mode="json"), status_code=409)
 
-    @app.get(
-        "/api/admin/audit",
-        name="admin_audit",
-        response_model=AdminAuditResponse,
-        responses=http_error_responses(401, 403, 422, 500),
-    )
     @app.get(
         "/api/admin/browser/audit",
         response_model=AdminBrowserAuditV1,
@@ -659,13 +640,6 @@ def register_admin_browser_routes(
             },
         }
 
-    @app.get(
-        "/api/admin/errors",
-        name="admin_errors",
-        response_model=AdminErrorsResponse,
-        response_model_exclude_unset=True,
-        responses=http_error_responses(401, 403, 422, 500),
-    )
     @app.get(
         "/api/admin/browser/errors",
         response_model=AdminBrowserErrorsV1,

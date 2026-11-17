@@ -781,10 +781,6 @@ class PdfDraftInventory:
             )
         return digest.hexdigest(), count, pages, children
 
-    def ocr_scope_hash(self, policy: str) -> tuple[str, int, int]:
-        scope_hash, count, pages, _children = self.ocr_scope(policy)
-        return scope_hash, count, pages
-
     def cache_ocr(
         self,
         sha256: str,

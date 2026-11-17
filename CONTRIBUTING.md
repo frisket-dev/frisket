@@ -144,10 +144,10 @@ executor, receipt store or action catalog.
 | Borrowing admitted local inputs and closing reader wrappers | `engine/executor/import_sources.py` |
 | Bounding decoded uploads, hashing borrowed spools and settling workers | `server/services/import_uploads.py` |
 | Bounding raw import requests before body parsing | `server/import_bulk_request_limit.py` |
-| Format-specific upload choices and HTTP response shape | `server/services/import_csv.py`, `import_xlsx.py`, `import_files.py`, `import_pdf.py`, `import_urls.py` |
+| Format-specific upload choices and HTTP response shape | `server/services/import_csv.py`, `import_xlsx.py`, `import_files.py` |
 | CSV schema inference and bulk CSV request construction | `server/services/import_csv_analysis.py`, `import_csv_execute.py` |
 | Shared tabular destination mapping and typed request construction | `server/services/import_tabular.py` |
-| Paste detection, reviewed coercion and confirmation | `server/services/import_drafts.py` |
+| Pasted and uploaded table drafts, reviewed coercion and commit | `server/services/table_imports/` |
 | Typed parser/producer behavior | `actions/imports.py`, `actions/import_xlsx.py`, `actions/import_media.py`, `actions/import_email.py`, `actions/import_geo.py` |
 | Creating a table, its evidence and blobs | `engine/executor/table_action.py` |
 | Append/update and exact update confirmation | `engine/executor/mutation_action.py`, `import_update.py` |

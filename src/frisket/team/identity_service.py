@@ -101,21 +101,6 @@ class IdentityAuthService:
         with self._uow_factory() as uow:
             return uow.auth.email_for_token(token)
 
-    def is_invited_via_token(self, token: str) -> bool:
-        """Was this (now-invalid) token's email invited into an org?
-
-        Used only on a failed redemption to decide whether to send the user
-        back to sign-in with an `invited=1` marker (so the request-access
-        form stays hidden — they are already invited, they just need a
-        fresh link) instead of the generic dead-end page.
-        """
-        now = datetime.now(UTC)
-        with self._uow_factory() as uow:
-            email = uow.auth.email_for_token(token)
-            if email is None:
-                return False
-            return uow.auth.has_valid_pending_invite(email, now=now)
-
     def ensure_user_for_login(self, email: str) -> dict[str, Any]:
         with self._uow_factory() as uow:
             return uow.auth.ensure_user_for_login(email)
@@ -188,25 +173,6 @@ class IdentityAuthService:
                 raise InvalidCredentials("invalid email or password")
             return self._sign_in_user_in_uow(
                 uow, user, audit_action="local_password_login"
-            )
-
-    def sign_in_email(self, email: str, *, audit_action: str) -> TeamSignIn:
-        with self._uow_factory() as uow:
-            return self._sign_in_email_in_uow(uow, email, audit_action=audit_action)
-
-    def sign_in_user(
-        self,
-        user: dict[str, Any],
-        *,
-        audit_action: str | None = None,
-        reason: str | None = None,
-    ) -> TeamSignIn:
-        with self._uow_factory() as uow:
-            return self._sign_in_user_in_uow(
-                uow,
-                user,
-                audit_action=audit_action,
-                reason=reason,
             )
 
     def sign_in_oidc(self, *, issuer: str, subject: str, email: str) -> TeamSignIn:

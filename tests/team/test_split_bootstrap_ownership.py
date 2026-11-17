@@ -308,7 +308,6 @@ def test_malformed_marker_refuses_before_mutating_legacy_challenge_schema(
     from frisket.team.bootstrap import (
         PreSplitSchemaError,
         init_identity_schema,
-        stamp_schema_marker,
     )
 
     path = tmp_path / "stale-v4.db"
@@ -341,12 +340,6 @@ def test_malformed_marker_refuses_before_mutating_legacy_challenge_schema(
     stale = sa.create_engine(f"sqlite:///{path}", future=True)
     with pytest.raises(PreSplitSchemaError, match="drop|reseed"):
         init_identity_schema(stale)
-    stale.dispose()
-    assert path.read_bytes() == before
-
-    stale = sa.create_engine(f"sqlite:///{path}", future=True)
-    with pytest.raises(PreSplitSchemaError, match="drop|reseed"):
-        stamp_schema_marker(stale, edition="team")
     stale.dispose()
     assert path.read_bytes() == before
 

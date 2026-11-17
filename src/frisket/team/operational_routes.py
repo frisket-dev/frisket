@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 import json
 import os
@@ -12,7 +12,6 @@ import re
 
 import sqlalchemy as sa
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel
 
 from frisket.engine.jobs import model_pull_store
 from frisket.engine.jobs.artifact_ref import normalize_artifact_ref
@@ -50,7 +49,6 @@ from frisket.contracts.http.error_intake import (
     ClientErrorAccepted,
     ClientErrorReportRequest,
 )
-from frisket.contracts.http.models import WireModel
 from frisket.server.route_errors import http_error_responses
 from frisket.team.security.secrets import key_hint
 from frisket.team.admin_browser_service import (
@@ -90,22 +88,6 @@ def _admin_membership_http_error(exc: AdminMembershipError) -> HTTPException:
     raise TypeError(f"unmapped membership error: {type(exc).__name__}") from exc
 
 
-class OperationalBody(BaseModel):
-    email: str = ""
-    name: str = ""
-    role: str = ""
-    provider: str = ""
-    key: str = ""
-    value: str = ""
-    message: str = ""
-    source: str = "browser"
-    validation_token: str | None = None
-
-
-class AdminUserRoleRequest(WireModel):
-    role: Literal["owner", "member"]
-
-
 def register_operational_routes(
     app: FastAPI,
     *,
@@ -114,7 +96,6 @@ def register_operational_routes(
     require_user: Callable[..., dict[str, Any]],
     resolve_user: Callable[[Request], dict[str, Any] | None],
     membership_role: Callable[[int, int], str | None],
-    run_queue: Any,
     validate_provider_key: Callable[[str, str], Awaitable[bool]] | None,
     secret_box: TeamSecretBox,
     workspace: Any,
@@ -779,19 +760,6 @@ def register_operational_routes(
             {"accepted": True, "ok": True, "id": record_id}
         )
 
-    @app.patch("/api/admin/users/{user_id}/role")
-    def admin_update_user_role(
-        user_id: int, request: Request, body: AdminUserRoleRequest
-    ) -> dict[str, bool]:
-        actor = require_user(request, browser=True, admin=True)
-        try:
-            result = admin_membership.update_role(
-                actor=actor, user_id=user_id, role=body.role
-            )
-        except AdminMembershipError as exc:
-            raise _admin_membership_http_error(exc) from exc
-        return {"updated": True, "self": bool(result["self"])}
-
     @app.delete("/api/admin/users/{user_ref}")
     def admin_remove_user(user_ref: str, request: Request) -> dict[str, bool]:
         """Remove by numeric user id (the SPA's form) or by email (the remote
@@ -804,30 +772,5 @@ def register_operational_routes(
             raise _admin_membership_http_error(exc) from exc
         return {"removed": True, "self": bool(result["self"])}
 
-    def _remediate(job_id: int, action: str, request: Request) -> dict[str, bool]:
-        # Ruling 4 ("a retry is a resume"): CANCEL is the only remediation an
-        # operator gets. The admin retry/recover doors re-executed work
-        # without passing the consent and cost gates the user's own doors
-        # pass, and nothing else in the repo can do that. Re-execution is
-        # run.backfill (the user's, consented) or the automatic budget-capped
-        # requeue/stale-lease sweeps (internal). Making a run FREE is a
-        # pricing-axis decision — price the run at $0 — not a retry door.
-        actor = require_user(request, browser=True, admin=True)
-        methods = {"cancel": run_queue.cancel}
-        if action not in methods:
-            raise HTTPException(404, "unknown job action")
-        with engine.begin() as cx:
-            audit(
-                cx,
-                actor=actor,
-                action=f"admin_job_{action}_requested",
-                target=str(job_id),
-            )
-        return {"ok": bool(methods[action](job_id))}
 
-    @app.post("/api/admin/jobs/{job_id}/cancel")
-    def admin_job_cancel(job_id: int, request: Request) -> dict[str, bool]:
-        return _remediate(job_id, "cancel", request)
-
-
-__all__ = ["AdminUserRoleRequest", "register_operational_routes"]
+__all__ = ["register_operational_routes"]

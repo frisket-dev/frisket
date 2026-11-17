@@ -151,8 +151,6 @@ class PdfImportCommitService:
             )
         return job_id
 
-    admit_ready = enqueue_continuation
-
     def commit(
         self,
         project_id: str,

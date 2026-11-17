@@ -1378,15 +1378,6 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.import_csv_preview.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/csv/preview",
-      "request": {
-        "mediaType": "multipart/form-data",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.import_files.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/files",
@@ -1414,54 +1405,9 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
-      "id": "tenant.import_paste_confirm.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/drafts/paste/confirm",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
-      "id": "tenant.import_paste_draft.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/drafts/paste",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
-      "id": "tenant.import_pdf.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/pdf",
-      "request": {
-        "mediaType": "multipart/form-data",
-        "required": true
-      }
-    },
-    {
-      "id": "tenant.import_urls.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/urls",
-      "request": {
-        "mediaType": "application/json",
-        "required": true
-      }
-    },
-    {
       "id": "tenant.import_xlsx.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/xlsx",
-      "request": {
-        "mediaType": "multipart/form-data",
-        "required": true
-      }
-    },
-    {
-      "id": "tenant.import_xlsx_preview.post",
-      "method": "POST",
-      "path": "/api/projects/{pid}/import/xlsx/preview",
       "request": {
         "mediaType": "multipart/form-data",
         "required": true
@@ -7542,26 +7488,6 @@ export type HttpIdentityProfileResponse = ({
   [key: string]: (HttpIdentityProfileResponse_IdentityEditionValue) | (string) | (((string)) | ((null))) | (HttpIdentityProfileResponse_IdentityInstance);
 });
 
-type HttpImportCsvPreviewResponse_ImportCsvPreviewColumn = ({
-  "format"?: (((string)) | ((null)));
-  "name": (string);
-  "type": (string);
-});
-
-type HttpImportCsvPreviewResponse_JsonValue = JsonValue;
-
-export type HttpImportCsvPreviewResponse = ({
-  "columns": (Array<(HttpImportCsvPreviewResponse_ImportCsvPreviewColumn)>);
-  "decimal_separator": (string);
-  "delimiter": (string);
-  "encoding": (string);
-  "preview_rows": (Array<({
-  [key: string]: (HttpImportCsvPreviewResponse_JsonValue);
-})>);
-  "row_count": (number);
-  "truncated": (boolean);
-});
-
 export type HttpImportCsvResponse = ({
   "columns": (Array<(string)>);
   "encoding": (string);
@@ -7572,82 +7498,6 @@ export type HttpImportCsvResponse = ({
 export type HttpImportFilesResponse = ({
   "rows": (number);
   "search_preparation_batch_id"?: (((string)) | ((null)));
-  "sheet_id": (number);
-});
-
-type HttpImportPasteConfirmBody_ImportPasteColumn = ({
-  "format"?: (((string)) | ((null)));
-  "name"?: (((string)) | ((null)));
-  "source_name": (string);
-  "type": (string);
-  [key: string]: JsonValue | (((string)) | ((null))) | (string) | undefined;
-});
-
-export type HttpImportPasteConfirmBody = ({
-  "columns": (Array<(HttpImportPasteConfirmBody_ImportPasteColumn)>);
-  "destination_sheet_id"?: (((number)) | ((null)));
-  "draft_id": (string);
-  "keep_existing_on_blank"?: (boolean);
-  "key_columns"?: (((Array<(string)>)) | ((null)));
-  "raw": (string);
-  "relationship_id"?: (((string)) | ((null)));
-  "sheet_name"?: (((string)) | ((null)));
-  "update_policy"?: ("keep_changes" | "incoming_wins") & (string);
-  [key: string]: JsonValue | (Array<(HttpImportPasteConfirmBody_ImportPasteColumn)>) | (((number)) | ((null))) | (string) | (boolean) | (((Array<(string)>)) | ((null))) | (((string)) | ((null))) | ("keep_changes" | "incoming_wins") & (string) | undefined;
-});
-
-export type HttpImportPasteConfirmResponse = ({
-  "columns": (Array<(string)>);
-  "rows": (number);
-  "sheet_id": (number);
-});
-
-export type HttpImportPasteDraftBody = ({
-  "raw": (string);
-  [key: string]: JsonValue | (string);
-});
-
-type HttpImportPasteDraftResponse_ImportPasteDraftColumn = ({
-  "format"?: (((string)) | ((null)));
-  "include": (boolean);
-  "key": (string);
-  "name": (string);
-  "sample_values": (Array<(HttpImportPasteDraftResponse_JsonValue)>);
-  "type": (string);
-  [key: string]: JsonValue | (((string)) | ((null))) | (boolean) | (string) | (Array<(HttpImportPasteDraftResponse_JsonValue)>) | undefined;
-});
-
-type HttpImportPasteDraftResponse_ImportPasteDraftSource = ({
-  "fingerprint": (string);
-  "kind": (string);
-  "label": (string);
-  "line_count": (number);
-  [key: string]: JsonValue | (string) | (number);
-});
-
-type HttpImportPasteDraftResponse_JsonValue = JsonValue;
-
-export type HttpImportPasteDraftResponse = ({
-  "columns": (Array<(HttpImportPasteDraftResponse_ImportPasteDraftColumn)>);
-  "draft_id": (string);
-  "preview_rows": (Array<({
-  [key: string]: (HttpImportPasteDraftResponse_JsonValue);
-})>);
-  "row_count": (number);
-  "schema_version": ("frisket.import_draft.v2") & (string);
-  "sheet_name": (string);
-  "source": (HttpImportPasteDraftResponse_ImportPasteDraftSource);
-  "source_kind": ("paste") & (string);
-  "warnings": (Array<(string)>);
-  [key: string]: JsonValue | (Array<(HttpImportPasteDraftResponse_ImportPasteDraftColumn)>) | (string) | (Array<({
-  [key: string]: (HttpImportPasteDraftResponse_JsonValue);
-})>) | (number) | ("frisket.import_draft.v2") & (string) | (HttpImportPasteDraftResponse_ImportPasteDraftSource) | ("paste") & (string) | (Array<(string)>);
-});
-
-export type HttpImportPdfResponse = ({
-  "columns": (Array<(string)>);
-  "pages": (number);
-  "rows": (number);
   "sheet_id": (number);
 });
 
@@ -7825,20 +7675,6 @@ export type HttpImportSessionStatus = ({
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
   "through": (number);
   "unreadable_total"?: (number);
-});
-
-export type HttpImportUrlsBody = ({
-  "column"?: (string);
-  "sheet_name"?: (((string)) | ((null)));
-  "urls": (Array<(string)>);
-  [key: string]: JsonValue | (string) | (((string)) | ((null))) | (Array<(string)>) | undefined;
-});
-
-export type HttpImportUrlsResponse = ({
-  "downloaded": (number);
-  "failed": (number);
-  "rows": (number);
-  "sheet_id": (number);
 });
 
 export type HttpImportXlsxResponse = ({
@@ -8047,59 +7883,6 @@ export type HttpInline_2b03a251157ec92d = ({
   "limit"?: (number);
 });
 
-type HttpInline_2d4c3a80110529b8_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_2d4c3a80110529b8_ActionIdentity = ({
-  "action_id": (string);
-  "kind": (string);
-});
-
-type HttpInline_2d4c3a80110529b8_ActionOutput = (HttpInline_2d4c3a80110529b8_ActionOutputPayload);
-
-type HttpInline_2d4c3a80110529b8_ActionOutputPayload = ({
-  "column_id"?: (((number)) | ((null)));
-  "kind": (string);
-  "name"?: (((string)) | ((null)));
-  "ref"?: ({
-  [key: string]: JsonValue;
-});
-  "row_ids"?: (Array<(number)>);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
-type HttpInline_2d4c3a80110529b8_ActionResult = ({
-  "action": (HttpInline_2d4c3a80110529b8_ActionIdentity);
-  "errors"?: (Array<(HttpInline_2d4c3a80110529b8_ActionError)>);
-  "job_id"?: (((number)) | ((null)));
-  "op_ids"?: (Array<(number)>);
-  "outputs"?: (Array<(HttpInline_2d4c3a80110529b8_ActionOutput)>);
-  "project_id": (string);
-  "receipt_id"?: (((string)) | ((null)));
-  "run_id"?: (((number)) | ((null)));
-  "schema_version"?: ("frisket.action_result.v1") & (string);
-  "status": ("needs_confirmation" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
-  "value"?: (((HttpInline_2d4c3a80110529b8_JsonValue)) | ((null)));
-  "warnings"?: (Array<(string)>);
-});
-
-type HttpInline_2d4c3a80110529b8_HttpError = ({
-  "detail": (HttpInline_2d4c3a80110529b8_JsonValue);
-});
-
-type HttpInline_2d4c3a80110529b8_JsonValue = JsonValue;
-
-export type HttpInline_2d4c3a80110529b8 = (((HttpInline_2d4c3a80110529b8_HttpError)) | ((HttpInline_2d4c3a80110529b8_ActionResult)));
-
 export type HttpInline_2d51e94b5ded8ee8 = ({
   "notification_id": (number);
   "pid": (string);
@@ -8124,11 +7907,6 @@ export type HttpInline_38aa6fedb0c0d4ef = ({
   "pid": (string);
   "row_id": (number);
   "sheet_id": (number);
-});
-
-export type HttpInline_39bb60968a5b7f23 = ({
-  "dpi"?: (number);
-  "sheet_name"?: (((string)) | ((null)));
 });
 
 export type HttpInline_3bd51e57d66e30f8 = ({
@@ -8270,59 +8048,6 @@ export type HttpInline_51b94bce8350ab16 = ({
   "revision"?: (((number)) | ((null)));
   "start"?: (number);
 });
-
-type HttpInline_524de52122d1c461_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_524de52122d1c461_ActionIdentity = ({
-  "action_id": (string);
-  "kind": (string);
-});
-
-type HttpInline_524de52122d1c461_ActionOutput = (HttpInline_524de52122d1c461_ActionOutputPayload);
-
-type HttpInline_524de52122d1c461_ActionOutputPayload = ({
-  "column_id"?: (((number)) | ((null)));
-  "kind": (string);
-  "name"?: (((string)) | ((null)));
-  "ref"?: ({
-  [key: string]: JsonValue;
-});
-  "row_ids"?: (Array<(number)>);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
-type HttpInline_524de52122d1c461_ActionResult = ({
-  "action": (HttpInline_524de52122d1c461_ActionIdentity);
-  "errors"?: (Array<(HttpInline_524de52122d1c461_ActionError)>);
-  "job_id"?: (((number)) | ((null)));
-  "op_ids"?: (Array<(number)>);
-  "outputs"?: (Array<(HttpInline_524de52122d1c461_ActionOutput)>);
-  "project_id": (string);
-  "receipt_id"?: (((string)) | ((null)));
-  "run_id"?: (((number)) | ((null)));
-  "schema_version"?: ("frisket.action_result.v1") & (string);
-  "status": ("needs_confirmation" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
-  "value"?: (((HttpInline_524de52122d1c461_JsonValue)) | ((null)));
-  "warnings"?: (Array<(string)>);
-});
-
-type HttpInline_524de52122d1c461_HttpError = ({
-  "detail": (HttpInline_524de52122d1c461_JsonValue);
-});
-
-type HttpInline_524de52122d1c461_JsonValue = JsonValue;
-
-export type HttpInline_524de52122d1c461 = (((HttpInline_524de52122d1c461_HttpError)) | ((HttpInline_524de52122d1c461_ActionResult)));
 
 export type HttpInline_5455d086bedf8a53 = ({
   "discard"?: (boolean);
@@ -9345,59 +9070,6 @@ export type HttpInline_d1eb6092d690cae5 = ({
 });
 
 export type HttpInline_d746974fa9afd5e9 = (Record<string, never>);
-
-type HttpInline_d89a2ac461d6e692_ActionError = ({
-  "action_kind"?: (((string)) | ((null)));
-  "code": (string);
-  "details"?: ({
-  [key: string]: JsonValue;
-});
-  "field"?: (((string)) | ((null)));
-  "message": (string);
-  "needs_confirmation"?: (boolean);
-  "schema_version"?: ("frisket.action_error.v1") & (string);
-});
-
-type HttpInline_d89a2ac461d6e692_ActionIdentity = ({
-  "action_id": (string);
-  "kind": (string);
-});
-
-type HttpInline_d89a2ac461d6e692_ActionOutput = (HttpInline_d89a2ac461d6e692_ActionOutputPayload);
-
-type HttpInline_d89a2ac461d6e692_ActionOutputPayload = ({
-  "column_id"?: (((number)) | ((null)));
-  "kind": (string);
-  "name"?: (((string)) | ((null)));
-  "ref"?: ({
-  [key: string]: JsonValue;
-});
-  "row_ids"?: (Array<(number)>);
-  "sheet_id"?: (((number)) | ((null)));
-});
-
-type HttpInline_d89a2ac461d6e692_ActionResult = ({
-  "action": (HttpInline_d89a2ac461d6e692_ActionIdentity);
-  "errors"?: (Array<(HttpInline_d89a2ac461d6e692_ActionError)>);
-  "job_id"?: (((number)) | ((null)));
-  "op_ids"?: (Array<(number)>);
-  "outputs"?: (Array<(HttpInline_d89a2ac461d6e692_ActionOutput)>);
-  "project_id": (string);
-  "receipt_id"?: (((string)) | ((null)));
-  "run_id"?: (((number)) | ((null)));
-  "schema_version"?: ("frisket.action_result.v1") & (string);
-  "status": ("needs_confirmation" | "queued" | "running" | "completed" | "partial" | "failed" | "cancelled") & (string);
-  "value"?: (((HttpInline_d89a2ac461d6e692_JsonValue)) | ((null)));
-  "warnings"?: (Array<(string)>);
-});
-
-type HttpInline_d89a2ac461d6e692_HttpError = ({
-  "detail": (HttpInline_d89a2ac461d6e692_JsonValue);
-});
-
-type HttpInline_d89a2ac461d6e692_JsonValue = JsonValue;
-
-export type HttpInline_d89a2ac461d6e692 = (((HttpInline_d89a2ac461d6e692_HttpError)) | ((HttpInline_d89a2ac461d6e692_ActionResult)));
 
 export type HttpInline_d93b70b1c3a171c5 = ({
   "pid": (string);
@@ -18525,21 +18197,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpInline_95dd5aaa354f43b3;
     };
   };
-  readonly "tenant.import_csv_preview.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_eefa27bb2810a1d9;
-    readonly request: FormData;
-    readonly responses: {
-      readonly "200": HttpImportCsvPreviewResponse;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "413": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
   readonly "tenant.import_files.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_9c1f78de9747e7df;
@@ -18585,66 +18242,6 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
-  readonly "tenant.import_paste_confirm.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpImportPasteConfirmBody;
-    readonly responses: {
-      readonly "200": HttpImportPasteConfirmResponse;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.import_paste_draft.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpImportPasteDraftBody;
-    readonly responses: {
-      readonly "200": HttpImportPasteDraftResponse;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
-    };
-  };
-  readonly "tenant.import_pdf.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_39bb60968a5b7f23;
-    readonly request: FormData;
-    readonly responses: {
-      readonly "200": HttpImportPdfResponse;
-      readonly "400": HttpActionResult;
-      readonly "401": HttpError;
-      readonly "402": HttpActionResult;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpActionResult;
-      readonly "422": HttpError;
-      readonly "500": HttpInline_d89a2ac461d6e692;
-    };
-  };
-  readonly "tenant.import_urls.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: HttpImportUrlsBody;
-    readonly responses: {
-      readonly "200": HttpImportUrlsResponse;
-      readonly "400": HttpInline_2d4c3a80110529b8;
-      readonly "401": HttpError;
-      readonly "402": HttpActionResult;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "409": HttpActionResult;
-      readonly "422": HttpError;
-      readonly "500": HttpInline_524de52122d1c461;
-    };
-  };
   readonly "tenant.import_xlsx.post": {
     readonly pathParams: HttpInline_87cacc773db826e7;
     readonly query: HttpInline_9c1f78de9747e7df;
@@ -18659,21 +18256,6 @@ export type HttpContractOperationMap = {
       readonly "409": HttpActionResult;
       readonly "422": HttpError;
       readonly "500": HttpInline_08600a3f31630079;
-    };
-  };
-  readonly "tenant.import_xlsx_preview.post": {
-    readonly pathParams: HttpInline_87cacc773db826e7;
-    readonly query: HttpInline_d746974fa9afd5e9;
-    readonly request: FormData;
-    readonly responses: {
-      readonly "200": HttpImportCsvPreviewResponse;
-      readonly "400": HttpError;
-      readonly "401": HttpError;
-      readonly "403": HttpError;
-      readonly "404": HttpError;
-      readonly "413": HttpError;
-      readonly "422": HttpError;
-      readonly "500": HttpError;
     };
   };
   readonly "tenant.list_column_types.get": {
@@ -19244,7 +18826,6 @@ export type HttpContractOperationMap = {
       readonly "413": HttpError;
       readonly "422": HttpError;
       readonly "499": HttpError;
-      readonly "503": HttpError;
     };
   };
   readonly "tenant.product_telemetry_installation.post": {

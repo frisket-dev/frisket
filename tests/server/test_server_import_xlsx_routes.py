@@ -119,15 +119,6 @@ def test_xlsx_append_reviews_mapping_and_replays_only_the_same_attempt(
     sheet_id = created.json()["sheet_id"]
     source = _xlsx_bytes([["incoming"], [2]])
 
-    preview = client.post(
-        f"/api/projects/{pid}/import/xlsx/preview",
-        files={"file": ("source.xlsx", source)},
-    )
-    assert preview.status_code == 200, preview.text
-    assert preview.json()["columns"] == [
-        {"name": "incoming", "type": "integer", "format": None}
-    ]
-
     def append(attempt: str):
         return client.post(
             f"/api/projects/{pid}/import/xlsx/append",

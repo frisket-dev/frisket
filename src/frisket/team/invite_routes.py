@@ -8,7 +8,6 @@ from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
-from pydantic import BaseModel, Field
 from frisket.contracts.http.browser_auth import (
     BrowserAuthCompletePasswordRequest,
     BrowserAuthCompletePasswordResponse,
@@ -20,18 +19,12 @@ from frisket.contracts.http.project_collaboration import (
     ProjectInviteRevoke,
 )
 from frisket.server.route_errors import http_error_responses
-from frisket.team.identity_service import IdentityAuthService
 from frisket.team.invite_service import (
     InviteConflict,
     InviteForbidden,
     InviteNotFound,
     InviteService,
 )
-
-
-class InviteBody(BaseModel):
-    email: str = Field(max_length=320)
-    role: str = "viewer"
 
 
 RequireUser = Callable[[Request], dict[str, Any]]
@@ -78,43 +71,13 @@ def register_invite_routes(
     app: FastAPI,
     *,
     invites: InviteService,
-    auth: IdentityAuthService,
     require_user: RequireUser,
-    require_admin: RequireUser,
     base_url: str,
     session_cookie: str,
     secure_cookie: bool,
     send_mail: SendMail,
 ) -> None:
     """Register S2-I routes before mounting the protected core application."""
-
-    @app.post("/api/admin/users/invite")
-    async def admin_invite_user(request: Request, body: InviteBody) -> dict[str, Any]:
-        actor = require_admin(request)
-        try:
-            invited = invites.create_org_invite(
-                email=body.email,
-                actor_user_id=int(actor["id"]),
-                operator_actor=actor.get("auth") == "operator",
-            )
-        except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _error(exc) from exc
-        token = auth.create_magic_link(invited["email"])
-        await send_mail(invited["email"], f"{base_url}/auth/callback?token={token}")
-        return {"sent": True, **invited}
-
-    @app.delete("/api/admin/users/invites/{email}")
-    def admin_revoke_invite(email: str, request: Request) -> dict[str, bool]:
-        actor = require_admin(request)
-        try:
-            revoked = invites.revoke_org_invite(
-                email=email,
-                actor_user_id=int(actor["id"]),
-                operator_actor=actor.get("auth") == "operator",
-            )
-        except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _error(exc) from exc
-        return {"revoked": revoked}
 
     @app.get(
         "/api/projects/{pid}/invites",

@@ -273,7 +273,7 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
     _sign_in(member, app, "member@example.com")
     pat = _pat(owner)
 
-    for path in ("/api/admin/health", "/api/admin/overview"):
+    for path in ("/api/admin/browser/health", "/api/admin/overview"):
         assert TestClient(app).get(path).status_code == 401
         assert member.get(path).status_code == 403
         assert (
@@ -299,8 +299,10 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
             assert totals.get("users") == 2
             assert totals.get("projects") == 0
             assert totals.get("pending_invites") == 0
+    org_id = app.state.team_org_id
     invited = owner.post(
-        "/api/admin/users/invite", json={"email": "remove@example.com"}
+        "/api/admin/browser/users/invite",
+        json={"org_id": org_id, "email": "remove@example.com"},
     )
     assert invited.status_code == 200, invited.text
     with app.state.control_engine.connect() as cx:
@@ -312,7 +314,10 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
             ).scalar_one_or_none()
             == "remove@example.com"
         )
-    revoke = owner.delete("/api/admin/users/invites/remove@example.com")
+    revoke = owner.delete(
+        "/api/admin/browser/users/invites/remove@example.com",
+        params={"org_id": org_id},
+    )
     assert revoke.status_code == 200, revoke.text
     with app.state.control_engine.connect() as cx:
         org_count = cx.execute(
@@ -336,7 +341,8 @@ def test_admin_invite_delivers_usable_magic_link_into_the_single_org(
     _sign_in(owner, app, "owner@example.com")
 
     org_invite = owner.post(
-        "/api/admin/users/invite", json={"email": "member@example.com"}
+        "/api/admin/browser/users/invite",
+        json={"org_id": app.state.team_org_id, "email": "member@example.com"},
     )
     assert org_invite.status_code == 200, org_invite.text
     link = _delivered_link(deliveries, "member@example.com")

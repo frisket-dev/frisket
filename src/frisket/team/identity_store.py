@@ -245,9 +245,6 @@ class IdentityStore:
         )
         return token
 
-    def revoke_sessions(self, *, user_id: int) -> None:
-        self.cx.execute(sessions.delete().where(sessions.c.user_id == user_id))
-
     def revoke_session(self, token: str) -> None:
         self.cx.execute(sessions.delete().where(sessions.c.token == token))
 

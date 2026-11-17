@@ -4,10 +4,7 @@ import type {
   HttpImportSessionList,
   HttpImportSessionStatus,
 } from '../generated/openHttpContracts';
-import {
-  ApiError,
-  actionLaunchErrorFromContract,
-} from './contractErrors';
+import { actionLaunchErrorFromContract } from './contractErrors';
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 
 export interface OnboardingImportOptions {
@@ -152,22 +149,13 @@ export interface CsvImportOptions extends OnboardingImportOptions {
 
 export type SampleProjectSeedWire =
   HttpContractSuccessResponse<'tenant.seed_sample_project.post'>;
-export type ImportPasteDraftWire =
-  HttpContractSuccessResponse<'tenant.import_paste_draft.post'>;
-export type ImportUrlsWire = HttpContractSuccessResponse<'tenant.import_urls.post'>;
 export type PreparedImportUrls = HttpContractSuccessResponse<'tenant.prepare_import_urls.post'>;
 export type ImportCsvWire = HttpContractSuccessResponse<'tenant.import_csv.post'>;
-export type ImportCsvPreviewWire =
-  HttpContractSuccessResponse<'tenant.import_csv_preview.post'>;
 export type ImportXlsxWire = HttpContractSuccessResponse<'tenant.import_xlsx.post'>;
-export type ImportPdfWire = HttpContractSuccessResponse<'tenant.import_pdf.post'>;
 export type ImportFilesWire = HttpContractSuccessResponse<'tenant.import_files.post'>;
 export type ImportFollowTheMoneyWire =
   HttpContractSuccessResponse<'tenant.import_followthemoney.post'>;
 
-type PasteDraftRequest =
-  HttpContractOperationMap['tenant.import_paste_draft.post']['request'];
-type UrlsRequest = HttpContractOperationMap['tenant.import_urls.post']['request'];
 type FollowTheMoneyRequest =
   HttpContractOperationMap['tenant.import_followthemoney.post']['request'];
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
@@ -235,76 +223,13 @@ export interface SampleProjectSeedResult {
   rows: number;
 }
 
-export interface ImportResult {
-  sheet_id: number;
-  rows: number;
-  columns?: string[];
-  pages?: number;
-  downloaded?: number;
-  failed?: number;
-}
-
-export type ImportCsvPreview = ImportCsvPreviewWire;
-
-export interface ImportDraftColumn {
-  key: string;
-  name: string;
-  type: string;
-  include: boolean;
-  format?: string | null;
-  sample_values: unknown[];
-}
-
-export interface ImportDraft {
-  schema_version: 'frisket.import_draft.v2';
-  raw: string;
-  draft_id: string;
-  source_kind: 'paste';
-  sheet_name: string;
-  row_count: number;
-  columns: ImportDraftColumn[];
-  preview_rows: Array<Record<string, unknown>>;
-  warnings: string[];
-  source: Record<string, unknown>;
-}
-
-export interface ImportDraftMappingColumn {
-  key: string;
-  name: string;
-  type: string;
-  format?: string | null;
-  include: boolean;
-  updatePolicy?: 'match' | 'update';
-}
-
-export interface ImportDraftMapping {
-  sheetName: string;
-  destination?: { kind: 'new_sheet' } | { kind: 'existing_sheet'; sheetId: number };
-  columns: ImportDraftMappingColumn[];
-  update?: {
-    keyColumns: string[];
-    keepExistingOnBlank: boolean;
-  };
-}
-
 export interface OnboardingImportsApi {
   seedSampleProject(
     projectId: string,
     options?: OnboardingImportOptions,
   ): Promise<SampleProjectSeedWire>;
-  detectPastedRowsDraft(
-    raw: string,
-    options?: OnboardingImportOptions,
-  ): Promise<ImportPasteDraftWire>;
-  importUrls(
-    urls: string[],
-    options?: OnboardingImportOptions,
-  ): Promise<ImportUrlsWire>;
-  previewCsv(file: File, options?: CsvImportOptions): Promise<ImportCsvPreviewWire>;
   importCsv(file: File, options?: CsvImportOptions): Promise<ImportCsvWire>;
   importXlsx(file: File, options?: OnboardingImportOptions): Promise<ImportXlsxWire>;
-  previewXlsx(file: File, options?: OnboardingImportOptions): Promise<ImportCsvPreviewWire>;
-  importPdf(file: File, options?: OnboardingImportOptions): Promise<ImportPdfWire>;
   importFiles(files: File[], options?: OnboardingImportOptions): Promise<ImportFilesWire>;
   importFollowTheMoney(
     file: File,
@@ -342,50 +267,6 @@ export function createOnboardingImportsApi(
       );
     },
 
-    detectPastedRowsDraft(raw, options = {}) {
-      return httpContract(
-        'tenant.import_paste_draft.post',
-        {
-          pathParams: { pid: projectId },
-          query: {},
-          body: { raw } as PasteDraftRequest,
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
-    importUrls(urls, options = {}) {
-      return trackImportSubmission(projectId, { importKind: 'url', format: 'unknown' }, () => httpContract(
-        'tenant.import_urls.post',
-        {
-          pathParams: { pid: projectId },
-          query: {},
-          body: { urls } as UrlsRequest,
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      ), (result) => ({ result: result.failed > 0 ? result.rows > 0 ? 'partial' : 'failed' : 'success', rows: result.rows }));
-    },
-
-    previewCsv(file, options = {}) {
-      const body = new FormData();
-      body.append('file', file);
-      return httpContract(
-        'tenant.import_csv_preview.post',
-        {
-          pathParams: { pid: projectId },
-          query: options.encoding ? { encoding: options.encoding } : {},
-          body,
-          signal: options.signal,
-          headers: options.headers,
-          errorFactory,
-        },
-      );
-    },
-
     importCsv(file, options = {}) {
       const body = new FormData();
       body.append('file', file);
@@ -411,24 +292,6 @@ export function createOnboardingImportsApi(
       body.append('file', file);
       return httpContract(
         'tenant.import_xlsx.post',
-        { pathParams: { pid: projectId }, query: {}, body, signal: options.signal, headers: options.headers, errorFactory },
-      );
-    },
-
-    previewXlsx(file, options = {}) {
-      const body = new FormData();
-      body.append('file', file);
-      return httpContract('tenant.import_xlsx_preview.post', {
-        pathParams: { pid: projectId }, query: {}, body,
-        signal: options.signal, headers: options.headers, errorFactory,
-      });
-    },
-
-    importPdf(file, options = {}) {
-      const body = new FormData();
-      body.append('file', file);
-      return httpContract(
-        'tenant.import_pdf.post',
         { pathParams: { pid: projectId }, query: {}, body, signal: options.signal, headers: options.headers, errorFactory },
       );
     },
@@ -541,155 +404,9 @@ export function createOnboardingImportsApi(
   };
 }
 
-const MAX_PASTE_DRAFT_RAW_LENGTH = 2_000_000;
-
-function isImportDraftRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function hasImportDraftProperty(record: Record<string, unknown>, property: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, property);
-}
-
-function unexpectedImportDraftResponse(): never {
-  throw new ApiError(500, 'Unexpected import draft response');
-}
-
-function importDraftString(value: unknown): string {
-  if (typeof value !== 'string') unexpectedImportDraftResponse();
-  return value;
-}
-
-/** Maps the extensible producer response onto the browser's stable draft domain. */
-export function normalizeImportDraft(wire: ImportPasteDraftWire, raw: string): ImportDraft {
-  const draft: Record<string, unknown> = wire;
-  if (!isImportDraftRecord(draft)) unexpectedImportDraftResponse();
-  if (draft.schema_version !== 'frisket.import_draft.v2') unexpectedImportDraftResponse();
-  if (draft.source_kind !== 'paste') unexpectedImportDraftResponse();
-
-  const rowCount = draft.row_count;
-  if (typeof rowCount !== 'number' || !Number.isFinite(rowCount) || !Number.isInteger(rowCount)) {
-    unexpectedImportDraftResponse();
-  }
-  if (!Array.isArray(draft.columns) || !Array.isArray(draft.preview_rows) || !Array.isArray(draft.warnings)) {
-    unexpectedImportDraftResponse();
-  }
-
-  const columns: ImportDraftColumn[] = draft.columns.map((value) => {
-    if (!isImportDraftRecord(value)) unexpectedImportDraftResponse();
-    const hasFormat = hasImportDraftProperty(value, 'format');
-    const format = value.format;
-    if (hasFormat && format !== null && typeof format !== 'string') unexpectedImportDraftResponse();
-    if (!hasImportDraftProperty(value, 'sample_values') || !Array.isArray(value.sample_values)) {
-      unexpectedImportDraftResponse();
-    }
-    if (typeof value.include !== 'boolean') unexpectedImportDraftResponse();
-    const extensions = { ...value };
-    delete extensions.key;
-    delete extensions.name;
-    delete extensions.type;
-    delete extensions.include;
-    delete extensions.format;
-    delete extensions.sample_values;
-    return {
-      ...extensions,
-      key: importDraftString(value.key),
-      name: importDraftString(value.name),
-      type: importDraftString(value.type),
-      include: value.include,
-      ...(hasFormat ? { format: format as string | null } : {}),
-      sample_values: value.sample_values,
-    };
-  });
-
-  const preview_rows: Array<Record<string, unknown>> = draft.preview_rows.map((value) => {
-    if (!isImportDraftRecord(value)) unexpectedImportDraftResponse();
-    return value;
-  });
-  const warnings: string[] = draft.warnings.map(importDraftString);
-  const source = draft.source;
-  if (
-    !isImportDraftRecord(source)
-    || typeof source.kind !== 'string'
-    || typeof source.label !== 'string'
-    || typeof source.fingerprint !== 'string'
-    || typeof source.line_count !== 'number'
-  ) {
-    unexpectedImportDraftResponse();
-  }
-
-  return {
-    ...draft,
-    schema_version: 'frisket.import_draft.v2',
-    draft_id: importDraftString(draft.draft_id),
-    source_kind: 'paste',
-    sheet_name: importDraftString(draft.sheet_name),
-    row_count: rowCount,
-    raw,
-    columns,
-    preview_rows,
-    warnings,
-    source,
-  };
-}
-
-function reviewedDraftColumns(columns: ImportDraftMappingColumn[]) {
-  return columns.map((column) => ({
-    source_name: column.key,
-    name: column.include ? column.name.trim() : null,
-    type: column.type,
-    ...(column.format ? { format: column.format } : {}),
-  }));
-}
-
-export async function submitImportRowsDraft(
-  projectId: string,
-  draft: ImportDraft,
-  mapping: ImportDraftMapping,
-): Promise<ImportResult> {
-  return trackImportSubmission(projectId, { importKind: 'paste', format: 'unknown' }, () => httpContract('tenant.import_paste_confirm.post', {
-    pathParams: { pid: projectId },
-    query: {},
-    body: {
-      raw: draft.raw,
-      draft_id: draft.draft_id,
-      sheet_name: mapping.sheetName.trim() || draft.sheet_name,
-      columns: reviewedDraftColumns(mapping.columns),
-      ...(mapping.destination?.kind === 'existing_sheet'
-        ? { destination_sheet_id: mapping.destination.sheetId } : {}),
-      ...(mapping.update ? {
-        key_columns: mapping.update.keyColumns,
-        keep_existing_on_blank: mapping.update.keepExistingOnBlank,
-      } : {}),
-    },
-    errorFactory: actionLaunchErrorFromContract,
-  }), (result) => ({ result: 'success', rows: result.rows, columns: result.columns.length }));
-}
-
 export function seedSampleProject(projectId: string): Promise<SampleProjectSeedResult> {
   return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
     .seedSampleProject(projectId) as Promise<SampleProjectSeedResult>;
-}
-
-export async function detectPastedRowsDraft(projectId: string, raw: string): Promise<ImportDraft> {
-  if (raw.length > MAX_PASTE_DRAFT_RAW_LENGTH) {
-    throw new ApiError(413, 'Paste is too large; limit is 2,000,000 characters.');
-  }
-  return normalizeImportDraft(
-    await createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
-      .detectPastedRowsDraft(raw),
-    raw,
-  );
-}
-
-export function previewCsv(
-  projectId: string,
-  file: File,
-  encoding?: string,
-  options: OnboardingImportOptions = {},
-): Promise<ImportCsvPreview> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
-    .previewCsv(file, { ...options, encoding });
 }
 
 export function importCsv(
@@ -717,14 +434,6 @@ export function importXlsx(
   return httpContract('tenant.append_xlsx.post', {
     pathParams: { pid: projectId }, query: {}, body, errorFactory: actionLaunchErrorFromContract,
   }) as Promise<ImportXlsxWire>;
-}
-
-export function previewXlsx(projectId: string, file: File): Promise<ImportCsvPreview> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId).previewXlsx(file);
-}
-
-export function importPdf(projectId: string, file: File): Promise<ImportPdfWire> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId).importPdf(file);
 }
 
 export function importFiles(projectId: string, files: File[]): Promise<ImportFilesWire> {
@@ -915,13 +624,4 @@ export function prepareImportUrls(
     signal: options.signal, headers: options.headers,
     errorFactory: actionLaunchErrorFromContract,
   });
-}
-
-export function importUrls(projectId: string, urls: string[]): Promise<ImportUrlsWire> {
-  const cleanedUrls = urls.flatMap((url) => {
-    const trimmed = url.trim();
-    return trimmed ? [trimmed] : [];
-  });
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
-    .importUrls(cleanedUrls);
 }

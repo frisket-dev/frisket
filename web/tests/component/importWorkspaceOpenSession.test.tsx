@@ -9,7 +9,6 @@ const prepareImportUrls = vi.hoisted(() => vi.fn());
 const executeBulkImport = vi.hoisted(() => vi.fn());
 const importFollowTheMoney = vi.hoisted(() => vi.fn());
 const importCsv = vi.hoisted(() => vi.fn());
-const previewCsv = vi.hoisted(() => vi.fn());
 const importFiles = vi.hoisted(() => vi.fn());
 const getImportSession = vi.hoisted(() => vi.fn());
 const createImportSession = vi.hoisted(() => vi.fn());
@@ -34,7 +33,6 @@ vi.mock('../../src/api/open', async (importOriginal) => {
     executeBulkImport,
     importFollowTheMoney,
     importCsv,
-    previewCsv,
     importFiles,
     getImportSession,
     createImportSession,
@@ -157,13 +155,6 @@ beforeEach(() => {
     status: 'completed',
     outputs: [{ kind: 'sheet', sheet_id: 88 }],
     value: { dataset_id: 'dataset-1' },
-  });
-  previewCsv.mockResolvedValue({
-    row_count: 1,
-    columns: [{ name: 'name', type: 'text' }],
-    preview_rows: [{ name: 'Ada' }],
-    encoding: 'utf-8',
-    delimiter: ',',
   });
   importCsv.mockRejectedValue(new Error('retryable test failure'));
   createImportSession.mockResolvedValue({
@@ -1085,7 +1076,6 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     const file = new File(['name\nAda\n'], 'people.csv', { type: 'text/csv' });
     fireEvent.drop(screen.getByTestId('import-dropzone'), { dataTransfer: { files: [file] } });
     expect(onOpenTable).toHaveBeenCalledWith(file);
-    expect(previewCsv).not.toHaveBeenCalled();
   });
 
   it('opens the empty-project workspace without passing the click event as an import mode', () => {

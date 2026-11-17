@@ -1224,7 +1224,7 @@ function AdminErrorsPanel({
 // consented) or to the automatic budget-capped requeue/stale-lease sweeps.
 type JobRemediation = 'cancel';
 
-/** /admin health section — surfaces GET /api/admin/health (DB, blob-store,
+/** /admin health section — surfaces GET /api/admin/browser/health (DB, blob-store,
  *  and run-queue probes plus active-run count). Kept deliberately small:
  *  ok/fail chips, queue counts, active runs — no history, no charts. */
 export function AdminHealthPanel({

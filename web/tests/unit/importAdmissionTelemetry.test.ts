@@ -27,15 +27,6 @@ it('counts a PDF batch commit as queued, never each staging request as an import
   expect(JSON.stringify(telemetry.mock.calls)).not.toContain('private-draft');
 });
 
-it('counts URL import partial results without including the URLs', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => response({ sheet_id: 7, rows: 2, downloaded: 2, failed: 1 })));
-  await api.importUrls(['https://private.example/']);
-  expect(telemetry).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'Import.submitted', properties: expect.objectContaining({
-    importKind: 'url', rows: '1_999', result: 'partial', failureCategory: 'unknown',
-  }) }), 'private-project');
-  expect(JSON.stringify(telemetry.mock.calls)).not.toContain('https://');
-});
-
 it('counts mixed bulk results once and omits paths and error text', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => response({
     created: [{ kind: 'sheet', rows: 4, sheet_id: 9, logical_paths: ['private.csv'] }],
@@ -51,7 +42,7 @@ it('counts mixed bulk results once and omits paths and error text', async () => 
 
 it('keeps rejected admission rejected and records only its category', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => response({ detail: 'private rejection' }, 403)));
-  await expect(api.importUrls(['https://private.example/'])).rejects.toMatchObject({ status: 403 });
+  await expect(api.executeBulkImport('private-plan', {})).rejects.toMatchObject({ status: 403 });
   expect(telemetry).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'Import.submitted', properties: expect.objectContaining({
     result: 'failed', failureCategory: 'permission',
   }) }), 'private-project');
@@ -60,7 +51,7 @@ it('keeps rejected admission rejected and records only its category', async () =
 it('records an aborted upload as cancelled, not a failed timeout', async () => {
   const abort = new DOMException('private cancellation detail', 'AbortError');
   vi.stubGlobal('fetch', vi.fn(async () => { throw abort; }));
-  await expect(api.importUrls(['https://private.example/'])).rejects.toBe(abort);
+  await expect(api.executeBulkImport('private-plan', {})).rejects.toBe(abort);
   expect(telemetry).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'Import.submitted', properties: expect.objectContaining({
     result: 'cancelled', failureCategory: 'none',
   }) }), 'private-project');

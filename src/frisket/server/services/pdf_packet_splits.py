@@ -1713,18 +1713,6 @@ class PdfPacketSplitService:
             "error": error,
         }
 
-    def _start_payload(self, session, job, kind, total):
-        if job is None:
-            raise PdfPacketSplitRouteError(404, "packet job expired")
-        return {
-            "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-            "split_id": session.id,
-            "job_id": job.id,
-            "kind": kind,
-            "total": total,
-            "receipt_id": job.receipt.receipt_id if job.receipt else None,
-        }
-
     def _session(
         self, project_id: str, split_id: str, *, ready: bool = False
     ) -> _PacketSession:

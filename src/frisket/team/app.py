@@ -2088,9 +2088,7 @@ def create_team_app(
     register_invite_routes(
         app,
         invites=invite_service,
-        auth=auth,
         require_user=lambda request: require_user(request),
-        require_admin=lambda request: require_user(request, browser=True, admin=True),
         base_url=config.base_url,
         session_cookie=SESSION_COOKIE,
         secure_cookie=config.secure_cookies,
@@ -2131,8 +2129,6 @@ def create_team_app(
         engine=engine,
         org_id=org_id,
         require_user=require_user,
-        run_queue=core.state.workspace.queue,
-        workspace=core.state.workspace,
     )
 
     register_team_models_gateway_routes(
@@ -2151,7 +2147,6 @@ def create_team_app(
         require_user=require_user,
         resolve_user=resolve_request,
         membership_role=lambda user_id, oid: _membership_role(engine, user_id, oid),
-        run_queue=core.state.workspace.queue,
         validate_provider_key=validate_provider_key,
         secret_box=secret_box,
         workspace=core.state.workspace,

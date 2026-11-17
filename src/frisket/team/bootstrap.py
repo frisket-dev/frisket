@@ -157,11 +157,6 @@ def init_identity_schema(engine: sa.Engine, *, edition: str = TEAM_EDITION) -> N
     )
 
 
-def stamp_schema_marker(engine: sa.Engine, *, edition: str) -> None:
-    """Record the queryable schema-identity marker (gate 13). Idempotent."""
-    _stamp_schema_marker(engine, edition=edition, allow_empty=False)
-
-
 def _stamp_schema_marker(engine: sa.Engine, *, edition: str, allow_empty: bool) -> None:
     with engine.begin() as cx:
         markers = cx.execute(sa.select(schema_marker)).all()

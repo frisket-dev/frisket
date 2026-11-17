@@ -9,11 +9,10 @@ from typing import Any, BinaryIO
 
 from openpyxl import load_workbook
 
-from frisket.actions.import_xlsx import ImportXlsxParams, UpdateXlsxParams, import_xlsx
+from frisket.actions.import_xlsx import ImportXlsxParams, UpdateXlsxParams
 from frisket.engine.executor import BoundLocalFile, ExecutorDeps
 from frisket.engine.executor.import_sources import (
     bind_import_sources,
-    open_local_file_reader,
 )
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_runs import v1_action_result_http_status
@@ -147,35 +146,6 @@ class ImportXlsxUploadService:
         return scan_xlsx_stream(
             upload.source, logical_path=upload.filename or "imported.xlsx"
         )
-
-    def preview_xlsx(
-        self, project_id: str, *, upload: AdmittedUpload
-    ) -> dict[str, Any]:
-        self._workspace.get(project_id)
-        scan = self._scan(upload)
-        preview_rows: list[dict[str, Any]] = []
-        with open_local_file_reader(
-            {
-                _source_path(upload): BoundLocalFile(
-                    upload.source, f"sha256:{upload.sha256}"
-                )
-            }
-        ) as reader:
-            params = _xlsx_params(scan, source_path=_source_path(upload))
-            assert isinstance(params, ImportXlsxParams)
-            for row in import_xlsx(params, reader).rows:
-                if len(preview_rows) >= 20:
-                    break
-                preview_rows.append(row.output.root)
-        return {
-            "encoding": "binary",
-            "delimiter": "worksheet",
-            "decimal_separator": ".",
-            "row_count": scan.row_count,
-            "columns": scan.columns,
-            "preview_rows": preview_rows,
-            "truncated": scan.row_count > len(preview_rows),
-        }
 
     def upload_xlsx(
         self,

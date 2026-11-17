@@ -571,7 +571,7 @@ def test_secret_upsert_delete_validation_and_diagnostic_redaction(
             "source": "browser",
         },
     )
-    feed = client.get("/api/admin/errors").json()
+    feed = client.get("/api/admin/browser/errors").json()
     assert "sk-super" not in feed["errors"][0]["message"]
     assert feed["schema_version"] == "frisket.admin_errors.v1"
     with app.state.control_engine.connect() as cx:
@@ -591,7 +591,7 @@ def test_secret_upsert_delete_validation_and_diagnostic_redaction(
             ).scalar_one()
             == 1
         )
-    assert set(client.get("/api/admin/jobs").json()) == {
+    assert set(client.get("/api/admin/browser/jobs").json()) == {
         "schema_version",
         "summary",
         "workers",
@@ -607,25 +607,18 @@ def test_membership_admin_preserves_last_owner(tmp_path: Path) -> None:
     with app.state.control_engine.connect() as cx:
         rows = dict(cx.exec_driver_sql("SELECT email, id FROM users").all())
     owner_id, member_id = rows["owner@example.com"], rows["member@example.com"]
-    assert (
-        owner.patch(
-            f"/api/admin/users/{owner_id}/role", json={"role": "member"}
+    org_id = app.state.team_org_id
+
+    def set_role(user_id: int, role: str) -> int:
+        return owner.patch(
+            f"/api/admin/browser/users/{user_id}/role",
+            json={"org_id": org_id, "role": role},
         ).status_code
-        == 409
-    )
+
+    assert set_role(owner_id, "member") == 409
     assert owner.delete(f"/api/admin/users/{owner_id}").status_code == 409
-    assert (
-        owner.patch(
-            f"/api/admin/users/{member_id}/role", json={"role": "owner"}
-        ).status_code
-        == 200
-    )
-    assert (
-        owner.patch(
-            f"/api/admin/users/{owner_id}/role", json={"role": "member"}
-        ).status_code
-        == 200
-    )
+    assert set_role(member_id, "owner") == 200
+    assert set_role(owner_id, "member") == 200
 
 
 def test_admin_operational_routes_refuse_anonymous_and_non_admin_callers(
@@ -652,21 +645,18 @@ def test_admin_operational_routes_refuse_anonymous_and_non_admin_callers(
     This test goes red only when BOTH are gone, which is the honest thing
     for it to assert: it pins the PROPERTY (non-admins are refused), not
     either mechanism. Do not read a green here as proof that a particular
-    ``require_user`` call is still present. When the retry/recover doors were
-    removed, ``_remediate``'s own call was dropped by
-    accident and this property held throughout, because gate 1 never
-    stopped refusing. Ruff's F821 on the now-dangling ``actor`` is what
-    caught that, and a defence-in-depth layer going missing silently is
-    exactly the thing no assertion here can see.
+    ``require_user`` call is still present: a defence-in-depth layer going
+    missing silently is exactly the thing no assertion here can see.
 
     A fresh ``TestClient`` is mandatory: ``_app`` claims the server through
     ``claim_server``, whose own client ends up logged in as the owner —
     reusing it would make this probe pass no matter what.
     """
     app = _app(tmp_path)
+    job_id = app.state.workspace.queue.enqueue("probe", {"project_id": "alpha"})
     routes = (
-        ("post", "/api/admin/jobs/1/cancel"),
-        ("get", "/api/admin/audit"),
+        ("post", f"/api/admin/browser/jobs/{job_id}/cancel"),
+        ("get", "/api/admin/browser/audit"),
     )
 
     anonymous = TestClient(app)  # never logged in
@@ -951,7 +941,7 @@ def test_exact_catalog_paths_audits_key_files_and_safe_hints(tmp_path: Path) -> 
         if hasattr(route, "methods")
         for method in (route.methods or set())
     }
-    assert ("PATCH", "/api/admin/users/{user_id}/role") in paths
+    assert ("PATCH", "/api/admin/browser/users/{user_id}/role") in paths
     assert ("DELETE", "/api/projects/{pid}/members/{email}") in paths
     assert ("POST", "/api/org/keys/validate") in paths
     candidate = {"provider": "openai", "key": "sk-secret-value"}
@@ -1034,7 +1024,7 @@ def test_diagnostics_redact_bearer_jwt_and_dsn_and_cap_body(tmp_path: Path) -> N
     )
     admin = TestClient(app)
     _login(admin, app, "owner@example.com")
-    serialized = str(admin.get("/api/admin/errors").json())
+    serialized = str(admin.get("/api/admin/browser/errors").json())
     assert "eyJabc" not in serialized
     assert "user:password" not in serialized
     assert "sk-provider" not in serialized

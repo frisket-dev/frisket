@@ -157,18 +157,10 @@ _OUTER_PUBLIC: tuple[RouteSpec, ...] = (
 )
 
 _OUTER_ADMIN: tuple[RouteSpec, ...] = (
-    ("admin_audit", "GET"),
-    ("admin_errors", "GET"),
-    ("admin_health", "GET"),
-    ("admin_invite_user", "POST"),
-    ("admin_job_cancel", "POST"),
-    ("admin_jobs", "GET"),
     ("admin_list_users", "GET"),
     ("admin_overview", "GET"),
     # {user_ref} is a numeric user id (SPA) or an email (remote operator CLI).
     ("admin_remove_user", "DELETE"),
-    ("admin_revoke_invite", "DELETE"),
-    ("admin_update_user_role", "PATCH"),
     # Browser administration is a public contract surface shared by the
     # open/team client. The team composition is its sole registered edition;
     # exporter projection records that from the live route inventory.
@@ -747,8 +739,6 @@ _TENANT_EDITOR: tuple[RouteSpec, ...] = (
     ),
     ("import_csv", "POST"),
     ("append_csv", "POST"),
-    ("import_csv_preview", "POST"),
-    ("import_xlsx_preview", "POST"),
     ("append_xlsx", "POST"),
     ("import_bulk_execute", "POST"),
     ("import_bulk_plan", "POST"),
@@ -776,10 +766,6 @@ _TENANT_EDITOR: tuple[RouteSpec, ...] = (
     ("seal_import_session", "POST"),
     ("upload_import_session_files", "POST"),
     ("import_followthemoney", "POST"),
-    ("import_paste_draft", "POST"),
-    ("import_paste_confirm", "POST"),
-    ("import_pdf", "POST"),
-    ("import_urls", "POST"),
     ("import_xlsx", "POST"),
     (
         "mark_notification_read",
@@ -983,8 +969,6 @@ _BROWSER_CLIENT_IDS = (
             "tenant.entity_mentions_preview.post",
             "tenant.import_csv.post",
             "tenant.append_csv.post",
-            "tenant.import_csv_preview.post",
-            "tenant.import_xlsx_preview.post",
             "tenant.append_xlsx.post",
             "tenant.import_bulk_execute.post",
             "tenant.import_bulk_plan.post",
@@ -1014,10 +998,6 @@ _BROWSER_CLIENT_IDS = (
             "tenant.seal_import_session.post",
             "tenant.upload_import_session_files.post",
             "tenant.import_followthemoney.post",
-            "tenant.import_paste_draft.post",
-            "tenant.import_paste_confirm.post",
-            "tenant.import_pdf.post",
-            "tenant.import_urls.post",
             "tenant.import_xlsx.post",
             "tenant.ocr_compare_scratch.post",
             "tenant.ocr_compare_scratch_estimate.post",

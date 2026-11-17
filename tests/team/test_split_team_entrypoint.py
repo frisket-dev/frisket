@@ -360,9 +360,9 @@ def test_open_admin_diagnostics_and_org_secret_management_work_over_http(
     assert error.status_code in {200, 201, 202}, error.text
     for path in (
         "/api/admin/users",
-        "/api/admin/jobs",
-        "/api/admin/audit",
-        "/api/admin/errors",
+        "/api/admin/browser/jobs",
+        "/api/admin/browser/audit",
+        "/api/admin/browser/errors",
     ):
         response = admin.get(path)
         assert response.status_code == 200, f"{path}: {response.text}"
@@ -664,12 +664,6 @@ def test_org_and_project_owner_mutations_request_scoped_database_locks(
         ).scalar_one()
     assert (
         owner.patch(
-            f"/api/admin/users/{member_id}/role", json={"role": "owner"}
-        ).status_code
-        == 200
-    )
-    assert (
-        owner.patch(
             f"/api/admin/browser/users/{member_id}/role",
             json={"org_id": 1, "role": "owner"},
         ).status_code
@@ -683,7 +677,7 @@ def test_org_and_project_owner_mutations_request_scoped_database_locks(
         ).status_code
         == 200
     )
-    assert org_scopes == [("org-membership", 1), ("org-membership", 1)]
+    assert org_scopes == [("org-membership", 1)]
     assert any(
         scope and "project" in repr(scope).lower() and pid in repr(scope)
         for scope in project_scopes
@@ -1149,7 +1143,6 @@ def test_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
 @pytest.mark.parametrize(
     ("wire", "operation"),
     [
-        ("legacy", "role"),
         ("browser", "role"),
         ("legacy", "remove"),
         ("browser", "remove"),
@@ -1196,13 +1189,7 @@ def test_membership_admin_rechecks_stale_browser_owner_inside_shared_lock(
         admin_browser_service, "locked_transaction", revoke_owner_inside_membership_lock
     )
     if wire == "legacy":
-        if operation == "role":
-            response = owner.patch(
-                f"/api/admin/users/{ids['target@example.com']}/role",
-                json={"role": "owner"},
-            )
-        else:
-            response = owner.delete(f"/api/admin/users/{ids['target@example.com']}")
+        response = owner.delete(f"/api/admin/users/{ids['target@example.com']}")
     elif operation == "role":
         response = owner.patch(
             f"/api/admin/browser/users/{ids['target@example.com']}/role",
