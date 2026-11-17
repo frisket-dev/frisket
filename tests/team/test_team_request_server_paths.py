@@ -119,6 +119,51 @@ def _read_requests(path: str) -> list[dict[str, Any]]:
     ]
 
 
+def _write_requests(target: Path) -> list[dict[str, Any]]:
+    return [
+        {
+            "action_id": "export.work_log",
+            "scope": {"kind": "project"},
+            "params": {"destination": {"kind": "local_file", "path": str(target)}},
+            "idempotency_key": "write/work-log",
+        },
+        {
+            "action_id": "export.sheet_csv",
+            "scope": {"kind": "project"},
+            "params": {
+                "sheet_id": 1,
+                "destination": {"kind": "local_file", "path": str(target)},
+            },
+            "idempotency_key": "write/csv",
+        },
+        {
+            "action_id": "export.column_tables",
+            "scope": {"kind": "project"},
+            "params": {
+                "sheet_id": 1,
+                "column_id": 1,
+                "destination": {"kind": "local_dir", "path": str(target.parent)},
+            },
+            "idempotency_key": "write/column-tables",
+        },
+        {
+            "action_id": "embedding.index_export",
+            "scope": {"kind": "project"},
+            "params": {
+                "index_id": "idx",
+                "destination": {"kind": "local_dir", "path": str(target.parent)},
+            },
+            "idempotency_key": "write/index",
+        },
+        {
+            "action_id": "plugin.load",
+            "scope": {"kind": "project"},
+            "params": {"manifest": {"kind": "local_file", "path": str(target)}},
+            "idempotency_key": "load/plugin",
+        },
+    ]
+
+
 def _project_dir(client: TestClient) -> Path:
     return client.app.state.workspace.get(PROJECT).path
 
@@ -149,6 +194,24 @@ def test_team_editor_cannot_read_a_server_path(team, server_files, where) -> Non
     _assert_nothing_imported(team)
 
 
+@pytest.mark.parametrize("where", ["outside", "inside"])
+def test_team_editor_cannot_write_or_load_a_server_path(
+    team, server_files, where
+) -> None:
+    base = server_files["outside"] if where == "outside" else _project_dir(team)
+    target = base / "written.out"
+    before = sorted(p.name for p in base.iterdir())
+    for body in _write_requests(target):
+        result = _run(team, body)
+        assert result["status"] == "failed", (body["action_id"], result)
+        assert [error["code"] for error in result["errors"]] == [
+            "server_path_unavailable"
+        ], result
+        assert result["errors"][0]["field"].startswith("params.")
+        assert result.get("receipt_id") is None
+    assert sorted(p.name for p in base.iterdir()) == before
+
+
 def test_team_editor_cannot_preview_a_server_path(team, server_files) -> None:
     body = _read_requests(str(server_files["outside"] / "secret.csv"))[0]
     started = team.post(f"/api/projects/{PROJECT}/actions/v1/preview", json=body)
@@ -166,6 +229,20 @@ def test_team_editor_cannot_preview_a_server_path(team, server_files) -> None:
         clock.wait_until(finished, message="table preview did not finish")
     assert payload["status"] != "done", payload
     assert "not available on this deployment" in str(payload), payload
+
+
+def test_code_recipes_off_leaves_no_server_path_bypass(
+    team, server_files, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
+    secret = server_files["outside"] / "secret.csv"
+    for body in _read_requests(str(secret)):
+        assert _run(team, body)["errors"][0]["code"] == "invalid_file_source"
+    target = server_files["outside"] / "written.out"
+    for body in _write_requests(target):
+        assert _run(team, body)["errors"][0]["code"] == "server_path_unavailable"
+    assert not target.exists()
+    _assert_nothing_imported(team)
 
 
 def test_team_queued_update_cannot_read_a_server_path(team, server_files) -> None:
@@ -217,3 +294,18 @@ def test_team_upload_still_imports(team) -> None:
     )
     assert response.status_code == 200, response.text
     assert response.json()["rows"] == 1
+
+
+def test_local_edition_reads_and_writes_operator_paths(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    source = outside / "notes.txt"
+    source.write_bytes(b"operator notes")
+    target = outside / "work-log.md"
+    with TestClient(create_app(tmp_path / "workspace")) as client:
+        client.app.state.workspace.create("Local", project_id=PROJECT)
+        imported = _run(client, _read_requests(str(source))[0])
+        assert imported["status"] == "completed", imported
+        exported = _run(client, _write_requests(target)[0])
+        assert exported["status"] == "completed", exported
+    assert target.read_text().strip()
