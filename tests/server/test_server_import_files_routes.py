@@ -130,6 +130,10 @@ def test_import_files_route_preserves_transport_response_and_uses_typed_request(
     receipt = project.db.execute("SELECT action_kind FROM receipts").fetchone()
     assert receipt is not None
     assert receipt["action_kind"] == "import.files"
+    # Search preparation may add its own receipts when a local OCR engine is
+    # installed; replay must add none of either kind.
+    receipts = "SELECT id, action_kind FROM receipts ORDER BY id"
+    before = [tuple(row) for row in project.db.execute(receipts)]
     replay = client.post(
         f"/api/projects/{pid}/import/files?sheet_name=assets",
         files=[
@@ -140,7 +144,8 @@ def test_import_files_route_preserves_transport_response_and_uses_typed_request(
     assert replay.status_code == 200, replay.text
     assert replay.json() == response.json()
     assert requests[0] == requests[1]
-    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+    assert [tuple(row) for row in project.db.execute(receipts)] == before
+    assert [kind for _id, kind in before].count("import.files") == 1
 
 
 def test_held_file_upload_reads_bounded_original_handle_not_replaced_path(tmp_path):
