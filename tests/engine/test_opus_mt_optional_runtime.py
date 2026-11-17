@@ -311,7 +311,7 @@ async def test_oversized_row_does_not_discard_usable_session(monkeypatch, tmp_pa
 
     monkeypatch.setattr(model_cache, "default_cache_root", lambda: tmp_path)
     monkeypatch.setattr(opus_mt, "is_pair_installed", lambda *args: True)
-    monkeypatch.setattr(opus_mt_session, "MAX_FRAME_BYTES", 64)
+    monkeypatch.setattr(opus_mt_session.OpusMtSession, "_request_limit", 64)
     sent = []
 
     class Handle:

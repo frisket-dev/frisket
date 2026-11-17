@@ -11,9 +11,9 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 
-from .framing import FrameCodec
+from .framing import FrameCodec, protocol_stdout
 from .parakeet_model import MODEL, MODEL_FILES, MODEL_REVISION, VAD_FILES, VAD_REVISION
 
 SCHEMA_VERSION = "frisket.run_scoped_worker.v1"
@@ -125,14 +125,6 @@ class _Runtime:
         self.vad = vad
         self.np = np
         self.onnx_threads = onnx_threads
-
-
-def _protocol_stdout() -> BinaryIO:
-    """Reserve the original stdout pipe and redirect ordinary stdout to stderr."""
-
-    protocol_fd = os.dup(sys.stdout.fileno())
-    os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
-    return os.fdopen(protocol_fd, "wb", buffering=0)
 
 
 def _base_frame(frame_type: str) -> dict[str, Any]:
@@ -328,7 +320,7 @@ def _validate_request(frame: dict[str, Any]) -> tuple[str, str]:
 def framed_main() -> None:
     """Run the v1 length-prefixed, one-request-at-a-time worker protocol."""
 
-    protocol = _protocol_stdout()
+    protocol = protocol_stdout()
     stdin = sys.stdin.buffer
     try:
         init = _FRAME_CODEC.read_frame(stdin)

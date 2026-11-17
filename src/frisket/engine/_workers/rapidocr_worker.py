@@ -23,9 +23,9 @@ import time
 from contextlib import contextmanager
 from importlib import metadata
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO, Iterator
+from typing import Any, Iterator
 
-from .framing import FrameCodec
+from .framing import FrameCodec, protocol_stdout
 
 SCHEMA_VERSION = "frisket.rapidocr_worker.v1"
 ENGINE = "rapidocr"
@@ -59,14 +59,6 @@ class RapidOCRPageError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
-
-
-def _protocol_stdout() -> BinaryIO:
-    """Reserve the protocol pipe before third-party libraries can print."""
-
-    protocol_fd = os.dup(sys.stdout.fileno())
-    os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
-    return os.fdopen(protocol_fd, "wb", buffering=0)
 
 
 def _base_frame(frame_type: str) -> dict[str, Any]:
@@ -553,7 +545,7 @@ def _write_result_file(path: Path, pages: list[dict[str, Any]]) -> None:
 def framed_main() -> None:
     """Run the bounded one-request-at-a-time persistent worker protocol."""
 
-    protocol = _protocol_stdout()
+    protocol = protocol_stdout()
     stdin = sys.stdin.buffer
     staging_root = Path.cwd().resolve()
     try:
