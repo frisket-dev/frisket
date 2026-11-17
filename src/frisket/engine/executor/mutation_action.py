@@ -57,12 +57,11 @@ from frisket.contracts.actions.schemas._base import (
 from frisket.engine.executor.action_inventory import (
     ExecutorContext,
     ExecutorDeps,
-    _ActionCoreSpec,
     _TypedProjectEnvelope,
 )
 from frisket.engine.executor.action_lifecycle import (
     _child_sheet_deterministic_result_from_existing,
-    _run_action_core_spec,
+    _run_typed_plain_action,
 )
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.action_receipts import _receipt_ops_are_applied
@@ -1857,11 +1856,12 @@ def run_typed_mutation_action(
     )
     params_hash = typed_request_hash(bound)
     executor_deps = deps or ExecutorDeps()
-    spec = _ActionCoreSpec(
-        kind=envelope.kind,
-        params_model=terminal.params_model,
-        body_kind="plain",
-        params_hash_fn=lambda _action: params_hash,
+    return _run_typed_plain_action(
+        project,
+        bound,
+        envelope,
+        ctx=ExecutorContext(project_id=project_id, deps=executor_deps),
+        params_hash=params_hash,
         result_from_existing_fn=_child_sheet_deterministic_result_from_existing(
             _import_change_replay_error
             if terminal.capabilities in ((RowsAppender,), (RowsUpdater,))
@@ -1888,11 +1888,4 @@ def run_typed_mutation_action(
             if bound.action.action_id == "review.decision"
             else None
         ),
-    )
-    return _run_action_core_spec(
-        project,
-        envelope,
-        bound.params,
-        spec=spec,
-        ctx=ExecutorContext(project_id=project_id, deps=executor_deps),
     )

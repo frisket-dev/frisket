@@ -9,6 +9,7 @@ from frisket.actions.file_types import UrlColumn
 from frisket.actions.page_capture_types import CaptureOptions, PreparedPageCapture
 from frisket.actions.types import SheetRows
 from frisket.contracts.action import ActionError
+from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.page_capture import (
     CapturePlan,
@@ -138,7 +139,6 @@ def run_typed_page_capture_action(
     url_capture_fetcher=None,
     url_capture_browser=None,
 ):
-    from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
     from frisket.engine.executor.action_reservations import _receipt_for_idempotency
     from frisket.engine.executor.map_rows_action import typed_request_hash
 

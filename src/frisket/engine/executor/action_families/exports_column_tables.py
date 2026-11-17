@@ -47,6 +47,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.exports import ExportColumnTablesParams
 from frisket.actions.system import BoundTypedActionRequest
@@ -76,12 +77,11 @@ from frisket.engine.executor.action_families.exports import (
 from frisket.engine.executor.action_inventory import (
     ExecutorContext,
     ExecutorDeps,
-    _ActionCoreSpec,
     _TypedProjectEnvelope,
 )
 from frisket.engine.executor.action_lifecycle import (
     _child_sheet_deterministic_result_from_existing,
-    _run_action_core_spec,
+    _run_typed_plain_action,
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.server.exports.sheet_csv import csv_display
@@ -929,32 +929,22 @@ def _run_typed_export_column_tables(
         ColumnTablesExporter,
     ):
         raise TypeError("column-tables executor requires a ColumnTablesExporter action")
-    envelope = _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    envelope = _typed_params_envelope(bound)
     params_hash = typed_request_hash(bound)
-    spec = _ActionCoreSpec(
-        kind=envelope.kind,
-        params_model=terminal.params_model,
-        body_kind="plain",
-        params_hash_fn=lambda _action: params_hash,
+    result = _run_typed_plain_action(
+        project,
+        bound,
+        envelope,
+        ctx=ExecutorContext(project_id=project_id, deps=deps or ExecutorDeps()),
+        params_hash=params_hash,
         result_from_existing_fn=_child_sheet_deterministic_result_from_existing(
-            replay_validate_fn=_export_column_tables_replay_error
+            _export_column_tables_replay_error
         ),
         plain_resolve_fn=_column_tables_resolver(terminal, project_id=project_id),
         plain_perform_in_txn_fn=_perform_export_column_tables_in_txn,
         plain_exception_error_fn=_export_project_write_failed_error,
         plain_cleanup_resolved_fn=_cleanup_export_column_tables,
         plain_post_commit_fn=_finalize_export_column_tables,
-    )
-    result = _run_action_core_spec(
-        project,
-        envelope,
-        bound.params,
-        spec=spec,
-        ctx=ExecutorContext(project_id=project_id, deps=deps or ExecutorDeps()),
     )
     _emit_export_notification(project, result)
     return result

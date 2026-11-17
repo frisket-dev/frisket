@@ -30,6 +30,7 @@ from contextlib import ExitStack
 from typing import Any
 
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.embeddings import (
     IndexCreateParams,
@@ -3501,11 +3502,7 @@ def run_typed_embedding_action(
     terminal = bound.action.definition.run
     if not supports_typed_embedding_action(terminal):
         raise TypeError("typed embedding executor requires an embedding capability")
-    envelope = _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    envelope = _typed_params_envelope(bound)
     params_hash = typed_request_hash(bound)
     if any(terminal.capabilities == (cap,) for cap in {IndexCreator, IndexRefresher}):
         # Terminal replay precedes the authored handler and any fresh provider work.

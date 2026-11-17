@@ -13,6 +13,7 @@ from dataclasses import replace
 from functools import partial
 from types import MappingProxyType
 
+from frisket.engine.executor.action_inventory import _typed_request_envelope
 from frisket.actions.types import Row, Rows, RowError, RowResult
 from frisket.contracts.action import ActionError, ActionIdentity, ActionResult
 from frisket.engine.executor.action_receipts import _result_from_receipt
@@ -20,7 +21,6 @@ from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlanError,
     _TypedMapBatchProgram,
-    _TypedExecutionEnvelope,
     _require_expected_output_columns,
     _typed_plan_error,
     _typed_receipt,
@@ -349,11 +349,7 @@ def run_inferred_batch(
         replay = typed_map_rows_replay_result(project, project_id, bound)
         if replay is not None:
             return replay
-    action = _TypedExecutionEnvelope(
-        bound.action.action_id,
-        bound.request.idempotency_key,
-        MappingProxyType(dict(bound.request.params)),
-    )
+    action = _typed_request_envelope(bound)
     params_hash = typed_request_hash(bound)
     if reservation is None:
         reservation = _reserve_running_action_receipt(

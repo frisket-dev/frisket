@@ -20,8 +20,12 @@ and a test that fails the day it acquires a default.
 from __future__ import annotations
 
 import inspect
+from dataclasses import fields
 
 import pytest
+
+from frisket.engine.executor.action_inventory import ExecutorDeps
+from frisket.engine.executor.actions import _executor_deps_with_defaults
 
 # ---------------------------------------------------------------------------
 # The registry
@@ -135,6 +139,24 @@ def test_map_runner_factory_stays_optional_because_the_funnel_resolves_it():
     assert resolved(ExecutorDeps(map_runner_factory=sentinel)).map_runner_factory is (
         sentinel
     )
+
+
+def test_executor_deps_defaults_preserve_every_caller_field():
+    supplied = {
+        item.name: object()
+        for item in fields(ExecutorDeps)
+        if item.name not in {"execution_composition", "map_runner_factory"}
+    }
+    resolved = _executor_deps_with_defaults(
+        deps=ExecutorDeps(**supplied),
+        router=None,
+        rss_fetcher=None,
+        enclosure_fetcher=None,
+        url_capture_fetcher=None,
+        url_capture_browser=None,
+    )
+    assert {name: getattr(resolved, name) for name in supplied} == supplied
+    assert resolved.map_runner_factory is not None
 
 
 def test_route_store_no_longer_answers_installation_scoped_questions():

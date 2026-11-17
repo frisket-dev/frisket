@@ -8,6 +8,7 @@ from functools import partial
 from types import MappingProxyType
 from typing import Any, Callable
 
+from frisket.engine.executor.action_inventory import _typed_request_envelope
 from frisket.actions.core import SemanticJoin, _ProjectAction
 from frisket.actions.python_types import PythonEvaluator
 from frisket.actions.http_types import HttpRequester
@@ -39,7 +40,6 @@ from frisket.engine.executor.action_reservations import (
 )
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
-    _TypedExecutionEnvelope,
     _typed_external_cost_error,
     _typed_model_cost_error,
     _typed_receipt,
@@ -259,11 +259,7 @@ def run_typed_backfill_action(
     *,
     edition: str | None = None,
 ) -> ActionResult:
-    action = _TypedExecutionEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=MappingProxyType(dict(bound.request.params)),
-    )
+    action = _typed_request_envelope(bound)
     request_hash = typed_request_hash(bound)
     existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
     if existing is not None:

@@ -30,6 +30,7 @@ from frisket.engine.store.receipts import (
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.execution.dispatch_control import DispatchControl
 from frisket.engine.executor.action_specs import declared_queued_action_job_kinds
+from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.executor.action_support import ActionCtx, _new_id, _params_hash
 
 
@@ -696,7 +697,6 @@ def reserve_typed_action_job(
     edition_run_context: Mapping[str, Any] | None = None,
 ) -> ActionJobEnvelope | ActionResult:
     """Reserve canonical intent without invoking a worker-resolved callable."""
-    from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
     if not _supports_typed_action_job(bound):

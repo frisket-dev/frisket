@@ -6,6 +6,7 @@ import json
 from dataclasses import replace
 from types import MappingProxyType
 
+from frisket.engine.executor.action_inventory import _typed_request_envelope
 from frisket.contracts.action import ActionError, ReceiptEvidence, ReceiptIO
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
@@ -13,7 +14,6 @@ from frisket.engine.executor.action_reservations import (
     _receipt_for_idempotency,
 )
 from frisket.engine.executor.map_rows_action import (
-    _TypedExecutionEnvelope,
     _typed_map_rows_plan,
     _typed_model_cost_error,
     _typed_plan_error,
@@ -768,11 +768,7 @@ def typed_semantic_join_queue_spec(bound, *, initial_plan=None, semantic_state=N
         runner_spec.update(
             semantic_join=semantic_state, engine=semantic_state["embedding_model"]
         )
-    envelope = _TypedExecutionEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=MappingProxyType(dict(bound.request.params)),
-    )
+    envelope = _typed_request_envelope(bound)
 
     def resolve(project, _params, spec, router):
         try:
@@ -975,11 +971,7 @@ def recover_typed_semantic_join_publication(project, project_id, bound):
         for binding in ResultGenerationStore(project).bindings_for_run(receipt.run_id)
     ):
         return None
-    envelope = _TypedExecutionEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=MappingProxyType(dict(bound.request.params)),
-    )
+    envelope = _typed_request_envelope(bound)
     try:
         return finalize_semantic_join(
             project,

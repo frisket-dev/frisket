@@ -12,6 +12,7 @@ import ``ExecutorDeps`` from ``frisket.executor``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from functools import partial
 from typing import Any, Callable, Mapping
 
 from pydantic import ValidationError
@@ -69,35 +70,6 @@ def _default_map_runner_factory(
         ),
         execution_composition=composition,
     )
-
-
-def _composed_map_runner_factory(
-    execution_composition: ExecutionComposition | None = None,
-) -> Callable[[Project, Any | None], Any]:
-    def factory(project: Project, router: Any | None) -> Any:
-        from frisket.engine.jobs.runs import (
-            build_attempt_authority,
-            project_scoped_router,
-        )
-        from frisket.engine.runner import MapRunner
-
-        effective_router = project_scoped_router(project, router)
-        composition = execution_composition or open_execution_composition(
-            project, effective_router, ExecutionCompositionContext.direct()
-        )
-        return MapRunner(
-            project,
-            effective_router,
-            concurrency=1,
-            allow_action_lifecycle_only_recipes=True,
-            authority=build_attempt_authority(
-                project,
-                composition=composition,
-            ),
-            execution_composition=composition,
-        )
-
-    return factory
 
 
 def _composition_bound_map_runner_factory(
@@ -401,8 +373,9 @@ def _executor_deps_with_defaults(
     map_runner_factory = base.map_runner_factory
     if map_runner_factory is None:
         map_runner_factory = (
-            _composed_map_runner_factory(
-                execution_composition,
+            partial(
+                _default_map_runner_factory,
+                execution_composition=execution_composition,
             )
             if execution_composition is not None
             else _default_map_runner_factory
@@ -442,12 +415,10 @@ def _executor_deps_with_defaults(
             }
             return runner
 
-    return _runtime_inventory.ExecutorDeps(
+    return replace(
+        base,
         router=router if router is not None else base.router,
-        execution_composition=execution_composition,
         rss_fetcher=rss_fetcher if rss_fetcher is not None else base.rss_fetcher,
-        source_poll_progress=base.source_poll_progress,
-        source_poll_cancelled=base.source_poll_cancelled,
         enclosure_fetcher=(
             enclosure_fetcher
             if enclosure_fetcher is not None
@@ -463,17 +434,7 @@ def _executor_deps_with_defaults(
             if url_capture_browser is not None
             else base.url_capture_browser
         ),
-        search_service_factory=base.search_service_factory,
         map_runner_factory=map_runner_factory,
-        connected_account_resolver=base.connected_account_resolver,
-        google_sheets_client=base.google_sheets_client,
-        embedding_gateway=base.embedding_gateway,
-        email_sources=base.email_sources,
-        sheet_export_limits=base.sheet_export_limits,
-        url_import_limits=base.url_import_limits,
-        import_workload_limits=base.import_workload_limits,
-        cell_edit_query_limits=base.cell_edit_query_limits,
-        cancelled=base.cancelled,
     )
 
 
@@ -624,6 +585,14 @@ def run_action_spec(
         )
 
         return run_typed_create_sheet_action(project, project_id, typed, deps=deps)
+    executor_deps = _executor_deps_with_defaults(
+        deps=deps,
+        router=router,
+        rss_fetcher=rss_fetcher,
+        enclosure_fetcher=enclosure_fetcher,
+        url_capture_fetcher=url_capture_fetcher,
+        url_capture_browser=url_capture_browser,
+    )
     if isinstance(typed.action.definition.run, _ProjectAction):
         from frisket.engine.executor.action_families.embeddings import (
             run_typed_embedding_action,
@@ -744,9 +713,7 @@ def run_action_spec(
                 project,
                 project_id,
                 typed,
-                enclosure_fetcher=enclosure_fetcher
-                if enclosure_fetcher is not None
-                else (deps.enclosure_fetcher if deps is not None else None),
+                enclosure_fetcher=executor_deps.enclosure_fetcher,
             )
         if owners[0] == "operation":
             return run_typed_operation_action(project, project_id, typed)
@@ -757,11 +724,9 @@ def run_action_spec(
                 project,
                 project_id,
                 typed,
-                on_progress=deps.source_poll_progress if deps else None,
-                should_cancel=deps.source_poll_cancelled if deps else None,
-                rss_fetcher=rss_fetcher
-                if rss_fetcher is not None
-                else (deps.rss_fetcher if deps is not None else None),
+                on_progress=executor_deps.source_poll_progress,
+                should_cancel=executor_deps.source_poll_cancelled,
+                rss_fetcher=executor_deps.rss_fetcher,
             )
         if owners[0] == "temporal_extract":
             return run_typed_temporal_extract_action(project, project_id, typed)
@@ -770,22 +735,10 @@ def run_action_spec(
                 project,
                 project_id,
                 typed,
-                url_capture_fetcher=url_capture_fetcher
-                if url_capture_fetcher is not None
-                else (deps.url_capture_fetcher if deps is not None else None),
-                url_capture_browser=url_capture_browser
-                if url_capture_browser is not None
-                else (deps.url_capture_browser if deps is not None else None),
+                url_capture_fetcher=executor_deps.url_capture_fetcher,
+                url_capture_browser=executor_deps.url_capture_browser,
             )
         if owners[0] == "value_cluster":
-            executor_deps = _executor_deps_with_defaults(
-                deps=deps,
-                router=router,
-                rss_fetcher=rss_fetcher,
-                enclosure_fetcher=enclosure_fetcher,
-                url_capture_fetcher=url_capture_fetcher,
-                url_capture_browser=url_capture_browser,
-            )
             return run_typed_cluster_action(
                 project,
                 project_id,
@@ -804,14 +757,6 @@ def run_action_spec(
                 edition=product_edition_from_snapshot(edition_run_context),
             )
         if owners[0] == "backfill":
-            executor_deps = _executor_deps_with_defaults(
-                deps=deps,
-                router=router,
-                rss_fetcher=rss_fetcher,
-                enclosure_fetcher=enclosure_fetcher,
-                url_capture_fetcher=url_capture_fetcher,
-                url_capture_browser=url_capture_browser,
-            )
             return run_typed_backfill_action(
                 project,
                 project_id,
@@ -827,20 +772,10 @@ def run_action_spec(
                 project,
                 project_id,
                 typed,
-                router=router
-                if router is not None
-                else (deps.router if deps else None),
-                embedding_gateway=deps.embedding_gateway if deps else None,
+                router=executor_deps.router,
+                embedding_gateway=executor_deps.embedding_gateway,
             )
         return run_typed_export_action(project, project_id, typed, deps=deps)
-    executor_deps = _executor_deps_with_defaults(
-        deps=deps,
-        router=router,
-        rss_fetcher=rss_fetcher,
-        enclosure_fetcher=enclosure_fetcher,
-        url_capture_fetcher=url_capture_fetcher,
-        url_capture_browser=url_capture_browser,
-    )
     if isinstance(typed.action.definition.run, SemanticJoin):
         from frisket.engine.executor.semantic_join_action import (
             run_typed_semantic_join_action,

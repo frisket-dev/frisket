@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import GoogleSheetsExport
 from frisket.actions.google_sheets_types import GoogleSheetsExportRequest
 from frisket.actions.system import BoundTypedActionRequest, typed_action_for_request
@@ -26,11 +27,7 @@ _INTENT_KIND = "google_sheets_export_intent"
 
 
 def _identity(bound: BoundTypedActionRequest) -> _TypedProjectEnvelope:
-    return _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    return _typed_params_envelope(bound)
 
 
 def _prepare(bound: BoundTypedActionRequest) -> GoogleSheetsExportRequest:

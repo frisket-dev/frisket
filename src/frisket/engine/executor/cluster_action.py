@@ -8,6 +8,7 @@ from functools import partial
 from types import MappingProxyType
 from typing import Any
 
+from frisket.engine.executor.action_inventory import _typed_request_envelope
 from frisket.actions.cluster_types import (
     ClusterColumn,
     ClusterOptions,
@@ -26,7 +27,6 @@ from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlan,
     TypedMapRowsPlanError,
     normalized_typed_request_identity,
-    _TypedExecutionEnvelope,
     _typed_model_cost_error,
     _typed_plan_error,
     _typed_receipt,
@@ -471,11 +471,7 @@ def typed_cluster_queue_spec(bound, *, initial_plan=None, cluster_state=None):
     )
     if cluster_state is not None:
         runner_spec.update(cluster_plan_from_state(bound, cluster_state).spec_dict())
-    envelope = _TypedExecutionEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=MappingProxyType(dict(bound.request.params)),
-    )
+    envelope = _typed_request_envelope(bound)
 
     def resolve(project, _params, spec, router):
         from frisket.engine.runner import ProviderKeyRefusal

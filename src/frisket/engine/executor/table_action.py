@@ -63,6 +63,7 @@ from frisket.engine.executor.action_families.imports import (
 from frisket.engine.executor.action_inventory import (
     ExecutorDeps,
     _TypedProjectEnvelope,
+    _typed_params_envelope,
 )
 from frisket.engine.executor.action_lifecycle import (
     _child_sheet_deterministic_result_from_existing,
@@ -520,11 +521,7 @@ def builtin_table_source(project, project_id, bound, *, deps=None) -> TableSourc
             raise TableError("action_cancelled", "Table import was cancelled.")
 
     return TableSource(
-        _TypedProjectEnvelope(
-            kind=bound.action.action_id,
-            idempotency_key=bound.request.idempotency_key,
-            params=bound.params.model_dump(mode="json"),
-        ),
+        _typed_params_envelope(bound),
         typed_request_hash(bound),
         terminal.capabilities,
         prepare,

@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any, Literal, Mapping
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
@@ -29,14 +30,12 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import (
-    ExecutorContext,
     ExecutorDeps,
-    _ActionCoreSpec,
+    ExecutorContext,
     _TypedProjectEnvelope,
 )
 from frisket.engine.executor.action_lifecycle import (
-    _child_sheet_deterministic_result_from_existing,
-    _run_action_core_spec,
+    _run_typed_plain_action,
 )
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import typed_request_hash
@@ -483,19 +482,15 @@ def run_typed_source_action(
     terminal = bound.action.definition.run
     if not supports_typed_source_action(terminal):
         raise TypeError("typed source executor requires a source action")
-    envelope = _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    envelope = _typed_params_envelope(bound)
     params_hash = typed_request_hash(bound)
 
-    spec = _ActionCoreSpec(
-        kind=envelope.kind,
-        params_model=terminal.params_model,
-        body_kind="plain",
-        params_hash_fn=lambda _action: params_hash,
-        result_from_existing_fn=_child_sheet_deterministic_result_from_existing(),
+    return _run_typed_plain_action(
+        project,
+        bound,
+        envelope,
+        ctx=ExecutorContext(project_id=project_id, deps=ExecutorDeps()),
+        params_hash=params_hash,
         plain_perform_in_txn_fn=lambda project_, cur, action, params, **kwargs: (
             _perform(project_, cur, action, params, terminal=terminal, **kwargs)
         ),
@@ -508,11 +503,4 @@ def run_typed_source_action(
             ),
             action_kind=action.kind,
         ),
-    )
-    return _run_action_core_spec(
-        project,
-        envelope,
-        bound.params,
-        spec=spec,
-        ctx=ExecutorContext(project_id=project_id, deps=ExecutorDeps()),
     )

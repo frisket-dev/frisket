@@ -467,6 +467,32 @@ def _run_plain_action_body(
     )
 
 
+def _run_typed_plain_action(
+    project: Any,
+    bound: Any,
+    envelope: _ActionExecutionEnvelope,
+    params_hash: str,
+    ctx: ExecutorContext,
+    **seams: Any,
+) -> ActionResult:
+    """Run a typed request through the plain in-transaction lifecycle.
+
+    ``seams`` are the plain-body fields of ``_ActionCoreSpec``; replay defaults
+    to the deterministic receipt replay.
+    """
+    seams.setdefault(
+        "result_from_existing_fn", _child_sheet_deterministic_result_from_existing()
+    )
+    spec = _ActionCoreSpec(
+        kind=envelope.kind,
+        params_model=bound.action.definition.run.params_model,
+        body_kind="plain",
+        params_hash_fn=lambda _action: params_hash,
+        **seams,
+    )
+    return _run_action_core_spec(project, envelope, bound.params, spec=spec, ctx=ctx)
+
+
 def _run_reserved_maprunner_action_spec(
     project: Any,
     action: ActionSpec,

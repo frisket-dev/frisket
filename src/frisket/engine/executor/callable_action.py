@@ -11,6 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.entity_package_types import (
@@ -253,11 +254,7 @@ def run_typed_callable_action(
     missing = set(terminal.capabilities) - _CALLABLE_CAPABILITIES.keys()
     if missing:
         raise TypeError("plain-callable capability has no host adapter")
-    action = _TypedProjectEnvelope(
-        kind=bound.action.action_id,
-        idempotency_key=bound.request.idempotency_key,
-        params=bound.params.model_dump(mode="json"),
-    )
+    action = _typed_params_envelope(bound)
     plugin_secrets = None
     if PluginSecrets in terminal.injections:
         from frisket.authoring.workbench.native_plugin_secrets import HostPluginSecrets
