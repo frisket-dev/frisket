@@ -1,19 +1,12 @@
-"""Compatibility facade for the v1 action contract catalog.
+"""Public import path for the v1 action contract models.
 
-This module defines the schema/validation-only surface for the first v1 action
-catalog slice. It does not execute actions or mutate projects.
-
-Class and constant definitions live in per-family modules under
-`frisket.contracts.actions.schemas.<family>`; shared primitives (base models,
-policies, the catalog envelope, and cross-family helpers) live in
-`frisket.contracts.actions.schemas._base`. This module re-exports the public
-surface so existing `from frisket.contracts.action import X` call sites keep
-working unchanged.
+Definitions live in per-family modules under
+`frisket.contracts.actions.schemas.<family>`, with shared primitives in
+`frisket.contracts.actions.schemas._base`. This module re-exports their public
+names only; private helpers are imported from their defining module.
 """
 
 from __future__ import annotations
-
-from frisket.authoring.templates import column_template_names
 
 from frisket.contracts.actions.schemas._base import (
     ACTION_CATALOG_SCHEMA_VERSION,
@@ -55,10 +48,6 @@ from frisket.contracts.actions.schemas._base import (
     StrictPositiveInt,
     StrictString,
     V1_COLUMN_TYPE_ALIASES,
-    _idempotency_stale_running_error,
-    _is_json_value,
-    _is_v1_column_type,
-    _value_matches_column_type,
     canonical_column_type,
 )
 
@@ -143,10 +132,6 @@ __all__ = [
     "StrictPositiveInt",
     "StrictString",
     "V1_COLUMN_TYPE_ALIASES",
-    "_idempotency_stale_running_error",
-    "_is_json_value",
-    "_is_v1_column_type",
-    "_value_matches_column_type",
     "canonical_column_type",
     "TemporalColumnSelection",
     "TemporalDraftPoint",
@@ -160,7 +145,6 @@ __all__ = [
     "ImportRowsOutput",
     "ImportRowsParams",
     "ImportRowsSource",
-    "column_template_names",
     "AUTO_SENTINEL",
     "LanguageChoice",
     "LanguageDeclaration",

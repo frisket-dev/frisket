@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace
 from collections.abc import Mapping as MappingABC
 from enum import Enum, StrEnum
 from types import MappingProxyType
-from typing import Any, Callable, Generic, Mapping, TypeVar, get_type_hints
+from typing import Any, Callable, Generic, Literal, Mapping, TypeVar, get_type_hints
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
 from pydantic.fields import FieldInfo
@@ -277,58 +277,6 @@ class ProjectCapabilitySpec:
     requires_confirmation: bool = False
     callable_host: bool = False
 
-    def __post_init__(self) -> None:
-        if any(
-            isinstance(value, (str, bytes))
-            for value in (self.errors, self.side_effects, self.required_capabilities)
-        ):
-            raise ValueError("project capability metadata must contain sequences")
-        try:
-            errors = tuple(
-                (error,) if isinstance(error, str) else tuple(error)
-                for error in self.errors
-            )
-            effects = tuple(self.side_effects)
-            capabilities = tuple(self.required_capabilities)
-        except TypeError as error:
-            raise ValueError("project capability metadata must be iterable") from error
-        values = (
-            *[value for pair in errors for value in pair],
-            *effects,
-            *capabilities,
-        )
-        if (
-            not isinstance(self.capability, type)
-            or not isinstance(self.return_type, type)
-            or not isinstance(self.output_model, type)
-            or not issubclass(self.output_model, BaseModel)
-            or not errors
-            or any(len(error) != 2 for error in errors)
-            or any(
-                not isinstance(value, str) or not value or value != value.strip()
-                for value in values
-            )
-            or any(len(group) != len(set(group)) for group in (effects, capabilities))
-            or len({code for code, _ in errors}) != len(errors)
-            or not effects
-            or not capabilities
-            or type(self.writes_project) is not bool
-            or self.cost_kind not in {"none", "external_metered", "model_metered"}
-            or type(self.requires_confirmation) is not bool
-            or type(self.callable_host) is not bool
-            or self.callable_host
-            and (self.cost_kind != "none" or self.requires_confirmation)
-            or self.writes_project
-            and "project:write" not in capabilities
-        ):
-            raise ValueError("invalid project capability metadata")
-        for metadata_field, value in (
-            ("errors", errors),
-            ("side_effects", effects),
-            ("required_capabilities", capabilities),
-        ):
-            object.__setattr__(self, metadata_field, value)
-
 
 def _project_capability_registry(
     *specs: ProjectCapabilitySpec,
@@ -366,14 +314,28 @@ def _project_capability(
     )
 
 
-_INVALID_PROJECT_REQUEST = (
-    "invalid_action_request",
-    "The typed action request is malformed.",
+# Error codes whose message is the same wherever an action declares them.
+_ERROR_MESSAGES: Mapping[str, str] = MappingProxyType(
+    {
+        "embedding_export_no_ready_vectors": "The index has no ready vectors.",
+        "embedding_index_not_found": "The embedding index does not exist.",
+        "export_column_collision": "Flattened export column names collided.",
+        "followthemoney_unavailable": "Install the entities extra to use FollowTheMoney.",
+        "idempotency_conflict": "The idempotency key was used for different work.",
+        "import_workload_limit_exceeded": "The import exceeds the deployment row limit.",
+        "invalid_action_request": "The typed action request is malformed.",
+        "local_artifact_unavailable": "The local model artifacts are unavailable.",
+        "local_session_failed": "The local session stopped; retry remaining rows.",
+        "operation_mismatch": "The available operation does not match the request.",
+        "project_state_corrupt": "The target operation state is invalid.",
+        "selection_unmappable": "The selection cannot map to the source timeline.",
+    }
 )
-_PROJECT_IDEMPOTENCY_CONFLICT = (
-    "idempotency_conflict",
-    "The idempotency key was used for different work.",
-)
+
+
+def _error(code: str) -> tuple[str, str]:
+    return (code, _ERROR_MESSAGES[code])
+
 
 # Host lifecycle facts, independent of the author's capability combinations.
 _CALLABLE_ERRORS = (
@@ -394,9 +356,9 @@ def _project_errors(
     *errors: tuple[str, str], write_failure: str
 ) -> tuple[tuple[str, str], ...]:
     return (
-        _INVALID_PROJECT_REQUEST,
+        _error("invalid_action_request"),
         *errors,
-        _PROJECT_IDEMPOTENCY_CONFLICT,
+        _error("idempotency_conflict"),
         ("project_write_failed", write_failure),
     )
 
@@ -408,7 +370,7 @@ _RUNNING_RESERVATION_ERRORS = (
 
 
 _MAP_ROWS_ERRORS = (
-    ("invalid_action_request", "The typed action request is malformed."),
+    _error("invalid_action_request"),
     ("invalid_params", "The action parameters are invalid."),
     ("invalid_input_ref", "A source sheet, row, or column reference is invalid."),
     ("output_column_exists", "A requested output column already exists."),
@@ -416,7 +378,7 @@ _MAP_ROWS_ERRORS = (
     ("network_disabled", "The action attempted an unadmitted network request."),
     ("map_rows_failed", "The row program failed to produce usable output."),
     ("project_write_failed", "The project write or receipt update failed."),
-    ("idempotency_conflict", "The idempotency key was used for different work."),
+    _error("idempotency_conflict"),
     *_RUNNING_RESERVATION_ERRORS,
     ("stale_replay", "Stored outputs no longer match the committed receipt."),
 )
@@ -447,7 +409,7 @@ _EXTERNAL_ROWS_ERRORS = (
     ("external_rows_failed", "The external provider failed for every selected row."),
 )
 _COLUMN_TRANSFORM_ERRORS = (
-    ("invalid_action_request", "The typed action request is malformed."),
+    _error("invalid_action_request"),
     ("invalid_params", "The transform parameters or result are invalid."),
     ("invalid_input_ref", "The source sheet or column is invalid."),
     ("output_column_exists", "The requested output column already exists."),
@@ -456,7 +418,7 @@ _COLUMN_TRANSFORM_ERRORS = (
         "project_write_failed",
         "The atomic transform failed without changing the project.",
     ),
-    ("idempotency_conflict", "The idempotency key was used for different work."),
+    _error("idempotency_conflict"),
     ("stale_replay", "The source snapshot or committed output is no longer current."),
 )
 _TEMPORAL_PROJECT_ERRORS = (
@@ -469,30 +431,27 @@ _TEMPORAL_PROJECT_ERRORS = (
 )
 _CREATE_SHEET_ERRORS = (
     ("invalid_input_ref", "The admitted table source is invalid or unavailable."),
-    ("invalid_action_request", "The typed action request is malformed."),
+    _error("invalid_action_request"),
     ("invalid_params", "The table parameters or produced rows are invalid."),
     ("invalid_column_type", "A declared column type is unavailable."),
     ("duplicate_column_name", "Created sheet columns must have unique names."),
     ("duplicate_sheet_name", "A sheet with the requested name already exists."),
     ("stale_replay", "The published table or lineage has changed."),
     ("row_shape_mismatch", "Every row must match the declared columns."),
-    (
-        "import_workload_limit_exceeded",
-        "The import exceeds the deployment row limit.",
-    ),
+    _error("import_workload_limit_exceeded"),
     *_TEMPORAL_PROJECT_ERRORS,
-    ("idempotency_conflict", "The idempotency key was used for different work."),
+    _error("idempotency_conflict"),
     (
         "project_write_failed",
         "The sheet, rows, operation, or receipt could not be written.",
     ),
 )
 _EXPORT_REQUEST_ERRORS = (
-    ("invalid_action_request", "The typed action request is malformed."),
+    _error("invalid_action_request"),
     ("invalid_export_destination", "The export destination is invalid."),
 )
 _EXPORT_REPLAY_ERRORS = (
-    ("idempotency_conflict", "The idempotency key was used for different work."),
+    _error("idempotency_conflict"),
     ("export_artifact_missing", "The replayed export artifact is missing."),
     ("export_artifact_mismatch", "The replayed export artifact has changed."),
     ("project_write_failed", "The export receipt or artifact could not be written."),
@@ -634,7 +593,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             _project_errors(
                 ("invalid_params", "The embedding operation arguments are invalid."),
                 ("invalid_input_ref", "The source sheet or columns are invalid."),
-                ("embedding_index_not_found", "The embedding index does not exist."),
+                _error("embedding_index_not_found"),
                 ("embedding_index_busy", "Another refresh holds the index lease."),
                 (
                     "embedding_space_mismatch",
@@ -748,7 +707,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         DeletedEmbeddingIndex,
         _project_errors(
             ("invalid_params", "The deletion arguments are invalid."),
-            ("embedding_index_not_found", "The embedding index does not exist."),
+            _error("embedding_index_not_found"),
             ("stale_replay", "Deleted index data or export artifacts exist again."),
             write_failure="The index metadata, vectors, or receipt could not be updated.",
         ),
@@ -765,9 +724,9 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         IndexExport,
         _project_errors(
             ("invalid_params", "The export arguments are invalid."),
-            ("embedding_index_not_found", "The embedding index does not exist."),
+            _error("embedding_index_not_found"),
             ("embedding_export_sidecar_missing", "Refresh the index before exporting."),
-            ("embedding_export_no_ready_vectors", "The index has no ready vectors."),
+            _error("embedding_export_no_ready_vectors"),
             ("embedding_source_stale", "The index sources changed; refresh first."),
             ("embedding_index_incomplete", "Refresh the incomplete index first."),
             ("embedding_index_scope_invalid", "The index source scope is invalid."),
@@ -789,7 +748,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         EmbeddingIndexPolicy,
         EmbeddingIndexPolicy,
         _project_errors(
-            ("embedding_index_not_found", "The embedding index does not exist."),
+            _error("embedding_index_not_found"),
             ("invalid_params", "The replacement policy is invalid."),
             (
                 "stale_replay",
@@ -905,14 +864,8 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("code_action_disabled", "The source action is disabled on this server."),
             ("output_column_busy", "A source output is claimed by another run."),
             ("local_engine_busy", "Another local transcription is still finishing."),
-            (
-                "local_artifact_unavailable",
-                "The local model artifacts are unavailable.",
-            ),
-            (
-                "local_session_failed",
-                "The local session stopped; retry remaining rows.",
-            ),
+            _error("local_artifact_unavailable"),
+            _error("local_session_failed"),
             ("idempotency_in_progress", "The backfill is already running."),
             ("idempotency_stale_running", "A stale backfill reservation was cleared."),
             write_failure="The backfill failed.",
@@ -930,10 +883,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             *_TEMPORAL_PROJECT_ERRORS,
             ("invalid_input_ref", "The media or selection reference is invalid."),
             ("invalid_range", "Select exactly one valid range per source row."),
-            (
-                "selection_unmappable",
-                "The selection cannot map to the source timeline.",
-            ),
+            _error("selection_unmappable"),
             ("stale_input", "A source changed before clip publication."),
             ("cut_alignment_failed", "The renderer could not align the exact range."),
             (
@@ -1056,10 +1006,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                 "invalid_xlsx_value",
                 "An XLSX value does not match the destination type.",
             ),
-            (
-                "import_workload_limit_exceeded",
-                "The import exceeds the deployment row limit.",
-            ),
+            _error("import_workload_limit_exceeded"),
             *_TEMPORAL_PROJECT_ERRORS,
             write_failure="The imported rows and receipt could not be written.",
         ),
@@ -1243,13 +1190,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         OperationStepActionOutput,
         _project_errors(
             ("operation_unavailable", "No operation is available to undo."),
-            (
-                "operation_mismatch",
-                "The available operation does not match the request.",
-            ),
+            _error("operation_mismatch"),
             ("irreversible_barrier", "The target operation cannot be undone."),
             ("output_column_busy", "The target operation touches a claimed column."),
-            ("project_state_corrupt", "The target operation state is invalid."),
+            _error("project_state_corrupt"),
             write_failure="The undo and receipt could not be written.",
         ),
         (
@@ -1265,13 +1209,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         OperationStepActionOutput,
         _project_errors(
             ("operation_unavailable", "No operation is available to redo."),
-            (
-                "operation_mismatch",
-                "The available operation does not match the request.",
-            ),
+            _error("operation_mismatch"),
             ("irreversible_barrier", "The target operation cannot be redone."),
             ("output_column_busy", "The target operation touches a claimed column."),
-            ("project_state_corrupt", "The target operation state is invalid."),
+            _error("project_state_corrupt"),
             write_failure="The redo and receipt could not be written.",
         ),
         (
@@ -1291,7 +1232,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             ("unsupported_query_kind", "The query kind cannot be previewed."),
             ("invalid_query_filter", "The sheet filter could not be evaluated."),
             ("invalid_sheet_ref", "The query sheet does not exist or is hidden."),
-            ("embedding_index_not_found", "The embedding index does not exist."),
+            _error("embedding_index_not_found"),
             ("embedding_index_incomplete", "The embedding index is incomplete."),
             ("embedding_index_scope_invalid", "The embedding index scope is invalid."),
             ("embedding_anchor_not_found", "The similarity anchor was not found."),
@@ -1324,10 +1265,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         ImportedEntityDataset,
         ImportedEntityDataset,
         _project_errors(
-            (
-                "followthemoney_unavailable",
-                "Install the entities extra to use FollowTheMoney.",
-            ),
+            _error("followthemoney_unavailable"),
             ("invalid_file_source", "The admitted local source could not be read."),
             ("invalid_ftm_import", "The entity dataset cannot be imported."),
             ("stale_replay", "The imported entity sheets are no longer active."),
@@ -1342,10 +1280,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         ExportedEntityPackage,
         ExportedEntityPackage,
         _project_errors(
-            (
-                "followthemoney_unavailable",
-                "Install the entities extra to use FollowTheMoney.",
-            ),
+            _error("followthemoney_unavailable"),
             ("invalid_ftm_export", "The entity package arguments are invalid."),
             ("invalid_rowset_spec", "The selected rowset is invalid."),
             ("invalid_sheet_ref", "The selected sheet must be visible."),
@@ -1411,7 +1346,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             *_EXPORT_REQUEST_ERRORS,
             *_SHEET_EXPORT_INPUT_ERRORS,
             ("invalid_params", "The JSONL export arguments are invalid."),
-            ("export_column_collision", "Flattened export column names collided."),
+            _error("export_column_collision"),
             *_EXPORT_REPLAY_ERRORS,
         ),
         ("read_sheet_values", "write_export_artifact"),
@@ -1426,7 +1361,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
             *_EXPORT_REQUEST_ERRORS,
             *_SHEET_EXPORT_INPUT_ERRORS,
             ("invalid_params", "The Parquet export arguments are invalid."),
-            ("export_column_collision", "Flattened export column names collided."),
+            _error("export_column_collision"),
             ("parquet_writer_unavailable", "The Parquet writer is unavailable."),
             ("parquet_render_failed", "The sheet could not be rendered as Parquet."),
             *_EXPORT_REPLAY_ERRORS,
@@ -1435,6 +1370,277 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         required_capabilities=("project:read", "project:write"),
         callable_host=True,
     ),
+)
+
+
+@dataclass(frozen=True)
+class CapabilityCatalogSpec:
+    """Catalog facts one host capability adds to a row or sheet action.
+
+    ``errors`` and ``side_effects`` follow the terminal's own lists. A row
+    action's error base is the highest ``family`` among its capabilities, and
+    every non-project action's cost kind is the highest ``cost_kind``
+    (``_COST_KIND_RANK``).
+    """
+
+    errors: tuple[tuple[str, str], ...] = ()
+    side_effects: tuple[str, ...] = ()
+    required_capabilities: tuple[str, ...] = ()
+    credentials: tuple[str, ...] = ()
+    family: Literal["map", "external", "model"] = "map"
+    calls_provider: bool = False
+    records_model_calls: bool = False
+    cost_kind: Literal["none", "external_metered", "unknown", "model_metered"] = "none"
+    provider_retry: bool = False
+    queued: bool = False
+
+
+_ROW_ERROR_FAMILY_RANK = ("map", "external", "model")
+_COST_KIND_RANK = ("none", "external_metered", "unknown", "model_metered")
+_BLOB_STAGING_EFFECTS = ("write_blob_store", "write_evidence_links")
+_CREDENTIAL_ERROR = (
+    "missing_action_credential",
+    "A required provider credential is unavailable.",
+)
+_TRANSCRIPT_SELECTION_SPEC = CapabilityCatalogSpec(
+    errors=(
+        (
+            "literal_selection_requires_confirmation",
+            "Repeating one literal selection across rows requires acknowledgement.",
+        ),
+        ("timestamps_required", "No effective internal timestamps remain."),
+        ("timeline_mismatch", "The selection belongs to another timeline."),
+        _error("selection_unmappable"),
+        ("invalid_range", "The selected range is empty or reversed."),
+        ("stale_input", "Transcript inputs changed before publication."),
+        *_RUNNING_RESERVATION_ERRORS,
+    ),
+    queued=True,
+)
+_AGENT = {"family": "model", "cost_kind": "unknown"}
+_EXTERNAL = {"family": "external", "calls_provider": True}
+_FETCH_SPEC = CapabilityCatalogSpec(
+    required_capabilities=("external:media_download",), **_EXTERNAL
+)
+_ROUTED = {**_EXTERNAL, "records_model_calls": True, "cost_kind": "external_metered"}
+_SEMANTIC_JOIN_ERRORS = (
+    ("duplicate_sheet_name", "The linked sheet name already exists."),
+    ("embedding_backend_unavailable", "No embedding backend is configured."),
+    ("join_run_failed", "The semantic join could not complete."),
+    ("model_cost_requires_confirmation", "The embedding cost requires confirmation."),
+)
+_LOCAL_MEDIA_ERRORS = (
+    ("local_engine_busy", "Another local media read is still finishing."),
+    _error("local_artifact_unavailable"),
+    _error("local_session_failed"),
+)
+# Fold order: each action lists its capabilities' facts in this order.
+_CAPABILITY_CATALOG_SPECS: Mapping[type[Any], CapabilityCatalogSpec] = MappingProxyType(
+    {
+        SemanticMatchReader: CapabilityCatalogSpec(
+            side_effects=("read_semantic_join_receipt", "read_current_join_outputs")
+        ),
+        JoinedTablesReader: CapabilityCatalogSpec(
+            errors=(
+                (
+                    "join_fanout_requires_confirmation",
+                    "The join exceeds the output row limit; echo the current confirmation token.",
+                ),
+            )
+        ),
+        TranscriptReader: _TRANSCRIPT_SELECTION_SPEC,
+        TemporalMediaReader: _TRANSCRIPT_SELECTION_SPEC,
+        UrlImporter: CapabilityCatalogSpec(
+            errors=(("url_limit_exceeded", "URL count exceeds the deployment limit."),),
+            side_effects=("fetch_external_media_url", *_BLOB_STAGING_EFFECTS),
+            required_capabilities=("external:media_download",),
+        ),
+        CollectionReader: CapabilityCatalogSpec(
+            errors=(
+                (
+                    "collection_expand_requires_confirmation",
+                    "Collection count exceeds the default cap; echo the confirmation token.",
+                ),
+                (
+                    "collection_expand_exceeds_hard_cap",
+                    "Collection count exceeds the hard cap.",
+                ),
+                ("provider_error", "External collection enumeration failed."),
+            ),
+            side_effects=("read_source_cell_url", "enumerate_collection_metadata"),
+        ),
+        EmbeddingIndexReader: CapabilityCatalogSpec(
+            errors=(
+                _error("embedding_index_not_found"),
+                (
+                    "embedding_export_sidecar_missing",
+                    "Refresh the index to create its vector store.",
+                ),
+                _error("embedding_export_no_ready_vectors"),
+                ("embedding_source_stale", "Refresh the changed source rows."),
+                ("embedding_index_incomplete", "Refresh the incomplete index."),
+                (
+                    "embedding_index_scope_invalid",
+                    "The index source scope is invalid.",
+                ),
+                ("embedding_space_mismatch", "The vectors do not match their space."),
+                (
+                    "embedding_analysis_insufficient_rows",
+                    "More ready vectors are required.",
+                ),
+            ),
+            side_effects=("read_sidecar_vectors",),
+        ),
+        LocalFileReader: CapabilityCatalogSpec(
+            errors=(("invalid_file_source", "Source must be a readable local file."),),
+            side_effects=("read_local_file",),
+        ),
+        EmailSourceReader: CapabilityCatalogSpec(
+            errors=(
+                (
+                    "email_sources_unavailable",
+                    "Trusted ingress could not resolve the email source references.",
+                ),
+            ),
+            side_effects=("resolve_server_issued_email_sources",),
+        ),
+        FileInventoryReader: CapabilityCatalogSpec(
+            side_effects=("read_admitted_import_inventory",)
+        ),
+        PacketSplitReader: CapabilityCatalogSpec(
+            side_effects=("read_admitted_pdf_packet",)
+        ),
+        ImportBlobStager: CapabilityCatalogSpec(side_effects=_BLOB_STAGING_EFFECTS),
+        RuntimeImporter: CapabilityCatalogSpec(
+            errors=(
+                (
+                    "unsupported_runtime_importer",
+                    "The project has no admitted importer binding.",
+                ),
+                (
+                    "runtime_importer_handler_failed",
+                    "The trusted importer handler failed.",
+                ),
+                (
+                    "invalid_runtime_importer_plan",
+                    "The importer returned an invalid table plan.",
+                ),
+            ),
+            side_effects=("call_trusted_runtime_importer",),
+        ),
+        PositionedDocumentReader: CapabilityCatalogSpec(queued=True),
+        PdfTablesReader: CapabilityCatalogSpec(
+            errors=(
+                ("invalid_pdf_cell", "The source must be a blob-backed PDF."),
+                ("invalid_pdf_table_cells", "The extracted table cells are invalid."),
+                (
+                    "pdf_table_adapter_unavailable",
+                    "The Natural PDF adapter is unavailable.",
+                ),
+                (
+                    "pdf_table_extract_failed",
+                    "No usable PDF table rows were extracted.",
+                ),
+                (
+                    "pdf_table_shape_mismatch",
+                    "Extracted table headers differ across sources.",
+                ),
+                (
+                    "unsupported_pdf_table_mode",
+                    "The PDF extraction mode is unsupported.",
+                ),
+                (
+                    "stale_media_extract_pdf_tables_input",
+                    "PDF sources changed after queue reservation.",
+                ),
+            ),
+            side_effects=("read_pdf_blob_cells", "call_natural_pdf_adapter"),
+        ),
+        PythonEvaluator: CapabilityCatalogSpec(
+            side_effects=("execute_trusted_local_python",),
+            required_capabilities=("unsafe:local_code",),
+        ),
+        McpExtractor: CapabilityCatalogSpec(
+            side_effects=("call_mcp_tools",),
+            required_capabilities=("unsafe:local_code", "model:complete"),
+            **_AGENT,
+        ),
+        MediaMetadataReader: CapabilityCatalogSpec(
+            side_effects=(
+                "read_media_blobs",
+                "call_local_metadata_adapters",
+                "write_media_metadata_cache",
+            ),
+            required_capabilities=("project:read",),
+        ),
+        Researcher: CapabilityCatalogSpec(
+            required_capabilities=(
+                "model:complete",
+                "external:web_search",
+                "external:http_fetch",
+            ),
+            calls_provider=True,
+            **_AGENT,
+        ),
+        SearchAnswerer: CapabilityCatalogSpec(
+            required_capabilities=("model:complete", "external:web_search"),
+            calls_provider=True,
+            **_AGENT,
+        ),
+        WebSearcher: CapabilityCatalogSpec(
+            required_capabilities=("external:web_search",),
+            cost_kind="external_metered",
+            provider_retry=True,
+            **_EXTERNAL,
+        ),
+        HttpRequester: CapabilityCatalogSpec(
+            required_capabilities=("external:api_call",),
+            cost_kind="unknown",
+            **_EXTERNAL,
+        ),
+        OpenCorporates: CapabilityCatalogSpec(
+            errors=(_CREDENTIAL_ERROR,),
+            required_capabilities=("external:opencorporates",),
+            credentials=("OPENCORPORATES_API_TOKEN",),
+            cost_kind="external_metered",
+            provider_retry=True,
+            queued=True,
+            **_EXTERNAL,
+        ),
+        FileFetcher: _FETCH_SPEC,
+        MediaDownloader: _FETCH_SPEC,
+        Screenshotter: CapabilityCatalogSpec(
+            required_capabilities=("external:browser_render",)
+        ),
+        CensusDemographics: CapabilityCatalogSpec(
+            errors=(_CREDENTIAL_ERROR,),
+            required_capabilities=("external:us_census_acs",),
+            credentials=("CENSUS_API_KEY",),
+            **_ROUTED,
+        ),
+        DocumentConverter: CapabilityCatalogSpec(
+            required_capabilities=("model:complete",), **_ROUTED
+        ),
+        OcrReader: CapabilityCatalogSpec(
+            errors=_LOCAL_MEDIA_ERRORS,
+            required_capabilities=("model:complete",),
+            **_ROUTED,
+        ),
+        Transcriber: CapabilityCatalogSpec(
+            errors=_LOCAL_MEDIA_ERRORS,
+            required_capabilities=("model:transcribe",),
+            **_ROUTED,
+        ),
+        Translator: CapabilityCatalogSpec(
+            required_capabilities=("model:complete",), **_ROUTED
+        ),
+        Geocoder: CapabilityCatalogSpec(
+            required_capabilities=("external:geocode",), **_ROUTED
+        ),
+        Classifier: CapabilityCatalogSpec(
+            required_capabilities=("external:geocode",), **_ROUTED
+        ),
+    }
 )
 
 
@@ -3453,88 +3659,65 @@ class RegisteredAction:
     _example_requests: tuple[str, ...] = field(init=False, repr=False)
 
     @property
-    def required_credentials(self) -> tuple[str, ...]:
+    def _project_specs(self) -> tuple[ProjectCapabilitySpec, ...] | None:
         terminal = self.definition.run
-        if routed_capability(terminal) is CensusDemographics:
-            return ("CENSUS_API_KEY",)
-        if OpenCorporates in getattr(terminal, "capabilities", ()):
-            return ("OPENCORPORATES_API_TOKEN",)
-        return ()
+        if isinstance(terminal, _ProjectAction):
+            return terminal.specs
+        if isinstance(terminal, GoogleSheetsExport):
+            return (terminal.spec,)
+        return None
+
+    @property
+    def _capability_specs(self) -> tuple[CapabilityCatalogSpec, ...]:
+        capabilities = getattr(self.definition.run, "capabilities", ())
+        return tuple(
+            dict.fromkeys(
+                spec
+                for capability, spec in _CAPABILITY_CATALOG_SPECS.items()
+                if capability in capabilities
+            )
+        )
+
+    @property
+    def required_credentials(self) -> tuple[str, ...]:
+        return tuple(
+            dict.fromkeys(
+                name for spec in self._capability_specs for name in spec.credentials
+            )
+        )
 
     @property
     def required_capabilities(self) -> tuple[str, ...]:
         """Declared execution requirements, without building presentation schemas."""
         terminal = self.definition.run
-        if isinstance(terminal, (_ProjectAction, GoogleSheetsExport)):
-            specs = (
-                terminal.specs
-                if isinstance(terminal, _ProjectAction)
-                else (terminal.spec,)
-            )
-            if isinstance(terminal, _ProjectAction) and not specs:
+        project_specs = self._project_specs
+        if project_specs is not None:
+            if not project_specs:
                 return ("project:read",)
             return tuple(
                 dict.fromkeys(
-                    cap for spec in specs for cap in spec.required_capabilities
+                    cap for spec in project_specs for cap in spec.required_capabilities
                 )
             )
-        capabilities = getattr(terminal, "capabilities", ())
-        routed = routed_capability(terminal)
-        agent_backed = any(
-            cap in capabilities for cap in (Researcher, SearchAnswerer, McpExtractor)
+        own = (
+            ("model:complete",)
+            if isinstance(terminal, ModelRows)
+            else ("model:embed",)
+            if isinstance(terminal, SemanticJoin)
+            else ()
         )
-        return (
-            "project:write",
-            *(["external:media_download"] if UrlImporter in capabilities else []),
-            *(
-                ["project:read"]
-                if isinstance(terminal, MapRows) and MediaMetadataReader in capabilities
-                else []
-            ),
-            *(
-                ["unsafe:local_code"]
-                if PythonEvaluator in capabilities or McpExtractor in capabilities
-                else []
-            ),
-            *(
-                ["model:complete"]
-                if isinstance(terminal, ModelRows) or agent_backed
-                else []
-            ),
-            *(
-                ["external:web_search", "external:http_fetch"]
-                if Researcher in capabilities
-                else []
-            ),
-            *(["model:embed"] if isinstance(terminal, SemanticJoin) else []),
-            *(
-                ["external:web_search"]
-                if any(cap in capabilities for cap in (WebSearcher, SearchAnswerer))
-                else []
-            ),
-            *(["external:api_call"] if HttpRequester in capabilities else []),
-            *(["external:opencorporates"] if OpenCorporates in capabilities else []),
-            *(
-                ["external:media_download"]
-                if any(cap in capabilities for cap in (FileFetcher, MediaDownloader))
-                else []
-            ),
-            *(["external:browser_render"] if Screenshotter in capabilities else []),
-            *(
-                [
-                    "external:us_census_acs"
-                    if routed is CensusDemographics
-                    else "model:complete"
-                    if routed in (DocumentConverter, OcrReader)
-                    else "model:transcribe"
-                    if routed is Transcriber
-                    else "model:complete"
-                    if routed is Translator
-                    else "external:geocode"
-                ]
-                if routed is not None
-                else []
-            ),
+        return tuple(
+            dict.fromkeys(
+                (
+                    "project:write",
+                    *own,
+                    *(
+                        cap
+                        for spec in self._capability_specs
+                        for cap in spec.required_capabilities
+                    ),
+                )
+            )
         )
 
     def for_execution(self, params: BaseModel) -> RegisteredAction:
@@ -3771,440 +3954,174 @@ class RegisteredAction:
     def validate_request(self, request: ActionRequest) -> BaseModel:
         return self.bind_request(request)[0]
 
+    def _catalog_errors(self) -> tuple[tuple[str, str], ...]:
+        terminal = self.definition.run
+        project_specs = self._project_specs
+        if project_specs is not None:
+            if not project_specs:
+                return _project_errors(
+                    *_CALLABLE_ERRORS,
+                    write_failure="The callable receipt could not be written.",
+                )
+            return tuple(
+                dict(pair for spec in project_specs for pair in spec.errors).items()
+            )
+        if isinstance(terminal, ColumnTransform):
+            return _COLUMN_TRANSFORM_ERRORS
+        specs = self._capability_specs
+        own: tuple[tuple[str, str], ...] = ()
+        if isinstance(terminal, CreateSheet):
+            base = _CREATE_SHEET_ERRORS
+        else:
+            family = max(
+                (
+                    "model" if isinstance(terminal, ModelRows) else "map",
+                    *(spec.family for spec in specs),
+                ),
+                key=_ROW_ERROR_FAMILY_RANK.index,
+            )
+            base = (
+                tuple(
+                    item
+                    for item in _MODEL_ROWS_ERRORS
+                    if getattr(terminal, "evaluation", None) is not None
+                    or item[0] != "column_not_ai_generated"
+                )
+                if family == "model"
+                else _EXTERNAL_ROWS_ERRORS
+                if family == "external"
+                else _MAP_ROWS_ERRORS
+            )
+            if isinstance(terminal, SemanticJoin):
+                own = _SEMANTIC_JOIN_ERRORS
+        errors = (*base, *(pair for spec in specs for pair in spec.errors))
+        codes = {code for code, _ in errors}
+        return (*errors, *(pair for pair in own if pair[0] not in codes))
+
+    def _catalog_side_effects(self) -> tuple[str, ...]:
+        terminal = self.definition.run
+        project_specs = self._project_specs
+        if project_specs is not None:
+            if not project_specs:
+                return ("write_receipt",)
+            return tuple(
+                dict.fromkeys(
+                    effect for spec in project_specs for effect in spec.side_effects
+                )
+            )
+        if isinstance(terminal, ColumnTransform):
+            return (
+                "read_source_column",
+                "create_generated_column",
+                "write_column_transform_op",
+                "write_receipt",
+            )
+        specs = self._capability_specs
+        effects = tuple(
+            dict.fromkeys(effect for spec in specs for effect in spec.side_effects)
+        )
+        if isinstance(terminal, CreateSheet):
+            return (
+                "create_sheet",
+                "create_columns",
+                "create_rows",
+                "write_op",
+                *effects,
+                "write_receipt",
+            )
+        semantic = isinstance(terminal, SemanticJoin)
+        calls_model = (
+            semantic
+            or isinstance(terminal, ModelRows)
+            or any(spec.family == "model" for spec in specs)
+        )
+        return (
+            "read_input_rows",
+            *effects,
+            *(["call_model_router"] if calls_model else []),
+            *(
+                ["call_external_provider"]
+                if any(spec.calls_provider for spec in specs)
+                else []
+            ),
+            "create_generated_columns",
+            "write_run_results",
+            "write_map_op",
+            *(
+                ["write_model_calls", "write_trace"]
+                if calls_model or any(spec.records_model_calls for spec in specs)
+                else []
+            ),
+            "write_receipt",
+            *(
+                ["read_target_sheet_rows", "create_link_child_sheet"]
+                if semantic
+                else []
+            ),
+        )
+
+    def _catalog_cost_policy(self) -> dict[str, Any]:
+        terminal = self.definition.run
+        project_specs = self._project_specs
+        if project_specs is not None:
+            costs = {spec.cost_kind for spec in project_specs} - {"none"}
+            return {
+                "kind": (
+                    next(iter(costs))
+                    if len(costs) == 1
+                    else "unknown"
+                    if costs
+                    else "none"
+                ),
+                "requires_confirmation": any(
+                    spec.requires_confirmation for spec in project_specs
+                ),
+            }
+        kind = max(
+            (
+                "model_metered"
+                if isinstance(terminal, (ModelRows, SemanticJoin))
+                else "none",
+                *(spec.cost_kind for spec in self._capability_specs),
+            ),
+            key=_COST_KIND_RANK.index,
+        )
+        return {"kind": kind, "requires_confirmation": kind != "none"}
+
     def catalog_entry(self) -> dict[str, Any]:
         definition = self.definition
-        model_backed = isinstance(definition.run, ModelRows)
-        agent_backed = any(
-            capability in getattr(definition.run, "capabilities", ())
-            for capability in (Researcher, SearchAnswerer, McpExtractor)
-        )
-        semantic = isinstance(definition.run, SemanticJoin)
-        external = WebSearcher in getattr(definition.run, "capabilities", ())
-        http = HttpRequester in getattr(definition.run, "capabilities", ())
-        opencorporates = OpenCorporates in getattr(definition.run, "capabilities", ())
-        fetch = any(
-            cap in getattr(definition.run, "capabilities", ())
-            for cap in (FileFetcher, MediaDownloader)
-        )
-        routed = routed_capability(definition.run)
-        reads_media_metadata = (
-            isinstance(definition.run, MapRows)
-            and MediaMetadataReader in definition.run.capabilities
-        )
-        project_action = ProjectScope in _request_scope_types(definition.run)
-        create_sheet_action = isinstance(definition.run, CreateSheet)
-        project_specs = (
-            definition.run.specs
-            if isinstance(definition.run, _ProjectAction)
-            else (definition.run.spec,)
-            if isinstance(definition.run, GoogleSheetsExport)
-            else ()
-        )
-        project_errors = tuple(
-            dict(pair for spec in project_specs for pair in spec.errors).items()
-        )
-        project_effects = tuple(
-            dict.fromkeys(
-                effect for spec in project_specs for effect in spec.side_effects
-            )
-        )
-        if isinstance(definition.run, _ProjectAction) and not project_specs:
-            project_errors = _project_errors(
-                *_CALLABLE_ERRORS,
-                write_failure="The callable receipt could not be written.",
-            )
-            project_effects = ("write_receipt",)
-        project_costs = {spec.cost_kind for spec in project_specs} - {"none"}
-        project_cost = (
-            next(iter(project_costs))
-            if len(project_costs) == 1
-            else "unknown"
-            if project_costs
-            else "none"
-        )
+        terminal = definition.run
+        specs = self._capability_specs
+        project_specs = self._project_specs
+        project_action = ProjectScope in _request_scope_types(terminal)
         form = definition.form
-        controls, source_requirements = _semantic_metadata(definition.run.params_model)
-        input_schema = definition.run.params_model.model_json_schema()
-        outputs = [
-            {"key": field.key, "column_type": field.column_type}
-            for field in definition.run.output_fields
-        ]
+        controls, source_requirements = _semantic_metadata(terminal.params_model)
         local_topic_hints = {}
-        if TopicSectionsReader in getattr(definition.run, "capabilities", ()):
+        if TopicSectionsReader in getattr(terminal, "capabilities", ()):
             from frisket.features.topic_segmentation.engines import (
                 static_engine_catalog,
             )
 
             local_topic_hints = {"engines": list(static_engine_catalog())}
-        entry = {
+        return {
             "kind": self.action_id,
             "examples": [json.loads(value) for value in self._example_requests],
             "title": definition.title,
             "description": definition.description,
-            "input_schema": input_schema,
+            "input_schema": terminal.params_model.model_json_schema(),
             "output_schema": (
-                definition.run.return_adapter.json_schema(
-                    mode="serialization", by_alias=True
-                )
-                if isinstance(definition.run, _ProjectAction)
-                and definition.run.callable_host
-                else compile_output_schema(definition.run.output_model)
+                terminal.return_adapter.json_schema(mode="serialization", by_alias=True)
+                if isinstance(terminal, _ProjectAction) and terminal.callable_host
+                else compile_output_schema(terminal.output_model)
             ),
             "required_credentials": list(self.required_credentials),
             "errors": [
                 {"code": code, "message": message}
-                for code, message in (
-                    (
-                        *_CREATE_SHEET_ERRORS,
-                        *(
-                            (
-                                (
-                                    "join_fanout_requires_confirmation",
-                                    "The join exceeds the output row limit; echo the current confirmation token.",
-                                ),
-                            )
-                            if JoinedTablesReader in definition.run.capabilities
-                            else ()
-                        ),
-                        *(
-                            (
-                                (
-                                    "literal_selection_requires_confirmation",
-                                    "Repeating one literal selection across rows requires acknowledgement.",
-                                ),
-                                (
-                                    "timestamps_required",
-                                    "No effective internal timestamps remain.",
-                                ),
-                                (
-                                    "timeline_mismatch",
-                                    "The selection belongs to another timeline.",
-                                ),
-                                (
-                                    "selection_unmappable",
-                                    "The selection cannot map to the source timeline.",
-                                ),
-                                (
-                                    "invalid_range",
-                                    "The selected range is empty or reversed.",
-                                ),
-                                (
-                                    "stale_input",
-                                    "Transcript inputs changed before publication.",
-                                ),
-                                *_RUNNING_RESERVATION_ERRORS,
-                            )
-                            if any(
-                                c in definition.run.capabilities
-                                for c in (TranscriptReader, TemporalMediaReader)
-                            )
-                            else ()
-                        ),
-                        *(
-                            (
-                                (
-                                    "embedding_index_not_found",
-                                    "The embedding index does not exist.",
-                                ),
-                                (
-                                    "embedding_export_sidecar_missing",
-                                    "Refresh the index to create its vector store.",
-                                ),
-                                (
-                                    "embedding_export_no_ready_vectors",
-                                    "The index has no ready vectors.",
-                                ),
-                                (
-                                    "embedding_source_stale",
-                                    "Refresh the changed source rows.",
-                                ),
-                                (
-                                    "embedding_index_incomplete",
-                                    "Refresh the incomplete index.",
-                                ),
-                                (
-                                    "embedding_index_scope_invalid",
-                                    "The index source scope is invalid.",
-                                ),
-                                (
-                                    "embedding_space_mismatch",
-                                    "The vectors do not match their space.",
-                                ),
-                                (
-                                    "embedding_analysis_insufficient_rows",
-                                    "More ready vectors are required.",
-                                ),
-                            )
-                            if EmbeddingIndexReader in definition.run.capabilities
-                            else ()
-                        ),
-                        *(
-                            (
-                                (
-                                    "invalid_file_source",
-                                    "Source must be a readable local file.",
-                                ),
-                            )
-                            if LocalFileReader in definition.run.capabilities
-                            else ()
-                        ),
-                        *(
-                            (
-                                (
-                                    "collection_expand_requires_confirmation",
-                                    "Collection count exceeds the default cap; echo the confirmation token.",
-                                ),
-                                (
-                                    "collection_expand_exceeds_hard_cap",
-                                    "Collection count exceeds the hard cap.",
-                                ),
-                                (
-                                    "provider_error",
-                                    "External collection enumeration failed.",
-                                ),
-                            )
-                            if CollectionReader in definition.run.capabilities
-                            else ()
-                        ),
-                        *(
-                            (
-                                (
-                                    "email_sources_unavailable",
-                                    "Trusted ingress could not resolve the email source references.",
-                                ),
-                            )
-                            if EmailSourceReader in definition.run.capabilities
-                            else ()
-                        ),
-                        *(
-                            (
-                                (
-                                    "unsupported_runtime_importer",
-                                    "The project has no admitted importer binding.",
-                                ),
-                                (
-                                    "runtime_importer_handler_failed",
-                                    "The trusted importer handler failed.",
-                                ),
-                                (
-                                    "invalid_runtime_importer_plan",
-                                    "The importer returned an invalid table plan.",
-                                ),
-                            )
-                            if RuntimeImporter in definition.run.capabilities
-                            else ()
-                        ),
-                        *(
-                            (
-                                (
-                                    "url_limit_exceeded",
-                                    "URL count exceeds the deployment limit.",
-                                ),
-                            )
-                            if UrlImporter in definition.run.capabilities
-                            else ()
-                        ),
-                    )
-                    if create_sheet_action
-                    else project_errors
-                    if isinstance(definition.run, (_ProjectAction, GoogleSheetsExport))
-                    else _COLUMN_TRANSFORM_ERRORS
-                    if isinstance(definition.run, ColumnTransform)
-                    else tuple(
-                        item
-                        for item in _MODEL_ROWS_ERRORS
-                        if getattr(definition.run, "evaluation", None) is not None
-                        or item[0] != "column_not_ai_generated"
-                    )
-                    if model_backed or agent_backed
-                    else _EXTERNAL_ROWS_ERRORS
-                    if external or routed is not None or http or fetch or opencorporates
-                    else (
-                        *_MAP_ROWS_ERRORS,
-                        ("invalid_pdf_cell", "The source must be a blob-backed PDF."),
-                        (
-                            "invalid_pdf_table_cells",
-                            "The extracted table cells are invalid.",
-                        ),
-                        (
-                            "pdf_table_adapter_unavailable",
-                            "The Natural PDF adapter is unavailable.",
-                        ),
-                        (
-                            "pdf_table_extract_failed",
-                            "No usable PDF table rows were extracted.",
-                        ),
-                        (
-                            "pdf_table_shape_mismatch",
-                            "Extracted table headers differ across sources.",
-                        ),
-                        (
-                            "unsupported_pdf_table_mode",
-                            "The PDF extraction mode is unsupported.",
-                        ),
-                        (
-                            "stale_media_extract_pdf_tables_input",
-                            "PDF sources changed after queue reservation.",
-                        ),
-                    )
-                    if PdfTablesReader in getattr(definition.run, "capabilities", ())
-                    else _MAP_ROWS_ERRORS
-                )
+                for code, message in self._catalog_errors()
             ],
-            "side_effects": (
-                [
-                    "create_sheet",
-                    "create_columns",
-                    "create_rows",
-                    "write_op",
-                    *(
-                        ["read_semantic_join_receipt", "read_current_join_outputs"]
-                        if SemanticMatchReader in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["fetch_external_media_url"]
-                        if UrlImporter in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["read_source_cell_url", "enumerate_collection_metadata"]
-                        if CollectionReader in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["read_sidecar_vectors"]
-                        if EmbeddingIndexReader in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["read_local_file"]
-                        if LocalFileReader in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["resolve_server_issued_email_sources"]
-                        if EmailSourceReader in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["read_admitted_import_inventory"]
-                        if FileInventoryReader in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["read_admitted_pdf_packet"]
-                        if PacketSplitReader in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["write_blob_store", "write_evidence_links"]
-                        if ImportBlobStager in definition.run.capabilities
-                        or UrlImporter in definition.run.capabilities
-                        else []
-                    ),
-                    *(
-                        ["call_trusted_runtime_importer"]
-                        if RuntimeImporter in definition.run.capabilities
-                        else []
-                    ),
-                    "write_receipt",
-                ]
-                if create_sheet_action
-                else list(project_effects)
-                if isinstance(definition.run, (_ProjectAction, GoogleSheetsExport))
-                else [
-                    "read_source_column",
-                    "create_generated_column",
-                    "write_column_transform_op",
-                    "write_receipt",
-                ]
-                if isinstance(definition.run, ColumnTransform)
-                else [
-                    "read_input_rows",
-                    *(
-                        ["read_pdf_blob_cells", "call_natural_pdf_adapter"]
-                        if PdfTablesReader
-                        in getattr(definition.run, "capabilities", ())
-                        else []
-                    ),
-                    *(
-                        ["execute_trusted_local_python"]
-                        if PythonEvaluator
-                        in getattr(definition.run, "capabilities", ())
-                        else []
-                    ),
-                    *(
-                        ["call_mcp_tools"]
-                        if McpExtractor in getattr(definition.run, "capabilities", ())
-                        else []
-                    ),
-                    *(
-                        [
-                            "read_media_blobs",
-                            "call_local_metadata_adapters",
-                            "write_media_metadata_cache",
-                        ]
-                        if reads_media_metadata
-                        else []
-                    ),
-                    *(
-                        ["call_model_router"]
-                        if model_backed or agent_backed or semantic
-                        else []
-                    ),
-                    *(
-                        ["call_external_provider"]
-                        if external
-                        or routed is not None
-                        or http
-                        or opencorporates
-                        or fetch
-                        or any(
-                            cap in getattr(definition.run, "capabilities", ())
-                            for cap in (Researcher, SearchAnswerer)
-                        )
-                        else []
-                    ),
-                    "create_generated_columns",
-                    "write_run_results",
-                    "write_map_op",
-                    *(
-                        ["write_model_calls", "write_trace"]
-                        if model_backed
-                        or agent_backed
-                        or semantic
-                        or routed is not None
-                        else []
-                    ),
-                    "write_receipt",
-                ]
-            ),
+            "side_effects": list(self._catalog_side_effects()),
             "required_capabilities": list(self.required_capabilities),
-            "cost_policy": {
-                "kind": (
-                    project_cost
-                    if isinstance(definition.run, (_ProjectAction, GoogleSheetsExport))
-                    else "model_metered"
-                    if model_backed or semantic
-                    else "unknown"
-                    if agent_backed or http
-                    else "external_metered"
-                    if external or routed is not None or opencorporates
-                    else "none"
-                ),
-                "requires_confirmation": (
-                    any(spec.requires_confirmation for spec in project_specs)
-                    if isinstance(definition.run, (_ProjectAction, GoogleSheetsExport))
-                    else model_backed
-                    or agent_backed
-                    or semantic
-                    or external
-                    or routed is not None
-                    or http
-                    or opencorporates
-                ),
-            },
+            "cost_policy": self._catalog_cost_policy(),
             "idempotency": {
                 "supported": True,
                 "scope": "project",
@@ -4215,46 +4132,38 @@ class RegisteredAction:
                 "supported": True,
                 "strategy": (
                     "provider_retry_then_idempotency_replay"
-                    if external or opencorporates
+                    if any(spec.provider_retry for spec in specs)
                     else "idempotency_replay"
                 ),
             },
             "execution_mode": (
                 "cross_sheet"
-                if semantic
+                if isinstance(terminal, SemanticJoin)
                 else "grouped"
-                if isinstance(definition.run, _ProjectAction)
-                and definition.run.capabilities == (GroupSummarizer,)
+                if isinstance(terminal, _ProjectAction)
+                and terminal.capabilities == (GroupSummarizer,)
                 else "whole_project"
-                if project_action or create_sheet_action
+                if project_action or isinstance(terminal, CreateSheet)
                 else "atomic_column_transform"
-                if isinstance(definition.run, ColumnTransform)
+                if isinstance(terminal, ColumnTransform)
                 else "batch_deduped"
-                if isinstance(definition.run, MapBatch)
+                if isinstance(terminal, MapBatch)
                 or (
-                    isinstance(definition.run, _ProjectAction)
-                    and definition.run.capabilities == (ValueClusterer,)
+                    isinstance(terminal, _ProjectAction)
+                    and terminal.capabilities == (ValueClusterer,)
                 )
                 else "per_row"
             ),
             "async_mode": (
                 "queued"
-                if opencorporates
-                or any(
-                    c in getattr(definition.run, "capabilities", ())
-                    for c in (
-                        TranscriptReader,
-                        TemporalMediaReader,
-                        PositionedDocumentReader,
-                    )
-                )
+                if any(spec.queued for spec in specs)
                 else "async"
-                if isinstance(definition.run, GoogleSheetsExport)
+                if isinstance(terminal, GoogleSheetsExport)
                 else "sync"
             ),
             "writes_project": (
                 any(spec.writes_project for spec in project_specs)
-                if isinstance(definition.run, (_ProjectAction, GoogleSheetsExport))
+                if project_specs is not None
                 else True
             ),
             "ui_hints": {
@@ -4263,7 +4172,10 @@ class RegisteredAction:
                 "category": definition.category.value,
                 "semantic_controls": controls,
                 "source_requirements": source_requirements,
-                "logical_outputs": outputs,
+                "logical_outputs": [
+                    {"key": field.key, "column_type": field.column_type}
+                    for field in terminal.output_fields
+                ],
                 **(
                     {"comparison": {"kind": definition.comparison.kind.value}}
                     if definition.comparison is not None
@@ -4271,7 +4183,7 @@ class RegisteredAction:
                 ),
                 **(
                     {"typed_action": {"creates_sheet": True}}
-                    if _creates_sheet(definition.run)
+                    if _creates_sheet(terminal)
                     else {}
                 ),
                 **(
@@ -4279,11 +4191,7 @@ class RegisteredAction:
                     if definition.export_target is not None
                     else {}
                 ),
-                **(
-                    {"dynamic_outputs": True}
-                    if has_dynamic_outputs(definition.run)
-                    else {}
-                ),
+                **({"dynamic_outputs": True} if has_dynamic_outputs(terminal) else {}),
             },
             "receipt_policy": "writes_receipt",
             "row_scope_policy": {
@@ -4292,60 +4200,14 @@ class RegisteredAction:
                     []
                     if project_action
                     else ["exact_membership"]
-                    if isinstance(definition.run, _ProjectAction)
-                    and definition.run.capabilities == (EnclosureMaterializer,)
+                    if isinstance(terminal, _ProjectAction)
+                    and terminal.capabilities == (EnclosureMaterializer,)
                     else ["all_rows"]
                     if definition.row_scope is RowScope.ALL_ROWS
                     else ["all_rows", "exact_membership"]
                 ),
             },
         }
-        if semantic:
-            entry["side_effects"].extend(
-                ["read_target_sheet_rows", "create_link_child_sheet"]
-            )
-            entry["errors"].extend(
-                {"code": code, "message": message}
-                for code, message in (
-                    ("duplicate_sheet_name", "The linked sheet name already exists."),
-                    (
-                        "embedding_backend_unavailable",
-                        "No embedding backend is configured.",
-                    ),
-                    ("join_run_failed", "The semantic join could not complete."),
-                    (
-                        "model_cost_requires_confirmation",
-                        "The embedding cost requires confirmation.",
-                    ),
-                )
-                if code not in {error["code"] for error in entry["errors"]}
-            )
-        if entry["required_credentials"]:
-            entry["errors"].append(
-                {
-                    "code": "missing_action_credential",
-                    "message": "A required provider credential is unavailable.",
-                }
-            )
-        if routed in (OcrReader, Transcriber):
-            entry["errors"].extend(
-                {"code": code, "message": message}
-                for code, message in (
-                    (
-                        "local_engine_busy",
-                        "Another local media read is still finishing.",
-                    ),
-                    (
-                        "local_artifact_unavailable",
-                        "The local model artifacts are unavailable.",
-                    ),
-                    (
-                        "local_session_failed",
-                        "The local session stopped; retry remaining rows.",
-                    ),
-                )
-            )
-        return entry
 
 
 def _semantic_control(annotation: Any) -> str | None:

@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 import re
-from typing import Any, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -22,6 +22,7 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from frisket.contracts.actions.schemas._validators import nonblank
 
 __all__ = [
     "JAVASCRIPT_SAFE_INTEGER",
@@ -136,16 +137,11 @@ def _assert_json_value(
 
 
 class _TemporalItem(_StrictTemporalModel):
-    id: str = Field(min_length=1, max_length=_MAX_ITEM_ID_CHARS)
+    id: Annotated[str, nonblank("temporal item id must not be blank", strip=False)] = (
+        Field(min_length=1, max_length=_MAX_ITEM_ID_CHARS)
+    )
     label: str | None = Field(default=None, max_length=_MAX_LABEL_CHARS)
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("id")
-    @classmethod
-    def _nonblank_id(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("temporal item id must not be blank")
-        return value
 
     @field_validator("metadata")
     @classmethod

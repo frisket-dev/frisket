@@ -7,7 +7,11 @@ from typing import Any
 from pydantic import Field, field_validator
 
 from frisket.actions.types import ActionParams
-from frisket.contracts.actions.schemas._base import StrictPositiveInt, StrictString
+from frisket.contracts.actions.schemas._base import (
+    OptionalStrictNonBlankParam,
+    StrictPositiveInt,
+    StrictString,
+)
 from frisket.contracts.actions.schemas._engines import (
     OCR_DEAD_ENGINE_REPLACEMENTS,
     is_generic_vlm_ocr_engine,
@@ -22,7 +26,6 @@ from frisket.contracts.actions.schemas._engines import (
     transcription_engine_capabilities,
 )
 from frisket.contracts.actions.schemas._language import canonicalize_languages
-from frisket.contracts.actions.schemas._validators import OptionalStrictNonBlankParam
 from frisket.contracts.transcription_language import transcribe_language_declaration
 from frisket.contracts.transcription_sidecar import TRANSCRIPTION_CONTEXT_MAX_CHARS
 

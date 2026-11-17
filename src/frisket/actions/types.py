@@ -39,6 +39,7 @@ from frisket.authoring.templates import column_template_names, render_column_tem
 from frisket.contracts.actions.schemas._base import MAX_IMPORT_ROWS_COLUMNS
 from frisket.ai.model_defaults import DEFAULT_MAX_OUTPUT_TOKENS
 from frisket.actions.grounding_types import EvidenceClaim
+from frisket.contracts.actions.schemas._validators import nonblank, trimmed
 
 
 T = TypeVar("T")
@@ -157,14 +158,9 @@ class SheetRef(ActionParams):
 class SheetColumnRef(SheetRef):
     """A column on a referenced sheet, resolved by its admitted capability."""
 
-    column: StrictStr = Field(min_length=1)
-
-    @field_validator("column")
-    @classmethod
-    def trimmed_column(cls, value: str) -> str:
-        if value != value.strip():
-            raise ValueError("column must be non-empty and trimmed")
-        return value
+    column: Annotated[
+        StrictStr, trimmed("column must be non-empty and trimmed", allow_empty=True)
+    ] = Field(min_length=1)
 
 
 class RefreshedSheet(BaseModel):
@@ -206,21 +202,15 @@ class RetainedResultPublisher(Protocol):
 
 
 class SourceCreateIntent(ActionParams):
-    name: str = Field(min_length=1)
-    kind: str = Field(default="url", min_length=1)
+    name: Annotated[str, nonblank("value must be non-empty")] = Field(min_length=1)
+    kind: Annotated[str, nonblank("value must be non-empty")] = Field(
+        default="url", min_length=1
+    )
     url: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     sheet_id: int | None = Field(default=None, gt=0, strict=True)
     schedule: str | None = None
     enabled: bool = Field(default=True, strict=True)
-
-    @field_validator("name", "kind")
-    @classmethod
-    def _required_text(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("value must be non-empty")
-        return value
 
     @field_validator("url", "schedule")
     @classmethod
@@ -284,26 +274,16 @@ class MediaMetadataReader(Protocol):
 
 class ColumnTablesLocalDirDestination(ActionParams):
     kind: Literal["local_dir"]
-    path: str = Field(min_length=1)
-
-    @field_validator("path")
-    @classmethod
-    def _nonblank_path(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("path must be non-empty")
-        return value
+    path: Annotated[str, nonblank("path must be non-empty", strip=False)] = Field(
+        min_length=1
+    )
 
 
 class ColumnTablesProjectFileDestination(ActionParams):
     kind: Literal["project_file"]
-    prefix: str = Field(min_length=1)
-
-    @field_validator("prefix")
-    @classmethod
-    def _nonblank_prefix(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("prefix must be non-empty")
-        return value
+    prefix: Annotated[str, nonblank("prefix must be non-empty", strip=False)] = Field(
+        min_length=1
+    )
 
 
 ColumnTablesDestination = Annotated[
@@ -1122,21 +1102,17 @@ class SourcePatch(ActionParams):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str = Field(default=None, min_length=1)  # type: ignore[assignment]
-    kind: str = Field(default=None, min_length=1)  # type: ignore[assignment]
+    name: Annotated[str, nonblank("field must be non-empty")] = Field(
+        default=None, min_length=1
+    )  # type: ignore[assignment]
+    kind: Annotated[str, nonblank("field must be non-empty")] = Field(
+        default=None, min_length=1
+    )  # type: ignore[assignment]
     url: str | None = None
     config: dict[str, Any] | None = None
     sheet_id: int | None = Field(default=None, gt=0, strict=True)
     schedule: str | None = None
     enabled: bool = Field(default=None, strict=True)  # type: ignore[assignment]
-
-    @field_validator("name", "kind")
-    @classmethod
-    def _required_text_when_present(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("field must be non-empty")
-        return value
 
     @field_validator("url", "schedule")
     @classmethod
@@ -1379,15 +1355,11 @@ class SheetParquetExporter(Protocol):
     ) -> ExportedParquetSheetFile: ...
 
 
-class _SemanticText(RootModel[str], Generic[T]):
+class _SemanticText(
+    RootModel[Annotated[str, trimmed("value must be non-empty and trimmed")]],
+    Generic[T],
+):
     model_config = ConfigDict(frozen=True)
-
-    @field_validator("root")
-    @classmethod
-    def _nonblank(cls, value: str) -> str:
-        if not value or value != value.strip():
-            raise ValueError("value must be non-empty and trimmed")
-        return value
 
 
 class TextLike(str):
@@ -1510,15 +1482,7 @@ class Template(BaseModel, Generic[T]):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    text: str
-
-    @field_validator("text")
-    @classmethod
-    def _nonblank(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("template must be non-empty")
-        return value
+    text: Annotated[str, nonblank("template must be non-empty")]
 
     def references(self) -> tuple[InputReference, ...]:
         return tuple(
@@ -1818,14 +1782,9 @@ class ListParentColumn(ActionParams):
     """One parent-sheet column copied into every expanded child row."""
 
     column_id: int = Field(gt=0, strict=True)
-    output_name: StrictStr = Field(min_length=1)
-
-    @field_validator("output_name")
-    @classmethod
-    def _output_name(cls, value: str) -> str:
-        if value != value.strip():
-            raise ValueError("column name must be nonempty and trimmed")
-        return value
+    output_name: Annotated[
+        StrictStr, trimmed("column name must be nonempty and trimmed", allow_empty=True)
+    ] = Field(min_length=1)
 
 
 class NamedListSource(ActionParams):

@@ -28,6 +28,7 @@ from frisket.actions.types import (
     Template,
 )
 from frisket.ai.message_content import render_input_block
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 RICH_COLUMN_TYPES = (
@@ -103,7 +104,7 @@ class _PdfModelRowsParams(_ModelRowsParams):
 
 
 class AskParams(_PdfModelRowsParams):
-    question: StrictStr = Field(
+    question: Annotated[StrictStr, nonblank("question must not be blank")] = Field(
         description="The question to answer for each row.",
         json_schema_extra={"x-frisket-input": "textarea"},
     )
@@ -116,14 +117,6 @@ class AskParams(_PdfModelRowsParams):
     )
     include_confidence: bool = Field(default=False, title="Include confidence")
     include_reasoning: bool = Field(default=False, title="Include reasoning")
-
-    @field_validator("question")
-    @classmethod
-    def _question(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("question must not be blank")
-        return stripped
 
 
 def ask_outputs(params: AskParams) -> dict[str, OutputField]:
@@ -235,22 +228,14 @@ class SummarizeParams(_PdfModelRowsParams):
         default="paragraph",
         title="Summary style",
     )
-    instruction: StrictStr | None = Field(
+    instruction: Annotated[
+        StrictStr | None, nonblank("instruction must not be blank")
+    ] = Field(
         default=None,
         title="Custom instruction",
         description="Leave blank to use the selected summary style.",
         json_schema_extra={"x-frisket-input": "textarea"},
     )
-
-    @field_validator("instruction")
-    @classmethod
-    def _instruction(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("instruction must not be blank")
-        return stripped
 
 
 class SummarizeOutput(BaseModel):

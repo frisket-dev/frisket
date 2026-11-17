@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field
 
 from frisket.actions.core import ActionCategory, action
 from frisket.actions.types import (
@@ -12,18 +12,14 @@ from frisket.actions.types import (
     PluginManifestLoader,
     PluginManifestRecord,
 )
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class PluginManifestSource(ActionParams):
     kind: Literal["local_file"]
-    path: str = Field(min_length=1)
-
-    @field_validator("path")
-    @classmethod
-    def _nonblank_path(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("path must be non-empty")
-        return value
+    path: Annotated[str, nonblank("path must be non-empty", strip=False)] = Field(
+        min_length=1
+    )
 
 
 class PluginLoadParams(ActionParams):

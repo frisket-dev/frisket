@@ -70,7 +70,10 @@ from frisket.authoring.workbench.plugin_runtime_status import (
     _upsert_workbench_plugin_install_state,
     _workbench_descriptor_package,
     _workbench_plugin_install_state,
+    PluginAdmissionRefusal,
+    admit_project_plugin,
     composition_policy_permits_catalog_entry,
+    plugin_admission_error,
     workspace_permits_plugin,
 )
 from frisket.contracts.plugin import LoadedPluginManifest
@@ -628,6 +631,74 @@ def _bootstrap_project_bundled_plugins_locked(
     return results
 
 
+_ACTIVATION_REFUSALS = {
+    "identity_missing": (
+        "plugin_activation_manifest_missing",
+        "workspace catalog has no package identity for this plugin",
+        404,
+    ),
+    "plugin_id_mismatch": (
+        "plugin_activation_manifest_mismatch",
+        "workspace catalog package does not match the requested plugin id",
+        404,
+    ),
+    "policy": (
+        "plugin_activation_not_available_under_composition_policy",
+        "plugin activation is not available for this plugin under the "
+        "active composition policy",
+        403,
+    ),
+    "manifest_sha_mismatch": (
+        "plugin_activation_manifest_mismatch",
+        "workspace catalog manifest sha does not match its manifest evidence",
+        404,
+    ),
+    "package_sha_mismatch": (
+        "plugin_activation_package_mismatch",
+        "workspace catalog package sha does not match its manifest evidence",
+        404,
+    ),
+}
+_BACKEND_ACTIVATION_REFUSALS = {
+    "not_installed": (
+        "plugin_backend_activation_not_enabled",
+        "backend contribution activation requires an enabled workbench plugin",
+        409,
+    ),
+    "identity_missing": (
+        "plugin_backend_activation_manifest_mismatch",
+        "workspace catalog has no package identity for this plugin",
+        409,
+    ),
+    "policy": (
+        "plugin_backend_activation_not_available_under_composition_policy",
+        "backend activation is not available for this plugin under the "
+        "active composition policy",
+        403,
+    ),
+    "plugin_id_mismatch": (
+        "plugin_backend_activation_manifest_mismatch",
+        "workspace catalog package does not match the requested plugin id",
+        409,
+    ),
+    "manifest_sha_mismatch": (
+        "plugin_backend_activation_manifest_mismatch",
+        "workspace catalog manifest sha does not match its manifest evidence",
+        409,
+    ),
+    "package_sha_mismatch": (
+        "plugin_backend_activation_package_mismatch",
+        "workspace catalog package sha does not match its manifest evidence",
+        409,
+    ),
+    "permissions_missing": (
+        "plugin_backend_activation_permissions_missing",
+        "backend activation requires accepted manifest capabilities",
+        409,
+    ),
+}
+
+
 def activate_workbench_plugin_manifest(
     project: Project,
     *,
@@ -650,35 +721,18 @@ def activate_workbench_plugin_manifest(
             "workbench plugin activation does not allow arbitrary package loading",
             status_code=403,
         )
-    catalog = plugin_package_catalog_for_project(project)
-    entry = catalog.get(plugin_id)
-    manifest_ref = catalog.manifest_ref(plugin_id)
-    if entry is None or manifest_ref is None:
-        raise WorkbenchPluginActivationError(
-            "plugin_activation_manifest_missing",
-            "workspace catalog has no package identity for this plugin",
-            status_code=404,
-        )
-    if str(entry.get("receipt_id") or "") != receipt_id:
+    try:
+        admitted = admit_project_plugin(project, plugin_id, install_states=None)
+    except PluginAdmissionRefusal as refusal:
+        raise plugin_admission_error(refusal, _ACTIVATION_REFUSALS) from refusal
+    if admitted.receipt_id != receipt_id:
         raise WorkbenchPluginActivationError(
             "plugin_activation_manifest_mismatch",
             "activation receipt does not match the workspace catalog package",
             status_code=404,
         )
-    if manifest_ref.get("plugin_id") != plugin_id:
-        raise WorkbenchPluginActivationError(
-            "plugin_activation_manifest_mismatch",
-            "workspace catalog package does not match the requested plugin id",
-            status_code=404,
-        )
-    loaded = _loaded_manifest_from_ref(manifest_ref)
-    if not workspace_permits_plugin(project, plugin_id, catalog_entry=entry):
-        raise WorkbenchPluginActivationError(
-            "plugin_activation_not_available_under_composition_policy",
-            "plugin activation is not available for this plugin under the "
-            "active composition policy",
-            status_code=403,
-        )
+    manifest_ref = admitted.manifest_ref
+    loaded = admitted.loaded
     required_capabilities = set(_effective_required_capabilities(loaded.manifest))
     accepted_capabilities = set(permissions_accepted)
     missing_permissions = [
@@ -824,59 +878,17 @@ def _activate_workbench_plugin_backend_contributions_locked(
     plugin_id: str,
     executable_handlers_allowed: bool,
 ) -> dict[str, Any]:
-    install_state = _workbench_plugin_install_state(project, plugin_id=plugin_id)
-    if install_state is None or install_state.get("install_state") != "enabled":
-        raise WorkbenchPluginActivationError(
-            "plugin_backend_activation_not_enabled",
-            "backend contribution activation requires an enabled workbench plugin",
-            status_code=409,
-        )
     catalog = plugin_package_catalog_for_project(project)
-    entry = catalog.get(plugin_id)
-    manifest_ref = catalog.manifest_ref(plugin_id)
-    if entry is None or manifest_ref is None:
-        raise WorkbenchPluginActivationError(
-            "plugin_backend_activation_manifest_mismatch",
-            "workspace catalog has no package identity for this plugin",
-            status_code=409,
-        )
-    if not workspace_permits_plugin(project, plugin_id, catalog_entry=entry):
-        raise WorkbenchPluginActivationError(
-            "plugin_backend_activation_not_available_under_composition_policy",
-            "backend activation is not available for this plugin under the "
-            "active composition policy",
-            status_code=403,
-        )
-    receipt_id, manifest_sha256, package_sha256 = _catalog_identity_refs(entry)
-    if manifest_ref.get("plugin_id") != plugin_id:
-        raise WorkbenchPluginActivationError(
-            "plugin_backend_activation_manifest_mismatch",
-            "workspace catalog package does not match the requested plugin id",
-            status_code=409,
-        )
-    loaded = _loaded_manifest_from_ref(manifest_ref)
-    if loaded.sha256 != manifest_sha256:
-        raise WorkbenchPluginActivationError(
-            "plugin_backend_activation_manifest_mismatch",
-            "workspace catalog manifest sha does not match its manifest evidence",
-            status_code=409,
-        )
-    if str(manifest_ref.get("package_sha256") or "") != package_sha256:
-        raise WorkbenchPluginActivationError(
-            "plugin_backend_activation_package_mismatch",
-            "workspace catalog package sha does not match its manifest evidence",
-            status_code=409,
-        )
-    accepted_capabilities = set(
-        _json_string_list(install_state.get("permissions_accepted"))
-    )
-    required_capabilities = set(_effective_required_capabilities(loaded.manifest))
-    if required_capabilities - accepted_capabilities:
-        raise WorkbenchPluginActivationError(
-            "plugin_backend_activation_permissions_missing",
-            "backend activation requires accepted manifest capabilities",
-            status_code=409,
-        )
+    try:
+        admitted = admit_project_plugin(project, plugin_id, catalog=catalog)
+    except PluginAdmissionRefusal as refusal:
+        raise plugin_admission_error(refusal, _BACKEND_ACTIVATION_REFUSALS) from refusal
+    install_state = admitted.install_state
+    entry = admitted.catalog_entry
+    manifest_ref = admitted.manifest_ref
+    loaded = admitted.loaded
+    receipt_id = admitted.receipt_id
+    package_sha256 = admitted.package_sha256
 
     executable_job_handlers = (
         _validated_executable_job_handlers(loaded)

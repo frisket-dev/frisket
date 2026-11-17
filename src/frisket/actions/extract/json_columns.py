@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Annotated, Any, Self
 
 from pydantic import Field, field_validator, model_validator
 
@@ -10,19 +10,12 @@ from frisket.output_names import (
     validate_runner_output_family,
     validate_runner_output_name,
 )
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class JsonRoute(ActionParams):
-    name: str = Field(min_length=1)
-    path: str = Field(min_length=1)
-
-    @field_validator("name", "path")
-    @classmethod
-    def _trimmed(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("value must be non-empty")
-        return value
+    name: Annotated[str, nonblank("value must be non-empty")] = Field(min_length=1)
+    path: Annotated[str, nonblank("value must be non-empty")] = Field(min_length=1)
 
     @field_validator("name")
     @classmethod

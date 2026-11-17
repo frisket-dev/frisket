@@ -1,6 +1,6 @@
 """Download media with yt-dlp using the ordinary typed row host."""
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator
 
@@ -12,12 +12,15 @@ from frisket.actions.media_download_types import (
     download_outputs,
 )
 from frisket.actions.types import ActionParams, Row, RowResult
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class MediaDownloadParams(ActionParams):
     source: UrlColumn = Field(description="Choose a column of HTTP(S) media URLs.")
     media_type: Literal["audio", "video"] = "video"
-    format_selector: str | None = Field(default=None, strict=True, min_length=1)
+    format_selector: Annotated[
+        str | None, nonblank("format_selector must not be blank", strip=False)
+    ] = Field(default=None, strict=True, min_length=1)
     extra_opts: dict[str, Any] | None = None
 
     @field_validator("extra_opts")
@@ -27,13 +30,6 @@ class MediaDownloadParams(ActionParams):
             from frisket.ops.ytdlp import validate_extra_opts
 
             validate_extra_opts(value)
-        return value
-
-    @field_validator("format_selector")
-    @classmethod
-    def _format(cls, value):
-        if value is not None and not value.strip():
-            raise ValueError("format_selector must not be blank")
         return value
 
 

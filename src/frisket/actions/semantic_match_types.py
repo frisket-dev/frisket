@@ -1,23 +1,19 @@
 """Completed semantic matches and their host-admitted contributor rows."""
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
-from pydantic import BaseModel, Field, StrictStr, field_validator
+from pydantic import BaseModel, Field, StrictStr
 
 from frisket.actions.types import ActionParams, RowSource
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class SemanticJoinSource(ActionParams):
     kind: Literal["semantic_join"]
-    receipt_id: StrictStr = Field(min_length=1)
-
-    @field_validator("receipt_id")
-    @classmethod
-    def nonblank_receipt(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("receipt_id must not be blank")
-        return value
+    receipt_id: Annotated[
+        StrictStr, nonblank("receipt_id must not be blank", strip=False)
+    ] = Field(min_length=1)
 
 
 class SemanticMatchValues(BaseModel):

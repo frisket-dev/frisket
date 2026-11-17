@@ -36,17 +36,12 @@ src/frisket/authoring/project_ask_actions.py::validate_action_proposal  test-onl
 src/frisket/authoring/workbench/contracts.py::_contains_key  test-only
 src/frisket/authoring/workbench/plugin_runtime_shared.py::_reset_plugin_composition_policy_for_tests  test-only
 src/frisket/authoring/workbench/plugin_runtime_status.py::_install_failure_response  unreferenced
-src/frisket/authoring/workbench/plugin_subprocess.py::_run_sandboxed_sync  unreferenced
 src/frisket/contracts/action_validation.py::payload_only_action_refusal  test-only
 src/frisket/contracts/action_validation.py::validate_action_spec  test-only
 src/frisket/contracts/actions/catalog_helpers.py::op_errors  test-only
 src/frisket/contracts/actions/catalog_helpers.py::temporal_persistence_errors  test-only
 src/frisket/contracts/actions/schemas/_base.py::_value_matches_column_type  unreferenced
 src/frisket/contracts/actions/schemas/_engines.py::receipt_provider_map  test-only
-src/frisket/contracts/actions/schemas/_validators.py::before_rule  test-only
-src/frisket/contracts/actions/schemas/_validators.py::cross_rule  test-only
-src/frisket/contracts/actions/schemas/_validators.py::ensure_unique_output_columns  unreferenced
-src/frisket/contracts/actions/schemas/_validators.py::validate_model_id  unreferenced
 src/frisket/contracts/actions/schemas/imports.py::ImportRowsOutput  unreferenced
 src/frisket/contracts/actions/schemas/temporal.py::TemporalDraftRangeSelection.as_item  unreferenced
 src/frisket/contracts/artifact_compatibility.py::<module>  frisket-cloud

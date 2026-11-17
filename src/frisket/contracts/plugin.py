@@ -7,10 +7,17 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
-from pydantic import model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 PLUGIN_MANIFEST_SCHEMA_VERSION = "frisket.plugin.v1"
 MAX_PLUGIN_MANIFEST_BYTES = 1_000_000
@@ -35,6 +42,57 @@ PLUGIN_VERSION_RE = re.compile(
 
 class PluginContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+def _check_clean(noun: str, value: str) -> None:
+    if value != value.strip():
+        raise ValueError(f"{noun} must not include surrounding whitespace")
+    if any(ord(ch) < 32 for ch in value):
+        raise ValueError(f"{noun} must not include control characters")
+
+
+def _clean(noun: str) -> AfterValidator:
+    """Refuse surrounding whitespace and control characters, naming ``noun``."""
+
+    def check(value: str | None) -> str | None:
+        if value is not None:
+            _check_clean(noun, value)
+        return value
+
+    return AfterValidator(check)
+
+
+def _module_path(noun: str, suffixes: frozenset[str], kind: str) -> AfterValidator:
+    """A clean relative '/'-separated path to a ``kind`` file inside the package."""
+
+    def check(value: str | None) -> str | None:
+        if value is None:
+            return value
+        _check_clean(noun, value)
+        if "\\" in value:
+            raise ValueError(f"{noun} must use '/' separators")
+        path = Path(value)
+        if path.is_absolute():
+            raise ValueError(f"{noun} must be relative")
+        if any(part in {"", ".", ".."} for part in value.split("/")):
+            raise ValueError(f"{noun} must not contain empty, '.', or '..' segments")
+        if path.suffix not in suffixes:
+            raise ValueError(f"{noun} must point to a {kind} file")
+        return value
+
+    return AfterValidator(check)
+
+
+# A ``str | None`` field keeps None inside Annotated so its Field length
+# constraints still validate the string itself.
+_WriteText = Annotated[str, _clean("runtime binding write values")]
+_OptionalWriteText = Annotated[str | None, _clean("runtime binding write values")]
+_BindingText = Annotated[str, _clean("runtime binding values")]
+_OptionalBindingText = Annotated[str | None, _clean("runtime binding values")]
+_ComponentText = Annotated[str, _clean("workbench component binding values")]
+_MatcherText = Annotated[str, _clean("matcher values")]
+_SettingText = Annotated[str, _clean("plugin setting text")]
+_OptionalSettingText = Annotated[str | None, _clean("plugin setting text")]
 
 
 class PluginManifestContributes(PluginContractModel):
@@ -121,32 +179,17 @@ class PluginManifestRequires(PluginContractModel):
 class PluginManifestRuntimeBindingWrite(PluginContractModel):
     """A declared importer or projection output."""
 
-    name: str = Field(min_length=1)
-    type: str = Field(min_length=1)
-    description: str | None = Field(default=None, min_length=1, max_length=500)
-    schema_ref: str | None = Field(default=None, min_length=1, alias="schema")
+    name: _WriteText = Field(min_length=1)
+    type: _WriteText = Field(min_length=1)
+    description: _OptionalWriteText = Field(default=None, min_length=1, max_length=500)
+    schema_ref: _OptionalWriteText = Field(default=None, min_length=1, alias="schema")
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    @field_validator("name", "type", "description", "schema_ref")
-    @classmethod
-    def _clean_write_value(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        if value != value.strip():
-            raise ValueError(
-                "runtime binding write values must not include surrounding whitespace"
-            )
-        if any(ord(ch) < 32 for ch in value):
-            raise ValueError(
-                "runtime binding write values must not include control characters"
-            )
-        return value
-
 
 class PluginManifestRuntimeBinding(PluginContractModel):
-    kind: str = Field(min_length=1)
-    handler_key: str | None = Field(default=None, min_length=1)
+    kind: _BindingText = Field(min_length=1)
+    handler_key: _OptionalBindingText = Field(default=None, min_length=1)
     handler_api: (
         Literal[
             "typed_action",
@@ -156,9 +199,14 @@ class PluginManifestRuntimeBinding(PluginContractModel):
         ]
         | None
     ) = None
-    title: str | None = Field(default=None, min_length=1, max_length=160)
-    description: str | None = Field(default=None, min_length=1, max_length=500)
-    module_path: str | None = Field(default=None, min_length=1, max_length=256)
+    title: _OptionalBindingText = Field(default=None, min_length=1, max_length=160)
+    description: _OptionalBindingText = Field(
+        default=None, min_length=1, max_length=500
+    )
+    module_path: Annotated[
+        str | None,
+        _module_path("runtime binding module_path", frozenset({".py"}), ".py"),
+    ] = Field(default=None, min_length=1, max_length=256)
     params: list[dict[str, Any]] = Field(default_factory=list)
     inputs: list[dict[str, Any]] = Field(default_factory=list)
     writes: list[PluginManifestRuntimeBindingWrite] = Field(default_factory=list)
@@ -203,96 +251,19 @@ class PluginManifestRuntimeBinding(PluginContractModel):
             seen.add(item.name)
         return value
 
-    @field_validator("kind", "handler_key", "title", "description")
-    @classmethod
-    def _clean_binding_value(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        if value != value.strip():
-            raise ValueError(
-                "runtime binding values must not include surrounding whitespace"
-            )
-        if any(ord(ch) < 32 for ch in value):
-            raise ValueError(
-                "runtime binding values must not include control characters"
-            )
-        return value
-
-    @field_validator("module_path")
-    @classmethod
-    def _clean_runtime_module_path(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        if value != value.strip():
-            raise ValueError(
-                "runtime binding module_path must not include surrounding whitespace"
-            )
-        if any(ord(ch) < 32 for ch in value):
-            raise ValueError(
-                "runtime binding module_path must not include control characters"
-            )
-        if "\\" in value:
-            raise ValueError("runtime binding module_path must use '/' separators")
-        path = Path(value)
-        if path.is_absolute():
-            raise ValueError("runtime binding module_path must be relative")
-        parts = value.split("/")
-        if any(part in {"", ".", ".."} for part in parts):
-            raise ValueError(
-                "runtime binding module_path must not contain empty, '.', or '..' segments"
-            )
-        if path.suffix != ".py":
-            raise ValueError("runtime binding module_path must point to a .py file")
-        return value
-
 
 class PluginManifestWorkbenchComponentBinding(PluginContractModel):
-    contribution_id: str = Field(min_length=1)
-    module_key: str = Field(min_length=1)
-    component_key: str = Field(min_length=1)
-    module_path: str | None = Field(default=None, min_length=1, max_length=256)
-
-    @field_validator("contribution_id", "module_key", "component_key")
-    @classmethod
-    def _clean_component_binding_value(cls, value: str) -> str:
-        if value != value.strip():
-            raise ValueError(
-                "workbench component binding values must not include surrounding whitespace"
-            )
-        if any(ord(ch) < 32 for ch in value):
-            raise ValueError(
-                "workbench component binding values must not include control characters"
-            )
-        return value
-
-    @field_validator("module_path")
-    @classmethod
-    def _clean_component_module_path(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        if value != value.strip():
-            raise ValueError(
-                "workbench component module_path must not include surrounding whitespace"
-            )
-        if any(ord(ch) < 32 for ch in value):
-            raise ValueError(
-                "workbench component module_path must not include control characters"
-            )
-        if "\\" in value:
-            raise ValueError("workbench component module_path must use '/' separators")
-        path = Path(value)
-        if path.is_absolute():
-            raise ValueError("workbench component module_path must be relative")
-        parts = value.split("/")
-        if any(part in {"", ".", ".."} for part in parts):
-            raise ValueError(
-                "workbench component module_path must not contain empty, '.', or '..' segments"
-            )
-        if path.suffix not in {".js", ".mjs"}:
-            raise ValueError(
-                "workbench component module_path must point to a .js or .mjs file"
-            )
-        return value
+    contribution_id: _ComponentText = Field(min_length=1)
+    module_key: _ComponentText = Field(min_length=1)
+    component_key: _ComponentText = Field(min_length=1)
+    module_path: Annotated[
+        str | None,
+        _module_path(
+            "workbench component module_path",
+            frozenset({".js", ".mjs"}),
+            ".js or .mjs",
+        ),
+    ] = Field(default=None, min_length=1, max_length=256)
 
 
 # First-party matchers reserve priority >= this ceiling; a plugin matcher
@@ -332,27 +303,18 @@ class PluginManifestMatcher(PluginContractModel):
     ``path_regex`` refine it.
     """
 
-    matcher_id: str = Field(min_length=1)
-    provider: str = Field(min_length=1)
+    matcher_id: _MatcherText = Field(min_length=1)
+    provider: _MatcherText = Field(min_length=1)
     domains: list[str] = Field(min_length=1)
     kind: Literal["media", "collection", "scraper", "page"]
     path_prefix: list[str] = Field(default_factory=list)
     query_requires: list[str] = Field(default_factory=list)
     query_forbids: list[str] = Field(default_factory=list)
     path_regex: str | None = None
-    handler_action_kind: str = Field(min_length=1)
+    handler_action_kind: _MatcherText = Field(min_length=1)
     params_hints: dict[str, Any] = Field(default_factory=dict)
     expansion: dict[str, Any] | None = None
     priority: int = 0
-
-    @field_validator("matcher_id", "provider", "handler_action_kind")
-    @classmethod
-    def _clean_matcher_value(cls, value: str) -> str:
-        if value != value.strip():
-            raise ValueError("matcher values must not include surrounding whitespace")
-        if any(ord(ch) < 32 for ch in value):
-            raise ValueError("matcher values must not include control characters")
-        return value
 
     @field_validator("matcher_id")
     @classmethod
@@ -495,27 +457,14 @@ class PluginManifestRuntime(PluginContractModel):
 
 
 class PluginManifestSetting(PluginContractModel):
-    id: str = Field(min_length=1, max_length=160)
-    title: str = Field(min_length=1, max_length=160)
+    id: _SettingText = Field(min_length=1, max_length=160)
+    title: _SettingText = Field(min_length=1, max_length=160)
     type: Literal["boolean", "string", "number", "enum"]
     default: Any = None
     enum: list[str] | None = None
     min: float | None = None
     max: float | None = None
-    description: str | None = Field(default=None, max_length=500)
-
-    @field_validator("id", "title", "description")
-    @classmethod
-    def _clean_setting_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return value
-        if value != value.strip():
-            raise ValueError(
-                "plugin setting text must not include surrounding whitespace"
-            )
-        if any(ord(ch) < 32 for ch in value):
-            raise ValueError("plugin setting text must not include control characters")
-        return value
+    description: _OptionalSettingText = Field(default=None, max_length=500)
 
     @field_validator("enum")
     @classmethod

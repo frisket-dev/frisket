@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from pydantic import ConfigDict, JsonValue, RootModel, field_validator
+from pydantic import ConfigDict, JsonValue, RootModel
 from frisket.contracts.http.models import WireModel
 from frisket.contracts.view import ViewSelection
+from typing import Annotated
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class _ClosedRequest(WireModel):
@@ -54,15 +56,7 @@ class SavedViewDefinitionReplaceRequest(_ClosedRequest):
 
 
 class SavedViewRenameRequest(_ClosedRequest):
-    name: str
-
-    @field_validator("name")
-    @classmethod
-    def _name_is_nonblank(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("name is required")
-        return value
+    name: Annotated[str, nonblank("name is required")]
 
 
 class SavedViewCreateRequest(SavedViewDefinitionReplaceRequest, SavedViewRenameRequest):

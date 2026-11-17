@@ -1,11 +1,12 @@
 """The semantic request consumed by the Google Sheets export terminal."""
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from frisket.actions.types import ActionParams
 from frisket.contracts.view import ViewSelection
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class GoogleSheetsSource(ActionParams):
@@ -43,15 +44,14 @@ class GoogleSheetsSource(ActionParams):
 class GoogleSheetsDestination(ActionParams):
     kind: Literal["google_sheets"]
     mode: Literal["new_spreadsheet", "update_existing"]
-    spreadsheet_id: str | None = Field(default=None, min_length=1)
-    spreadsheet_title: str | None = Field(default=None, min_length=1)
-
-    @field_validator("spreadsheet_id", "spreadsheet_title")
-    @classmethod
-    def _nonblank(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("Google Sheets destination values must be non-empty")
-        return value
+    spreadsheet_id: Annotated[
+        str | None,
+        nonblank("Google Sheets destination values must be non-empty", strip=False),
+    ] = Field(default=None, min_length=1)
+    spreadsheet_title: Annotated[
+        str | None,
+        nonblank("Google Sheets destination values must be non-empty", strip=False),
+    ] = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def _destination(self) -> "GoogleSheetsDestination":
@@ -61,17 +61,12 @@ class GoogleSheetsDestination(ActionParams):
 
 
 class GoogleSheetsExportRequest(ActionParams):
-    connection_id: str = Field(min_length=1)
+    connection_id: Annotated[
+        str, nonblank("connection_id must be non-empty", strip=False)
+    ] = Field(min_length=1)
     source: GoogleSheetsSource
     destination: GoogleSheetsDestination
     write_policy: Literal["replace_managed_tabs"] = "replace_managed_tabs"
-
-    @field_validator("connection_id")
-    @classmethod
-    def _connection(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("connection_id must be non-empty")
-        return value
 
 
 class GoogleSheetsExportOutput(BaseModel):

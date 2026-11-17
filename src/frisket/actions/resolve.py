@@ -7,7 +7,7 @@ import math
 import re
 import statistics
 from collections import Counter
-from typing import Any, ClassVar, Literal, Self
+from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import (
     BaseModel,
@@ -31,6 +31,7 @@ from frisket.preview.replace_rules import (
     compile_replace_rules,
     evaluate_replace_rules,
 )
+from frisket.contracts.actions.schemas._validators import nonblank
 
 MAX_SUBSTITUTE_MAPPING_ENTRIES = 5_000
 MAX_COMBINE_GROUPS = 1_000
@@ -191,16 +192,8 @@ REPLACE = action(
 class CombineGroup(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    canonical: StrictStr
+    canonical: Annotated[StrictStr, nonblank("canonical value must not be blank")]
     members: list[StrictStr] = Field(min_length=1)
-
-    @field_validator("canonical")
-    @classmethod
-    def _valid_canonical(cls, value: str) -> str:
-        cleaned = value.strip()
-        if not cleaned:
-            raise ValueError("canonical value must not be blank")
-        return cleaned
 
     @field_validator("members")
     @classmethod
@@ -285,17 +278,12 @@ COMBINE = action(
 class FillMissingParams(ActionParams):
     source: ColumnRef[Any]
     method: Literal["down", "up", "value", "mean", "median", "mode"] = "down"
-    fill_value: StrictStr | None = Field(
+    fill_value: Annotated[
+        StrictStr | None, nonblank("fill value must not be blank", strip=False)
+    ] = Field(
         default=None,
     )
     treat_blank_as_missing: bool = True
-
-    @field_validator("fill_value")
-    @classmethod
-    def _valid_fill_value(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("fill value must not be blank")
-        return value
 
     @model_validator(mode="after")
     def _valid_method(self) -> Self:

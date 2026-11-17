@@ -193,6 +193,8 @@ class EngineDeclaration:
     held by ``execution_scope``); the engine id keys its admission lease.
     ``listed=False``
     keeps an engine reachable by spec but out of the catalog/picker.
+    ``sidecar_route`` names the frisket-models route whose advertised engine
+    entry decides this engine's catalog availability.
     ``resolves_to`` documents the
     one alias oddity: an engine id that the ops alias map rewrites to a
     ``provider/model`` id at execution time (transcribe's ``remote`` ->
@@ -216,6 +218,7 @@ class EngineDeclaration:
     ocr_geometry: bool = False
     ocr_searchable_pdf: bool = False
     transcription: TranscriptionEngineCapabilities | None = None
+    sidecar_route: str | None = None
 
 
 def opendocrouter_engines() -> tuple[EngineDeclaration, ...]:
@@ -283,6 +286,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="paddleocr-vl",
+        sidecar_route="/ocr",
         label="PaddleOCR-VL document VLM (sidecar)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
@@ -292,6 +296,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="dots.mocr",
+        sidecar_route="/ocr",
         label="dots.mocr multilingual document parser (sidecar)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
@@ -302,6 +307,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="pp-ocrv6",
+        sidecar_route="/ocr",
         label="PP-OCRv6 fast text OCR (sidecar)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
@@ -310,6 +316,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="glm-ocr",
+        sidecar_route="/ocr",
         label="GLM-OCR 0.9B multilingual OCR (sidecar)",
         ocr_geometry=False,
         tier="sidecar",
@@ -317,6 +324,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="surya2",
+        sidecar_route="/ocr",
         label="Surya 2.5 document OCR (local sidecar)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
@@ -573,7 +581,11 @@ CLASSIFY_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(id="jeff", label="Jeff 0.8B", tier="local", provider="local"),
     EngineDeclaration(
-        id="clef-flash", label="Clef Flash", tier="sidecar", provider="frisket-sidecar"
+        id="clef-flash",
+        label="Clef Flash",
+        tier="sidecar",
+        provider="frisket-sidecar",
+        sidecar_route="/classify",
     ),
     EngineDeclaration(
         id="openai-decisions",
@@ -609,6 +621,7 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="docling",
+        sidecar_route="/to-markdown",
         label="Docling layout/OCR quality tier (sidecar)",
         tier="sidecar",
         provider="frisket-sidecar",
@@ -617,6 +630,7 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="chandra",
+        sidecar_route="/to-markdown",
         label="Chandra 2 document VLM (sidecar, experimental)",
         tier="sidecar",
         provider="frisket-sidecar",

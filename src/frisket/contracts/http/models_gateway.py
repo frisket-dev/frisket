@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from frisket.contracts.http.models import WireModel
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class ModelsGatewayCandidateRequest(WireModel):
@@ -14,15 +15,14 @@ class ModelsGatewayCandidateRequest(WireModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    origin: str | None = None
-    token: str | None = Field(default=None, repr=False)
-
-    @field_validator("origin", "token")
-    @classmethod
-    def non_blank_when_present(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("gateway candidate values must be non-blank or omitted")
-        return value
+    origin: Annotated[
+        str | None,
+        nonblank("gateway candidate values must be non-blank or omitted", strip=False),
+    ] = None
+    token: Annotated[
+        str | None,
+        nonblank("gateway candidate values must be non-blank or omitted", strip=False),
+    ] = Field(default=None, repr=False)
 
     @model_validator(mode="after")
     def complete_pair_or_recheck(self) -> ModelsGatewayCandidateRequest:
@@ -32,16 +32,15 @@ class ModelsGatewayCandidateRequest(WireModel):
 
 
 class ModelsGatewaySaveRequest(WireModel):
-    origin: str
-    token: str = Field(repr=False)
-    validation_token: str = Field(repr=False)
-
-    @field_validator("origin", "token", "validation_token")
-    @classmethod
-    def non_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("gateway save values must be non-blank")
-        return value
+    origin: Annotated[
+        str, nonblank("gateway save values must be non-blank", strip=False)
+    ]
+    token: Annotated[
+        str, nonblank("gateway save values must be non-blank", strip=False)
+    ] = Field(repr=False)
+    validation_token: Annotated[
+        str, nonblank("gateway save values must be non-blank", strip=False)
+    ] = Field(repr=False)
 
 
 class ModelsGatewayEngineCapability(WireModel):

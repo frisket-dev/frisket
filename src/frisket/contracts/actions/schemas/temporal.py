@@ -14,12 +14,11 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 
 from frisket.contracts.actions.schemas._base import (
     ContractModel,
-    StrictString,
-    _is_json_value,
-)
-from frisket.contracts.actions.schemas._validators import (
     StrictInputRef,
+    StrictString,
+    is_json_value,
 )
+from frisket.contracts.actions.schemas._validators import nonblank
 from frisket.contracts.temporal_values import normalize_temporal_value
 
 
@@ -46,35 +45,15 @@ def _is_embedded_duration_bounds_error(exc: ValidationError) -> bool:
 
 class TemporalDraftPoint(ContractModel):
     at_ms: int = Field(ge=0, strict=True)
-    id: StrictString | None = None
-    label: StrictString | None = None
-
-    @field_validator("id", "label")
-    @classmethod
-    def _validate_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("invalid_temporal_value")
-        return stripped
+    id: Annotated[StrictString | None, nonblank("invalid_temporal_value")] = None
+    label: Annotated[StrictString | None, nonblank("invalid_temporal_value")] = None
 
 
 class TemporalDraftRange(ContractModel):
     start_ms: int = Field(ge=0, strict=True)
     end_ms: int = Field(gt=0, strict=True)
-    id: StrictString | None = None
-    label: StrictString | None = None
-
-    @field_validator("id", "label")
-    @classmethod
-    def _validate_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("invalid_temporal_value")
-        return stripped
+    id: Annotated[StrictString | None, nonblank("invalid_temporal_value")] = None
+    label: Annotated[StrictString | None, nonblank("invalid_temporal_value")] = None
 
     @model_validator(mode="after")
     def _validate_interval(self) -> "TemporalDraftRange":
@@ -87,18 +66,8 @@ class TemporalDraftRangeSelection(ContractModel):
     kind: Literal["draft_range"]
     start_ms: int = Field(ge=0, strict=True)
     end_ms: int = Field(gt=0, strict=True)
-    id: StrictString | None = None
-    label: StrictString | None = None
-
-    @field_validator("id", "label")
-    @classmethod
-    def _validate_optional_text(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("invalid_temporal_value")
-        return stripped
+    id: Annotated[StrictString | None, nonblank("invalid_temporal_value")] = None
+    label: Annotated[StrictString | None, nonblank("invalid_temporal_value")] = None
 
     @model_validator(mode="after")
     def _validate_interval(self) -> "TemporalDraftRangeSelection":
@@ -138,7 +107,7 @@ class TemporalTypedValueSelection(ContractModel):
     @classmethod
     def _validate_json(cls, value: dict[str, Any]) -> dict[str, Any]:
         try:
-            if not _is_json_value(value):
+            if not is_json_value(value):
                 raise ValueError("invalid_temporal_value")
             type_name = _TEMPORAL_TYPE_BY_SCHEMA_VERSION[value.get("schema_version")]
             # Structural canonicalization is safe at the contract boundary: it
