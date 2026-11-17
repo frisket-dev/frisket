@@ -30,6 +30,7 @@ route_idioms = _load("lint_route_error_idioms")
 scan = _load("source_scan")
 supp = _load("check_suppressions")
 history = _load("lint_comment_history")
+glossary = _load("lint_glossary_avoid")
 file_counts = _load("file_count_ratchet")
 web_types = _load("web_tests_type_ratchet")
 collection = _load("check_test_collection")
@@ -259,3 +260,79 @@ def test_collection_parses_collected_and_import_skipped_files():
     skipped = "SKIPPED [1] tests/b/test_y.py:12: could not import 'pyarrow'"
     assert collection.SKIPPED_LINE.match(skipped)["file"] == "tests/b/test_y.py"
     assert collection.COLLECTED_LINE.match("11 tests collected in 0.4s") is None
+
+
+GLOSSARY_SAMPLE = """
+**Replace** — a run writes into a generated column.
+_Avoid_: overwrite, AI column; "confirmation" for the click.
+
+**Estimate** — what a run is expected to do.
+_Avoid_: quote.
+
+**Sheet** — one grid of data.
+_Avoid_: table (except one inside a document), dry run.
+"""
+
+
+def test_glossary_avoid_parses_plain_and_qualified_items():
+    found = {
+        (a.word, a.preferred, a.plain) for a in glossary.parse_glossary(GLOSSARY_SAMPLE)
+    }
+    assert found == {
+        ("overwrite", "Replace", True),
+        ("ai column", "Replace", True),
+        ("confirmation", "Replace", False),
+        ("quote", "Estimate", True),
+        ("table", "Sheet", False),
+        ("dry run", "Sheet", True),
+    }
+
+
+def test_glossary_avoid_checks_only_plain_unskipped_or_listed_words():
+    avoided = glossary.parse_glossary(GLOSSARY_SAMPLE)
+    scopes = {"skip_text": {"quote": "x"}, "qualified_text": {"table": "x"}}
+    assert glossary.checked_words(avoided, "text", scopes) == {
+        "overwrite": "Replace",
+        "ai column": "Replace",
+        "table": "Sheet",
+        "dry run": "Sheet",
+    }
+
+
+def test_glossary_avoid_counts_whole_words_and_plurals():
+    words = {"watch": "Alert", "dry run": "Preview"}
+    texts = ["Watches panel", "Watch it", "watchdog", "a dry  run", "Rewatch"]
+    assert glossary.count_words(texts, words) == {"watch": 2, "dry run": 1}
+
+
+def test_glossary_avoid_ignores_bare_tokens_and_substitutions():
+    words = {"job": "Run"}
+    assert glossary.count_words(["job_id", "${job.id}", "a job"], words) == {"job": 1}
+
+
+def test_glossary_avoid_counts_name_components():
+    words = {"overwrite": "Replace", "saved view": "View"}
+    names = [
+        "overwriteExisting",
+        "overwrites_column_id",
+        "savedViewsStore",
+        "overwritten",
+    ]
+    assert glossary.count_names(names, words) == {"overwrite": 2, "saved view": 1}
+
+
+def test_glossary_avoid_reads_jsx_text_and_labels_not_generics():
+    source = (
+        "type T = Record<string, number>;\n"
+        'const a = <Button title="Replace it">Watch list</Button>;\n'
+    )
+    assert glossary.web_text(source) == ["Replace it", "Watch list"]
+
+
+def test_glossary_avoid_reads_user_error_and_help_strings_only():
+    source = (
+        'raise ActionError("Overwrite it", code="x_y")\n'
+        'add(help="Pick a recipe")\n'
+        'log("a quote here")\n'
+    )
+    assert glossary.python_text(source) == ["Overwrite it", "x_y", "Pick a recipe"]

@@ -1,0 +1,35 @@
+{
+ "skip_text": {
+  "base": "ordinary English",
+  "call": "ordinary English: a model call, a function call",
+  "derived": "ordinary English: a derived sheet, derived from",
+  "dry run": "no user-facing hits to judge",
+  "excerpt": "mostly ordinary prose: transcript excerpts",
+  "execution": "ordinary English: code execution, before execution",
+  "monitor": "a verb in prose",
+  "op": "too few genuine hits",
+  "operation": "ordinary English: a setup operation",
+  "record": "ordinary English and a data-extraction term",
+  "sample": "ordinary English: sample data, sample text",
+  "scratch": "a scratch directory",
+  "task": "ordinary English",
+  "verified": "ordinary English"
+ },
+ "skip_names": {
+  "base": "ordinary English: base_url",
+  "call": "ordinary English: a function or API call",
+  "derived": "ordinary English: derived_key, derived_hash",
+  "dry run": "the standard dry_run flag",
+  "excerpt": "mostly ordinary text excerpts",
+  "execution": "ordinary English: code execution",
+  "monitor": "ordinary English: a process monitor",
+  "operation": "ordinary English",
+  "record": "a verb and a data-record type",
+  "sample": "ordinary English: sampling",
+  "scratch": "a scratch directory",
+  "task": "an asyncio task",
+  "verified": "ordinary English"
+ },
+ "qualified_text": {"job": "\"job\" in user-facing text"},
+ "qualified_names": {}
+}

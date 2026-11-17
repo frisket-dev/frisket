@@ -81,7 +81,12 @@ budgets suppression comments (`noqa`, `type: ignore`, `pragma: no cover`,
 `eslint-disable`, `@ts-expect-error`, ...), `as any`/`as unknown as`/`as
 never` casts and test skips that probe no environment; `.only` is never
 allowed. `lint_comment_history.py` freezes comments that carry dates, ticket
-slugs, review provenance or unfinished-work markers. `type_ratchet.py` runs
+slugs, review provenance or unfinished-work markers. `lint_glossary_avoid.py` freezes uses of the words each
+`GLOSSARY.md` entry lists under `_Avoid_`, per file, in user-facing text
+(web JSX text and labels, `ActionError`/`RouteError` messages, CLI help) and in
+declared names; `--explain <term>` prints the entry. Plain avoids are checked;
+qualified ones and words skipped because they are ordinary English in a scope
+live in `glossary_avoid_scopes.json`. `type_ratchet.py` runs
 pinned pyright (basic mode, `pyrightconfig.json`) over `src/frisket`; its
 baseline is measured in the CI environment (`uv sync --dev --extra
 entities`), and a pyright bump re-records it with `--update` in the bump's
