@@ -31,7 +31,6 @@ import type {
 } from './types';
 import type { V1ActionSession } from './v1ActionSession';
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type ColumnPatchActionParams = GeneratedActionParams['column.patch'];
 type ColumnAddActionParams = GeneratedActionParams['column.add'];
 type ColumnSetTypeActionParams = GeneratedActionParams['column.set_type'];
@@ -218,7 +217,6 @@ function locateSheetRowQuery(
 }
 
 export function createSheetGridDomainApi(
-  errorFactory: ContractErrorFactory,
   dependencies: SheetGridDependencies,
   projectId: string,
 ): SheetGridDomainApi {
@@ -285,7 +283,6 @@ export function createSheetGridDomainApi(
       project.pathId,
       Number(sheetId),
       sheetDataQuery(offset, limit, options),
-      errorFactory,
     );
     const columns = data.columns.map((column) =>
       enrichAiColumn(project, sheetId, column),
@@ -307,7 +304,6 @@ export function createSheetGridDomainApi(
       project.pathId,
       Number(sheetId),
       sheetDataQuery(offset, limit, options),
-      errorFactory,
     );
     return { rows: enrichRows(project, sheetId, offset, data).map((row) => (
       options?.columnIds ? { ...row, loadedColumnIds: options.columnIds } : row
@@ -315,7 +311,7 @@ export function createSheetGridDomainApi(
   }
 
   async function listSheetsForProject(project: ProjectIdentity): Promise<SheetMeta[]> {
-    return listSheetsContract(project.pathId, errorFactory);
+    return listSheetsContract(project.pathId);
   }
 
   async function getColumnByIdForProject(
@@ -406,13 +402,12 @@ export function createSheetGridDomainApi(
         project.pathId,
         Number(sheetId),
         titleColumnId == null ? null : Number(titleColumnId),
-        errorFactory,
       );
     },
 
     deleteSheet(sheetId) {
       const project = captureProjectIdentity();
-      return deleteSheetContract(project.pathId, Number(sheetId), errorFactory);
+      return deleteSheetContract(project.pathId, Number(sheetId));
     },
 
     getSheetData(sheetId, offset, limit, options = {}) {
@@ -440,7 +435,6 @@ export function createSheetGridDomainApi(
           ...(options.selection != null ? { selection: JSON.stringify(options.selection) } : {}),
           ...(options.viewId != null ? { view_id: options.viewId } : {}),
         },
-        errorFactory,
       );
     },
 
@@ -451,7 +445,6 @@ export function createSheetGridDomainApi(
         Number(sheetId),
         Number(rowId),
         locateSheetRowQuery(pageSize, options),
-        errorFactory,
       );
     },
 

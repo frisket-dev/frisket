@@ -42,7 +42,6 @@ describe('runtime projection artifact HTTP contract', () => {
       params: { includeFuture: true },
     }, {
       signal: controller.signal,
-      headers: { Authorization: 'Bearer token' },
     })).resolves.toMatchObject({
       artifactId: 'artifact-1',
       target: {
@@ -67,9 +66,7 @@ describe('runtime projection artifact HTTP contract', () => {
     expect(requests[0]?.init?.body).toBe(
       '{"projectionKind":"timeline","artifactId":"artifact-1","target":{"sheetId":"sheet-1"},"params":{"includeFuture":true}}',
     );
-    const headers = new Headers(requests[0]?.init?.headers);
-    expect(headers.get('authorization')).toBe('Bearer token');
-    expect(headers.get('content-type')).toBe('application/json');
+    expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBe('application/json');
   });
 
   it.each([400, 404, 422, 500, 502])('maps declared HTTP %s errors without retry', async (status) => {

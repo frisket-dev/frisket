@@ -36,7 +36,7 @@ class MappedContractError extends Error {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('action-launch HTTP contract', () => {
-  it('preserves action-run direct recursive JSON, encoding, headers, and abort signal', async () => {
+  it('preserves action-run direct recursive JSON, encoding, content type, and abort signal', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
@@ -52,10 +52,7 @@ describe('action-launch HTTP contract', () => {
       kind: 'map.classify',
       params: { labels: ['yes', 'no'], nested: { retained: true } },
       extension: { producer_owned: ['open', 1] },
-    }, {
-      signal,
-      headers: { Authorization: 'Bearer action' },
-    })).resolves.toMatchObject({ status: 200, result: { status: 'completed' } });
+    }, { signal })).resolves.toMatchObject({ status: 200, result: { status: 'completed' } });
 
     expect(requests).toHaveLength(1);
     expect(requests[0]?.input).toBe('/api/projects/project%2Fone/actions/v1/run');
@@ -66,8 +63,9 @@ describe('action-launch HTTP contract', () => {
       extension: { producer_owned: ['open', 1] },
     });
     expect(requests[0]?.init?.signal).toBe(signal);
-    expect(new Headers(requests[0]?.init?.headers).get('authorization')).toBe('Bearer action');
-    expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBe('application/json');
+    expect([...new Headers(requests[0]?.init?.headers).entries()]).toEqual([
+      ['content-type', 'application/json'],
+    ]);
   });
 
   it.each([

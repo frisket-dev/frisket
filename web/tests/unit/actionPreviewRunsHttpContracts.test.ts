@@ -102,7 +102,7 @@ describe('action-preview lifecycle HTTP contracts', () => {
     expect(result).not.toHaveProperty('rowIds');
   });
 
-  it('preserves lifecycle direct action, encoding, headers, and abort signal', async () => {
+  it('preserves lifecycle direct action, encoding, content type, and abort signal', async () => {
     const projectId = 'project /%?☃';
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [
@@ -128,7 +128,7 @@ describe('action-preview lifecycle HTTP contracts', () => {
       (status, payload) => new MappedContractError(status, payload),
       projectId,
     );
-    const options = { signal, headers: { Authorization: 'Bearer preview' } };
+    const options = { signal };
 
     await expect(api.start({
       kind: 'map.classify',
@@ -151,9 +151,12 @@ describe('action-preview lifecycle HTTP contracts', () => {
     });
     for (const request of requests) {
       expect(request.init?.signal).toBe(signal);
-      expect(new Headers(request.init?.headers).get('authorization')).toBe('Bearer preview');
     }
-    expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBe('application/json');
+    expect([...new Headers(requests[0]?.init?.headers).entries()]).toEqual([
+      ['content-type', 'application/json'],
+    ]);
+    expect(requests[1]?.init?.headers).toBeUndefined();
+    expect(requests[2]?.init?.headers).toBeUndefined();
   });
 
   it.each([400, 402, 404])('maps lifecycle HTTP %i through the provided error factory', async (status) => {

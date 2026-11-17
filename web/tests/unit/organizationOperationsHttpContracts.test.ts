@@ -36,14 +36,9 @@ describe('organization operations generated HTTP port', () => {
       return responses.shift()!;
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer org', 'X-Trace-Id': 'org-operations' },
-    };
+    const options = { signal: controller.signal };
     const { createOrganizationOperationsApi } = await import('../../src/api/organizationOperations');
-    const api = createOrganizationOperationsApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-    );
+    const api = createOrganizationOperationsApi();
 
     await expect(api.listOrgEnvVars(options)).resolves.toEqual([
       { name: 'PUBLIC_ONLY', hint: '...only' },
@@ -71,22 +66,19 @@ describe('organization operations generated HTTP port', () => {
     ]);
     for (const { init } of requests) {
       expect(init?.signal).toBe(controller.signal);
-      const headers = new Headers(init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer org');
-      expect(headers.get('x-trace-id')).toBe('org-operations');
     }
   });
 
   it('maps HTTP errors, preserves network identity, and keeps real.ts mutations void', async () => {
     const { createOrganizationOperationsApi } = await import('../../src/api/organizationOperations');
-    const api = createOrganizationOperationsApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-    );
+    const api = createOrganizationOperationsApi();
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'forbidden' }, 403)));
     await expect(api.listOrgEnvVars()).rejects.toMatchObject({
-      message: 'mapped-403',
+      name: 'ApiError',
       status: 403,
-      payload: { detail: 'forbidden' },
+      message: 'forbidden',
+      code: undefined,
+      details: undefined,
     });
 
     const network = new Error('network identity');

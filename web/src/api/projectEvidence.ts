@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
 import type {
   EvidenceViewerReadOptions,
   TextAnnotationsOptions,
@@ -7,11 +7,6 @@ import type {
   TextAnnotationSpan,
   TextAnnotationUnpositionedReason,
 } from './types';
-
-interface ProjectEvidenceOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 type EvidenceViewerOptions = EvidenceViewerReadOptions;
 
@@ -29,13 +24,13 @@ type RowSourceDocumentsWire =
 interface ProjectEvidenceApi {
   getRowSourceDocuments(
     rowId: string,
-    options?: ProjectEvidenceOptions,
+    options?: RequestOptions,
   ): Promise<RowSourceDocumentsWire>;
   getCellEvidence(
     rowId: string,
     columnId: string,
     includeStale?: boolean,
-    options?: ProjectEvidenceOptions,
+    options?: RequestOptions,
   ): Promise<CellEvidenceWire>;
   getTextAnnotations(
     rowId: string,
@@ -46,7 +41,7 @@ interface ProjectEvidenceApi {
     sheetId: string,
     columnId: string,
     rowIds?: readonly string[],
-    options?: ProjectEvidenceOptions,
+    options?: RequestOptions,
   ): Promise<ColumnEvidenceWire>;
   getEvidenceViewer(
     evidenceLinkId: string | number,
@@ -60,13 +55,13 @@ interface ProjectEvidenceApi {
 interface ProjectEvidenceDomainApi {
   getRowSourceDocuments(
     rowId: string,
-    options?: ProjectEvidenceOptions,
+    options?: RequestOptions,
   ): Promise<RowSourceDocumentsWire>;
   getCellEvidence(
     rowId: string,
     columnId: string,
     includeStale?: boolean,
-    options?: ProjectEvidenceOptions,
+    options?: RequestOptions,
   ): Promise<CellEvidenceWire>;
   getTextAnnotations(
     rowId: string,
@@ -77,15 +72,13 @@ interface ProjectEvidenceDomainApi {
     sheetId: string,
     columnId: string,
     rowIds?: readonly string[],
-    options?: ProjectEvidenceOptions,
+    options?: RequestOptions,
   ): Promise<ColumnEvidenceWire>;
   getEvidenceViewer(
     evidenceLinkId: string | number,
     options?: EvidenceViewerOptions,
   ): Promise<EvidenceViewerWire>;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 // FrisketApi keeps numeric route references as strings. The generated route
 // signatures reflect FastAPI's integers; these casts preserve the existing URL
@@ -102,9 +95,7 @@ export function createProjectEvidenceApi(
         'tenant.row_source_documents.get',
         {
           pathParams: { pid: projectId, row_id: numericPathRef(rowId) },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -124,7 +115,6 @@ export function createProjectEvidenceApi(
             include_stale: includeStale ? (1 as unknown as boolean) : undefined,
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -141,7 +131,6 @@ export function createProjectEvidenceApi(
           },
           query: { start: options.start, limit: options.limit, revision: options.revision, occurrence_id: options.occurrenceId },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -158,7 +147,6 @@ export function createProjectEvidenceApi(
           },
           query: { row_ids: rowIds?.length ? rowIds.join(',') : undefined },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -181,7 +169,6 @@ export function createProjectEvidenceApi(
             text_span_id: options.textSpanId,
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );

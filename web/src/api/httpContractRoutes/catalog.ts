@@ -1,6 +1,7 @@
 import {
   httpContract,
   type HttpContractSuccessResponse,
+  type RequestOptions,
 } from '../httpContract';
 import type { ActionCatalogPayload } from '../types';
 
@@ -8,12 +9,6 @@ type GlobalActionCatalogWire =
   HttpContractSuccessResponse<'tenant.v1_action_catalog.get'>;
 type ProjectActionCatalogWire =
   HttpContractSuccessResponse<'tenant.project_v1_action_catalog.get'>;
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-interface ActionCatalogContractOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 function mapActionCatalog(
   wire: GlobalActionCatalogWire | ProjectActionCatalogWire,
@@ -67,28 +62,19 @@ function mapActionCatalog(
 }
 
 export function getGlobalActionCatalog(
-  errorFactory: ContractErrorFactory,
-  options: ActionCatalogContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ActionCatalogPayload> {
   return httpContract('tenant.v1_action_catalog.get', {
-    pathParams: {},
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapActionCatalog);
 }
 
 export function getProjectActionCatalog(
   projectId: string,
-  errorFactory: ContractErrorFactory,
-  options: ActionCatalogContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ActionCatalogPayload> {
   return httpContract('tenant.project_v1_action_catalog.get', {
     pathParams: { pid: projectId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapActionCatalog);
 }

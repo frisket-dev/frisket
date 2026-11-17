@@ -2,7 +2,6 @@ import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import type { DocumentListOptions, DocumentListPage } from './types';
 
 type DocumentPageWire = HttpContractSuccessResponse<'tenant.browse_sheet_documents.get'>;
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 function mapPage(page: DocumentPageWire): DocumentListPage {
   return {
@@ -23,7 +22,7 @@ function mapPage(page: DocumentPageWire): DocumentListPage {
   };
 }
 
-export function createDocumentBrowsingApi(errorFactory: ContractErrorFactory) {
+export function createDocumentBrowsingApi() {
   return {
     listDocuments(projectId: string, sheetId: string, options: DocumentListOptions): Promise<DocumentListPage> {
       return httpContract('tenant.browse_sheet_documents.get', {
@@ -42,7 +41,6 @@ export function createDocumentBrowsingApi(errorFactory: ContractErrorFactory) {
           limit: options.limit ?? 100,
         },
         signal: options.signal,
-        errorFactory,
       }).then(mapPage);
     },
   };

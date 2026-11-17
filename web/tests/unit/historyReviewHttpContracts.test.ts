@@ -21,18 +21,6 @@ function jsonResponse(payload: unknown, status = 200): Response {
   });
 }
 
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped history-review error ${status}`);
-    this.name = 'MappedContractError';
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
 const columnRun = {
   run_id: 9,
   action_kind: 'map.classify',
@@ -282,7 +270,6 @@ function stubHistoryAndPosts(
 /** The domain under test wired the way RealApi wires it: one V1 action session,
  * narrowed to the three methods the mutations use. */
 const historyReviewDomain = (projectId: string) => createHistoryReviewDomainApi(
-  (status, payload) => new MappedContractError(status, payload),
   {
     v1ActionSession: createV1ActionSession(projectId),
   },
@@ -323,7 +310,7 @@ describe('history and review generated HTTP reads', () => {
     expect(requests).toEqual(['/api/projects/reviewed/columns/5/runs/9/revision']);
   });
 
-  it('preserves paths, query omission, encoding, headers, abort, and raw responses', async () => {
+  it('preserves paths, query omission, encoding, abort, and raw responses', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [columnRunsFixture, historyFixture, reviewBundlesFixture, { count: 4 }];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -331,11 +318,8 @@ describe('history and review generated HTTP reads', () => {
       return jsonResponse(responses.shift());
     }));
     const signal = new AbortController().signal;
-    const api = createHistoryReviewApi(
-      (status, payload) => new MappedContractError(status, payload),
-      '101',
-    );
-    const options = { signal, headers: { Authorization: 'Bearer history-review' } };
+    const api = createHistoryReviewApi('101');
+    const options = { signal };
 
     await expect(api.getColumnRuns('column/a', 2, 3, options)).resolves.toEqual(columnRunsFixture);
     await expect(api.getHistory(null, 4, options)).resolves.toEqual(historyFixture);
@@ -350,7 +334,6 @@ describe('history and review generated HTTP reads', () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(signal);
-      expect(new Headers(request.init?.headers).get('authorization')).toBe('Bearer history-review');
     }
   });
 
@@ -360,10 +343,7 @@ describe('history and review generated HTTP reads', () => {
       requests.push({ input, init });
       return jsonResponse(requests.length === 1 ? reviewBundlesFixture : { count: 2 });
     }));
-    const api = createHistoryReviewApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'run-filter',
-    );
+    const api = createHistoryReviewApi('run-filter');
 
     await api.getReviewBundles(0, 25, '9', true);
     await api.getReviewCount('9');
@@ -380,10 +360,7 @@ describe('history and review generated HTTP reads', () => {
       requests.push({ input, init });
       return jsonResponse(String(input).includes('/review/runs') ? reviewRunsFixture : reviewBundlesFixture);
     }));
-    const api = createHistoryReviewApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'review-controls',
-    );
+    const api = createHistoryReviewApi('review-controls');
 
     await api.getReviewBundles(0, 25, '9', false, undefined, {
       fieldId: '5', order: 'shuffle', excludeRowIds: ['7', '8'],
@@ -431,12 +408,8 @@ describe('history and review generated HTTP reads', () => {
         next_cursor: 7,
       });
     }));
-    const transport = createHistoryReviewApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'row-order',
-    );
+    const transport = createHistoryReviewApi('row-order');
     const domain = createHistoryReviewDomainApi(
-      (status, payload) => new MappedContractError(status, payload),
       { v1ActionSession: createV1ActionSession('row-order') },
       'row-order',
     );
@@ -512,19 +485,14 @@ describe('history and review generated HTTP reads', () => {
     expect(JSON.parse(String(requests[1].init?.body))).toEqual({ status: 'open' });
   });
 
-  it.each([401, 403, 404, 422, 500])('maps HTTP %i through the provided error factory', async (status) => {
+  it.each([401, 403, 404, 422, 500])('maps HTTP %i to the shared ApiError', async (status) => {
     const payload = { detail: `history-review-${status}` };
-    const errorFactory = vi.fn(
-      (actualStatus: number, actualPayload: unknown) =>
-        new MappedContractError(actualStatus, actualPayload),
-    );
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload, status)));
-    const api = createHistoryReviewApi(errorFactory, '102');
+    const api = createHistoryReviewApi('102');
 
     await expect(api.getHistory()).rejects.toMatchObject({
-      name: 'MappedContractError', status, payload,
+      name: 'ApiError', status, message: `history-review-${status}`, code: undefined, details: undefined,
     });
-    expect(errorFactory).toHaveBeenCalledWith(status, payload);
   });
 
   it('forwards native abort identity through the raw transport', async () => {
@@ -538,10 +506,7 @@ describe('history and review generated HTTP reads', () => {
         });
       });
     }));
-    const api = createHistoryReviewApi(
-      (status, payload) => new MappedContractError(status, payload),
-      '103',
-    );
+    const api = createHistoryReviewApi('103');
     const pending = api.getHistory(undefined, 50, { signal: controller.signal });
     const abortError = new DOMException('history cancelled', 'AbortError');
     controller.abort(abortError);

@@ -247,7 +247,7 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
   });
 
-  it('preserves requests, encoding, optional catalog query, defaults, headers, and abort', async () => {
+  it('preserves requests, encoding, optional catalog query, defaults, content types, and abort', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [catalog, catalog, indexes, exported, similarity, hybrid];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -255,10 +255,7 @@ describe('embeddings generated HTTP contracts', () => {
       return jsonResponse(responses.shift());
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer session', 'X-Trace-Id': 'embeddings' },
-    };
+    const options = { signal: controller.signal };
     const api = createEmbeddingsApi(
       (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
@@ -309,12 +306,14 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
     for (const { init } of requests) {
       expect(init?.signal).toBe(controller.signal);
-      const headers = new Headers(init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer session');
-      expect(headers.get('x-trace-id')).toBe('embeddings');
+    }
+    for (const request of requests.slice(0, 3)) {
+      expect(request.init?.headers).toBeUndefined();
     }
     for (const request of requests.slice(3)) {
-      expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
+      expect([...new Headers(request.init?.headers).entries()]).toEqual([
+        ['content-type', 'application/json'],
+      ]);
     }
   });
 

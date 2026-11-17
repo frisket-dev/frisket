@@ -1,5 +1,5 @@
 import type { HttpContractOperationMap } from '../generated/openHttpContracts';
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 
 type SearchPreparationWire =
   HttpContractSuccessResponse<'tenant.get_search_preparation.get'>;
@@ -15,10 +15,6 @@ export type SearchPreparationModel = SearchPreparationBatch['models'][number];
 export type SearchPreparationJob = SearchPreparationBatch['jobs'][number];
 export type SearchPreparationTextSample = SearchPreparationTextSamplesWire['samples'][number];
 
-export interface SearchPreparationRequestOptions {
-  signal?: AbortSignal;
-}
-
 export type CreateSearchPreparationInput =
   HttpContractOperationMap['tenant.create_search_preparation.post']['request'];
 export type DecideSearchPreparationInput =
@@ -27,11 +23,10 @@ export type DecideSearchPreparationInput =
 export function createSearchPreparation(
   projectId: string,
   input: CreateSearchPreparationInput,
-  options: SearchPreparationRequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<SearchPreparationWire> {
   return httpContract('tenant.create_search_preparation.post', {
     pathParams: { pid: projectId },
-    query: {},
     body: input,
     signal: options.signal,
   });
@@ -39,11 +34,10 @@ export function createSearchPreparation(
 
 export function listSearchPreparations(
   projectId: string,
-  options: SearchPreparationRequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<HttpContractSuccessResponse<'tenant.list_search_preparations.get'>> {
   return httpContract('tenant.list_search_preparations.get', {
     pathParams: { pid: projectId },
-    query: {},
     signal: options.signal,
   });
 }
@@ -51,11 +45,10 @@ export function listSearchPreparations(
 export function getSearchPreparation(
   projectId: string,
   batchId: string,
-  options: SearchPreparationRequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<SearchPreparationWire> {
   return httpContract('tenant.get_search_preparation.get', {
     pathParams: { pid: projectId, batch_id: batchId },
-    query: {},
     signal: options.signal,
   });
 }
@@ -64,11 +57,10 @@ export function decideSearchPreparation(
   projectId: string,
   batchId: string,
   input: DecideSearchPreparationInput,
-  options: SearchPreparationRequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<SearchPreparationWire> {
   return httpContract('tenant.decide_search_preparation.post', {
     pathParams: { pid: projectId, batch_id: batchId },
-    query: {},
     body: input,
     signal: options.signal,
   });
@@ -78,22 +70,21 @@ export function replanSearchPreparation(
   projectId: string,
   batchId: string,
   input: HttpContractOperationMap['tenant.replan_search_preparation.post']['request'],
-  options: SearchPreparationRequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<SearchPreparationWire> {
   return httpContract('tenant.replan_search_preparation.post', {
     pathParams: { pid: projectId, batch_id: batchId },
-    query: {}, body: input, signal: options.signal,
+    body: input, signal: options.signal,
   });
 }
 
 export function stopSearchPreparation(
   projectId: string,
   batchId: string,
-  options: SearchPreparationRequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<SearchPreparationWire> {
   return httpContract('tenant.stop_search_preparation.post', {
     pathParams: { pid: projectId, batch_id: batchId },
-    query: {},
     signal: options.signal,
   });
 }
@@ -102,7 +93,7 @@ export function getSearchPreparationTextSamples(
   projectId: string,
   batchId: string,
   selection: { rowId?: number; columnId?: number; pageNumber?: number } = {},
-  options: SearchPreparationRequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<SearchPreparationTextSamplesWire> {
   return httpContract('tenant.get_search_preparation_text_samples.get', {
     pathParams: { pid: projectId, batch_id: batchId },

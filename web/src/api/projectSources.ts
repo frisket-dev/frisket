@@ -1,6 +1,6 @@
 import { ApiError, firstNonEmptyString } from './contractErrors';
 import type { GeneratedActionParams } from '../generated/actionTypes';
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   JsonValue,
   SourceConfig,
@@ -14,11 +14,6 @@ import type {
 } from './types';
 import type { V1ActionSession } from './v1ActionSession';
 
-interface ProjectSourcesOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 type ProjectSourceListWire =
   HttpContractSuccessResponse<'tenant.list_sources.get'>;
 type ProjectSourceDetailWire =
@@ -27,18 +22,18 @@ type ProjectSourceHealthWire =
   HttpContractSuccessResponse<'tenant.get_source_health_ep.get'>;
 
 interface ProjectSourcesApi {
-  listSources(options?: ProjectSourcesOptions): Promise<SourceInfo[]>;
+  listSources(options?: RequestOptions): Promise<SourceInfo[]>;
   getSource(
     sourceId: number,
     runsOffset?: number | null,
     runsLimit?: number,
-    options?: ProjectSourcesOptions,
+    options?: RequestOptions,
   ): Promise<SourceDetail>;
   getSourceHealth(
     sourceId: number,
     runsOffset?: number | null,
     runsLimit?: number,
-    options?: ProjectSourcesOptions,
+    options?: RequestOptions,
   ): Promise<SourceHealth>;
   createSource(input: SourceInput): Promise<SourceInfo>;
   updateSource(sourceId: number, patch: Partial<SourceInput>): Promise<SourceInfo>;
@@ -47,11 +42,9 @@ interface ProjectSourcesApi {
 }
 
 interface ProjectSourcesApiDependencies {
-  errorFactory: ContractErrorFactory;
   v1ActionSession: V1ActionSession;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type ProjectSourceWire = ProjectSourceListWire[number];
 type ProjectSourceRunWire = ProjectSourceDetailWire['runs'][number];
 type ProjectSourceRunPageWire = ProjectSourceDetailWire['runs_page'];
@@ -291,7 +284,6 @@ function toSourceUpdatePatch(input: Partial<SourceInput>): SourceUpdatePatch {
 }
 
 export function createProjectSourcesApi({
-  errorFactory,
   v1ActionSession,
 }: ProjectSourcesApiDependencies, projectId: string): ProjectSourcesApi {
   return {
@@ -300,10 +292,7 @@ export function createProjectSourcesApi({
         'tenant.list_sources.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
       return wire.map(toSourceInfo);
@@ -319,8 +308,6 @@ export function createProjectSourcesApi({
             runs_limit: runsLimit,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
       return {
@@ -340,8 +327,6 @@ export function createProjectSourcesApi({
             runs_limit: runsLimit,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
       return toSourceHealth(wire);

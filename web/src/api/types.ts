@@ -656,7 +656,6 @@ export interface TextAnnotationsOptions {
   revision?: number;
   occurrenceId?: string;
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 export interface EvidenceViewerReadOptions {
@@ -667,7 +666,6 @@ export interface EvidenceViewerReadOptions {
   textRevision?: number;
   textSpanId?: string;
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 export interface EvidenceTextPassageTarget {
@@ -5013,12 +5011,12 @@ export interface FrisketApi {
     key: string,
     spendCapUsd?: number | null,
     validationToken?: string | null,
-    options?: { signal?: AbortSignal; headers?: HeadersInit },
+    options?: { signal?: AbortSignal },
   ): Promise<ProjectProviderKeys>;
   validateProjectProviderKey(
     provider: string,
     key?: string,
-    options?: { signal?: AbortSignal; headers?: HeadersInit },
+    options?: { signal?: AbortSignal },
   ): Promise<ProviderValidateResult>;
   deleteProjectProviderKey(provider: string): Promise<{
     ok: boolean;

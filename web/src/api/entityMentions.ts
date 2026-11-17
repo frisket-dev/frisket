@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
 import type {
   EntityMentionDocumentsPage,
   EntityMentionGroup,
@@ -8,11 +8,6 @@ import type {
   EntityMentionTypeTotal,
   EntityMentionsPreview,
 } from './types';
-
-interface EntityMentionsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 interface EntityMentionsPreviewInput {
   sheetId: string;
@@ -60,21 +55,19 @@ interface EntityMentionsApi {
   preview(
     projectId: string,
     input: EntityMentionsPreviewInput,
-    options?: EntityMentionsOptions,
+    options?: RequestOptions,
   ): Promise<EntityMentionsPreview>;
   documents(
     projectId: string,
     input: EntityMentionDocumentsInput,
-    options?: EntityMentionsOptions,
+    options?: RequestOptions,
   ): Promise<EntityMentionDocumentsPage>;
   occurrences(
     projectId: string,
     input: EntityMentionOccurrencesInput,
-    options?: EntityMentionsOptions,
+    options?: RequestOptions,
   ): Promise<EntityMentionOccurrencesPage>;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 function entityMentionSelector(
   selector: EntityMentionSelectorWire,
@@ -193,7 +186,6 @@ export function createEntityMentionsApi(
         'tenant.entity_mentions_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             column_id: Number(input.columnId),
@@ -203,7 +195,6 @@ export function createEntityMentionsApi(
             ...(input.offset != null ? { offset: input.offset } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapPreview,
@@ -215,7 +206,6 @@ export function createEntityMentionsApi(
         'tenant.entity_mention_documents.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             column_id: Number(input.columnId),
@@ -226,7 +216,6 @@ export function createEntityMentionsApi(
             ...(input.offset != null ? { offset: input.offset } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapDocuments,
@@ -238,7 +227,6 @@ export function createEntityMentionsApi(
         'tenant.entity_mention_occurrences.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             row_id: Number(input.rowId),
@@ -251,7 +239,6 @@ export function createEntityMentionsApi(
             ...(input.snippetRadius != null ? { snippet_radius: input.snippetRadius } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapOccurrences,

@@ -18,7 +18,7 @@ export const projectModelRoutesApi: ProjectModelRoutesApi = {
   setProjectModelRoute(projectId, modelId, route, signal) {
     const body: SetModelRouteRequest = { model_id: modelId, route };
     return httpContract('tenant.set_project_model_route.patch', {
-      pathParams: { pid: projectId }, query: {}, body, signal,
+      pathParams: { pid: projectId }, body, signal,
     });
   },
 };

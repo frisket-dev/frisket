@@ -56,36 +56,28 @@ describe('graph and lineage generated transport', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('passes signal and headers through a bodyless GET and preserves nested/string/422/non-json errors', async () => {
+  it('passes the signal through a bodyless GET and preserves nested/string/422/non-json errors', async () => {
     const fetchMock = stubFetch({ project_id: 'p1' });
     const controller = new AbortController();
-    const transport = createGraphLineageApi((status, payload) => {
-      const detail = payload && typeof payload === 'object' && 'detail' in payload
-        ? (payload as { detail: unknown }).detail
-        : payload;
-      if (detail && typeof detail === 'object' && 'message' in detail) {
-        const coded = detail as { message: string; code?: string; [key: string]: unknown };
-        const { code, message, ...details } = coded;
-        return new ApiError(status, message, typeof code === 'string' ? code : undefined, details);
-      }
-      return new ApiError(status, typeof detail === 'string' ? detail : JSON.stringify(detail));
-    });
+    const transport = createGraphLineageApi();
     await transport.getLineage('folder/child', {
       signal: controller.signal,
-      headers: { 'X-Test': 'graph-lineage' },
     });
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/projects/folder%2Fchild/lineage',
       expect.objectContaining({ method: 'GET', signal: controller.signal }),
     );
     const headers = new Headers((fetchMock.mock.calls[0]![1] as RequestInit).headers);
-    expect(headers.get('X-Test')).toBe('graph-lineage');
     expect(headers.has('Content-Type')).toBe(false);
 
     stubFetch(
       { detail: { code: 'sheet_not_found', message: 'no sheet', nested: { x: 1 } } },
       { ok: false, status: 404 },
     );
+    await expect(transport.getSheetGraph('p1', { sheetId: 7 })).rejects.toMatchObject({
+      name: ApiError.name,
+      status: 404, message: 'no sheet', code: 'sheet_not_found', details: { nested: { x: 1 } },
+    });
     await expect(api.getSheetGraph({ sheetId: 7 })).rejects.toMatchObject({
       status: 404, message: 'no sheet', code: 'sheet_not_found', details: { nested: { x: 1 } },
     });

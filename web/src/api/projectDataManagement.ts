@@ -1,5 +1,5 @@
 import type { HttpContractOperationMap } from '../generated/openHttpContracts';
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import type {
   ProjectNetworkPolicy,
   ProjectRetentionPolicy,
@@ -7,36 +7,29 @@ import type {
   ProjectSettingsPatch,
 } from './types';
 
-interface ProjectDataManagementOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface ProjectDataManagementApi {
-  getProjectRetention(options?: ProjectDataManagementOptions): Promise<ProjectRetentionPolicy>;
+  getProjectRetention(options?: RequestOptions): Promise<ProjectRetentionPolicy>;
   updateProjectRetention(
     input: Partial<ProjectRetentionPolicy>,
-    options?: ProjectDataManagementOptions,
+    options?: RequestOptions,
   ): Promise<ProjectRetentionPolicy>;
-  getProjectNetworkPolicy(options?: ProjectDataManagementOptions): Promise<ProjectNetworkPolicy>;
+  getProjectNetworkPolicy(options?: RequestOptions): Promise<ProjectNetworkPolicy>;
   updateProjectNetworkPolicy(
     input: { mode: string },
-    options?: ProjectDataManagementOptions,
+    options?: RequestOptions,
   ): Promise<ProjectNetworkPolicy>;
-  getProjectSettings(options?: ProjectDataManagementOptions): Promise<ProjectSettings>;
+  getProjectSettings(options?: RequestOptions): Promise<ProjectSettings>;
   updateProjectSettings(
     input: ProjectSettingsPatch,
-    options?: ProjectDataManagementOptions,
+    options?: RequestOptions,
   ): Promise<ProjectSettings>;
-  compactProject(options?: ProjectDataManagementOptions): Promise<Record<string, unknown>>;
+  compactProject(options?: RequestOptions): Promise<Record<string, unknown>>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type RetentionPatch = HttpContractOperationMap['tenant.update_project_retention.patch']['request'];
 type SettingsPatch = HttpContractOperationMap['tenant.update_project_settings.patch']['request'];
 
 export function createProjectDataManagementApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): ProjectDataManagementApi {
   return {
@@ -45,10 +38,7 @@ export function createProjectDataManagementApi(
         'tenant.get_project_retention.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -58,11 +48,8 @@ export function createProjectDataManagementApi(
         'tenant.update_project_retention.patch',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: input as RetentionPatch,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -72,10 +59,7 @@ export function createProjectDataManagementApi(
         'tenant.get_project_network.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -85,11 +69,8 @@ export function createProjectDataManagementApi(
         'outer.update_project_network.patch',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: { mode: input.mode },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -99,10 +80,7 @@ export function createProjectDataManagementApi(
         'tenant.get_project_settings.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -112,14 +90,11 @@ export function createProjectDataManagementApi(
         'tenant.update_project_settings.patch',
         {
           pathParams: { pid: projectId },
-          query: {},
           // The browser surface historically accepts a runtime Partial, which
           // can carry extension/read-only keys. Preserve it byte-for-byte;
           // httpContract removes only undefined JSON properties.
           body: input as SettingsPatch,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -129,10 +104,7 @@ export function createProjectDataManagementApi(
         'tenant.compact_project.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

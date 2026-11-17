@@ -1,9 +1,8 @@
-import { httpContract } from './httpContract';
+import { httpContract, type ContractErrorFactory } from './httpContract';
 
 interface DiagnosticsOptions {
   fetch?: typeof globalThis.fetch;
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 export interface DiagnosticsReport {
@@ -12,7 +11,6 @@ export interface DiagnosticsReport {
   info: unknown;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 export function fetchDiagnostics(
   projectId: string | undefined,
   options: DiagnosticsOptions = {},
@@ -22,11 +20,8 @@ export function fetchDiagnostics(
     return httpContract(
       'tenant.diagnose.get',
       {
-        pathParams: {},
-        query: {},
         fetch: options.fetch,
         signal: options.signal,
-        headers: options.headers,
         errorFactory,
       },
     );
@@ -35,10 +30,8 @@ export function fetchDiagnostics(
     'tenant.project_diagnose.get',
     {
       pathParams: { pid: projectId },
-      query: {},
       fetch: options.fetch,
       signal: options.signal,
-      headers: options.headers,
       errorFactory,
     },
   );

@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
 import type {
   CreateEmbeddingIndexInput,
   EmbeddingComposedQuery,
@@ -19,21 +19,16 @@ import {
 } from './contractErrors';
 import type { V1ActionSession, V1ActionResult } from './v1ActionSession';
 
-interface EmbeddingsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface EmbeddingsApi {
   embeddingProviderCatalog(
     projectId: string,
     opts: { modality?: string; sourceColumnType?: string },
-    options?: EmbeddingsOptions,
+    options?: RequestOptions,
   ): Promise<EmbeddingProvider[]>;
   embeddingIndexes(
     projectId: string,
     sheetId: number,
-    options?: EmbeddingsOptions,
+    options?: RequestOptions,
   ): Promise<EmbeddingIndexSummary[]>;
   updateEmbeddingIndexPolicy(
     projectId: string,
@@ -53,14 +48,14 @@ interface EmbeddingsApi {
     projectId: string,
     indexId: string,
     opts?: { formats?: string[]; includeVectors?: boolean },
-    options?: EmbeddingsOptions,
+    options?: RequestOptions,
   ): Promise<EmbeddingExportResult>;
   embeddingSimilarityPreview(
     projectId: string,
     indexId: string,
     query: string | EmbeddingComposedQuery,
     opts?: { limit?: number },
-    options?: EmbeddingsOptions,
+    options?: RequestOptions,
   ): Promise<EmbeddingSimilarityResult>;
   embeddingHybridPreview(
     projectId: string,
@@ -68,7 +63,7 @@ interface EmbeddingsApi {
     sheetId: number | null,
     text: string,
     opts?: { limit?: number },
-    options?: EmbeddingsOptions,
+    options?: RequestOptions,
   ): Promise<EmbeddingSimilarityResult>;
 }
 
@@ -85,7 +80,6 @@ interface EmbeddingsApiDependencies {
   v1ActionSession: EmbeddingsV1ActionSession;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type ProviderCatalogWire = HttpContractSuccessResponse<
   'tenant.embedding_provider_catalog.get'
 >;
@@ -335,7 +329,6 @@ export function createEmbeddingsApi(
             ...(opts.sourceColumnType ? { source_column_type: opts.sourceColumnType } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapProviderCatalog,
@@ -349,7 +342,6 @@ export function createEmbeddingsApi(
           pathParams: { pid: projectId },
           query: { sheet_id: sheetId },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapIndexes,
@@ -456,7 +448,6 @@ export function createEmbeddingsApi(
         'tenant.embedding_index_export.post',
         {
           pathParams: { pid: projectId, index_id: indexId },
-          query: {},
           body: {
             ...(opts?.formats !== undefined ? { formats: opts.formats } : {}),
             ...(opts?.includeVectors !== undefined
@@ -464,7 +455,6 @@ export function createEmbeddingsApi(
               : {}),
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapExport,
@@ -484,7 +474,6 @@ export function createEmbeddingsApi(
         'tenant.embedding_similarity_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             query: {
               kind: 'embedding_similarity',
@@ -494,7 +483,6 @@ export function createEmbeddingsApi(
             },
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapSimilarity,
@@ -506,7 +494,6 @@ export function createEmbeddingsApi(
         'tenant.embedding_hybrid_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             query: {
               kind: 'embedding_hybrid',
@@ -517,7 +504,6 @@ export function createEmbeddingsApi(
             },
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapHybrid,

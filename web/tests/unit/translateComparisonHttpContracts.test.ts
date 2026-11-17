@@ -136,7 +136,7 @@ describe('translate comparison HTTP contract', () => {
     });
   });
 
-  it('forwards adapter cancellation and headers without widening RealApi', async () => {
+  it('forwards adapter cancellation without widening RealApi', async () => {
     const fetchMock = stubFetch(RESPONSE);
     const controller = new AbortController();
     const adapter = createTranslateComparisonApi((status, payload) => new Error(`${status}:${payload}`));
@@ -144,11 +144,11 @@ describe('translate comparison HTTP contract', () => {
     await adapter.compareTranslateScratch(
       'tenant/a % hostile',
       { engines: ['opus_mt'], text: 'hello world', targetLanguage: 'French' },
-      { signal: controller.signal, headers: { 'X-Request-ID': 'compare-1' } },
+      { signal: controller.signal },
     );
 
     const init = fetchMock.mock.calls[0]![1] as RequestInit;
     expect(init.signal).toBe(controller.signal);
-    expect(new Headers(init.headers).get('X-Request-ID')).toBe('compare-1');
+    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json');
   });
 });

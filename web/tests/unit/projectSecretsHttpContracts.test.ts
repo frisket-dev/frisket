@@ -88,13 +88,8 @@ describe('project-secret generated HTTP contracts', () => {
       return jsonResponse(responses.shift());
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer project', 'X-Trace-Id': 'project-secrets' },
-    };
-    const api = createProjectSecretsApi((status, payload) =>
-      Object.assign(new Error(`mapped ${status}`), { status, payload }),
-    );
+    const options = { signal: controller.signal };
+    const api = createProjectSecretsApi();
 
     await expect(api.getProjectSecrets(projectId, options)).resolves.toEqual(catalog);
     await expect(api.setProjectSecret(projectId, '', '', options)).resolves.toEqual(catalog);
@@ -108,9 +103,6 @@ describe('project-secret generated HTTP contracts', () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer project');
-      expect(headers.get('x-trace-id')).toBe('project-secrets');
     }
     expect(new Headers(requests[0].init?.headers).get('content-type')).toBeNull();
     expect(new Headers(requests[1].init?.headers).get('content-type')).toBe('application/json');
@@ -121,13 +113,15 @@ describe('project-secret generated HTTP contracts', () => {
     const projectError = {
       detail: { code: 'project_secret_denied', message: 'denied', name: secretName },
     };
-    const api = createProjectSecretsApi((status, payload) =>
-      Object.assign(new Error(`mapped ${status}`), { status, payload }),
-    );
+    const api = createProjectSecretsApi();
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(projectError, 403)));
     await expect(api.getProjectSecrets('denied')).rejects.toMatchObject({
-      message: 'mapped 403', status: 403, payload: projectError,
-    });
+      name: 'ApiError',
+      status: 403,
+      message: 'denied',
+      code: 'project_secret_denied',
+      details: { name: secretName },
+    } satisfies Partial<ApiError>);
 
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));

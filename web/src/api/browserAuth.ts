@@ -12,8 +12,6 @@ export async function requestMagicLink(email: string): Promise<void> {
   await httpContract(
     'outer.request_link.post',
     {
-      pathParams: {},
-      query: {},
       body: { email: email.trim() },
       errorFactory: legacyStatusError,
     },
@@ -26,8 +24,6 @@ export async function signInWithPassword(email: string, password: string): Promi
   await httpContract(
     'outer.password_login.post',
     {
-      pathParams: {},
-      query: {},
       body: { email: email.trim(), password },
       errorFactory: legacyStatusError,
     },
@@ -40,7 +36,6 @@ export async function completeMagicLink(token: string, password: string): Promis
   await httpContract(
     'outer.complete_magic_link.post',
     {
-      pathParams: {},
       query: { token },
       body: { password },
       errorFactory: legacyStatusError,
@@ -55,7 +50,6 @@ export async function completeProjectInvite(token: string, password: string): Pr
     'outer.accept_project_invite.post',
     {
       pathParams: { token },
-      query: {},
       body: { password },
       errorFactory: legacyStatusError,
     },
@@ -69,8 +63,6 @@ export async function signOut(): Promise<void> {
     await httpContract(
       'outer.logout.post',
       {
-        pathParams: {},
-        query: {},
         errorFactory: (status) => new BrowserAuthStatusError(String(status)),
       },
       () => undefined,

@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe('runtime projection generated HTTP contracts', () => {
-  it('uses exact paths, bodies, one encoding pass, headers, and abort options', async () => {
+  it('uses exact paths, bodies, one encoding pass, content type, and abort options', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
@@ -55,10 +55,7 @@ describe('runtime projection generated HTTP contracts', () => {
       ),
       'hostile /%25 ☃',
     );
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer projection', 'X-Trace-Id': 'runtime-projection' },
-    };
+    const options = { signal: controller.signal };
     await expect(api.status({
       projectionKind: 'timeline',
       target: { sheetId: 'sheet/1', extension: { kept: true } },
@@ -87,10 +84,7 @@ describe('runtime projection generated HTTP contracts', () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer projection');
-      expect(headers.get('x-trace-id')).toBe('runtime-projection');
-      expect(headers.get('content-type')).toBe('application/json');
+      expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
     }
   });
 

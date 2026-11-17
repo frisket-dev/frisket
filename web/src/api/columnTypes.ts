@@ -1,20 +1,15 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type { ColumnTypeInfo } from './types';
-
-interface ColumnTypesOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 type ColumnTypesWire = HttpContractSuccessResponse<'tenant.list_column_types.get'>;
 type ProjectColumnTypesWire =
   HttpContractSuccessResponse<'tenant.list_project_column_types.get'>;
 
 interface ColumnTypesApi {
-  listColumnTypes(options?: ColumnTypesOptions): Promise<ColumnTypesWire>;
+  listColumnTypes(options?: RequestOptions): Promise<ColumnTypesWire>;
   listProjectColumnTypes(
     projectId: string,
-    options?: ColumnTypesOptions,
+    options?: RequestOptions,
   ): Promise<ProjectColumnTypesWire>;
 }
 
@@ -22,19 +17,13 @@ interface ColumnTypesDomainApi {
   listColumnTypes(): Promise<ColumnTypeInfo[]>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-export function createColumnTypesApi(errorFactory: ContractErrorFactory): ColumnTypesApi {
+export function createColumnTypesApi(): ColumnTypesApi {
   return {
     listColumnTypes(options = {}) {
       return httpContract(
         'tenant.list_column_types.get',
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -44,10 +33,7 @@ export function createColumnTypesApi(errorFactory: ContractErrorFactory): Column
         'tenant.list_project_column_types.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -72,10 +58,9 @@ function columnTypeInfoFromWire(
  * is selected synchronously: only no selected project uses the global route;
  * a project request failure remains that request's failure. */
 export function createColumnTypesDomainApi(
-  errorFactory: ContractErrorFactory,
   projectId?: string | null,
 ): ColumnTypesDomainApi {
-  const columnTypesApi = createColumnTypesApi(errorFactory);
+  const columnTypesApi = createColumnTypesApi();
 
   return {
     async listColumnTypes() {

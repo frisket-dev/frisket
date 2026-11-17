@@ -1,8 +1,7 @@
-import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
+import { httpContract, type ContractErrorFactory, type HttpContractSuccessResponse } from "./httpContract";
 
 interface ErrorIntakeOptions {
   signal?: AbortSignal;
-  headers?: HeadersInit;
   credentials?: RequestCredentials;
   keepalive?: boolean;
 }
@@ -37,7 +36,6 @@ export interface DiagnosticBundleResponse {
   bundle: Record<string, unknown>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type DiagnosticBundleWire =
   HttpContractSuccessResponse<"outer.diagnostic_bundle.post">;
 
@@ -65,18 +63,15 @@ interface ErrorIntakeApi {
 }
 
 export function createErrorIntakeApi(
-  errorFactory: ContractErrorFactory,
+  errorFactory?: ContractErrorFactory,
 ): ErrorIntakeApi {
   return {
     reportClientError(body, options = {}) {
       return httpContract(
         "outer.client_errors.post",
         {
-          pathParams: {},
-          query: {},
           body: body as never,
           signal: options.signal,
-          headers: options.headers,
           credentials: options.credentials,
           keepalive: options.keepalive,
           errorFactory,
@@ -87,13 +82,10 @@ export function createErrorIntakeApi(
       return httpContract(
         "outer.diagnostic_bundle.post",
         {
-          pathParams: {},
-          query: {},
           // The wire request is the public route's open sanitized dict; the
           // domain interface above is the shipped sender's actual shape.
           body: body as never,
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         mapDiagnosticBundle,

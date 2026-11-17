@@ -10,8 +10,6 @@ import type {
   TranscribeCompareScratchInput,
 } from './types';
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 function ocrPayload(input: OcrCompareScratchInput): OcrCompareScratchInput {
   return { ...input, ...(input.language !== undefined ? { language: input.language?.trim() || null } : {}) };
 }
@@ -31,7 +29,6 @@ interface PreviewComparisonsApi {
 }
 
 export function createPreviewComparisonsApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): PreviewComparisonsApi {
   function upload(file: File, payload: object): FormData {
@@ -44,7 +41,7 @@ export function createPreviewComparisonsApi(
     compareOcrScratch(file, input) {
       return httpContract(
         'tenant.ocr_compare_scratch.post',
-        { pathParams: { pid: projectId }, query: {}, body: upload(file, ocrPayload(input)), errorFactory },
+        { pathParams: { pid: projectId }, body: upload(file, ocrPayload(input)) },
       );
     },
 
@@ -52,7 +49,7 @@ export function createPreviewComparisonsApi(
       const params = { ...input };
       delete params.confirmation;
       const response = await httpContract('tenant.ocr_compare_scratch_estimate.post', {
-        pathParams: { pid: projectId }, query: {}, body: upload(file, ocrPayload(params)), errorFactory,
+        pathParams: { pid: projectId }, body: upload(file, ocrPayload(params)),
       });
       return runEstimateFromV1Wire(response.estimate);
     },
@@ -60,7 +57,7 @@ export function createPreviewComparisonsApi(
     compareTranscribeScratch(file, input) {
       return httpContract(
         'tenant.transcribe_compare_scratch.post',
-        { pathParams: { pid: projectId }, query: {}, body: upload(file, transcribeCompareWirePayload(input)), errorFactory },
+        { pathParams: { pid: projectId }, body: upload(file, transcribeCompareWirePayload(input)) },
       );
     },
 
@@ -68,7 +65,7 @@ export function createPreviewComparisonsApi(
       const params = { ...input };
       delete params.confirmation;
       const response = await httpContract('tenant.transcribe_compare_scratch_estimate.post', {
-        pathParams: { pid: projectId }, query: {}, body: upload(file, transcribeCompareWirePayload(params)), errorFactory,
+        pathParams: { pid: projectId }, body: upload(file, transcribeCompareWirePayload(params)),
       });
       return runEstimateFromV1Wire(response.estimate);
     },
@@ -82,7 +79,7 @@ export function createPreviewComparisonsApi(
       }));
       return httpContract(
         'tenant.topic_segmentation_compare_scratch.post',
-        { pathParams: { pid: projectId }, query: {}, body, errorFactory },
+        { pathParams: { pid: projectId }, body },
       );
     },
   };

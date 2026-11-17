@@ -104,7 +104,7 @@ export function createEvaluationApi(
   errorFactory: (status: number, payload: unknown) => Error,
   projectId: string,
 ): EvaluationApi {
-  const base = { pathParams: { pid: projectId }, query: {}, errorFactory };
+  const base = { pathParams: { pid: projectId }, errorFactory };
   return {
     getExpectedRows: body => httpContract('tenant.evaluation_rows.post', { ...base, body }),
     getLinks: sheetId => httpContract('tenant.evaluation_links.get', { ...base, query: { sheet_id: sheetId } }, wire => ({ links: wire.links.map(normalizeLink) })),

@@ -45,12 +45,12 @@ const connectionView = (wire: ConnectionWire): CloudConnectionView => ({
 export const cloudConnectionApi: CloudConnectionClient = {
   getConnection(signal) {
     return httpContract('tenant.get_cloud_connection.get', {
-      pathParams: {}, query: {}, signal,
+      signal,
     }, connectionView);
   },
   startAuthorization(signal) {
     return httpContract('tenant.begin_cloud_authorization.post', {
-      pathParams: {}, query: {}, signal,
+      signal,
     }, (wire) => ({
       id: wire.id,
       userCode: wire.user_code,
@@ -62,17 +62,17 @@ export const cloudConnectionApi: CloudConnectionClient = {
   },
   pollAuthorization(id, signal) {
     return httpContract('tenant.poll_cloud_authorization.get', {
-      pathParams: { authorization_id: id }, query: {}, signal,
+      pathParams: { authorization_id: id }, signal,
     }, (wire) => ({ status: wire.status, connection: connectionView(wire.connection) }));
   },
   cancelAuthorization(id, signal) {
     return httpContract('tenant.cancel_cloud_authorization.delete', {
-      pathParams: { authorization_id: id }, query: {}, signal,
+      pathParams: { authorization_id: id }, signal,
     }).then(() => undefined);
   },
   disconnect(signal) {
     return httpContract('tenant.delete_cloud_connection.delete', {
-      pathParams: {}, query: {}, signal,
+      signal,
     }, (wire) => ({
       ...connectionView(wire.connection),
       notice: wire.warning ?? undefined,
@@ -96,7 +96,7 @@ const projectRoutingView = (wire: HttpProjectCloudRoutingResponse): ProjectCloud
 export const projectCloudRoutingApi: ProjectCloudRoutingClient = {
   get(projectId, signal) {
     return httpContract('tenant.get_project_cloud_routing.get', {
-      pathParams: { pid: projectId }, query: {}, signal,
+      pathParams: { pid: projectId }, signal,
     }, projectRoutingView);
   },
   patch(projectId, patch, signal) {
@@ -104,7 +104,7 @@ export const projectCloudRoutingApi: ProjectCloudRoutingClient = {
       ...(patch.selectedAccountId === undefined ? {} : { selected_account_id: patch.selectedAccountId }),
     };
     return httpContract('tenant.patch_project_cloud_routing.patch', {
-      pathParams: { pid: projectId }, query: {}, body, signal,
+      pathParams: { pid: projectId }, body, signal,
     }, projectRoutingView);
   },
 };

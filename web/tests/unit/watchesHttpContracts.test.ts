@@ -178,7 +178,6 @@ function jsonResponse(
 
 interface Options {
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 interface WatchesTransport {
@@ -209,14 +208,8 @@ interface WatchesTransport {
 }
 
 interface WatchesModule {
-  createWatchesApi(
-    factory: (status: number, payload: unknown) => Error,
-    projectId: string,
-  ): WatchesTransport;
-  createWatchesDomainApi(
-    factory: (status: number, payload: unknown) => Error,
-    projectId: string,
-  ): WatchesDomainTransport;
+  createWatchesApi(projectId: string): WatchesTransport;
+  createWatchesDomainApi(projectId: string): WatchesDomainTransport;
 }
 
 interface WatchesDomainTransport {
@@ -256,18 +249,6 @@ async function watchesModule(): Promise<WatchesModule | undefined> {
   return import(/* @vite-ignore */ path).catch(() => undefined) as Promise<
     WatchesModule | undefined
   >;
-}
-
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped watch error ${status}`);
-    this.name = "MappedContractError";
-    this.status = status;
-    this.payload = payload;
-  }
 }
 
 /** The seven browser operations, by adapter method. */
@@ -349,10 +330,7 @@ describe("watchlist generated HTTP transport", () => {
       "INTENDED_F6_RED: watches generated adapter must exist",
     ).toBeDefined();
     if (!module) return;
-    const api = module.createWatchesApi(
-      (status, payload) => new MappedContractError(status, payload),
-      "watch-contract",
-    );
+    const api = module.createWatchesApi("watch-contract");
     expect(Object.keys(api).sort()).toEqual([
       "createWatch",
       "deleteWatch",
@@ -383,10 +361,7 @@ describe("watchlist generated HTTP transport", () => {
       }),
     );
     const signal = new AbortController().signal;
-    const options = {
-      signal,
-      headers: { Authorization: "Bearer watches", "X-Trace-Id": "f6" },
-    };
+    const options = { signal };
 
     await api.listWatches(options);
     await api.createWatch(
@@ -440,10 +415,24 @@ describe("watchlist generated HTTP transport", () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get("authorization")).toBe("Bearer watches");
-      expect(headers.get("x-trace-id")).toBe("f6");
     }
+    expect(
+      requests.map((request) =>
+        request.init?.headers === undefined
+          ? undefined
+          : [...new Headers(request.init.headers).entries()],
+      ),
+    ).toEqual([
+      undefined,
+      [["content-type", "application/json"]],
+      [["content-type", "application/json"]],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 
   it("keeps the preserved realApi domain mapping for watches, runs, and events", async () => {
@@ -597,10 +586,7 @@ describe("watchlist generated HTTP transport", () => {
       )) as WatchesModule | undefined;
       expect(fresh).toBeDefined();
       if (!fresh) return;
-      const api = fresh.createWatchesApi(
-        (status, payload) => new MappedContractError(status, payload),
-        "watch-ids",
-      ) as unknown as Record<string, (...args: unknown[]) => unknown>;
+      const api = fresh.createWatchesApi("watch-ids") as unknown as Record<string, (...args: unknown[]) => unknown>;
 
       for (const [method, operationId] of Object.entries(methodOperationIds)) {
         calls.length = 0;
@@ -621,10 +607,7 @@ describe("watchlist generated HTTP transport", () => {
     // variant can carry a query or a binding edit.
     await withMockedTransport(transportResponse, async (calls) => {
       const fresh = (await import("../../src/api/watches")) as WatchesModule;
-      const domain = fresh.createWatchesDomainApi(
-        (status, payload) => new MappedContractError(status, payload),
-        "watch-lifecycle",
-      );
+      const domain = fresh.createWatchesDomainApi("watch-lifecycle");
 
       const renamed = await domain.updateWatch(1, { name: "Renamed" });
       const paused = await domain.updateWatch(1, { enabled: false });
@@ -640,7 +623,11 @@ describe("watchlist generated HTTP transport", () => {
         { pid: "watch-lifecycle", watch_id: 1 },
         { pid: "watch-lifecycle", watch_id: 1 },
       ]);
-      expect(calls.map((call) => call.options.query)).toEqual([{}, {}, {}]);
+      expect(calls.map((call) => call.options.query)).toEqual([
+        undefined,
+        undefined,
+        undefined,
+      ]);
       expect(calls[0].options.body).toEqual({ name: "Renamed" });
       expect(calls[1].options.body).toEqual({ enabled: false });
       expect(calls[0].options.body).not.toHaveProperty("query");
@@ -758,10 +745,7 @@ describe("watchlist generated HTTP transport", () => {
       return transportResponse(operationId);
     }, async (calls) => {
       const fresh = (await import("../../src/api/watches")) as WatchesModule;
-      const domain = fresh.createWatchesDomainApi(
-        (status, payload) => new MappedContractError(status, payload),
-        "watch-domain-a",
-      );
+      const domain = fresh.createWatchesDomainApi("watch-domain-a");
       const input: WatchInput = {
         name: "Budget",
         view_id: 4,
@@ -801,8 +785,8 @@ describe("watchlist generated HTTP transport", () => {
       expect(calls[0].options.body).not.toHaveProperty("detection_policy");
       expect(calls[0].options.body).not.toHaveProperty("source_view");
       expect(calls[0].options.body).not.toHaveProperty("source_view_id");
-      expect(calls[1].options.query).toEqual({});
-      expect(calls[2].options.query).toEqual({});
+      expect(calls[1].options).not.toHaveProperty("query");
+      expect(calls[2].options).not.toHaveProperty("query");
       expect(calls[2].options).not.toHaveProperty("body");
       expect(calls[3].options.query).toEqual({
         offset: 0,
@@ -834,10 +818,7 @@ describe("watchlist generated HTTP transport", () => {
   it("serializes alert configuration by saved View identity without copying criteria", async () => {
     await withMockedTransport(transportResponse, async (calls) => {
       const fresh = (await import("../../src/api/watches")) as WatchesModule;
-      const domain = fresh.createWatchesDomainApi(
-        (status, payload) => new MappedContractError(status, payload),
-        "watch-independent-filter",
-      );
+      const domain = fresh.createWatchesDomainApi("watch-independent-filter");
 
       await domain.createWatch({
         name: "Open rows",

@@ -288,7 +288,7 @@ describe('entity mention generated transport', () => {
     await transport.preview(
       'folder/child',
       { sheetId: '7', columnId: '11' },
-      { signal: controller.signal, headers: { 'X-Test': 'entity' } },
+      { signal: controller.signal },
     );
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/projects/folder%2Fchild/entity-mentions/v1/preview',
@@ -299,7 +299,6 @@ describe('entity mention generated transport', () => {
       }),
     );
     const headers = new Headers((fetchMock.mock.calls[0]![1] as RequestInit).headers);
-    expect(headers.get('X-Test')).toBe('entity');
     expect(headers.get('Content-Type')).toBe('application/json');
 
     stubFetch(

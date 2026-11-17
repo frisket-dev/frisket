@@ -2,7 +2,7 @@ import type {
   HttpContractInvokeOptions,
   HttpContractSuccessResponse,
 } from './httpContract';
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 
 export type ProjectSearchRequestWire = NonNullable<
   HttpContractInvokeOptions<'tenant.search_ep.post'>['body']
@@ -18,22 +18,14 @@ type ProjectSearchSimilarQueryWire = Extract<
 >;
 export type ProjectSearchAnchorWire = ProjectSearchSimilarQueryWire['anchor'];
 
-export interface ProjectSearchOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface ProjectSearchApi {
   searchProject(
     request: ProjectSearchRequestWire,
-    options?: ProjectSearchOptions,
+    options?: RequestOptions,
   ): Promise<ProjectSearchResponseWire>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 export function createProjectSearchApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): ProjectSearchApi {
   return {
@@ -42,11 +34,8 @@ export function createProjectSearchApi(
         'tenant.search_ep.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: request,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

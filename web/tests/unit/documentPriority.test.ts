@@ -27,7 +27,6 @@ describe('document priority HTTP boundary', () => {
     })).resolves.toEqual({ promoted: true, runId: '42' });
     expect(httpContractMock).toHaveBeenCalledWith('tenant.promote_document_priority.post', {
       pathParams: { pid: 'project-a' },
-      query: {},
       body: { sheet_id: 7, row_id: 11, column_id: 13 },
     });
   });

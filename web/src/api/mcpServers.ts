@@ -14,7 +14,6 @@ export function createMcpServersApi() {
         'tenant.list_mcp_servers.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           errorFactory: mcpServerRequestError,
         },
         (catalog) => catalog.servers,
@@ -23,7 +22,6 @@ export function createMcpServersApi() {
     create(projectId: string, draft: McpServerDraft): Promise<McpServer> {
       return httpContract('tenant.create_mcp_server.post', {
         pathParams: { pid: projectId },
-        query: {},
         body: draft,
         errorFactory: mcpServerRequestError,
       });
@@ -35,7 +33,6 @@ export function createMcpServersApi() {
     ): Promise<McpServer> {
       return httpContract('tenant.update_mcp_server.patch', {
         pathParams: { pid: projectId, server_id: id },
-        query: {},
         body: patch,
         errorFactory: mcpServerRequestError,
       });
@@ -43,14 +40,12 @@ export function createMcpServersApi() {
     remove(projectId: string, id: string): Promise<{ ok: boolean; deleted: boolean }> {
       return httpContract('tenant.delete_mcp_server.delete', {
         pathParams: { pid: projectId, server_id: id },
-        query: {},
         errorFactory: mcpServerRequestError,
       });
     },
     test(projectId: string, id: string): Promise<McpServer> {
       return httpContract('tenant.test_mcp_server.post', {
         pathParams: { pid: projectId, server_id: id },
-        query: {},
         errorFactory: mcpServerRequestError,
       });
     },

@@ -3,7 +3,7 @@ import type {
   HttpSelectorChoicesQuery,
   HttpSelectorChoicesResponse,
 } from '../generated/openHttpContracts';
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 
 export type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../generated/openHttpContracts';
 
@@ -11,16 +11,11 @@ export type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../g
 export type SelectorChoice = HttpSelectorChoicesResponse['groups'][number]['choices'][number];
 export type SelectorSubject = HttpSelectorChoicesQuery['subject'];
 
-interface SelectorChoicesOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface SelectorChoicesApi {
   getSelectorChoices(
     projectId: string,
     query: HttpSelectorChoicesQuery,
-    options?: SelectorChoicesOptions,
+    options?: RequestOptions,
   ): Promise<HttpSelectorChoicesResponse>;
 }
 
@@ -33,10 +28,8 @@ function createSelectorChoicesApi(): SelectorChoicesApi {
         'tenant.selector_choices.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: query as SelectorChoicesRequest,
           signal: options.signal,
-          headers: options.headers,
         },
       );
     },

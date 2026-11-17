@@ -1,6 +1,8 @@
 import {
   httpContract,
+  type ContractErrorFactory,
   type HttpContractSuccessResponse,
+  type RequestOptions,
 } from '../httpContract';
 import type {
   BoundedCellValue,
@@ -21,13 +23,6 @@ type SheetDataWire = HttpContractSuccessResponse<'tenant.sheet_data.get'>;
 type SheetListWire = HttpContractSuccessResponse<'tenant.list_sheets.get'>;
 type SheetColumnWire = SheetDataWire['columns'][number];
 type SheetRowLocationWire = HttpContractSuccessResponse<'tenant.locate_sheet_row.get'>;
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-interface SheetGridContractOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 export interface SheetDataContractQuery {
   selection?: string;
@@ -310,15 +305,12 @@ function mapSheetRowLocation(wire: SheetRowLocationWire): SheetRowLocation {
 
 export function listSheetsContract(
   projectId: string,
-  errorFactory: ContractErrorFactory,
-  options: SheetGridContractOptions = {},
+  options: RequestOptions & { errorFactory?: ContractErrorFactory } = {},
 ): Promise<SheetMeta[]> {
   return httpContract('tenant.list_sheets.get', {
     pathParams: { pid: projectId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
+    errorFactory: options.errorFactory,
   }, mapSheetList);
 }
 
@@ -326,31 +318,23 @@ export function updateSheetContract(
   projectId: string,
   sheetId: number,
   titleColumnId: number | null,
-  errorFactory: ContractErrorFactory,
-  options: SheetGridContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<void> {
   return httpContract('tenant.update_sheet.patch', {
     pathParams: { pid: projectId, sheet_id: sheetId },
-    query: {},
     body: { title_column_id: titleColumnId },
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapUpdatedSheet);
 }
 
 export function deleteSheetContract(
   projectId: string,
   sheetId: number,
-  errorFactory: ContractErrorFactory,
-  options: SheetGridContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<DeleteSheetResult> {
   return httpContract('tenant.delete_sheet.delete', {
     pathParams: { pid: projectId, sheet_id: sheetId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, (wire: SheetDeleteWire) => ({
     deletedSheetId: String(wire.deleted_sheet_id),
     deletedSheetName: wire.deleted_sheet_name,
@@ -361,15 +345,12 @@ export function getSheetDataContract(
   projectId: string,
   sheetId: number,
   query: SheetDataContractQuery,
-  errorFactory: ContractErrorFactory,
-  options: SheetGridContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<SheetDataPage> {
   return httpContract('tenant.sheet_data.get', {
     pathParams: { pid: projectId, sheet_id: sheetId },
     query,
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapSheetData);
 }
 
@@ -377,15 +358,12 @@ export function getSheetRowsContract(
   projectId: string,
   sheetId: number,
   query: SheetDataContractQuery,
-  errorFactory: ContractErrorFactory,
-  options: SheetGridContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<SheetRowsContractPage> {
   return httpContract('tenant.sheet_data.get', {
     pathParams: { pid: projectId, sheet_id: sheetId },
     query: { ...query, include_scope_metadata: false },
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapSheetRows);
 }
 
@@ -394,15 +372,12 @@ export function getColumnStatsContract(
   sheetId: number,
   columnId: number,
   query: Pick<SheetDataContractQuery, 'filter' | 'sort' | 'scope_row_ids' | 'parent_row_id' | 'selection' | 'view_id'> & { force?: boolean },
-  errorFactory: ContractErrorFactory,
-  options: SheetGridContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ColumnStats> {
   return httpContract('tenant.column_stats.get', {
     pathParams: { pid: projectId, sheet_id: sheetId, column_id: columnId },
     query,
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapColumnStats);
 }
 
@@ -411,14 +386,11 @@ export function locateSheetRowContract(
   sheetId: number,
   rowId: number,
   query: LocateSheetRowContractQuery,
-  errorFactory: ContractErrorFactory,
-  options: SheetGridContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<SheetRowLocation> {
   return httpContract('tenant.locate_sheet_row.get', {
     pathParams: { pid: projectId, sheet_id: sheetId, row_id: rowId },
     query,
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapSheetRowLocation);
 }

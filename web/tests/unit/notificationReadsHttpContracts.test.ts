@@ -124,7 +124,6 @@ function jsonResponse(
 
 interface Options {
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 interface NotificationsTransport {
@@ -151,10 +150,7 @@ interface NotificationsTransport {
 }
 
 interface NotificationsModule {
-  createNotificationsApi(
-    factory: (status: number, payload: unknown) => Error,
-    projectId: string,
-  ): NotificationsTransport;
+  createNotificationsApi(projectId: string): NotificationsTransport;
 }
 
 async function notificationsModule(): Promise<NotificationsModule | undefined> {
@@ -162,18 +158,6 @@ async function notificationsModule(): Promise<NotificationsModule | undefined> {
   return import(/* @vite-ignore */ path).catch(() => undefined) as Promise<
     NotificationsModule | undefined
   >;
-}
-
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped notification error ${status}`);
-    this.name = "MappedContractError";
-    this.status = status;
-    this.payload = payload;
-  }
 }
 
 /** The six browser operations, by adapter method. */
@@ -240,17 +224,14 @@ function transportResponse(operationId: string): unknown {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("notification reads generated HTTP transport", () => {
-  it("owns exactly the six operations and preserves path, query, body, and options", async () => {
+  it("owns exactly the six operations and preserves path, query, body, and signal", async () => {
     const module = await notificationsModule();
     expect(
       module,
       "INTENDED_F7A_RED: notifications generated adapter must exist",
     ).toBeDefined();
     if (!module) return;
-    const api = module.createNotificationsApi(
-      (status, payload) => new MappedContractError(status, payload),
-      "notification-contract",
-    );
+    const api = module.createNotificationsApi("notification-contract");
     expect(Object.keys(api).sort()).toEqual([
       "ackNotification",
       "listNotifications",
@@ -278,10 +259,7 @@ describe("notification reads generated HTTP transport", () => {
       }),
     );
     const signal = new AbortController().signal;
-    const options = {
-      signal,
-      headers: { Authorization: "Bearer notifications", "X-Trace-Id": "f7a" },
-    };
+    const options = { signal };
 
     await api.listNotifications(
       undefined,
@@ -336,9 +314,6 @@ describe("notification reads generated HTTP transport", () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get("authorization")).toBe("Bearer notifications");
-      expect(headers.get("x-trace-id")).toBe("f7a");
     }
   });
 
@@ -453,7 +428,6 @@ describe("notification reads generated HTTP transport", () => {
       expect(fresh).toBeDefined();
       if (!fresh) return;
       const api = fresh.createNotificationsApi(
-        (status, payload) => new MappedContractError(status, payload),
         "notification-ids",
       ) as unknown as Record<string, (...args: unknown[]) => unknown>;
 

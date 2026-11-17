@@ -1,6 +1,7 @@
 import {
   httpContract,
   type HttpContractSuccessResponse,
+  type RequestOptions,
 } from '../httpContract';
 import type {
   WorkbenchPluginInstallFailure,
@@ -10,12 +11,6 @@ import type {
 
 type WorkbenchRuntimeIndexWire =
   HttpContractSuccessResponse<'tenant.workbench_plugins.get'>;
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-interface WorkbenchContractOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -115,14 +110,10 @@ function mapWorkbenchRuntimeIndex(
 
 export function getWorkbenchPluginRuntimeIndexContract(
   projectId: string,
-  errorFactory: ContractErrorFactory,
-  options: WorkbenchContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<WorkbenchPluginRuntimeIndex> {
   return httpContract('tenant.workbench_plugins.get', {
     pathParams: { pid: projectId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapWorkbenchRuntimeIndex);
 }

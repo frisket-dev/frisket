@@ -89,11 +89,11 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
 
     const estimate = await api.estimate(
       { kind: 'map.classify', params: { model: 'x' } },
-      { signal, headers: { Authorization: 'Bearer preflight' } },
+      { signal },
     );
     const validation = await api.validateParams(
       { kind: 'map.regex_extract', params: { pattern: 'x' } },
-      { signal, headers: { Authorization: 'Bearer preflight' } },
+      { signal },
     );
 
     expect(requests.map((request) => request.input)).toEqual([
@@ -107,8 +107,9 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(signal);
-      expect(new Headers(request.init?.headers).get('authorization')).toBe('Bearer preflight');
-      expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
+      expect([...new Headers(request.init?.headers).entries()]).toEqual([
+        ['content-type', 'application/json'],
+      ]);
     }
     expect(validation.diagnostics.template).toEqual({ ok: true });
     expect(runEstimateFromV1Wire(estimate.estimate)).toEqual({

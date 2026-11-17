@@ -12,6 +12,7 @@ import {
   createColumnTypesApi,
   createColumnTypesDomainApi,
 } from '../../src/api/columnTypes';
+import { ApiError } from '../../src/api/contractErrors';
 
 const columnTypes = [{
   name: 'plugin_stars',
@@ -42,11 +43,8 @@ describe('column type generated HTTP contracts', () => {
       return jsonResponse(columnTypes);
     }));
     const controller = new AbortController();
-    const api = createColumnTypesApi((status) => new Error(`column types ${status}`));
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer column-types', 'X-Trace-Id': 'columns' },
-    };
+    const api = createColumnTypesApi();
+    const options = { signal: controller.signal };
 
     await expect(api.listColumnTypes(options)).resolves.toEqual(columnTypes);
     await expect(api.listProjectColumnTypes('project /☃', options)).resolves.toEqual(columnTypes);
@@ -58,10 +56,7 @@ describe('column type generated HTTP contracts', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     for (const { init } of requests) {
       expect(init?.signal).toBe(controller.signal);
-      const headers = new Headers(init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer column-types');
-      expect(headers.get('x-trace-id')).toBe('columns');
-      expect(headers.get('content-type')).toBeNull();
+      expect(init?.headers).toBeUndefined();
     }
   });
 
@@ -71,14 +66,8 @@ describe('column type generated HTTP contracts', () => {
       requests.push(String(input));
       return jsonResponse(columnTypes);
     }));
-    const projectApi = createColumnTypesDomainApi(
-      (status) => new Error(`column types ${status}`),
-      'project /☃',
-    );
-    const globalApi = createColumnTypesDomainApi(
-      (status) => new Error(`column types ${status}`),
-      null,
-    );
+    const projectApi = createColumnTypesDomainApi('project /☃');
+    const globalApi = createColumnTypesDomainApi(null);
     await expect(projectApi.listColumnTypes()).resolves.toEqual([{
       name: 'plugin_stars',
       core: false,
@@ -101,11 +90,16 @@ describe('column type generated HTTP contracts', () => {
       requests.push(String(input));
       return jsonResponse({ detail: 'column types unavailable' }, 500);
     }));
-    const api = createColumnTypesDomainApi(
-      (status) => new Error(`column types ${status}`),
-      'project /☃',
-    );
-    await expect(api.listColumnTypes()).rejects.toThrow('column types 500');
+    const api = createColumnTypesDomainApi('project /☃');
+    const request = api.listColumnTypes();
+    await expect(request).rejects.toBeInstanceOf(ApiError);
+    await expect(request).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 500,
+      message: 'column types unavailable',
+      code: undefined,
+      details: undefined,
+    });
     expect(requests).toEqual(['/api/projects/project%20%2F%E2%98%83/column-types']);
   });
 });

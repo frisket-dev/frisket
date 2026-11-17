@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   ProjectInvite,
   ProjectInviteResponse,
@@ -9,45 +9,39 @@ import type {
   RemovalResult,
 } from './types';
 
-interface ProjectCollaborationOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface ProjectCollaborationApi {
   listMembers(
     projectId: string,
-    options?: ProjectCollaborationOptions,
+    options?: RequestOptions,
   ): Promise<ProjectMember[]>;
   setMember(
     projectId: string,
     email: string,
     role: ProjectRole,
-    options?: ProjectCollaborationOptions,
+    options?: RequestOptions,
   ): Promise<ProjectMemberChange>;
   removeMember(
     projectId: string,
     email: string,
-    options?: ProjectCollaborationOptions,
+    options?: RequestOptions,
   ): Promise<RemovalResult>;
   listInvites(
     projectId: string,
-    options?: ProjectCollaborationOptions,
+    options?: RequestOptions,
   ): Promise<ProjectInvite[]>;
   createInvite(
     projectId: string,
     email: string,
     role: ProjectInviteRole,
-    options?: ProjectCollaborationOptions,
+    options?: RequestOptions,
   ): Promise<ProjectInviteResponse>;
   revokeInvite(
     projectId: string,
     inviteId: number | string,
-    options?: ProjectCollaborationOptions,
+    options?: RequestOptions,
   ): Promise<{ ok: boolean; revoked: boolean }>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type InvitesWire = HttpContractSuccessResponse<'outer.list_project_invites.get'>;
 
 function inviteList(wire: InvitesWire): ProjectInvite[] {
@@ -55,7 +49,6 @@ function inviteList(wire: InvitesWire): ProjectInvite[] {
 }
 
 export function createProjectCollaborationApi(
-  errorFactory: ContractErrorFactory,
 ): ProjectCollaborationApi {
   return {
     listMembers(projectId, options = {}) {
@@ -63,10 +56,7 @@ export function createProjectCollaborationApi(
         'outer.list_members.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -76,11 +66,8 @@ export function createProjectCollaborationApi(
         'outer.set_member.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: { email, role },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -90,10 +77,7 @@ export function createProjectCollaborationApi(
         'outer.remove_member.delete',
         {
           pathParams: { pid: projectId, email },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -103,10 +87,7 @@ export function createProjectCollaborationApi(
         'outer.list_project_invites.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         inviteList,
       );
@@ -117,11 +98,8 @@ export function createProjectCollaborationApi(
         'outer.create_project_invite.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: { email, role },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -131,10 +109,7 @@ export function createProjectCollaborationApi(
         'outer.revoke_project_invite.delete',
         {
           pathParams: { pid: projectId, invite_id: inviteId as never },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

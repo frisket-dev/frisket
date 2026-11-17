@@ -1,5 +1,5 @@
 import type { HttpActionPreviewRunRequest } from '../generated/openHttpContracts';
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type ContractErrorFactory } from './httpContract';
 import { type ResolvedRunActionInvocation } from './v1ActionSession';
 import type {
   ActionExecutionRequest,
@@ -15,7 +15,6 @@ import { parsePreviewTemporalValue } from '../temporal/preview';
 interface ActionPreviewRunOptions {
   projectId?: string;
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 type ActionPreviewRunRequest = HttpActionPreviewRunRequest;
@@ -36,8 +35,6 @@ interface ActionPreviewRunsApi {
   ): Promise<ActionPreviewStatusWire>;
   cancel(previewId: string, options?: ActionPreviewRunOptions): Promise<void>;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 interface ActionPreviewDomainDependencies {
   errorFactory: ContractErrorFactory;
@@ -81,10 +78,8 @@ export function createActionPreviewRunsApi(
         'tenant.v1_action_preview_start.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: action,
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -99,9 +94,7 @@ export function createActionPreviewRunsApi(
         'tenant.v1_action_preview_status.get',
         {
           pathParams: { pid: projectId, preview_id: previewId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -116,9 +109,7 @@ export function createActionPreviewRunsApi(
         'tenant.v1_action_preview_cancel.delete',
         {
           pathParams: { pid: projectId, preview_id: previewId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         () => undefined,

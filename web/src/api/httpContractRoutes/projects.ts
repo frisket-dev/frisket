@@ -1,14 +1,14 @@
 import {
   httpContract,
   type HttpContractSuccessResponse,
+  type RequestOptions,
 } from '../httpContract';
+import { apiErrorFromContract } from '../contractErrors';
 import type { ProjectInfo } from '../types';
 
 type ProjectWire = HttpContractSuccessResponse<'tenant.get_project.get'>;
 type ProjectDeleteWire = HttpContractSuccessResponse<'tenant.delete_project.delete'>;
 type ProjectListWire = HttpContractSuccessResponse<'tenant.list_projects.get'>;
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 class ProjectDeletionLifetimeChallenge extends Error {
   readonly projectRowId: number;
@@ -18,11 +18,6 @@ class ProjectDeletionLifetimeChallenge extends Error {
     this.name = 'ProjectDeletionLifetimeChallenge';
     this.projectRowId = projectRowId;
   }
-}
-
-interface ProjectCrudContractOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 interface ProjectUpdateInput {
@@ -95,79 +90,58 @@ function projectDeletionLifetimeChallenge(
 }
 
 export function listProjectsContract(
-  errorFactory: ContractErrorFactory,
-  options: ProjectCrudContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ProjectInfo[]> {
   return httpContract('tenant.list_projects.get', {
-    pathParams: {},
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapProjectList);
 }
 
 export function getProjectContract(
   projectId: string,
-  errorFactory: ContractErrorFactory,
-  options: ProjectCrudContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ProjectInfo> {
   return httpContract('tenant.get_project.get', {
     pathParams: { pid: projectId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapProject);
 }
 
 export function createProjectContract(
   name: string,
-  errorFactory: ContractErrorFactory,
-  options: ProjectCrudContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ProjectInfo> {
   return httpContract('tenant.create_project.post', {
-    pathParams: {},
-    query: {},
     body: { name },
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapProject);
 }
 
 export function updateProjectContract(
   projectId: string,
   input: ProjectUpdateInput,
-  errorFactory: ContractErrorFactory,
-  options: ProjectCrudContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ProjectInfo> {
   return httpContract('tenant.update_project.patch', {
     pathParams: { pid: projectId },
-    query: {},
     body: input,
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapProject);
 }
 
 export function deleteProjectContract(
   projectId: string,
   confirmName: string,
-  errorFactory: ContractErrorFactory,
-  options: ProjectCrudContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<void> {
   const request = (projectRowId?: number): Promise<void> => httpContract(
     'tenant.delete_project.delete',
     {
       pathParams: { pid: projectId },
-      query: {},
       body: projectRowId === undefined
         ? { confirm_name: confirmName }
         : { confirm_name: confirmName, project_row_id: projectRowId },
       signal: options.signal,
-      headers: options.headers,
       errorFactory: (status, payload) => {
         if (projectRowId === undefined) {
           const challenge = projectDeletionLifetimeChallenge(
@@ -178,7 +152,7 @@ export function deleteProjectContract(
           );
           if (challenge !== null) return challenge;
         }
-        return errorFactory(status, payload);
+        return apiErrorFromContract(status, payload);
       },
     },
     mapDeletedProject,

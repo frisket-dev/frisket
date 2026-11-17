@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
 import type {
   ClusterGroup,
   ClusterPreviewResult,
@@ -10,11 +10,6 @@ import type {
   ReplaceRulesPreview,
   ResolveReplaceRuleDraft,
 } from './types';
-
-interface ResolvePreviewOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 interface ClusterPreviewInput {
   sheetId: string;
@@ -53,21 +48,19 @@ interface ResolvePreviewsApi {
   cluster(
     projectId: string,
     input: ClusterPreviewInput,
-    options?: ResolvePreviewOptions,
+    options?: RequestOptions,
   ): Promise<ClusterPreviewResult>;
   columnValues(
     projectId: string,
     input: ColumnValuesPreviewInput,
-    options?: ResolvePreviewOptions,
+    options?: RequestOptions,
   ): Promise<ColumnValuesPreview>;
   replaceRules(
     projectId: string,
     input: ReplaceRulesPreviewInput,
-    options?: ResolvePreviewOptions,
+    options?: RequestOptions,
   ): Promise<ReplaceRulesPreview>;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 /** Keep this narrow boundary defensive so an older server simply behaves as
  * one without a collection facet. */
@@ -267,7 +260,6 @@ export function createResolvePreviewsApi(
         'tenant.cluster_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             input_column: input.inputColumn,
@@ -278,7 +270,6 @@ export function createResolvePreviewsApi(
             ...(input.keyTemplate?.trim() ? { key_template: input.keyTemplate.trim() } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         clusterResult,
@@ -290,7 +281,6 @@ export function createResolvePreviewsApi(
         'tenant.column_values_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             input_column: input.inputColumn,
@@ -300,7 +290,6 @@ export function createResolvePreviewsApi(
             ...(input.valueMode != null ? { value_mode: input.valueMode } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         columnValuesResult,
@@ -312,7 +301,6 @@ export function createResolvePreviewsApi(
         'tenant.replace_rules_preview.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             sheet_id: Number(input.sheetId),
             input_column: input.inputColumn,
@@ -326,7 +314,6 @@ export function createResolvePreviewsApi(
             ...(input.testValue != null ? { test_value: input.testValue } : {}),
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         replaceRulesResult,

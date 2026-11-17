@@ -1,35 +1,28 @@
 import type { HttpContractOperationMap } from '../generated/openHttpContracts';
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import type { ProjectSecrets } from './types';
-
-interface ProjectSecretsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 interface ProjectSecretsApi {
   getProjectSecrets(
     projectId: string,
-    options?: ProjectSecretsOptions,
+    options?: RequestOptions,
   ): Promise<ProjectSecrets>;
   setProjectSecret(
     projectId: string,
     name: string,
     value: string,
-    options?: ProjectSecretsOptions,
+    options?: RequestOptions,
   ): Promise<ProjectSecrets>;
   deleteProjectSecret(
     projectId: string,
     name: string,
-    options?: ProjectSecretsOptions,
+    options?: RequestOptions,
   ): Promise<{ ok: boolean; deleted: boolean; name: string }>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type SetRequest = HttpContractOperationMap['tenant.set_project_secret.post']['request'];
 
 export function createProjectSecretsApi(
-  errorFactory?: ContractErrorFactory,
 ): ProjectSecretsApi {
   return {
     getProjectSecrets(projectId, options = {}) {
@@ -37,10 +30,7 @@ export function createProjectSecretsApi(
         'tenant.get_project_secrets.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -51,11 +41,8 @@ export function createProjectSecretsApi(
         'tenant.set_project_secret.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -65,10 +52,7 @@ export function createProjectSecretsApi(
         'tenant.delete_project_secret.delete',
         {
           pathParams: { pid: projectId, name },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

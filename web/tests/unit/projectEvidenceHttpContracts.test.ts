@@ -201,7 +201,7 @@ describe('project evidence generated HTTP reads', () => {
       return jsonResponse(responses.shift());
     }));
     const signal = new AbortController().signal;
-    const options = { signal, headers: { Authorization: 'Bearer evidence' } };
+    const options = { signal };
     const api = createProjectEvidenceApi(
       (status) => new Error(`evidence ${status}`),
       'evidence/project',
@@ -223,7 +223,6 @@ describe('project evidence generated HTTP reads', () => {
     ]);
     requests.forEach((request) => {
       expect(request.init?.signal).toBe(signal);
-      expect(new Headers(request.init?.headers).get('authorization')).toBe('Bearer evidence');
     });
   });
 

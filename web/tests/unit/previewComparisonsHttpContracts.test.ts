@@ -26,10 +26,7 @@ describe('scratch comparison generated HTTP contracts', () => {
         schema_version: 'frisket.action_preview.v1', preview_id: `scratch-${requests.length}`, total: 1,
       }, 202);
     }));
-    const api = createPreviewComparisonsApi(
-      (status) => new Error(String(status)),
-      'project/one',
-    );
+    const api = createPreviewComparisonsApi('project/one');
     const file = new File(['sample'], 'sample.pdf', { type: 'application/pdf' });
 
     await api.estimateOcrScratch(file, {

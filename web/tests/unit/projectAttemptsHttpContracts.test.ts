@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe('project attempts generated HTTP port', () => {
-  it('preserves encoded project path, query bytes, rich receipt leaves, headers, and signal', async () => {
+  it('preserves encoded project path, query bytes, rich receipt leaves, and signal', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
@@ -90,13 +90,10 @@ describe('project attempts generated HTTP port', () => {
     }));
     const controller = new AbortController();
     const { createProjectAttemptsApi } = await import('../../src/api/projectAttempts');
-    const api = createProjectAttemptsApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-    );
+    const api = createProjectAttemptsApi();
 
     await expect(api.listAttemptReceipts('hostile /%25 ☃', 9, 7, {
       signal: controller.signal,
-      headers: { Authorization: 'Bearer receipts', 'X-Trace-Id': 'attempts' },
     })).resolves.toEqual(page);
     await api.listAttemptReceipts('hostile /%25 ☃', null, 25);
 
@@ -107,22 +104,19 @@ describe('project attempts generated HTTP port', () => {
     expect(requests[0].init?.method).toBe('GET');
     expect(requests[0].init?.body).toBeUndefined();
     expect(requests[0].init?.signal).toBe(controller.signal);
-    const headers = new Headers(requests[0].init?.headers);
-    expect(headers.get('authorization')).toBe('Bearer receipts');
-    expect(headers.get('x-trace-id')).toBe('attempts');
   });
 
   it('maps declared errors, preserves network identity, and keeps the RealApi method stable', async () => {
     const { createProjectAttemptsApi } = await import('../../src/api/projectAttempts');
-    const api = createProjectAttemptsApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-    );
+    const api = createProjectAttemptsApi();
     for (const status of [401, 403, 404, 422, 500]) {
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error-${status}` }, status)));
       await expect(api.listAttemptReceipts('receipts', null, 25)).rejects.toMatchObject({
-        message: `mapped-${status}`,
+        name: 'ApiError',
         status,
-        payload: { detail: `error-${status}` },
+        message: `error-${status}`,
+        code: undefined,
+        details: undefined,
       });
     }
 

@@ -73,7 +73,7 @@ function createTableImportsApi(): TableImportsApi {
       const body = new FormData();
       body.append('file', file);
       return httpContract('tenant.create_table_import_from_file.post', {
-        pathParams: { pid: projectId }, query: {}, body, ...requestOptions(options),
+        pathParams: { pid: projectId }, body, ...requestOptions(options),
       });
     },
     createFromPaste(projectId, file, largePasteConfirmed, options = {}) {
@@ -81,53 +81,53 @@ function createTableImportsApi(): TableImportsApi {
       body.append('file', file);
       body.append('large_paste_confirmed', String(largePasteConfirmed));
       return httpContract('tenant.create_table_import_from_paste.post', {
-        pathParams: { pid: projectId }, query: {}, body, ...requestOptions(options),
+        pathParams: { pid: projectId }, body, ...requestOptions(options),
       });
     },
     get(projectId, draftId, options = {}) {
       return httpContract('tenant.get_table_import.get', {
-        pathParams: { pid: projectId, draft_id: draftId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: draftId }, ...requestOptions(options),
       });
     },
     rerun(projectId, draftId, worksheet, options = {}) {
       const body: HttpTableImportRerunRequest = { worksheet };
       return httpContract('tenant.rerun_table_import_worksheet.post', {
-        pathParams: { pid: projectId, draft_id: draftId }, query: {}, body, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: draftId }, body, ...requestOptions(options),
       });
     },
     unlock(projectId, draftId, password, options = {}) {
       return httpContract('tenant.unlock_table_import.post', {
-        pathParams: { pid: projectId, draft_id: draftId }, query: {}, body: { password }, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: draftId }, body: { password }, ...requestOptions(options),
       });
     },
     updateSettings(projectId, draftId, expectedRevision, settings, options = {}) {
       const body: HttpTableImportSettingsRequest = { expected_revision: expectedRevision, settings };
       return httpContract('tenant.update_table_import_settings.patch', {
-        pathParams: { pid: projectId, draft_id: draftId }, query: {}, body, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: draftId }, body, ...requestOptions(options),
       });
     },
     updateColumns(projectId, draftId, expectedRevision, columns, options = {}) {
       const body: HttpTableImportColumnsRequest = { expected_revision: expectedRevision, columns };
       return httpContract('tenant.update_table_import_columns.patch', {
-        pathParams: { pid: projectId, draft_id: draftId }, query: {}, body, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: draftId }, body, ...requestOptions(options),
       });
     },
     updateDestination(projectId, draftId, expectedRevision, destination, mappings, dedup, options = {}) {
       const body: HttpTableImportDestinationRequest = { expected_revision: expectedRevision, destination, mappings, dedup };
       return httpContract('tenant.update_table_import_destination.patch', {
-        pathParams: { pid: projectId, draft_id: draftId }, query: {}, body, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: draftId }, body, ...requestOptions(options),
       });
     },
     commit(projectId, draftId, expectedRevision, idempotencyKey, options = {}) {
       return httpContract('tenant.commit_table_import.post', {
-        pathParams: { pid: projectId, draft_id: draftId }, query: {},
+        pathParams: { pid: projectId, draft_id: draftId },
         body: { expected_revision: expectedRevision, idempotency_key: idempotencyKey },
         ...requestOptions(options),
       });
     },
     discard(projectId, draftId, options = {}) {
       return httpContract('tenant.discard_table_import.delete', {
-        pathParams: { pid: projectId, draft_id: draftId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: draftId }, ...requestOptions(options),
       });
     },
   };

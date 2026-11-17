@@ -1,19 +1,14 @@
 import type { HttpContractOperationMap } from '../generated/openHttpContracts';
-import { httpContract } from './httpContract';
+import { httpContract, type ContractErrorFactory, type RequestOptions } from './httpContract';
 import type {
   ProjectProviderKeys,
   ProviderValidateResult,
 } from './types';
 
-export interface ProjectProviderKeysOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface ProjectProviderKeysApi {
   getProjectProviderKeys(
     projectId: string,
-    options?: ProjectProviderKeysOptions,
+    options?: RequestOptions,
   ): Promise<ProjectProviderKeys>;
   setProjectProviderKey(
     projectId: string,
@@ -21,22 +16,21 @@ interface ProjectProviderKeysApi {
     key: string,
     spendCapUsd?: number | null,
     validationToken?: string | null,
-    options?: ProjectProviderKeysOptions,
+    options?: RequestOptions,
   ): Promise<ProjectProviderKeys>;
   validateProjectProviderKey(
     projectId: string,
     provider: string,
     key?: string,
-    options?: ProjectProviderKeysOptions,
+    options?: RequestOptions,
   ): Promise<ProviderValidateResult>;
   deleteProjectProviderKey(
     projectId: string,
     provider: string,
-    options?: ProjectProviderKeysOptions,
+    options?: RequestOptions,
   ): Promise<{ ok: boolean; deleted: boolean; provider: string }>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type SetRequest = HttpContractOperationMap['tenant.set_project_provider_key.post']['request'];
 type ValidateRequest = HttpContractOperationMap['tenant.validate_project_provider_key.post']['request'];
 
@@ -49,9 +43,7 @@ export function createProjectProviderKeysApi(
         'tenant.get_project_provider_keys.get',
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -68,10 +60,8 @@ export function createProjectProviderKeysApi(
         'tenant.set_project_provider_key.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -86,10 +76,8 @@ export function createProjectProviderKeysApi(
         'tenant.validate_project_provider_key.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -100,9 +88,7 @@ export function createProjectProviderKeysApi(
         'tenant.delete_project_provider_key.delete',
         {
           pathParams: { pid: projectId, provider },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );

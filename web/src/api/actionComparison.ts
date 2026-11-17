@@ -6,7 +6,7 @@ import type {
   RunEstimate,
 } from './types';
 import { createActionPreviewRunsApi, type ActionPreviewStatusWire } from './actionPreviewRuns';
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions, type ContractErrorFactory } from './httpContract';
 import { runEstimateFromV1Wire } from './actionEstimateValidation';
 
 export type ActionComparisonSource =
@@ -81,33 +81,26 @@ export interface ActionComparisonPreviewSnapshot {
   accounting: ActionPreviewStatusWire['accounting'];
 }
 
-export interface ActionComparisonRequestOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 export interface ActionComparisonApi {
   quotePreview(
     request: ActionComparisonPreviewRequest,
-    options?: ActionComparisonRequestOptions,
+    options?: RequestOptions,
   ): Promise<{ schema_version: 'frisket.action_compare_quote.v1'; estimate: RunEstimate }>;
   getContext(
     request: ActionComparisonContextRequest,
-    options?: ActionComparisonRequestOptions,
+    options?: RequestOptions,
   ): Promise<ActionComparisonContext>;
   startPreview(
     request: ActionComparisonPreviewRequest,
-    options?: ActionComparisonRequestOptions,
+    options?: RequestOptions,
   ): Promise<ActionComparisonPreviewStart>;
   getPreview(
     previewId: string,
-    options?: ActionComparisonRequestOptions,
+    options?: RequestOptions,
   ): Promise<ActionComparisonPreviewSnapshot>;
-  cancelPreview(previewId: string, options?: ActionComparisonRequestOptions): Promise<void>;
-  discardPreview(previewId: string, options?: ActionComparisonRequestOptions): Promise<void>;
+  cancelPreview(previewId: string, options?: RequestOptions): Promise<void>;
+  discardPreview(previewId: string, options?: RequestOptions): Promise<void>;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 function normalizedDraft(raw: HttpActionCompareContextResponse['draft']): GeneratedActionDraft {
   return { action_id: raw.action_id, params: raw.params, output_names: raw.output_names,
@@ -203,20 +196,20 @@ export function createActionComparisonApi(
   return {
     quotePreview(request, options = {}) {
       return httpContract('tenant.v1_action_compare_preview_quote.post', {
-        pathParams: { pid: projectId }, query: {},
+        pathParams: { pid: projectId },
         body: {
           action: { ...draftForWire(request.action).draft, idempotency_key: request.action.idempotency_key },
           comparison: { ...request.comparison, basis: sourceForWire(request.comparison.basis) },
         },
-        signal: options.signal, headers: options.headers, errorFactory,
+        signal: options.signal, errorFactory,
       }, wire => ({ ...wire, estimate: runEstimateFromV1Wire(wire.estimate) }));
     },
     getContext(request, options = {}) {
       return httpContract(
         'tenant.v1_action_compare_context.post',
         {
-          pathParams: { pid: projectId }, query: {}, body: { ...request, source: sourceForWire(request.source) },
-          signal: options.signal, headers: options.headers, errorFactory,
+          pathParams: { pid: projectId }, body: { ...request, source: sourceForWire(request.source) },
+          signal: options.signal, errorFactory,
         },
         normalizeActionComparisonContext,
       );
@@ -225,12 +218,12 @@ export function createActionComparisonApi(
       const start = await httpContract(
         'tenant.v1_action_compare_preview_start.post',
         {
-          pathParams: { pid: projectId }, query: {}, body: {
+          pathParams: { pid: projectId }, body: {
             action: { ...draftForWire(request.action).draft, idempotency_key: request.action.idempotency_key,
               ...(request.action.confirmation === undefined ? {} : { confirmation: request.action.confirmation }) },
             comparison: { ...request.comparison, basis: sourceForWire(request.comparison.basis) },
           },
-          signal: options.signal, headers: options.headers, errorFactory,
+          signal: options.signal, errorFactory,
         },
       );
       previewRuns.registerStarted(start.preview_id);
@@ -247,7 +240,7 @@ export function createActionComparisonApi(
         'tenant.v1_action_preview_cancel.delete',
         {
           pathParams: { pid: projectId, preview_id: previewId },
-          query: { discard: true }, signal: options.signal, headers: options.headers, errorFactory,
+          query: { discard: true }, signal: options.signal, errorFactory,
         },
       );
     },

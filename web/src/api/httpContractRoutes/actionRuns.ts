@@ -2,6 +2,7 @@ import { toRunProgressStatus } from '../../runStatusModel';
 import {
   httpContract,
   type HttpContractSuccessResponse,
+  type RequestOptions,
 } from '../httpContract';
 import type {
   ActionJob,
@@ -198,13 +199,6 @@ function mapActionJobs(wire: ActionJobsWire): ActionJobsPage {
   };
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
-interface RunReceiptContractOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface RunRowsContractQuery {
   offset?: number;
   limit?: number;
@@ -219,15 +213,11 @@ interface ActionJobsContractQuery {
 export function getRunProgressContract(
   projectId: string,
   runId: number,
-  errorFactory: ContractErrorFactory,
-  options: RunReceiptContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<RunProgress> {
   return httpContract('tenant.action_run_status.get', {
     pathParams: { pid: projectId, run_id: runId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapRunProgress);
 }
 
@@ -235,53 +225,41 @@ export function getRunRowsContract(
   projectId: string,
   runId: number,
   query: RunRowsContractQuery,
-  errorFactory: ContractErrorFactory,
-  options: RunReceiptContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<RunRowsPage> {
   return httpContract('tenant.run_rows.get', {
     pathParams: { pid: projectId, run_id: runId },
     query,
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapRunRows);
 }
 
 export function cancelRunContract(
   projectId: string,
   runId: number,
-  errorFactory: ContractErrorFactory,
-  options: RunReceiptContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<void> {
   return httpContract('tenant.cancel_run.post', {
     pathParams: { pid: projectId, run_id: runId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapCancelledRun);
 }
 
 export function getReceiptContract(
   projectId: string,
   receiptId: string,
-  errorFactory: ContractErrorFactory,
-  options: RunReceiptContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<V1Receipt> {
   return httpContract('tenant.v1_receipt_lookup.get', {
     pathParams: { pid: projectId, receipt_id: receiptId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapReceipt);
 }
 
 export function listActionJobsContract(
   projectId: string,
   query: ActionJobsContractQuery,
-  errorFactory: ContractErrorFactory,
-  options: RunReceiptContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ActionJobsPage> {
   const { status, ...rest } = query;
   const normalizedQuery = status === null ? rest : { ...rest, status };
@@ -289,22 +267,16 @@ export function listActionJobsContract(
     pathParams: { pid: projectId },
     query: normalizedQuery,
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapActionJobs);
 }
 
 export function getActionJobContract(
   projectId: string,
   jobId: number,
-  errorFactory: ContractErrorFactory,
-  options: RunReceiptContractOptions = {},
+  options: RequestOptions = {},
 ): Promise<ActionJob> {
   return httpContract('tenant.action_job_detail.get', {
     pathParams: { pid: projectId, job_id: jobId },
-    query: {},
     signal: options.signal,
-    headers: options.headers,
-    errorFactory,
   }, mapActionJob);
 }

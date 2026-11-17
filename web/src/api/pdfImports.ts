@@ -125,28 +125,28 @@ export function createPdfImportsApi(): PdfImportsApi {
         source_label: sourceLabel,
       };
       return httpContract('tenant.create_pdf_import.post', {
-        pathParams: { pid: projectId }, query: {}, body, ...requestOptions(options),
+        pathParams: { pid: projectId }, body, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     addManifest(projectId, importId, files, batchId, options = {}) {
       return httpContract('tenant.append_pdf_import_manifest.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {},
+        pathParams: { pid: projectId, draft_id: importId },
         body: { batch_id: batchId, files }, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     sealManifest(projectId, importId, options = {}) {
       return httpContract('tenant.seal_pdf_import_manifest.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: importId }, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     list(projectId, options = {}) {
       return httpContract('tenant.list_pdf_imports.get', {
-        pathParams: { pid: projectId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId }, ...requestOptions(options),
       }, (wire: HttpPdfImportListResponse) => wire.items as PdfImportSnapshot[]);
     },
     get(projectId, importId, options = {}) {
       return httpContract('tenant.get_pdf_import.get', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: importId }, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     samples(projectId, importId, category, cursor, options = {}) {
@@ -162,7 +162,7 @@ export function createPdfImportsApi(): PdfImportsApi {
     },
     reconcileReselection(projectId, importId, files, options = {}) {
       return httpContract('tenant.reconcile_pdf_import_reselection.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, body: { files },
+        pathParams: { pid: projectId, draft_id: importId }, body: { files },
         ...requestOptions(options),
       });
     },
@@ -173,40 +173,40 @@ export function createPdfImportsApi(): PdfImportsApi {
       for (const item of files) body.append('logical_paths', item.logicalPath || item.file.webkitRelativePath || item.file.name);
       body.append('batch_id', batchId);
       return httpContract('tenant.upload_pdf_import_files.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, body,
+        pathParams: { pid: projectId, draft_id: importId }, body,
         ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     analyze(projectId, importId, options = {}) {
       return httpContract('tenant.analyze_staged_pdf_import.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {},
+        pathParams: { pid: projectId, draft_id: importId },
         ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     pause(projectId, importId, options = {}) {
       return httpContract('tenant.pause_pdf_import.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: importId }, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     resume(projectId, importId, options = {}) {
       return httpContract('tenant.resume_pdf_import.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: importId }, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     updateChoices(projectId, importId, choices, options = {}) {
       return httpContract('tenant.update_pdf_import_choices.patch', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, body: choices,
+        pathParams: { pid: projectId, draft_id: importId }, body: choices,
         ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     refreshSemanticSetup(projectId, importId, options = {}) {
       return httpContract('tenant.refresh_pdf_import_semantic_setup.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: importId }, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     estimateBatchOcr(projectId, importId, selection, ocrPolicy, expectedRevision, options = {}) {
       return httpContract('tenant.estimate_pdf_import_batch_ocr.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {},
+        pathParams: { pid: projectId, draft_id: importId },
         body: {
           ocr_selection: selection,
           ocr_policy: ocrPolicy,
@@ -217,13 +217,13 @@ export function createPdfImportsApi(): PdfImportsApi {
     },
     match(projectId, importId, options = {}) {
       return httpContract('tenant.compare_pdf_import_destination.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: importId }, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     getPage(projectId, importId, fileId, page, options = {}) {
       return httpContract('tenant.get_pdf_import_page.get', {
         pathParams: { pid: projectId, draft_id: importId, occurrence_id: fileId, page },
-        query: {}, ...requestOptions(options),
+        ...requestOptions(options),
       });
     },
     thumbnailUrl(projectId, importId, fileId, page) {
@@ -231,24 +231,24 @@ export function createPdfImportsApi(): PdfImportsApi {
     },
     estimateOcrPreview(projectId, importId, fileId, page, selection, options = {}) {
       return httpContract('tenant.estimate_pdf_import_ocr_preview.post', {
-        pathParams: { pid: projectId, draft_id: importId, occurrence_id: fileId, page }, query: {},
+        pathParams: { pid: projectId, draft_id: importId, occurrence_id: fileId, page },
         body: { ocr_selection: selection }, ...requestOptions(options),
       }, (wire) => wire as PdfImportPreviewEstimate);
     },
     startOcrPreview(projectId, importId, fileId, page, selection, confirmation, options = {}) {
       return httpContract('tenant.start_pdf_import_ocr_preview.post', {
-        pathParams: { pid: projectId, draft_id: importId, occurrence_id: fileId, page }, query: {},
+        pathParams: { pid: projectId, draft_id: importId, occurrence_id: fileId, page },
         body: { ocr_selection: selection, confirmation }, ...requestOptions(options),
       });
     },
     discard(projectId, importId, options = {}) {
       return httpContract('tenant.discard_pdf_import.delete', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, ...requestOptions(options),
+        pathParams: { pid: projectId, draft_id: importId }, ...requestOptions(options),
       }, (wire) => wire as PdfImportSnapshot);
     },
     commit(projectId, importId, input, options = {}) {
       return trackImportSubmission(projectId, { importKind: 'files', format: 'unknown' }, () => httpContract('tenant.commit_pdf_import.post', {
-        pathParams: { pid: projectId, draft_id: importId }, query: {}, body: input,
+        pathParams: { pid: projectId, draft_id: importId }, body: input,
         ...requestOptions(options),
       }));
     },

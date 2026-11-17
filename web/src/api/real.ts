@@ -84,7 +84,8 @@ import { createTranslateComparisonApi } from './translateComparison';
 import { createProjectSearchApi } from './projectSearch';
 import { createDocumentBrowsingApi } from './documentBrowsing';
 import { createProjectDataManagementApi } from './projectDataManagement';
-import { createProjectProviderKeysApi, type ProjectProviderKeysOptions } from './projectProviderKeys';
+import { createProjectProviderKeysApi } from './projectProviderKeys';
+import type { RequestOptions } from './httpContract';
 import { createProjectSecretsApi } from './projectSecrets';
 import { createMcpServersApi } from './mcpServers';
 import { createResolvePreviewsApi } from './resolvePreviews';
@@ -97,7 +98,6 @@ import { createOAuthConnectionsApi } from './oauthConnections';
 import { createSpendApi } from './spend';
 import {
   ApiError,
-  apiErrorFromContract,
   workbenchPluginErrorFromContract,
   viewLensApiErrorFromContract,
   actionEstimateValidationErrorFromContract,
@@ -116,11 +116,8 @@ export {
 export { runEstimateFromV1Wire } from './actionEstimateValidation';
 
 import { createApiTokensApi } from './apiTokens';
-import {
-  createLocalProvidersApi,
-  type LocalProvidersOptions,
-} from './localProviders';
-import { createOrganizationProvidersApi, type OrganizationProvidersOptions } from './organizationProviders';
+import { createLocalProvidersApi } from './localProviders';
+import { createOrganizationProvidersApi } from './organizationProviders';
 import { createOrganizationOperationsApi } from './organizationOperations';
 import { createProjectAttemptsApi } from './projectAttempts';
 import {
@@ -296,25 +293,25 @@ import type {
 // Arrow is a browser binary protocol, not a JSON contract. Keep its error
 // identity on the public API while the named raw owner retains route/metadata
 // and decoder details.
-const localProvidersApi = createLocalProvidersApi(apiErrorFromContract);
+const localProvidersApi = createLocalProvidersApi();
 const translateComparisonApi = createTranslateComparisonApi(translateComparisonErrorFromContract);
-const instanceRuntimeApi = createInstanceRuntimeApi(apiErrorFromContract);
-const adminOverviewApi = createAdminOverviewApi(apiErrorFromContract);
-const adminBrowserApi = createAdminBrowserApi(apiErrorFromContract);
-const identityProfileApi = createIdentityProfileApi(apiErrorFromContract);
-const errorIntakeApi = createErrorIntakeApi(apiErrorFromContract);
+const instanceRuntimeApi = createInstanceRuntimeApi();
+const adminOverviewApi = createAdminOverviewApi();
+const adminBrowserApi = createAdminBrowserApi();
+const identityProfileApi = createIdentityProfileApi();
+const errorIntakeApi = createErrorIntakeApi();
 const workbenchPluginsApi = createWorkbenchPluginsApi(workbenchPluginErrorFromContract);
-const projectCollaborationApi = createProjectCollaborationApi(apiErrorFromContract);
-const documentBrowsingApi = createDocumentBrowsingApi(apiErrorFromContract);
+const projectCollaborationApi = createProjectCollaborationApi();
+const documentBrowsingApi = createDocumentBrowsingApi();
 
 export const listProjectDocuments = documentBrowsingApi.listDocuments;
-const apiTokensApi = createApiTokensApi(apiErrorFromContract);
-const organizationProvidersApi = createOrganizationProvidersApi(apiErrorFromContract);
-const organizationOperationsApi = createOrganizationOperationsApi(apiErrorFromContract);
-const projectAttemptsApi = createProjectAttemptsApi(apiErrorFromContract);
-const teamLocalModelsApi = createTeamLocalModelsApi(apiErrorFromContract);
-const oauthConnectionsApi = createOAuthConnectionsApi(apiErrorFromContract);
-const spendApi = createSpendApi(apiErrorFromContract);
+const apiTokensApi = createApiTokensApi();
+const organizationProvidersApi = createOrganizationProvidersApi();
+const organizationOperationsApi = createOrganizationOperationsApi();
+const projectAttemptsApi = createProjectAttemptsApi();
+const teamLocalModelsApi = createTeamLocalModelsApi();
+const oauthConnectionsApi = createOAuthConnectionsApi();
+const spendApi = createSpendApi();
 // Watch lifecycle failures remain plain-string details, while Saved View
 // source refusals use the shared typed {code, message} detail. The shared
 // factory preserves both shapes, so no Watch-specific factory is needed.
@@ -324,11 +321,11 @@ const spendApi = createSpendApi(apiErrorFromContract);
 // transport's ApiError exactly: status + message, code and details both
 // undefined. No scoped factory is needed.
 const resolvePreviewsApi = createResolvePreviewsApi(resolvePreviewErrorFromContract);
-const runProvenanceApi = createRunProvenanceApi(apiErrorFromContract);
+const runProvenanceApi = createRunProvenanceApi();
 const entityMentionsApi = createEntityMentionsApi(resolvePreviewErrorFromContract);
-const graphLineageApi = createGraphLineageApi(apiErrorFromContract);
-const projectProviderKeysApi = createProjectProviderKeysApi(apiErrorFromContract);
-const projectSecretsApi = createProjectSecretsApi(apiErrorFromContract);
+const graphLineageApi = createGraphLineageApi();
+const projectProviderKeysApi = createProjectProviderKeysApi();
+const projectSecretsApi = createProjectSecretsApi();
 const mcpServersApi = createMcpServersApi();
 
 export function listProjects(): Promise<ProjectInfo[]> {
@@ -421,7 +418,7 @@ export async function setProviderKey(
   provider: string,
   key: string,
   validationToken?: string | null,
-  options?: LocalProvidersOptions,
+  options?: RequestOptions,
 ): Promise<LocalProviderCatalog> {
   const result = await localProvidersApi.setProviderKey(
     provider,
@@ -435,7 +432,7 @@ export async function setProviderKey(
 
 export async function deleteProviderKey(
   provider: string,
-  options?: LocalProvidersOptions,
+  options?: RequestOptions,
 ): Promise<LocalProviderCatalog> {
   const result = await localProvidersApi.deleteProviderKey(provider, options);
   invalidateActionCatalog();
@@ -526,7 +523,7 @@ export async function setOrgKey(
   provider: string,
   key: string,
   validationToken?: string | null,
-  options?: OrganizationProvidersOptions,
+  options?: RequestOptions,
 ): Promise<void> {
   await organizationProvidersApi.setOrgKey(provider, key, validationToken, options);
   invalidateActionCatalog();
@@ -535,7 +532,7 @@ export async function setOrgKey(
 export function validateOrgKey(
   provider: string,
   key?: string,
-  options?: OrganizationProvidersOptions,
+  options?: RequestOptions,
 ): Promise<ProviderValidateResult> {
   return organizationProvidersApi.validateOrgKey(provider, key, options);
 }
@@ -667,9 +664,9 @@ export function createDiagnosticBundle(
 export function searchProject(
   projectId: string,
   request: import('./projectSearch').ProjectSearchRequestWire,
-  options: import('./projectSearch').ProjectSearchOptions = {},
+  options: RequestOptions = {},
 ): Promise<import('./projectSearch').ProjectSearchResponseWire> {
-  return createProjectSearchApi(apiErrorFromContract, projectId).searchProject(request, options);
+  return createProjectSearchApi(projectId).searchProject(request, options);
 }
 
 export function createProject(name: string): Promise<ProjectInfo> {
@@ -751,14 +748,14 @@ function promptFromRunSpec(spec: Record<string, unknown>): string {
 }
 
 const actionCatalogCache = new ActionCatalogCache({
-  loadGlobal: () => getGlobalActionCatalog(apiErrorFromContract),
+  loadGlobal: () => getGlobalActionCatalog(),
   loadProject: (projectId) =>
-    getProjectActionCatalog(projectId, apiErrorFromContract),
+    getProjectActionCatalog(projectId),
   emitInvalidated: emitActionCatalogInvalidated,
 });
 
 class RealApi implements FrisketApi {
-  readonly qa = createProjectQAApi(() => this.requireProjectId(), apiErrorFromContract);
+  readonly qa = createProjectQAApi(() => this.requireProjectId());
   private readonly projectId: string | null;
   private readonly mapPointsArrowApi: ReturnType<typeof createMapPointsArrowApi>;
   private readonly previewComparisonsApi: ReturnType<typeof createPreviewComparisonsApi>;
@@ -788,7 +785,7 @@ class RealApi implements FrisketApi {
   // The extracted owner does not create a second idempotency-key registry.
   // This keeps all V1 action lifetimes scoped to one RealApi instance.
   private readonly projectSources: ReturnType<typeof createProjectSourcesApi>;
-  private readonly actionCompletion = createActionCompletionApi(apiErrorFromContract);
+  private readonly actionCompletion = createActionCompletionApi();
   private readonly googleSheetsExport: ReturnType<typeof createGoogleSheetsExportApi>;
   private readonly actionRuns: ReturnType<typeof createActionRunsApi>;
   private readonly sheetGrid: ReturnType<typeof createSheetGridDomainApi>;
@@ -806,21 +803,19 @@ class RealApi implements FrisketApi {
       scopedProjectId,
     );
     this.previewComparisonsApi = createPreviewComparisonsApi(
-      apiErrorFromContract,
       scopedProjectId,
     );
     this.projectEvidenceApi = createProjectEvidenceDomainApi(
       projectEvidenceErrorFromContract,
       scopedProjectId,
     );
-    this.columnTypesApi = createColumnTypesDomainApi(apiErrorFromContract, projectId);
+    this.columnTypesApi = createColumnTypesDomainApi(projectId);
     this.viewsLensesApi = createViewsLensesDomainApi(
       viewLensApiErrorFromContract,
       scopedProjectId,
     );
-    this.watchesApi = createWatchesDomainApi(apiErrorFromContract, scopedProjectId);
+    this.watchesApi = createWatchesDomainApi(scopedProjectId);
     this.notificationsApi = createNotificationsDomainApi(
-      apiErrorFromContract,
       scopedProjectId,
     );
     this.runtimeProjectionsApi = createRuntimeProjectionsApi(
@@ -828,7 +823,6 @@ class RealApi implements FrisketApi {
       scopedProjectId,
     );
     this.projectDataManagementApi = createProjectDataManagementApi(
-      apiErrorFromContract,
       scopedProjectId,
     );
     this.v1ActionSession = createV1ActionSession(scopedProjectId);
@@ -836,9 +830,9 @@ class RealApi implements FrisketApi {
       v1ActionSession: this.v1ActionSession,
       runAction: (req, options) => this.runAction(req, options),
       getRunProgress: (id, runId, options) =>
-        getRunProgressContract(id, runId, apiErrorFromContract, options),
+        getRunProgressContract(id, runId, options),
       cancelRun: (id, runId, options) =>
-        cancelRunContract(id, runId, apiErrorFromContract, options),
+        cancelRunContract(id, runId, options),
       waitForV1ActionCompletion: (result, fallbackMessage, invocation) =>
         this.actionCompletion.waitForRunCompletion(result, fallbackMessage, invocation),
       actionDisplayNameFromActionKind,
@@ -854,18 +848,17 @@ class RealApi implements FrisketApi {
       v1ActionSession: this.v1ActionSession,
     });
     this.projectSources = createProjectSourcesApi({
-      errorFactory: apiErrorFromContract,
       v1ActionSession: this.v1ActionSession,
     }, scopedProjectId);
-    this.googleSheetsExport = createGoogleSheetsExportApi(apiErrorFromContract, {
+    this.googleSheetsExport = createGoogleSheetsExportApi({
       v1ActionSession: this.v1ActionSession,
     }, scopedProjectId);
-    this.sheetGrid = createSheetGridDomainApi(apiErrorFromContract, {
+    this.sheetGrid = createSheetGridDomainApi({
       columnRunInfo: (id, sheetId, column) => this.actionRuns.columnRunInfo(id, sheetId, column),
       v1ActionSession: this.v1ActionSession,
     }, scopedProjectId);
-    this.actionHistory = createActionHistoryApi(apiErrorFromContract, scopedProjectId);
-    this.historyReview = createHistoryReviewDomainApi(apiErrorFromContract, {
+    this.actionHistory = createActionHistoryApi(scopedProjectId);
+    this.historyReview = createHistoryReviewDomainApi({
       v1ActionSession: this.v1ActionSession,
     }, scopedProjectId);
   }
@@ -1132,29 +1125,29 @@ class RealApi implements FrisketApi {
   }
 
   listProjects(): Promise<ProjectInfo[]> {
-    return listProjectsContract(apiErrorFromContract);
+    return listProjectsContract();
   }
 
   createProject(name: string): Promise<ProjectInfo> {
-    return createProjectContract(name, apiErrorFromContract);
+    return createProjectContract(name);
   }
 
   updateProject(
     projectId: string,
     patch: { name?: string; description?: string; starred?: boolean; archived?: boolean },
   ): Promise<ProjectInfo> {
-    return updateProjectContract(projectId, patch, apiErrorFromContract);
+    return updateProjectContract(projectId, patch);
   }
 
   async getProject(): Promise<ProjectInfo> {
-    return getProjectContract(this.requireProjectId(), apiErrorFromContract);
+    return getProjectContract(this.requireProjectId());
   }
 
   async updateCurrentProject(input: {
     name?: string;
     description?: string | null;
   }): Promise<ProjectInfo> {
-    return updateProjectContract(this.requireProjectId(), input, apiErrorFromContract);
+    return updateProjectContract(this.requireProjectId(), input);
   }
 
   async getProjectRetention(): Promise<ProjectRetentionPolicy> {
@@ -1204,7 +1197,7 @@ class RealApi implements FrisketApi {
     key: string,
     spendCapUsd?: number | null,
     validationToken?: string | null,
-    options?: ProjectProviderKeysOptions,
+    options?: RequestOptions,
   ): Promise<ProjectProviderKeys> {
     const result = await projectProviderKeysApi.setProjectProviderKey(
       this.requireProjectId(),
@@ -1221,7 +1214,7 @@ class RealApi implements FrisketApi {
   async validateProjectProviderKey(
     provider: string,
     key?: string,
-    options?: ProjectProviderKeysOptions,
+    options?: RequestOptions,
   ): Promise<ProviderValidateResult> {
     return projectProviderKeysApi.validateProjectProviderKey(
       this.requireProjectId(),
@@ -1301,7 +1294,7 @@ class RealApi implements FrisketApi {
   }
 
   async deleteProject(projectId: string | undefined, confirmName: string): Promise<void> {
-    await deleteProjectContract(projectId ?? this.requireProjectId(), confirmName, apiErrorFromContract);
+    await deleteProjectContract(projectId ?? this.requireProjectId(), confirmName);
   }
 
   // ---- live sources -------------------------------------------------------
@@ -1506,7 +1499,6 @@ class RealApi implements FrisketApi {
     const page = await listActionJobsContract(
       invocation.projectId,
       { status, limit },
-      apiErrorFromContract,
       { signal: invocation.signal },
     );
     throwIfActionAborted(invocation.signal);
@@ -1522,7 +1514,6 @@ class RealApi implements FrisketApi {
     const job = await getActionJobContract(
       invocation.projectId,
       Number(jobId),
-      apiErrorFromContract,
       { signal: invocation.signal },
     );
     throwIfActionAborted(invocation.signal);
@@ -1544,7 +1535,7 @@ class RealApi implements FrisketApi {
   }
 
   async getWorkbenchPluginRuntimeIndex(): Promise<WorkbenchPluginRuntimeIndex> {
-    return getWorkbenchPluginRuntimeIndexContract(this.requireProjectId(), apiErrorFromContract);
+    return getWorkbenchPluginRuntimeIndexContract(this.requireProjectId());
   }
 
   async getWorkbenchPluginSettings(pluginId: string): Promise<WorkbenchPluginSettings> {
@@ -1708,7 +1699,6 @@ class RealApi implements FrisketApi {
       this.requireProjectId(),
       Number(runId),
       { offset, limit, ...(status ? { status } : {}) },
-      apiErrorFromContract,
     );
   }
 
@@ -1810,7 +1800,6 @@ class RealApi implements FrisketApi {
     const receipt = await getReceiptContract(
       invocation.projectId,
       receiptId,
-      apiErrorFromContract,
       { signal: invocation.signal },
     );
     throwIfActionAborted(invocation.signal);

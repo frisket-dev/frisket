@@ -32,7 +32,6 @@ import type {
 interface HistoryReviewOptions {
   projectId?: string;
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 type ColumnRunsWire =
@@ -142,7 +141,6 @@ interface HistoryReviewDependencies {
   >;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type OperationActionId = 'operation.undo' | 'operation.redo';
 type OperationStepActionParams = GeneratedActionParams[OperationActionId];
 type ReviewDecisionActionParams = GeneratedActionParams['review.decision'];
@@ -158,7 +156,6 @@ function reviewSourceId(owner: { run_id?: number | null; copied_op_id?: number |
 }
 
 export function createHistoryReviewApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): HistoryReviewApi {
   return {
@@ -175,8 +172,6 @@ export function createHistoryReviewApi(
           },
           query: { offset, limit },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -190,10 +185,7 @@ export function createHistoryReviewApi(
             column_id: columnId as unknown as number,
             run_id: Number(runId),
           },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -205,8 +197,6 @@ export function createHistoryReviewApi(
           pathParams: { pid: options.projectId ?? projectId },
           query: { offset: offset ?? undefined, limit },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -237,11 +227,8 @@ export function createHistoryReviewApi(
           'tenant.review_batch_ep.post',
           {
             pathParams: { pid: projectId },
-            query: {},
             body,
             signal: options.signal,
-            headers: options.headers,
-            errorFactory,
           },
         );
       }
@@ -259,8 +246,6 @@ export function createHistoryReviewApi(
             cursor: bundleOptions.cursor,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -272,8 +257,6 @@ export function createHistoryReviewApi(
           pathParams: { pid: projectId },
           query: { run_id: runId === undefined ? undefined : Number(runId) },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -290,8 +273,6 @@ export function createHistoryReviewApi(
             ...reviewOwner(runOptions.runId),
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -301,11 +282,8 @@ export function createHistoryReviewApi(
         'tenant.review_run_status_ep.post',
         {
           pathParams: { pid: projectId, run_id: Number(runId) },
-          query: {},
           body: { status },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -680,11 +658,10 @@ const NON_MOVING_STEP_CODES: ReadonlySet<string> = new Set([
 ]);
 
 export function createHistoryReviewDomainApi(
-  errorFactory: ContractErrorFactory,
   dependencies: HistoryReviewDependencies,
   projectId: string,
 ): HistoryReviewDomainApi {
-  const transport = createHistoryReviewApi(errorFactory, projectId);
+  const transport = createHistoryReviewApi(projectId);
   const { v1ActionSession } = dependencies;
 
   /** Every step of one mutation uses the same explicit invocation. */

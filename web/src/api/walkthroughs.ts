@@ -8,7 +8,7 @@ export function listWalkthroughs(): Promise<{
 }> {
   return httpContract(
     'tenant.list_walkthroughs.get',
-    { pathParams: {}, query: {} },
+    {},
     (wire: WalkthroughCatalogWire) => ({
       walkthroughs: wire.walkthroughs.map((walkthrough) => ({
         id: walkthrough.id,

@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { NotificationsDomainApi } from "../../src/api/notifications";
 
-type DomainFactory = (
-  errorFactory: (status: number, payload: unknown) => Error,
-  projectId: string,
-) => NotificationsDomainApi;
+type DomainFactory = (projectId: string) => NotificationsDomainApi;
 
 interface NotificationsModule {
   createNotificationsDomainApi?: DomainFactory;
@@ -98,10 +95,7 @@ describe("notifications domain", () => {
       "INTENDED_RED: notifications domain factory must be exported",
     ).toBeDefined();
     if (!module.createNotificationsDomainApi) return;
-    const api = module.createNotificationsDomainApi((status, payload) =>
-      new Error(`${status}:${String(payload)}`),
-      "notification-domain",
-    );
+    const api = module.createNotificationsDomainApi("notification-domain");
 
     const defaultPage = await api.listNotifications();
     const mappedPage = await api.listNotifications({
@@ -155,15 +149,15 @@ describe("notifications domain", () => {
     expect(calls[14].options.query).toMatchObject({ offset: 0, limit: 20, status: "queued" });
   });
 
-  it("uses the supplied contract error factory", async () => {
+  it("rejects non-2xx responses with the shared ApiError mapping", async () => {
     const module = await loadDomain();
     expect(module.createNotificationsDomainApi).toBeDefined();
     if (!module.createNotificationsDomainApi) return;
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "bad" }), { status: 400 })));
-    const error = await module.createNotificationsDomainApi(
-      (status, payload) => Object.assign(new Error("mapped"), { status, payload }),
-      "notification-error",
-    ).markNotificationsSeen({}).catch((caught: unknown) => caught);
-    expect(error).toMatchObject({ message: "mapped", status: 400, payload: { detail: "bad" } });
+    const error = await module.createNotificationsDomainApi("notification-error")
+      .markNotificationsSeen({}).catch((caught: unknown) => caught);
+    expect(error).toMatchObject({
+      name: "ApiError", message: "bad", status: 400, code: undefined, details: undefined,
+    });
   });
 });

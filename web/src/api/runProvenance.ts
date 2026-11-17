@@ -1,14 +1,9 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   ProvenanceManifest,
   RunTraceRow,
   RunTraceRowEvidence,
 } from './types';
-
-interface RunProvenanceOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 type RunTraceRowEvidenceWire =
   HttpContractSuccessResponse<'tenant.action_run_trace_row.get'>;
@@ -21,7 +16,7 @@ interface RunProvenanceApi {
     runId: string,
     rowId: string,
     columnId?: string | null,
-    options?: RunProvenanceOptions,
+    options?: RequestOptions,
   ): Promise<RunTraceRowEvidence>;
   getProvenanceManifest(
     projectId: string,
@@ -29,11 +24,9 @@ interface RunProvenanceApi {
     runsLimit?: number,
     receiptsOffset?: number,
     receiptsLimit?: number,
-    options?: RunProvenanceOptions,
+    options?: RequestOptions,
   ): Promise<ProvenanceManifest>;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 // FrisketApi keeps numeric route references as strings. The generated route
 // signatures reflect FastAPI's integers; this cast preserves the established
@@ -177,7 +170,7 @@ function manifest(wire: ProvenanceManifestWire): ProvenanceManifest {
   };
 }
 
-export function createRunProvenanceApi(errorFactory: ContractErrorFactory): RunProvenanceApi {
+export function createRunProvenanceApi(): RunProvenanceApi {
   return {
     getRunTraceRow(projectId, runId, rowId, columnId, options = {}) {
       return httpContract(
@@ -190,8 +183,6 @@ export function createRunProvenanceApi(errorFactory: ContractErrorFactory): RunP
           },
           query: { column_id: columnId == null ? undefined : numericPathRef(columnId) },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         (wire) => rowEvidence(wire, columnId),
       );
@@ -216,8 +207,6 @@ export function createRunProvenanceApi(errorFactory: ContractErrorFactory): RunP
             receipts_limit: receiptsLimit,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         manifest,
       );

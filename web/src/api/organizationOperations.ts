@@ -1,26 +1,20 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type { MediaProxyStatus, OrgEnvInfo } from './types';
 
-interface OrganizationOperationsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface OrganizationOperationsApi {
-  listOrgEnvVars(options?: OrganizationOperationsOptions): Promise<OrgEnvInfo[]>;
+  listOrgEnvVars(options?: RequestOptions): Promise<OrgEnvInfo[]>;
   setOrgEnvVar(
     name: string,
     value: string,
-    options?: OrganizationOperationsOptions,
+    options?: RequestOptions,
   ): Promise<void>;
   deleteOrgEnvVar(
     name: string,
-    options?: OrganizationOperationsOptions,
+    options?: RequestOptions,
   ): Promise<void>;
-  getMediaProxyStatus(options?: OrganizationOperationsOptions): Promise<MediaProxyStatus>;
+  getMediaProxyStatus(options?: RequestOptions): Promise<MediaProxyStatus>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type OrganizationEnvSaveWire =
   HttpContractSuccessResponse<'outer.set_org_env_var.post'>;
 type OrganizationEnvDeleteWire =
@@ -45,18 +39,13 @@ function mapMediaStatus(wire: OrganizationMediaProxyStatusWire): MediaProxyStatu
 }
 
 export function createOrganizationOperationsApi(
-  errorFactory: ContractErrorFactory,
 ): OrganizationOperationsApi {
   return {
     listOrgEnvVars(options = {}) {
       return httpContract(
         'outer.list_org_env_vars.get',
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -65,12 +54,8 @@ export function createOrganizationOperationsApi(
       return httpContract(
         'outer.set_org_env_var.post',
         {
-          pathParams: {},
-          query: {},
           body: { name, value },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         discardEnvSave,
       );
@@ -81,10 +66,7 @@ export function createOrganizationOperationsApi(
         'outer.delete_org_env_var.delete',
         {
           pathParams: { name },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         discardEnvDelete,
       );
@@ -94,11 +76,7 @@ export function createOrganizationOperationsApi(
       return httpContract(
         'outer.org_media_proxy_status.get',
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         mapMediaStatus,
       );

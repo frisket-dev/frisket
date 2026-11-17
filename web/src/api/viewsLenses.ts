@@ -1,6 +1,5 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type { SavedView, SavedViewCreateInput, SavedViewDefinitionReplaceInput, SavedViewRenameInput, ViewResolved } from './types';
-interface ViewsLensesOptions { signal?: AbortSignal; headers?: HeadersInit; }
 /** Structural twin of the generated contract's recursive JSON leaf. The
  *  generated module keeps its `JsonValue` private, so callers building a
  *  request body name the same shape here rather than casting into it. */
@@ -47,12 +46,12 @@ type SavedViewCreateBody = SavedViewCreateInput;
 type SavedViewPatchBody = SavedViewRenameInput;
 type SavedViewDefinitionReplaceBody = SavedViewDefinitionReplaceInput;
 interface ViewsLensesApi {
-  listViews(sheetId?: number | null, options?: ViewsLensesOptions): Promise<SavedViewListWire>;
-  createView(body: SavedViewCreateBody, options?: ViewsLensesOptions): Promise<SavedViewRowWire>;
-  renameView(viewId: number, body: SavedViewPatchBody, options?: ViewsLensesOptions): Promise<SavedViewRowWire>;
-  replaceViewDefinition(viewId: number, body: SavedViewDefinitionReplaceBody, options?: ViewsLensesOptions): Promise<SavedViewRowWire>;
-  deleteView(viewId: number, options?: ViewsLensesOptions): Promise<unknown>;
-  resolveView(viewId: number, limit?: number, offset?: number, options?: ViewsLensesOptions): Promise<ViewResolved>;
+  listViews(sheetId?: number | null, options?: RequestOptions): Promise<SavedViewListWire>;
+  createView(body: SavedViewCreateBody, options?: RequestOptions): Promise<SavedViewRowWire>;
+  renameView(viewId: number, body: SavedViewPatchBody, options?: RequestOptions): Promise<SavedViewRowWire>;
+  replaceViewDefinition(viewId: number, body: SavedViewDefinitionReplaceBody, options?: RequestOptions): Promise<SavedViewRowWire>;
+  deleteView(viewId: number, options?: RequestOptions): Promise<unknown>;
+  resolveView(viewId: number, limit?: number, offset?: number, options?: RequestOptions): Promise<ViewResolved>;
 }
 interface ViewsLensesDomainApi {
   listViews(sheetId?: string): Promise<SavedView[]>;
@@ -80,16 +79,16 @@ export function createViewsLensesApi(errorFactory: (status: number, payload: unk
       return httpContract('tenant.list_views.get', { pathParams: { pid: projectId }, query: { sheet_id: sheetId ?? undefined }, ...options, errorFactory });
     },
     createView(body, options = {}) {
-      return httpContract('tenant.create_view.post', { pathParams: { pid: projectId }, query: {}, body: { name: body.name, ...definitionBody(body) }, ...options, errorFactory });
+      return httpContract('tenant.create_view.post', { pathParams: { pid: projectId }, body: { name: body.name, ...definitionBody(body) }, ...options, errorFactory });
     },
     renameView(viewId, body, options = {}) {
-      return httpContract('tenant.patch_view.patch', { pathParams: { pid: projectId, view_id: viewId }, query: {}, body, ...options, errorFactory });
+      return httpContract('tenant.patch_view.patch', { pathParams: { pid: projectId, view_id: viewId }, body, ...options, errorFactory });
     },
     replaceViewDefinition(viewId, body, options = {}) {
-      return httpContract('tenant.replace_view_definition.put', { pathParams: { pid: projectId, view_id: viewId }, query: {}, body: definitionBody(body), ...options, errorFactory });
+      return httpContract('tenant.replace_view_definition.put', { pathParams: { pid: projectId, view_id: viewId }, body: definitionBody(body), ...options, errorFactory });
     },
     deleteView(viewId, options = {}) {
-      return httpContract('tenant.delete_view_ep.delete', { pathParams: { pid: projectId, view_id: viewId }, query: {}, ...options, errorFactory });
+      return httpContract('tenant.delete_view_ep.delete', { pathParams: { pid: projectId, view_id: viewId }, ...options, errorFactory });
     },
     resolveView(viewId, limit, offset, options = {}) {
       return httpContract('tenant.resolve_view.get', { pathParams: { pid: projectId, view_id: viewId }, query: { limit, offset }, ...options, errorFactory });

@@ -1,21 +1,14 @@
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions, type ContractErrorFactory } from './httpContract';
 import type {
   TranslateCompareScratchInput,
   TranslateCompareScratchResult,
 } from './types';
 
-interface TranslateComparisonOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 interface TranslateComparisonApi {
   compareTranslateScratch(
     projectId: string,
     input: TranslateCompareScratchInput,
-    options?: TranslateComparisonOptions,
+    options?: RequestOptions,
   ): Promise<TranslateCompareScratchResult>;
 }
 
@@ -31,7 +24,6 @@ export function createTranslateComparisonApi(
         'tenant.translate_compare_scratch.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: {
             engines: input.engines,
             text: input.text,
@@ -39,7 +31,6 @@ export function createTranslateComparisonApi(
             language: language ? [language] : null,
           },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );

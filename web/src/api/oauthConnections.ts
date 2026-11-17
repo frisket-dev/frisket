@@ -1,19 +1,13 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type { OAuthConnectionInfo } from './types';
-
-interface OAuthConnectionsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 interface OAuthConnectionsApi {
   listOAuthConnections(
     provider?: string,
-    options?: OAuthConnectionsOptions,
+    options?: RequestOptions,
   ): Promise<OAuthConnectionInfo[]>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type OAuthConnectionListWire =
   HttpContractSuccessResponse<'outer.list_oauth_connections.get'>;
 
@@ -26,18 +20,14 @@ function mapOAuthConnectionList(wire: OAuthConnectionListWire): OAuthConnectionI
 }
 
 export function createOAuthConnectionsApi(
-  errorFactory: ContractErrorFactory,
 ): OAuthConnectionsApi {
   return {
     listOAuthConnections(provider, options = {}) {
       return httpContract(
         'outer.list_oauth_connections.get',
         {
-          pathParams: {},
           query: { provider },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
         mapOAuthConnectionList,
       );

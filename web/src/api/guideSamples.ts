@@ -12,10 +12,10 @@ export const guideSamplesApi = {
   },
   async launch(sampleId: string, revision: number, operationId: string, title: string): Promise<HttpGuideSampleLaunchResponse> {
     const project = await httpContract('tenant.create_project.post', {
-      pathParams: {}, query: {}, body: { name: title }, headers: { 'Idempotency-Key': operationId },
+      body: { name: title }, headers: { 'Idempotency-Key': operationId },
     }, (wire) => wire);
     return httpContract('tenant.prepare_guide_sample.post', {
-      pathParams: { pid: project.id, sample_id: sampleId }, query: {},
+      pathParams: { pid: project.id, sample_id: sampleId },
       body: { revision, operation_id: operationId },
     }, (wire) => wire);
   },

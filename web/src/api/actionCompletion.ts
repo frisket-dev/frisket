@@ -14,8 +14,6 @@ import type { V1Receipt } from './types';
 
 const ACTION_COMPLETION_POLL_INTERVAL_MS = 1000;
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 interface ActionCompletionApi {
   waitForRunCompletion(
     result: V1ActionResult,
@@ -72,7 +70,6 @@ function waitForPollInterval(signal?: AbortSignal): Promise<void> {
 }
 
 export function createActionCompletionApi(
-  errorFactory: ContractErrorFactory,
 ): ActionCompletionApi {
   async function pollRunCompletion(
     result: V1ActionResult,
@@ -85,7 +82,6 @@ export function createActionCompletionApi(
     const progress = await getRunProgressContract(
       invocation.projectId,
       Number(runId),
-      errorFactory,
       { signal: invocation.signal },
     );
     throwIfActionAborted(invocation.signal);
@@ -100,7 +96,6 @@ export function createActionCompletionApi(
       const receipt = await getReceiptContract(
         invocation.projectId,
         receiptId,
-        errorFactory,
         { signal: invocation.signal },
       );
       throwIfActionAborted(invocation.signal);

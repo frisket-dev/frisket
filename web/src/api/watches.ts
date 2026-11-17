@@ -1,5 +1,5 @@
 import type { HttpContractOperationMap } from "../generated/openHttpContracts";
-import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from "./httpContract";
 import { toWireJsonObject } from "./viewsLenses";
 import type {
   ViewAlertConditions,
@@ -13,11 +13,6 @@ import type {
   WatchRunResult,
   WatchRunsPage,
 } from "./types";
-
-interface WatchesOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
   HttpContractOperationMap[Id]["request"],
@@ -48,33 +43,33 @@ type WatchCreateBody = ContractRequestBody<"tenant.create_watch.post">;
 type WatchPatchBody = ContractRequestBody<"tenant.patch_watch.patch">;
 
 interface WatchesApi {
-  listWatches(options?: WatchesOptions): Promise<WatchListWire>;
+  listWatches(options?: RequestOptions): Promise<WatchListWire>;
   createWatch(
     body: WatchCreateBody,
-    options?: WatchesOptions,
+    options?: RequestOptions,
   ): Promise<WatchCreatedWire>;
   updateWatch(
     watchId: number,
     body: WatchPatchBody,
-    options?: WatchesOptions,
+    options?: RequestOptions,
   ): Promise<WatchPatchedWire>;
   deleteWatch(
     watchId: number,
-    options?: WatchesOptions,
+    options?: RequestOptions,
   ): Promise<WatchDeletedWire>;
   /** A BODYLESS POST: the route declares no request body, so none rides the
    *  wire. (Base's vestigial `{}` run body is the one recorded client-side
    *  wire delta of this cutover.) */
   runWatch(
     watchId: number,
-    options?: WatchesOptions,
+    options?: RequestOptions,
   ): Promise<WatchRunResultWire>;
   listWatchRuns(
     watchId: number,
     offset?: number | null,
     limit?: number | null,
     hitsLimit?: number | null,
-    options?: WatchesOptions,
+    options?: RequestOptions,
   ): Promise<WatchRunsPageWire>;
   listWatchRunEvents(
     watchId: number,
@@ -82,7 +77,7 @@ interface WatchesApi {
     offset?: number | null,
     limit?: number | null,
     eventKind?: string | null,
-    options?: WatchesOptions,
+    options?: RequestOptions,
   ): Promise<WatchRunEventsPageWire>;
 }
 
@@ -108,10 +103,7 @@ interface WatchesDomainApi {
   ): Promise<WatchRunEventsPage>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 export function createWatchesApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): WatchesApi {
   return {
@@ -120,10 +112,7 @@ export function createWatchesApi(
         "tenant.list_watches.get",
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -133,11 +122,8 @@ export function createWatchesApi(
         "tenant.create_watch.post",
         {
           pathParams: { pid: projectId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -147,11 +133,8 @@ export function createWatchesApi(
         "tenant.patch_watch.patch",
         {
           pathParams: { pid: projectId, watch_id: watchId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -161,10 +144,7 @@ export function createWatchesApi(
         "tenant.delete_watch.delete",
         {
           pathParams: { pid: projectId, watch_id: watchId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -174,10 +154,7 @@ export function createWatchesApi(
         "tenant.run_watch.post",
         {
           pathParams: { pid: projectId, watch_id: watchId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -193,8 +170,6 @@ export function createWatchesApi(
             hits_limit: hitsLimit ?? undefined,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -210,8 +185,6 @@ export function createWatchesApi(
             event_kind: eventKind ?? undefined,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -332,10 +305,9 @@ function toWireWatchPatch(input: WatchPatchInput): WatchPatchBody {
 }
 
 export function createWatchesDomainApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): WatchesDomainApi {
-  const transport = createWatchesApi(errorFactory, projectId);
+  const transport = createWatchesApi(projectId);
   return {
     async listWatches() {
       return (await transport.listWatches()).map(toWatchInfo);

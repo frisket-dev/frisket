@@ -1,5 +1,5 @@
 import type { HttpActionEstimateValidationRequest } from '../generated/openHttpContracts';
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type ContractErrorFactory } from './httpContract';
 import type {
   ActionExecutionRequest,
   ActionParamResolution,
@@ -13,7 +13,6 @@ import { resolveRunActionInvocation } from './v1ActionSession';
 interface ActionEstimateValidationOptions {
   projectId?: string;
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 type ActionEstimateValidationAction =
@@ -45,8 +44,6 @@ interface ActionEstimateValidationDomainApi {
     request: Pick<RegisteredActionRequest, 'action_id' | 'scope' | 'params'>,
   ): Promise<ActionParamResolution>;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 function paramValidationFromV1Wire(
   diagnostics: ActionParamValidationWire['diagnostics'],
@@ -112,10 +109,8 @@ export function createActionEstimateValidationApi(
         'tenant.action_v1_estimate.post',
         {
           pathParams: { pid: options.projectId ?? projectId },
-          query: {},
           body: { action },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -126,10 +121,8 @@ export function createActionEstimateValidationApi(
         'tenant.action_v1_validate_params.post',
         {
           pathParams: { pid: options.projectId ?? projectId },
-          query: {},
           body: { action },
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );

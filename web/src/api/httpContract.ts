@@ -3,6 +3,7 @@ import {
   type HttpContractOperationId,
   type HttpContractOperationMap,
 } from '../generated/openHttpContracts';
+import { apiErrorFromContract } from './contractErrors';
 
 type FetchImplementation = typeof globalThis.fetch;
 type DecimalDigit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
@@ -21,48 +22,32 @@ type RequestBodyOptions<Id extends HttpContractOperationId> =
       ? { body?: Exclude<Operation<Id>['request'], undefined> }
       : { body: Operation<Id>['request'] };
 
+// An operation without path or query parameters, or whose parameters are all
+// optional, may omit the corresponding object.
+type ParamOptions<Name extends 'pathParams' | 'query', Value> =
+  Record<string, never> extends Value
+    ? { [Key in Name]?: Value }
+    : { [Key in Name]: Value };
+
+/** Maps a non-2xx response to the error the call rejects with. */
+export type ContractErrorFactory = (status: number, payload: unknown) => Error;
+
+/** Per-call options a domain API method forwards to `httpContract`. */
+export interface RequestOptions {
+  signal?: AbortSignal;
+}
+
 export type HttpContractInvokeOptions<Id extends HttpContractOperationId> = {
-  pathParams: Operation<Id>['pathParams'];
-  query: Operation<Id>['query'];
   fetch?: FetchImplementation;
   signal?: AbortSignal;
   headers?: HeadersInit;
   credentials?: RequestCredentials;
   keepalive?: boolean;
-  errorFactory?: (status: number, payload: unknown) => Error;
-} & RequestBodyOptions<Id>;
-
-class HttpContractResponseError<Payload> extends Error {
-  readonly status: number;
-  readonly payload: Payload;
-  readonly contractPayload: Payload;
-
-  constructor(status: number, payload: Payload) {
-    super(contractErrorMessage(status, payload));
-    this.name = 'HttpContractResponseError';
-    this.status = status;
-    this.payload = payload;
-    this.contractPayload = payload;
-  }
-}
-
-function contractErrorMessage(status: number, payload: unknown): string {
-  if (typeof payload === 'object' && payload !== null && 'detail' in payload) {
-    const detail = payload.detail;
-    if (typeof detail === 'string' && detail.trim()) return detail;
-    if (
-      typeof detail === 'object'
-      && detail !== null
-      && 'message' in detail
-      && typeof detail.message === 'string'
-      && detail.message.trim()
-    ) {
-      return detail.message;
-    }
-  }
-  const encoded = JSON.stringify(payload);
-  return encoded && encoded !== '{}' ? encoded : `Request failed (HTTP ${status})`;
-}
+  /** Overrides the shared contract error mapping for this call. */
+  errorFactory?: ContractErrorFactory;
+} & ParamOptions<'pathParams', Operation<Id>['pathParams']>
+  & ParamOptions<'query', Operation<Id>['query']>
+  & RequestBodyOptions<Id>;
 
 function renderPath(template: string, pathParams: object): string {
   const params = new Map(Object.entries(pathParams));
@@ -166,8 +151,8 @@ export async function httpContract<Id extends HttpContractOperationId, DomainRes
   }
 
   const requestPath = appendQuery(
-    renderPath(endpoint.path, options.pathParams as object),
-    options.query as object,
+    renderPath(endpoint.path, options.pathParams ?? {}),
+    options.query ?? {},
   );
   const response = await (options.fetch ?? globalThis.fetch)(requestPath, requestInit);
   const isSuccess = response.status >= 200 && response.status < 300;
@@ -190,8 +175,7 @@ export async function httpContract<Id extends HttpContractOperationId, DomainRes
         detail: response.statusText || `Request failed (HTTP ${response.status})`,
       };
     }
-    if (options.errorFactory) throw options.errorFactory(response.status, payload);
-    throw new HttpContractResponseError(response.status, payload);
+    throw (options.errorFactory ?? apiErrorFromContract)(response.status, payload);
   }
   const payload: unknown = await response.json();
   const wire = payload as HttpContractSuccessResponse<Id>;

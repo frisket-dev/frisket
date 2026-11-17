@@ -1,10 +1,5 @@
-import { httpContract } from "./httpContract";
+import { httpContract, type RequestOptions } from "./httpContract";
 import type { ApiTokenCreateResponse, ApiTokenInfo } from "./types";
-
-interface ApiTokensOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 interface ApiTokenRevokeResponse {
   ok: boolean;
@@ -12,29 +7,24 @@ interface ApiTokenRevokeResponse {
 }
 
 interface ApiTokensApi {
-  listApiKeys(options?: ApiTokensOptions): Promise<ApiTokenInfo[]>;
+  listApiKeys(options?: RequestOptions): Promise<ApiTokenInfo[]>;
   createApiKey(
     name: string,
-    options?: ApiTokensOptions,
+    options?: RequestOptions,
   ): Promise<ApiTokenCreateResponse>;
   revokeApiKey(
     tokenId: number | string,
-    options?: ApiTokensOptions,
+    options?: RequestOptions,
   ): Promise<ApiTokenRevokeResponse>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-export function createApiTokensApi(errorFactory: ContractErrorFactory): ApiTokensApi {
+export function createApiTokensApi(): ApiTokensApi {
   return {
     listApiKeys(options = {}) {
       return httpContract(
         "outer.list_tokens.get",
         {
-          pathParams: {},
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -43,12 +33,8 @@ export function createApiTokensApi(errorFactory: ContractErrorFactory): ApiToken
       return httpContract(
         "outer.create_token.post",
         {
-          pathParams: {},
-          query: {},
           body: { name },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -60,10 +46,7 @@ export function createApiTokensApi(errorFactory: ContractErrorFactory): ApiToken
           // Preserve the previous number|string public API and let the route
           // retain responsibility for deciding whether a path value is valid.
           pathParams: { token_id: tokenId as never },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

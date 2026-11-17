@@ -1,6 +1,5 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 type AdminBrowserHealthWire =
   HttpContractSuccessResponse<'outer.admin_browser_health.get'>;
 type AdminBrowserUsersWire =
@@ -47,54 +46,48 @@ export interface AdminAuditFilters {
   action?: string;
 }
 
-interface AdminBrowserOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 interface AdminBrowserApi {
-  getAdminHealth(options?: AdminBrowserOptions): Promise<AdminHealth>;
-  getAdminUsers(options?: AdminBrowserOptions): Promise<AdminUsers>;
+  getAdminHealth(options?: RequestOptions): Promise<AdminHealth>;
+  getAdminUsers(options?: RequestOptions): Promise<AdminUsers>;
   inviteAdminUser(
     orgId: number,
     email: string,
-    options?: AdminBrowserOptions,
+    options?: RequestOptions,
   ): Promise<AdminBrowserInviteWire>;
   updateAdminUserRole(
     orgId: number,
     userId: number,
     role: AdminOrgRole,
-    options?: AdminBrowserOptions,
+    options?: RequestOptions,
   ): Promise<AdminBrowserRoleWire>;
   removeAdminUser(
     orgId: number,
     userId: number,
-    options?: AdminBrowserOptions,
+    options?: RequestOptions,
   ): Promise<AdminBrowserRemoveWire>;
   revokeAdminInvite(
     orgId: number,
     email: string,
-    options?: AdminBrowserOptions,
+    options?: RequestOptions,
   ): Promise<AdminBrowserRevokeWire>;
-  getAdminJobs(options?: AdminBrowserOptions): Promise<AdminJobs>;
+  getAdminJobs(options?: RequestOptions): Promise<AdminJobs>;
   cancelAdminJob(
     jobId: number,
-    options?: AdminBrowserOptions,
+    options?: RequestOptions,
   ): Promise<AdminJobActionResult>;
   getAdminAuditLog(
     filters?: AdminAuditFilters,
-    options?: AdminBrowserOptions,
+    options?: RequestOptions,
   ): Promise<AdminAuditLog>;
   getAdminErrors(
     limit?: number,
-    options?: AdminBrowserOptions,
+    options?: RequestOptions,
   ): Promise<AdminErrors>;
 }
 
-function optionsFor(options: AdminBrowserOptions) {
+function optionsFor(options: RequestOptions) {
   return {
     signal: options.signal,
-    headers: options.headers,
   };
 }
 
@@ -110,26 +103,25 @@ function auditQuery(filters: AdminAuditFilters) {
 }
 
 export function createAdminBrowserApi(
-  errorFactory: ContractErrorFactory,
 ): AdminBrowserApi {
   return {
     getAdminHealth(options = {}) {
       return httpContract(
         'outer.admin_browser_health.get',
-        { pathParams: {}, query: {}, errorFactory, ...optionsFor(options) },
+        { ...optionsFor(options) },
       );
     },
     getAdminUsers(options = {}) {
       return httpContract(
         'outer.admin_browser_users.get',
-        { pathParams: {}, query: {}, errorFactory, ...optionsFor(options) },
+        { ...optionsFor(options) },
       );
     },
     inviteAdminUser(orgId, email, options = {}) {
       return httpContract(
         'outer.admin_browser_invite_user.post',
         {
-          pathParams: {}, query: {}, body: { org_id: orgId, email }, errorFactory,
+          body: { org_id: orgId, email },
           ...optionsFor(options),
         },
       );
@@ -138,7 +130,7 @@ export function createAdminBrowserApi(
       return httpContract(
         'outer.admin_browser_update_user_role.patch',
         {
-          pathParams: { user_id: userId }, query: {}, body: { org_id: orgId, role }, errorFactory,
+          pathParams: { user_id: userId }, body: { org_id: orgId, role },
           ...optionsFor(options),
         },
       );
@@ -147,7 +139,7 @@ export function createAdminBrowserApi(
       return httpContract(
         'outer.admin_browser_remove_user.delete',
         {
-          pathParams: { user_ref: String(userId) }, query: { org_id: orgId }, errorFactory,
+          pathParams: { user_ref: String(userId) }, query: { org_id: orgId },
           ...optionsFor(options),
         },
       );
@@ -156,7 +148,7 @@ export function createAdminBrowserApi(
       return httpContract(
         'outer.admin_browser_revoke_invite.delete',
         {
-          pathParams: { email }, query: { org_id: orgId }, errorFactory,
+          pathParams: { email }, query: { org_id: orgId },
           ...optionsFor(options),
         },
       );
@@ -164,25 +156,25 @@ export function createAdminBrowserApi(
     getAdminJobs(options = {}) {
       return httpContract(
         'outer.admin_browser_jobs.get',
-        { pathParams: {}, query: {}, errorFactory, ...optionsFor(options) },
+        { ...optionsFor(options) },
       );
     },
     cancelAdminJob(jobId, options = {}) {
       return httpContract(
         'outer.admin_browser_cancel_job.post',
-        { pathParams: { job_id: jobId }, query: {}, errorFactory, ...optionsFor(options) },
+        { pathParams: { job_id: jobId }, ...optionsFor(options) },
       );
     },
     getAdminAuditLog(filters = {}, options = {}) {
       return httpContract(
         'outer.admin_browser_audit.get',
-        { pathParams: {}, query: auditQuery(filters), errorFactory, ...optionsFor(options) },
+        { query: auditQuery(filters), ...optionsFor(options) },
       );
     },
     getAdminErrors(limit = 50, options = {}) {
       return httpContract(
         'outer.admin_browser_errors.get',
-        { pathParams: {}, query: { limit }, errorFactory, ...optionsFor(options) },
+        { query: { limit }, ...optionsFor(options) },
       );
     },
   };

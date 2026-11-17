@@ -82,7 +82,7 @@ afterEach(() => {
 });
 
 describe('project provider-key generated HTTP contracts', () => {
-  it('renders arbitrary project/provider values once and preserves bodies, casing, headers, signals, and returns', async () => {
+  it('renders arbitrary project/provider values once and preserves bodies, casing, content types, signals, and returns', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses = [catalog, catalog, catalog, validation, deletion];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -90,10 +90,7 @@ describe('project provider-key generated HTTP contracts', () => {
       return jsonResponse(responses.shift());
     }));
     const controller = new AbortController();
-    const options = {
-      signal: controller.signal,
-      headers: { Authorization: 'Bearer project', 'X-Trace-Id': 'provider-keys' },
-    };
+    const options = { signal: controller.signal };
     const api = createProjectProviderKeysApi((status, payload) =>
       Object.assign(new Error(`mapped ${status}`), { status, payload }),
     );
@@ -116,9 +113,6 @@ describe('project provider-key generated HTTP contracts', () => {
     ]);
     for (const request of requests) {
       expect(request.init?.signal).toBe(controller.signal);
-      const headers = new Headers(request.init?.headers);
-      expect(headers.get('authorization')).toBe('Bearer project');
-      expect(headers.get('x-trace-id')).toBe('provider-keys');
     }
     for (const request of [requests[0], requests[4]]) {
       expect(new Headers(request.init?.headers).get('content-type')).toBeNull();

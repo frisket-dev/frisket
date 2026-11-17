@@ -2,12 +2,11 @@ import type {
   HttpActionResult,
   HttpActionRunRequest,
 } from '../generated/openHttpContracts';
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type ContractErrorFactory } from './httpContract';
 
 interface ActionLaunchOptions {
   projectId?: string;
   signal?: AbortSignal;
-  headers?: HeadersInit;
 }
 
 export type ActionLaunchRequest = HttpActionRunRequest;
@@ -18,8 +17,6 @@ interface ActionLaunchResponse {
   status: number;
   result: ActionLaunchWire;
 }
-
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
 class ActionLaunchTransportError extends Error {
   readonly status: number;
@@ -56,10 +53,8 @@ export function createActionLaunchApi(
           'tenant.v1_action_run.post',
           {
             pathParams: { pid: options.projectId ?? defaultProjectId },
-            query: {},
             body: action,
             signal: options.signal,
-            headers: options.headers,
             errorFactory: (status, payload) => new ActionLaunchTransportError(status, payload),
           },
         );

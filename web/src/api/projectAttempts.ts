@@ -1,23 +1,16 @@
-import { httpContract } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import type { AttemptReceiptsPage } from './types';
-
-interface ProjectAttemptsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 interface ProjectAttemptsApi {
   listAttemptReceipts(
     projectId: string,
     runId?: number | string | null,
     limit?: number,
-    options?: ProjectAttemptsOptions,
+    options?: RequestOptions,
   ): Promise<AttemptReceiptsPage>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
 export function createProjectAttemptsApi(
-  errorFactory: ContractErrorFactory,
 ): ProjectAttemptsApi {
   return {
     listAttemptReceipts(projectId, runId, limit = 25, options = {}) {
@@ -30,8 +23,6 @@ export function createProjectAttemptsApi(
             run_id: runId != null && runId !== '' ? Number(runId) : undefined,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },

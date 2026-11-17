@@ -3,7 +3,7 @@ import type {
   Http_RuntimeProjectionBuildRequest,
   Http_RuntimeProjectionRequest,
 } from '../generated/openHttpContracts';
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
 import type {
   RuntimeProjectionBuildPlan,
   RuntimeProjectionBuildRequest,
@@ -13,27 +13,20 @@ import type {
   TimelineProjectionArtifact,
 } from './types';
 
-interface RuntimeProjectionOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
-
 type RuntimeProjectionArtifactWire =
   HttpContractSuccessResponse<'tenant.runtime_projection_artifact.post'>;
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 interface RuntimeProjectionsApi {
   status(
     input: RuntimeProjectionStatusRequest,
-    options?: RuntimeProjectionOptions,
+    options?: RequestOptions,
   ): Promise<RuntimeProjectionStatus>;
   build(
     input: RuntimeProjectionBuildRequest,
-    options?: RuntimeProjectionOptions,
+    options?: RequestOptions,
   ): Promise<RuntimeProjectionBuildPlan>;
   artifact(
     input: RuntimeProjectionArtifactRequest,
-    options?: RuntimeProjectionOptions,
+    options?: RequestOptions,
   ): Promise<TimelineProjectionArtifact>;
 }
 
@@ -163,10 +156,8 @@ export function createRuntimeProjectionsApi(
         'tenant.runtime_projection_status.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: input as Http_RuntimeProjectionRequest,
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -177,10 +168,8 @@ export function createRuntimeProjectionsApi(
         'tenant.runtime_projection_build.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: input as Http_RuntimeProjectionBuildRequest,
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
       );
@@ -191,10 +180,8 @@ export function createRuntimeProjectionsApi(
         'tenant.runtime_projection_artifact.post',
         {
           pathParams: { pid: projectId },
-          query: {},
           body: input as HttpRuntimeProjectionArtifactRequest,
           signal: options.signal,
-          headers: options.headers,
           errorFactory,
         },
         artifactResponse,

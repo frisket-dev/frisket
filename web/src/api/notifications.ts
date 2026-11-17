@@ -1,5 +1,5 @@
 import type { HttpContractOperationMap } from "../generated/openHttpContracts";
-import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from "./httpContract";
 import { toWireJsonObject } from "./viewsLenses";
 import type {
   NotificationActorState,
@@ -17,11 +17,6 @@ import type {
   NotificationStateFilter,
   NotificationSummary,
 } from "./types";
-
-interface NotificationsOptions {
-  signal?: AbortSignal;
-  headers?: HeadersInit;
-}
 
 type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
   HttpContractOperationMap[Id]["request"],
@@ -65,14 +60,14 @@ interface NotificationsApi {
     severity?: string | null,
     offset?: number | null,
     limit?: number | null,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationPageWire>;
   notificationsSummary(
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationSummaryWire>;
   markNotificationsSeen(
     body: NotificationFilterBody,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationSeenCountWire>;
   /** The three per-item POSTs are BODYLESS: the routes declare no request
    *  body, so none rides the wire. (Base's vestigial `{}` bodies are the
@@ -80,15 +75,15 @@ interface NotificationsApi {
    *  precedent.) */
   markNotificationRead(
     notificationId: number,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationActorStateWire>;
   ackNotification(
     notificationId: number,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationActorStateWire>;
   unackNotification(
     notificationId: number,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationActorStateWire>;
 }
 
@@ -97,32 +92,32 @@ interface NotificationsApi {
  * seven-method contract. */
 interface NotificationDeliverySettingsApi {
   listNotificationChannels(
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationChannelsPageWire>;
   createNotificationChannel(
     body: NotificationChannelBody,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationChannelWire>;
   patchNotificationChannel(
     channelId: number,
     body: NotificationChannelBody,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationChannelWire>;
   listNotificationRoutes(
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationRoutesPageWire>;
   createNotificationRoute(
     body: NotificationRouteBody,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationRouteWire>;
   patchNotificationRoute(
     routeId: number,
     body: NotificationRouteBody,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationRouteWire>;
   testNotificationRoute(
     routeId: number,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationDeliveryRequestWire>;
   listNotificationDeliveryRequests(
     status?: string | null,
@@ -131,7 +126,7 @@ interface NotificationDeliverySettingsApi {
     notificationId?: number | null,
     offset?: number | null,
     limit?: number | null,
-    options?: NotificationsOptions,
+    options?: RequestOptions,
   ): Promise<NotificationDeliveryRequestsPageWire>;
 }
 
@@ -171,10 +166,7 @@ export interface NotificationsDomainApi {
   }): Promise<NotificationDeliveryRequestsPage>;
 }
 
-type ContractErrorFactory = (status: number, payload: unknown) => Error;
-
 export function createNotificationsApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): NotificationsApi {
   return {
@@ -193,8 +185,6 @@ export function createNotificationsApi(
             severity: severity ?? undefined,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -204,10 +194,7 @@ export function createNotificationsApi(
         "tenant.notifications_summary.get",
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -217,11 +204,8 @@ export function createNotificationsApi(
         "tenant.mark_notifications_seen.post",
         {
           pathParams: { pid: projectId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -231,10 +215,7 @@ export function createNotificationsApi(
         "tenant.mark_notification_read.post",
         {
           pathParams: { pid: projectId, notification_id: notificationId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -244,10 +225,7 @@ export function createNotificationsApi(
         "tenant.ack_notification.post",
         {
           pathParams: { pid: projectId, notification_id: notificationId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -257,10 +235,7 @@ export function createNotificationsApi(
         "tenant.unack_notification.post",
         {
           pathParams: { pid: projectId, notification_id: notificationId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -268,7 +243,6 @@ export function createNotificationsApi(
 }
 
 export function createNotificationDeliverySettingsApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): NotificationDeliverySettingsApi {
   return {
@@ -277,10 +251,7 @@ export function createNotificationDeliverySettingsApi(
         "tenant.list_notification_channels.get",
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -290,11 +261,8 @@ export function createNotificationDeliverySettingsApi(
         "tenant.create_notification_channel.post",
         {
           pathParams: { pid: projectId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -304,11 +272,8 @@ export function createNotificationDeliverySettingsApi(
         "tenant.patch_notification_channel.patch",
         {
           pathParams: { pid: projectId, channel_id: channelId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -318,10 +283,7 @@ export function createNotificationDeliverySettingsApi(
         "tenant.list_notification_routes.get",
         {
           pathParams: { pid: projectId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -331,11 +293,8 @@ export function createNotificationDeliverySettingsApi(
         "tenant.create_notification_route.post",
         {
           pathParams: { pid: projectId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -345,11 +304,8 @@ export function createNotificationDeliverySettingsApi(
         "tenant.patch_notification_route.patch",
         {
           pathParams: { pid: projectId, route_id: routeId },
-          query: {},
           body,
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -359,10 +315,7 @@ export function createNotificationDeliverySettingsApi(
         "tenant.test_notification_route.post",
         {
           pathParams: { pid: projectId, route_id: routeId },
-          query: {},
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -390,8 +343,6 @@ export function createNotificationDeliverySettingsApi(
             notification_id: notificationId ?? undefined,
           },
           signal: options.signal,
-          headers: options.headers,
-          errorFactory,
         },
       );
     },
@@ -594,11 +545,10 @@ function toWireNotificationFilter(input: NotificationStateFilter): NotificationF
 }
 
 export function createNotificationsDomainApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ): NotificationsDomainApi {
-  const reads = createNotificationsApi(errorFactory, projectId);
-  const delivery = createNotificationDeliverySettingsApi(errorFactory, projectId);
+  const reads = createNotificationsApi(projectId);
+  const delivery = createNotificationDeliverySettingsApi(projectId);
   return {
     async listNotifications(params = {}) {
       return toNotificationPage(await reads.listNotifications(
