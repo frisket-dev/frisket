@@ -58,6 +58,24 @@ under the project's license.
 - No secrets, no copyrighted media, and only public-domain or
   redistribution-clean fixture data.
 
+### Cleanup gates
+
+CI runs three shrink-only ratchets from the repository root:
+`python scripts/ci/ruff_ratchet.py` (per-file counts of the complexity,
+argument-count and function-local-import rules configured in
+`pyproject.toml`), `python scripts/ci/check_dead_symbols.py` (functions,
+classes, methods and modules in `src/frisket` that production code never
+reaches; tests do not count), and `python scripts/ci/check_duplicate_functions.py`
+(near-identical function bodies and private helpers copied across modules).
+A failure names the offender: restructure, call the existing code, or delete
+the unreached code. When you remove offenders, run the same script with
+`--update` to lower its baseline; `--update` refuses to raise any count or add
+any entry, and hand edits that grow a baseline do not pass review. Renaming a
+file or function means renaming its baseline key by hand. Locally,
+`check_dead_symbols.py --downstream ../frisket-cloud` also counts the cloud
+checkout as a consumer. From `web/`, `npm run knip` reports unused files,
+exports and dependencies (not yet a CI gate).
+
 ### Shared UI controls
 
 Use shared controls for ordinary inputs, segmented choices, icon buttons,
