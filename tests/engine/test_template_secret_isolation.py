@@ -98,27 +98,24 @@ def test_project_secret_wins_over_same_named_operator_environment(
     assert sent[0].headers["Authorization"] == "Bearer fake-project-value"
 
 
-def test_other_project_secret_cannot_satisfy_request(request_project, tmp_path):
+def test_other_project_secret_cannot_satisfy_request(request_project, make_project):
     project, sent, run = request_project
-    other = Project.create(tmp_path / "other.frisket")
-    try:
-        other.set_secret(
-            name="OTHER_TOKEN",
-            encrypted=encrypt_secret("fake-other-value"),
-            hint="fake",
-        )
-        result = run(
-            {
-                "url": "https://api.test.example/collect",
-                "headers": [["Authorization", "{{secret.OTHER_TOKEN}}"]],
-            }
-        )
-        assert result.status == "failed", result.errors
-        assert sent == []
-        error = project.db.execute("SELECT error FROM results").fetchone()[0]
-        assert "missing_secret" in error
-    finally:
-        other.close()
+    other = make_project("other")
+    other.set_secret(
+        name="OTHER_TOKEN",
+        encrypted=encrypt_secret("fake-other-value"),
+        hint="fake",
+    )
+    result = run(
+        {
+            "url": "https://api.test.example/collect",
+            "headers": [["Authorization", "{{secret.OTHER_TOKEN}}"]],
+        }
+    )
+    assert result.status == "failed", result.errors
+    assert sent == []
+    error = project.db.execute("SELECT error FROM results").fetchone()[0]
+    assert "missing_secret" in error
 
 
 def test_provider_setup_key_is_not_a_user_template_secret(request_project):

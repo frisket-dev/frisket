@@ -174,7 +174,7 @@ def _listing(
 
 
 def test_youtube_playlist_solo_poll_materializes_legacy_cap_plus_one(
-    tmp_path: Path,
+    make_project,
     restore_youtube_poller: None,
 ) -> None:
     entries = [_video(f"bulk{index:07d}", f"Video {index}") for index in range(501)]
@@ -187,49 +187,46 @@ def test_youtube_playlist_solo_poll_materializes_legacy_cap_plus_one(
     source = _youtube_source()
     source["config"].pop("max_pages_per_poll")
 
-    project = Project.create(tmp_path / "youtube-unbounded.frisket", name="YouTube")
-    try:
-        result = run_action_spec(
-            project,
-            _source_poll_action(
-                source=source,
-                idempotency_key="source_youtube@sha256:legacy-cap-plus-one",
-            ),
-            project_id=PROJECT_ID,
-        )
+    project = make_project("YouTube")
+    result = run_action_spec(
+        project,
+        _source_poll_action(
+            source=source,
+            idempotency_key="source_youtube@sha256:legacy-cap-plus-one",
+        ),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        item_cap = provider.calls[0]["item_cap"]
-        assert item_cap is None or int(item_cap) >= 501
-        max_pages = provider.calls[0]["max_pages"]
-        assert max_pages is None or int(max_pages) >= 6
-        sheet_id = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        assert sheet_id is not None
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (sheet_id,)
-            ).fetchone()[0]
-            == 501
-        )
-        run_ref = next(
-            output.ref for output in result.outputs if output.kind == "source_run"
-        )
-        source_run = project.db.execute(
-            "SELECT cursor_after FROM source_runs WHERE id=?",
-            (run_ref["source_run_id"],),
-        ).fetchone()
-        assert source_run is not None
-        cursor = json.loads(source_run["cursor_after"])
-        assert cursor["items_seen"] == 501
-        assert cursor["truncated"] is False
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    item_cap = provider.calls[0]["item_cap"]
+    assert item_cap is None or int(item_cap) >= 501
+    max_pages = provider.calls[0]["max_pages"]
+    assert max_pages is None or int(max_pages) >= 6
+    sheet_id = next(
+        output.sheet_id for output in result.outputs if output.kind == "sheet"
+    )
+    assert sheet_id is not None
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (sheet_id,)
+        ).fetchone()[0]
+        == 501
+    )
+    run_ref = next(
+        output.ref for output in result.outputs if output.kind == "source_run"
+    )
+    source_run = project.db.execute(
+        "SELECT cursor_after FROM source_runs WHERE id=?",
+        (run_ref["source_run_id"],),
+    ).fetchone()
+    assert source_run is not None
+    cursor = json.loads(source_run["cursor_after"])
+    assert cursor["items_seen"] == 501
+    assert cursor["truncated"] is False
 
 
 def test_default_youtube_playlist_name_resolves_to_channel_and_playlist(
-    tmp_path: Path,
+    make_project,
     restore_youtube_poller: None,
 ) -> None:
     url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
@@ -246,22 +243,19 @@ def test_default_youtube_playlist_name_resolves_to_channel_and_playlist(
     register_source_poller(
         YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
     )
-    project = Project.create(tmp_path / "youtube-playlist-name.frisket", name="YouTube")
-    try:
-        result = run_action_spec(
-            project,
-            _source_poll_action(
-                source={**_youtube_source(), "name": default_name},
-                idempotency_key="source_youtube@sha256:resolved-name",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed"
-        source = SourceStore(project).sources()[0]
-        assert source["name"] == "Investigative Channel: Weekly Accountability Roundup"
-        assert project.sheets()[0]["name"] == source["name"]
-    finally:
-        project.close()
+    project = make_project("YouTube")
+    result = run_action_spec(
+        project,
+        _source_poll_action(
+            source={**_youtube_source(), "name": default_name},
+            idempotency_key="source_youtube@sha256:resolved-name",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed"
+    source = SourceStore(project).sources()[0]
+    assert source["name"] == "Investigative Channel: Weekly Accountability Roundup"
+    assert project.sheets()[0]["name"] == source["name"]
 
 
 def _video(
@@ -286,7 +280,7 @@ def _video(
 
 
 def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     restore_youtube_poller: None,
 ) -> None:
@@ -322,201 +316,189 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
         YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
     )
 
-    project = Project.create(tmp_path / "youtube-source.frisket", name="YouTube")
-    try:
-        first = run_action_spec(
-            project,
-            _source_poll_action(source=_youtube_source()),
-            project_id=PROJECT_ID,
-        )
-        assert first.status == "completed"
-        assert first.receipt_id is not None
-        assert provider.calls == [
-            {
-                "playlist_url": (
-                    f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
-                ),
-                "playlist_id": PLAYLIST_ID,
-                "max_pages": 2,
-                "item_cap": 200,
-            }
-        ]
-        source_id = next(
-            output.ref["source_id"]
-            for output in first.outputs
-            if output.kind == "source"
-        )
-        source_run_id = next(
-            output.ref["source_run_id"]
-            for output in first.outputs
-            if output.kind == "source_run"
-        )
-        sheet_id = next(
-            output.sheet_id for output in first.outputs if output.kind == "sheet"
-        )
-        assert sheet_id is not None
-
-        rows = _rows(project, sheet_id)
-        assert [row["video_id"] for row in rows] == ["alpha00123A", "beta001234B"]
-        assert rows[0]["source_id"] == source_id
-        assert rows[0]["source_run_id"] == source_run_id
-        assert rows[0]["source_item_id"] == "youtube:video:alpha00123A"
-        assert rows[0]["url"] == "https://www.youtube.com/watch?v=alpha00123A"
-        assert rows[0]["source_url"] == rows[0]["url"]
-        assert rows[0]["channel_id"] == "UCinvestigative"
-        assert rows[0]["channel_title"] == "Investigative Channel"
-        assert rows[0]["playlist_id"] == PLAYLIST_ID
-        assert rows[0]["published_at"] == "2026-06-20T00:00:00Z"
-        assert rows[0]["description"] == "Source video description"
-        assert rows[0]["thumbnail_url"].endswith("/alpha00123A/hqdefault.jpg")
-        assert rows[0]["raw"]["id"] == "alpha00123A"
-        assert rows[0]["source_raw"]["id"] == "alpha00123A"
-        assert "media" not in rows[0]
-        column_visibility = {
-            str(column["name"]): bool(column["default_hidden"])
-            for column in project.columns(sheet_id)
+    project = make_project("YouTube")
+    first = run_action_spec(
+        project,
+        _source_poll_action(source=_youtube_source()),
+        project_id=PROJECT_ID,
+    )
+    assert first.status == "completed"
+    assert first.receipt_id is not None
+    assert provider.calls == [
+        {
+            "playlist_url": (f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"),
+            "playlist_id": PLAYLIST_ID,
+            "max_pages": 2,
+            "item_cap": 200,
         }
-        assert {
-            name
-            for name, default_hidden in column_visibility.items()
-            if not default_hidden
-        } == {"title", "source_url", "published_at", "channel_title", "description"}
-        assert column_visibility["url"] is True
+    ]
+    source_id = next(
+        output.ref["source_id"] for output in first.outputs if output.kind == "source"
+    )
+    source_run_id = next(
+        output.ref["source_run_id"]
+        for output in first.outputs
+        if output.kind == "source_run"
+    )
+    sheet_id = next(
+        output.sheet_id for output in first.outputs if output.kind == "sheet"
+    )
+    assert sheet_id is not None
 
-        first_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (source_run_id,),
-        ).fetchone()
-        assert first_run is not None
-        assert first_run["status"] == "ok"
-        assert first_run["new_rows"] == 2
-        assert first_run["warning_count"] == 1
-        first_cursor = json.loads(first_run["cursor_after"])
-        assert first_cursor["schema_version"] == "frisket.youtube_cursor.v1"
-        assert first_cursor["playlist_id"] == PLAYLIST_ID
-        assert first_cursor["items_seen"] == 2
-        assert first_cursor["newest_published_at"] == "2026-06-21T00:00:00Z"
-        assert json.loads(first_run["summary_json"])["summary"]["pages_fetched"] == 1
+    rows = _rows(project, sheet_id)
+    assert [row["video_id"] for row in rows] == ["alpha00123A", "beta001234B"]
+    assert rows[0]["source_id"] == source_id
+    assert rows[0]["source_run_id"] == source_run_id
+    assert rows[0]["source_item_id"] == "youtube:video:alpha00123A"
+    assert rows[0]["url"] == "https://www.youtube.com/watch?v=alpha00123A"
+    assert rows[0]["source_url"] == rows[0]["url"]
+    assert rows[0]["channel_id"] == "UCinvestigative"
+    assert rows[0]["channel_title"] == "Investigative Channel"
+    assert rows[0]["playlist_id"] == PLAYLIST_ID
+    assert rows[0]["published_at"] == "2026-06-20T00:00:00Z"
+    assert rows[0]["description"] == "Source video description"
+    assert rows[0]["thumbnail_url"].endswith("/alpha00123A/hqdefault.jpg")
+    assert rows[0]["raw"]["id"] == "alpha00123A"
+    assert rows[0]["source_raw"]["id"] == "alpha00123A"
+    assert "media" not in rows[0]
+    column_visibility = {
+        str(column["name"]): bool(column["default_hidden"])
+        for column in project.columns(sheet_id)
+    }
+    assert {
+        name for name, default_hidden in column_visibility.items() if not default_hidden
+    } == {"title", "source_url", "published_at", "channel_title", "description"}
+    assert column_visibility["url"] is True
 
-        receipt = _receipt(project, first.receipt_id)
-        assert receipt["action_kind"] == "source.poll"
-        assert receipt["status"] == "completed"
-        assert receipt["warnings"] == [
-            "youtube_playlist skipped unavailable video: [Private video]"
-        ]
-        assert receipt["provider_use"][0]["provider"] == "youtube"
-        assert receipt["provider_use"][0]["service"] == "fake-yt-dlp"
-        assert receipt["provider_use"][0]["download"] is False
-        refs = [
-            item["ref"]
-            for item in [*receipt["outputs"], *receipt["evidence"]]
-            if isinstance(item, dict)
-        ]
-        assert {"source_poll_run", "source_poll_rows", "source_poll_cursor"} <= {
-            ref["kind"] for ref in refs
-        }
-        assert _table_count(project, "keyed_observations") == 2
-        assert _table_count(project, "blobs") == 0
+    first_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (source_run_id,),
+    ).fetchone()
+    assert first_run is not None
+    assert first_run["status"] == "ok"
+    assert first_run["new_rows"] == 2
+    assert first_run["warning_count"] == 1
+    first_cursor = json.loads(first_run["cursor_after"])
+    assert first_cursor["schema_version"] == "frisket.youtube_cursor.v1"
+    assert first_cursor["playlist_id"] == PLAYLIST_ID
+    assert first_cursor["items_seen"] == 2
+    assert first_cursor["newest_published_at"] == "2026-06-21T00:00:00Z"
+    assert json.loads(first_run["summary_json"])["summary"]["pages_fetched"] == 1
 
-        second = run_action_spec(
-            project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_youtube@sha256:second",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert second.status == "completed"
-        second_run_id = next(
-            output.ref["source_run_id"]
-            for output in second.outputs
-            if output.kind == "source_run"
-        )
-        second_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (second_run_id,),
-        ).fetchone()
-        assert second_run["new_rows"] == 0
-        assert second_run["skipped_rows"] == 2
-        assert second_run["changed_rows"] == 0
-        assert second_run["revisions"] == 0
-        assert [row["video_id"] for row in _rows(project, sheet_id)] == [
-            "alpha00123A",
-            "beta001234B",
-        ]
-        assert _table_count(project, "keyed_observations") == 2
+    receipt = _receipt(project, first.receipt_id)
+    assert receipt["action_kind"] == "source.poll"
+    assert receipt["status"] == "completed"
+    assert receipt["warnings"] == [
+        "youtube_playlist skipped unavailable video: [Private video]"
+    ]
+    assert receipt["provider_use"][0]["provider"] == "youtube"
+    assert receipt["provider_use"][0]["service"] == "fake-yt-dlp"
+    assert receipt["provider_use"][0]["download"] is False
+    refs = [
+        item["ref"]
+        for item in [*receipt["outputs"], *receipt["evidence"]]
+        if isinstance(item, dict)
+    ]
+    assert {"source_poll_run", "source_poll_rows", "source_poll_cursor"} <= {
+        ref["kind"] for ref in refs
+    }
+    assert _table_count(project, "keyed_observations") == 2
+    assert _table_count(project, "blobs") == 0
 
-        stable_rows = dict(
-            project.db.execute(
-                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
-                (source_id,),
-            )
+    second = run_action_spec(
+        project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_youtube@sha256:second",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert second.status == "completed"
+    second_run_id = next(
+        output.ref["source_run_id"]
+        for output in second.outputs
+        if output.kind == "source_run"
+    )
+    second_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (second_run_id,),
+    ).fetchone()
+    assert second_run["new_rows"] == 0
+    assert second_run["skipped_rows"] == 2
+    assert second_run["changed_rows"] == 0
+    assert second_run["revisions"] == 0
+    assert [row["video_id"] for row in _rows(project, sheet_id)] == [
+        "alpha00123A",
+        "beta001234B",
+    ]
+    assert _table_count(project, "keyed_observations") == 2
+
+    stable_rows = dict(
+        project.db.execute(
+            "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+            (source_id,),
         )
-        third = run_action_spec(
-            project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_youtube@sha256:third",
-            ),
-            project_id=PROJECT_ID,
+    )
+    third = run_action_spec(
+        project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_youtube@sha256:third",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert third.status == "completed"
+    third_run_id = next(
+        output.ref["source_run_id"]
+        for output in third.outputs
+        if output.kind == "source_run"
+    )
+    third_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (third_run_id,),
+    ).fetchone()
+    assert third_run["new_rows"] == 1
+    assert third_run["skipped_rows"] == 1
+    assert third_run["changed_rows"] == 1
+    assert third_run["revisions"] == 0
+    after_rows = dict(
+        project.db.execute(
+            "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+            (source_id,),
         )
-        assert third.status == "completed"
-        third_run_id = next(
-            output.ref["source_run_id"]
-            for output in third.outputs
-            if output.kind == "source_run"
-        )
-        third_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (third_run_id,),
-        ).fetchone()
-        assert third_run["new_rows"] == 1
-        assert third_run["skipped_rows"] == 1
-        assert third_run["changed_rows"] == 1
-        assert third_run["revisions"] == 0
-        after_rows = dict(
-            project.db.execute(
-                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
-                (source_id,),
-            )
-        )
-        assert {key: after_rows[key] for key in stable_rows} == stable_rows
-        rows = _rows(project, sheet_id)
-        assert [row["title"] for row in rows] == [
-            "Alpha hearing clip",
-            "Beta press conference revised",
-            "Gamma upload",
-        ]
-        assert _table_count(project, "keyed_observations") == 3
-        assert _table_count(project, "blobs") == 0
-    finally:
-        project.close()
+    )
+    assert {key: after_rows[key] for key in stable_rows} == stable_rows
+    rows = _rows(project, sheet_id)
+    assert [row["title"] for row in rows] == [
+        "Alpha hearing clip",
+        "Beta press conference revised",
+        "Gamma upload",
+    ]
+    assert _table_count(project, "keyed_observations") == 3
+    assert _table_count(project, "blobs") == 0
 
 
 def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
-    tmp_path: Path,
+    make_project,
     restore_youtube_poller: None,
 ) -> None:
-    invalid_project = Project.create(tmp_path / "invalid.frisket", name="Invalid")
-    try:
-        invalid = run_action_spec(
-            invalid_project,
-            _source_poll_action(
-                source={
-                    "kind": YOUTUBE_PLAYLIST_KIND,
-                    "name": "Channel",
-                    "url": "https://www.youtube.com/@example",
-                    "config": {},
-                },
-                idempotency_key="source_youtube@sha256:invalid",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert invalid.status == "failed"
-        assert invalid.errors[0].code == "unsupported_source_config"
-        assert "channel" in invalid.errors[0].message
-    finally:
-        invalid_project.close()
+    invalid_project = make_project("Invalid")
+    invalid = run_action_spec(
+        invalid_project,
+        _source_poll_action(
+            source={
+                "kind": YOUTUBE_PLAYLIST_KIND,
+                "name": "Channel",
+                "url": "https://www.youtube.com/@example",
+                "config": {},
+            },
+            idempotency_key="source_youtube@sha256:invalid",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert invalid.status == "failed"
+    assert invalid.errors[0].code == "unsupported_source_config"
+    assert "channel" in invalid.errors[0].message
 
     capped_provider = FakeYouTubeProvider(
         [
@@ -534,39 +516,34 @@ def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
         YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=capped_provider),
         replace=True,
     )
-    capped_project = Project.create(tmp_path / "capped.frisket", name="Capped")
-    try:
-        capped = run_action_spec(
-            capped_project,
-            _source_poll_action(
-                source=_youtube_source(
-                    {"max_pages_per_poll": 1, "max_items_per_poll": 2}
-                ),
-                idempotency_key="source_youtube@sha256:capped",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert capped.status == "completed"
-        assert capped_provider.calls[0]["max_pages"] == 1
-        assert capped_provider.calls[0]["item_cap"] == 2
-        run_ref = next(
-            output.ref for output in capped.outputs if output.kind == "source_run"
-        )
-        assert run_ref["new_rows"] == 2
-        assert run_ref["warning_count"] == 1
-        source_run = capped_project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (run_ref["source_run_id"],),
-        ).fetchone()
-        cursor = json.loads(source_run["cursor_after"])
-        assert cursor["item_cap"] == 2
-        assert cursor["max_pages_per_poll"] == 1
-        assert cursor["truncated"] is True
-        assert _receipt(capped_project, capped.receipt_id)["warnings"] == [
-            "youtube_playlist item cap reached; limited to 2 items"
-        ]
-    finally:
-        capped_project.close()
+    capped_project = make_project("Capped")
+    capped = run_action_spec(
+        capped_project,
+        _source_poll_action(
+            source=_youtube_source({"max_pages_per_poll": 1, "max_items_per_poll": 2}),
+            idempotency_key="source_youtube@sha256:capped",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert capped.status == "completed"
+    assert capped_provider.calls[0]["max_pages"] == 1
+    assert capped_provider.calls[0]["item_cap"] == 2
+    run_ref = next(
+        output.ref for output in capped.outputs if output.kind == "source_run"
+    )
+    assert run_ref["new_rows"] == 2
+    assert run_ref["warning_count"] == 1
+    source_run = capped_project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (run_ref["source_run_id"],),
+    ).fetchone()
+    cursor = json.loads(source_run["cursor_after"])
+    assert cursor["item_cap"] == 2
+    assert cursor["max_pages_per_poll"] == 1
+    assert cursor["truncated"] is True
+    assert _receipt(capped_project, capped.receipt_id)["warnings"] == [
+        "youtube_playlist item cap reached; limited to 2 items"
+    ]
 
     def failing_provider(*_args: Any, **_kwargs: Any) -> YouTubePlaylistListing:
         raise RuntimeError(
@@ -577,37 +554,34 @@ def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
         YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=failing_provider),
         replace=True,
     )
-    failed_project = Project.create(tmp_path / "failed.frisket", name="Failed")
-    try:
-        source_id = SourceStore(failed_project).add_source(
-            name="Failing Playlist",
-            kind=YOUTUBE_PLAYLIST_KIND,
-            url=f"https://www.youtube.com/playlist?list={PLAYLIST_ID}",
-            config={"playlist_id": PLAYLIST_ID},
-        )
-        failed = run_action_spec(
-            failed_project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_youtube@sha256:provider-failed",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert failed.status == "failed"
-        assert failed.receipt_id is not None
-        assert failed.errors[0].code == "source_poll_failed"
-        assert "SECRET" not in failed.errors[0].message
-        assert "abc123" not in failed.errors[0].message
-        source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
-        assert source_run["status"] == "error"
-        assert "SECRET" not in source_run["error"]
-        assert "abc123" not in source_run["error"]
-        receipt = _receipt(failed_project, failed.receipt_id)
-        assert receipt["status"] == "failed"
-        assert "SECRET" not in receipt["errors"][0]["message"]
-        assert "abc123" not in receipt["errors"][0]["message"]
-    finally:
-        failed_project.close()
+    failed_project = make_project("Failed")
+    source_id = SourceStore(failed_project).add_source(
+        name="Failing Playlist",
+        kind=YOUTUBE_PLAYLIST_KIND,
+        url=f"https://www.youtube.com/playlist?list={PLAYLIST_ID}",
+        config={"playlist_id": PLAYLIST_ID},
+    )
+    failed = run_action_spec(
+        failed_project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_youtube@sha256:provider-failed",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert failed.status == "failed"
+    assert failed.receipt_id is not None
+    assert failed.errors[0].code == "source_poll_failed"
+    assert "SECRET" not in failed.errors[0].message
+    assert "abc123" not in failed.errors[0].message
+    source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
+    assert source_run["status"] == "error"
+    assert "SECRET" not in source_run["error"]
+    assert "abc123" not in source_run["error"]
+    receipt = _receipt(failed_project, failed.receipt_id)
+    assert receipt["status"] == "failed"
+    assert "SECRET" not in receipt["errors"][0]["message"]
+    assert "abc123" not in receipt["errors"][0]["message"]
 
 
 def test_youtube_playlist_scheduled_source_dispatches_generic_source_poll(

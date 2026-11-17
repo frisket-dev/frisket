@@ -330,66 +330,58 @@ def test_evidence_counts_match_multi_row_expectations(
 
 
 def test_inline_text_input_writes_text_artifact_kind(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(
-        tmp_path / "to-markdown-text-input.frisket",
-        name="Inline text input",
+    project = make_project("Inline text input")
+    sheet_id = project.add_sheet("Pages")
+    cols = {
+        "title": project.add_column(sheet_id, "title", type="text"),
+        "raw_html": project.add_column(sheet_id, "raw_html", type="text"),
+    }
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"title": "Inline", "raw_html": "<html><body><h1>Hi</h1></body></html>"}],
+        cols,
     )
-    try:
-        sheet_id = project.add_sheet("Pages")
-        cols = {
-            "title": project.add_column(sheet_id, "title", type="text"),
-            "raw_html": project.add_column(sheet_id, "raw_html", type="text"),
-        }
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"title": "Inline", "raw_html": "<html><body><h1>Hi</h1></body></html>"}],
-            cols,
-        )
 
-        async def fake_convert(
-            self: _BoundDocumentConverter, path: Path, scratch: Path
-        ) -> str:
-            del self, scratch, path
-            return "# Hi"
+    async def fake_convert(
+        self: _BoundDocumentConverter, path: Path, scratch: Path
+    ) -> str:
+        del self, scratch, path
+        return "# Hi"
 
-        monkeypatch.setattr(
-            _BoundDocumentConverter, "_convert_markitdown", fake_convert
-        )
-        result = run_action_spec(
-            project,
-            _to_markdown_action(
-                sheet_id=sheet_id,
-                row_ids=row_ids,
-                input_columns=["raw_html"],
-                idempotency_key="media_to_markdown@sha256:inline-text",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-
-        markdown_column_id = _markdown_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
-            project,
+    monkeypatch.setattr(_BoundDocumentConverter, "_convert_markitdown", fake_convert)
+    result = run_action_spec(
+        project,
+        _to_markdown_action(
             sheet_id=sheet_id,
-            row_id=row_ids[0],
-            column_id=markdown_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert len(cell_evidence["links"]) == 1
-        viewer = resolve_evidence_viewer(
-            project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
-        )
-        artifact = viewer["artifacts"][0]
-        assert artifact["artifact_kind"] == "text"
-        assert artifact["artifact_ref"]["blob"] is None
-        span = artifact["spans"][0]
-        assert span["span_kind"] == "whole"
-        assert span["quote"] is None
-        assert span["text_layer_hash"] is None
-    finally:
-        project.close()
+            row_ids=row_ids,
+            input_columns=["raw_html"],
+            idempotency_key="media_to_markdown@sha256:inline-text",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+
+    markdown_column_id = _markdown_column_id(project, sheet_id)
+    cell_evidence = list_cell_evidence(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_ids[0],
+        column_id=markdown_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert len(cell_evidence["links"]) == 1
+    viewer = resolve_evidence_viewer(
+        project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
+    )
+    artifact = viewer["artifacts"][0]
+    assert artifact["artifact_kind"] == "text"
+    assert artifact["artifact_ref"]["blob"] is None
+    span = artifact["spans"][0]
+    assert span["span_kind"] == "whole"
+    assert span["quote"] is None
+    assert span["text_layer_hash"] is None
 
 
 def test_replay_does_not_duplicate_evidence(

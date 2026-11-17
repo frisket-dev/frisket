@@ -143,58 +143,54 @@ def test_legacy_json_reserializes_only_when_unicode_needs_repair() -> None:
     assert decode_stored_value(value_kind, stored) == {"key�": ["value�", "😀"]}
 
 
-def test_forward_writes_repair_surrogates_and_remain_searchable(tmp_path) -> None:
+def test_forward_writes_repair_surrogates_and_remain_searchable(make_project) -> None:
     value = "prefix\ud800suffix"
-    project = Project.create(tmp_path / "surrogate.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "text", type="text")
+    project = make_project("surrogate")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "text", type="text")
 
-        bad_row, edit_row, ordinary_row = project.add_rows(
-            sheet_id,
-            [
-                {"text": value},
-                {"text": "before edit"},
-                {"text": "ordinaryneedle"},
-            ],
-            {"text": column_id},
-        )
-        project.apply_edits(
-            [{"row_id": edit_row, "column_id": column_id, "value": "edit\udc00text"}]
-        )
+    bad_row, edit_row, ordinary_row = project.add_rows(
+        sheet_id,
+        [
+            {"text": value},
+            {"text": "before edit"},
+            {"text": "ordinaryneedle"},
+        ],
+        {"text": column_id},
+    )
+    project.apply_edits(
+        [{"row_id": edit_row, "column_id": column_id, "value": "edit\udc00text"}]
+    )
 
-        assert project.get_values(sheet_id, column_id) == {
-            bad_row: "prefix�suffix",
-            edit_row: "edit�text",
-            ordinary_row: "ordinaryneedle",
-        }
-        stored = project.db.execute(
-            "SELECT value_kind,value,typeof(value) FROM cells "
-            "WHERE row_id=? AND column_id=?",
-            (bad_row, column_id),
-        ).fetchone()
-        assert stored[:] == ("text", "prefix�suffix", "text")
-        stored_edit = project.db.execute(
-            "SELECT value_kind,value,typeof(value) FROM edits "
-            "WHERE row_id=? AND column_id=?",
-            (edit_row, column_id),
-        ).fetchone()
-        assert stored_edit[:] == ("text", "edit�text", "text")
+    assert project.get_values(sheet_id, column_id) == {
+        bad_row: "prefix�suffix",
+        edit_row: "edit�text",
+        ordinary_row: "ordinaryneedle",
+    }
+    stored = project.db.execute(
+        "SELECT value_kind,value,typeof(value) FROM cells "
+        "WHERE row_id=? AND column_id=?",
+        (bad_row, column_id),
+    ).fetchone()
+    assert stored[:] == ("text", "prefix�suffix", "text")
+    stored_edit = project.db.execute(
+        "SELECT value_kind,value,typeof(value) FROM edits "
+        "WHERE row_id=? AND column_id=?",
+        (edit_row, column_id),
+    ).fetchone()
+    assert stored_edit[:] == ("text", "edit�text", "text")
 
-        drain_index(project)
-        assert not index_needs_work(project)
-        assert [
-            hit["row_id"] for hit in search_project(project, "prefix", rerank="off")
-        ] == [bad_row]
-        assert [
-            hit["row_id"] for hit in search_project(project, "edit", rerank="off")
-        ] == [edit_row]
-        assert [
-            hit["row_id"]
-            for hit in search_project(project, "ordinaryneedle", rerank="off")
-        ] == [ordinary_row]
-    finally:
-        project.close()
+    drain_index(project)
+    assert not index_needs_work(project)
+    assert [
+        hit["row_id"] for hit in search_project(project, "prefix", rerank="off")
+    ] == [bad_row]
+    assert [hit["row_id"] for hit in search_project(project, "edit", rerank="off")] == [
+        edit_row
+    ]
+    assert [
+        hit["row_id"] for hit in search_project(project, "ordinaryneedle", rerank="off")
+    ] == [ordinary_row]
 
 
 def test_typed_migration_repairs_surrogate_in_every_authority(tmp_path) -> None:

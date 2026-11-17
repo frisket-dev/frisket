@@ -344,13 +344,12 @@ def test_parakeet_worker_owns_cpu_provider_and_lean_init_frame(tmp_path, monkeyp
     assert frame["vad"] is True
 
 
-def test_transcribe_run_provenance_names_the_engine_not_a_stale_llm_model(tmp_path):
+def test_transcribe_run_provenance_names_the_engine_not_a_stale_llm_model(make_project):
     # A transcribe run's `model` provenance must be the engine (parakeet /
     # faster_whisper), never the leftover default LLM model the spec still
     # carries — transcription is not an LLM call.
-    from frisket.engine.store import Project
 
-    project = Project.create(tmp_path / "provenance.frisket")
+    project = make_project("provenance")
     sheet = project.add_sheet("Audio")
     project.add_column(sheet, "audio", type="audio")
     plan = _transcribe_plan(project, sheet, engine="parakeet-tdt")
@@ -1124,7 +1123,9 @@ def _multipart_filename(body: bytes) -> str | None:
     return match.group(1) if match else None
 
 
-def test_remote_engine_names_the_upload_from_the_media_row(tmp_path, monkeypatch):
+def test_remote_engine_names_the_upload_from_the_media_row(
+    tmp_path, make_project, monkeypatch
+):
     """whisper-1 answered "Unrecognized file format" on a standard PCM WAV.
 
     A blob-backed media row materializes at its CONTENT-ADDRESSED path --
@@ -1153,48 +1154,44 @@ def test_remote_engine_names_the_upload_from_the_media_row(tmp_path, monkeypatch
             200, json={"text": "hi", "language": "en", "duration": 0.5, "segments": []}
         )
 
-    from frisket.engine.store import Project
     from frisket.engine.store.media_blobs import MediaBlobStore
 
-    project = Project.create(tmp_path / "p.frisket", name="P")
-    try:
-        digest = project.add_blob(
-            _wav(tmp_path / "interview.wav").read_bytes(),
-            filename="interview.wav",
-            mime="audio/wav",
-        )
-        cell = MediaBlobStore(project).media_cell(
-            digest, mime="audio/wav", filename="interview.wav"
-        )
-        # The path really is the extensionless digest -- the precondition the
-        # defect turned on.
-        with project.materialize_blob(digest) as materialized:
-            assert Path(materialized).suffix == ""
+    project = make_project("P")
+    digest = project.add_blob(
+        _wav(tmp_path / "interview.wav").read_bytes(),
+        filename="interview.wav",
+        mime="audio/wav",
+    )
+    cell = MediaBlobStore(project).media_cell(
+        digest, mime="audio/wav", filename="interview.wav"
+    )
+    # The path really is the extensionless digest -- the precondition the
+    # defect turned on.
+    with project.materialize_blob(digest) as materialized:
+        assert Path(materialized).suffix == ""
 
-        ctx = OpContext(
-            project=project,
-            http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-            extras={"router": router, "preview": True, "cancelled": lambda: False},
-        )
-        with project.materialize_blob(digest) as path:
-            asyncio.run(
-                transcribe_engines.run_transcription_engine(
-                    "openai/whisper-1",
-                    str(path),
-                    {},
-                    ctx,
-                    transport="remote",
-                    media=cell,
-                )
+    ctx = OpContext(
+        project=project,
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        extras={"router": router, "preview": True, "cancelled": lambda: False},
+    )
+    with project.materialize_blob(digest) as path:
+        asyncio.run(
+            transcribe_engines.run_transcription_engine(
+                "openai/whisper-1",
+                str(path),
+                {},
+                ctx,
+                transport="remote",
+                media=cell,
             )
-    finally:
-        project.close()
+        )
 
     assert seen["sent_audio"] is True
     assert seen["filename"] == "interview.wav"
 
 
-def test_remote_engine_upload_suffix_follows_the_media_mime(tmp_path, monkeypatch):
+def test_remote_engine_upload_suffix_follows_the_media_mime(make_project, monkeypatch):
     """The suffix is never hardcoded `.wav`: announcing an mp3 as a WAV just
     trades an unrecognized-format error for a decode error further in. A cell
     with no filename still gets an honest extension, derived from its mime."""
@@ -1214,31 +1211,27 @@ def test_remote_engine_upload_suffix_follows_the_media_mime(tmp_path, monkeypatc
             200, json={"text": "hi", "language": "en", "duration": 0.5, "segments": []}
         )
 
-    from frisket.engine.store import Project
     from frisket.engine.store.media_blobs import MediaBlobStore
 
-    project = Project.create(tmp_path / "p.frisket", name="P")
-    try:
-        digest = project.add_blob(b"ID3fake-mp3-bytes", mime="audio/mpeg")
-        cell = MediaBlobStore(project).media_cell(digest, mime="audio/mpeg")
-        ctx = OpContext(
-            project=project,
-            http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
-            extras={"router": router, "preview": True, "cancelled": lambda: False},
-        )
-        with project.materialize_blob(digest) as path:
-            asyncio.run(
-                transcribe_engines.run_transcription_engine(
-                    "openai/whisper-1",
-                    str(path),
-                    {},
-                    ctx,
-                    transport="remote",
-                    media=cell,
-                )
+    project = make_project("P")
+    digest = project.add_blob(b"ID3fake-mp3-bytes", mime="audio/mpeg")
+    cell = MediaBlobStore(project).media_cell(digest, mime="audio/mpeg")
+    ctx = OpContext(
+        project=project,
+        http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        extras={"router": router, "preview": True, "cancelled": lambda: False},
+    )
+    with project.materialize_blob(digest) as path:
+        asyncio.run(
+            transcribe_engines.run_transcription_engine(
+                "openai/whisper-1",
+                str(path),
+                {},
+                ctx,
+                transport="remote",
+                media=cell,
             )
-    finally:
-        project.close()
+        )
 
     assert seen["filename"] == "audio.mp3"
     # ...and the part declares the row's own container type, not a blanket
@@ -1548,12 +1541,11 @@ def test_parakeet_engine_runs_locally(tmp_path):
 @pytest.mark.skipif(
     shutil.which("say") is None, reason="speech synthesis needs macOS `say`"
 )
-def test_parakeet_transcribes_speech_end_to_end(tmp_path):
+def test_parakeet_transcribes_speech_end_to_end(tmp_path, make_project):
     """Full runner path: spec.engine='parakeet-tdt' switches the backend and the
     transcript + word-level timestamped segments land in the sheet."""
     pytest.importorskip("onnx_asr")
     from frisket.engine.runner import MapRunner
-    from frisket.engine.store import Project
 
     wav = tmp_path / "speech.wav"
     subprocess.run(
@@ -1567,7 +1559,7 @@ def test_parakeet_transcribes_speech_end_to_end(tmp_path):
         check=True,
     )
 
-    p = Project.create(tmp_path / "t.frisket", name="t")
+    p = make_project("t")
     sheet = p.add_sheet("data")
     cols = {"audio": p.add_column(sheet, "audio", type="audio")}
     p.add_rows(sheet, [{"audio": str(wav)}], cols)

@@ -182,45 +182,40 @@ def test_sparse_head_rebuild_work_does_not_scale_with_unrelated_history() -> Non
 
 
 def test_plain_source_and_output_edit_undo_redo_skip_review_recount(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "plain-edits.frisket", name="Edits")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        source_id = project.add_column(sheet_id, "source")
-        output_id = project.add_column(
-            sheet_id, "output", type="text", ai_generated=True
-        )
-        project.add_rows(sheet_id, [{"source": "before"}], {"source": source_id})
-        row_id = int(
-            project.db.execute(
-                "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
-            ).fetchone()[0]
-        )
-        edit_op_id = project.apply_edits(
-            [
-                {"row_id": row_id, "column_id": source_id, "value": "after"},
-                {"row_id": row_id, "column_id": output_id, "value": "manual"},
-            ]
-        )
-        refresh_calls = 0
+    project = make_project("Edits")
+    sheet_id = project.add_sheet("Rows")
+    source_id = project.add_column(sheet_id, "source")
+    output_id = project.add_column(sheet_id, "output", type="text", ai_generated=True)
+    project.add_rows(sheet_id, [{"source": "before"}], {"source": source_id})
+    row_id = int(
+        project.db.execute(
+            "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
+        ).fetchone()[0]
+    )
+    edit_op_id = project.apply_edits(
+        [
+            {"row_id": row_id, "column_id": source_id, "value": "after"},
+            {"row_id": row_id, "column_id": output_id, "value": "manual"},
+        ]
+    )
+    refresh_calls = 0
 
-        def count_refresh(_project: Project) -> int:
-            nonlocal refresh_calls
-            refresh_calls += 1
-            return 0
+    def count_refresh(_project: Project) -> int:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        return 0
 
-        monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
+    monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
 
-        assert project.undo() == edit_op_id
-        assert project.get_values(sheet_id, source_id) == {row_id: "before"}
-        assert project.get_values(sheet_id, output_id) == {row_id: None}
-        assert project.redo() == edit_op_id
-        assert project.get_values(sheet_id, source_id) == {row_id: "after"}
-        assert project.get_values(sheet_id, output_id) == {row_id: "manual"}
-        assert refresh_calls == 0
-    finally:
-        project.close()
+    assert project.undo() == edit_op_id
+    assert project.get_values(sheet_id, source_id) == {row_id: "before"}
+    assert project.get_values(sheet_id, output_id) == {row_id: None}
+    assert project.redo() == edit_op_id
+    assert project.get_values(sheet_id, source_id) == {row_id: "after"}
+    assert project.get_values(sheet_id, output_id) == {row_id: "manual"}
+    assert refresh_calls == 0
 
 
 @pytest.mark.parametrize(
@@ -233,93 +228,89 @@ def test_plain_source_and_output_edit_undo_redo_skip_review_recount(
     ids=["review-state", "visibility", "result-identity"],
 )
 def test_unknown_edit_transition_metadata_keeps_review_recount(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, transition_metadata: dict[str, object]
+    make_project,
+    monkeypatch: pytest.MonkeyPatch,
+    transition_metadata: dict[str, object],
 ) -> None:
-    project = Project.create(tmp_path / "guarded-edit.frisket", name="Guarded edit")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "source")
-        project.add_rows(sheet_id, [{"source": "before"}], {"source": column_id})
-        row_id = int(
-            project.db.execute(
-                "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
-            ).fetchone()[0]
-        )
-        edit_op_id = project.apply_edits(
-            [{"row_id": row_id, "column_id": column_id, "value": "after"}]
-        )
+    project = make_project("Guarded edit")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "source")
+    project.add_rows(sheet_id, [{"source": "before"}], {"source": column_id})
+    row_id = int(
         project.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?",
-            (json.dumps(transition_metadata), edit_op_id),
-        )
-        project.db.commit()
-        refresh_calls = 0
+            "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
+        ).fetchone()[0]
+    )
+    edit_op_id = project.apply_edits(
+        [{"row_id": row_id, "column_id": column_id, "value": "after"}]
+    )
+    project.db.execute(
+        "UPDATE ops SET undo_info=? WHERE id=?",
+        (json.dumps(transition_metadata), edit_op_id),
+    )
+    project.db.commit()
+    refresh_calls = 0
 
-        def count_refresh(_project: Project) -> int:
-            nonlocal refresh_calls
-            refresh_calls += 1
-            return 0
+    def count_refresh(_project: Project) -> int:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        return 0
 
-        monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
+    monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
 
-        assert project.undo() == edit_op_id
-        assert project.redo() == edit_op_id
-        assert refresh_calls == 2
-    finally:
-        project.close()
+    assert project.undo() == edit_op_id
+    assert project.redo() == edit_op_id
+    assert refresh_calls == 2
 
 
 def test_edit_operation_with_generation_metadata_keeps_review_recount(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "generation-edit.frisket", name="Generation")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "source")
-        project.add_rows(sheet_id, [{"source": "before"}], {"source": column_id})
-        row_id = int(
-            project.db.execute(
-                "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
-            ).fetchone()[0]
-        )
-        edit_op_id = project.apply_edits(
-            [{"row_id": row_id, "column_id": column_id, "value": "after"}]
-        )
-        run_id = int(
-            project.db.execute(
-                "INSERT INTO runs (op_id,sheet_id,action_kind) VALUES (?,?,?)",
-                (edit_op_id, sheet_id, "map.test"),
-            ).lastrowid
-        )
+    project = make_project("Generation")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "source")
+    project.add_rows(sheet_id, [{"source": "before"}], {"source": column_id})
+    row_id = int(
         project.db.execute(
-            "INSERT INTO run_output_generations "
-            "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
-            "VALUES (?,?,'value','text-v1','create','active','claim-test',?)",
-            (
-                run_id,
-                column_id,
-                json.dumps(
-                    {
-                        "column_type": "text",
-                        "schema": {},
-                        "format": None,
-                        "semantic_type": None,
-                    }
-                ),
+            "SELECT id FROM rows WHERE sheet_id=?", (sheet_id,)
+        ).fetchone()[0]
+    )
+    edit_op_id = project.apply_edits(
+        [{"row_id": row_id, "column_id": column_id, "value": "after"}]
+    )
+    run_id = int(
+        project.db.execute(
+            "INSERT INTO runs (op_id,sheet_id,action_kind) VALUES (?,?,?)",
+            (edit_op_id, sheet_id, "map.test"),
+        ).lastrowid
+    )
+    project.db.execute(
+        "INSERT INTO run_output_generations "
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
+        "VALUES (?,?,'value','text-v1','create','active','claim-test',?)",
+        (
+            run_id,
+            column_id,
+            json.dumps(
+                {
+                    "column_type": "text",
+                    "schema": {},
+                    "format": None,
+                    "semantic_type": None,
+                }
             ),
-        )
-        project.db.commit()
-        refresh_calls = 0
+        ),
+    )
+    project.db.commit()
+    refresh_calls = 0
 
-        def count_refresh(_project: Project) -> int:
-            nonlocal refresh_calls
-            refresh_calls += 1
-            return 0
+    def count_refresh(_project: Project) -> int:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        return 0
 
-        monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
+    monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
 
-        assert project.undo() == edit_op_id
-        assert project.redo() == edit_op_id
-        assert refresh_calls == 2
-    finally:
-        project.close()
+    assert project.undo() == edit_op_id
+    assert project.redo() == edit_op_id
+    assert refresh_calls == 2

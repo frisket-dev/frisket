@@ -26,7 +26,6 @@ from frisket.sdk.ops.transcribe_engines import (
 )
 from frisket.sdk.ops.transcription.common import _segment_with_speaker
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.engine.store import Project
 from helpers import stub_parakeet_run_scope
 from frisket.engine.store.evidence import resolve_evidence_viewer
 
@@ -319,202 +318,194 @@ def test_parakeet_default_vad_true_stays_segment_level_no_words(
 
 
 def test_evidence_writer_stores_ms_normalized_words_in_selector(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.media_blobs import media_cell
     from frisket.engine.store.evidence import list_cell_evidence
 
-    project = Project.create(tmp_path / "word-capture-evidence.frisket")
-    try:
-        sheet_id = project.add_sheet("Episodes")
-        cols = {
-            "title": project.add_column(sheet_id, "title", type="text"),
-            "media": project.add_column(sheet_id, "media", type="audio"),
-        }
-        blob = project.add_blob(
-            b"RIFF0000WAVEfmt words",
-            filename="a.wav",
-            mime="audio/wav",
-            metadata=owned_media_metadata_document(
-                probe={"duration_seconds": 1.0, "kind": "audio"}
-            ),
-        )
-        row_id = project.add_rows(
-            sheet_id,
-            [
+    project = make_project("word-capture-evidence")
+    sheet_id = project.add_sheet("Episodes")
+    cols = {
+        "title": project.add_column(sheet_id, "title", type="text"),
+        "media": project.add_column(sheet_id, "media", type="audio"),
+    }
+    blob = project.add_blob(
+        b"RIFF0000WAVEfmt words",
+        filename="a.wav",
+        mime="audio/wav",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": 1.0, "kind": "audio"}
+        ),
+    )
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "title": "Episode A",
+                "media": media_cell(blob, mime="audio/wav", filename="a.wav"),
+            }
+        ],
+        cols,
+    )[0]
+
+    async def fake_faster_whisper(self, path, spec, *, should_cancel=None):
+        del self, spec, path
+        return {
+            "text": "hi there",
+            "segments": [
                 {
-                    "title": "Episode A",
-                    "media": media_cell(blob, mime="audio/wav", filename="a.wav"),
+                    "start": 0.0,
+                    "end": 0.6,
+                    "text": "hi there",
+                    "words": [
+                        {"word": "hi", "start": 0.0, "end": 0.3},
+                        {"word": "there", "start": 0.3, "end": 0.6},
+                    ],
                 }
             ],
-            cols,
-        )[0]
+            "language": "en",
+            "duration": 0.6,
+        }
 
-        async def fake_faster_whisper(self, path, spec, *, should_cancel=None):
-            del self, spec, path
-            return {
-                "text": "hi there",
-                "segments": [
-                    {
-                        "start": 0.0,
-                        "end": 0.6,
-                        "text": "hi there",
-                        "words": [
-                            {"word": "hi", "start": 0.0, "end": 0.3},
-                            {"word": "there", "start": 0.3, "end": 0.6},
-                        ],
-                    }
-                ],
-                "language": "en",
-                "duration": 0.6,
-            }
-
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter, "transcribe", fake_faster_whisper
-        )
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "media.transcribe",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": sheet_id,
-                    "row_ids": [row_id],
-                },
-                "output_names": {
-                    "text": "transcript",
-                    "segments": "transcript_segments",
-                },
-                "params": {
-                    "source": "media",
-                    "engine": "faster_whisper",
-                },
-                "idempotency_key": "media_transcribe@sha256:word-capture",
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter, "transcribe", fake_faster_whisper
+    )
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "media.transcribe",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": [row_id],
             },
-            project_id="project-word-capture-evidence",
-        )
-        assert result.status == "completed", result.errors
+            "output_names": {
+                "text": "transcript",
+                "segments": "transcript_segments",
+            },
+            "params": {
+                "source": "media",
+                "engine": "faster_whisper",
+            },
+            "idempotency_key": "media_transcribe@sha256:word-capture",
+        },
+        project_id="project-word-capture-evidence",
+    )
+    assert result.status == "completed", result.errors
 
-        transcript_column_id = next(
-            c["id"] for c in project.columns(sheet_id) if c["name"] == "transcript"
-        )
-        cell_evidence = list_cell_evidence(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=transcript_column_id,
-            project_id="project-word-capture-evidence",
-        )
-        (link,) = cell_evidence["links"]
-        viewer = resolve_evidence_viewer(
-            project, link["stable_id"], project_id="project-word-capture-evidence"
-        )
-        (artifact,) = viewer["artifacts"]
-        (span,) = artifact["spans"]
-        assert span["selector"]["temporal"]["words"] == [
-            {"word": "hi", "start_ms": 0, "end_ms": 300},
-            {"word": "there", "start_ms": 300, "end_ms": 600},
-        ]
-        assert span["selector"]["temporal"]["segment_index"] == 0
-    finally:
-        project.close()
+    transcript_column_id = next(
+        c["id"] for c in project.columns(sheet_id) if c["name"] == "transcript"
+    )
+    cell_evidence = list_cell_evidence(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=transcript_column_id,
+        project_id="project-word-capture-evidence",
+    )
+    (link,) = cell_evidence["links"]
+    viewer = resolve_evidence_viewer(
+        project, link["stable_id"], project_id="project-word-capture-evidence"
+    )
+    (artifact,) = viewer["artifacts"]
+    (span,) = artifact["spans"]
+    assert span["selector"]["temporal"]["words"] == [
+        {"word": "hi", "start_ms": 0, "end_ms": 300},
+        {"word": "there", "start_ms": 300, "end_ms": 600},
+    ]
+    assert span["selector"]["temporal"]["segment_index"] == 0
 
 
 def test_evidence_writer_omits_words_when_segment_carries_none(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.media_blobs import media_cell
     from frisket.engine.store.evidence import list_cell_evidence
 
-    project = Project.create(tmp_path / "word-capture-absent.frisket")
-    try:
-        sheet_id = project.add_sheet("Episodes")
-        cols = {
-            "title": project.add_column(sheet_id, "title", type="text"),
-            "media": project.add_column(sheet_id, "media", type="audio"),
-        }
-        blob = project.add_blob(
-            b"RIFF0000WAVEfmt nowords",
-            filename="a.wav",
-            mime="audio/wav",
-            metadata=owned_media_metadata_document(
-                probe={"duration_seconds": 1.0, "kind": "audio"}
-            ),
-        )
-        row_id = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "title": "Episode A",
-                    "media": media_cell(blob, mime="audio/wav", filename="a.wav"),
-                }
-            ],
-            cols,
-        )[0]
-
-        async def fake_parakeet(self, path, spec, *, should_cancel=None):
-            del self, spec, path
-            return {
-                "text": "hi there",
-                "segments": [{"start": 0.0, "end": 0.6, "text": "hi there"}],
-                "language": "en",
-            }
-
-        monkeypatch.setattr(
-            transcribe_engines.ParakeetAdapter, "transcribe", fake_parakeet
-        )
-        stub_parakeet_run_scope(monkeypatch)
-        # Local-onnx liveness is artifact-checked at resolution
-        # (no_live_target refusal otherwise); this test fakes the engine, so
-        # fake the artifact presence probe too.
-        monkeypatch.setattr(
-            "frisket.execution.definitions.parakeet_artifacts_present",
-            lambda: True,
-        )
-        monkeypatch.setattr(
-            "frisket.execution.definitions.parakeet_runtime_present", lambda: True
-        )
-        result = run_action_spec(
-            project,
+    project = make_project("word-capture-absent")
+    sheet_id = project.add_sheet("Episodes")
+    cols = {
+        "title": project.add_column(sheet_id, "title", type="text"),
+        "media": project.add_column(sheet_id, "media", type="audio"),
+    }
+    blob = project.add_blob(
+        b"RIFF0000WAVEfmt nowords",
+        filename="a.wav",
+        mime="audio/wav",
+        metadata=owned_media_metadata_document(
+            probe={"duration_seconds": 1.0, "kind": "audio"}
+        ),
+    )
+    row_id = project.add_rows(
+        sheet_id,
+        [
             {
-                "action_id": "media.transcribe",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": sheet_id,
-                    "row_ids": [row_id],
-                },
-                "output_names": {
-                    "text": "transcript",
-                    "segments": "transcript_segments",
-                },
-                "params": {
-                    "source": "media",
-                    "engine": "parakeet-tdt",
-                },
-                "idempotency_key": "media_transcribe@sha256:word-capture-absent",
-            },
-            project_id="project-word-capture-absent",
-        )
-        assert result.status == "completed", result.errors
+                "title": "Episode A",
+                "media": media_cell(blob, mime="audio/wav", filename="a.wav"),
+            }
+        ],
+        cols,
+    )[0]
 
-        transcript_column_id = next(
-            c["id"] for c in project.columns(sheet_id) if c["name"] == "transcript"
-        )
-        cell_evidence = list_cell_evidence(
-            project,
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=transcript_column_id,
-            project_id="project-word-capture-absent",
-        )
-        (link,) = cell_evidence["links"]
-        viewer = resolve_evidence_viewer(
-            project, link["stable_id"], project_id="project-word-capture-absent"
-        )
-        (artifact,) = viewer["artifacts"]
-        (span,) = artifact["spans"]
-        assert "words" not in span["selector"]["temporal"]
-    finally:
-        project.close()
+    async def fake_parakeet(self, path, spec, *, should_cancel=None):
+        del self, spec, path
+        return {
+            "text": "hi there",
+            "segments": [{"start": 0.0, "end": 0.6, "text": "hi there"}],
+            "language": "en",
+        }
+
+    monkeypatch.setattr(transcribe_engines.ParakeetAdapter, "transcribe", fake_parakeet)
+    stub_parakeet_run_scope(monkeypatch)
+    # Local-onnx liveness is artifact-checked at resolution
+    # (no_live_target refusal otherwise); this test fakes the engine, so
+    # fake the artifact presence probe too.
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_artifacts_present",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        "frisket.execution.definitions.parakeet_runtime_present", lambda: True
+    )
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "media.transcribe",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": [row_id],
+            },
+            "output_names": {
+                "text": "transcript",
+                "segments": "transcript_segments",
+            },
+            "params": {
+                "source": "media",
+                "engine": "parakeet-tdt",
+            },
+            "idempotency_key": "media_transcribe@sha256:word-capture-absent",
+        },
+        project_id="project-word-capture-absent",
+    )
+    assert result.status == "completed", result.errors
+
+    transcript_column_id = next(
+        c["id"] for c in project.columns(sheet_id) if c["name"] == "transcript"
+    )
+    cell_evidence = list_cell_evidence(
+        project,
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=transcript_column_id,
+        project_id="project-word-capture-absent",
+    )
+    (link,) = cell_evidence["links"]
+    viewer = resolve_evidence_viewer(
+        project, link["stable_id"], project_id="project-word-capture-absent"
+    )
+    (artifact,) = viewer["artifacts"]
+    (span,) = artifact["spans"]
+    assert "words" not in span["selector"]["temporal"]

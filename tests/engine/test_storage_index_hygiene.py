@@ -131,8 +131,8 @@ def _assert_legacy_source_item(db: sqlite3.Connection) -> None:
     db.rollback()
 
 
-def test_fresh_bundle_uses_constraint_and_composite_indexes(tmp_path) -> None:
-    project = Project.create(tmp_path / "fresh.frisket", name="Fresh")
+def test_fresh_bundle_uses_constraint_and_composite_indexes(make_project) -> None:
+    project = make_project("Fresh")
     _seed_ledgers(project)
 
     assert not (_index_names(project.db) & _REDUNDANT_INDEXES)

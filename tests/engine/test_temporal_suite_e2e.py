@@ -315,80 +315,246 @@ def _assert_projected_evidence(
 
 def test_extract_range_real_media_inherits_timeline_and_transcript(
     tmp_path: Path,
+    make_project,
 ) -> None:
     source_path = tmp_path / "three-scenes.mp4"
     _write_three_scene_video(source_path)
-    project = Project.create(tmp_path / "temporal-extract-e2e.frisket")
-    try:
-        seeded = _seed_project(project, source_path)
-        request = ActionRequest.model_validate(
-            {
-                "action_id": "temporal.extract_range",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": seeded.sheet_id,
-                    "row_ids": [seeded.row_id],
+    project = make_project("temporal-extract-e2e")
+    seeded = _seed_project(project, source_path)
+    request = ActionRequest.model_validate(
+        {
+            "action_id": "temporal.extract_range",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": seeded.sheet_id,
+                "row_ids": [seeded.row_id],
+            },
+            "params": {
+                "source": "video",
+                "selection": {
+                    "kind": "draft_range",
+                    "start_ms": 1_000,
+                    "end_ms": 2_000,
                 },
-                "params": {
-                    "source": "video",
-                    "selection": {
-                        "kind": "draft_range",
-                        "start_ms": 1_000,
-                        "end_ms": 2_000,
-                    },
-                },
-                "idempotency_key": "temporal-extract-real-e2e@sha256:v1",
-            }
-        )
-        result = run_typed_temporal_extract_action(
-            project,
-            "temporal-extract-real-e2e",
-            BoundTypedActionRequest.bind(
-                RegisteredAction("temporal.extract_range", EXTRACT_RANGE), request
-            ),
-        )
-
-        assert result.status == "completed", result.model_dump(mode="json")
-        by_name = {output.name: output for output in result.outputs}
-        assert set(by_name) == {
-            "clip",
-            "clip_transcript",
+            },
+            "idempotency_key": "temporal-extract-real-e2e@sha256:v1",
         }
-        clip = by_name["clip"]
-        clip_value = _value(
-            project, seeded.sheet_id, seeded.row_id, int(clip.column_id)
-        )
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        lineage = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "derived_temporal_artifact"
-        )
-        assert clip_value["blob"] == lineage["blob_hash"]
-        _assert_av_clip(project, clip_value["blob"], duration_ms=1_000)
+    )
+    result = run_typed_temporal_extract_action(
+        project,
+        "temporal-extract-real-e2e",
+        BoundTypedActionRequest.bind(
+            RegisteredAction("temporal.extract_range", EXTRACT_RANGE), request
+        ),
+    )
 
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM blob_derivations "
-                "WHERE derived_hash=? AND source_hash=? "
-                "AND op='ffmpeg_exact_temporal_splice'",
-                (clip_value["blob"], seeded.blob_hash),
-            ).fetchone()[0]
-            == 1
+    assert result.status == "completed", result.model_dump(mode="json")
+    by_name = {output.name: output for output in result.outputs}
+    assert set(by_name) == {
+        "clip",
+        "clip_transcript",
+    }
+    clip = by_name["clip"]
+    clip_value = _value(project, seeded.sheet_id, seeded.row_id, int(clip.column_id))
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    lineage = next(
+        item.ref
+        for item in receipt.evidence
+        if item.ref.get("kind") == "derived_temporal_artifact"
+    )
+    assert clip_value["blob"] == lineage["blob_hash"]
+    _assert_av_clip(project, clip_value["blob"], duration_ms=1_000)
+
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM blob_derivations "
+            "WHERE derived_hash=? AND source_hash=? "
+            "AND op='ffmpeg_exact_temporal_splice'",
+            (clip_value["blob"], seeded.blob_hash),
+        ).fetchone()[0]
+        == 1
+    )
+    derived_lease = resolve_timeline(
+        project,
+        sheet_id=seeded.sheet_id,
+        row_id=seeded.row_id,
+        column_id=int(clip.column_id),
+    )
+    mapping = project.db.execute(
+        "SELECT * FROM artifact_timeline_segments WHERE derived_artifact_id=?",
+        (derived_lease.anchor.artifact_id,),
+    ).fetchone()
+    assert mapping is not None
+    assert int(mapping["source_artifact_id"]) == seeded.lease.anchor.artifact_id
+    assert (
+        int(mapping["derived_start_ms"]),
+        int(mapping["derived_end_ms"]),
+        int(mapping["source_start_ms"]),
+        int(mapping["source_end_ms"]),
+        int(mapping["rate_num"]),
+        int(mapping["rate_den"]),
+    ) == (0, 1_000, 1_000, 2_000, 1, 1)
+
+    transcript = by_name["clip_transcript"]
+    transcript_type = project.db.execute(
+        "SELECT type FROM columns WHERE id=?", (transcript.column_id,)
+    ).fetchone()
+    assert transcript_type["type"] == "timestamped_transcript"
+    assert (
+        _value(
+            project,
+            seeded.sheet_id,
+            seeded.row_id,
+            int(transcript.column_id),
         )
+        == "Green scene."
+    )
+    resolved_transcript = resolve_timestamped_transcript(
+        project,
+        sheet_id=seeded.sheet_id,
+        row_id=seeded.row_id,
+        column_id=int(transcript.column_id),
+    )
+    assert resolved_transcript is not None
+    assert [
+        (span["start_ms"], span["end_ms"], span["quote"])
+        for span in resolved_transcript.spans
+    ] == [(0, 1_000, "Green scene.")]
+    _assert_projected_evidence(
+        project,
+        sheet_id=seeded.sheet_id,
+        row_id=seeded.row_id,
+        transcript_column_id=int(transcript.column_id),
+        derived_artifact_id=derived_lease.anchor.artifact_id,
+        expected_source_span_stable_id=seeded.source_span_stable_ids[1],
+        expected_source_link_stable_id=(seeded.source_evidence_link_stable_id),
+    )
+
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None and receipt.status == "completed"
+    assert {output.name for output in receipt.outputs} == set(by_name)
+    receipt_range = next(
+        item.ref["value"]["item"] for item in receipt.inputs if item.name == "selection"
+    )
+    assert re.fullmatch(r"tr_[0-9a-f]{64}", receipt_range["id"])
+    assert {
+        "start_ms": receipt_range["start_ms"],
+        "end_ms": receipt_range["end_ms"],
+        "metadata": receipt_range["metadata"],
+    } == {"start_ms": 1_000, "end_ms": 2_000, "metadata": {}}
+    assert any(
+        evidence.ref.get("kind") == "temporal_transcript_projection"
+        for evidence in receipt.evidence
+    )
+
+
+def test_split_real_media_creates_child_rows_with_inherited_provenance(
+    tmp_path: Path,
+    make_project,
+) -> None:
+    source_path = tmp_path / "three-scenes.mp4"
+    _write_three_scene_video(source_path)
+    project = make_project("temporal-split-e2e")
+    seeded = _seed_project(project, source_path)
+    request = ActionRequest.model_validate(
+        {
+            "action_id": "derive.temporal_segments",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": seeded.sheet_id,
+                "row_ids": [seeded.row_id],
+            },
+            "params": {
+                "source": "video",
+                "selection": {
+                    "kind": "draft_points",
+                    "items": [{"at_ms": 1_000}, {"at_ms": 2_000}],
+                },
+            },
+            "sheet_name": "Video segments",
+            "idempotency_key": "temporal-split-real-e2e@sha256:v1",
+        }
+    )
+    result = run_action_spec(
+        project,
+        request.model_dump(mode="json"),
+        project_id="temporal-split-real-e2e",
+    )
+
+    assert result.status == "completed", result.model_dump(mode="json")
+    sheet_output = next(output for output in result.outputs if output.kind == "sheet")
+    rows_output = next(output for output in result.outputs if output.kind == "rows")
+    child_sheet_id = int(sheet_output.sheet_id)
+    child_row_ids = list(rows_output.row_ids)
+    assert len(child_row_ids) == 3
+    child_rows = project.db.execute(
+        "SELECT id, parent_row_id FROM rows WHERE sheet_id=? "
+        "AND hidden=0 ORDER BY position",
+        (child_sheet_id,),
+    ).fetchall()
+    assert [int(row["id"]) for row in child_rows] == child_row_ids
+    assert [int(row["parent_row_id"]) for row in child_rows] == [
+        seeded.row_id,
+        seeded.row_id,
+        seeded.row_id,
+    ]
+
+    clip_column_id = _column_id(project, child_sheet_id, "clip")
+    range_column_id = _column_id(project, child_sheet_id, "source_range")
+    transcript_column_id = _column_id(project, child_sheet_id, "transcript")
+    column_types = {
+        str(row["name"]): str(row["type"]) for row in project.columns(child_sheet_id)
+    }
+    assert column_types == {
+        "clip": "video",
+        "source_range": "timeline_range",
+        "transcript": "timestamped_transcript",
+    }
+
+    expected_ranges = [(0, 1_000), (1_000, 2_000), (2_000, 3_000)]
+    expected_text = ["Red scene.", "Green scene.", "Blue scene."]
+    for index, (child_row_id, (start_ms, end_ms)) in enumerate(
+        zip(child_row_ids, expected_ranges, strict=True)
+    ):
+        clip_value = _value(project, child_sheet_id, child_row_id, clip_column_id)
+        _assert_av_clip(project, clip_value["blob"], duration_ms=1_000)
+        source_range = _value(project, child_sheet_id, child_row_id, range_column_id)
+        assert source_range["schema_version"] == "frisket.timeline_range.v1"
+        assert source_range["timeline"] == seeded.lease.anchor.wire_value()
+        assert (
+            source_range["item"]["start_ms"],
+            source_range["item"]["end_ms"],
+        ) == (start_ms, end_ms)
+
+        transcript_text = _value(
+            project, child_sheet_id, child_row_id, transcript_column_id
+        )
+        assert transcript_text == expected_text[index]
+        resolved_transcript = resolve_timestamped_transcript(
+            project,
+            sheet_id=child_sheet_id,
+            row_id=child_row_id,
+            column_id=transcript_column_id,
+        )
+        assert resolved_transcript is not None
+        assert [
+            (span["start_ms"], span["end_ms"], span["quote"])
+            for span in resolved_transcript.spans
+        ] == [(0, 1_000, expected_text[index])]
+
         derived_lease = resolve_timeline(
             project,
-            sheet_id=seeded.sheet_id,
-            row_id=seeded.row_id,
-            column_id=int(clip.column_id),
+            sheet_id=child_sheet_id,
+            row_id=child_row_id,
+            column_id=clip_column_id,
         )
         mapping = project.db.execute(
             "SELECT * FROM artifact_timeline_segments WHERE derived_artifact_id=?",
             (derived_lease.anchor.artifact_id,),
         ).fetchone()
         assert mapping is not None
-        assert int(mapping["source_artifact_id"]) == seeded.lease.anchor.artifact_id
+        assert int(mapping["source_artifact_id"]) == (seeded.lease.anchor.artifact_id)
         assert (
             int(mapping["derived_start_ms"]),
             int(mapping["derived_end_ms"]),
@@ -396,311 +562,124 @@ def test_extract_range_real_media_inherits_timeline_and_transcript(
             int(mapping["source_end_ms"]),
             int(mapping["rate_num"]),
             int(mapping["rate_den"]),
-        ) == (0, 1_000, 1_000, 2_000, 1, 1)
-
-        transcript = by_name["clip_transcript"]
-        transcript_type = project.db.execute(
-            "SELECT type FROM columns WHERE id=?", (transcript.column_id,)
-        ).fetchone()
-        assert transcript_type["type"] == "timestamped_transcript"
-        assert (
-            _value(
-                project,
-                seeded.sheet_id,
-                seeded.row_id,
-                int(transcript.column_id),
-            )
-            == "Green scene."
-        )
-        resolved_transcript = resolve_timestamped_transcript(
-            project,
-            sheet_id=seeded.sheet_id,
-            row_id=seeded.row_id,
-            column_id=int(transcript.column_id),
-        )
-        assert resolved_transcript is not None
-        assert [
-            (span["start_ms"], span["end_ms"], span["quote"])
-            for span in resolved_transcript.spans
-        ] == [(0, 1_000, "Green scene.")]
+        ) == (0, 1_000, start_ms, end_ms, 1, 1)
         _assert_projected_evidence(
             project,
-            sheet_id=seeded.sheet_id,
-            row_id=seeded.row_id,
-            transcript_column_id=int(transcript.column_id),
+            sheet_id=child_sheet_id,
+            row_id=child_row_id,
+            transcript_column_id=transcript_column_id,
             derived_artifact_id=derived_lease.anchor.artifact_id,
-            expected_source_span_stable_id=seeded.source_span_stable_ids[1],
+            expected_source_span_stable_id=(seeded.source_span_stable_ids[index]),
             expected_source_link_stable_id=(seeded.source_evidence_link_stable_id),
         )
 
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None and receipt.status == "completed"
-        assert {output.name for output in receipt.outputs} == set(by_name)
-        receipt_range = next(
-            item.ref["value"]["item"]
-            for item in receipt.inputs
-            if item.name == "selection"
-        )
-        assert re.fullmatch(r"tr_[0-9a-f]{64}", receipt_range["id"])
-        assert {
-            "start_ms": receipt_range["start_ms"],
-            "end_ms": receipt_range["end_ms"],
-            "metadata": receipt_range["metadata"],
-        } == {"start_ms": 1_000, "end_ms": 2_000, "metadata": {}}
-        assert any(
-            evidence.ref.get("kind") == "temporal_transcript_projection"
-            for evidence in receipt.evidence
-        )
-    finally:
-        project.close()
-
-
-def test_split_real_media_creates_child_rows_with_inherited_provenance(
-    tmp_path: Path,
-) -> None:
-    source_path = tmp_path / "three-scenes.mp4"
-    _write_three_scene_video(source_path)
-    project = Project.create(tmp_path / "temporal-split-e2e.frisket")
-    try:
-        seeded = _seed_project(project, source_path)
-        request = ActionRequest.model_validate(
-            {
-                "action_id": "derive.temporal_segments",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": seeded.sheet_id,
-                    "row_ids": [seeded.row_id],
-                },
-                "params": {
-                    "source": "video",
-                    "selection": {
-                        "kind": "draft_points",
-                        "items": [{"at_ms": 1_000}, {"at_ms": 2_000}],
-                    },
-                },
-                "sheet_name": "Video segments",
-                "idempotency_key": "temporal-split-real-e2e@sha256:v1",
-            }
-        )
-        result = run_action_spec(
-            project,
-            request.model_dump(mode="json"),
-            project_id="temporal-split-real-e2e",
-        )
-
-        assert result.status == "completed", result.model_dump(mode="json")
-        sheet_output = next(
-            output for output in result.outputs if output.kind == "sheet"
-        )
-        rows_output = next(output for output in result.outputs if output.kind == "rows")
-        child_sheet_id = int(sheet_output.sheet_id)
-        child_row_ids = list(rows_output.row_ids)
-        assert len(child_row_ids) == 3
-        child_rows = project.db.execute(
-            "SELECT id, parent_row_id FROM rows WHERE sheet_id=? "
-            "AND hidden=0 ORDER BY position",
-            (child_sheet_id,),
-        ).fetchall()
-        assert [int(row["id"]) for row in child_rows] == child_row_ids
-        assert [int(row["parent_row_id"]) for row in child_rows] == [
-            seeded.row_id,
-            seeded.row_id,
-            seeded.row_id,
-        ]
-
-        clip_column_id = _column_id(project, child_sheet_id, "clip")
-        range_column_id = _column_id(project, child_sheet_id, "source_range")
-        transcript_column_id = _column_id(project, child_sheet_id, "transcript")
-        column_types = {
-            str(row["name"]): str(row["type"])
-            for row in project.columns(child_sheet_id)
-        }
-        assert column_types == {
-            "clip": "video",
-            "source_range": "timeline_range",
-            "transcript": "timestamped_transcript",
-        }
-
-        expected_ranges = [(0, 1_000), (1_000, 2_000), (2_000, 3_000)]
-        expected_text = ["Red scene.", "Green scene.", "Blue scene."]
-        for index, (child_row_id, (start_ms, end_ms)) in enumerate(
-            zip(child_row_ids, expected_ranges, strict=True)
-        ):
-            clip_value = _value(project, child_sheet_id, child_row_id, clip_column_id)
-            _assert_av_clip(project, clip_value["blob"], duration_ms=1_000)
-            source_range = _value(
-                project, child_sheet_id, child_row_id, range_column_id
-            )
-            assert source_range["schema_version"] == "frisket.timeline_range.v1"
-            assert source_range["timeline"] == seeded.lease.anchor.wire_value()
-            assert (
-                source_range["item"]["start_ms"],
-                source_range["item"]["end_ms"],
-            ) == (start_ms, end_ms)
-
-            transcript_text = _value(
-                project, child_sheet_id, child_row_id, transcript_column_id
-            )
-            assert transcript_text == expected_text[index]
-            resolved_transcript = resolve_timestamped_transcript(
-                project,
-                sheet_id=child_sheet_id,
-                row_id=child_row_id,
-                column_id=transcript_column_id,
-            )
-            assert resolved_transcript is not None
-            assert [
-                (span["start_ms"], span["end_ms"], span["quote"])
-                for span in resolved_transcript.spans
-            ] == [(0, 1_000, expected_text[index])]
-
-            derived_lease = resolve_timeline(
-                project,
-                sheet_id=child_sheet_id,
-                row_id=child_row_id,
-                column_id=clip_column_id,
-            )
-            mapping = project.db.execute(
-                "SELECT * FROM artifact_timeline_segments WHERE derived_artifact_id=?",
-                (derived_lease.anchor.artifact_id,),
-            ).fetchone()
-            assert mapping is not None
-            assert int(mapping["source_artifact_id"]) == (
-                seeded.lease.anchor.artifact_id
-            )
-            assert (
-                int(mapping["derived_start_ms"]),
-                int(mapping["derived_end_ms"]),
-                int(mapping["source_start_ms"]),
-                int(mapping["source_end_ms"]),
-                int(mapping["rate_num"]),
-                int(mapping["rate_den"]),
-            ) == (0, 1_000, start_ms, end_ms, 1, 1)
-            _assert_projected_evidence(
-                project,
-                sheet_id=child_sheet_id,
-                row_id=child_row_id,
-                transcript_column_id=transcript_column_id,
-                derived_artifact_id=derived_lease.anchor.artifact_id,
-                expected_source_span_stable_id=(seeded.source_span_stable_ids[index]),
-                expected_source_link_stable_id=(seeded.source_evidence_link_stable_id),
-            )
-
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM blob_derivations WHERE source_hash=? "
-                "AND op='ffmpeg_exact_temporal_splice'",
-                (seeded.blob_hash,),
-            ).fetchone()[0]
-            == 3
-        )
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None and receipt.status == "completed"
-        assert {output.name for output in receipt.outputs} == {
-            "Video segments",
-            "column.clip",
-            "column.source_range",
-            "column.transcript",
-            "materialized_rows",
-        }
-        evidence_kinds = [evidence.ref.get("kind") for evidence in receipt.evidence]
-        assert evidence_kinds.count("temporal_materialized_clip") == 3
-        assert evidence_kinds.count("derived_temporal_artifact") == 3
-        assert evidence_kinds.count("temporal_transcript_projection") == 3
-        assert evidence_kinds.count("materialized_row_sources") == 1
-        assert evidence_kinds.count("lineage_parent_rows") == 1
-    finally:
-        project.close()
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM blob_derivations WHERE source_hash=? "
+            "AND op='ffmpeg_exact_temporal_splice'",
+            (seeded.blob_hash,),
+        ).fetchone()[0]
+        == 3
+    )
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None and receipt.status == "completed"
+    assert {output.name for output in receipt.outputs} == {
+        "Video segments",
+        "column.clip",
+        "column.source_range",
+        "column.transcript",
+        "materialized_rows",
+    }
+    evidence_kinds = [evidence.ref.get("kind") for evidence in receipt.evidence]
+    assert evidence_kinds.count("temporal_materialized_clip") == 3
+    assert evidence_kinds.count("derived_temporal_artifact") == 3
+    assert evidence_kinds.count("temporal_transcript_projection") == 3
+    assert evidence_kinds.count("materialized_row_sources") == 1
+    assert evidence_kinds.count("lineage_parent_rows") == 1
 
 
 def test_split_stage_failure_publishes_no_partial_children_or_lineage(
     tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     source_path = tmp_path / "three-scenes.mp4"
     _write_three_scene_video(source_path)
-    project = Project.create(tmp_path / "temporal-split-atomic.frisket")
-    try:
-        seeded = _seed_project(project, source_path)
-        request = ActionRequest.model_validate(
-            {
-                "action_id": "derive.temporal_segments",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": seeded.sheet_id,
-                    "row_ids": [seeded.row_id],
+    project = make_project("temporal-split-atomic")
+    seeded = _seed_project(project, source_path)
+    request = ActionRequest.model_validate(
+        {
+            "action_id": "derive.temporal_segments",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": seeded.sheet_id,
+                "row_ids": [seeded.row_id],
+            },
+            "params": {
+                "source": "video",
+                "selection": {
+                    "kind": "draft_points",
+                    "items": [{"at_ms": 1_000}, {"at_ms": 2_000}],
                 },
-                "params": {
-                    "source": "video",
-                    "selection": {
-                        "kind": "draft_points",
-                        "items": [{"at_ms": 1_000}, {"at_ms": 2_000}],
-                    },
-                },
-                "sheet_name": "Failed segments",
-                "idempotency_key": "temporal-split-atomic-e2e@sha256:v1",
-            }
-        )
-        from frisket.engine.executor import temporal_split
-
-        original_stage = temporal_split.stage_media_splice
-        stage_count = 0
-
-        class _InjectedStageFailure(RuntimeError):
-            code = "injected_stage_failure"
-            message = "second staged clip failed"
-            details = {"ordinal": 1}
-
-        async def stage_then_fail(*args, **kwargs) -> Any:
-            nonlocal stage_count
-            stage_count += 1
-            if stage_count == 2:
-                raise _InjectedStageFailure
-            return await original_stage(*args, **kwargs)
-
-        before = {
-            table: int(
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            )
-            for table in (
-                "sheets",
-                "columns",
-                "rows",
-                "ops",
-                "blobs",
-                "blob_derivations",
-                "source_artifacts",
-                "source_spans",
-                "evidence_links",
-                "artifact_timeline_segments",
-            )
+            },
+            "sheet_name": "Failed segments",
+            "idempotency_key": "temporal-split-atomic-e2e@sha256:v1",
         }
-        monkeypatch.setattr(temporal_split, "stage_media_splice", stage_then_fail)
-        result = run_action_spec(
-            project,
-            request.model_dump(mode="json"),
-            project_id="temporal-split-atomic-e2e",
-        )
+    )
+    from frisket.engine.executor import temporal_split
 
-        assert stage_count == 2, result
-        assert result.status == "failed"
-        assert [error.code for error in result.errors] == ["project_write_failed"]
-        after = {
-            table: int(
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            )
-            for table in before
-        }
-        assert after == before
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM sheets WHERE name='Failed segments'"
-            ).fetchone()
-            is None
+    original_stage = temporal_split.stage_media_splice
+    stage_count = 0
+
+    class _InjectedStageFailure(RuntimeError):
+        code = "injected_stage_failure"
+        message = "second staged clip failed"
+        details = {"ordinal": 1}
+
+    async def stage_then_fail(*args, **kwargs) -> Any:
+        nonlocal stage_count
+        stage_count += 1
+        if stage_count == 2:
+            raise _InjectedStageFailure
+        return await original_stage(*args, **kwargs)
+
+    before = {
+        table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in (
+            "sheets",
+            "columns",
+            "rows",
+            "ops",
+            "blobs",
+            "blob_derivations",
+            "source_artifacts",
+            "source_spans",
+            "evidence_links",
+            "artifact_timeline_segments",
         )
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        # Dynamic table preparation fails before a receipt is reserved.
-        assert receipt is None
-        assert result.outputs == []
-    finally:
-        project.close()
+    }
+    monkeypatch.setattr(temporal_split, "stage_media_splice", stage_then_fail)
+    result = run_action_spec(
+        project,
+        request.model_dump(mode="json"),
+        project_id="temporal-split-atomic-e2e",
+    )
+
+    assert stage_count == 2, result
+    assert result.status == "failed"
+    assert [error.code for error in result.errors] == ["project_write_failed"]
+    after = {
+        table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in before
+    }
+    assert after == before
+    assert (
+        project.db.execute(
+            "SELECT 1 FROM sheets WHERE name='Failed segments'"
+        ).fetchone()
+        is None
+    )
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    # Dynamic table preparation fails before a receipt is reserved.
+    assert receipt is None
+    assert result.outputs == []

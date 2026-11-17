@@ -504,9 +504,9 @@ def _transcribe_action(sheet_id: int, row_id: int, *, key: str) -> dict[str, Any
 
 
 def test_transcribe_reuses_previously_resolved_media_timeline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "transcribe-timeline-reuse.frisket")
+    project = make_project("transcribe-timeline-reuse")
     sheet_id = project.add_sheet("Media")
     media_column = project.add_column(sheet_id, "media", "audio")
     blob_hash = project.add_blob(
@@ -583,9 +583,9 @@ def test_transcribe_reuses_previously_resolved_media_timeline(
 
 
 def test_transcribe_preserves_duration_unknown_legacy_artifact_behavior(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "transcribe-unknown-duration.frisket")
+    project = make_project("transcribe-unknown-duration")
     sheet_id = project.add_sheet("Media")
     media_column = project.add_column(sheet_id, "media", "audio")
     blob_hash = project.add_blob(b"RIFF unknown duration", "source.wav", "audio/wav")

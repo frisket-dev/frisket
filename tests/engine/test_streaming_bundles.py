@@ -12,46 +12,43 @@ from frisket.engine.store import Project
 
 
 @pytest.mark.parametrize("legacy_zip_restore", [True, False])
-def test_legacy_inventory_does_not_poison_new_backup(tmp_path, legacy_zip_restore):
-    source = Project.create(tmp_path / "source.frisket", name="Source")
+def test_legacy_inventory_does_not_poison_new_backup(
+    tmp_path, make_project, legacy_zip_restore
+):
+    source = make_project("Source")
+    manifest = json.loads((source.path / "manifest.json").read_text())
+    manifest.update(blobs=["a" * 64] * 18000, include_media=True, include_traces=False)
+    assert len(json.dumps(manifest)) > 1024 * 1024
+    if legacy_zip_restore:
+        database = source.export_database(tmp_path / "source.db")
+        archive = tmp_path / "legacy.zip"
+        with zipfile.ZipFile(archive, "w") as output:
+            output.writestr("manifest.json", json.dumps(manifest))
+            output.write(database, "project.db")
+        project = Project.import_bundle(archive, tmp_path / "legacy.frisket")
+    else:
+        # Existing installations may already have imported the legacy manifest.
+        (source.path / "manifest.json").write_text(json.dumps(manifest))
+        project = source
     try:
-        manifest = json.loads((source.path / "manifest.json").read_text())
-        manifest.update(
-            blobs=["a" * 64] * 18000, include_media=True, include_traces=False
-        )
-        assert len(json.dumps(manifest)) > 1024 * 1024
-        if legacy_zip_restore:
-            database = source.export_database(tmp_path / "source.db")
-            archive = tmp_path / "legacy.zip"
-            with zipfile.ZipFile(archive, "w") as output:
-                output.writestr("manifest.json", json.dumps(manifest))
-                output.write(database, "project.db")
-            project = Project.import_bundle(archive, tmp_path / "legacy.frisket")
-        else:
-            # Existing installations may already have imported the legacy manifest.
-            (source.path / "manifest.json").write_text(json.dumps(manifest))
-            project = source
+        before = (project.path / "manifest.json").read_text()
+        backup = project.export(tmp_path / "new.tar.gz")
+        restored = Project.import_bundle(backup, tmp_path / "restored.frisket")
         try:
-            before = (project.path / "manifest.json").read_text()
-            backup = project.export(tmp_path / "new.tar.gz")
-            restored = Project.import_bundle(backup, tmp_path / "restored.frisket")
-            try:
-                clean = json.loads((restored.path / "manifest.json").read_text())
-                assert not {"blobs", "include_media", "include_traces"} & clean.keys()
-                assert clean["name"] == "Source"
-            finally:
-                restored.close()
-            assert (project.path / "manifest.json").read_text() == before
-            if legacy_zip_restore:
-                assert (
-                    not {"blobs", "include_media", "include_traces"}
-                    & json.loads(before).keys()
-                )
+            clean = json.loads((restored.path / "manifest.json").read_text())
+            assert not {"blobs", "include_media", "include_traces"} & clean.keys()
+            assert clean["name"] == "Source"
         finally:
-            if project is not source:
-                project.close()
+            restored.close()
+        assert (project.path / "manifest.json").read_text() == before
+        if legacy_zip_restore:
+            assert (
+                not {"blobs", "include_media", "include_traces"}
+                & json.loads(before).keys()
+            )
     finally:
-        source.close()
+        if project is not source:
+            project.close()
 
 
 def _rewrite(source, target, *, omit=None, extra=None):
@@ -64,61 +61,53 @@ def _rewrite(source, target, *, omit=None, extra=None):
 
 
 def test_many_objects_roundtrip_without_member_cache_or_whole_blob_reads(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ):
-    project = Project.create(tmp_path / "source.frisket", name="Source")
+    project = make_project("Source")
+    for index in range(300):
+        project.add_blob(f"object {index}".encode())
+    original_manifest = (project.path / "manifest.json").read_text()
+    addfile = tarfile.TarFile.addfile
+    next_member = tarfile.TarFile.next
+
+    def bounded_addfile(self, *args, **kwargs):
+        assert len(self.members) <= 1
+        return addfile(self, *args, **kwargs)
+
+    def bounded_next(self):
+        assert len(self.members) <= 1
+        return next_member(self)
+
+    monkeypatch.setattr(tarfile.TarFile, "addfile", bounded_addfile)
+    monkeypatch.setattr(tarfile.TarFile, "next", bounded_next)
+    archive = project.export(tmp_path / "backup.tar.gz")
+    with monkeypatch.context() as context:
+
+        def no_read_bytes(self):
+            raise AssertionError("restore must stream blob hashing")
+
+        context.setattr(Path, "read_bytes", no_read_bytes)
+        restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
     try:
-        for index in range(300):
-            project.add_blob(f"object {index}".encode())
-        original_manifest = (project.path / "manifest.json").read_text()
-        addfile = tarfile.TarFile.addfile
-        next_member = tarfile.TarFile.next
-
-        def bounded_addfile(self, *args, **kwargs):
-            assert len(self.members) <= 1
-            return addfile(self, *args, **kwargs)
-
-        def bounded_next(self):
-            assert len(self.members) <= 1
-            return next_member(self)
-
-        monkeypatch.setattr(tarfile.TarFile, "addfile", bounded_addfile)
-        monkeypatch.setattr(tarfile.TarFile, "next", bounded_next)
-        archive = project.export(tmp_path / "backup.tar.gz")
-        with monkeypatch.context() as context:
-
-            def no_read_bytes(self):
-                raise AssertionError("restore must stream blob hashing")
-
-            context.setattr(Path, "read_bytes", no_read_bytes)
-            restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
-        try:
-            assert (
-                restored.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 300
-            )
-        finally:
-            restored.close()
-        # Inspect sequentially too: getmembers would violate the bounded cache assertion.
-        with tarfile.open(archive, "r|gz") as stream:
-            assert stream.next().name == "bundle.json"
-            stream.members.clear()
-            info = stream.next()
-            assert info.name == "manifest.json"
-            assert stream.extractfile(info).read().decode() == original_manifest
+        assert restored.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 300
     finally:
-        project.close()
+        restored.close()
+    # Inspect sequentially too: getmembers would violate the bounded cache assertion.
+    with tarfile.open(archive, "r|gz") as stream:
+        assert stream.next().name == "bundle.json"
+        stream.members.clear()
+        info = stream.next()
+        assert info.name == "manifest.json"
+        assert stream.extractfile(info).read().decode() == original_manifest
 
 
 @pytest.mark.parametrize("include_media", [True, False])
-def test_required_media_missing_is_rejected_unless_omitted(tmp_path, include_media):
-    project = Project.create(tmp_path / "source.frisket", name="Source")
-    try:
-        digest = project.add_blob(b"hello")
-        archive = project.export(
-            tmp_path / "backup.tar.gz", include_media=include_media
-        )
-    finally:
-        project.close()
+def test_required_media_missing_is_rejected_unless_omitted(
+    tmp_path, make_project, include_media
+):
+    project = make_project("Source")
+    digest = project.add_blob(b"hello")
+    archive = project.export(tmp_path / "backup.tar.gz", include_media=include_media)
     missing = tmp_path / "missing.tar.gz"
     _rewrite(archive, missing, omit=f"blobs/{digest[:2]}/{digest}")
     target = tmp_path / "restored.frisket"
@@ -141,12 +130,9 @@ def test_required_media_missing_is_rejected_unless_omitted(tmp_path, include_med
         ("traces/run-device.jsonl.gz", tarfile.CHRTYPE),
     ],
 )
-def test_unsafe_or_duplicate_member_never_publishes(tmp_path, name, kind):
-    project = Project.create(tmp_path / "source.frisket", name="Source")
-    try:
-        archive = project.export(tmp_path / "backup.tar.gz")
-    finally:
-        project.close()
+def test_unsafe_or_duplicate_member_never_publishes(tmp_path, make_project, name, kind):
+    project = make_project("Source")
+    archive = project.export(tmp_path / "backup.tar.gz")
     extra = tarfile.TarInfo(name)
     extra.type = kind
     extra.linkname = "manifest.json" if kind == tarfile.SYMTYPE else ""
@@ -160,9 +146,9 @@ def test_unsafe_or_duplicate_member_never_publishes(tmp_path, name, kind):
 
 
 def test_failed_export_preserves_destination_and_cleans_temporary_files(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ):
-    project = Project.create(tmp_path / "source.frisket", name="Source")
+    project = make_project("Source")
     target = tmp_path / "backup.tar.gz"
     target.write_bytes(b"existing backup")
 
@@ -191,32 +177,30 @@ def test_large_tar_metadata_is_rejected_before_loading_json(tmp_path):
     assert not target.exists()
 
 
-def test_export_refuses_oversized_project_metadata_without_replacing_backup(tmp_path):
-    project = Project.create(tmp_path / "source.frisket", name="Source")
-    try:
-        path = project.path / "manifest.json"
-        manifest = json.loads(path.read_text())
-        manifest["description"] = "x" * (1024 * 1024)
-        path.write_text(json.dumps(manifest))
-        target = tmp_path / "backup.tar.gz"
-        target.write_bytes(b"previous backup")
-        with pytest.raises(ValueError, match="metadata exceeds"):
-            project.export(target)
-        assert target.read_bytes() == b"previous backup"
-    finally:
-        project.close()
+def test_export_refuses_oversized_project_metadata_without_replacing_backup(
+    tmp_path, make_project
+):
+    project = make_project("Source")
+    path = project.path / "manifest.json"
+    manifest = json.loads(path.read_text())
+    manifest["description"] = "x" * (1024 * 1024)
+    path.write_text(json.dumps(manifest))
+    target = tmp_path / "backup.tar.gz"
+    target.write_bytes(b"previous backup")
+    with pytest.raises(ValueError, match="metadata exceeds"):
+        project.export(target)
+    assert target.read_bytes() == b"previous backup"
 
 
 @pytest.mark.parametrize("legacy_zip", [True, False])
-def test_restore_headroom_refusal_never_publishes(tmp_path, monkeypatch, legacy_zip):
+def test_restore_headroom_refusal_never_publishes(
+    tmp_path, make_project, monkeypatch, legacy_zip
+):
     import errno
     from frisket.engine.store import bundle_io
 
-    project = Project.create(tmp_path / "source.frisket", name="Source")
-    try:
-        archive = project.export(tmp_path / "backup.tar.gz")
-    finally:
-        project.close()
+    project = make_project("Source")
+    archive = project.export(tmp_path / "backup.tar.gz")
     if legacy_zip:
         converted = tmp_path / "legacy.zip"
         with tarfile.open(archive) as source, zipfile.ZipFile(converted, "w") as output:

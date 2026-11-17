@@ -172,339 +172,323 @@ def _run(
 
 
 def test_points_repeat_a_shared_boundary_chunk_and_keep_exact_evidence(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "transcript-points.frisket")
-    try:
-        seeded = _seed_timestamped_transcript(project)
-        result = _run(
+    project = make_project("transcript-points")
+    seeded = _seed_timestamped_transcript(project)
+    result = _run(
+        project,
+        seeded,
+        selection={"kind": "draft_points", "items": [{"at_ms": 2_500}]},
+        target="Transcript segments",
+        key="transcript-points",
+    )
+    assert result.status == "completed"
+    sheet_id = next(
+        output.sheet_id for output in result.outputs if output.kind == "sheet"
+    )
+    transcript_output = next(
+        output for output in result.outputs if output.name == "transcript"
+    )
+    source_range_output = next(
+        output for output in result.outputs if output.name == "source_range"
+    )
+    row_ids = next(output.row_ids for output in result.outputs if output.kind == "rows")
+    assert sheet_id is not None
+    assert transcript_output.column_id is not None
+    assert source_range_output.column_id is not None
+    assert row_ids is not None and len(row_ids) == 2
+
+    transcript_values = project.get_values(
+        sheet_id,
+        transcript_output.column_id,
+        row_ids=row_ids,
+    )
+    assert transcript_values[row_ids[0]] == "Shared chunk."
+    assert transcript_values[row_ids[1]] == "Shared chunk. Final chunk."
+    ranges = project.get_values(
+        sheet_id,
+        source_range_output.column_id,
+        row_ids=row_ids,
+    )
+    assert (
+        ranges[row_ids[0]]["item"]["start_ms"],
+        ranges[row_ids[0]]["item"]["end_ms"],
+    ) == (0, 4_000)
+    assert (
+        ranges[row_ids[1]]["item"]["start_ms"],
+        ranges[row_ids[1]]["item"]["end_ms"],
+    ) == (1_000, 8_000)
+
+    resolved = [
+        resolve_timestamped_transcript(
             project,
-            seeded,
-            selection={"kind": "draft_points", "items": [{"at_ms": 2_500}]},
-            target="Transcript segments",
-            key="transcript-points",
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_output.column_id,
         )
-        assert result.status == "completed"
-        sheet_id = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        transcript_output = next(
-            output for output in result.outputs if output.name == "transcript"
-        )
-        source_range_output = next(
-            output for output in result.outputs if output.name == "source_range"
-        )
-        row_ids = next(
-            output.row_ids for output in result.outputs if output.kind == "rows"
-        )
-        assert sheet_id is not None
-        assert transcript_output.column_id is not None
-        assert source_range_output.column_id is not None
-        assert row_ids is not None and len(row_ids) == 2
-
-        transcript_values = project.get_values(
-            sheet_id,
-            transcript_output.column_id,
-            row_ids=row_ids,
-        )
-        assert transcript_values[row_ids[0]] == "Shared chunk."
-        assert transcript_values[row_ids[1]] == "Shared chunk. Final chunk."
-        ranges = project.get_values(
-            sheet_id,
-            source_range_output.column_id,
-            row_ids=row_ids,
-        )
-        assert (
-            ranges[row_ids[0]]["item"]["start_ms"],
-            ranges[row_ids[0]]["item"]["end_ms"],
-        ) == (0, 4_000)
-        assert (
-            ranges[row_ids[1]]["item"]["start_ms"],
-            ranges[row_ids[1]]["item"]["end_ms"],
-        ) == (1_000, 8_000)
-
-        resolved = [
-            resolve_timestamped_transcript(
-                project,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=transcript_output.column_id,
-            )
-            for row_id in row_ids
-        ]
-        assert all(item is not None for item in resolved)
-        assert [item.language for item in resolved if item is not None] == ["en", "en"]
-        assert [span["quote"] for span in resolved[0].spans] == ["Shared chunk."]
-        assert [span["quote"] for span in resolved[1].spans] == [
-            "Shared chunk.",
-            "Final chunk.",
-        ]
-    finally:
-        project.close()
+        for row_id in row_ids
+    ]
+    assert all(item is not None for item in resolved)
+    assert [item.language for item in resolved if item is not None] == ["en", "en"]
+    assert [span["quote"] for span in resolved[0].spans] == ["Shared chunk."]
+    assert [span["quote"] for span in resolved[1].spans] == [
+        "Shared chunk.",
+        "Final chunk.",
+    ]
 
 
 def test_overlapping_asr_chunks_are_projected_whole_without_transitive_growth(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "transcript-overlap.frisket")
-    try:
-        seeded = _seed_timestamped_transcript(
-            project,
-            span_values=[
-                (0, 1_300, "w0"),
-                (1_000, 2_300, "w1"),
-                (2_000, 3_300, "w2"),
-                (3_000, 4_300, "w3"),
-                (4_000, 5_300, "w4"),
+    project = make_project("transcript-overlap")
+    seeded = _seed_timestamped_transcript(
+        project,
+        span_values=[
+            (0, 1_300, "w0"),
+            (1_000, 2_300, "w1"),
+            (2_000, 3_300, "w2"),
+            (3_000, 4_300, "w3"),
+            (4_000, 5_300, "w4"),
+        ],
+    )
+    result = _run(
+        project,
+        seeded,
+        selection={
+            "kind": "draft_ranges",
+            "items": [
+                {"start_ms": 0, "end_ms": 3_300},
+                {"start_ms": 2_000, "end_ms": 6_300},
             ],
-        )
-        result = _run(
+        },
+        target="Overlapping transcript segments",
+        key="transcript-overlap",
+    )
+
+    assert result.status == "completed"
+    transcript_output = next(
+        output for output in result.outputs if output.name == "transcript"
+    )
+    row_ids = next(output.row_ids for output in result.outputs if output.kind == "rows")
+    assert row_ids is not None
+    values = project.get_values(
+        transcript_output.sheet_id,
+        transcript_output.column_id,
+        row_ids=row_ids,
+    )
+    assert [values[row_id] for row_id in row_ids] == [
+        "w0 w1 w2 w3",
+        "w1 w2 w3 w4",
+    ]
+    assert all("partial speech" not in values[row_id] for row_id in row_ids)
+
+    for row_id in row_ids:
+        projected = resolve_timestamped_transcript(
             project,
-            seeded,
-            selection={
-                "kind": "draft_ranges",
-                "items": [
-                    {"start_ms": 0, "end_ms": 3_300},
-                    {"start_ms": 2_000, "end_ms": 6_300},
-                ],
-            },
-            target="Overlapping transcript segments",
-            key="transcript-overlap",
+            sheet_id=transcript_output.sheet_id,
+            row_id=row_id,
+            column_id=transcript_output.column_id,
         )
-
-        assert result.status == "completed"
-        transcript_output = next(
-            output for output in result.outputs if output.name == "transcript"
+        assert projected is not None
+        assert all(
+            span["metadata"]["projection"]["clipping"] == "full"
+            for span in projected.spans
         )
-        row_ids = next(
-            output.row_ids for output in result.outputs if output.kind == "rows"
-        )
-        assert row_ids is not None
-        values = project.get_values(
-            transcript_output.sheet_id,
-            transcript_output.column_id,
-            row_ids=row_ids,
-        )
-        assert [values[row_id] for row_id in row_ids] == [
-            "w0 w1 w2 w3",
-            "w1 w2 w3 w4",
-        ]
-        assert all("partial speech" not in values[row_id] for row_id in row_ids)
-
-        for row_id in row_ids:
-            projected = resolve_timestamped_transcript(
-                project,
-                sheet_id=transcript_output.sheet_id,
-                row_id=row_id,
-                column_id=transcript_output.column_id,
-            )
-            assert projected is not None
-            assert all(
-                span["metadata"]["projection"]["clipping"] == "full"
-                for span in projected.spans
-            )
-    finally:
-        project.close()
 
 
 def test_transcript_split_projects_typed_annotations_on_the_locked_chunk(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "transcript-annotations.frisket")
-    try:
-        seeded = _seed_timestamped_transcript(project)
-        source = resolve_timestamped_transcript(
-            project,
-            sheet_id=int(seeded["sheet_id"]),
-            row_id=int(seeded["row_id"]),
-            column_id=int(seeded["transcript_column_id"]),
-        )
-        assert source is not None
-        anchor = resolve_artifact_timeline(project, source.artifact_id)
-        marker_column_id = project.add_column(
-            int(seeded["sheet_id"]), "markers", "timeline_points"
-        )
-        project.apply_edits(
-            [
-                {
-                    "row_id": int(seeded["row_id"]),
-                    "column_id": marker_column_id,
-                    "value": {
-                        "schema_version": "frisket.timeline_points.v1",
-                        "timeline": anchor.wire_value(),
-                        "items": [
-                            {
-                                "id": "inside",
-                                "at_ms": 2_500,
-                                "label": "Quoted claim",
-                            },
-                            {"id": "outside", "at_ms": 5_000},
-                        ],
-                    },
-                }
-            ],
-            label="seed transcript annotations",
-        )
-        selection = {
-            "kind": "draft_ranges",
-            "items": [{"start_ms": 2_500, "end_ms": 3_000}],
-        }
-        result = _run(
-            project,
-            seeded,
-            selection=selection,
-            target="Annotated transcript",
-            key="transcript-annotations",
-        )
-
-        assert result.status == "completed"
-        marker_output = next(
-            output for output in result.outputs if output.name == "markers"
-        )
-        row_id = next(
-            output.row_ids[0] for output in result.outputs if output.kind == "rows"
-        )
-        projected = project.get_values(
-            marker_output.sheet_id,
-            marker_output.column_id,
-            row_ids=[row_id],
-        )[row_id]
-        assert projected["timeline"]["duration_ms"] == 3_000
-        assert projected["items"] == [
+    project = make_project("transcript-annotations")
+    seeded = _seed_timestamped_transcript(project)
+    source = resolve_timestamped_transcript(
+        project,
+        sheet_id=int(seeded["sheet_id"]),
+        row_id=int(seeded["row_id"]),
+        column_id=int(seeded["transcript_column_id"]),
+    )
+    assert source is not None
+    anchor = resolve_artifact_timeline(project, source.artifact_id)
+    marker_column_id = project.add_column(
+        int(seeded["sheet_id"]), "markers", "timeline_points"
+    )
+    project.apply_edits(
+        [
             {
-                "id": "inside",
-                "at_ms": 1_500,
-                "label": "Quoted claim",
-                "metadata": {},
+                "row_id": int(seeded["row_id"]),
+                "column_id": marker_column_id,
+                "value": {
+                    "schema_version": "frisket.timeline_points.v1",
+                    "timeline": anchor.wire_value(),
+                    "items": [
+                        {
+                            "id": "inside",
+                            "at_ms": 2_500,
+                            "label": "Quoted claim",
+                        },
+                        {"id": "outside", "at_ms": 5_000},
+                    ],
+                },
             }
-        ]
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None
-        assert any(
-            item.ref.get("kind") == "temporal_annotation_snapshot"
-            for item in receipt.inputs
-        )
-        assert any(
-            item.ref.get("kind") == "temporal_annotation_projection"
-            for item in receipt.evidence
-        )
+        ],
+        label="seed transcript annotations",
+    )
+    selection = {
+        "kind": "draft_ranges",
+        "items": [{"start_ms": 2_500, "end_ms": 3_000}],
+    }
+    result = _run(
+        project,
+        seeded,
+        selection=selection,
+        target="Annotated transcript",
+        key="transcript-annotations",
+    )
 
-        replay = _run(
-            project,
-            seeded,
-            selection=selection,
-            target="Annotated transcript",
-            key="transcript-annotations",
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == result.receipt_id
-    finally:
-        project.close()
+    assert result.status == "completed"
+    marker_output = next(
+        output for output in result.outputs if output.name == "markers"
+    )
+    row_id = next(
+        output.row_ids[0] for output in result.outputs if output.kind == "rows"
+    )
+    projected = project.get_values(
+        marker_output.sheet_id,
+        marker_output.column_id,
+        row_ids=[row_id],
+    )[row_id]
+    assert projected["timeline"]["duration_ms"] == 3_000
+    assert projected["items"] == [
+        {
+            "id": "inside",
+            "at_ms": 1_500,
+            "label": "Quoted claim",
+            "metadata": {},
+        }
+    ]
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None
+    assert any(
+        item.ref.get("kind") == "temporal_annotation_snapshot"
+        for item in receipt.inputs
+    )
+    assert any(
+        item.ref.get("kind") == "temporal_annotation_projection"
+        for item in receipt.evidence
+    )
+
+    replay = _run(
+        project,
+        seeded,
+        selection=selection,
+        target="Annotated transcript",
+        key="transcript-annotations",
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == result.receipt_id
 
 
 def test_topic_range_must_name_the_selected_transcript_evidence(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "transcript-topic-mismatch.frisket")
-    try:
-        seeded = _seed_timestamped_transcript(project)
-        source = resolve_timestamped_transcript(
-            project,
-            sheet_id=int(seeded["sheet_id"]),
-            row_id=int(seeded["row_id"]),
-            column_id=int(seeded["transcript_column_id"]),
-        )
-        assert source is not None
-        timeline = resolve_artifact_timeline(project, source.artifact_id).wire_value()
-        topic_column_id = project.add_column(
-            int(seeded["sheet_id"]),
-            "Topic sections",
-            "timeline_ranges",
-            ai_generated=True,
-        )
-        sidecar_column_id = project.add_column(
-            int(seeded["sheet_id"]),
-            TOPIC_ANALYSIS_SIDECAR_COLUMN,
-            "json",
-            ai_generated=True,
-            hidden=True,
-        )
-        topic_value = {
-            "schema_version": "frisket.timeline_ranges.v1",
-            "timeline": timeline,
-            "items": [
-                {
-                    "id": "topic-1",
-                    "start_ms": 0,
-                    "end_ms": 4_000,
-                    "metadata": {},
-                }
-            ],
-        }
-        op_id = project.append_op(
-            "map.find_topic_sections",
-            {"action_kind": "map.find_topic_sections"},
-            label="find topic sections",
-        )
-        runs = RunResultStore(project)
-        topic_run_id = runs.start_run(
-            op_id,
-            int(seeded["sheet_id"]),
-            "map.find_topic_sections",
-            total_rows=1,
-            row_ids=[int(seeded["row_id"])],
-        )
-        write_claimed_test_results(
-            project,
-            topic_run_id,
-            [
-                {
-                    "row_id": int(seeded["row_id"]),
-                    "column_id": topic_column_id,
-                    "value": topic_value,
-                    "outcome": "ok",
+    project = make_project("transcript-topic-mismatch")
+    seeded = _seed_timestamped_transcript(project)
+    source = resolve_timestamped_transcript(
+        project,
+        sheet_id=int(seeded["sheet_id"]),
+        row_id=int(seeded["row_id"]),
+        column_id=int(seeded["transcript_column_id"]),
+    )
+    assert source is not None
+    timeline = resolve_artifact_timeline(project, source.artifact_id).wire_value()
+    topic_column_id = project.add_column(
+        int(seeded["sheet_id"]),
+        "Topic sections",
+        "timeline_ranges",
+        ai_generated=True,
+    )
+    sidecar_column_id = project.add_column(
+        int(seeded["sheet_id"]),
+        TOPIC_ANALYSIS_SIDECAR_COLUMN,
+        "json",
+        ai_generated=True,
+        hidden=True,
+    )
+    topic_value = {
+        "schema_version": "frisket.timeline_ranges.v1",
+        "timeline": timeline,
+        "items": [
+            {
+                "id": "topic-1",
+                "start_ms": 0,
+                "end_ms": 4_000,
+                "metadata": {},
+            }
+        ],
+    }
+    op_id = project.append_op(
+        "map.find_topic_sections",
+        {"action_kind": "map.find_topic_sections"},
+        label="find topic sections",
+    )
+    runs = RunResultStore(project)
+    topic_run_id = runs.start_run(
+        op_id,
+        int(seeded["sheet_id"]),
+        "map.find_topic_sections",
+        total_rows=1,
+        row_ids=[int(seeded["row_id"])],
+    )
+    write_claimed_test_results(
+        project,
+        topic_run_id,
+        [
+            {
+                "row_id": int(seeded["row_id"]),
+                "column_id": topic_column_id,
+                "value": topic_value,
+                "outcome": "ok",
+            },
+            {
+                "row_id": int(seeded["row_id"]),
+                "column_id": sidecar_column_id,
+                "value": {
+                    "schema_version": TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
+                    "transcript_evidence_id": "evidence_link:other",
+                    "transcript_snapshot_hash": source.snapshot_hash,
+                    "transcript_run_id": source.transcript_run_id,
+                    "transcript_column_id": source.transcript_column_id,
+                    "transcript_value_ref": source.transcript_value_ref,
+                    "transcript_value_hash": "sha256:" + "a" * 64,
+                    "artifact_stable_id": source.artifact_stable_id,
+                    "timeline": timeline,
+                    "language": source.language,
+                    "engine_id": "fixture-engine",
+                    "engine_version": "1",
+                    "resolved_settings": {},
+                    "engine_diagnostics": {},
+                    "native_candidates": [],
+                    "locking": {},
                 },
-                {
-                    "row_id": int(seeded["row_id"]),
-                    "column_id": sidecar_column_id,
-                    "value": {
-                        "schema_version": TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
-                        "transcript_evidence_id": "evidence_link:other",
-                        "transcript_snapshot_hash": source.snapshot_hash,
-                        "transcript_run_id": source.transcript_run_id,
-                        "transcript_column_id": source.transcript_column_id,
-                        "transcript_value_ref": source.transcript_value_ref,
-                        "transcript_value_hash": "sha256:" + "a" * 64,
-                        "artifact_stable_id": source.artifact_stable_id,
-                        "timeline": timeline,
-                        "language": source.language,
-                        "engine_id": "fixture-engine",
-                        "engine_version": "1",
-                        "resolved_settings": {},
-                        "engine_diagnostics": {},
-                        "native_candidates": [],
-                        "locking": {},
-                    },
-                    "outcome": "ok",
-                },
-            ],
-        )
-        runs.finish_run(topic_run_id)
-        runs.point_column_at_run(op_id, topic_column_id, topic_run_id)
-        runs.point_column_at_run(op_id, sidecar_column_id, topic_run_id)
-        result = _run(
-            project,
-            seeded,
-            selection={"kind": "column", "column": "Topic sections"},
-            target="Should not exist",
-            key="topic-mismatch",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "timeline_mismatch"
-    finally:
-        project.close()
+                "outcome": "ok",
+            },
+        ],
+    )
+    runs.finish_run(topic_run_id)
+    runs.point_column_at_run(op_id, topic_column_id, topic_run_id)
+    runs.point_column_at_run(op_id, sidecar_column_id, topic_run_id)
+    result = _run(
+        project,
+        seeded,
+        selection={"kind": "column", "column": "Topic sections"},
+        target="Should not exist",
+        key="topic-mismatch",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "timeline_mismatch"
 
 
 def test_transcript_segments_has_a_dedicated_action_job_executor() -> None:
@@ -831,7 +815,7 @@ def test_claimed_transcript_cancel_cannot_race_its_project_transaction(
 
 
 def test_queued_transcript_failure_is_terminalized_by_generic_worker(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.action_jobs import (
@@ -840,34 +824,31 @@ def test_queued_transcript_failure_is_terminalized_by_generic_worker(
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "queued-transcript-failure.frisket")
-    try:
-        seeded = _seed_timestamped_transcript(project)
-        action = _queued_transcript_action(
-            seeded, target="Should not exist", key="queued-transcript-failure"
-        )
-        action["params"]["source"] = "missing transcript"
-        bound = typed_action_for_request(action)
-        envelope = reserve_typed_action_job(project, "project-test", bound)
-        from frisket.engine.jobs.worker import HandlerRegistry
+    project = make_project("queued-transcript-failure")
+    seeded = _seed_timestamped_transcript(project)
+    action = _queued_transcript_action(
+        seeded, target="Should not exist", key="queued-transcript-failure"
+    )
+    action["params"]["source"] = "missing transcript"
+    bound = typed_action_for_request(action)
+    envelope = reserve_typed_action_job(project, "project-test", bound)
+    from frisket.engine.jobs.worker import HandlerRegistry
 
-        registry = HandlerRegistry()
-        register_action_job_binding_handlers(registry)
+    registry = HandlerRegistry()
+    register_action_job_binding_handlers(registry)
 
-        result = run_action_run_job(
-            project,
-            {"action_job": envelope.to_json()},
-            executor_lookup=registry.action_executor,
-        )
+    result = run_action_run_job(
+        project,
+        {"action_job": envelope.to_json()},
+        executor_lookup=registry.action_executor,
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_input_ref"
-        receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
-        assert receipt is not None
-        assert receipt.status == "failed"
-        assert receipt.errors[0].code == "invalid_input_ref"
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_input_ref"
+    receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
+    assert receipt is not None
+    assert receipt.status == "failed"
+    assert receipt.errors[0].code == "invalid_input_ref"
 
 
 def _insert_transcript_failure_receipt(
@@ -894,7 +875,7 @@ def _insert_transcript_failure_receipt(
 
 
 def test_transcript_failure_cas_loss_never_fabricates_terminal_result(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from frisket.engine.executor.action_reservations import (
@@ -902,7 +883,7 @@ def test_transcript_failure_cas_loss_never_fabricates_terminal_result(
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "transcript-failure-cas-loss.frisket")
+    project = make_project("transcript-failure-cas-loss")
     receipt_id = "receipt_transcript_failure_cas_loss"
     error = ActionError(
         code="source_failed",
@@ -936,13 +917,13 @@ def test_transcript_failure_cas_loss_never_fabricates_terminal_result(
         project.close()
 
 
-def test_transcript_failure_preserves_error_facts_by_value(tmp_path: Path) -> None:
+def test_transcript_failure_preserves_error_facts_by_value(make_project) -> None:
     from frisket.engine.executor.action_reservations import (
         _terminalize_claimless_direct_failure,
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "transcript-failure-error-facts.frisket")
+    project = make_project("transcript-failure-error-facts")
     receipt_id = "receipt_transcript_failure_error_facts"
     error = ActionError(
         code="transcript_provider_declined",
@@ -1016,7 +997,7 @@ def test_transcript_failure_preserves_prior_terminal_receipt(
 
 
 def test_queued_transcript_failure_leaves_worker_owned_receipt_untouched(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.action_jobs import (
@@ -1026,24 +1007,21 @@ def test_queued_transcript_failure_leaves_worker_owned_receipt_untouched(
     from frisket.engine.executor.table_action import run_typed_table_action_job
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "queued-transcript-owned.frisket")
-    try:
-        seeded = _seed_timestamped_transcript(project)
-        action = _queued_transcript_action(seeded, target="Missing", key="worker-owned")
-        action["params"]["source"] = "missing"
-        envelope = reserve_typed_action_job(
-            project, "project-test", typed_action_for_request(action)
-        )
-        _mark_action_job_receipt_running(
-            project,
-            project_id="project-test",
-            receipt_id=envelope.receipt_id,
-            job_id=None,
-        )
-        prior = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
-        result = run_typed_table_action_job(project, envelope, execution=STANDALONE)
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_input_ref"
-        assert ReceiptStore(project).parsed_by_id(envelope.receipt_id) == prior
-    finally:
-        project.close()
+    project = make_project("queued-transcript-owned")
+    seeded = _seed_timestamped_transcript(project)
+    action = _queued_transcript_action(seeded, target="Missing", key="worker-owned")
+    action["params"]["source"] = "missing"
+    envelope = reserve_typed_action_job(
+        project, "project-test", typed_action_for_request(action)
+    )
+    _mark_action_job_receipt_running(
+        project,
+        project_id="project-test",
+        receipt_id=envelope.receipt_id,
+        job_id=None,
+    )
+    prior = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
+    result = run_typed_table_action_job(project, envelope, execution=STANDALONE)
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_input_ref"
+    assert ReceiptStore(project).parsed_by_id(envelope.receipt_id) == prior

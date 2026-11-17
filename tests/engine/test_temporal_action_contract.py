@@ -198,9 +198,8 @@ def test_typed_value_rejects_structurally_inverted_range():
 
 @pytest.mark.parametrize("output_name", ["source_range", "transcript"])
 def test_split_names_conflict_only_with_actual_outputs_and_can_be_remapped(
-    tmp_path, output_name
+    tmp_path, make_project, output_name
 ):
-    from frisket.engine.store import Project
     from test_temporal_split import (
         _request as split_request,
         _run,
@@ -208,41 +207,36 @@ def test_split_names_conflict_only_with_actual_outputs_and_can_be_remapped(
     )
     from test_temporal_suite_e2e import _seed_project
 
-    project = Project.create(tmp_path / "names.frisket")
-    try:
-        source_path = tmp_path / "source.mp4"
-        source_path.write_bytes(b"test media; rendering is injected")
-        source = _seed_project(project, source_path)
-        seeded = {"sheet_id": source.sheet_id, "row_id": source.row_id}
-        request = split_request(
-            seeded,
-            {"kind": "draft_points", "items": [{"at_ms": 1000}]},
-            output_name=output_name,
-        )
-        # Names are not globally reserved; actual discovered sibling collisions
-        # belong to the generic table host, not the Params schema.
-        assert validate_root_action(request.model_dump(mode="json")).ok
-        conflict = _run(project, request, stage_fn=_fake_stage, project_id="names")
-        assert conflict.status == "failed"
-        assert conflict.outputs == []
-        remapped = request.model_copy(
-            update={
-                "output_names": {
-                    "clip": output_name,
-                    output_name: "original_" + output_name,
-                },
-                "idempotency_key": "remapped",
-            }
-        )
-        result = _run(project, remapped, stage_fn=_fake_stage, project_id="names")
-        assert result.status == "completed", result
-        sheet = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        names = {column["name"] for column in project.columns(sheet)}
-        assert {output_name, "original_" + output_name} <= names
-    finally:
-        project.close()
+    project = make_project("names")
+    source_path = tmp_path / "source.mp4"
+    source_path.write_bytes(b"test media; rendering is injected")
+    source = _seed_project(project, source_path)
+    seeded = {"sheet_id": source.sheet_id, "row_id": source.row_id}
+    request = split_request(
+        seeded,
+        {"kind": "draft_points", "items": [{"at_ms": 1000}]},
+        output_name=output_name,
+    )
+    # Names are not globally reserved; actual discovered sibling collisions
+    # belong to the generic table host, not the Params schema.
+    assert validate_root_action(request.model_dump(mode="json")).ok
+    conflict = _run(project, request, stage_fn=_fake_stage, project_id="names")
+    assert conflict.status == "failed"
+    assert conflict.outputs == []
+    remapped = request.model_copy(
+        update={
+            "output_names": {
+                "clip": output_name,
+                output_name: "original_" + output_name,
+            },
+            "idempotency_key": "remapped",
+        }
+    )
+    result = _run(project, remapped, stage_fn=_fake_stage, project_id="names")
+    assert result.status == "completed", result
+    sheet = next(output.sheet_id for output in result.outputs if output.kind == "sheet")
+    names = {column["name"] for column in project.columns(sheet)}
+    assert {output_name, "original_" + output_name} <= names
 
 
 @pytest.mark.parametrize(

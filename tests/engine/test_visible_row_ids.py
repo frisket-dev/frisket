@@ -1,12 +1,7 @@
-from pathlib import Path
-
-from frisket.engine.store.project import Project
-
-
 def test_explicit_visible_rows_use_rowid_lookup_and_preserve_scope(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "rows.frisket", name="Rows")
+    project = make_project("Rows")
     sheet_id = project.add_sheet("source")
     column_id = project.add_column(sheet_id, "value")
     row_ids = project.add_rows(

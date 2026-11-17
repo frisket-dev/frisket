@@ -139,7 +139,7 @@ def test_finder_catalog_types_and_retry_placement() -> None:
     ],
 )
 def test_topic_engine_runtime_availability_is_only_a_served_hint(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     runtime_state: str,
     available: bool,
@@ -175,13 +175,10 @@ def test_topic_engine_runtime_availability_is_only_a_served_hint(
     )
 
     global_payload = action_catalog_payload_with_launcher_hints({})
-    project = Project.create(tmp_path / "catalog.frisket")
-    try:
-        project_payload = project_action_catalog_payload_with_launcher_hints(
-            project, sidecar_capabilities={}
-        )
-    finally:
-        project.close()
+    project = make_project("catalog")
+    project_payload = project_action_catalog_payload_with_launcher_hints(
+        project, sidecar_capabilities={}
+    )
 
     for payload in (global_payload, project_payload):
         topic_entry = next(
