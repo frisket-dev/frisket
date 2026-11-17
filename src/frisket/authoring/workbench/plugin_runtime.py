@@ -721,15 +721,8 @@ def activate_workbench_plugin_manifest(
             "workbench plugin activation does not allow arbitrary package loading",
             status_code=403,
         )
-    # Activation is what records this project's enablement and accepted
-    # capabilities, so it admits the package without those two gates.
     try:
-        admitted = admit_project_plugin(
-            project,
-            plugin_id,
-            install_states=None,
-            require_accepted_capabilities=False,
-        )
+        admitted = admit_project_plugin(project, plugin_id, install_states=None)
     except PluginAdmissionRefusal as refusal:
         raise plugin_admission_error(refusal, _ACTIVATION_REFUSALS) from refusal
     if admitted.receipt_id != receipt_id:

@@ -209,18 +209,18 @@ def admit_project_plugin(
     plugin_id: str,
     *,
     install_states: frozenset[str] | None = frozenset({"enabled"}),
-    require_accepted_capabilities: bool = True,
     catalog: PluginPackageCatalog | None = None,
     install_state: dict[str, Any] | None | object = _INSTALL_STATE_UNREAD,
 ) -> AdmittedPlugin:
     """The one admission gate for a project's use of a workspace plugin package.
 
-    Checks, in order: this project's install state (skipped when
-    ``install_states`` is None), catalog identity presence, the composition
-    policy, that the manifest evidence names ``plugin_id`` and validates,
-    complete catalog identity refs, that the evidence's manifest and package
-    digests equal the catalog's,
-    and (optionally) that the project accepted the manifest's capabilities.
+    Checks, in order: this project's install state, catalog identity
+    presence, the composition policy, that the manifest evidence names
+    ``plugin_id`` and validates, complete catalog identity refs, that the
+    evidence's manifest and package digests equal the catalog's, and that the
+    project accepted the manifest's capabilities. ``install_states=None`` skips
+    the install-state and capability gates for manifest activation, which is
+    what records them.
     Raises ``PluginAdmissionRefusal``; invalid manifest evidence raises
     ``WorkbenchPluginActivationError`` from ``_loaded_manifest_from_ref``.
     Callers that already read this project's install rows pass ``install_state``.
@@ -260,11 +260,8 @@ def admit_project_plugin(
             entry_sha256=package_sha256,
             ref_sha256=recorded_package_sha256,
         )
-    if (
-        require_accepted_capabilities
-        and not project_accepts_current_plugin_capabilities(
-            install_state, loaded.manifest
-        )
+    if install_states is not None and not project_accepts_current_plugin_capabilities(
+        install_state, loaded.manifest
     ):
         raise PluginAdmissionRefusal("permissions_missing")
     return AdmittedPlugin(
