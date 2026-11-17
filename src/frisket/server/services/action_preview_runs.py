@@ -28,7 +28,7 @@ from frisket.actions.core import CreateSheet
 from frisket.actions.registry import ACTION_REGISTRY, NEW_ACTION_IDS
 from frisket.actions.system import typed_action_for_request
 from frisket.actions.types import ActionRequest, RowError
-from frisket.engine.executor.action_support import _row_input_action_error
+from frisket.engine.executor.action_support import RefusalSite, refusal_error
 from frisket.authoring.workbench.installed_actions import (
     bind_installed_action,
     resolve_installed_action,
@@ -727,16 +727,6 @@ class ActionPreviewRunService:
                 400,
                 _preview_error("preview_row_cap", str(exc), plan.action_kind),
             )
-        except BatchRowLimitExceeded as exc:
-            return _error_response(
-                400,
-                _preview_error(
-                    "batch_row_limit_exceeded",
-                    str(exc),
-                    plan.action_kind,
-                    details={"row_count": exc.row_count, "max_rows": exc.max_rows},
-                ),
-            )
         except PreviewEffectRequiresRun as exc:
             return _error_response(
                 400,
@@ -781,69 +771,27 @@ class ActionPreviewRunService:
                     },
                 ).model_copy(update={"needs_confirmation": True}),
             )
-        except ProviderKeyRefusal as exc:
+        except (
+            BatchRowLimitExceeded,
+            ProviderKeyRefusal,
+            NetworkDisabled,
+            InvalidTargetSheet,
+            InvalidTargetRows,
+            EmptyInputColumns,
+            RowError,
+        ) as exc:
             # See the refusal-seat table at action_runs._v1_action_result_http_status.
-            # Any refusal about the provider key this preview would spend
-            # through; the exception owns its code, copy, and details.
             return _error_response(
                 400,
-                _preview_error(
-                    exc.error_code,
-                    exc.action_message(),
-                    plan.action_kind,
-                    field=exc.field,
-                    details=dict(exc.details),
-                ),
-            )
-        except NetworkDisabled as exc:
-            return _error_response(
-                400,
-                _preview_error(
-                    "network_disabled",
-                    str(exc),
-                    plan.action_kind,
-                    details={"capability": exc.capability},
-                ),
-            )
-        except InvalidTargetSheet as exc:
-            return _error_response(
-                400,
-                _preview_error(
-                    "invalid_input_ref",
-                    str(exc),
-                    plan.action_kind,
-                    field="row_scope.sheet_id",
-                    details={"sheet_id": exc.sheet_id},
-                ),
-            )
-        except InvalidTargetRows as exc:
-            return _error_response(
-                400,
-                _preview_error(
-                    "invalid_input_ref",
-                    str(exc),
-                    plan.action_kind,
-                    field="row_scope.selector.membership.row_ids",
-                    details={"missing": exc.missing},
-                ),
-            )
-        except EmptyInputColumns as exc:
-            return _error_response(
-                400,
-                _preview_error(
-                    "empty_input_column",
-                    str(exc),
-                    plan.action_kind,
-                    field=(
-                        program.empty_input_error_field
-                        if program is not None
-                        else "params.input_columns"
+                refusal_error(
+                    exc,
+                    RefusalSite(
+                        action_kind=plan.action_kind,
+                        has_row_scope=True,
+                        program=program,
                     ),
-                    details={"columns": exc.columns},
                 ),
             )
-        except RowError as exc:
-            return _error_response(400, _row_input_action_error(plan.action_kind, exc))
         except ValueError as exc:
             return _error_response(
                 400,

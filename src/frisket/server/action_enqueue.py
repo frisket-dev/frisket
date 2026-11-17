@@ -14,11 +14,9 @@ from pydantic import ValidationError
 
 from frisket.execution.action_admission import (
     missing_action_credential_error as missing_action_credential_error,
-    network_disabled_error,
 )
 from frisket.engine.store.import_sessions import ImportExecutionOwner
 from frisket.actions.types import RowError
-from frisket.engine.executor.action_support import _row_input_action_error
 
 from frisket.contracts.action import (
     ActionError,
@@ -29,7 +27,9 @@ from frisket.engine.executor.action_inventory import (
     ExecutorDeps,
 )
 from frisket.engine.executor.action_support import (
+    RefusalSite,
     _failed_result,
+    refusal_error,
 )
 from frisket.engine.executor.queued_actions import (
     QueuedV1ActionRequest,
@@ -105,25 +105,6 @@ def missing_provider_key_error(action_kind: str, provider: str) -> ActionError:
         action_kind=action_kind,
         field="params.model",
         details={"provider": provider, "retryable": True, "resumable": True},
-    )
-
-
-def provider_key_refusal_error(
-    action_kind: str, exc: ProviderKeyRefusal
-) -> ActionError:
-    """Turn ANY provider-key refusal into its ActionError.
-
-    Handlers call this instead of matching on the concrete refusal class, so
-    a new refusal (e.g. the spend cap) surfaces through every existing path
-    without touching a single catch site. The exception owns its code, field,
-    message, and details; this function owns none of them.
-    """
-    return ActionError(
-        code=exc.error_code,
-        message=exc.action_message(),
-        action_kind=action_kind,
-        field=exc.field,
-        details=dict(exc.details),
     )
 
 
@@ -514,72 +495,27 @@ def _queue_v1_project_run_request(
                     action_kind=request.action.kind,
                 )
             )
-        except ProviderKeyRefusal as exc:
-            # Every refusal about the provider key this run would spend
-            # through (no key configured; the key is already past its spend
-            # cap). A typed error at run-confirm time (before any row work is
-            # queued), named and settings-deep-linkable, instead of a run
-            # that queues and then fails every row with a raw string.
-            error = provider_key_refusal_error(request.action.kind, exc)
-            return abort_prepare(error)
-        except NetworkDisabled as exc:
-            # Egress gate: same failed shape as
-            # MissingProviderKey, never the needs_confirmation envelope.
-            error = network_disabled_error(request.action.kind, exc.capability)
-            return abort_prepare(error)
-        except OutputColumnExists as exc:
-            error = ActionError(
-                code="output_column_exists",
-                message=str(exc),
-                action_kind=request.action.kind,
-                field=request.entry.output_claim_error_field,
-                details={"columns": exc.columns},
+        except (
+            ProviderKeyRefusal,
+            NetworkDisabled,
+            OutputColumnExists,
+            InvalidTargetSheet,
+            InvalidTargetRows,
+            EmptyInputColumns,
+            RowError,
+        ) as exc:
+            # Refused before any job is queued or row work is staged.
+            return abort_prepare(
+                refusal_error(
+                    exc,
+                    RefusalSite(
+                        action_kind=request.action.kind,
+                        has_row_scope=request.action.row_scope is not None,
+                        program=request.program,
+                        output_claim_field=request.entry.output_claim_error_field,
+                    ),
+                )
             )
-            return abort_prepare(error)
-        except InvalidTargetSheet as exc:
-            error = ActionError(
-                code="invalid_input_ref",
-                message=str(exc),
-                action_kind=request.action.kind,
-                field=(
-                    "row_scope.sheet_id"
-                    if request.action.row_scope is not None
-                    else "params.sheet_id"
-                ),
-                details={"sheet_id": exc.sheet_id},
-            )
-            return abort_prepare(error)
-        except InvalidTargetRows as exc:
-            error = ActionError(
-                code="invalid_input_ref",
-                message=str(exc),
-                action_kind=request.action.kind,
-                field=(
-                    "row_scope.selector.membership.row_ids"
-                    if request.action.row_scope is not None
-                    else "params.row_ids"
-                ),
-                details={"missing": exc.missing},
-            )
-            return abort_prepare(error)
-        except EmptyInputColumns as exc:
-            # Refuse before
-            # any job is queued/`runs` row created — see the matching catch
-            # in executor.action_lifecycle for the direct-dispatch twin.
-            error = ActionError(
-                code="empty_input_column",
-                message=str(exc),
-                action_kind=request.action.kind,
-                field=(
-                    request.program.empty_input_error_field
-                    if request.program is not None
-                    else "params.input_columns"
-                ),
-                details={"columns": exc.columns},
-            )
-            return abort_prepare(error)
-        except RowError as exc:
-            return abort_prepare(_row_input_action_error(request.action.kind, exc))
         except (ValueError, RuntimeError) as exc:
             error = request.entry.prepare_run_error(request.action, exc)
             return abort_prepare(error)

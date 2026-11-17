@@ -33,7 +33,6 @@ from frisket.engine.runner import (
     RunProgress,
 )
 from frisket.actions.types import RowError
-from frisket.engine.executor.action_support import _row_input_action_error
 from frisket.engine.runner.validation import ExecutionResolutionRefused
 from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
 from frisket.engine.sandbox.shim import SandboxTeardownError
@@ -85,8 +84,10 @@ from frisket.engine.executor.action_reservations import (
 )
 from frisket.engine.executor.action_support import (
     ActionCtx,
+    RefusalSite,
     _new_id,
     _params_hash,
+    refusal_error,
 )
 
 
@@ -1000,6 +1001,12 @@ def _run_reserved_maprunner_action(
         raise
     prepared_run = None
     admitted_attempt = None
+    refusal_site = RefusalSite(
+        action_kind=action.kind,
+        has_row_scope=action.row_scope is not None,
+        program=recipe,
+        output_claim_field=output_claim_error_field,
+    )
 
     def fail_unclaimed(error: ActionError) -> ActionResult:
         terminal_result = _terminalize_unclaimed_prepared_run(
@@ -1093,134 +1100,53 @@ def _run_reserved_maprunner_action(
             )
         )
         return ctx.failed(error)
-    except ProviderKeyRefusal as exc:
-        # Named, typed error at run-confirm time — see the matching catch in
-        # frisket.server.action_enqueue for the queued-project-run twin of
-        # this reserved-map-runner path. Catches the BASE so a new provider-key
-        # refusal needs no edit here.
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
+    except (
+        ProviderKeyRefusal,
+        ExecutionResolutionRefused,
+        OutputColumnExists,
+        InvalidTargetSheet,
+        InvalidTargetRows,
+        RowError,
+        EmptyInputColumns,
+        BatchRowLimitExceeded,
+        RouteBindingUnavailable,
+        ExecutionRouteVerificationFailed,
+        DependentChoiceRefusal,
+    ) as exc:
+        # Request-time refusals: no row work was queued. A route refusal's run
+        # row was already closed out by the MapRunner before dispatch.
+        if isinstance(exc, ExecutionResolutionRefused):
+            OutputColumnClaimStore(project).discard_for_receipt(
+                receipt_id=reservation["receipt_id"]
+            )
+        else:
+            OutputColumnClaimStore(project).release(
+                claim_token=claim_token, status="failed"
+            )
         delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail(
-            exc.error_code,
-            exc.action_message(),
-            field=exc.field,
-            details=dict(exc.details),
-        )
-    except NetworkDisabled as exc:
-        # Egress gate: the direct-dispatch twin of the catch in
-        # frisket.server.action_enqueue. status="failed", never the
-        # needs_confirmation envelope — off is off.
-        #
-        # Same managed-writer guard as the ValueError/RuntimeError and
-        # generic handlers below: none of the first-slice managed producers
-        # can raise this mid-run today (no remote capability on the
-        # allowlist), but releasing the claim with a staged generation would
-        # make the run permanently unterminalizable, so fail loudly instead
-        # if that ever becomes reachable.
-        if _has_live_managed_writer(project, prepared_run):
-            raise
-        return fail_unclaimed(
-            ActionError(
-                code="network_disabled",
-                message=str(exc),
-                action_kind=action.kind,
-                details={"capability": exc.capability},
-            ),
-        )
-    except ExecutionResolutionRefused as exc:
-        OutputColumnClaimStore(project).discard_for_receipt(
-            receipt_id=reservation["receipt_id"]
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail(exc.family, str(exc))
-    except OutputColumnExists as exc:
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail(
-            "output_column_exists",
-            str(exc),
-            field=output_claim_error_field,
-            details={"columns": exc.columns},
-        )
-    except GenerationDeclarationConflict as exc:
-        return fail_unclaimed(
-            ActionError(
-                code="output_column_exists",
-                message=str(exc),
-                action_kind=action.kind,
-                field=output_claim_error_field,
-            ),
-        )
-    except InvalidTargetSheet as exc:
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail(
-            "invalid_input_ref",
-            str(exc),
-            field="row_scope.sheet_id"
-            if action.row_scope is not None
-            else "params.sheet_id",
-            details={"sheet_id": exc.sheet_id},
-        )
-    except InvalidTargetRows as exc:
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        staged_inferred = bool(
-            prepared_execution is not None
+        if (
+            isinstance(exc, InvalidTargetRows)
+            and prepared_execution is not None
             and getattr(
                 getattr(program, "_terminal", None), "infer_output_types", False
             )
-        )
-        return ctx.fail(
-            "stale_input" if staged_inferred else "invalid_input_ref",
-            "Staged row scope changed" if staged_inferred else str(exc),
-            field=None
-            if staged_inferred
-            else (
-                "row_scope.selector.membership.row_ids"
-                if action.row_scope is not None
-                else "params.row_ids"
-            ),
-            details={"missing": exc.missing},
-        )
-    except RowError as exc:
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.failed(_row_input_action_error(action.kind, exc))
-    except EmptyInputColumns as exc:
-        # Refuse at request time — before any `runs` row exists — instead of queuing
-        # N rows that would each fail identically. See the matching catch in
-        # frisket.server.action_enqueue for the queued-project-run twin.
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail(
-            "empty_input_column",
-            str(exc),
-            field=recipe.empty_input_error_field,
-            details={"columns": exc.columns},
-        )
-    except BatchRowLimitExceeded as exc:
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail(
-            "batch_row_limit_exceeded",
-            str(exc),
-            details={"row_count": exc.row_count, "max_rows": exc.max_rows},
-        )
+        ):
+            return ctx.fail(
+                "stale_input",
+                "Staged row scope changed",
+                field=None,
+                details={"missing": exc.missing},
+            )
+        return ctx.failed(refusal_error(exc, refusal_site))
+    except (NetworkDisabled, GenerationDeclarationConflict) as exc:
+        # Releasing the claim with a staged generation would make the run
+        # permanently unterminalizable, so a network refusal under a live
+        # managed writer fails loudly instead.
+        if isinstance(exc, NetworkDisabled) and _has_live_managed_writer(
+            project, prepared_run
+        ):
+            raise
+        return fail_unclaimed(refusal_error(exc, refusal_site))
     except SandboxTeardownError as exc:
         terminal_progress = _terminalized_sandbox_teardown_progress(project, exc)
         if terminal_progress is None:
@@ -1243,58 +1169,6 @@ def _run_reserved_maprunner_action(
             },
         )
         progress = terminal_progress
-    except RouteBindingUnavailable as exc:
-        # F6: a persisted route whose pinned target no longer derefs is a
-        # DURABLE dispatch refusal (§0.3: an unavailable pin halts, never
-        # falls back) — the direct-dispatch twin of the queued handler's
-        # ``no_live_target`` mapping (engine/jobs/runs.py). Caught BEFORE
-        # the generic (ValueError, RuntimeError) below so it never degrades
-        # to the generic map_error_code. The run row itself needs no work
-        # here: the MapRunner's pre-dispatch close-out already put a resume
-        # back where admission found it, and TERMINALIZED a fresh launch
-        # (failed + finished_at + the typed code in its markers) rather than
-        # leaving it at 'running' with nothing to revert to.
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail("no_live_target", exc.remedy)
-    except ExecutionRouteVerificationFailed as exc:
-        # The direct-dispatch twin of the queued handler's typed
-        # verification branch (engine/jobs/runs.py). Worker-side route
-        # verification refusing on a DIRECT dispatch (run.backfill is the
-        # live one) used to fall into the generic (ValueError, RuntimeError)
-        # arm below and surface as ``map_run_failed`` — an untyped failure
-        # with no remedy, over a run the MapRunner had already reverted to
-        # its pre-resume state. The receipt now carries the typed code
-        # (``consent_missing`` / ``no_live_target`` / ``stale_head``) and the
-        # remedy, so the refusal is reconsent-reachable instead of opaque.
-        # The run row itself needs no work here: the MapRunner's pre-dispatch
-        # close-out reverted a resume to where admission found it, or
-        # terminalized a fresh launch as failed with the same typed code.
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail(exc.code, str(exc))
-    except DependentChoiceRefusal as exc:
-        # §1.4's dependent-choice refusal: a routed run reached a surface
-        # whose attempt authority can never authorize one. Typed symmetrically
-        # with the branch above (never a generic map_error_code) — it is an
-        # internal composition defect, and the receipt must say so rather than
-        # reading as a transcription failure. It never advertises
-        # ``consent_missing``, which would send the operator to reconsent — a
-        # remedy that cannot work, since no confirmation repairs wiring.
-        OutputColumnClaimStore(project).release(
-            claim_token=claim_token, status="failed"
-        )
-        delete_reservation_fn(project, reservation["receipt_id"])
-        return ctx.fail(
-            exc.code,
-            f"{exc.remedy} This is an internal composition defect in "
-            "Frisket, not a consent gap: re-running or re-confirming "
-            "will refuse identically until the dispatch path is fixed.",
-        )
     except StaleAttemptWriter as exc:
         return ctx.fail(exc.code, str(exc))
     except ClaimLeaseRenewalFailed:
@@ -1334,26 +1208,10 @@ def _run_reserved_maprunner_action(
         stored = ReceiptStore(project).find_by_id(reservation["receipt_id"])
         assert stored is not None
         return _result_from_receipt(stored.parsed())
-    except (ValueError, RuntimeError) as exc:
-        if _has_live_managed_writer(project, prepared_run):
-            raise
-        return fail_unclaimed(
-            ActionError(
-                code=map_error_code,
-                message=str(exc),
-                action_kind=action.kind,
-            ),
-        )
     except Exception as exc:
         if _has_live_managed_writer(project, prepared_run):
             raise
-        return fail_unclaimed(
-            ActionError(
-                code=map_error_code,
-                message=str(exc),
-                action_kind=action.kind,
-            ),
-        )
+        return fail_unclaimed(ctx.error(map_error_code, str(exc)))
 
     try:
         write_kwargs: dict[str, Any] = {}
