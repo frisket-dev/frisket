@@ -17,8 +17,7 @@ def _claim_job(queue, worker_id: str, job_id: int):
     pytest.fail(f"job {job_id} was not claimable")
 
 
-def test_sheet_list_reports_only_active_document_text_role_columns(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_sheet_list_reports_only_active_document_text_role_columns(client) -> None:
     created = client.post("/api/projects", json={"name": "Document roles"})
     assert created.status_code == 200, created.text
     project_id = created.json()["id"]
@@ -289,14 +288,13 @@ def test_project_delete_refused_while_cancelled_handler_still_has_authority(
 
 
 def test_project_create_reserved_windows_device_name_gets_disambiguated(
-    tmp_path,
+    client,
 ) -> None:
     """A project named after a Windows reserved device stem (CON, PRN, AUX,
     NUL, COM1-9, LPT1-9) must not become that literal slug -- "con.frisket"
     still collides with the CON device on native Windows. The auto-slugifier
     disambiguates with a "-project" suffix before the collision-number loop
     by the reserved-name contract. A normal, non-reserved name is unaffected."""
-    client = TestClient(create_app(tmp_path / "workspace"))
 
     normal = client.post("/api/projects", json={"name": "Normal Project"})
     assert normal.status_code == 200, normal.text
@@ -318,14 +316,13 @@ def test_project_create_reserved_windows_device_name_gets_disambiguated(
 
 
 def test_project_lookup_and_delete_404_for_reserved_device_name_pid(
-    tmp_path,
+    client,
 ) -> None:
     """A reserved-device-stem pid in the URL (which never names a real
     project, since Workspace.create never produces one) is treated as
     "not found", not a 500 -- ProjectLifecycleService._manifest_exists
     treats a validate_project_slug failure as "not found" so these HTTP
     bindings keep returning 404 for an invalid route ID."""
-    client = TestClient(create_app(tmp_path / "workspace"))
     for pid in ("con", "CON", "Con", "nul", "com1", "LPT9"):
         got = client.get(f"/api/projects/{pid}")
         assert got.status_code == 404, (pid, got.text)
@@ -338,7 +335,7 @@ def test_project_lookup_and_delete_404_for_reserved_device_name_pid(
 
 
 def test_non_lifecycle_routes_404_for_malformed_pid_instead_of_500(
-    tmp_path,
+    client,
 ) -> None:
     """Malformed project IDs (reserved device stem, disallowed character,
     over the 96-char length limit) must 404 through ANY route that calls
@@ -351,7 +348,6 @@ def test_non_lifecycle_routes_404_for_malformed_pid_instead_of_500(
     (a ValueError subclass) instead, so the app-level RouteError handler
     (registered once, app-wide, in create_app -- not a blanket ValueError
     handler) converts it to 404 everywhere."""
-    client = TestClient(create_app(tmp_path / "workspace"))
     malformed_pids = (
         "con",  # reserved Windows device stem
         "has space",  # disallowed character

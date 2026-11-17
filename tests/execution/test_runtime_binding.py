@@ -28,7 +28,6 @@ import pytest
 from frisket.ops.base import RecipeInvocationHalt
 from helpers import replace_test_source_cell
 
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteRow, RouteStore
 from frisket.execution.credential_use import CredentialUseContext
 from frisket.execution.provider import (
@@ -353,13 +352,6 @@ def test_unknown_transport_fails_loudly():
 # ---------------------------------------------------------------------------
 # The attempt's binding seam (B2/B3/B4): ONE head read, ONE deref, ONE key.
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "t.frisket", name="t")
-    yield p
-    p.close()
 
 
 class _OneTargetProvider:

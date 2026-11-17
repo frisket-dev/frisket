@@ -25,9 +25,8 @@ def _xlsx_bytes(rows: list[list[object]]) -> bytes:
 
 
 def test_import_xlsx_route_preserves_v1_transport_and_legacy_shape(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "XLSX Upload"}).json()["id"]
 
     operation = client.get("/openapi.json").json()["paths"][
@@ -76,9 +75,8 @@ def test_import_xlsx_route_preserves_v1_transport_and_legacy_shape(
 
 
 def test_import_xlsx_invalid_file_validation_error_maps_to_400(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "XLSX Upload"}).json()["id"]
 
     response = client.post(
@@ -107,9 +105,8 @@ def test_xlsx_import_obeys_the_request_composed_row_limit(tmp_path: Path) -> Non
 
 
 def test_xlsx_append_reviews_mapping_and_replays_only_the_same_attempt(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "XLSX append"}).json()["id"]
     created = client.post(
         f"/api/projects/{pid}/import/xlsx",
@@ -165,9 +162,8 @@ def test_xlsx_append_reviews_mapping_and_replays_only_the_same_attempt(
 
 
 def test_xlsx_retry_preserves_allocated_name_and_original_name_intent(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "XLSX retry"}).json()["id"]
     endpoint = f"/api/projects/{pid}/import/xlsx"
     occupied = client.post(
@@ -199,8 +195,7 @@ def test_xlsx_retry_preserves_allocated_name_and_original_name_intent(
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 3
 
 
-def test_xlsx_import_records_the_admitted_upload_read(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_xlsx_import_records_the_admitted_upload_read(client) -> None:
     pid = client.post("/api/projects", json={"name": "Held XLSX"}).json()["id"]
     raw = _xlsx_bytes([["name"], ["Original"]])
     response = client.post(

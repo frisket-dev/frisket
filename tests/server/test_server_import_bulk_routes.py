@@ -226,7 +226,7 @@ def _execute_bulk(
 
 @pytest.mark.parametrize("batch_id", ["existing-preparation", None, "hook-error"])
 def test_bulk_execute_returns_existing_preparation_batch_for_each_output(
-    tmp_path: Path, monkeypatch, batch_id: str | None
+    client, monkeypatch, batch_id: str | None
 ) -> None:
     from frisket.server.services.search_preparation import SearchPreparationService
 
@@ -241,7 +241,6 @@ def test_bulk_execute_returns_existing_preparation_batch_for_each_output(
     monkeypatch.setattr(
         SearchPreparationService, "create_after_materialization", materialized
     )
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client)
     planned = _bulk_plan(
         client,
@@ -277,7 +276,7 @@ def test_bulk_execute_returns_existing_preparation_batch_for_each_output(
 
 
 def test_solo_bulk_csv_exceeds_legacy_file_and_row_caps_without_truncation(
-    tmp_path: Path,
+    client,
 ) -> None:
     row_count = 10_001
     padding = "x" * 540
@@ -287,7 +286,6 @@ def test_solo_bulk_csv_exceeds_legacy_file_and_row_caps_without_truncation(
     ).encode()
     assert len(raw) > 5 * 1024 * 1024
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Large CSV")
     planned = _bulk_plan(
         client,
@@ -311,7 +309,7 @@ def test_solo_bulk_csv_exceeds_legacy_file_and_row_caps_without_truncation(
 
 
 def test_bulk_plan_reads_uploads_in_bounded_chunks(
-    tmp_path: Path,
+    client,
     monkeypatch,
 ) -> None:
     raw = b"name,notes\n" + b"".join(
@@ -326,7 +324,6 @@ def test_bulk_plan_reads_uploads_in_bounded_chunks(
         return await original_read(self, size)
 
     monkeypatch.setattr(UploadFile, "read", recording_read)
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Chunked bulk staging")
 
     planned = _bulk_plan(
@@ -493,8 +490,7 @@ def test_post_claim_database_failure_cleans_claimed_plan(
     assert not (project.path / ".bulk_import_staging" / planned["plan_id"]).exists()
 
 
-def test_bulk_service_uses_its_injected_clock_for_plan_expiry(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_bulk_service_uses_its_injected_clock_for_plan_expiry(client) -> None:
     pid = _project(client, "Injected bulk clock")
     now = [1_000.0]
     service = import_bulk_service.ImportBulkService(
@@ -519,8 +515,7 @@ def test_bulk_service_uses_its_injected_clock_for_plan_expiry(tmp_path: Path) ->
     assert not plan.exists()
 
 
-def test_bulk_purge_does_not_follow_symlink_children(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_bulk_purge_does_not_follow_symlink_children(tmp_path: Path, client) -> None:
     pid = _project(client, "Safe purge")
     project = client.app.state.workspace.get(pid)
     root = project.path / ".bulk_import_staging"
@@ -541,12 +536,11 @@ def test_bulk_purge_does_not_follow_symlink_children(tmp_path: Path) -> None:
 
 
 def test_bulk_import_works_without_dir_fd_support(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Windows verifies staged files without POSIX relative-open support."""
 
     monkeypatch.setattr(import_bulk_sources.os, "supports_dir_fd", set())
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Portable staged source")
     planned = _bulk_plan(
         client,
@@ -562,9 +556,8 @@ def test_bulk_import_works_without_dir_fd_support(
 
 
 def test_bulk_combined_csv_aligns_reordered_columns_and_widens_numbers(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "CSV widening")
     planned = _bulk_plan(
         client,
@@ -604,10 +597,9 @@ def test_bulk_combined_csv_aligns_reordered_columns_and_widens_numbers(
     ids=["duplicate", "empty", "unparseable"],
 )
 def test_bulk_plan_keeps_valid_sibling_when_csv_header_is_unusable(
-    tmp_path: Path,
+    client,
     malformed: bytes,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Unusable CSV headers")
 
     planned = _bulk_plan(
@@ -650,9 +642,8 @@ def test_bulk_plan_keeps_valid_sibling_when_csv_header_is_unusable(
 
 
 def test_bulk_execute_reports_deterministic_inert_csv_failure_details(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Deterministic CSV failures")
     planned = _bulk_plan(
         client,
@@ -705,9 +696,8 @@ def test_bulk_execute_reports_deterministic_inert_csv_failure_details(
 
 
 def test_bulk_execute_bounds_failure_details_without_losing_aggregate_accounting(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Bounded CSV failures")
     malformed = [
         (
@@ -748,8 +738,7 @@ def test_bulk_execute_bounds_failure_details_without_losing_aggregate_accounting
     assert _bulk_staging_directories(client, pid) == []
 
 
-def test_bulk_nonmatching_csvs_create_independent_outputs(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_bulk_nonmatching_csvs_create_independent_outputs(client) -> None:
     pid = _project(client, "Nonmatching CSVs")
     planned = _bulk_plan(
         client,
@@ -781,9 +770,8 @@ def test_bulk_nonmatching_csvs_create_independent_outputs(tmp_path: Path) -> Non
 
 
 def test_bulk_csv_publications_keep_one_reversible_op_and_receipt_per_output(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Bulk CSV publication")
     planned = _bulk_plan(
         client,
@@ -843,9 +831,8 @@ def test_bulk_csv_publications_keep_one_reversible_op_and_receipt_per_output(
 
 
 def test_bulk_combined_csv_uses_noncolliding_source_file_provenance(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Provenance collision")
     planned = _bulk_plan(
         client,
@@ -894,9 +881,8 @@ def _csv_with_late_malformed_record() -> bytes:
 
 
 def test_bulk_combined_csv_late_parse_failure_publishes_no_sheet(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Atomic combined CSV")
     planned = _bulk_plan(
         client,
@@ -924,9 +910,8 @@ def test_bulk_combined_csv_late_parse_failure_publishes_no_sheet(
 
 
 def test_bulk_reports_committed_sheet_after_later_fatal_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Visible partial import")
     planned = _bulk_plan(
         client,
@@ -956,9 +941,8 @@ def test_bulk_reports_committed_sheet_after_later_fatal_failure(
 
 
 def test_bulk_separate_csv_keeps_earlier_success_when_later_output_fails(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Per-output CSV atomicity")
     planned = _bulk_plan(
         client,
@@ -991,9 +975,8 @@ def test_bulk_separate_csv_keeps_earlier_success_when_later_output_fails(
 
 
 def test_bulk_separate_csv_reports_committed_child_after_later_fatal_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Visible partial separate CSV")
     planned = _bulk_plan(
         client,
@@ -1045,16 +1028,17 @@ def test_bulk_separate_csv_reports_committed_child_after_later_fatal_failure(
 
 
 def test_bulk_plan_is_non_mutating_deterministic_and_zip_equivalent(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    pid = _project(client)
 
-    direct = _bulk_plan(client, pid, _compatible_csv_uploads(), expand_archive=False)
+    direct = _bulk_plan(
+        client, project_id, _compatible_csv_uploads(), expand_archive=False
+    )
     assert direct.status_code == 200, direct.text
     direct_plan = direct.json()
     assert isinstance(direct_plan["plan_id"], str)
-    assert client.get(f"/api/projects/{pid}/sheets").json() == []
+    assert client.get(f"/api/projects/{project_id}/sheets").json() == []
     assert direct_plan["proposed_outputs"] == [
         {
             "id": direct_plan["proposed_outputs"][0]["id"],
@@ -1067,7 +1051,7 @@ def test_bulk_plan_is_non_mutating_deterministic_and_zip_equivalent(
 
     archive = _bulk_plan(
         client,
-        pid,
+        project_id,
         [
             (
                 "selected.zip",
@@ -1091,21 +1075,20 @@ def test_bulk_plan_is_non_mutating_deterministic_and_zip_equivalent(
     } == {
         key: value for key, value in _csv_question(direct_plan).items() if key != "id"
     }
-    assert client.get(f"/api/projects/{pid}/sheets").json() == []
+    assert client.get(f"/api/projects/{project_id}/sheets").json() == []
 
 
 def test_bulk_execute_requires_exact_project_bound_decisions_and_combines_csvs(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    pid = _project(client)
     plan_response = _bulk_plan(
-        client, pid, _compatible_csv_uploads(), expand_archive=False
+        client, project_id, _compatible_csv_uploads(), expand_archive=False
     )
     assert plan_response.status_code == 200, plan_response.text
     plan = plan_response.json()
     question = _csv_question(plan)
-    execute_path = f"/api/projects/{pid}/import/bulk/{plan['plan_id']}/execute"
+    execute_path = f"/api/projects/{project_id}/import/bulk/{plan['plan_id']}/execute"
 
     missing = client.post(execute_path, json={"decisions": {}})
     assert missing.status_code == 400
@@ -1116,20 +1099,20 @@ def test_bulk_execute_requires_exact_project_bound_decisions_and_combines_csvs(
     assert unknown.status_code == 400
 
     # The write-time name resolution must not trust the earlier proposed name.
-    client.app.state.workspace.get(pid).add_sheet(
+    client.app.state.workspace.get(project_id).add_sheet(
         plan["proposed_outputs"][0]["sheet_name"]
     )
     executed = client.post(
         execute_path, json={"decisions": {question["id"]: "combine"}}
     )
     assert executed.status_code == 200, executed.text
-    sheets = client.get(f"/api/projects/{pid}/sheets").json()
+    sheets = client.get(f"/api/projects/{project_id}/sheets").json()
     created = [sheet for sheet in sheets if sheet["name"] != "a"]
     assert len(created) == 1
     assert created[0]["name"] == "a-2"
     assert executed.json()["created"]
     assert executed.json()["first_sheet_id"] == created[0]["id"]
-    assert _sheet_rows(client, pid, created[0]["id"]) == [
+    assert _sheet_rows(client, project_id, created[0]["id"]) == [
         {"name": "Ada", "score": "1", "source_file": "folder/a.csv"},
         {"name": "Bob", "score": "2", "source_file": "folder/b.csv"},
     ]
@@ -1148,8 +1131,8 @@ def test_bulk_execute_requires_exact_project_bound_decisions_and_combines_csvs(
 
 def test_bulk_manifest_is_bound_to_storage_identity_and_staged_inode(
     tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Manifest identity")
     planned = _bulk_plan(
         client,
@@ -1185,9 +1168,8 @@ def test_bulk_manifest_is_bound_to_storage_identity_and_staged_inode(
 
 
 def test_concurrent_same_name_bulk_plans_allocate_inside_transaction(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Concurrent names")
     plans = [
         _bulk_plan(
@@ -1255,9 +1237,8 @@ def test_purge_does_not_hide_claim_lock_permission_errors(
 
 
 def test_concurrent_generic_file_plans_create_distinct_actual_outputs(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Concurrent files")
     plans = [
         _bulk_plan(
@@ -1324,9 +1305,8 @@ def test_generic_import_cannot_report_success_for_a_missing_sheet(
 
 
 def test_bulk_files_lazily_open_verified_pdf_attachment_occurrences(
-    tmp_path: Path, monkeypatch
+    client, monkeypatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Held file group")
     content = b"same attachment bytes"
     planned = _bulk_plan(
@@ -1370,7 +1350,7 @@ def test_bulk_files_lazily_open_verified_pdf_attachment_occurrences(
 
 
 def test_bulk_xlsx_retry_reuses_receipt_before_allocating_suffix(
-    tmp_path: Path,
+    client,
 ) -> None:
     from openpyxl import Workbook
 
@@ -1381,7 +1361,6 @@ def test_bulk_xlsx_retry_reuses_receipt_before_allocating_suffix(
     workbook.save(buffer)
     workbook.close()
     raw = buffer.getvalue()
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Retry workbook")
     results = []
     for _ in range(2):
@@ -1408,7 +1387,7 @@ def test_bulk_xlsx_retry_reuses_receipt_before_allocating_suffix(
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
 
 
-def test_concurrent_xlsx_plans_create_distinct_actual_outputs(tmp_path: Path) -> None:
+def test_concurrent_xlsx_plans_create_distinct_actual_outputs(client) -> None:
     from openpyxl import Workbook
 
     def workbook_bytes(value: str) -> bytes:
@@ -1419,7 +1398,6 @@ def test_concurrent_xlsx_plans_create_distinct_actual_outputs(tmp_path: Path) ->
         workbook.save(target)
         return target.getvalue()
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Concurrent workbooks")
     plans = [
         _bulk_plan(
@@ -1456,35 +1434,39 @@ def test_concurrent_xlsx_plans_create_distinct_actual_outputs(tmp_path: Path) ->
 
 
 def test_bulk_execute_separate_creates_one_sheet_per_compatible_csv(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    pid = _project(client)
-    planned = _bulk_plan(client, pid, _compatible_csv_uploads(), expand_archive=False)
+    planned = _bulk_plan(
+        client, project_id, _compatible_csv_uploads(), expand_archive=False
+    )
     assert planned.status_code == 200, planned.text
     plan = planned.json()
     question = _csv_question(plan)
 
     executed = client.post(
-        f"/api/projects/{pid}/import/bulk/{plan['plan_id']}/execute",
+        f"/api/projects/{project_id}/import/bulk/{plan['plan_id']}/execute",
         json={"decisions": {question["id"]: "separate"}},
     )
     assert executed.status_code == 200, executed.text
-    sheets = client.get(f"/api/projects/{pid}/sheets").json()
+    sheets = client.get(f"/api/projects/{project_id}/sheets").json()
     assert [sheet["name"] for sheet in sheets] == ["a", "b"]
-    assert _sheet_rows(client, pid, sheets[0]["id"]) == [{"name": "Ada", "score": "1"}]
-    assert _sheet_rows(client, pid, sheets[1]["id"]) == [{"score": "2", "name": "Bob"}]
+    assert _sheet_rows(client, project_id, sheets[0]["id"]) == [
+        {"name": "Ada", "score": "1"}
+    ]
+    assert _sheet_rows(client, project_id, sheets[1]["id"]) == [
+        {"score": "2", "name": "Bob"}
+    ]
 
 
 def test_bulk_plan_ignores_junk_and_refuses_unsafe_or_corrupt_archives(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    pid = _project(client)
 
     junk = _bulk_plan(
         client,
-        pid,
+        project_id,
         [
             (
                 "junk.zip",
@@ -1516,11 +1498,11 @@ def test_bulk_plan_ignores_junk_and_refuses_unsafe_or_corrupt_archives(
     assert junk.json()["proposed_outputs"] == []
     assert junk.json()["questions"] == []
     assert junk.json()["message"] == "No importable files found."
-    assert client.get(f"/api/projects/{pid}/sheets").json() == []
+    assert client.get(f"/api/projects/{project_id}/sheets").json() == []
 
     unsafe = _bulk_plan(
         client,
-        pid,
+        project_id,
         [
             (
                 "unsafe.zip",
@@ -1535,7 +1517,7 @@ def test_bulk_plan_ignores_junk_and_refuses_unsafe_or_corrupt_archives(
 
     not_sole = _bulk_plan(
         client,
-        pid,
+        project_id,
         [
             (
                 "selected.zip",
@@ -1551,7 +1533,7 @@ def test_bulk_plan_ignores_junk_and_refuses_unsafe_or_corrupt_archives(
 
     duplicate = _bulk_plan(
         client,
-        pid,
+        project_id,
         [
             (
                 "duplicate.zip",
@@ -1571,7 +1553,7 @@ def test_bulk_plan_ignores_junk_and_refuses_unsafe_or_corrupt_archives(
 
     symlink = _bulk_plan(
         client,
-        pid,
+        project_id,
         [
             (
                 "symlink.zip",
@@ -1590,7 +1572,7 @@ def test_bulk_plan_ignores_junk_and_refuses_unsafe_or_corrupt_archives(
 
     fifo = _bulk_plan(
         client,
-        pid,
+        project_id,
         [
             (
                 "fifo.zip",
@@ -1609,7 +1591,7 @@ def test_bulk_plan_ignores_junk_and_refuses_unsafe_or_corrupt_archives(
 
     corrupt = _bulk_plan(
         client,
-        pid,
+        project_id,
         [("broken.zip", b"not a zip", "application/zip", "broken.zip")],
         expand_archive=True,
     )
@@ -1793,7 +1775,8 @@ def test_bulk_bzip2_backing_read_failure_is_server_error_and_cleans_draft(
 
 
 def test_bulk_plan_executes_staged_email_with_canonical_attachment_storage(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
     attachment = b"\x00binary invoice\xff"
     message = EmailMessage()
@@ -1810,11 +1793,9 @@ def test_bulk_plan_executes_staged_email_with_canonical_attachment_storage(
         filename="invoice.bin",
     )
 
-    client = TestClient(create_app(tmp_path / "workspace"))
-    pid = _project(client)
     planned = _bulk_plan(
         client,
-        pid,
+        project_id,
         [
             (
                 "inbox.eml",
@@ -1838,7 +1819,7 @@ def test_bulk_plan_executes_staged_email_with_canonical_attachment_storage(
     ]
 
     executed = client.post(
-        f"/api/projects/{pid}/import/bulk/{plan['plan_id']}/execute",
+        f"/api/projects/{project_id}/import/bulk/{plan['plan_id']}/execute",
         json={"decisions": {}},
     )
     assert executed.status_code == 200, executed.text
@@ -1851,7 +1832,7 @@ def test_bulk_plan_executes_staged_email_with_canonical_attachment_storage(
     assert created["logical_paths"] == ["mail/inbox.eml"]
     assert result["first_sheet_id"] == created["sheet_id"]
 
-    project = client.app.state.workspace.get(pid)
+    project = client.app.state.workspace.get(project_id)
     columns = {
         row["name"]: row
         for row in project.db.execute(
@@ -1879,13 +1860,14 @@ def test_bulk_plan_executes_staged_email_with_canonical_attachment_storage(
     ]
     with project.blob_store.materialize(digest) as stored:
         assert stored.read_bytes() == attachment
-    downloaded = client.get(f"/api/projects/{pid}/blobs/{digest}")
+    downloaded = client.get(f"/api/projects/{project_id}/blobs/{digest}")
     assert downloaded.status_code == 200
     assert downloaded.content == attachment
 
 
 def test_bulk_email_rejects_staged_path_replaced_before_lazy_open(
     tmp_path: Path,
+    client,
     monkeypatch,
 ) -> None:
     original = EmailMessage()
@@ -1897,7 +1879,6 @@ def test_bulk_email_rejects_staged_path_replaced_before_lazy_open(
     replacement["Subject"] = "Path replacement"
     replacement.set_content("replacement bytes")
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Pinned email inode")
     planned = _bulk_plan(
         client,
@@ -1968,7 +1949,7 @@ def test_bulk_email_rejects_staged_path_replaced_before_lazy_open(
 
 
 def test_bulk_email_tampered_source_aborts_valid_sibling_without_publishing(
-    tmp_path: Path, monkeypatch
+    client, monkeypatch
 ) -> None:
     good = EmailMessage()
     good["From"] = "reporter@example.test"
@@ -1979,7 +1960,6 @@ def test_bulk_email_tampered_source_aborts_valid_sibling_without_publishing(
     tampered["Subject"] = "Expected second"
     tampered.set_content("expected bytes")
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Atomic trusted email set")
     planned = _bulk_plan(
         client,
@@ -2024,7 +2004,7 @@ def test_bulk_email_tampered_source_aborts_valid_sibling_without_publishing(
 
 
 def test_bulk_email_path_replacement_after_lazy_open_uses_pinned_inode(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, client, monkeypatch
 ) -> None:
     original = EmailMessage()
     original["From"] = "reporter@example.test"
@@ -2035,7 +2015,6 @@ def test_bulk_email_path_replacement_after_lazy_open_uses_pinned_inode(
     replacement["Subject"] = "Replacement"
     replacement.set_content("replacement bytes")
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Pinned lazy email inode")
     planned = _bulk_plan(
         client,
@@ -2071,7 +2050,7 @@ def test_bulk_email_path_replacement_after_lazy_open_uses_pinned_inode(
 
 
 def test_bulk_email_keeps_valid_messages_and_returns_bounded_parse_warnings(
-    tmp_path: Path,
+    client,
 ) -> None:
     """A bad message is a warning, not a failed bulk-email import."""
 
@@ -2080,7 +2059,6 @@ def test_bulk_email_keeps_valid_messages_and_returns_bounded_parse_warnings(
     valid["Subject"] = "Still usable"
     valid.set_content("The valid message must remain importable.")
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Email warnings")
     planned = _bulk_plan(
         client,
@@ -2111,7 +2089,7 @@ def test_bulk_email_keeps_valid_messages_and_returns_bounded_parse_warnings(
 
 
 def test_bulk_email_warning_response_is_bounded_with_a_compact_remainder(
-    tmp_path: Path,
+    client,
 ) -> None:
     valid = EmailMessage()
     valid["From"] = "reporter@example.test"
@@ -2126,7 +2104,6 @@ def test_bulk_email_warning_response_is_bounded_with_a_compact_remainder(
         )
         for index in range(21)
     ]
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Bounded email warnings")
     planned = _bulk_plan(
         client,
@@ -2155,9 +2132,8 @@ def test_bulk_email_warning_response_is_bounded_with_a_compact_remainder(
 
 
 def test_bulk_email_failure_is_compact_and_does_not_discard_successful_sibling(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = _project(client, "Partial email import")
     planned = _bulk_plan(
         client,

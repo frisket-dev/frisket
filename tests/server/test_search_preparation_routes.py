@@ -13,7 +13,6 @@ from frisket.engine.jobs.projection import job_run_id
 from frisket.engine.store.document_text import document_text_role
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.pdf_text import PdfTextError, PdfTextSample
-from frisket.server.app import create_app
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.search_preparation import register_search_preparation_routes
 from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
@@ -137,10 +136,9 @@ def test_completed_preparation_exposes_bounded_receipt_warnings_without_result_s
 
 
 def test_explicit_preparation_is_reconnectable_and_double_click_safe(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Preparation"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Files")
@@ -171,10 +169,9 @@ def test_explicit_preparation_is_reconnectable_and_double_click_safe(
 
 
 def test_explicit_preparation_rejects_a_sheet_with_no_actionable_media(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Preparation"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Notes")
@@ -196,7 +193,7 @@ def test_explicit_preparation_rejects_a_sheet_with_no_actionable_media(
 
 
 def test_preparation_lists_independent_pdf_checkpoints_across_index_jobs(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ):
     from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE, PDF_PAGE_RECIPE_ID
     from frisket.retrieval.sources import blob_source_revision
@@ -204,7 +201,6 @@ def test_preparation_lists_independent_pdf_checkpoints_across_index_jobs(
     from frisket.search import drain_index
 
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "PDF progress"}).json()[
         "id"
     ]
@@ -398,11 +394,10 @@ def test_indexing_sheet_names_follow_visible_explicit_lexical_scope(
     assert service.list(project_id).indexing.sheet_names == []
 
 
-def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) -> None:
+def test_preparation_list_projects_durable_indexing_work(client, monkeypatch) -> None:
     from frisket.search import drain_index
 
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Indexing"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Notes")
@@ -472,12 +467,13 @@ def test_preparation_list_projects_durable_indexing_work(tmp_path, monkeypatch) 
 
 
 @pytest.mark.parametrize("mode", ["lexical", "semantic", "hybrid"])
-def test_search_recovers_index_work_without_a_queued_job(tmp_path, monkeypatch, mode):
+def test_search_recovers_index_work_without_a_queued_job(
+    tmp_path, client, monkeypatch, mode
+):
     # Exercise the real unavailable-model path without using a developer's cache.
     monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "model-runtime"))
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "model-cache"))
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    client = TestClient(create_app(tmp_path / "workspace"))
     workspace = client.app.state.workspace
     project_id = client.post("/api/projects", json={"name": "Recovery"}).json()["id"]
     project = workspace.get(project_id)
@@ -550,10 +546,9 @@ def test_search_recovers_index_work_without_a_queued_job(tmp_path, monkeypatch, 
 
 
 def test_explicit_preparation_rejects_rows_outside_visible_scope(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Preparation"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Files")
@@ -574,7 +569,7 @@ def test_explicit_preparation_rejects_rows_outside_visible_scope(
     ],
 )
 def test_manual_ready_media_requires_decision_across_recovery(
-    tmp_path, monkeypatch, media_type, mime, capability
+    client, monkeypatch, media_type, mime, capability
 ):
     if capability == "transcription":
         monkeypatch.setattr(
@@ -585,7 +580,6 @@ def test_manual_ready_media_requires_decision_across_recovery(
         )
     requirement = replace(_Requirement(), capability=capability, weights_ready=True)
     monkeypatch.setattr(preparation_module, "_requirements", lambda: (requirement,))
-    client = TestClient(create_app(tmp_path / "workspace"))
     workspace = client.app.state.workspace
     project_id = workspace.create("Manual review")["id"]
     project = workspace.get(project_id)
@@ -843,7 +837,7 @@ def test_missing_ocr_setup_never_starts_before_exact_consent(
 
 @pytest.mark.parametrize("force_ocr", [False, True])
 def test_ready_pdf_ocr_waits_for_exact_decision_over_http(
-    tmp_path, monkeypatch, force_ocr
+    client, monkeypatch, force_ocr
 ):
     monkeypatch.setattr(
         preparation_module,
@@ -855,7 +849,6 @@ def test_ready_pdf_ocr_waits_for_exact_decision_over_http(
         return PdfTextSample("", page, 24909, False)
 
     monkeypatch.setattr(planning_module, "sample_pdf_text", sample)
-    client = TestClient(create_app(tmp_path / "workspace"))
     workspace = client.app.state.workspace
     project_id = workspace.create("PDF review")["id"]
     project = workspace.get(project_id)
@@ -960,7 +953,7 @@ def test_legacy_pdf_action_is_adopted_before_the_review_guard(tmp_path, monkeypa
 
 
 def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decisions(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ):
     monkeypatch.setattr(
         preparation_module,
@@ -972,7 +965,6 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
         return PdfTextSample("embedded text", page, 24909, False)
 
     monkeypatch.setattr(planning_module, "sample_pdf_text", sample)
-    client = TestClient(create_app(tmp_path / "workspace"))
     workspace = client.app.state.workspace
     project_id = workspace.create("Mixed review")["id"]
     project = workspace.get(project_id)
@@ -1109,7 +1101,7 @@ def test_pdf_replan_preserves_full_original_cell_scope_and_rejects_late_decision
 
 @pytest.mark.parametrize("repair_skipped_pdf", [False, True])
 def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
-    tmp_path, monkeypatch, repair_skipped_pdf
+    client, monkeypatch, repair_skipped_pdf
 ):
     from helpers import stub_rapidocr_run_scope
     from frisket.ops import ocr_engines
@@ -1138,7 +1130,6 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
         "_requirements",
         lambda: (replace(_Requirement(), weights_ready=True),),
     )
-    client = TestClient(create_app(tmp_path / "workspace"))
     workspace = client.app.state.workspace
     project_id = workspace.create("Mixed PDF preparation")["id"]
     imported = client.post(
@@ -1295,14 +1286,13 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
     assert text_values[scan["row_id"]] == "Scanned beacon"
 
 
-def test_pdf_preview_failure_is_readable_http_error(tmp_path, monkeypatch):
+def test_pdf_preview_failure_is_readable_http_error(client, monkeypatch):
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
 
     async def sample(_path, *, page, **_kwargs):
         return PdfTextSample("native", page, 24909, False)
 
     monkeypatch.setattr(planning_module, "sample_pdf_text", sample)
-    client = TestClient(create_app(tmp_path / "workspace"))
     workspace = client.app.state.workspace
     project_id = workspace.create("PDF preview")["id"]
     project = workspace.get(project_id)
@@ -2006,8 +1996,7 @@ def test_recovery_observes_setup_completed_by_another_process(
     assert resumed.jobs[0].status == "queued"
 
 
-def test_empty_project_does_not_queue_or_report_search_preparation(tmp_path):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_empty_project_does_not_queue_or_report_search_preparation(client):
     response = client.post("/api/projects", json={"name": "Empty"})
     assert response.status_code == 200, response.text
     project_id = response.json()["id"]
@@ -2266,12 +2255,11 @@ def test_import_handoff_projects_durable_pending_available_and_none(
 
 @pytest.mark.parametrize("sibling_page", [None, 1])
 def test_pdf_sample_selection_is_bound_to_column_before_sampling(
-    tmp_path, monkeypatch, sibling_page
+    client, monkeypatch, sibling_page
 ):
     from tests.engine.test_native_pdf_text_action import _pdf_bytes
 
     monkeypatch.setattr(preparation_module, "_requirements", lambda: ())
-    client = TestClient(create_app(tmp_path / "workspace"))
     workspace = client.app.state.workspace
     project_id = workspace.create("Two PDFs in one row")["id"]
     project = workspace.get(project_id)

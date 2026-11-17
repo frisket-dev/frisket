@@ -84,45 +84,38 @@ def _start_session(project: Project, *, authority: str = "claim:one"):
     )
 
 
-def test_resumable_session_reopens_without_duplicate_rows(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "resume.frisket", name="resume")
-    try:
-        writer = _start_session(project)
-        assert project.sheets()[0]["id"] == writer.sheet_id
-        writer.append_page(_records(0, 2), expected_cursor=0, next_cursor=2)
-        writer.abort()
+def test_resumable_session_reopens_without_duplicate_rows(make_project) -> None:
+    project = make_project("resume")
+    writer = _start_session(project)
+    assert project.sheets()[0]["id"] == writer.sheet_id
+    writer.append_page(_records(0, 2), expected_cursor=0, next_cursor=2)
+    writer.abort()
 
-        resumed = StreamingSheetWriter.resume_session(
-            project,
-            session_id="import:one",
-            writer_authority="claim:two",
-            expected_cursor=2,
-        )
-        resumed.append_page(_records(2, 4), expected_cursor=2, next_cursor=4)
-        publication = resumed.finalize_session(
-            expected_cursor=4, enumeration_complete=True
-        )
+    resumed = StreamingSheetWriter.resume_session(
+        project,
+        session_id="import:one",
+        writer_authority="claim:two",
+        expected_cursor=2,
+    )
+    resumed.append_page(_records(2, 4), expected_cursor=2, next_cursor=4)
+    publication = resumed.finalize_session(expected_cursor=4, enumeration_complete=True)
 
-        assert publication.row_count == 4
-        session = ImportSessionStore(project).get("import:one")
-        assert session is not None and session.state == "completed"
-        assert session.cursor == 4 and session.committed_rows == 4
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
-        producer = project.db.execute(
-            "SELECT id,op_id FROM base_cell_producers"
-        ).fetchone()
-        assert producer is not None and producer["op_id"] == publication.op_id
-        receipt = ReceiptStore(project).find_by_id(publication.receipt_id)
-        assert receipt is not None and receipt.status == "completed"
-        assert receipt.parsed().op_ids == [publication.op_id]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(DISTINCT producer_id) FROM cells"
-            ).fetchone()[0]
-            == 1
-        )
-    finally:
-        project.close()
+    assert publication.row_count == 4
+    session = ImportSessionStore(project).get("import:one")
+    assert session is not None and session.state == "completed"
+    assert session.cursor == 4 and session.committed_rows == 4
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
+    producer = project.db.execute("SELECT id,op_id FROM base_cell_producers").fetchone()
+    assert producer is not None and producer["op_id"] == publication.op_id
+    receipt = ReceiptStore(project).find_by_id(publication.receipt_id)
+    assert receipt is not None and receipt.status == "completed"
+    assert receipt.parsed().op_ids == [publication.op_id]
+    assert (
+        project.db.execute("SELECT COUNT(DISTINCT producer_id) FROM cells").fetchone()[
+            0
+        ]
+        == 1
+    )
 
 
 @pytest.mark.parametrize("terminal", ["completed", "kept", "removed"])
@@ -210,145 +203,127 @@ def test_resumable_session_preserves_reserved_receipt_through_terminalization(
         project.close()
 
 
-def test_resumable_session_rejects_uncheckpointed_append_rows(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "append-guard.frisket", name="append-guard")
-    try:
-        writer = _start_session(project)
-        with pytest.raises(RuntimeError, match="append_page"):
-            writer.append_rows(_records(0, 1))
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
-    finally:
-        project.close()
+def test_resumable_session_rejects_uncheckpointed_append_rows(make_project) -> None:
+    project = make_project("append-guard")
+    writer = _start_session(project)
+    with pytest.raises(RuntimeError, match="append_page"):
+        writer.append_rows(_records(0, 1))
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
 
 
 def test_resumable_page_cursor_and_rows_roll_back_together(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "rollback.frisket", name="rollback")
-    try:
-        writer = _start_session(project)
+    project = make_project("rollback")
+    writer = _start_session(project)
 
-        def fail(*_args, **_kwargs):
-            raise RuntimeError("publication failed")
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("publication failed")
 
-        monkeypatch.setattr(
-            "frisket.engine.store.streaming_import.publish_import_blobs", fail
+    monkeypatch.setattr(
+        "frisket.engine.store.streaming_import.publish_import_blobs", fail
+    )
+    with pytest.raises(RuntimeError, match="publication failed"):
+        writer.append_page(
+            _records(0, 1),
+            expected_cursor=0,
+            next_cursor=1,
+            blob_plan=PreparedImportBlobPlan(ImportBlobPlan()),
         )
-        with pytest.raises(RuntimeError, match="publication failed"):
-            writer.append_page(
-                _records(0, 1),
-                expected_cursor=0,
-                next_cursor=1,
-                blob_plan=PreparedImportBlobPlan(ImportBlobPlan()),
-            )
-        session = ImportSessionStore(project).get("import:one")
-        assert session is not None and session.cursor == 0
-        assert session.committed_rows == 0
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
-    finally:
-        project.close()
+    session = ImportSessionStore(project).get("import:one")
+    assert session is not None and session.cursor == 0
+    assert session.committed_rows == 0
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
 
 
 def test_resumable_session_rejects_stale_writer_and_keeps_cancelled_rows(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "stale.frisket", name="stale")
-    try:
-        stale = _start_session(project)
-        stale.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
-        current = StreamingSheetWriter.resume_session(
-            project,
-            session_id="import:one",
-            writer_authority="claim:two",
-            expected_cursor=1,
-        )
-        with pytest.raises(ImportSessionConflict):
-            stale.append_page(_records(1, 2), expected_cursor=1, next_cursor=2)
+    project = make_project("stale")
+    stale = _start_session(project)
+    stale.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
+    current = StreamingSheetWriter.resume_session(
+        project,
+        session_id="import:one",
+        writer_authority="claim:two",
+        expected_cursor=1,
+    )
+    with pytest.raises(ImportSessionConflict):
+        stale.append_page(_records(1, 2), expected_cursor=1, next_cursor=2)
 
-        current.cancel(expected_cursor=1)
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1
-        kept = current.finalize_session(expected_cursor=1, keep_cancelled=True)
-        assert kept.receipt.status == "partial"
-        assert project.sheets()[0]["name"] == "Visible import"
-        assert ImportSessionStore(project).get("import:one").state == "kept"
-    finally:
-        project.close()
+    current.cancel(expected_cursor=1)
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1
+    kept = current.finalize_session(expected_cursor=1, keep_cancelled=True)
+    assert kept.receipt.status == "partial"
+    assert project.sheets()[0]["name"] == "Visible import"
+    assert ImportSessionStore(project).get("import:one").state == "kept"
 
 
 def test_cancelled_session_removal_retains_saved_data_for_restore(
-    tmp_path: Path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
-    project = Project.create(tmp_path / "remove.frisket", name="remove")
-    try:
-        writer = _start_session(project)
-        writer.append_page(_records(0, 2), expected_cursor=0, next_cursor=2)
-        project.db.executemany(
-            "INSERT INTO source_artifacts "
-            "(stable_id,artifact_kind,media_type,source_sheet_id) VALUES (?,?,?,?)",
-            [
-                (
-                    f"artifact:session:{index}",
-                    "file",
-                    "application/pdf",
-                    writer.sheet_id,
-                )
-                for index in range(130)
-            ],
-        )
-        project.db.execute(
-            "INSERT INTO evidence_links "
-            "(stable_id,subject_kind,sheet_id,op_id,receipt_id) VALUES (?,?,?,?,?)",
+    project = make_project("remove")
+    writer = _start_session(project)
+    writer.append_page(_records(0, 2), expected_cursor=0, next_cursor=2)
+    project.db.executemany(
+        "INSERT INTO source_artifacts "
+        "(stable_id,artifact_kind,media_type,source_sheet_id) VALUES (?,?,?,?)",
+        [
             (
-                "evidence:session",
-                "cell_value",
+                f"artifact:session:{index}",
+                "file",
+                "application/pdf",
                 writer.sheet_id,
-                writer._op_id,
-                "receipt:inventory-one",
-            ),
-        )
-        project.db.commit()
-        # Removal must not materialize every artifact ID into SQL parameters.
-        # This proves corpus-sized cancellation works under SQLite's bound limit.
-        project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 64)
-        writer.cancel(expected_cursor=2)
-        with monkeypatch.context() as failed:
+            )
+            for index in range(130)
+        ],
+    )
+    project.db.execute(
+        "INSERT INTO evidence_links "
+        "(stable_id,subject_kind,sheet_id,op_id,receipt_id) VALUES (?,?,?,?,?)",
+        (
+            "evidence:session",
+            "cell_value",
+            writer.sheet_id,
+            writer._op_id,
+            "receipt:inventory-one",
+        ),
+    )
+    project.db.commit()
+    # Removal must not materialize every artifact ID into SQL parameters.
+    # This proves corpus-sized cancellation works under SQLite's bound limit.
+    project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 64)
+    writer.cancel(expected_cursor=2)
+    with monkeypatch.context() as failed:
 
-            def fail_unapply(_operation):
-                raise RuntimeError("interrupted removal")
+        def fail_unapply(_operation):
+            raise RuntimeError("interrupted removal")
 
-            failed.setattr(project, "_unapply", fail_unapply)
-            with pytest.raises(RuntimeError, match="interrupted removal"):
-                writer.remove_session(expected_cursor=2)
-        assert ImportSessionStore(project).get("import:one").state == "cancelled"
-        assert (
-            ReceiptStore(project).find_by_id("receipt:inventory-one").status
-            == "running"
-        )
-        assert project.sheets()[0]["id"] == writer.sheet_id
-        writer.remove_session(expected_cursor=2)
+        failed.setattr(project, "_unapply", fail_unapply)
+        with pytest.raises(RuntimeError, match="interrupted removal"):
+            writer.remove_session(expected_cursor=2)
+    assert ImportSessionStore(project).get("import:one").state == "cancelled"
+    assert ReceiptStore(project).find_by_id("receipt:inventory-one").status == "running"
+    assert project.sheets()[0]["id"] == writer.sheet_id
+    writer.remove_session(expected_cursor=2)
 
-        assert project.sheets() == []
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
-        removed_receipt = ReceiptStore(project).find_by_id("receipt:inventory-one")
-        assert removed_receipt is not None and removed_receipt.status == "cancelled"
-        assert removed_receipt.parsed().op_ids == [writer._op_id]
-        assert (
-            project.db.execute(
-                "SELECT barrier FROM ops WHERE id=?", (writer._op_id,)
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0]
-            == 130
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 1
-        )
-        session = ImportSessionStore(project).get("import:one")
-        assert session is not None and session.state == "removed"
-    finally:
-        project.close()
+    assert project.sheets() == []
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
+    removed_receipt = ReceiptStore(project).find_by_id("receipt:inventory-one")
+    assert removed_receipt is not None and removed_receipt.status == "cancelled"
+    assert removed_receipt.parsed().op_ids == [writer._op_id]
+    assert (
+        project.db.execute(
+            "SELECT barrier FROM ops WHERE id=?", (writer._op_id,)
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0] == 130
+    )
+    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 1
+    session = ImportSessionStore(project).get("import:one")
+    assert session is not None and session.state == "removed"
 
 
 def _assert_committed_staging(
@@ -405,22 +380,19 @@ def _contains_key(value: Any, key: str) -> bool:
     return False
 
 
-def test_staging_producer_links_admitted_receipt_before_publish(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "receipt-linked.frisket", name="receipt-linked")
-    try:
-        writer = _start(project, receipt_id="receipt:admitted")
+def test_staging_producer_links_admitted_receipt_before_publish(make_project) -> None:
+    project = make_project("receipt-linked")
+    writer = _start(project, receipt_id="receipt:admitted")
 
-        producer = project.db.execute(
-            "SELECT stage_id,op_id FROM base_cell_producers"
-        ).fetchone()
-        assert producer is not None
-        assert producer["op_id"] is None
-        assert "receipt:admitted" in producer["stage_id"]
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+    producer = project.db.execute(
+        "SELECT stage_id,op_id FROM base_cell_producers"
+    ).fetchone()
+    assert producer is not None
+    assert producer["op_id"] is None
+    assert "receipt:admitted" in producer["stage_id"]
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
-        writer.abort()
-    finally:
-        project.close()
+    writer.abort()
 
 
 def test_committed_batches_stay_hidden_until_atomic_publish(tmp_path: Path) -> None:
@@ -589,146 +561,133 @@ def _publish_with_rows(
 
 
 def test_publish_metadata_is_compact_instead_of_enumerating_rows(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "compact.frisket", name="compact")
-    try:
-        small_result, small_op, small_receipt = _publish_with_rows(
-            project, name="Small", count=2
-        )
-        large_result, large_op, large_receipt = _publish_with_rows(
-            project, name="Large", count=80
-        )
+    project = make_project("compact")
+    small_result, small_op, small_receipt = _publish_with_rows(
+        project, name="Small", count=2
+    )
+    large_result, large_op, large_receipt = _publish_with_rows(
+        project, name="Large", count=80
+    )
 
-        for result, op, receipt, name, count in (
-            (small_result, small_op, small_receipt, "Small", 2),
-            (large_result, large_op, large_receipt, "Large", 80),
-        ):
-            spec = json.loads(op["spec"])
-            undo = json.loads(op["undo_info"])
-            receipt_document = receipt.model_dump(mode="json")
-            assert op["kind"] == "import.csv"
-            assert op["barrier"] == 0
-            assert spec["schema_version"] == "frisket.action.v2"
-            assert spec["kind"] == "import.csv"
-            assert spec["params"]["sheet_name"] == name
-            assert spec["params"]["row_count"] == count
-            assert spec["params"]["source"] == {
-                "kind": "file",
-                "logical_path": "evidence.csv",
-            }
-            assert undo == {"created_sheets": [result.sheet_id]}
-            assert not _contains_key(spec, "row_ids")
-            assert not _contains_key(undo, "row_ids")
-            assert not _contains_key(receipt_document, "row_ids")
-
-            assert receipt.project_id == "streaming-project"
-            assert receipt.action_kind == "import.csv"
-            assert receipt.idempotency_key == f"streaming:{name}"
-            assert receipt.params_hash == f"sha256:caller-{name}"
-            assert receipt.action_id == f"act:caller-{name}"
-            assert receipt.status == "completed"
-            assert receipt.op_ids == [result.op_id]
-            source_input = next(
-                item for item in receipt.inputs if item.name == "source"
-            )
-            assert source_input.ref == {
-                "kind": "file",
-                "logical_path": "evidence.csv",
-            }
-            sheet_output = next(
-                item
-                for item in receipt.outputs
-                if item.ref.get("kind") == "materialized_sheet"
-            )
-            assert sheet_output.name == name
-            assert sheet_output.ref == {
-                "kind": "materialized_sheet",
-                "sheet_id": result.sheet_id,
-                "op_id": result.op_id,
-                "row_count": count,
-                "columns": {
-                    column["name"]: column["id"]
-                    for column in project.columns(result.sheet_id)
-                },
-                "reads": [],
-            }
-            rows_output = next(
-                item
-                for item in receipt.outputs
-                if item.ref.get("kind") == "source_rows"
-            )
-            assert rows_output.name == "rows"
-            assert rows_output.ref == {
-                "kind": "source_rows",
-                "sheet_id": result.sheet_id,
-                "row_count": count,
-                "op_id": result.op_id,
-            }
-
-        small_spec = str(small_op["spec"])
-        large_spec = str(large_op["spec"])
-        small_body = json.dumps(small_receipt.model_dump(mode="json"), sort_keys=True)
-        large_body = json.dumps(large_receipt.model_dump(mode="json"), sort_keys=True)
-        assert len(large_spec) - len(small_spec) < 128
-        assert len(large_body) - len(small_body) < 128
-        assert len(large_spec) < 2_048
-        assert len(large_body) < 4_096
-
-        assert [row["name"] for row in project.sheets()] == ["Small", "Large"]
-        assert project.row_count(large_result.sheet_id) == 80
-        assert project.undo() == large_result.op_id
-        assert [row["name"] for row in project.sheets()] == ["Small"]
-        assert project.redo() == large_result.op_id
-        assert [row["name"] for row in project.sheets()] == ["Small", "Large"]
-        assert project.row_count(large_result.sheet_id) == 80
-    finally:
-        project.close()
-
-
-def test_abort_removes_all_committed_partial_sheet_state(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "abort.frisket", name="abort")
-    try:
-        writer = _start(project)
-        writer.append_rows(_records(0, 2))
-        writer.append_rows(_records(2, 4))
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 4
-
-        writer.abort()
-
-        assert _counts(project) == {
-            "sheets": 0,
-            "columns": 0,
-            "rows": 0,
-            "cells": 0,
-            "ops": 0,
-            "receipts": 0,
+    for result, op, receipt, name, count in (
+        (small_result, small_op, small_receipt, "Small", 2),
+        (large_result, large_op, large_receipt, "Large", 80),
+    ):
+        spec = json.loads(op["spec"])
+        undo = json.loads(op["undo_info"])
+        receipt_document = receipt.model_dump(mode="json")
+        assert op["kind"] == "import.csv"
+        assert op["barrier"] == 0
+        assert spec["schema_version"] == "frisket.action.v2"
+        assert spec["kind"] == "import.csv"
+        assert spec["params"]["sheet_name"] == name
+        assert spec["params"]["row_count"] == count
+        assert spec["params"]["source"] == {
+            "kind": "file",
+            "logical_path": "evidence.csv",
         }
-    finally:
-        project.close()
+        assert undo == {"created_sheets": [result.sheet_id]}
+        assert not _contains_key(spec, "row_ids")
+        assert not _contains_key(undo, "row_ids")
+        assert not _contains_key(receipt_document, "row_ids")
+
+        assert receipt.project_id == "streaming-project"
+        assert receipt.action_kind == "import.csv"
+        assert receipt.idempotency_key == f"streaming:{name}"
+        assert receipt.params_hash == f"sha256:caller-{name}"
+        assert receipt.action_id == f"act:caller-{name}"
+        assert receipt.status == "completed"
+        assert receipt.op_ids == [result.op_id]
+        source_input = next(item for item in receipt.inputs if item.name == "source")
+        assert source_input.ref == {
+            "kind": "file",
+            "logical_path": "evidence.csv",
+        }
+        sheet_output = next(
+            item
+            for item in receipt.outputs
+            if item.ref.get("kind") == "materialized_sheet"
+        )
+        assert sheet_output.name == name
+        assert sheet_output.ref == {
+            "kind": "materialized_sheet",
+            "sheet_id": result.sheet_id,
+            "op_id": result.op_id,
+            "row_count": count,
+            "columns": {
+                column["name"]: column["id"]
+                for column in project.columns(result.sheet_id)
+            },
+            "reads": [],
+        }
+        rows_output = next(
+            item for item in receipt.outputs if item.ref.get("kind") == "source_rows"
+        )
+        assert rows_output.name == "rows"
+        assert rows_output.ref == {
+            "kind": "source_rows",
+            "sheet_id": result.sheet_id,
+            "row_count": count,
+            "op_id": result.op_id,
+        }
+
+    small_spec = str(small_op["spec"])
+    large_spec = str(large_op["spec"])
+    small_body = json.dumps(small_receipt.model_dump(mode="json"), sort_keys=True)
+    large_body = json.dumps(large_receipt.model_dump(mode="json"), sort_keys=True)
+    assert len(large_spec) - len(small_spec) < 128
+    assert len(large_body) - len(small_body) < 128
+    assert len(large_spec) < 2_048
+    assert len(large_body) < 4_096
+
+    assert [row["name"] for row in project.sheets()] == ["Small", "Large"]
+    assert project.row_count(large_result.sheet_id) == 80
+    assert project.undo() == large_result.op_id
+    assert [row["name"] for row in project.sheets()] == ["Small"]
+    assert project.redo() == large_result.op_id
+    assert [row["name"] for row in project.sheets()] == ["Small", "Large"]
+    assert project.row_count(large_result.sheet_id) == 80
+
+
+def test_abort_removes_all_committed_partial_sheet_state(make_project) -> None:
+    project = make_project("abort")
+    writer = _start(project)
+    writer.append_rows(_records(0, 2))
+    writer.append_rows(_records(2, 4))
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 4
+
+    writer.abort()
+
+    assert _counts(project) == {
+        "sheets": 0,
+        "columns": 0,
+        "rows": 0,
+        "cells": 0,
+        "ops": 0,
+        "receipts": 0,
+    }
 
 
 def test_context_failure_aborts_after_multiple_committed_batches(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "failure.frisket", name="failure")
-    try:
-        with pytest.raises(RuntimeError, match="parser failed"):
-            with _start(project) as writer:
-                writer.append_rows(_records(0, 2))
-                writer.append_rows(_records(2, 4))
-                raise RuntimeError("parser failed")
+    project = make_project("failure")
+    with pytest.raises(RuntimeError, match="parser failed"):
+        with _start(project) as writer:
+            writer.append_rows(_records(0, 2))
+            writer.append_rows(_records(2, 4))
+            raise RuntimeError("parser failed")
 
-        assert _counts(project) == {
-            "sheets": 0,
-            "columns": 0,
-            "rows": 0,
-            "cells": 0,
-            "ops": 0,
-            "receipts": 0,
-        }
-    finally:
-        project.close()
+    assert _counts(project) == {
+        "sheets": 0,
+        "columns": 0,
+        "rows": 0,
+        "cells": 0,
+        "ops": 0,
+        "receipts": 0,
+    }
 
 
 def test_receipt_insert_failure_cannot_partially_publish(
@@ -780,111 +739,99 @@ def test_receipt_insert_failure_cannot_partially_publish(
     assert direct.status_code == 404, direct.text
 
 
-def test_publish_refuses_a_late_name_collision_without_renaming(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "collision.frisket", name="collision")
-    try:
-        writer = _start(project)
-        writer.append_rows(_records(0, 2))
-        colliding_sheet_id = project.add_sheet("Evidence")
+def test_publish_refuses_a_late_name_collision_without_renaming(make_project) -> None:
+    project = make_project("collision")
+    writer = _start(project)
+    writer.append_rows(_records(0, 2))
+    colliding_sheet_id = project.add_sheet("Evidence")
 
-        with pytest.raises(ValueError, match="already exists"):
-            writer.publish()
-        writer.abort()
+    with pytest.raises(ValueError, match="already exists"):
+        writer.publish()
+    writer.abort()
 
-        assert [(row["id"], row["name"]) for row in project.sheets()] == [
-            (colliding_sheet_id, "Evidence"),
-        ]
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM sheets WHERE id=?", (writer.sheet_id,)
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    assert [(row["id"], row["name"]) for row in project.sheets()] == [
+        (colliding_sheet_id, "Evidence"),
+    ]
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM sheets WHERE id=?", (writer.sheet_id,)
+        ).fetchone()[0]
+        == 0
+    )
 
 
-def test_duplicate_publication_is_typed_and_cleans_staging(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "duplicate.frisket", name="duplicate")
-    try:
-        first = _start(project, name="First", idempotency_key="same-request")
-        first.append_rows(_records(0, 2))
-        published = first.publish()
+def test_duplicate_publication_is_typed_and_cleans_staging(make_project) -> None:
+    project = make_project("duplicate")
+    first = _start(project, name="First", idempotency_key="same-request")
+    first.append_rows(_records(0, 2))
+    published = first.publish()
 
-        duplicate = _start(
-            project,
-            name="Second",
-            idempotency_key="same-request",
-            params_hash="sha256:caller-second",
-            action_id="act:caller-second",
-            receipt_id="receipt:caller-second",
-        )
-        duplicate.append_rows(_records(2, 4))
-        with pytest.raises(DuplicateStreamingPublication) as caught:
-            duplicate.publish()
+    duplicate = _start(
+        project,
+        name="Second",
+        idempotency_key="same-request",
+        params_hash="sha256:caller-second",
+        action_id="act:caller-second",
+        receipt_id="receipt:caller-second",
+    )
+    duplicate.append_rows(_records(2, 4))
+    with pytest.raises(DuplicateStreamingPublication) as caught:
+        duplicate.publish()
 
-        assert caught.value.existing_receipt_id == published.receipt_id
-        assert caught.value.idempotency_key == "same-request"
-        assert caught.value.params_hash == "sha256:caller-First"
-        assert [row["name"] for row in project.sheets()] == ["First"]
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-    finally:
-        project.close()
+    assert caught.value.existing_receipt_id == published.receipt_id
+    assert caught.value.idempotency_key == "same-request"
+    assert caught.value.params_hash == "sha256:caller-First"
+    assert [row["name"] for row in project.sheets()] == ["First"]
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
 
 
-def test_completion_requires_enumeration_and_preserves_atomic_state(tmp_path: Path):
-    project = Project.create(tmp_path / "completion.frisket", name="completion")
-    try:
-        writer = _start_session(project)
-        writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
-        with pytest.raises(ImportSessionConflict, match="enumeration"):
-            writer.finalize_session(expected_cursor=1)
-        session = ImportSessionStore(project).get("import:one")
-        assert session.state == "active"
-        assert ReceiptStore(project).find_by_id(session.receipt_id).status == "running"
-        op = project.db.execute(
-            "SELECT barrier,publication_closed FROM ops WHERE id=?", (session.op_id,)
+def test_completion_requires_enumeration_and_preserves_atomic_state(make_project):
+    project = make_project("completion")
+    writer = _start_session(project)
+    writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
+    with pytest.raises(ImportSessionConflict, match="enumeration"):
+        writer.finalize_session(expected_cursor=1)
+    session = ImportSessionStore(project).get("import:one")
+    assert session.state == "active"
+    assert ReceiptStore(project).find_by_id(session.receipt_id).status == "running"
+    op = project.db.execute(
+        "SELECT barrier,publication_closed FROM ops WHERE id=?", (session.op_id,)
+    ).fetchone()
+    assert tuple(op) == (1, 0)
+    writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+    assert ImportSessionStore(project).get(session.id).state == "completed"
+    assert tuple(
+        project.db.execute(
+            "SELECT barrier,publication_closed FROM ops WHERE id=?",
+            (session.op_id,),
         ).fetchone()
-        assert tuple(op) == (1, 0)
+    ) == (0, 1)
+    with pytest.raises(ImportSessionConflict):
+        ImportSessionStore(project).replace_writer(
+            session.id, "another-worker", expected_cursor=1
+        )
+
+
+def test_cancel_requires_explicit_resolution_and_fences_old_writer(make_project):
+    project = make_project("cancel")
+    writer = _start_session(project)
+    writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
+    writer.pause(expected_cursor=1)
+    writer.cancel(expected_cursor=1)
+    session = ImportSessionStore(project).get("import:one")
+    assert session.state == "cancelled"
+    assert session.committed_rows == 1
+    assert ReceiptStore(project).find_by_id(session.receipt_id).status == "running"
+    with pytest.raises(ImportSessionConflict):
+        writer.append_page(_records(1, 2), expected_cursor=1, next_cursor=2)
+    with pytest.raises(ImportSessionConflict):
         writer.finalize_session(expected_cursor=1, enumeration_complete=True)
-        assert ImportSessionStore(project).get(session.id).state == "completed"
-        assert tuple(
-            project.db.execute(
-                "SELECT barrier,publication_closed FROM ops WHERE id=?",
-                (session.op_id,),
-            ).fetchone()
-        ) == (0, 1)
-        with pytest.raises(ImportSessionConflict):
-            ImportSessionStore(project).replace_writer(
-                session.id, "another-worker", expected_cursor=1
-            )
-    finally:
-        project.close()
-
-
-def test_cancel_requires_explicit_resolution_and_fences_old_writer(tmp_path: Path):
-    project = Project.create(tmp_path / "cancel.frisket", name="cancel")
-    try:
-        writer = _start_session(project)
-        writer.append_page(_records(0, 1), expected_cursor=0, next_cursor=1)
-        writer.pause(expected_cursor=1)
-        writer.cancel(expected_cursor=1)
-        session = ImportSessionStore(project).get("import:one")
-        assert session.state == "cancelled"
-        assert session.committed_rows == 1
-        assert ReceiptStore(project).find_by_id(session.receipt_id).status == "running"
-        with pytest.raises(ImportSessionConflict):
-            writer.append_page(_records(1, 2), expected_cursor=1, next_cursor=2)
-        with pytest.raises(ImportSessionConflict):
-            writer.finalize_session(expected_cursor=1, enumeration_complete=True)
-        writer.finalize_session(expected_cursor=1, keep_cancelled=True)
-        assert ImportSessionStore(project).get(session.id).state == "kept"
-    finally:
-        project.close()
+    writer.finalize_session(expected_cursor=1, keep_cancelled=True)
+    assert ImportSessionStore(project).get(session.id).state == "kept"
 
 
 def test_cancelled_append_remove_preserves_other_changes_and_restores_saved_rows(
@@ -941,8 +888,8 @@ def test_cancelled_append_remove_preserves_other_changes_and_restores_saved_rows
 
 
 @pytest.mark.parametrize("append", [False, True])
-def test_session_insert_failure_rolls_back_queued_receipt_start(tmp_path, append):
-    project = Project.create(tmp_path / "atomic-start.frisket", name="Atomic start")
+def test_session_insert_failure_rolls_back_queued_receipt_start(make_project, append):
+    project = make_project("Atomic start")
     sheet_id = project.add_sheet("Existing") if append else None
     receipt = Receipt(
         receipt_id="receipt:inventory-one",

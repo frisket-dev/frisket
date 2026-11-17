@@ -16,7 +16,6 @@ from frisket.engine.executor.table_action import (
     prepare_table_producer,
     run_typed_create_sheet_action,
 )
-from frisket.engine.store import Project
 from frisket.server.services import action_param_validation
 
 
@@ -32,15 +31,6 @@ def custom_join(
         join_keys=[JoinKeyPair(left_column="key", right_column="key")],
         indicator=True,
     )
-
-
-@pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "join-form.frisket")
-    try:
-        yield project
-    finally:
-        project.close()
 
 
 def seed(project, *, count=1001):

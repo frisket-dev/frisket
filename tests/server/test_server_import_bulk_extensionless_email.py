@@ -3,17 +3,8 @@ from __future__ import annotations
 import io
 import zipfile
 from email.message import EmailMessage
-from pathlib import Path
 
 from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
-
-
-def _project(client: TestClient) -> str:
-    response = client.post("/api/projects", json={"name": "Extensionless email"})
-    assert response.status_code == 200, response.text
-    return response.json()["id"]
 
 
 def _plan(
@@ -88,10 +79,9 @@ def _zip(members: dict[str, bytes]) -> bytes:
 
 
 def test_strong_extensionless_mbox_is_email_and_executes_stable_locations(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    project_id = _project(client)
     logical_path = "Takeout/Mail/archive"
 
     plan = _plan(
@@ -124,10 +114,9 @@ def test_strong_extensionless_mbox_is_email_and_executes_stable_locations(
 
 
 def test_zip_maildir_cur_and_new_messages_group_as_ordered_email_rows(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    project_id = _project(client)
     paths = ["Maildir/cur/1710000001.M1:2,S", "Maildir/new/1710000002.M2"]
     archive = _zip(
         {
@@ -156,9 +145,7 @@ def test_zip_maildir_cur_and_new_messages_group_as_ordered_email_rows(
     assert [row["source_file"] for row in rows] == paths
 
 
-def test_ordinary_extensionless_files_remain_generic_files(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    project_id = _project(client)
+def test_ordinary_extensionless_files_remain_generic_files(client, project_id) -> None:
     paths = ["folder/README", "folder/payload"]
 
     plan = _plan(

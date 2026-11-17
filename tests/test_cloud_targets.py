@@ -545,7 +545,9 @@ def test_installed_managed_local_route_precedes_other_own_venues(preference):
     assert outcome.target.id == LOCAL_MODELS_TARGET_ID
 
 
-def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path):
+def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(
+    tmp_path, make_project
+):
     class Provider:
         target = ExecutionTarget(
             id="deepl",
@@ -578,7 +580,7 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(tmp_path)
             del target_id, capability, engine
             return 0
 
-    project = Project.create(tmp_path / "translate.frisket", name="Translate")
+    project = make_project("Translate")
     write_project_settings(
         project,
         ProjectSettings(
@@ -694,7 +696,9 @@ def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
         assert outcome.target.id == target_id
 
 
-def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path):
+def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(
+    tmp_path, make_project
+):
     class Provider:
         target = ExecutionTarget(
             id="remote-api:openai",
@@ -735,7 +739,7 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path)
             del target_id, capability, engine
             return 0
 
-    project = Project.create(tmp_path / "llm.frisket", name="LLM")
+    project = make_project("LLM")
     write_project_settings(
         project,
         ProjectSettings(cloud_user_id=7, cloud_account_id=41),
@@ -783,9 +787,9 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(tmp_path)
 
 @pytest.mark.parametrize("unreadable_profile", [False, True])
 def test_unbound_legacy_project_does_not_inherit_install_cloud_first(
-    tmp_path, unreadable_profile
+    tmp_path, make_project, unreadable_profile
 ):
-    project = Project.create(tmp_path / "unbound.frisket", name="Unbound")
+    project = make_project("Unbound")
     store = CloudConnectionStore(tmp_path / "unbound-profile")
     store.save_connection(
         "installation-token",
@@ -933,8 +937,10 @@ def test_cloud_vision_ocr_uses_model_transport_and_unbounded_receipt_pricing():
     assert cost_claim.op == "unbounded"
 
 
-def test_legacy_cloud_first_project_keeps_cloud_when_own_key_is_configured(tmp_path):
-    project = Project.create(tmp_path / "legacy.frisket", name="Legacy")
+def test_legacy_cloud_first_project_keeps_cloud_when_own_key_is_configured(
+    tmp_path, make_project
+):
+    project = make_project("Legacy")
     write_project_settings(
         project,
         ProjectSettings(
@@ -982,9 +988,9 @@ def test_legacy_cloud_first_project_keeps_cloud_when_own_key_is_configured(tmp_p
     ids=("installed-local", "uninstalled-local"),
 )
 def test_legacy_cloud_first_uses_configured_local_else_actual_cloud_candidate(
-    tmp_path, local_configured, expected_route, expected_target
+    tmp_path, make_project, local_configured, expected_route, expected_target
 ):
-    project = Project.create(tmp_path / "legacy-local.frisket", name="Legacy local")
+    project = make_project("Legacy local")
     write_project_settings(
         project,
         ProjectSettings(
@@ -1028,8 +1034,9 @@ def test_legacy_cloud_first_uses_configured_local_else_actual_cloud_candidate(
 
 def test_legacy_cloud_first_connected_empty_catalog_keeps_configured_own_route(
     tmp_path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "legacy-own.frisket", name="Legacy own")
+    project = make_project("Legacy own")
     write_project_settings(
         project,
         ProjectSettings(
@@ -1072,8 +1079,9 @@ def test_legacy_cloud_first_connected_empty_catalog_keeps_configured_own_route(
 
 def test_materialized_cloud_default_connected_empty_catalog_keeps_configured_own(
     tmp_path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "materialized-own.frisket", name="Own")
+    project = make_project("Own")
     write_project_settings(
         project,
         ProjectSettings(
@@ -1298,7 +1306,7 @@ def test_local_first_preserves_media_route_when_cloud_target_also_has_llm():
 
 
 def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceiling(
-    tmp_path,
+    make_project,
 ):
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.map_rows_action import (
@@ -1306,7 +1314,7 @@ def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceil
         bound_typed_program_request_from_runner_spec,
     )
 
-    project = Project.create(tmp_path / "llm.frisket", name="LLM")
+    project = make_project("LLM")
     sheet_id = project.add_sheet("S")
     source_id = project.add_column(sheet_id, "source", type="text")
     [row_id] = project.add_rows(
@@ -1401,7 +1409,7 @@ def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceil
 
 @pytest.mark.parametrize("with_unavailable_row", [False, True])
 def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
-    tmp_path,
+    make_project,
     with_unavailable_row,
 ):
     from frisket.actions.system import typed_action_for_request
@@ -1451,7 +1459,7 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
                 ),
             )
 
-    project = Project.create(tmp_path / "llm-run.frisket", name="LLM")
+    project = make_project("LLM")
     sheet_id = project.add_sheet("S")
     source_id = project.add_column(sheet_id, "source", type="text")
     project.add_rows(sheet_id, [{"source": "route this row"}], {"source": source_id})
@@ -1617,8 +1625,9 @@ def test_blocked_cloud_first_route_does_not_fall_back_to_local():
 
 def test_project_composition_reads_selected_account_capabilities_without_network(
     tmp_path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "project.frisket", name="Project")
+    project = make_project("Project")
     write_project_settings(
         project,
         ProjectSettings(
@@ -1665,8 +1674,10 @@ def test_project_composition_reads_selected_account_capabilities_without_network
     )
 
 
-def test_project_composition_uses_last_known_capabilities_without_refetch(tmp_path):
-    project = Project.create(tmp_path / "project.frisket", name="Project")
+def test_project_composition_uses_last_known_capabilities_without_refetch(
+    tmp_path, make_project
+):
+    project = make_project("Project")
     write_project_settings(
         project,
         ProjectSettings(
@@ -1708,8 +1719,10 @@ def test_project_composition_uses_last_known_capabilities_without_refetch(tmp_pa
     assert outcome.target.id == "frisket-cloud:41:frisket_credits:anthropic"
 
 
-def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(tmp_path):
-    project = Project.create(tmp_path / "project.frisket", name="Project")
+def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(
+    tmp_path, make_project
+):
+    project = make_project("Project")
     write_project_settings(
         project,
         ProjectSettings(

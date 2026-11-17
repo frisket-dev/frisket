@@ -6,7 +6,6 @@ import pytest
 
 from frisket.contracts.action import Receipt
 from frisket.contracts.http.project_attempts import ProjectAttemptReceipt
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -27,15 +26,6 @@ from tests.execution.test_settlement_join import (
     _execution_composition,
 )
 from tests.execution.test_resolve_for_action import audio_project as audio_project
-
-
-@pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "preview.frisket")
-    try:
-        yield project
-    finally:
-        project.close()
 
 
 def _reserve(project, receipt_id="preview"):

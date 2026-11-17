@@ -61,7 +61,7 @@ def _private_directories(client: TestClient, project_id: str) -> list[Path]:
 
 
 def test_prepare_routes_direct_and_mixed_zip_pdf_selections_without_copying(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client, project_id, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     adopted: list[dict[str, Any]] = []
 
@@ -93,8 +93,6 @@ def test_prepare_routes_direct_and_mixed_zip_pdf_selections_without_copying(
         return status
 
     monkeypatch.setattr(PdfImportService, "adopt_staged", adopt, raising=False)
-    client = TestClient(create_app(tmp_path / "workspace"))
-    project_id = _project(client)
 
     repeated_pdf = b"%PDF-1.4 same bytes"
     direct = _prepare(
@@ -147,14 +145,13 @@ def test_prepare_routes_direct_and_mixed_zip_pdf_selections_without_copying(
 
 
 def test_prepare_one_pdf_in_zip_admits_all_companions_without_publishing(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
     writer = pytest.importorskip("pypdf").PdfWriter()
     writer.add_blank_page(width=72, height=72)
     pdf = io.BytesIO()
     writer.write(pdf)
-    client = TestClient(create_app(tmp_path / "workspace"))
-    project_id = _project(client)
 
     response = _prepare(
         client,
@@ -185,10 +182,9 @@ def test_prepare_one_pdf_in_zip_admits_all_companions_without_publishing(
 
 
 def test_prepare_without_pdfs_publishes_existing_bulk_plan(
-    tmp_path: Path,
+    client,
+    project_id,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    project_id = _project(client)
 
     response = _prepare(
         client,
@@ -360,10 +356,8 @@ def test_prepare_offloads_pdf_adoption_and_drains_it_before_cancel_cleanup(
 
 
 def test_prepare_discards_adopted_pdf_when_request_disconnects(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    client, project_id, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    project_id = _project(client)
     adopted: dict[str, Any] = {}
     disconnect_checks = 0
 

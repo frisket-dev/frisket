@@ -10,13 +10,11 @@ node appear.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
 
 from frisket.engine.executor.actions import run_action_spec
-from frisket.server.app import create_app
 
 
 def _seed_parent() -> dict[str, Any]:
@@ -81,8 +79,7 @@ def _build(client: TestClient) -> tuple[str, int, int, list[int]]:
     return pid, parent_id, col_id, row_ids
 
 
-def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(client) -> None:
     pid, parent_id, _, _ = _build(client)
 
     resp = client.get(f"/api/projects/{pid}/lineage")
@@ -123,9 +120,8 @@ def test_lineage_endpoint_returns_sheet_tier_and_derive_edge(tmp_path: Path) -> 
 
 
 def test_lineage_endpoint_reports_unknown_sources_without_refresh_capability(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid, parent_id, _, _ = _build(client)
     project = client.app.state.workspace.get(pid)
     op_id = project.append_op(
@@ -150,8 +146,7 @@ def test_lineage_endpoint_reports_unknown_sources_without_refresh_capability(
     assert listed_snapshot["syncState"] == "unknown"
 
 
-def test_lineage_endpoint_flags_stale_node_and_edge_amber(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_lineage_endpoint_flags_stale_node_and_edge_amber(client) -> None:
     pid, parent_id, col_id, row_ids = _build(client)
     project = client.app.state.workspace.get(pid)
     # Edit the parent -> the derived sheet is stale, so its node + inbound edge
@@ -188,8 +183,7 @@ def test_lineage_endpoint_flags_stale_node_and_edge_amber(tmp_path: Path) -> Non
     assert derive_edge["stale"] is True
 
 
-def test_lineage_endpoint_includes_source_tier(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_lineage_endpoint_includes_source_tier(client) -> None:
     pid, parent_id, _, _ = _build(client)
     project = client.app.state.workspace.get(pid)
     # A source that lands rows on the root sheet is the first DAG tier.
@@ -212,7 +206,7 @@ def test_lineage_endpoint_includes_source_tier(tmp_path: Path) -> None:
 
 
 def test_retained_output_reports_stale_sources_when_recipe_is_unavailable(
-    tmp_path: Path,
+    client,
 ) -> None:
     from frisket.engine.store.changes import start_change, close_change
     from frisket.engine.store.consumed_sources import (
@@ -220,7 +214,6 @@ def test_retained_output_reports_stale_sources_when_recipe_is_unavailable(
         store_capture,
     )
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid, parent_id, column_id, rows = _build(client)
     project = client.app.state.workspace.get(pid)
     owner = project.append_op("uninstalled_plugin.derive", {})

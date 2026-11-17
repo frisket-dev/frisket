@@ -91,9 +91,8 @@ def _multipart_csv_body(
 
 
 def test_csv_upload_appends_to_explicit_compatible_sheet_and_allows_intentional_repeat(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Append CSV"}).json()["id"]
     created = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
@@ -153,9 +152,8 @@ def test_csv_upload_appends_to_explicit_compatible_sheet_and_allows_intentional_
 
 
 def test_csv_append_refuses_duplicate_or_missing_destination_mapping(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace-mapping"))
     project_id = client.post("/api/projects", json={"name": "CSV mapping"}).json()["id"]
     seeded = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
@@ -242,9 +240,8 @@ def test_csv_import_request_limit_rejects_chunked_body_before_parsing(
 
 
 def test_direct_csv_publication_keeps_reversible_storage_and_public_receipt(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV publication"}).json()["id"]
 
     imported = client.post(
@@ -309,10 +306,9 @@ def test_direct_csv_retry_replays_and_malformed_upload_is_not_published(
 
 
 def test_direct_csv_blank_cells_remain_null_when_retyped_to_date(
-    tmp_path: Path,
+    client,
 ) -> None:
     """Streamed CSV keeps the legacy nullable-blank behavior for all spellings."""
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV blank dates"}).json()["id"]
     imported = client.post(
         f"/api/projects/{pid}/import/csv",
@@ -354,9 +350,8 @@ def test_direct_csv_blank_cells_remain_null_when_retyped_to_date(
 
 
 def test_direct_csv_hidden_name_collision_and_encoding_are_in_idempotency_key(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV identity"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     hidden_id = project.add_sheet("rows")
@@ -388,11 +383,10 @@ def test_direct_csv_hidden_name_collision_and_encoding_are_in_idempotency_key(
 
 
 def test_direct_csv_preserves_markdown_format_and_split_utf16_decode(
-    tmp_path: Path,
+    client,
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(import_csv_analysis, "_PATH_READ_BYTES", 3)
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "UTF16 CSV"}).json()["id"]
     raw = "value;notes\n1;# Lead\n;## Follow-up\n".encode("utf-16")
     response = client.post(
@@ -410,9 +404,8 @@ def test_direct_csv_preserves_markdown_format_and_split_utf16_decode(
 
 
 def test_import_csv_route_declares_current_multipart_transport_and_response(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
 
     operation = client.get("/openapi.json").json()["paths"][
@@ -445,9 +438,8 @@ def test_import_csv_route_declares_current_multipart_transport_and_response(
 
 
 def test_import_csv_route_declares_its_multipart_and_json_contract(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
 
     operation = client.get("/openapi.json").json()["paths"][
         "/api/projects/{pid}/import/csv"
@@ -480,8 +472,7 @@ def test_import_csv_route_declares_its_multipart_and_json_contract(
     }
 
 
-def test_import_csv_empty_file_validation_error_maps_to_400(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_import_csv_empty_file_validation_error_maps_to_400(client) -> None:
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
 
     response = client.post(
@@ -552,9 +543,8 @@ def test_import_csv_upload_honors_an_explicit_encoding(tmp_path: Path) -> None:
 
 
 def test_import_csv_upload_refuses_undecodable_bytes_and_names_the_knob(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
     # 0x81 is unassigned in cp1252 and illegal in UTF-8: no ladder rung decodes it.
     raw = b"name\nA\x81B\n"
@@ -570,8 +560,7 @@ def test_import_csv_upload_refuses_undecodable_bytes_and_names_the_knob(
     assert "encoding=" in detail
 
 
-def test_import_csv_upload_refuses_a_wrong_explicit_encoding(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_import_csv_upload_refuses_a_wrong_explicit_encoding(client) -> None:
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
 
     response = client.post(
@@ -583,8 +572,7 @@ def test_import_csv_upload_refuses_a_wrong_explicit_encoding(tmp_path: Path) -> 
     assert "ascii" in response.json()["detail"]
 
 
-def test_import_csv_upload_rejects_an_unknown_encoding_name(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_import_csv_upload_rejects_an_unknown_encoding_name(client) -> None:
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
 
     response = client.post(
@@ -596,8 +584,7 @@ def test_import_csv_upload_rejects_an_unknown_encoding_name(tmp_path: Path) -> N
     assert "not-a-codec" in response.json()["detail"]
 
 
-def test_import_csv_upload_rejects_non_text_codecs(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_import_csv_upload_rejects_non_text_codecs(client) -> None:
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
 
     response = client.post(
@@ -611,9 +598,8 @@ def test_import_csv_upload_rejects_non_text_codecs(tmp_path: Path) -> None:
 
 
 def test_explicit_utf8_strips_the_bom_from_import_headers(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
     raw = b"\xef\xbb\xbfname,city\nAda,London\n"
 
@@ -651,9 +637,8 @@ def test_import_csv_upload_reads_utf16_from_its_bom(tmp_path: Path) -> None:
 
 
 def test_import_csv_upload_keeps_leading_zero_identifiers_intact(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
     body = (
         "name,zip,fips,phone,case_no,score\n"

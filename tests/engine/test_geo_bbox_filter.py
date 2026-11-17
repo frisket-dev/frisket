@@ -18,13 +18,6 @@ from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "geo.frisket", name="geo")
-    yield p
-    p.close()
-
-
 def _seed(project: Project):
     sheet = project.add_sheet("places")
     name_col = project.add_column(sheet, "name", type="text")

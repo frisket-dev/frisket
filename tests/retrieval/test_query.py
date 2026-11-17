@@ -229,7 +229,7 @@ def _included_scope(sheet: int, body: int) -> RetrievalScope:
     )
 
 
-def test_large_correlated_cell_scope_is_bounded_and_private(tmp_path, monkeypatch):
+def test_large_correlated_cell_scope_is_bounded_and_private(make_project, monkeypatch):
     from frisket.retrieval.query import PinnedRetrievalReader
 
     steps = 0
@@ -246,513 +246,486 @@ def test_large_correlated_cell_scope_is_bounded_and_private(tmp_path, monkeypatc
         return result
 
     monkeypatch.setattr(PinnedRetrievalReader, "__enter__", measured_enter)
-    project = Project.create(tmp_path / "large-scope.frisket", name="large-scope")
-    try:
-        sheet = project.add_sheet("Documents")
-        left = project.add_column(sheet, "left")
-        right = project.add_column(sheet, "right")
-        row_count = 600
-        rows = project.add_rows(
-            sheet,
-            [
-                {"left": f"target left {index}", "right": f"target right {index}"}
-                for index in range(row_count)
-            ],
-            {"left": left, "right": right},
-        )
-        selected_columns = {
-            row_id: left if index % 2 == 0 else right
-            for index, row_id in enumerate(rows)
-        }
-        with RetrievalStore(project).open() as store:
-            for index, row_id in enumerate(rows):
-                column_id = selected_columns[row_id]
-                side = "left" if column_id == left else "right"
-                text = f"target {side} {index}"
-                revision = read_binding_revision(
-                    project.db, row_id=row_id, column_id=column_id
+    project = make_project("large-scope")
+    sheet = project.add_sheet("Documents")
+    left = project.add_column(sheet, "left")
+    right = project.add_column(sheet, "right")
+    row_count = 600
+    rows = project.add_rows(
+        sheet,
+        [
+            {"left": f"target left {index}", "right": f"target right {index}"}
+            for index in range(row_count)
+        ],
+        {"left": left, "right": right},
+    )
+    selected_columns = {
+        row_id: left if index % 2 == 0 else right for index, row_id in enumerate(rows)
+    }
+    with RetrievalStore(project).open() as store:
+        for index, row_id in enumerate(rows):
+            column_id = selected_columns[row_id]
+            side = "left" if column_id == left else "right"
+            text = f"target {side} {index}"
+            revision = read_binding_revision(
+                project.db, row_id=row_id, column_id=column_id
+            )
+            assert revision is not None
+            _publish(
+                store,
+                row_id=row_id,
+                sheet_id=sheet,
+                column_id=column_id,
+                text=text,
+                vector=(1.0, 0.0, 0.0),
+                version=revision,
+            )
+    bind_retrieval_sidecar(project)
+    project.db.execute("DELETE FROM search_dirty_scopes")
+    project.db.commit()
+    request = SearchRequest(
+        scope=RetrievalScope(
+            sheets=tuple(
+                SheetScope(
+                    sheet,
+                    row_ids=(row_id,),
+                    column_ids=(selected_columns[row_id],),
                 )
-                assert revision is not None
-                _publish(
-                    store,
-                    row_id=row_id,
-                    sheet_id=sheet,
-                    column_id=column_id,
-                    text=text,
-                    vector=(1.0, 0.0, 0.0),
-                    version=revision,
-                )
-        bind_retrieval_sidecar(project)
-        project.db.execute("DELETE FROM search_dirty_scopes")
-        project.db.commit()
-        request = SearchRequest(
-            scope=RetrievalScope(
-                sheets=tuple(
-                    SheetScope(
-                        sheet,
-                        row_ids=(row_id,),
-                        column_ids=(selected_columns[row_id],),
-                    )
-                    for row_id in rows
-                )
-            ),
-            query=TextQuery("target"),
-            mode="lexical",
-            group_by="row",
-            limit=row_count,
-            ranking=RankingPolicy(rerank="off"),
-        )
+                for row_id in rows
+            )
+        ),
+        query=TextQuery("target"),
+        mode="lexical",
+        group_by="row",
+        limit=row_count,
+        ranking=RankingPolicy(rerank="off"),
+    )
 
-        response = search(project, request)
+    response = search(project, request)
 
-        assert {
-            (group.primary.binding.row_id, group.primary.binding.column_id)
-            for group in response.results
-        } == set(selected_columns.items())
-        # Bound query work rather than time spent waiting for CPU while eight
-        # test workers compete. Materialized scope uses ~1.54M steps; restoring
-        # the old inlined scope takes ~24.55M on this fixture.
-        assert steps < row_count * 5000
-    finally:
-        project.close()
+    assert {
+        (group.primary.binding.row_id, group.primary.binding.column_id)
+        for group in response.results
+    } == set(selected_columns.items())
+    # Bound query work rather than time spent waiting for CPU while eight
+    # test workers compete. Materialized scope uses ~1.54M steps; restoring
+    # the old inlined scope takes ~24.55M on this fixture.
+    assert steps < row_count * 5000
 
 
 @pytest.mark.parametrize("identifier", ["ORCHID-79", "Case:123"])
 def test_keyword_search_treats_identifiers_as_text_when_fts_rejects_them(
-    tmp_path, identifier
+    make_project, identifier
 ):
     from frisket.search import drain_index, search_project
 
-    project = Project.create(tmp_path / "identifiers.frisket")
-    try:
-        sheet = project.add_sheet("Records")
-        column = project.add_column(sheet, "body")
-        rows = project.add_rows(
-            sheet, [{"body": f"Grant {identifier} approved."}], {"body": column}
-        )
-        drain_index(project)
-        hits = search_project(project, identifier, rerank="off")
-        assert [hit["row_id"] for hit in hits] == rows
-    finally:
-        project.close()
+    project = make_project("identifiers")
+    sheet = project.add_sheet("Records")
+    column = project.add_column(sheet, "body")
+    rows = project.add_rows(
+        sheet, [{"body": f"Grant {identifier} approved."}], {"body": column}
+    )
+    drain_index(project)
+    hits = search_project(project, identifier, rerank="off")
+    assert [hit["row_id"] for hit in hits] == rows
 
 
-def test_unique_long_lexical_match_reports_exact_original_text_range(tmp_path):
+def test_unique_long_lexical_match_reports_exact_original_text_range(make_project):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "unique-lexical-range.frisket")
-    try:
-        sheet = project.add_sheet("Contracts")
-        column = project.add_column(sheet, "body")
-        prefix = "Background material. " * 3_800
-        query = "ORCHID-79"
-        match = "Orchid-79"
-        text = f"{prefix}{match} approved a $4,200 roof repair."
-        project.add_rows(sheet, [{"body": text}], {"body": column})
-        drain_index(project)
+    project = make_project("unique-lexical-range")
+    sheet = project.add_sheet("Contracts")
+    column = project.add_column(sheet, "body")
+    prefix = "Background material. " * 3_800
+    query = "ORCHID-79"
+    match = "Orchid-79"
+    text = f"{prefix}{match} approved a $4,200 roof repair."
+    project.add_rows(sheet, [{"body": text}], {"body": column})
+    drain_index(project)
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery(query),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery(query),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
 
-        [result] = response.results
-        location = result.primary.part.locator
-        assert result.primary.precision == "exact"
-        assert location.kind == "whole_source"
-        assert location.text is not None
-        assert (location.text.start, location.text.end) == (
-            len(prefix),
-            len(prefix) + len(match),
-        )
-        assert text[location.text.start : location.text.end] == match
-    finally:
-        project.close()
+    [result] = response.results
+    location = result.primary.part.locator
+    assert result.primary.precision == "exact"
+    assert location.kind == "whole_source"
+    assert location.text is not None
+    assert (location.text.start, location.text.end) == (
+        len(prefix),
+        len(prefix) + len(match),
+    )
+    assert text[location.text.start : location.text.end] == match
 
 
 def test_large_lexical_sources_do_not_accumulate_during_hydration(
-    tmp_path, record_property
+    make_project, record_property
 ):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "lexical-memory.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        rows = []
-        match = "tailbeacon"
-        for index in range(6):
-            # Store each actual authority value before allocating the next one.
-            text = f"Document {index}. " + "padding " * (1 << 17) + f" {match}."
-            rows.extend(project.add_rows(sheet, [{"body": text}], {"body": column}))
-            match_start = text.index(match)
-            del text
-        drain_index(project)
+    project = make_project("lexical-memory")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    rows = []
+    match = "tailbeacon"
+    for index in range(6):
+        # Store each actual authority value before allocating the next one.
+        text = f"Document {index}. " + "padding " * (1 << 17) + f" {match}."
+        rows.extend(project.add_rows(sheet, [{"body": text}], {"body": column}))
+        match_start = text.index(match)
+        del text
+    drain_index(project)
 
-        def measured_search(limit):
-            tracemalloc.start()
-            started = perf_counter()
-            try:
-                response = search(
-                    project,
-                    SearchRequest(
-                        scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                        query=TextQuery(match),
-                        mode="lexical",
-                        group_by="source",
-                        limit=limit,
-                        ranking=RankingPolicy(rerank="off"),
-                    ),
-                )
-                return (
-                    response,
-                    tracemalloc.get_traced_memory()[1],
-                    (perf_counter() - started),
-                )
-            finally:
-                tracemalloc.stop()
-
-        single, single_peak, single_seconds = measured_search(1)
-        multiple, multiple_peak, multiple_seconds = measured_search(len(rows))
-        record_property("single_source_peak_bytes", single_peak)
-        record_property("six_source_peak_bytes", multiple_peak)
-        record_property("single_source_seconds", single_seconds)
-        record_property("six_source_seconds", multiple_seconds)
-        # Metadata may grow with hits; retained megabyte source bodies may not.
-        assert multiple_peak < single_peak + 3 * (1 << 20)
-        assert multiple.results[0].primary.binding == single.results[0].primary.binding
-        assert {result.primary.binding.row_id for result in multiple.results} == set(
-            rows
-        )
-        for result in multiple.results:
-            hit = result.primary
-            assert hit.precision == "exact"
-            assert hit.part.locator.text is not None
-            assert (hit.part.locator.text.start, hit.part.locator.text.end) == (
-                match_start,
-                match_start + len(match),
-            )
-            assert len(hit.snippet) <= 520
-    finally:
-        project.close()
-
-
-def test_unique_prepared_lexical_match_narrows_location_to_owning_page(tmp_path):
-    from frisket.search import drain_index
-
-    project = Project.create(tmp_path / "prepared-lexical-page.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        project.db.execute("BEGIN IMMEDIATE")
-        op_id = project.append_op("prepare.test", commit=False)
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            page_count=2,
-        )
-        prepared = PreparedContentStore(project).stage_reference(
-            source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
-            pages=(
-                PreparedPageDraft(1, "Harbor minutes and attendance."),
-                PreparedPageDraft(2, "The council approved the bluewharf repair."),
-            ),
-        )
-        project.add_rows(sheet, [{"body": prepared}], {"body": column}, commit=False)
-        project.db.commit()
-        drain_index(project)
-
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery("bluewharf"),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
-
-        [result] = response.results
-        location = result.primary.part.locator
-        assert result.primary.precision == "exact"
-        assert location.pages == PageRange(2, 2)
-        assert location.text is not None
-        assert (
-            PreparedContentStore(project)
-            .resolve(prepared.ref_id)
-            .text[location.text.start : location.text.end]
-            == "bluewharf"
-        )
-    finally:
-        project.close()
-
-
-def test_document_text_search_tracks_file_replacement_and_undo(tmp_path):
-    from frisket.search import drain_index
-
-    project = Project.create(tmp_path / "document-text-search.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        file_column = project.add_column(sheet, "File", type="file")
-        text_column = project.add_column(sheet, "Text")
-        notes_column = project.add_column(sheet, "Notes")
-        digest = project.add_blob(b"original PDF", mime="application/pdf")
-        row = project.add_rows(
-            sheet,
-            [{"File": {"blob": digest}, "Notes": "ordinaryanchor"}],
-            {"File": file_column, "Notes": notes_column},
-        )[0]
-        project.db.execute("BEGIN IMMEDIATE")
-        op_id = project.append_op("prepare.test", commit=False)
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            blob_hash=digest,
-            page_count=1,
-            source_sheet_id=sheet,
-            source_row_id=row,
-            source_column_id=file_column,
-        )
-        prepared = PreparedContentStore(project).stage_reference(
-            source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
-            pages=(PreparedPageDraft(1, "originalanchor"),),
-        )
-        project.db.commit()
-        project.apply_edits(
-            [{"row_id": row, "column_id": text_column, "value": prepared}]
-        )
-        ensure_document_text_role(
-            project,
-            source_column_id=file_column,
-            text_column_id=text_column,
-            commit=True,
-        )
-        project.apply_edits(
-            [{"row_id": row, "column_id": text_column, "value": "correctedanchor"}]
-        )
-
-        def matches(word):
-            return search(
+    def measured_search(limit):
+        tracemalloc.start()
+        started = perf_counter()
+        try:
+            response = search(
                 project,
                 SearchRequest(
                     scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                    query=TextQuery(word),
+                    query=TextQuery(match),
                     mode="lexical",
+                    group_by="source",
+                    limit=limit,
                     ranking=RankingPolicy(rerank="off"),
                 ),
-            ).results
+            )
+            return (
+                response,
+                tracemalloc.get_traced_memory()[1],
+                (perf_counter() - started),
+            )
+        finally:
+            tracemalloc.stop()
 
-        drain_index(project)
-        assert len(matches("correctedanchor")) == 1
-        assert len(matches("ordinaryanchor")) == 1
-
-        replacement = project.add_blob(b"replacement PDF", mime="application/pdf")
-        replacement_op = project.apply_edits(
-            [{"row_id": row, "column_id": file_column, "value": {"blob": replacement}}]
+    single, single_peak, single_seconds = measured_search(1)
+    multiple, multiple_peak, multiple_seconds = measured_search(len(rows))
+    record_property("single_source_peak_bytes", single_peak)
+    record_property("six_source_peak_bytes", multiple_peak)
+    record_property("single_source_seconds", single_seconds)
+    record_property("six_source_seconds", multiple_seconds)
+    # Metadata may grow with hits; retained megabyte source bodies may not.
+    assert multiple_peak < single_peak + 3 * (1 << 20)
+    assert multiple.results[0].primary.binding == single.results[0].primary.binding
+    assert {result.primary.binding.row_id for result in multiple.results} == set(rows)
+    for result in multiple.results:
+        hit = result.primary
+        assert hit.precision == "exact"
+        assert hit.part.locator.text is not None
+        assert (hit.part.locator.text.start, hit.part.locator.text.end) == (
+            match_start,
+            match_start + len(match),
         )
-        assert matches("correctedanchor") == ()
-        drain_index(project)
-        assert matches("correctedanchor") == ()
-        assert project.get_values(sheet, text_column)[row] == "correctedanchor"
-        assert len(matches("ordinaryanchor")) == 1
-
-        assert project.undo() == replacement_op
-        drain_index(project)
-        assert len(matches("correctedanchor")) == 1
-
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (file_column,))
-        project.db.commit()
-        assert matches("correctedanchor") == ()
-        project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (file_column,))
-        project.db.commit()
-        drain_index(project)
-        assert len(matches("correctedanchor")) == 1
-
-        project.apply_edits([{"row_id": row, "column_id": file_column, "value": None}])
-        assert matches("correctedanchor") == ()
-        assert project.get_values(sheet, text_column)[row] == "correctedanchor"
-    finally:
-        project.close()
+        assert len(hit.snippet) <= 520
 
 
-def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(tmp_path):
+def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_project):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "prepared-ocr-canonical.frisket")
-    try:
-        sheet = project.add_sheet("Scans")
-        ocr_text = project.add_column(sheet, "OCR text", ai_generated=True)
-        positions = project.add_column(
-            sheet, "OCR positions", type="json", ai_generated=True
-        )
-        notes = project.add_column(sheet, "notes", type="json")
-        phrase = "Inspection of the western pier"
-        row = project.add_rows(
-            sheet,
-            [{"notes": {"description": f"User JSON: {phrase}"}}],
-            {"notes": notes},
-        )[0]
-        output_names = {"text": "OCR text", "blocks": "OCR positions"}
-        op_id = project.append_op(
-            "media.ocr", {"output_names": output_names}, label="OCR fixture"
-        )
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            page_count=1,
-        )
-        project.db.execute("BEGIN IMMEDIATE")
-        prepared = PreparedContentStore(project).stage_reference(
-            source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
-            pages=(PreparedPageDraft(1, phrase),),
-        )
-        project.db.commit()
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet,
-            "media.ocr",
-            params={"output_names": output_names},
-            row_ids=[row],
-            total_rows=1,
-        )
-        write_claimed_test_results(
-            project,
-            run_id,
-            [
-                {"row_id": row, "column_id": ocr_text, "value": prepared},
-                {
-                    "row_id": row,
-                    "column_id": positions,
-                    "value": {
-                        "blocks": [
-                            {
-                                "bbox": [[10, 20], [90, 20], [90, 40], [10, 40]],
-                                "text": phrase,
-                            }
-                        ]
-                    },
-                },
-            ],
-            output_roles={ocr_text: "text", positions: "blocks"},
-        )
-        drain_index(project)
-        request = SearchRequest(
+    project = make_project("prepared-lexical-page")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    project.db.execute("BEGIN IMMEDIATE")
+    op_id = project.append_op("prepare.test", commit=False)
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="document",
+        media_type="application/pdf",
+        page_count=2,
+    )
+    prepared = PreparedContentStore(project).stage_reference(
+        source_artifact_id=int(artifact["id"]),
+        producing_op_id=op_id,
+        pages=(
+            PreparedPageDraft(1, "Harbor minutes and attendance."),
+            PreparedPageDraft(2, "The council approved the bluewharf repair."),
+        ),
+    )
+    project.add_rows(sheet, [{"body": prepared}], {"body": column}, commit=False)
+    project.db.commit()
+    drain_index(project)
+
+    response = search(
+        project,
+        SearchRequest(
             scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-            query=TextQuery(phrase),
+            query=TextQuery("bluewharf"),
             mode="lexical",
-            group_by="source",
-            limit=10,
             ranking=RankingPolicy(rerank="off"),
-        )
-        before_grounding = search(project, request)
-        before_prepared = next(
-            result
-            for result in before_grounding.results
-            if result.primary.part.source.source_kind == "prepared_text"
-        )
-        assert before_prepared.primary.part.locator.source_span_ids == ()
+        ),
+    )
 
-        region = record_source_span(
-            project,
-            artifact_id=int(artifact["id"]),
-            span_kind="region",
-            page_start=1,
-            page_end=1,
-            quote=phrase,
-            bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.9, "y1": 0.4}],
-        )
-        _values, refs = project.get_values_with_refs(sheet, ocr_text, row_ids=[row])
-        record_evidence_link(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[row],
-            spans=[{"span_id": int(region["id"])}],
-            sheet_id=sheet,
-            row_id=row,
-            column_id=ocr_text,
-            op_id=op_id,
-            link_role="media_ocr_grounding",
-            producer={"action_kind": "media.ocr", "engine": "fixture"},
-        )
-
-        drain_index(project)
-        response = search(project, request)
-
-        assert {
-            (result.primary.part.source.source_kind, result.primary.binding.column_id)
-            for result in response.results
-        } == {("prepared_text", ocr_text), ("text", notes)}
-        prepared_result = next(
-            result
-            for result in response.results
-            if result.primary.part.source.source_kind == "prepared_text"
-        )
-        assert prepared_result.primary.part.locator.pages == PageRange(1, 1)
-        assert prepared_result.primary.part.locator.source_span_ids == (
-            str(region["stable_id"]),
-        )
-        assert (
-            prepared_result.primary.part.source.version_value
-            != before_prepared.primary.part.source.version_value
-        )
-        with RetrievalStore(project).open() as store:
-            bound = store.db.execute(
-                "SELECT source.source_kind,binding.column_id "
-                "FROM bindings binding JOIN sources source "
-                "ON source.source_key=binding.source_key "
-                "WHERE binding.sheet_id=? AND binding.row_id=? "
-                "ORDER BY binding.column_id,source.source_kind",
-                (sheet, row),
-            ).fetchall()
-        assert [(item["source_kind"], item["column_id"]) for item in bound] == [
-            ("prepared_text", ocr_text),
-            ("text", notes),
-        ]
-    finally:
-        project.close()
+    [result] = response.results
+    location = result.primary.part.locator
+    assert result.primary.precision == "exact"
+    assert location.pages == PageRange(2, 2)
+    assert location.text is not None
+    assert (
+        PreparedContentStore(project)
+        .resolve(prepared.ref_id)
+        .text[location.text.start : location.text.end]
+        == "bluewharf"
+    )
 
 
-def test_repeated_lexical_anchor_keeps_whole_source_location(tmp_path):
+def test_document_text_search_tracks_file_replacement_and_undo(make_project):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "repeated-lexical-anchor.frisket")
-    try:
-        sheet = project.add_sheet("Contracts")
-        column = project.add_column(sheet, "body")
-        query = "ORCHID-79"
-        text = "Orchid-79 opened the file. " + "Background. " * 800 + "orchid-79"
-        project.add_rows(sheet, [{"body": text}], {"body": column})
-        drain_index(project)
+    project = make_project("document-text-search")
+    sheet = project.add_sheet("Documents")
+    file_column = project.add_column(sheet, "File", type="file")
+    text_column = project.add_column(sheet, "Text")
+    notes_column = project.add_column(sheet, "Notes")
+    digest = project.add_blob(b"original PDF", mime="application/pdf")
+    row = project.add_rows(
+        sheet,
+        [{"File": {"blob": digest}, "Notes": "ordinaryanchor"}],
+        {"File": file_column, "Notes": notes_column},
+    )[0]
+    project.db.execute("BEGIN IMMEDIATE")
+    op_id = project.append_op("prepare.test", commit=False)
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="document",
+        media_type="application/pdf",
+        blob_hash=digest,
+        page_count=1,
+        source_sheet_id=sheet,
+        source_row_id=row,
+        source_column_id=file_column,
+    )
+    prepared = PreparedContentStore(project).stage_reference(
+        source_artifact_id=int(artifact["id"]),
+        producing_op_id=op_id,
+        pages=(PreparedPageDraft(1, "originalanchor"),),
+    )
+    project.db.commit()
+    project.apply_edits([{"row_id": row, "column_id": text_column, "value": prepared}])
+    ensure_document_text_role(
+        project,
+        source_column_id=file_column,
+        text_column_id=text_column,
+        commit=True,
+    )
+    project.apply_edits(
+        [{"row_id": row, "column_id": text_column, "value": "correctedanchor"}]
+    )
 
-        response = search(
+    def matches(word):
+        return search(
             project,
             SearchRequest(
                 scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery(query),
+                query=TextQuery(word),
                 mode="lexical",
                 ranking=RankingPolicy(rerank="off"),
             ),
-        )
+        ).results
 
-        [result] = response.results
-        location = result.primary.part.locator
-        assert result.primary.precision == "source_unit"
-        assert location.kind == "whole_source"
-        assert location.text is not None
-        assert (location.text.start, location.text.end) == (0, len(text))
-    finally:
-        project.close()
+    drain_index(project)
+    assert len(matches("correctedanchor")) == 1
+    assert len(matches("ordinaryanchor")) == 1
+
+    replacement = project.add_blob(b"replacement PDF", mime="application/pdf")
+    replacement_op = project.apply_edits(
+        [{"row_id": row, "column_id": file_column, "value": {"blob": replacement}}]
+    )
+    assert matches("correctedanchor") == ()
+    drain_index(project)
+    assert matches("correctedanchor") == ()
+    assert project.get_values(sheet, text_column)[row] == "correctedanchor"
+    assert len(matches("ordinaryanchor")) == 1
+
+    assert project.undo() == replacement_op
+    drain_index(project)
+    assert len(matches("correctedanchor")) == 1
+
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (file_column,))
+    project.db.commit()
+    assert matches("correctedanchor") == ()
+    project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (file_column,))
+    project.db.commit()
+    drain_index(project)
+    assert len(matches("correctedanchor")) == 1
+
+    project.apply_edits([{"row_id": row, "column_id": file_column, "value": None}])
+    assert matches("correctedanchor") == ()
+    assert project.get_values(sheet, text_column)[row] == "correctedanchor"
+
+
+def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
+    make_project,
+):
+    from frisket.search import drain_index
+
+    project = make_project("prepared-ocr-canonical")
+    sheet = project.add_sheet("Scans")
+    ocr_text = project.add_column(sheet, "OCR text", ai_generated=True)
+    positions = project.add_column(
+        sheet, "OCR positions", type="json", ai_generated=True
+    )
+    notes = project.add_column(sheet, "notes", type="json")
+    phrase = "Inspection of the western pier"
+    row = project.add_rows(
+        sheet,
+        [{"notes": {"description": f"User JSON: {phrase}"}}],
+        {"notes": notes},
+    )[0]
+    output_names = {"text": "OCR text", "blocks": "OCR positions"}
+    op_id = project.append_op(
+        "media.ocr", {"output_names": output_names}, label="OCR fixture"
+    )
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="document",
+        media_type="application/pdf",
+        page_count=1,
+    )
+    project.db.execute("BEGIN IMMEDIATE")
+    prepared = PreparedContentStore(project).stage_reference(
+        source_artifact_id=int(artifact["id"]),
+        producing_op_id=op_id,
+        pages=(PreparedPageDraft(1, phrase),),
+    )
+    project.db.commit()
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet,
+        "media.ocr",
+        params={"output_names": output_names},
+        row_ids=[row],
+        total_rows=1,
+    )
+    write_claimed_test_results(
+        project,
+        run_id,
+        [
+            {"row_id": row, "column_id": ocr_text, "value": prepared},
+            {
+                "row_id": row,
+                "column_id": positions,
+                "value": {
+                    "blocks": [
+                        {
+                            "bbox": [[10, 20], [90, 20], [90, 40], [10, 40]],
+                            "text": phrase,
+                        }
+                    ]
+                },
+            },
+        ],
+        output_roles={ocr_text: "text", positions: "blocks"},
+    )
+    drain_index(project)
+    request = SearchRequest(
+        scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+        query=TextQuery(phrase),
+        mode="lexical",
+        group_by="source",
+        limit=10,
+        ranking=RankingPolicy(rerank="off"),
+    )
+    before_grounding = search(project, request)
+    before_prepared = next(
+        result
+        for result in before_grounding.results
+        if result.primary.part.source.source_kind == "prepared_text"
+    )
+    assert before_prepared.primary.part.locator.source_span_ids == ()
+
+    region = record_source_span(
+        project,
+        artifact_id=int(artifact["id"]),
+        span_kind="region",
+        page_start=1,
+        page_end=1,
+        quote=phrase,
+        bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.9, "y1": 0.4}],
+    )
+    _values, refs = project.get_values_with_refs(sheet, ocr_text, row_ids=[row])
+    record_evidence_link(
+        project,
+        subject_kind="cell",
+        subject_ref=refs[row],
+        spans=[{"span_id": int(region["id"])}],
+        sheet_id=sheet,
+        row_id=row,
+        column_id=ocr_text,
+        op_id=op_id,
+        link_role="media_ocr_grounding",
+        producer={"action_kind": "media.ocr", "engine": "fixture"},
+    )
+
+    drain_index(project)
+    response = search(project, request)
+
+    assert {
+        (result.primary.part.source.source_kind, result.primary.binding.column_id)
+        for result in response.results
+    } == {("prepared_text", ocr_text), ("text", notes)}
+    prepared_result = next(
+        result
+        for result in response.results
+        if result.primary.part.source.source_kind == "prepared_text"
+    )
+    assert prepared_result.primary.part.locator.pages == PageRange(1, 1)
+    assert prepared_result.primary.part.locator.source_span_ids == (
+        str(region["stable_id"]),
+    )
+    assert (
+        prepared_result.primary.part.source.version_value
+        != before_prepared.primary.part.source.version_value
+    )
+    with RetrievalStore(project).open() as store:
+        bound = store.db.execute(
+            "SELECT source.source_kind,binding.column_id "
+            "FROM bindings binding JOIN sources source "
+            "ON source.source_key=binding.source_key "
+            "WHERE binding.sheet_id=? AND binding.row_id=? "
+            "ORDER BY binding.column_id,source.source_kind",
+            (sheet, row),
+        ).fetchall()
+    assert [(item["source_kind"], item["column_id"]) for item in bound] == [
+        ("prepared_text", ocr_text),
+        ("text", notes),
+    ]
+
+
+def test_repeated_lexical_anchor_keeps_whole_source_location(make_project):
+    from frisket.search import drain_index
+
+    project = make_project("repeated-lexical-anchor")
+    sheet = project.add_sheet("Contracts")
+    column = project.add_column(sheet, "body")
+    query = "ORCHID-79"
+    text = "Orchid-79 opened the file. " + "Background. " * 800 + "orchid-79"
+    project.add_rows(sheet, [{"body": text}], {"body": column})
+    drain_index(project)
+
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery(query),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
+
+    [result] = response.results
+    location = result.primary.part.locator
+    assert result.primary.precision == "source_unit"
+    assert location.kind == "whole_source"
+    assert location.text is not None
+    assert (location.text.start, location.text.end) == (0, len(text))
 
 
 @pytest.mark.parametrize(
@@ -764,75 +737,67 @@ def test_repeated_lexical_anchor_keeps_whole_source_location(tmp_path):
     ],
 )
 def test_lexical_location_follows_fts_marked_tokens_not_raw_substrings(
-    tmp_path, query, text, expected
+    make_project, query, text, expected
 ):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "fts-marked-lexical-range.frisket")
-    try:
-        sheet = project.add_sheet("Notes")
-        column = project.add_column(sheet, "body")
-        project.add_rows(sheet, [{"body": text}], {"body": column})
-        drain_index(project)
+    project = make_project("fts-marked-lexical-range")
+    sheet = project.add_sheet("Notes")
+    column = project.add_column(sheet, "body")
+    project.add_rows(sheet, [{"body": text}], {"body": column})
+    drain_index(project)
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery(query),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery(query),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
 
-        [result] = response.results
-        location = result.primary.part.locator
-        assert location.text is not None
-        if expected is None:
-            assert result.primary.precision == "source_unit"
-            assert (location.text.start, location.text.end) == (0, len(text))
-        else:
-            assert result.primary.precision == "exact"
-            assert text[location.text.start : location.text.end] == expected
-    finally:
-        project.close()
+    [result] = response.results
+    location = result.primary.part.locator
+    assert location.text is not None
+    if expected is None:
+        assert result.primary.precision == "source_unit"
+        assert (location.text.start, location.text.end) == (0, len(text))
+    else:
+        assert result.primary.precision == "exact"
+        assert text[location.text.start : location.text.end] == expected
 
 
-def test_quoted_lexical_match_ignores_literal_snippet_markup(tmp_path):
+def test_quoted_lexical_match_ignores_literal_snippet_markup(make_project):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "literal-snippet-markup.frisket")
-    try:
-        sheet = project.add_sheet("Contracts")
-        column = project.add_column(sheet, "body")
-        prefix = "Background material. " * 800
-        match = "ACTUALNEEDLE"
-        text = f"{prefix}<b>Methodology</b> immediately before {match}."
-        project.add_rows(sheet, [{"body": text}], {"body": column})
-        drain_index(project)
+    project = make_project("literal-snippet-markup")
+    sheet = project.add_sheet("Contracts")
+    column = project.add_column(sheet, "body")
+    prefix = "Background material. " * 800
+    match = "ACTUALNEEDLE"
+    text = f"{prefix}<b>Methodology</b> immediately before {match}."
+    project.add_rows(sheet, [{"body": text}], {"body": column})
+    drain_index(project)
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery(f'"{match}"'),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery(f'"{match}"'),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
 
-        [result] = response.results
-        hit = result.primary
-        location = hit.part.locator
-        assert hit.precision == "exact"
-        assert hit.snippet is not None
-        assert (
-            "<b>Methodology</b> immediately before <b>ACTUALNEEDLE</b>" in hit.snippet
-        )
-        assert location.text is not None
-        assert text[location.text.start : location.text.end] == match
-    finally:
-        project.close()
+    [result] = response.results
+    hit = result.primary
+    location = hit.part.locator
+    assert hit.precision == "exact"
+    assert hit.snippet is not None
+    assert "<b>Methodology</b> immediately before <b>ACTUALNEEDLE</b>" in hit.snippet
+    assert location.text is not None
+    assert text[location.text.start : location.text.end] == match
 
 
 def test_semantic_scope_and_freshness_are_applied_before_top_k(tmp_path):
@@ -899,69 +864,62 @@ def test_lexical_search_hydrates_authoritative_text_and_honors_named_membership(
 
 
 def test_lexical_search_hydrates_noncell_source_through_authority_adapter(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    project = Project.create(tmp_path / "transcript.frisket", name="transcript")
-    try:
-        sheet = project.add_sheet("Media")
-        column = project.add_column(sheet, "media")
-        [row] = project.add_rows(
-            sheet, [{"media": "video blob handle"}], {"media": column}
-        )
-        revision = read_binding_revision(project.db, row_id=row, column_id=column)
-        assert revision is not None
-        text = "spoken needle"
-        source = SourceRevision(
-            "transcript-link:evidence",
-            "transcript",
-            "transcript_snapshot",
-            "sha256:snapshot",
-            input_hash(text),
-        )
-        locator = SourceLocator("transcript_chunk", source_span_ids=("span:spoken",))
-        with RetrievalStore(project).open() as store:
-            store.begin_preparation(
-                source, recipe_id="transcript:v1", channel="transcript"
-            )
-            assert store.publish_source(
-                SourcePublication(
-                    source,
-                    "transcript:v1",
-                    "transcript",
-                    parts=(),
-                    bindings=(
-                        StoredBinding(
-                            "binding:transcript",
-                            sheet,
-                            row,
-                            column,
-                            (BindingDependency(row, column, revision),),
-                        ),
+    project = make_project("transcript")
+    sheet = project.add_sheet("Media")
+    column = project.add_column(sheet, "media")
+    [row] = project.add_rows(sheet, [{"media": "video blob handle"}], {"media": column})
+    revision = read_binding_revision(project.db, row_id=row, column_id=column)
+    assert revision is not None
+    text = "spoken needle"
+    source = SourceRevision(
+        "transcript-link:evidence",
+        "transcript",
+        "transcript_snapshot",
+        "sha256:snapshot",
+        input_hash(text),
+    )
+    locator = SourceLocator("transcript_chunk", source_span_ids=("span:spoken",))
+    with RetrievalStore(project).open() as store:
+        store.begin_preparation(source, recipe_id="transcript:v1", channel="transcript")
+        assert store.publish_source(
+            SourcePublication(
+                source,
+                "transcript:v1",
+                "transcript",
+                parts=(),
+                bindings=(
+                    StoredBinding(
+                        "binding:transcript",
+                        sheet,
+                        row,
+                        column,
+                        (BindingDependency(row, column, revision),),
                     ),
-                    lexical=LexicalInput(text, locator),
-                )
+                ),
+                lexical=LexicalInput(text, locator),
             )
-
-        def resolve(_reader, *, source: SourceRevision, locator, binding):
-            assert source.source_kind == "transcript"
-            assert locator.source_span_ids == ("span:spoken",)
-            assert binding.dependencies == (BindingRevision(row, column, revision),)
-            return text
-
-        monkeypatch.setattr("frisket.retrieval.query.resolve_source_text", resolve)
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(column,)),)),
-                query=TextQuery("needle"),
-                mode="lexical",
-            ),
         )
 
-        assert [result.primary.binding.row_id for result in response.results] == [row]
-        assert "<b>needle</b>" in (response.results[0].primary.snippet or "")
-    finally:
-        project.close()
+    def resolve(_reader, *, source: SourceRevision, locator, binding):
+        assert source.source_kind == "transcript"
+        assert locator.source_span_ids == ("span:spoken",)
+        assert binding.dependencies == (BindingRevision(row, column, revision),)
+        return text
+
+    monkeypatch.setattr("frisket.retrieval.query.resolve_source_text", resolve)
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(column,)),)),
+            query=TextQuery("needle"),
+            mode="lexical",
+        ),
+    )
+
+    assert [result.primary.binding.row_id for result in response.results] == [row]
+    assert "<b>needle</b>" in (response.results[0].primary.snippet or "")
 
 
 def test_semantic_threshold_exclusion_and_source_grouping(tmp_path):
@@ -1108,340 +1066,323 @@ def test_hybrid_fuses_source_ranks_and_retains_both_contributions(tmp_path):
 
 
 @pytest.mark.parametrize("sparse", [False, True])
-def test_composite_binding_is_invalidated_when_any_dependency_changes(tmp_path, sparse):
-    project = Project.create(tmp_path / "composite.frisket", name="composite")
-    try:
-        sheet = project.add_sheet("Rows")
-        title = project.add_column(sheet, "title")
-        body = project.add_column(sheet, "body")
-        [row] = project.add_rows(
-            sheet,
-            [{"title": "alpha", "body": "bravo"}],
-            {"title": title, "body": body},
-        )
-        if sparse:
-            project.db.execute(
-                "DELETE FROM current_cells WHERE row_id=? AND column_id=?", (row, body)
-            )
-            project.db.commit()
-        title_revision = read_binding_revision(project.db, row_id=row, column_id=title)
-        body_revision = read_binding_revision(project.db, row_id=row, column_id=body)
-        assert title_revision is not None
-        body_revision = body_revision or 0
-        revision = SourceRevision(
-            "composite:row:1",
-            "row_composite",
-            "members",
-            f"alpha@{title_revision},bravo@{body_revision}",
-        )
-        locator = SourceLocator(kind="row_composite")
-        with RetrievalStore(project).open() as store:
-            part = StoredPart("composite:part", "row_composite", locator)
-            representation = CachedRepresentation(
-                "composite:representation",
-                "space:test",
-                "composite:input",
-                native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
-                3,
-            )
-            store.begin_preparation(revision, recipe_id="row:v1", channel="row")
-            assert store.publish_source(
-                SourcePublication(
-                    source_revision=revision,
-                    recipe_id="row:v1",
-                    channel="row",
-                    parts=(part,),
-                    bindings=(
-                        StoredBinding(
-                            "composite:binding",
-                            sheet,
-                            row,
-                            dependencies=(
-                                BindingDependency(row, title, title_revision),
-                                BindingDependency(row, body, body_revision),
-                            ),
-                        ),
-                    ),
-                    representations=(representation,),
-                    attachments=(
-                        PartRepresentation(
-                            part.part_id, representation.representation_id, "row"
-                        ),
-                    ),
-                )
-            )
-
-        request = SearchRequest(
-            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-            query=TextQuery("row"),
-            mode="semantic",
-            group_by="row",
-            space_id="space:test",
-        )
-        vectors = SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),))
-        assert len(search(project, request, semantic_vectors=vectors).results) == 1
-        if sparse:
-            project.apply_edits(
-                [{"row_id": row, "column_id": body, "value": "new body"}]
-            )
-            assert search(project, request, semantic_vectors=vectors).results == ()
-            return
-
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (title,))
-        project.db.commit()
-        assert search(project, request, semantic_vectors=vectors).results == ()
-
-        project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (title,))
+def test_composite_binding_is_invalidated_when_any_dependency_changes(
+    make_project, sparse
+):
+    project = make_project("composite")
+    sheet = project.add_sheet("Rows")
+    title = project.add_column(sheet, "title")
+    body = project.add_column(sheet, "body")
+    [row] = project.add_rows(
+        sheet,
+        [{"title": "alpha", "body": "bravo"}],
+        {"title": title, "body": body},
+    )
+    if sparse:
         project.db.execute(
-            "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
-            "WHERE row_id=? AND column_id=?",
-            (row, title),
+            "DELETE FROM current_cells WHERE row_id=? AND column_id=?", (row, body)
         )
         project.db.commit()
+    title_revision = read_binding_revision(project.db, row_id=row, column_id=title)
+    body_revision = read_binding_revision(project.db, row_id=row, column_id=body)
+    assert title_revision is not None
+    body_revision = body_revision or 0
+    revision = SourceRevision(
+        "composite:row:1",
+        "row_composite",
+        "members",
+        f"alpha@{title_revision},bravo@{body_revision}",
+    )
+    locator = SourceLocator(kind="row_composite")
+    with RetrievalStore(project).open() as store:
+        part = StoredPart("composite:part", "row_composite", locator)
+        representation = CachedRepresentation(
+            "composite:representation",
+            "space:test",
+            "composite:input",
+            native.pack_vector((1.0, 0.0, 0.0), dimensions=3),
+            3,
+        )
+        store.begin_preparation(revision, recipe_id="row:v1", channel="row")
+        assert store.publish_source(
+            SourcePublication(
+                source_revision=revision,
+                recipe_id="row:v1",
+                channel="row",
+                parts=(part,),
+                bindings=(
+                    StoredBinding(
+                        "composite:binding",
+                        sheet,
+                        row,
+                        dependencies=(
+                            BindingDependency(row, title, title_revision),
+                            BindingDependency(row, body, body_revision),
+                        ),
+                    ),
+                ),
+                representations=(representation,),
+                attachments=(
+                    PartRepresentation(
+                        part.part_id, representation.representation_id, "row"
+                    ),
+                ),
+            )
+        )
+
+    request = SearchRequest(
+        scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+        query=TextQuery("row"),
+        mode="semantic",
+        group_by="row",
+        space_id="space:test",
+    )
+    vectors = SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),))
+    assert len(search(project, request, semantic_vectors=vectors).results) == 1
+    if sparse:
+        project.apply_edits([{"row_id": row, "column_id": body, "value": "new body"}])
         assert search(project, request, semantic_vectors=vectors).results == ()
-    finally:
-        project.close()
+        return
+
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (title,))
+    project.db.commit()
+    assert search(project, request, semantic_vectors=vectors).results == ()
+
+    project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (title,))
+    project.db.execute(
+        "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
+        "WHERE row_id=? AND column_id=?",
+        (row, title),
+    )
+    project.db.commit()
+    assert search(project, request, semantic_vectors=vectors).results == ()
 
 
-def test_overlapping_moments_group_to_best_part(tmp_path):
-    project = Project.create(tmp_path / "moments.frisket", name="moments")
-    try:
-        sheet = project.add_sheet("Videos")
-        body = project.add_column(sheet, "body")
-        text = "first second third fourth fifth sixth"
-        [row] = project.add_rows(sheet, [{"body": text}], {"body": body})
-        revision = read_binding_revision(project.db, row_id=row, column_id=body)
-        assert revision is not None
-        with RetrievalStore(project).open() as store:
+def test_overlapping_moments_group_to_best_part(make_project):
+    project = make_project("moments")
+    sheet = project.add_sheet("Videos")
+    body = project.add_column(sheet, "body")
+    text = "first second third fourth fifth sixth"
+    [row] = project.add_rows(sheet, [{"body": text}], {"body": body})
+    revision = read_binding_revision(project.db, row_id=row, column_id=body)
+    assert revision is not None
+    with RetrievalStore(project).open() as store:
+        _publish(
+            store,
+            row_id=row,
+            sheet_id=sheet,
+            column_id=body,
+            text=text,
+            vector=(1.0, 0.0, 0.0),
+            version=revision,
+            parts=(
+                ("moment:1", (1.0, 0.0, 0.0), 0, 5),
+                ("moment:2", (0.995, 0.1, 0.0), 6, 12),
+                ("moment:3", (0.98, 0.2, 0.0), 13, 18),
+                ("moment:4", (0.954, 0.3, 0.0), 19, 25),
+                ("moment:5", (0.9165, 0.4, 0.0), 26, 31),
+                ("moment:6", (0.8660254, 0.5, 0.0), 32, 37),
+            ),
+        )
+
+    grouped = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery("moment"),
+            mode="semantic",
+            group_by="source",
+            space_id="space:test",
+            limit=10,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+    parts = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery("moment"),
+            mode="semantic",
+            group_by="part",
+            space_id="space:test",
+            limit=10,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+    hybrid = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery("first"),
+            mode="hybrid",
+            group_by="source",
+            space_id="space:test",
+            limit=10,
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+
+    assert [group.primary.part.part_id for group in grouped.results] == ["moment:1"]
+    assert [hit.part.part_id for hit in grouped.results[0].supporting] == [
+        "moment:2",
+        "moment:3",
+        "moment:4",
+    ]
+    assert grouped.results[0].additional_count == 2
+    assert [group.primary.part.part_id for group in parts.results] == [
+        "moment:1",
+        "moment:2",
+        "moment:3",
+        "moment:4",
+        "moment:5",
+        "moment:6",
+    ]
+    assert len(hybrid.results[0].supporting) == 3
+    assert {hit.part.part_id for hit in hybrid.results[0].supporting} >= {
+        "moment:2",
+        "moment:3",
+    }
+    assert hybrid.results[0].additional_count == 3
+    assert {item.method for item in hybrid.results[0].primary.contributions} == {
+        "lexical",
+        "semantic",
+    }
+
+
+def test_row_groups_bound_scoped_locations_and_report_hidden_count(make_project):
+    project = make_project("row-supporting")
+    sheet = project.add_sheet("Documents")
+    columns = [project.add_column(sheet, f"body_{index}") for index in range(8)]
+    values = {f"body_{index}": f"target text {index}" for index in range(8)}
+    [row] = project.add_rows(
+        sheet,
+        [values],
+        {f"body_{index}": column for index, column in enumerate(columns)},
+    )
+    with RetrievalStore(project).open() as store:
+        for index, column in enumerate(columns):
+            revision = read_binding_revision(project.db, row_id=row, column_id=column)
+            assert revision is not None
             _publish(
                 store,
                 row_id=row,
                 sheet_id=sheet,
-                column_id=body,
-                text=text,
-                vector=(1.0, 0.0, 0.0),
+                column_id=column,
+                text=values[f"body_{index}"],
+                vector=(0.6, 0.8, 0.0) if index == 0 else (1.0, 0.0, 0.0),
                 version=revision,
-                parts=(
-                    ("moment:1", (1.0, 0.0, 0.0), 0, 5),
-                    ("moment:2", (0.995, 0.1, 0.0), 6, 12),
-                    ("moment:3", (0.98, 0.2, 0.0), 13, 18),
-                    ("moment:4", (0.954, 0.3, 0.0), 19, 25),
-                    ("moment:5", (0.9165, 0.4, 0.0), 26, 31),
-                    ("moment:6", (0.8660254, 0.5, 0.0), 32, 37),
-                ),
             )
+    project.db.execute(
+        "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
+        "WHERE row_id=? AND column_id=?",
+        (row, columns[5]),
+    )
+    project.db.commit()
+    scope = RetrievalScope((SheetScope(sheet, column_ids=tuple(columns[:6])),))
 
-        grouped = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery("moment"),
-                mode="semantic",
-                group_by="source",
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-        parts = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery("moment"),
-                mode="semantic",
-                group_by="part",
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-        hybrid = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery("first"),
-                mode="hybrid",
-                group_by="source",
-                space_id="space:test",
-                limit=10,
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
+    lexical = search(
+        project,
+        SearchRequest(
+            scope=scope,
+            query=TextQuery("target"),
+            mode="lexical",
+            group_by="row",
+        ),
+    )
+    semantic = search(
+        project,
+        SearchRequest(
+            scope=scope,
+            query=TextQuery("target"),
+            mode="semantic",
+            group_by="row",
+            space_id="space:test",
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+    hybrid = search(
+        project,
+        SearchRequest(
+            scope=scope,
+            query=TextQuery("target"),
+            mode="hybrid",
+            group_by="row",
+            space_id="space:test",
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
 
-        assert [group.primary.part.part_id for group in grouped.results] == ["moment:1"]
-        assert [hit.part.part_id for hit in grouped.results[0].supporting] == [
-            "moment:2",
-            "moment:3",
-            "moment:4",
-        ]
-        assert grouped.results[0].additional_count == 2
-        assert [group.primary.part.part_id for group in parts.results] == [
-            "moment:1",
-            "moment:2",
-            "moment:3",
-            "moment:4",
-            "moment:5",
-            "moment:6",
-        ]
-        assert len(hybrid.results[0].supporting) == 3
-        assert {hit.part.part_id for hit in hybrid.results[0].supporting} >= {
-            "moment:2",
-            "moment:3",
-        }
-        assert hybrid.results[0].additional_count == 3
-        assert {item.method for item in hybrid.results[0].primary.contributions} == {
-            "lexical",
-            "semantic",
-        }
-    finally:
-        project.close()
-
-
-def test_row_groups_bound_scoped_locations_and_report_hidden_count(tmp_path):
-    project = Project.create(tmp_path / "row-supporting.frisket", name="row-supporting")
-    try:
-        sheet = project.add_sheet("Documents")
-        columns = [project.add_column(sheet, f"body_{index}") for index in range(8)]
-        values = {f"body_{index}": f"target text {index}" for index in range(8)}
-        [row] = project.add_rows(
-            sheet,
-            [values],
-            {f"body_{index}": column for index, column in enumerate(columns)},
-        )
-        with RetrievalStore(project).open() as store:
-            for index, column in enumerate(columns):
-                revision = read_binding_revision(
-                    project.db, row_id=row, column_id=column
-                )
-                assert revision is not None
-                _publish(
-                    store,
-                    row_id=row,
-                    sheet_id=sheet,
-                    column_id=column,
-                    text=values[f"body_{index}"],
-                    vector=(0.6, 0.8, 0.0) if index == 0 else (1.0, 0.0, 0.0),
-                    version=revision,
-                )
-        project.db.execute(
-            "UPDATE current_cells SET retrieval_revision=retrieval_revision+1 "
-            "WHERE row_id=? AND column_id=?",
-            (row, columns[5]),
-        )
-        project.db.commit()
-        scope = RetrievalScope((SheetScope(sheet, column_ids=tuple(columns[:6])),))
-
-        lexical = search(
-            project,
-            SearchRequest(
-                scope=scope,
-                query=TextQuery("target"),
-                mode="lexical",
-                group_by="row",
-            ),
-        )
-        semantic = search(
-            project,
-            SearchRequest(
-                scope=scope,
-                query=TextQuery("target"),
-                mode="semantic",
-                group_by="row",
-                space_id="space:test",
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-        hybrid = search(
-            project,
-            SearchRequest(
-                scope=scope,
-                query=TextQuery("target"),
-                mode="hybrid",
-                group_by="row",
-                space_id="space:test",
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-
-        for response in (lexical, semantic):
-            [group] = response.results
-            assert len(group.supporting) == 3
-            assert group.additional_count == 1
-            returned = {group.primary.binding.column_id} | {
-                hit.binding.column_id for hit in group.supporting
-            }
-            assert returned <= set(columns[:5])
-        [hybrid_group] = hybrid.results
-        assert len(hybrid_group.supporting) == 3
-        assert hybrid_group.additional_count == 6
-        assert {item.method for item in hybrid_group.primary.contributions} == {
-            "semantic"
-        }
-        assert any(
-            hit.contributions[0].method == "lexical" for hit in hybrid_group.supporting
-        )
-        assert any(
-            hit.contributions[0].method == "lexical"
-            and hit.part.source != hybrid_group.primary.part.source
-            for hit in hybrid_group.supporting
-        )
-    finally:
-        project.close()
-
-
-def test_source_hit_counts_other_authorized_bindings(tmp_path):
-    project = Project.create(tmp_path / "binding-count.frisket", name="binding-count")
-    try:
-        sheet = project.add_sheet("Documents")
-        body = project.add_column(sheet, "body")
-        rows = project.add_rows(
-            sheet,
-            [{"body": "shared target"}, {"body": "shared target"}],
-            {"body": body},
-        )
-        revisions = [
-            read_binding_revision(project.db, row_id=row, column_id=body)
-            for row in rows
-        ]
-        assert all(revision is not None for revision in revisions)
-        with RetrievalStore(project).open() as store:
-            _publish(
-                store,
-                row_id=rows[0],
-                sheet_id=sheet,
-                column_id=body,
-                text="shared target",
-                vector=(1.0, 0.0, 0.0),
-                version=revisions[0],
-                extra_bindings=(
-                    StoredBinding(
-                        "binding:shared:second",
-                        sheet,
-                        rows[1],
-                        column_id=body,
-                        dependencies=(BindingDependency(rows[1], body, revisions[1]),),
-                    ),
-                ),
-            )
-
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope((SheetScope(sheet),)),
-                query=TextQuery("target"),
-                mode="semantic",
-                group_by="source",
-                space_id="space:test",
-            ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
-
+    for response in (lexical, semantic):
         [group] = response.results
-        assert group.primary.additional_binding_count == 1
-        assert group.supporting == ()
-        assert group.additional_count == 0
-    finally:
-        project.close()
+        assert len(group.supporting) == 3
+        assert group.additional_count == 1
+        returned = {group.primary.binding.column_id} | {
+            hit.binding.column_id for hit in group.supporting
+        }
+        assert returned <= set(columns[:5])
+    [hybrid_group] = hybrid.results
+    assert len(hybrid_group.supporting) == 3
+    assert hybrid_group.additional_count == 6
+    assert {item.method for item in hybrid_group.primary.contributions} == {"semantic"}
+    assert any(
+        hit.contributions[0].method == "lexical" for hit in hybrid_group.supporting
+    )
+    assert any(
+        hit.contributions[0].method == "lexical"
+        and hit.part.source != hybrid_group.primary.part.source
+        for hit in hybrid_group.supporting
+    )
+
+
+def test_source_hit_counts_other_authorized_bindings(make_project):
+    project = make_project("binding-count")
+    sheet = project.add_sheet("Documents")
+    body = project.add_column(sheet, "body")
+    rows = project.add_rows(
+        sheet,
+        [{"body": "shared target"}, {"body": "shared target"}],
+        {"body": body},
+    )
+    revisions = [
+        read_binding_revision(project.db, row_id=row, column_id=body) for row in rows
+    ]
+    assert all(revision is not None for revision in revisions)
+    with RetrievalStore(project).open() as store:
+        _publish(
+            store,
+            row_id=rows[0],
+            sheet_id=sheet,
+            column_id=body,
+            text="shared target",
+            vector=(1.0, 0.0, 0.0),
+            version=revisions[0],
+            extra_bindings=(
+                StoredBinding(
+                    "binding:shared:second",
+                    sheet,
+                    rows[1],
+                    column_id=body,
+                    dependencies=(BindingDependency(rows[1], body, revisions[1]),),
+                ),
+            ),
+        )
+
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope((SheetScope(sheet),)),
+            query=TextQuery("target"),
+            mode="semantic",
+            group_by="source",
+            space_id="space:test",
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+
+    [group] = response.results
+    assert group.primary.additional_binding_count == 1
+    assert group.supporting == ()
+    assert group.additional_count == 0
 
 
 @pytest.mark.parametrize(
@@ -1555,89 +1496,86 @@ def test_semantic_group_aggregation_preserves_global_binding_counts_and_channels
         project.close()
 
 
-def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(tmp_path):
-    project = Project.create(tmp_path / "scope-union.frisket", name="scope-union")
-    try:
-        sheet = project.add_sheet("Rows")
-        left = project.add_column(sheet, "left")
-        right = project.add_column(sheet, "right")
-        rows = project.add_rows(
-            sheet,
-            [
-                {"left": "allowed one", "right": "other"},
-                {"left": "forbidden", "right": "allowed two"},
-            ],
-            {"left": left, "right": right},
+def test_repeated_sheet_scope_union_does_not_leak_columns_between_rows(make_project):
+    project = make_project("scope-union")
+    sheet = project.add_sheet("Rows")
+    left = project.add_column(sheet, "left")
+    right = project.add_column(sheet, "right")
+    rows = project.add_rows(
+        sheet,
+        [
+            {"left": "allowed one", "right": "other"},
+            {"left": "forbidden", "right": "allowed two"},
+        ],
+        {"left": left, "right": right},
+    )
+    with RetrievalStore(project).open() as store:
+        first_left_revision = read_binding_revision(
+            project.db, row_id=rows[0], column_id=left
         )
-        with RetrievalStore(project).open() as store:
-            first_left_revision = read_binding_revision(
-                project.db, row_id=rows[0], column_id=left
-            )
-            second_right_revision = read_binding_revision(
-                project.db, row_id=rows[1], column_id=right
-            )
-            second_left_revision = read_binding_revision(
-                project.db, row_id=rows[1], column_id=left
-            )
-            assert None not in (
-                first_left_revision,
-                second_right_revision,
-                second_left_revision,
-            )
-            _publish(
-                store,
-                row_id=rows[0],
-                sheet_id=sheet,
-                column_id=left,
-                text="allowed one",
-                vector=(0.8, 0.6, 0.0),
-                version=first_left_revision,
-            )
-            _publish(
-                store,
-                row_id=rows[1],
-                sheet_id=sheet,
-                column_id=right,
-                text="allowed two",
-                vector=(0.6, 0.8, 0.0),
-                version=second_right_revision,
-            )
-            _publish(
-                store,
-                row_id=rows[1],
-                sheet_id=sheet,
-                column_id=left,
-                text="forbidden",
-                vector=(1.0, 0.0, 0.0),
-                version=second_left_revision,
-            )
+        second_right_revision = read_binding_revision(
+            project.db, row_id=rows[1], column_id=right
+        )
+        second_left_revision = read_binding_revision(
+            project.db, row_id=rows[1], column_id=left
+        )
+        assert None not in (
+            first_left_revision,
+            second_right_revision,
+            second_left_revision,
+        )
+        _publish(
+            store,
+            row_id=rows[0],
+            sheet_id=sheet,
+            column_id=left,
+            text="allowed one",
+            vector=(0.8, 0.6, 0.0),
+            version=first_left_revision,
+        )
+        _publish(
+            store,
+            row_id=rows[1],
+            sheet_id=sheet,
+            column_id=right,
+            text="allowed two",
+            vector=(0.6, 0.8, 0.0),
+            version=second_right_revision,
+        )
+        _publish(
+            store,
+            row_id=rows[1],
+            sheet_id=sheet,
+            column_id=left,
+            text="forbidden",
+            vector=(1.0, 0.0, 0.0),
+            version=second_left_revision,
+        )
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(
-                    sheets=(
-                        SheetScope(sheet, row_ids=(rows[0],)),
-                        SheetScope(sheet, row_ids=(rows[1],), column_ids=(right,)),
-                    )
-                ),
-                query=TextQuery("allowed"),
-                mode="semantic",
-                group_by="part",
-                space_id="space:test",
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(
+                sheets=(
+                    SheetScope(sheet, row_ids=(rows[0],)),
+                    SheetScope(sheet, row_ids=(rows[1],), column_ids=(right,)),
+                )
             ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-        )
+            query=TextQuery("allowed"),
+            mode="semantic",
+            group_by="part",
+            space_id="space:test",
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
 
-        assert {
-            (hit.primary.binding.row_id, hit.primary.binding.column_id)
-            for hit in response.results
-        } == {
-            (rows[0], left),
-            (rows[1], right),
-        }
-    finally:
-        project.close()
+    assert {
+        (hit.primary.binding.row_id, hit.primary.binding.column_id)
+        for hit in response.results
+    } == {
+        (rows[0], left),
+        (rows[1], right),
+    }
 
 
 def test_search_honors_cancellation_and_injected_reranker(tmp_path):
@@ -1769,260 +1707,253 @@ def test_lexical_coverage_reports_scoped_unprepared_media_without_intent(
         project.close()
 
 
-def test_coverage_reports_new_media_before_its_sidecar_binding_is_indexed(tmp_path):
+def test_coverage_reports_new_media_before_its_sidecar_binding_is_indexed(make_project):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "unindexed-media.frisket")
-    try:
-        seed_sheet = project.add_sheet("Seed")
-        seed = project.add_column(seed_sheet, "seed")
-        project.add_rows(seed_sheet, [{"seed": "indexed"}], {"seed": seed})
-        drain_index(project)
+    project = make_project("unindexed-media")
+    seed_sheet = project.add_sheet("Seed")
+    seed = project.add_column(seed_sheet, "seed")
+    project.add_rows(seed_sheet, [{"seed": "indexed"}], {"seed": seed})
+    drain_index(project)
 
-        media_sheet = project.add_sheet("Media")
-        media = project.add_column(media_sheet, "media", type="file")
-        digest = project.add_blob(b"pdf", mime="application/pdf")
-        project.add_rows(
-            media_sheet,
-            [{"media": {"blob": digest, "mime": "application/pdf"}}],
-            {"media": media},
-        )
+    media_sheet = project.add_sheet("Media")
+    media = project.add_column(media_sheet, "media", type="file")
+    digest = project.add_blob(b"pdf", mime="application/pdf")
+    project.add_rows(
+        media_sheet,
+        [{"media": {"blob": digest, "mime": "application/pdf"}}],
+        {"media": media},
+    )
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(),
-                query=TextQuery("not-yet-searchable"),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(),
+            query=TextQuery("not-yet-searchable"),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
 
-        gap = next(
-            item
-            for item in response.coverage.channels
-            if item.channel == "search_preparation"
-        )
-        assert (gap.eligible_count, gap.prepared_count) == (1, 0)
-        assert gap.state == "unavailable"
-        assert gap.gap_sheet_ids == (media_sheet,)
-    finally:
-        project.close()
+    gap = next(
+        item
+        for item in response.coverage.channels
+        if item.channel == "search_preparation"
+    )
+    assert (gap.eligible_count, gap.prepared_count) == (1, 0)
+    assert gap.state == "unavailable"
+    assert gap.gap_sheet_ids == (media_sheet,)
 
 
-def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(tmp_path):
+def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
+    make_project,
+):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "imported-pdf-coverage.frisket")
-    try:
-        sheet = project.add_sheet("Imported PDF")
-        document = project.add_column(sheet, "source", type="file")
-        page_image = project.add_column(sheet, "page image", type="image")
-        unrelated_image = project.add_column(sheet, "other image", type="image")
-        prepared_text = project.add_column(sheet, "prepared text")
-        pdf_hash = project.add_blob(b"pdf", mime="application/pdf")
-        page_hash = project.add_blob(b"page", mime="image/png")
-        unrelated_hash = project.add_blob(b"other", mime="image/png")
-        row = project.add_rows(
-            sheet,
-            [
-                {
-                    "source": {
-                        "blob": pdf_hash,
-                        "mime": "application/pdf",
-                        "page": 1,
-                    },
-                    "page image": {"blob": page_hash, "mime": "image/png"},
-                    "other image": {
-                        "blob": unrelated_hash,
-                        "mime": "image/png",
-                    },
-                }
-            ],
+    project = make_project("imported-pdf-coverage")
+    sheet = project.add_sheet("Imported PDF")
+    document = project.add_column(sheet, "source", type="file")
+    page_image = project.add_column(sheet, "page image", type="image")
+    unrelated_image = project.add_column(sheet, "other image", type="image")
+    prepared_text = project.add_column(sheet, "prepared text")
+    pdf_hash = project.add_blob(b"pdf", mime="application/pdf")
+    page_hash = project.add_blob(b"page", mime="image/png")
+    unrelated_hash = project.add_blob(b"other", mime="image/png")
+    row = project.add_rows(
+        sheet,
+        [
             {
-                "source": document,
-                "page image": page_image,
-                "other image": unrelated_image,
-            },
-        )[0]
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            blob_hash=pdf_hash,
-            page_count=1,
-        )
-        span = record_source_span(
-            project,
-            artifact_id=int(artifact["id"]),
-            span_kind="page",
-            page_start=1,
-            page_end=1,
-            preview={"blob_hash": page_hash, "mime": "image/png"},
-        )
-        record_evidence_link(
-            project,
-            subject_kind="cell_value",
-            subject_ref={
-                "kind": "source_cell",
-                "sheet_id": sheet,
-                "row_id": row,
-                "column_id": page_image,
-            },
-            spans=[{"span_id": int(span["id"])}],
-            sheet_id=sheet,
-            row_id=row,
-            column_id=page_image,
-            link_role="primary_support",
-        )
-        drain_index(project)
+                "source": {
+                    "blob": pdf_hash,
+                    "mime": "application/pdf",
+                    "page": 1,
+                },
+                "page image": {"blob": page_hash, "mime": "image/png"},
+                "other image": {
+                    "blob": unrelated_hash,
+                    "mime": "image/png",
+                },
+            }
+        ],
+        {
+            "source": document,
+            "page image": page_image,
+            "other image": unrelated_image,
+        },
+    )[0]
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="document",
+        media_type="application/pdf",
+        blob_hash=pdf_hash,
+        page_count=1,
+    )
+    span = record_source_span(
+        project,
+        artifact_id=int(artifact["id"]),
+        span_kind="page",
+        page_start=1,
+        page_end=1,
+        preview={"blob_hash": page_hash, "mime": "image/png"},
+    )
+    record_evidence_link(
+        project,
+        subject_kind="cell_value",
+        subject_ref={
+            "kind": "source_cell",
+            "sheet_id": sheet,
+            "row_id": row,
+            "column_id": page_image,
+        },
+        spans=[{"span_id": int(span["id"])}],
+        sheet_id=sheet,
+        row_id=row,
+        column_id=page_image,
+        link_role="primary_support",
+    )
+    drain_index(project)
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(),
-                query=TextQuery("needle"),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(),
+            query=TextQuery("needle"),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
 
-        gap = next(
-            item
-            for item in response.coverage.channels
-            if item.channel == "search_preparation"
-        )
-        assert (gap.eligible_count, gap.prepared_count) == (2, 0)
+    gap = next(
+        item
+        for item in response.coverage.channels
+        if item.channel == "search_preparation"
+    )
+    assert (gap.eligible_count, gap.prepared_count) == (2, 0)
 
-        record_evidence_link(
-            project,
-            subject_kind="cell_value",
-            subject_ref={
-                "kind": "source_cell",
-                "sheet_id": sheet,
-                "row_id": row,
-                "column_id": document,
-            },
-            spans=[{"span_id": int(span["id"])}],
-            sheet_id=sheet,
-            row_id=row,
-            column_id=document,
-            link_role="primary_support",
-        )
-        project.db.execute("BEGIN IMMEDIATE")
-        op_id = project.append_op("import.pdf", commit=False)
-        prepared = PreparedContentStore(project).stage_reference(
-            source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
-            pages=(PreparedPageDraft(1, "native imported text"),),
-            page_number=1,
-        )
-        project.db.commit()
-        project.apply_edits(
-            [{"row_id": row, "column_id": prepared_text, "value": prepared}]
-        )
+    record_evidence_link(
+        project,
+        subject_kind="cell_value",
+        subject_ref={
+            "kind": "source_cell",
+            "sheet_id": sheet,
+            "row_id": row,
+            "column_id": document,
+        },
+        spans=[{"span_id": int(span["id"])}],
+        sheet_id=sheet,
+        row_id=row,
+        column_id=document,
+        link_role="primary_support",
+    )
+    project.db.execute("BEGIN IMMEDIATE")
+    op_id = project.append_op("import.pdf", commit=False)
+    prepared = PreparedContentStore(project).stage_reference(
+        source_artifact_id=int(artifact["id"]),
+        producing_op_id=op_id,
+        pages=(PreparedPageDraft(1, "native imported text"),),
+        page_number=1,
+    )
+    project.db.commit()
+    project.apply_edits(
+        [{"row_id": row, "column_id": prepared_text, "value": prepared}]
+    )
 
-        prepared_response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(),
-                query=TextQuery("needle"),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
-        prepared_gap = next(
-            item
-            for item in prepared_response.coverage.channels
-            if item.channel == "search_preparation"
-        )
-        assert (prepared_gap.eligible_count, prepared_gap.prepared_count) == (2, 1)
-    finally:
-        project.close()
+    prepared_response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(),
+            query=TextQuery("needle"),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
+    prepared_gap = next(
+        item
+        for item in prepared_response.coverage.channels
+        if item.channel == "search_preparation"
+    )
+    assert (prepared_gap.eligible_count, prepared_gap.prepared_count) == (2, 1)
 
 
-def test_material_coverage_counts_exact_current_prepared_binding_appearances(tmp_path):
+def test_material_coverage_counts_exact_current_prepared_binding_appearances(
+    make_project,
+):
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "prepared-media-coverage.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        document = project.add_column(sheet, "document", type="file")
-        prepared_text = project.add_column(sheet, "prepared text")
-        digest = project.add_blob(b"pdf", mime="application/pdf")
-        rows = project.add_rows(
-            sheet,
-            [
-                {
-                    "document": {
-                        "blob": digest,
-                        "mime": "application/pdf",
-                        "page": 1,
-                    }
-                },
-                {
-                    "document": {
-                        "blob": digest,
-                        "mime": "application/pdf",
-                        "page": 2,
-                    }
-                },
-            ],
-            {"document": document},
-        )
-        # Pin the source media in the retrieval inventory before its ordinary
-        # prepared text result exists.
-        drain_index(project)
-        project.db.execute("BEGIN IMMEDIATE")
-        op_id = project.append_op("media.read_pdf_text", commit=False)
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            blob_hash=digest,
-            page_count=2,
-            source_sheet_id=sheet,
-            source_row_id=rows[0],
-            source_column_id=document,
-        )
-        prepared = PreparedContentStore(project).stage_reference(
-            source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
-            pages=(
-                PreparedPageDraft(1, "searchable prepared text"),
-                PreparedPageDraft(2, "different page text"),
-            ),
-        )
-        prepared = PreparedContentStore(project).stage_selector(
-            set_id=PreparedContentStore(project).resolve(prepared.ref_id).set_id,
-            page_number=1,
-        )
-        project.db.commit()
-        project.apply_edits(
-            [{"row_id": rows[0], "column_id": prepared_text, "value": prepared}]
-        )
+    project = make_project("prepared-media-coverage")
+    sheet = project.add_sheet("Documents")
+    document = project.add_column(sheet, "document", type="file")
+    prepared_text = project.add_column(sheet, "prepared text")
+    digest = project.add_blob(b"pdf", mime="application/pdf")
+    rows = project.add_rows(
+        sheet,
+        [
+            {
+                "document": {
+                    "blob": digest,
+                    "mime": "application/pdf",
+                    "page": 1,
+                }
+            },
+            {
+                "document": {
+                    "blob": digest,
+                    "mime": "application/pdf",
+                    "page": 2,
+                }
+            },
+        ],
+        {"document": document},
+    )
+    # Pin the source media in the retrieval inventory before its ordinary
+    # prepared text result exists.
+    drain_index(project)
+    project.db.execute("BEGIN IMMEDIATE")
+    op_id = project.append_op("media.read_pdf_text", commit=False)
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="document",
+        media_type="application/pdf",
+        blob_hash=digest,
+        page_count=2,
+        source_sheet_id=sheet,
+        source_row_id=rows[0],
+        source_column_id=document,
+    )
+    prepared = PreparedContentStore(project).stage_reference(
+        source_artifact_id=int(artifact["id"]),
+        producing_op_id=op_id,
+        pages=(
+            PreparedPageDraft(1, "searchable prepared text"),
+            PreparedPageDraft(2, "different page text"),
+        ),
+    )
+    prepared = PreparedContentStore(project).stage_selector(
+        set_id=PreparedContentStore(project).resolve(prepared.ref_id).set_id,
+        page_number=1,
+    )
+    project.db.commit()
+    project.apply_edits(
+        [{"row_id": rows[0], "column_id": prepared_text, "value": prepared}]
+    )
 
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(
-                    sheets=(SheetScope(sheet, column_ids=(document,)),)
-                ),
-                query=TextQuery("needle"),
-                mode="lexical",
-                ranking=RankingPolicy(rerank="off"),
-            ),
-        )
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet, column_ids=(document,)),)),
+            query=TextQuery("needle"),
+            mode="lexical",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+    )
 
-        gap = next(
-            item
-            for item in response.coverage.channels
-            if item.channel == "search_preparation"
-        )
-        assert (gap.eligible_count, gap.prepared_count) == (2, 1)
-        assert gap.state == "unavailable"
-    finally:
-        project.close()
+    gap = next(
+        item
+        for item in response.coverage.channels
+        if item.channel == "search_preparation"
+    )
+    assert (gap.eligible_count, gap.prepared_count) == (2, 1)
+    assert gap.state == "unavailable"
 
 
 def test_coverage_includes_failed_channel_without_a_top_k_hit(tmp_path):
@@ -2179,58 +2110,51 @@ def test_named_scope_does_not_claim_readiness_from_other_membership(tmp_path):
         project.close()
 
 
-def test_hybrid_reranks_context_before_limiting_results(tmp_path):
-    project = Project.create(tmp_path / "rerank.frisket", name="rerank")
-    try:
-        sheet = project.add_sheet("Documents")
-        body = project.add_column(sheet, "body")
-        texts = [
-            "target " + "context " * 25 + ending
-            for ending in ("ordinary", "other", "winner & details")
-        ]
-        rows = project.add_rows(
-            sheet, [{"body": text} for text in texts], {"body": body}
-        )
-        with RetrievalStore(project).open() as store:
-            for row, text in zip(rows, texts, strict=True):
-                _publish(
-                    store,
-                    row_id=row,
-                    sheet_id=sheet,
-                    column_id=body,
-                    text=text,
-                    vector=(1.0, 0.0, 0.0),
-                    version=read_binding_revision(
-                        project.db, row_id=row, column_id=body
-                    ),
-                )
-        request = SearchRequest(
-            scope=RetrievalScope((SheetScope(sheet),)),
-            query=TextQuery("target"),
-            mode="hybrid",
-            limit=1,
-            space_id="space:test",
-            ranking=RankingPolicy(rerank="on"),
-        )
-        seen = []
+def test_hybrid_reranks_context_before_limiting_results(make_project):
+    project = make_project("rerank")
+    sheet = project.add_sheet("Documents")
+    body = project.add_column(sheet, "body")
+    texts = [
+        "target " + "context " * 25 + ending
+        for ending in ("ordinary", "other", "winner & details")
+    ]
+    rows = project.add_rows(sheet, [{"body": text} for text in texts], {"body": body})
+    with RetrievalStore(project).open() as store:
+        for row, text in zip(rows, texts, strict=True):
+            _publish(
+                store,
+                row_id=row,
+                sheet_id=sheet,
+                column_id=body,
+                text=text,
+                vector=(1.0, 0.0, 0.0),
+                version=read_binding_revision(project.db, row_id=row, column_id=body),
+            )
+    request = SearchRequest(
+        scope=RetrievalScope((SheetScope(sheet),)),
+        query=TextQuery("target"),
+        mode="hybrid",
+        limit=1,
+        space_id="space:test",
+        ranking=RankingPolicy(rerank="on"),
+    )
+    seen = []
 
-        def reranker(query, documents):
-            assert query == "target"
-            seen.extend(documents)
-            assert all("<b>" not in doc and "&amp;" not in doc for doc in documents)
-            return [10.0 if "winner & details" in doc else 0.0 for doc in documents]
+    def reranker(query, documents):
+        assert query == "target"
+        seen.extend(documents)
+        assert all("<b>" not in doc and "&amp;" not in doc for doc in documents)
+        return [10.0 if "winner & details" in doc else 0.0 for doc in documents]
 
-        result = search(
-            project,
-            request,
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
-            reranker=reranker,
-        )
-        assert len(seen) == 3
-        assert [group.primary.binding.row_id for group in result.results] == [rows[2]]
-        assert "&amp;" not in result.results[0].primary.snippet
-    finally:
-        project.close()
+    result = search(
+        project,
+        request,
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+        reranker=reranker,
+    )
+    assert len(seen) == 3
+    assert [group.primary.binding.row_id for group in result.results] == [rows[2]]
+    assert "&amp;" not in result.results[0].primary.snippet
 
 
 def test_recreated_sidecar_reports_preparing_before_worker_binds_it(tmp_path):
@@ -2255,57 +2179,54 @@ def test_recreated_sidecar_reports_preparing_before_worker_binds_it(tmp_path):
         project.close()
 
 
-def test_semantic_snippet_bounds_display_without_moving_the_source_range(tmp_path):
-    project = Project.create(tmp_path / "semantic-snippet.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        prefix = "😀 <b>literal</b> & café "
-        token = "longpart" * 1000
-        text = prefix + token + " Ω tail"
-        [row] = project.add_rows(sheet, [{"body": text}], {"body": column})
-        revision = read_binding_revision(project.db, row_id=row, column_id=column)
-        with RetrievalStore(project).open() as store:
-            _publish(
-                store,
-                row_id=row,
-                sheet_id=sheet,
-                column_id=column,
-                text=text,
-                vector=(1.0, 0.0, 0.0),
-                version=revision,
-                parts=(
-                    (
-                        "part:bounded",
-                        (1.0, 0.0, 0.0),
-                        len(prefix),
-                        len(prefix) + len(token),
-                    ),
+def test_semantic_snippet_bounds_display_without_moving_the_source_range(make_project):
+    project = make_project("semantic-snippet")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    prefix = "😀 <b>literal</b> & café "
+    token = "longpart" * 1000
+    text = prefix + token + " Ω tail"
+    [row] = project.add_rows(sheet, [{"body": text}], {"body": column})
+    revision = read_binding_revision(project.db, row_id=row, column_id=column)
+    with RetrievalStore(project).open() as store:
+        _publish(
+            store,
+            row_id=row,
+            sheet_id=sheet,
+            column_id=column,
+            text=text,
+            vector=(1.0, 0.0, 0.0),
+            version=revision,
+            parts=(
+                (
+                    "part:bounded",
+                    (1.0, 0.0, 0.0),
+                    len(prefix),
+                    len(prefix) + len(token),
                 ),
-            )
-        bind_retrieval_sidecar(project)
-        response = search(
-            project,
-            SearchRequest(
-                scope=RetrievalScope(sheets=(SheetScope(sheet),)),
-                query=TextQuery("anything"),
-                mode="semantic",
-                space_id="space:test",
-                ranking=RankingPolicy(rerank="off"),
             ),
-            semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
         )
-        [group] = response.results
-        hit = group.primary
-        assert hit.precision == "exact"
-        assert hit.part.locator.text.start == len(prefix)
-        assert hit.part.locator.text.end == len(prefix) + len(token)
-        assert len(hit.snippet) <= 520
-        assert len(hit.snippet.encode("utf-8")) <= 4096
-        assert prefix in hit.snippet
-        assert "<b>longpart" in hit.snippet
-        assert hit.snippet.endswith("</b>…")
-        assert hit.snippet.count("<b>") == hit.snippet.count("</b>") == 2
-        assert "FRISKET_SEARCH_HIT" not in hit.snippet
-    finally:
-        project.close()
+    bind_retrieval_sidecar(project)
+    response = search(
+        project,
+        SearchRequest(
+            scope=RetrievalScope(sheets=(SheetScope(sheet),)),
+            query=TextQuery("anything"),
+            mode="semantic",
+            space_id="space:test",
+            ranking=RankingPolicy(rerank="off"),
+        ),
+        semantic_vectors=SemanticQueryVectors(term_vectors=((1.0, 0.0, 0.0),)),
+    )
+    [group] = response.results
+    hit = group.primary
+    assert hit.precision == "exact"
+    assert hit.part.locator.text.start == len(prefix)
+    assert hit.part.locator.text.end == len(prefix) + len(token)
+    assert len(hit.snippet) <= 520
+    assert len(hit.snippet.encode("utf-8")) <= 4096
+    assert prefix in hit.snippet
+    assert "<b>longpart" in hit.snippet
+    assert hit.snippet.endswith("</b>…")
+    assert hit.snippet.count("<b>") == hit.snippet.count("</b>") == 2
+    assert "FRISKET_SEARCH_HIT" not in hit.snippet

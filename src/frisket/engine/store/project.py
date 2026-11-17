@@ -293,11 +293,16 @@ class Project:
         retention_policy = _normalize_retention_policy()
         storage_id = f"frisket.bundle.v1:{uuid.uuid4()}"
         db = sqlite3.connect(path / "project.db")
-        db.executescript(SCHEMA)
-        # The schema stamp is written in the SAME transaction as the DDL
-        # replay above, so a bundle can never exist stamped-but-unbuilt or
-        # built-but-unstamped: either state would be read by the open fence
-        # as somebody else's bundle.
+        # journal_mode cannot change inside a transaction, so the schema's own
+        # leading pragmas are applied first; inside the BEGIN they are no-ops.
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA foreign_keys=ON")
+        # The DDL replay and the schema stamp below commit as ONE transaction
+        # (executescript leaves the BEGIN open), so a bundle can never exist
+        # stamped-but-unbuilt or built-but-unstamped: either state would be
+        # read by the open fence as somebody else's bundle. Without the
+        # explicit BEGIN every CREATE autocommits and syncs on its own.
+        db.executescript("BEGIN;\n" + SCHEMA)
         db.execute(
             "INSERT INTO meta (key, value) VALUES "
             "('format_version', ?), ('name', ?), ('op_cursor', '0'), "
