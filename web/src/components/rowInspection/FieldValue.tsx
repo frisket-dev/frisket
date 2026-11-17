@@ -18,7 +18,8 @@ import { Button } from '../Button';
 import { LargeCellValue } from '../LargeCellValue';
 import { captionColumnScore, fieldValueDependencyColumnIds } from '../fieldValueDependencies';
 import { JsonValue } from './JsonValue';
-import { linkify, safeHttpUrl } from './ValueLinks';
+import { safeHttpUrl } from '../../core/safeUrl';
+import { linkify } from './ValueLinks';
 
 /** Every detail field's value is capped at half the viewport height so a long
  *  transcript, entity table, or text blob can't push the rest of the Inspect
@@ -129,7 +130,7 @@ export function FieldValue({
   switch (col.type) {
     case 'image': {
       const media = resolveMediaValue(value, projectId);
-      if (!media) return <div className="row-field-empty">empty</div>;
+      if (!media) return <div className="row-field-value">{String(value)}</div>;
       const regions = imageRegionsForRow(row, col);
       if (regions.length === 0) {
         return <img className="row-field-media" src={media.url} alt={col.name} loading="lazy" />;
@@ -138,7 +139,7 @@ export function FieldValue({
     }
     case 'video': {
       const media = resolveMediaValue(value, projectId);
-      if (!media) return <div className="row-field-empty">empty</div>;
+      if (!media) return <div className="row-field-value">{String(value)}</div>;
       const captionTrack = mediaCaptionTrack(row, columns, col);
       return (
         <>
@@ -163,7 +164,7 @@ export function FieldValue({
     }
     case 'audio': {
       const media = resolveMediaValue(value, projectId);
-      if (!media) return <div className="row-field-empty">empty</div>;
+      if (!media) return <div className="row-field-value">{String(value)}</div>;
       return (
         <AudioFieldControl
           columnId={col.id}
@@ -177,7 +178,7 @@ export function FieldValue({
     }
     case 'file': {
       const media = resolveMediaValue(value, projectId);
-      if (!media) return <div className="row-field-empty">empty</div>;
+      if (!media) return <div className="row-field-value">{String(value)}</div>;
       return (
         <a className="row-field-link" href={media.url} target="_blank" rel="noopener noreferrer">
           {media.label}

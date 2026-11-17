@@ -1,18 +1,8 @@
 import './FieldValue.css';
 import type { ReactNode } from 'react';
+import { safeHttpUrl } from '../../core/safeUrl';
 
 const URL_RE = /https?:\/\/[^\s"'<>)\]}]+/g;
-
-export function safeHttpUrl(raw: string): string | null {
-  const url = raw.trim();
-  if (!/^https?:\/\//i.test(url)) return null;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : null;
-  } catch {
-    return null;
-  }
-}
 
 /** Split text on URLs and wrap each in an anchor. */
 export function linkify(text: string): ReactNode {

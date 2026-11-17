@@ -3,6 +3,7 @@ import '../FormControls.css';
 import './EvidenceDetails.css';
 import { useMemo, type KeyboardEvent } from 'react';
 import type { EvidenceArtifact, EvidenceSpan, EvidenceViewerPayload } from '../../api/open';
+import { safeHttpUrl } from '../../core/safeUrl';
 import { CopyButton } from '../CopyButton';
 import { finiteNumber, formatMs, jsonRecord, pageAnchorId, selectorNumber } from './evidenceSourceModel';
 
@@ -90,6 +91,7 @@ export function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
 }
 
 export function ArtifactDetails({ artifact }: { artifact: EvidenceArtifact }) {
+  const sourceHref = safeHttpUrl(artifact.source_url);
   return (
     <section className="panel-card" data-testid="evidence-artifact-details">
       <div className="control-row evidence-card-head">
@@ -103,9 +105,11 @@ export function ArtifactDetails({ artifact }: { artifact: EvidenceArtifact }) {
           <>
             <dt>url</dt>
             <dd>
-              <a href={artifact.source_url} target="_blank" rel="noopener noreferrer">
-                {artifact.source_url}
-              </a>
+              {sourceHref ? (
+                <a href={sourceHref} target="_blank" rel="noopener noreferrer">
+                  {artifact.source_url}
+                </a>
+              ) : artifact.source_url}
             </dd>
           </>
         )}

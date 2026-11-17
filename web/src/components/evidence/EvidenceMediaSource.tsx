@@ -2,6 +2,7 @@ import './EvidenceReading.css';
 import { Download, ExternalLink } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { EvidenceArtifact, EvidenceCitationRun, EvidenceRegion, EvidenceSpan } from '../../api/open';
+import { safeHttpUrl } from '../../core/safeUrl';
 import { RegionOverlay } from './EvidenceRegionOverlay';
 import { formatMs, jsonRecord, selectorNumber } from './evidenceSourceModel';
 
@@ -45,7 +46,7 @@ function buildTemporalDisplayRuns(
       run.clipUrl = backendRunByIndex.get(index)?.clip_url ?? null;
     }
 
-    run.openUrl = run.spans.find((span) => span.deep_link_url)?.deep_link_url ?? null;
+    run.openUrl = run.spans.map((span) => safeHttpUrl(span.deep_link_url)).find(Boolean) ?? null;
   }
   return runs;
 }
@@ -141,7 +142,7 @@ export function EvidenceMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }
 
   if (!blob || !(artifact.media_type.startsWith('audio/') || artifact.media_type.startsWith('video/'))) {
     const sourceUrl = blob?.url ?? [artifact.source_url, artifact.canonical_url, artifact.artifact_ref.source_url]
-      .find((url) => typeof url === 'string' && /^https?:\/\//i.test(url));
+      .map(safeHttpUrl).find(Boolean);
     return (
       <div className="evidence-page-fallback" data-testid="evidence-artifact-fallback">
         A preview is not available for this source.
@@ -241,6 +242,7 @@ export function EvidenceMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }
                 const start = selectorNumber(span, 'start_ms') ?? 0;
                 const isActive = span.stable_id === activeSpanId;
                 const isCited = citedSpanIds.has(span.stable_id);
+                const deepLinkUrl = safeHttpUrl(span.deep_link_url);
                 return (
                   <span key={span.stable_id} className="evidence-transcript-line" data-testid="evidence-transcript-line">
                     <button
@@ -256,16 +258,16 @@ export function EvidenceMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }
                       {span.quote || span.snippet || '(no transcript text)'}
                     </button>
                     {/* Render deep links only from guarded backend metadata. */}
-                    {(span.deep_link_url || span.clip_url) && (
+                    {(deepLinkUrl || span.clip_url) && (
                       <span
                         className="evidence-temporal-segment-actions"
                         data-testid="evidence-temporal-segment-actions"
                       >
-                        {span.deep_link_url && (
+                        {deepLinkUrl && (
                           <a
                             className="evidence-temporal-segment-action"
                             data-testid="evidence-temporal-deep-link"
-                            href={span.deep_link_url}
+                            href={deepLinkUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             title="Open at this timestamp on the source platform"
