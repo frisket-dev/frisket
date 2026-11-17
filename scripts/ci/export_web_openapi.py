@@ -16,9 +16,13 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, get_args, get_origin
 
-# App construction lazily imports a large route tree. Those imports are part of
-# projection, not output, and must not leave bytecode beside source files.
-sys.dont_write_bytecode = True
+# Run as a script, app construction lazily imports a large route tree. Those
+# imports are part of projection, not output, and must not leave bytecode
+# beside source files. The flag is process-global, so an importing host (the
+# test runner, gen_http_contracts) keeps its own: setting it there would stop
+# pytest from caching every module collected afterwards.
+if __name__ == "__main__":
+    sys.dont_write_bytecode = True
 
 from fastapi.openapi.utils import get_openapi  # noqa: E402
 from fastapi.routing import APIRoute  # noqa: E402
