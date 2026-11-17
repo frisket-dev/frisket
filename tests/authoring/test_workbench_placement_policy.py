@@ -14,7 +14,7 @@ def _source(path: Path) -> str:
 
 def _plugin_legal_placement_pairs() -> dict[str, set[tuple[str, str]]]:
     match = re.search(
-        r"export const PLUGIN_LEGAL_PLACEMENTS[^=]*=\s*\{(?P<body>.*?)\n\};",
+        r"\bconst PLUGIN_LEGAL_PLACEMENTS[^=]*=\s*\{(?P<body>.*?)\n\};",
         _source(PLUGIN_RUNTIME_DESCRIPTORS),
         flags=re.DOTALL,
     )
