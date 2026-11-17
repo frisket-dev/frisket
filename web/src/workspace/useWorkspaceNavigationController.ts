@@ -211,7 +211,7 @@ export function useWorkspaceNavigationController({
 
   const openSourcesFromCommandPalette = useCallback(() => {
     openSourcesConnections();
-    recordCommandAction('Opened Sources');
+    recordCommandAction('Opened Feeds');
     closeCommandPaletteAndReset();
   }, [closeCommandPaletteAndReset, openSourcesConnections, recordCommandAction]);
 

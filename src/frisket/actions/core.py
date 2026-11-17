@@ -904,7 +904,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         SourcePollOutput,
         _project_errors(
             ("invalid_input_ref", "The source does not exist."),
-            ("unsupported_source_kind", "No registered poller supports this source."),
+            ("unsupported_source_kind", "Frisket cannot poll this feed type."),
             (
                 "unsupported_source_config",
                 "The poller rejected the source configuration.",

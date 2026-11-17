@@ -27,7 +27,7 @@ import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { CostGateModal } from '../components/CostGateModal';
 
 const LINEAGE_TIERS: Array<{ key: string; title: string; kind: LineageNode['kind'] }> = [
-  { key: 'sources', title: 'SOURCES', kind: 'source' },
+  { key: 'sources', title: 'FEEDS', kind: 'source' },
   { key: 'sheets', title: 'SHEETS', kind: 'sheet' },
   { key: 'ai-columns', title: 'GENERATED COLUMNS', kind: 'ai_column' },
 ];
@@ -255,7 +255,7 @@ export function LineagePanel({
     <div className="lineage-panel" data-testid="lineage-panel">
       <PanelHeader
         className="panel-frame-header lineage-panel-header"
-        title={<span className="lineage-panel-caption">sources → sheets → generated columns</span>}
+        title={<span className="lineage-panel-caption">feeds → sheets → generated columns</span>}
         actions={
           staleDeepestFirst.length > 0 && (
             <button

@@ -48,7 +48,7 @@ export function SourcesConnectionsDialog({
       <button
         type="button"
         className="sources-connections-backdrop"
-        aria-label="Close Sources & connections"
+        aria-label="Close Feeds & connections"
         onClick={onClose}
       />
       <section className="sources-connections" data-testid="sources-connections">
@@ -56,14 +56,14 @@ export function SourcesConnectionsDialog({
           <div className="sources-connections-heading">
             <span className="sources-connections-icon"><Database size={18} aria-hidden /></span>
             <div>
-              <h2 id="sources-connections-title">Sources &amp; connections</h2>
+              <h2 id="sources-connections-title">Feeds &amp; connections</h2>
               <p>Manage recurring feeds, polling, and connection health for this project.</p>
             </div>
           </div>
           <WindowCloseButton
             ref={closeButtonRef}
             size="compact"
-            label="Close Sources & connections"
+            label="Close Feeds & connections"
             data-testid="sources-connections-close"
             onClick={onClose}
           />

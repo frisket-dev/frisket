@@ -93,7 +93,7 @@ export function SourceHealthDrawer({
     <aside className="panel-card" data-testid="source-health-drawer">
       <div className="control-row">
         <div className="panel-item-main">
-          <div className="panel-item-title">{healthSource?.name ?? 'Source details'}</div>
+          <div className="panel-item-title">{healthSource?.name ?? 'Feed details'}</div>
           {healthSource && <div className="panel-item-meta">{sourceKindLabel(healthSource.kind)}</div>}
         </div>
         {onOpenSourceHealthMainView && (
@@ -109,10 +109,10 @@ export function SourceHealthDrawer({
             Open main view
           </Button>
         )}
-        <WindowCloseButton size="compact" label="Close source details" onClick={actions.closeHealth} />
+        <WindowCloseButton size="compact" label="Close feed details" onClick={actions.closeHealth} />
       </div>
 
-      <div className="tab-list" role="tablist" aria-label="Source detail">
+      <div className="tab-list" role="tablist" aria-label="Feed detail">
         {detailTabs.map((tab) => {
           const firstParty = FIRST_PARTY_SOURCE_DETAIL_TABS[tab.contributionId];
           const tabKey = firstParty?.shortName ?? tab.contributionId;
@@ -154,7 +154,7 @@ export function SourceHealthDrawer({
             <div className="panel-card panel-item-meta" data-testid="source-detail-summary-panel">
               <strong className="panel-item-title">{openHealth.source.name}</strong>
               <span>{sourceKindLabel(openHealth.source.kind)}</span>
-              <span>{healthSource ? sourceConfigSummary(healthSource) : redactedUrl(openHealth.source.url) ?? 'source details'}</span>
+              <span>{healthSource ? sourceConfigSummary(healthSource) : redactedUrl(openHealth.source.url) ?? 'feed details'}</span>
               <span>
                 {openHealth.source.enabled ? 'enabled' : 'disabled'} /{' '}
                 <span data-testid={`source-health-status-${healthOpenId}`}>

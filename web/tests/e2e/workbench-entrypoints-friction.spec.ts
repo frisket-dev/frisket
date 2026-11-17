@@ -65,13 +65,13 @@ test('the command palette Commands section filters by the typed query, joins key
   // Placeholder text now names commands as a filterable target too.
   await expect(queryInput).toHaveAttribute('placeholder', /commands/i);
 
-  // Unfiltered: several first-party commands render, "Open Sources" among them.
+  // Unfiltered: several first-party commands render, "Open Feeds" among them.
   await expect(openSources).toBeVisible();
   const unfilteredCount = await commandRows.count();
   expect(unfilteredCount).toBeGreaterThan(1);
 
-  // Narrowing to "sources" shrinks the Commands section but keeps the match.
-  await queryInput.fill('sources');
+  // Narrowing to "feeds" shrinks the Commands section but keeps the match.
+  await queryInput.fill('feeds');
   await expect(openSources).toBeVisible();
   const filteredCount = await commandRows.count();
   expect(filteredCount).toBeGreaterThan(0);
@@ -87,7 +87,7 @@ test('the command palette Commands section filters by the typed query, joins key
   await expect(page.getByTestId('palette-section-goto')).toHaveCount(0);
   await expect(page.getByTestId('palette-empty-state')).toBeVisible();
 
-  // A query matched by exactly TWO commands and nothing else ("Open Sources"
+  // A query matched by exactly TWO commands and nothing else ("Open Feeds"
   // + "Open Settings" both title-match "open") proves ArrowDown actually
   // traverses the filtered Commands rows, not just BEST MATCH/ACTIONS/GO TO —
   // the first filtered row starts active (same default-to-index-0 the
@@ -105,7 +105,7 @@ test('the command palette Commands section filters by the typed query, joins key
 
   // A query matched by exactly ONE command activates it by default (no arrow
   // press needed, same as a single BEST MATCH row would) — Enter runs it.
-  await queryInput.fill('open sources');
+  await queryInput.fill('open feeds');
   await expect(commandRows).toHaveCount(1);
   await expect(openSources).toHaveAttribute('data-active', 'true');
   await queryInput.press('Enter');

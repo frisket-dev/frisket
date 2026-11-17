@@ -25,7 +25,7 @@ export function SourceList({ actions, armedDelete, busy, expanded, items, runPag
   if (items === null) return <PanelEmpty>loading...</PanelEmpty>;
   if (items.length === 0) {
     return (
-      <PanelEmpty testId="sources-empty">No live sources yet.</PanelEmpty>
+      <PanelEmpty testId="sources-empty">No feeds yet.</PanelEmpty>
     );
   }
 
@@ -92,22 +92,22 @@ export function SourceList({ actions, armedDelete, busy, expanded, items, runPag
               </button>
               <IconButton
                 icon={Pencil}
-                title="Edit source"
+                title="Edit feed"
                 label={`Edit ${s.name}`}
                 data-testid={`source-edit-${s.id}`}
                 onClick={() => actions.startEdit(s)}
               />
               <IconButton
                 icon={Eye}
-                title="Source details"
-                label={`Source details for ${s.name}`}
+                title="Feed details"
+                label={`Feed details for ${s.name}`}
                 data-testid={`source-health-${s.id}`}
                 onClick={() => { void actions.openHealth(s.id); }}
               />
               <button
                 type="button"
                 className={`icon-btn${armedDelete === s.id ? ' danger' : ''}`}
-                title={armedDelete === s.id ? 'Click again to confirm' : 'Delete source'}
+                title={armedDelete === s.id ? 'Click again to confirm' : 'Delete feed'}
                 aria-label={
                   armedDelete === s.id
                     ? `Confirm delete ${s.name}`

@@ -24,12 +24,12 @@ def queue_source_poll(
         raise ValueError("Source not found")
     source = dict(source)
     if not source["enabled"]:
-        raise ValueError("Enable this source before importing it")
+        raise ValueError("Enable this feed before importing it")
     source["config"] = json.loads(source.get("config") or "{}")
     ensure_rss_poller()
     poller = get_source_poller(source["kind"])
     if poller is None:
-        raise ValueError("No registered poller supports this source kind")
+        raise ValueError("Frisket cannot poll this feed type")
     error = poller.validate_config(source)
     if error:
         raise ValueError(error)

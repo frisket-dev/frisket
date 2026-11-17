@@ -81,7 +81,7 @@
       "id": "frisket.core.panel.sources",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Sources",
+      "title": "Feeds",
       "icon": "Database",
       "placements": [
         {
@@ -295,7 +295,7 @@
       "id": "frisket.core.source_kind_form.rss",
       "kind": "provider",
       "ownerPluginId": "frisket.core",
-      "title": "RSS source",
+      "title": "RSS feed",
       "icon": "Rss",
       "placements": [
         {
@@ -324,7 +324,7 @@
       "id": "frisket.core.source_kind_form.api_list_dicts",
       "kind": "provider",
       "ownerPluginId": "frisket.core",
-      "title": "API list source",
+      "title": "API list feed",
       "icon": "Globe",
       "placements": [
         {
@@ -463,7 +463,7 @@
       "id": "frisket.core.command.open_sources",
       "kind": "command",
       "ownerPluginId": "frisket.core",
-      "title": "Open Sources",
+      "title": "Open Feeds",
       "icon": "Database",
       "placements": [
         {

@@ -207,7 +207,7 @@ const DISCOVER_TAB_ICON: Record<DiscoverTab, LucideIcon> = {
   Notifications: BellRing,
 };
 
-const DISCOVER_TAB_LABEL: Partial<Record<DiscoverTab, string>> = { Facets: 'Filter', Watches: 'Alerts' };
+const DISCOVER_TAB_LABEL: Partial<Record<DiscoverTab, string>> = { Facets: 'Filter', Sources: 'Feeds', Watches: 'Alerts' };
 
 const PLUGIN_TAB_ICONS: Record<string, LucideIcon> = {
   AtSign,

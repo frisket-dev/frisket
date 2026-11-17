@@ -173,7 +173,7 @@ export function FeedSourceForm({
           result: 'failed', failureCategory: failureCategory(e),
         },
       }, projectId);
-      const message = `Feed source failed: ${errorMessage(e)}`;
+      const message = `Feed failed: ${errorMessage(e)}`;
       updateForm({ busy: false, error: message });
       onError(message);
     } finally {
@@ -211,7 +211,7 @@ export function FeedSourceForm({
         </div>
         <p className="modal-body-text">
           Run <strong>{populate.source.name}</strong> now to pull in its rows
-          — the same fetch as Poll now in Sources. You can run it again
+          — the same fetch as Poll now in Feeds. You can run it again
           later either way.
         </p>
         {populate.error && (
@@ -271,7 +271,7 @@ export function FeedSourceForm({
         <PanelSelect
           id="source-kind-input"
           className="form-input"
-          aria-label="Source type"
+          aria-label="Feed type"
           data-testid="source-kind"
           value={kind}
           onChange={(e) => {
@@ -289,7 +289,7 @@ export function FeedSourceForm({
           id="source-name-input"
 
           placeholder={defaultFeedName(kind, url)}
-          aria-label="Source name"
+          aria-label="Feed name"
           data-testid="source-name"
           value={name}
           onChange={(e) => updateForm({ name: e.target.value })}
@@ -321,7 +321,7 @@ export function FeedSourceForm({
     </PanelBody>
     <PanelFooter>
       <Button type="button" disabled={busy} onClick={onCancel}>Cancel</Button>
-      <span>Add a feed to keep its source available for updates.</span>
+      <span>Add a feed to keep checking it for updates.</span>
       <Button
         type="button"
         className="btn-primary import-primary"

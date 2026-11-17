@@ -14,7 +14,7 @@ test('Sources & connections opens an obvious focused management modal', async ({
 
   const dialog = page.getByTestId('sources-connections-dialog');
   await expect(dialog).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Sources & connections' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Feeds & connections' })).toBeVisible();
   await expect(page.getByText('Manage recurring feeds, polling, and connection health')).toBeVisible();
   await expect(page.getByTestId('sources-panel')).toBeVisible();
   await expect(page.getByTestId('sources-empty')).toBeVisible();

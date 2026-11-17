@@ -309,12 +309,12 @@ def _source_health_summary(
     error: str | None,
 ) -> str:
     if status == "failed" and error:
-        return f"{label} source poll failed: {error}"
+        return f"{label} feed poll failed: {error}"
     if status == "stale" and stale_reason:
-        return f"{label} source is stale: {stale_reason}"
+        return f"{label} feed is stale: {stale_reason}"
     if status == "recovered":
-        return f"{label} source recovered after a prior failure or stale interval."
-    return f"{label} source is {status}."
+        return f"{label} feed recovered after a prior failure or stale interval."
+    return f"{label} feed is {status}."
 
 
 def _artifact_dedupe_ref(artifact_ref: dict[str, Any] | None) -> str:

@@ -72,7 +72,7 @@ export function SourcesPanel({
               data-testid="sources-add-source"
               onClick={onOpenImportDialog}
             >
-              <Plus size={13} aria-hidden /> Add source
+              <Plus size={13} aria-hidden /> Add feed
             </Button>
           </div>
         )}

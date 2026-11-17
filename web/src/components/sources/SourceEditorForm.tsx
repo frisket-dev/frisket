@@ -25,7 +25,7 @@ export function SourceEditorForm({ actions, busy, form, formFrame }: SourceEdito
       <div className="sources-form-row">
         <PanelSelect
           className="form-input"
-          aria-label="Source type"
+          aria-label="Feed type"
           data-testid="source-kind"
           value={form.kind}
           onChange={(e) => actions.updateForm({ kind: e.target.value as KnownSourceKind })}
@@ -36,8 +36,8 @@ export function SourceEditorForm({ actions, busy, form, formFrame }: SourceEdito
         </PanelSelect>
       </div>
       <TextInput
-        placeholder="Source name"
-        aria-label="Source name"
+        placeholder="Feed name"
+        aria-label="Feed name"
         data-testid="source-name"
         value={form.name}
         onChange={(e) => actions.updateForm({ name: e.target.value })}
@@ -56,7 +56,7 @@ export function SourceEditorForm({ actions, busy, form, formFrame }: SourceEdito
       />
 
       <SourceConfigFields form={form} onChange={actions.updateForm} />
-      {form.kind === 'courtlistener_docket' && <div className="panel-item-meta">RECAP PDFs stay link-only. Runtime tokens are not stored in source config.</div>}
+      {form.kind === 'courtlistener_docket' && <div className="panel-item-meta">RECAP PDFs stay link-only. Runtime tokens are not stored in feed config.</div>}
 
       <PanelSelect
         className="form-input"
