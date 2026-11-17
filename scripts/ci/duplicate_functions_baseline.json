@@ -144,10 +144,6 @@
    "src/frisket/engine/store/saved_views.py::views"
   ],
   [
-   "src/frisket/ai/llm/cache.py::ResponseCache.__init__",
-   "src/frisket/ai/llm/structured_probe.py::ProbeStore.__init__"
-  ],
-  [
    "src/frisket/ai/models/metadata.py::model_calls_cost_actual.value",
    "src/frisket/engine/executor/action_support.py::_row_value"
   ],
@@ -173,10 +169,6 @@
   [
    "src/frisket/authoring/workbench/plugin_runtime_shared.py::PluginCompositionPolicyConflict.__init__",
    "src/frisket/execution/pricing_policy.py::PricingPolicyConflict.__init__"
-  ],
-  [
-   "src/frisket/cli/__init__.py::_start_embedding_scheduler",
-   "src/frisket/cli/__init__.py::_start_source_scheduler"
   ],
   [
    "src/frisket/cloud_execution.py::HttpCloudExecutionTransport._parse_execution",
@@ -312,10 +304,6 @@
    "src/frisket/engine/jobs/embeddings.py::maintenance_enables_source_append"
   ],
   [
-   "src/frisket/engine/jobs/model_pull_store.py::_any_active_row_for_workspace",
-   "src/frisket/engine/jobs/model_pull_store.py::find_active_for_workspace"
-  ],
-  [
    "src/frisket/engine/jobs/projection.py::parse_status_time",
    "src/frisket/server/run_status.py::_parse_status_time"
   ],
@@ -365,13 +353,8 @@
    "src/frisket/engine/store/transcript_segment_stream.py::_loads"
   ],
   [
-   "src/frisket/engine/store/output_claims.py::OutputColumnClaimStore.bind_job_to_receipt",
    "src/frisket/engine/store/output_claims.py::OutputColumnClaimStore.release",
    "src/frisket/engine/store/output_claims.py::OutputColumnClaimStore.release_for_receipt"
-  ],
-  [
-   "src/frisket/engine/store/output_claims.py::OutputColumnClaimStore.release_for_claim_and_receipt",
-   "src/frisket/engine/store/output_claims.py::OutputColumnClaimStore.release_for_run_receipt"
   ],
   [
    "src/frisket/engine/store/project.py::Project.set_meta",
@@ -380,10 +363,6 @@
   [
    "src/frisket/engine/store/project_qa.py::ProjectQAStore._write",
    "src/frisket/engine/store/project_qa_research.py::ProjectQAResearchStore._write"
-  ],
-  [
-   "src/frisket/engine/store/result_generations.py::ResultGenerationStore.affected_key_table",
-   "src/frisket/engine/store/result_generations.py::ResultGenerationStore.run_effect_key_table"
   ],
   [
    "src/frisket/engine/store/runs.py::RunResultStore.fail_result_value",
@@ -451,10 +430,6 @@
    "src/frisket/ops/integrations/mcp_stdio.py::_positive_int"
   ],
   [
-   "src/frisket/ops/url_import.py::_file_import_media_kind",
-   "src/frisket/server/app.py::_media_column_kind"
-  ],
-  [
    "src/frisket/plugins/subprocess_runner.py::_write_importer_row",
    "src/frisket/plugins/subprocess_runner.py::_write_timeline_item"
   ],
@@ -466,18 +441,6 @@
   [
    "src/frisket/preview/column_values.py::_validated_offset",
    "src/frisket/preview/entity_mentions.py::_validated_offset"
-  ],
-  [
-   "src/frisket/remote/cli.py::proxy_command",
-   "src/frisket/remote/cli.py::remote_command",
-   "src/frisket/remote/cli.py::secrets_command",
-   "src/frisket/remote/cli.py::users_command"
-  ],
-  [
-   "src/frisket/remote/cli.py::proxy_command.run",
-   "src/frisket/remote/cli.py::remote_command.run",
-   "src/frisket/remote/cli.py::secrets_command.run",
-   "src/frisket/remote/cli.py::users_command.run"
   ],
   [
    "src/frisket/server/exports/work_log.py::build_work_log_payload.spec",
@@ -543,34 +506,6 @@
   [
    "src/frisket/server/sources/youtube.py::register_youtube_channel_poller",
    "src/frisket/server/sources/youtube.py::register_youtube_playlist_poller"
-  ],
-  [
-   "src/frisket/team/admin_browser_routes.py::_invite_http_error",
-   "src/frisket/team/admin_routes.py::_invite_error",
-   "src/frisket/team/invite_routes.py::_error"
-  ],
-  [
-   "src/frisket/team/admin_browser_routes.py::_iso",
-   "src/frisket/team/admin_browser_service.py::_iso",
-   "src/frisket/team/invite_routes.py::_iso"
-  ],
-  [
-   "src/frisket/upgrades/project/action_submissions_migration.py::migrate_action_submissions",
-   "src/frisket/upgrades/project/evaluation_migration.py::migrate_evaluation"
-  ],
-  [
-   "src/frisket/upgrades/project/chain.py::_migrate_cost_preapproval",
-   "src/frisket/upgrades/project/chain.py::_migrate_import_session_rows",
-   "src/frisket/upgrades/project/chain.py::_migrate_run_review_status",
-   "src/frisket/upgrades/project/review_confidence_migration.py::migrate_review_confidence"
-  ],
-  [
-   "src/frisket/upgrades/project/chain.py::_migrate_import_sessions",
-   "src/frisket/upgrades/project/chain.py::_migrate_review_metadata"
-  ],
-  [
-   "src/frisket/upgrades/project/chain.py::_migrate_index_hygiene",
-   "src/frisket/upgrades/project/chain.py::_migrate_receipt_attempts"
   ],
   [
    "src/frisket/upgrades/project/domain_migration.py::capture_current_baseline",
@@ -674,16 +609,6 @@
    "src/frisket/server/sources/api_list_dicts.py::_hash_json",
    "src/frisket/server/sources/courtlistener.py::_hash_json",
    "src/frisket/server/sources/youtube.py::_hash_json"
-  ],
-  [
-   "src/frisket/team/admin_browser_routes.py::_iso",
-   "src/frisket/team/admin_browser_service.py::_iso",
-   "src/frisket/team/invite_routes.py::_iso"
-  ],
-  [
-   "src/frisket/team/app.py::_set_cookie",
-   "src/frisket/team/browser_auth_routes.py::_set_cookie",
-   "src/frisket/team/invite_routes.py::_set_cookie"
   ],
   [
    "src/frisket/team/auth_limits.py::_aware",
