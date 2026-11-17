@@ -15,7 +15,6 @@ from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.local_providers import LocalEndpointCatalog
 from frisket.contracts.http.models import WireModel
 from frisket.team.app import TeamConfig, create_team_app
-from frisket.team.operational_routes import OperationalBody
 
 
 @dataclass(frozen=True)
@@ -239,34 +238,9 @@ def test_team_local_model_routes_have_exact_typed_wire_truth(
         f"INTENDED_F3B_RED: {name} must use team_local_models.{truth.request_model}"
     )
     assert request_model.__name__ == truth.request_model
-    # F3B replaces OperationalBody's JSON ownership, not its same-build
-    # coercion / ignored-extra compatibility behavior.
+    # Typed request models keep coercion and ignore extra fields.
     assert request_model.model_config.get("strict") in (None, False)
     assert request_model.model_config.get("extra") in (None, "ignore")
-
-
-def test_operational_body_admin_defaults_and_ignored_extra_are_frozen() -> None:
-
-    assert OperationalBody.model_validate({}).model_dump() == {
-        "email": "",
-        "name": "",
-        "role": "",
-        "provider": "",
-        "key": "",
-        "value": "",
-        "message": "",
-        "source": "browser",
-        "validation_token": None,
-    }
-    assert (
-        OperationalBody.model_validate(
-            {
-                "role": b"member",
-                "unrelated": "ignored",
-            }
-        ).role
-        == "member"
-    )
 
 
 def _contract_module() -> ModuleType:

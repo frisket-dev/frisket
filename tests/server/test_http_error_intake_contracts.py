@@ -95,9 +95,9 @@ def test_client_errors_return_stored_id_and_persist_sanitized_fields(
     second_id = second.json()["id"]
     assert second_id > payload["id"]
 
-    # The unversioned admin feed is the canonical browser envelope. It exposes
-    # the same sanitized facts under their one current response shape.
-    feed = browser.get("/api/admin/errors")
+    # The browser admin feed exposes the same sanitized facts under its one
+    # current response shape.
+    feed = browser.get("/api/admin/browser/errors")
     assert feed.status_code == 200, feed.text
     feed_payload = feed.json()
     assert set(feed_payload) == {"schema_version", "errors"}

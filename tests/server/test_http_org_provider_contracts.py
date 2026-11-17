@@ -223,8 +223,7 @@ def test_team_organization_provider_routes_have_one_typed_wire_owner(
             body_models[0].__module__ == "frisket.contracts.http.organization_providers"
         )
         assert body_models[0].__name__ == truth.request_model
-        # This same-build family keeps OperationalBody's coercive,
-        # ignore-extra request behavior; DTO ownership must not tighten it.
+        # These request models stay coercive and ignore extra fields.
         assert body_models[0].model_config.get("strict") in (None, False)
         assert body_models[0].model_config.get("extra") in (None, "ignore")
 

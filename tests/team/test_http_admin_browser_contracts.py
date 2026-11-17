@@ -469,7 +469,7 @@ def test_browser_admin_rejects_anonymous_member_and_pat_on_read_and_mutation(
         )
 
 
-def test_operator_token_can_create_and_revoke_invites_on_both_admin_wires(
+def test_operator_token_can_create_and_revoke_invites_on_the_browser_wire(
     tmp_path: Path,
 ) -> None:
     app, _owner = _claimed_app(tmp_path)
@@ -479,30 +479,19 @@ def test_operator_token_can_create_and_revoke_invites_on_both_admin_wires(
     )
     headers = {"Authorization": f"Bearer {operator_token}"}
 
-    for wire, email in (
-        ("legacy", "operator-legacy@example.com"),
-        ("browser", "operator-browser@example.com"),
-    ):
-        if wire == "legacy":
-            created = TestClient(app).post(
-                "/api/admin/users/invite", headers=headers, json={"email": email}
-            )
-            revoked = TestClient(app).delete(
-                f"/api/admin/users/invites/{email}", headers=headers
-            )
-        else:
-            created = TestClient(app).post(
-                "/api/admin/browser/users/invite",
-                headers=headers,
-                json={"org_id": org_id, "email": email},
-            )
-            revoked = TestClient(app).delete(
-                f"/api/admin/browser/users/invites/{email}",
-                headers=headers,
-                params={"org_id": org_id},
-            )
-        assert created.status_code == 200, created.text
-        assert revoked.status_code == 200, revoked.text
+    email = "operator-browser@example.com"
+    created = TestClient(app).post(
+        "/api/admin/browser/users/invite",
+        headers=headers,
+        json={"org_id": org_id, "email": email},
+    )
+    revoked = TestClient(app).delete(
+        f"/api/admin/browser/users/invites/{email}",
+        headers=headers,
+        params={"org_id": org_id},
+    )
+    assert created.status_code == 200, created.text
+    assert revoked.status_code == 200, revoked.text
 
     with app.state.control_engine.connect() as cx:
         assert (

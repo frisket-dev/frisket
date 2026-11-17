@@ -157,18 +157,10 @@ _OUTER_PUBLIC: tuple[RouteSpec, ...] = (
 )
 
 _OUTER_ADMIN: tuple[RouteSpec, ...] = (
-    ("admin_audit", "GET"),
-    ("admin_errors", "GET"),
-    ("admin_health", "GET"),
-    ("admin_invite_user", "POST"),
-    ("admin_job_cancel", "POST"),
-    ("admin_jobs", "GET"),
     ("admin_list_users", "GET"),
     ("admin_overview", "GET"),
     # {user_ref} is a numeric user id (SPA) or an email (remote operator CLI).
     ("admin_remove_user", "DELETE"),
-    ("admin_revoke_invite", "DELETE"),
-    ("admin_update_user_role", "PATCH"),
     # Browser administration is a public contract surface shared by the
     # open/team client. The team composition is its sole registered edition;
     # exporter projection records that from the live route inventory.

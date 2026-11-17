@@ -97,7 +97,7 @@ def test_admin_jobs_uses_the_canonical_nonempty_wire(tmp_path: Path) -> None:
     bearer = _operator(app)
     job_id = app.state.workspace.queue.enqueue("legacy.probe", {"secret": "hidden"})
 
-    response = TestClient(app).get("/api/admin/jobs", headers=bearer)
+    response = TestClient(app).get("/api/admin/browser/jobs", headers=bearer)
 
     assert response.status_code == 200, response.text
     payload = response.json()

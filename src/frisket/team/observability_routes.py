@@ -249,8 +249,6 @@ def register_observability_routes(
     engine: sa.Engine,
     org_id: int,
     require_user: Callable[..., dict[str, Any]],
-    run_queue: Any,
-    workspace: Any,
 ) -> None:
     """Register S2-D routes; coordinator wires this registrar into the app."""
 
@@ -310,35 +308,6 @@ def register_observability_routes(
         ids = list(expired_ids)
         if ids:
             cx.execute(client_errors.delete().where(client_errors.c.id.in_(ids)))
-
-    @app.get("/api/admin/health")
-    def admin_health(request: Request) -> dict[str, Any]:
-        require_user(request, browser=True, admin=True)
-        started = time.perf_counter()
-        try:
-            with engine.connect() as cx:
-                cx.execute(sa.text("SELECT 1"))
-            db = {
-                "ok": True,
-                "dialect": engine.dialect.name,
-                "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
-            }
-        except Exception:  # noqa: BLE001
-            db = {"ok": False, "dialect": engine.dialect.name}
-        try:
-            counts = dict(run_queue.counts())
-            active_runs = int(counts.get("running", 0))
-            queue = {"ok": True, "counts": counts}
-        except Exception:  # noqa: BLE001
-            active_runs, queue = 0, {"ok": False, "counts": {}}
-        blob = _blob_probe(Path(workspace.root))
-        return {
-            "ok": bool(db["ok"] and blob["ok"] and queue["ok"]),
-            "db": db,
-            "blob_store": blob,
-            "active_runs": active_runs,
-            "queue": queue,
-        }
 
     @app.get(
         "/api/admin/overview",
