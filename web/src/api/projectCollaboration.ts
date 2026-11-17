@@ -9,49 +9,18 @@ import type {
   RemovalResult,
 } from './types';
 
-interface ProjectCollaborationApi {
-  listMembers(
-    projectId: string,
-    options?: RequestOptions,
-  ): Promise<ProjectMember[]>;
-  setMember(
-    projectId: string,
-    email: string,
-    role: ProjectRole,
-    options?: RequestOptions,
-  ): Promise<ProjectMemberChange>;
-  removeMember(
-    projectId: string,
-    email: string,
-    options?: RequestOptions,
-  ): Promise<RemovalResult>;
-  listInvites(
-    projectId: string,
-    options?: RequestOptions,
-  ): Promise<ProjectInvite[]>;
-  createInvite(
-    projectId: string,
-    email: string,
-    role: ProjectInviteRole,
-    options?: RequestOptions,
-  ): Promise<ProjectInviteResponse>;
-  revokeInvite(
-    projectId: string,
-    inviteId: number | string,
-    options?: RequestOptions,
-  ): Promise<{ ok: boolean; revoked: boolean }>;
-}
-
 type InvitesWire = HttpContractSuccessResponse<'outer.list_project_invites.get'>;
 
 function inviteList(wire: InvitesWire): ProjectInvite[] {
   return wire.invites;
 }
 
-export function createProjectCollaborationApi(
-): ProjectCollaborationApi {
+export function createProjectCollaborationApi() {
   return {
-    listMembers(projectId, options = {}) {
+    async listProjectMembers(
+      projectId: string,
+      options: RequestOptions = {},
+    ): Promise<ProjectMember[]> {
       return httpContract(
         'outer.list_members.get',
         {
@@ -61,7 +30,12 @@ export function createProjectCollaborationApi(
       );
     },
 
-    setMember(projectId, email, role, options = {}) {
+    async setProjectMember(
+      projectId: string,
+      email: string,
+      role: ProjectRole,
+      options: RequestOptions = {},
+    ): Promise<ProjectMemberChange> {
       return httpContract(
         'outer.set_member.post',
         {
@@ -72,7 +46,11 @@ export function createProjectCollaborationApi(
       );
     },
 
-    removeMember(projectId, email, options = {}) {
+    async removeProjectMember(
+      projectId: string,
+      email: string,
+      options: RequestOptions = {},
+    ): Promise<RemovalResult> {
       return httpContract(
         'outer.remove_member.delete',
         {
@@ -82,7 +60,10 @@ export function createProjectCollaborationApi(
       );
     },
 
-    listInvites(projectId, options = {}) {
+    async listProjectInvites(
+      projectId: string,
+      options: RequestOptions = {},
+    ): Promise<ProjectInvite[]> {
       return httpContract(
         'outer.list_project_invites.get',
         {
@@ -93,7 +74,12 @@ export function createProjectCollaborationApi(
       );
     },
 
-    createInvite(projectId, email, role, options = {}) {
+    async createProjectInvite(
+      projectId: string,
+      email: string,
+      role: ProjectInviteRole,
+      options: RequestOptions = {},
+    ): Promise<ProjectInviteResponse> {
       return httpContract(
         'outer.create_project_invite.post',
         {
@@ -104,7 +90,11 @@ export function createProjectCollaborationApi(
       );
     },
 
-    revokeInvite(projectId, inviteId, options = {}) {
+    async revokeProjectInvite(
+      projectId: string,
+      inviteId: number | string,
+      options: RequestOptions = {},
+    ): Promise<{ ok: boolean; revoked: boolean }> {
       return httpContract(
         'outer.revoke_project_invite.delete',
         {

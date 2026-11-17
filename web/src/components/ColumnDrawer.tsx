@@ -22,7 +22,7 @@ import {
 } from '../api/open';
 import { useSelector } from '../bind/useSelector';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 import { backfillWithConfirmation } from '../api/backfillWithConfirmation';
 import { formatDuration, formatTokens, formatUsdOrNone } from '../format';
 import {
@@ -168,7 +168,7 @@ function columnUpdateState(columnId: string): ColumnUpdateState {
 }
 
 function fetchColumnRuns(
-  api: Pick<ProjectApiPort, 'getColumnRuns'>,
+  api: Pick<ProjectApi, 'getColumnRuns'>,
   columnId: string,
   offset = 0,
   limit = COLUMN_RUN_HISTORY_PAGE_SIZE,

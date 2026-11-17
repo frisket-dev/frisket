@@ -5,15 +5,15 @@ import {
 } from '@testing-library/react';
 import { afterAll } from 'vitest';
 
-import type { ProjectApiPort } from '../../src/api/ports';
+import type { ProjectApi } from '../../src/api/ports';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { createWorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { EditionModuleProvider } from '../../src/editions/module';
 import { LOCAL_EDITION_MODULE } from '../../src/editions/openModules';
 
 type ExplicitTestApi =
-  | { projectApi: ProjectApiPort }
-  | { createProjectApi: (projectId: string) => ProjectApiPort };
+  | { projectApi: ProjectApi }
+  | { createProjectApi: (projectId: string) => ProjectApi };
 
 /** Builds a leaf-component renderer around one explicitly owned project session. */
 export function createWorkspaceTestHarness({

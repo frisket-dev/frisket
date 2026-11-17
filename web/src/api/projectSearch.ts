@@ -18,18 +18,12 @@ type ProjectSearchSimilarQueryWire = Extract<
 >;
 export type ProjectSearchAnchorWire = ProjectSearchSimilarQueryWire['anchor'];
 
-interface ProjectSearchApi {
-  searchProject(
-    request: ProjectSearchRequestWire,
-    options?: RequestOptions,
-  ): Promise<ProjectSearchResponseWire>;
-}
-
-export function createProjectSearchApi(
-  projectId: string,
-): ProjectSearchApi {
+export function createProjectSearchApi(projectId: string) {
   return {
-    searchProject(request, options = {}) {
+    searchProject(
+      request: ProjectSearchRequestWire,
+      options: RequestOptions = {},
+    ): Promise<ProjectSearchResponseWire> {
       return httpContract(
         'tenant.search_ep.post',
         {

@@ -7,18 +7,9 @@ interface ProfilePatchInput {
   cost_preapproval_usd?: string | null;
 }
 
-interface IdentityProfileApi {
-  getMe(options?: RequestOptions): Promise<MeInfo>;
-  updateProfile(
-    input: ProfilePatchInput,
-    options?: RequestOptions,
-  ): Promise<MeInfo>;
-}
-
-export function createIdentityProfileApi(
-): IdentityProfileApi {
+export function createIdentityProfileApi() {
   return {
-    getMe(options = {}) {
+    getMe(options: RequestOptions = {}): Promise<MeInfo> {
       return httpContract(
         'outer.me.get',
         {
@@ -27,7 +18,7 @@ export function createIdentityProfileApi(
       );
     },
 
-    updateProfile(input, options = {}) {
+    updateProfile(input: ProfilePatchInput, options: RequestOptions = {}): Promise<MeInfo> {
       return httpContract(
         'outer.update_profile.patch',
         {

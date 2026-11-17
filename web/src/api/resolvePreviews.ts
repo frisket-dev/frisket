@@ -44,24 +44,6 @@ type ColumnValuesPreviewWire =
 type ReplaceRulesPreviewWire =
   HttpContractSuccessResponse<'tenant.replace_rules_preview.post'>;
 
-interface ResolvePreviewsApi {
-  cluster(
-    projectId: string,
-    input: ClusterPreviewInput,
-    options?: RequestOptions,
-  ): Promise<ClusterPreviewResult>;
-  columnValues(
-    projectId: string,
-    input: ColumnValuesPreviewInput,
-    options?: RequestOptions,
-  ): Promise<ColumnValuesPreview>;
-  replaceRules(
-    projectId: string,
-    input: ReplaceRulesPreviewInput,
-    options?: RequestOptions,
-  ): Promise<ReplaceRulesPreview>;
-}
-
 /** Keep this narrow boundary defensive so an older server simply behaves as
  * one without a collection facet. */
 type ListFacetWire = {
@@ -253,9 +235,13 @@ function replaceRulesResult(wire: ReplaceRulesPreviewWire): ReplaceRulesPreview 
 
 export function createResolvePreviewsApi(
   errorFactory: ContractErrorFactory,
-): ResolvePreviewsApi {
+  projectId: string,
+) {
   return {
-    cluster(projectId, input, options = {}) {
+    async clusterPreview(
+      input: ClusterPreviewInput,
+      options: RequestOptions = {},
+    ): Promise<ClusterPreviewResult> {
       return httpContract(
         'tenant.cluster_preview.post',
         {
@@ -276,7 +262,14 @@ export function createResolvePreviewsApi(
       );
     },
 
-    columnValues(projectId, input, options = {}) {
+    /** Read-only distinct-value inventory for the RESOLVE authoring surfaces
+     *  (POST /column-values/v1/preview). `search` is a case-insensitive
+     *  substring filter over values; limit defaults server-side to 500 (max
+     *  2000), offset to 0. */
+    async columnValuesPreview(
+      input: ColumnValuesPreviewInput,
+      options: RequestOptions = {},
+    ): Promise<ColumnValuesPreview> {
       return httpContract(
         'tenant.column_values_preview.post',
         {
@@ -296,7 +289,13 @@ export function createResolvePreviewsApi(
       );
     },
 
-    replaceRules(projectId, input, options = {}) {
+    /** Read-only rules dry-run for the Replace drawer (POST
+     *  /replace-rules/v1/preview): per-rule first-match-wins counts plus an
+     *  optional single-value live test. */
+    async replaceRulesPreview(
+      input: ReplaceRulesPreviewInput,
+      options: RequestOptions = {},
+    ): Promise<ReplaceRulesPreview> {
       return httpContract(
         'tenant.replace_rules_preview.post',
         {

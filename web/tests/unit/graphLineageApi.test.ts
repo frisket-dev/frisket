@@ -59,8 +59,8 @@ describe('graph and lineage generated transport', () => {
   it('passes the signal through a bodyless GET and preserves nested/string/422/non-json errors', async () => {
     const fetchMock = stubFetch({ project_id: 'p1' });
     const controller = new AbortController();
-    const transport = createGraphLineageApi();
-    await transport.getLineage('folder/child', {
+    const transport = createGraphLineageApi('folder/child');
+    await transport.getLineage({
       signal: controller.signal,
     });
     expect(fetchMock).toHaveBeenCalledWith(
@@ -74,7 +74,7 @@ describe('graph and lineage generated transport', () => {
       { detail: { code: 'sheet_not_found', message: 'no sheet', nested: { x: 1 } } },
       { ok: false, status: 404 },
     );
-    await expect(transport.getSheetGraph('p1', { sheetId: 7 })).rejects.toMatchObject({
+    await expect(transport.getSheetGraph({ sheetId: 7 })).rejects.toMatchObject({
       name: ApiError.name,
       status: 404, message: 'no sheet', code: 'sheet_not_found', details: { nested: { x: 1 } },
     });

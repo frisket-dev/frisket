@@ -284,9 +284,8 @@ describe('entity mention generated transport', () => {
         return new ApiError(status, error.message, error.code, error.details);
       }
       return new ApiError(status, JSON.stringify(payload));
-    });
-    await transport.preview(
-      'folder/child',
+    }, 'folder/child');
+    await transport.entityMentionsPreview(
       { sheetId: '7', columnId: '11' },
       { signal: controller.signal },
     );

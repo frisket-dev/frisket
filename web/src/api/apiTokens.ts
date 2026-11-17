@@ -6,21 +6,9 @@ interface ApiTokenRevokeResponse {
   revoked: boolean;
 }
 
-interface ApiTokensApi {
-  listApiKeys(options?: RequestOptions): Promise<ApiTokenInfo[]>;
-  createApiKey(
-    name: string,
-    options?: RequestOptions,
-  ): Promise<ApiTokenCreateResponse>;
-  revokeApiKey(
-    tokenId: number | string,
-    options?: RequestOptions,
-  ): Promise<ApiTokenRevokeResponse>;
-}
-
-export function createApiTokensApi(): ApiTokensApi {
+export function createApiTokensApi() {
   return {
-    listApiKeys(options = {}) {
+    listApiKeys(options: RequestOptions = {}): Promise<ApiTokenInfo[]> {
       return httpContract(
         "outer.list_tokens.get",
         {
@@ -29,7 +17,7 @@ export function createApiTokensApi(): ApiTokensApi {
       );
     },
 
-    createApiKey(name, options = {}) {
+    createApiKey(name: string, options: RequestOptions = {}): Promise<ApiTokenCreateResponse> {
       return httpContract(
         "outer.create_token.post",
         {
@@ -39,7 +27,10 @@ export function createApiTokensApi(): ApiTokensApi {
       );
     },
 
-    revokeApiKey(tokenId, options = {}) {
+    revokeApiKey(
+      tokenId: number | string,
+      options: RequestOptions = {},
+    ): Promise<ApiTokenRevokeResponse> {
       return httpContract(
         "outer.revoke_token.delete",
         {

@@ -22,7 +22,7 @@ interface ClientErrorReportResponse {
   accepted?: boolean | null;
 }
 
-export interface DiagnosticBundleRequest {
+interface DiagnosticBundleRequest {
   message?: string | null;
   route?: string | null;
   context?: Record<string, unknown>;
@@ -30,7 +30,7 @@ export interface DiagnosticBundleRequest {
   recent_client_error_ids?: number[];
 }
 
-export interface DiagnosticBundleResponse {
+interface DiagnosticBundleResponse {
   ok: boolean;
   report_id: number;
   bundle: Record<string, unknown>;
@@ -51,22 +51,12 @@ function mapDiagnosticBundle(
   };
 }
 
-interface ErrorIntakeApi {
-  reportClientError(
-    body: ClientErrorReportRequest,
-    options?: ErrorIntakeOptions,
-  ): Promise<ClientErrorReportResponse>;
-  createDiagnosticBundle(
-    body: DiagnosticBundleRequest,
-    options?: ErrorIntakeOptions,
-  ): Promise<DiagnosticBundleResponse>;
-}
-
-export function createErrorIntakeApi(
-  errorFactory?: ContractErrorFactory,
-): ErrorIntakeApi {
+export function createErrorIntakeApi(errorFactory?: ContractErrorFactory) {
   return {
-    reportClientError(body, options = {}) {
+    reportClientError(
+      body: ClientErrorReportRequest,
+      options: ErrorIntakeOptions = {},
+    ): Promise<ClientErrorReportResponse> {
       return httpContract(
         "outer.client_errors.post",
         {
@@ -78,7 +68,10 @@ export function createErrorIntakeApi(
         },
       );
     },
-    createDiagnosticBundle(body, options = {}) {
+    createDiagnosticBundle(
+      body: DiagnosticBundleRequest,
+      options: ErrorIntakeOptions = {},
+    ): Promise<DiagnosticBundleResponse> {
       return httpContract(
         "outer.diagnostic_bundle.post",
         {

@@ -11,19 +11,15 @@ export type { HttpSelectorChoicesQuery, HttpSelectorChoicesResponse } from '../g
 export type SelectorChoice = HttpSelectorChoicesResponse['groups'][number]['choices'][number];
 export type SelectorSubject = HttpSelectorChoicesQuery['subject'];
 
-interface SelectorChoicesApi {
-  getSelectorChoices(
-    projectId: string,
-    query: HttpSelectorChoicesQuery,
-    options?: RequestOptions,
-  ): Promise<HttpSelectorChoicesResponse>;
-}
-
 type SelectorChoicesRequest = HttpContractOperationMap['tenant.selector_choices.post']['request'];
 
-function createSelectorChoicesApi(): SelectorChoicesApi {
+function createSelectorChoicesApi() {
   return {
-    getSelectorChoices(projectId, query, options = {}) {
+    getSelectorChoices(
+      projectId: string,
+      query: HttpSelectorChoicesQuery,
+      options: RequestOptions = {},
+    ): Promise<HttpSelectorChoicesResponse> {
       return httpContract(
         'tenant.selector_choices.post',
         {

@@ -1,10 +1,10 @@
 import { ConfirmationRequiredError, freshActionRequestKey } from './open';
-import type { ProjectApiPort } from './ports';
+import type { ProjectApi } from './ports';
 import type { CostConfirmationRequester } from './backfillWithConfirmation';
 
 /** Explicit retry retains the original execution and gets a fresh approval decision. */
 export async function retryWithConfirmation(
-  api: Pick<ProjectApiPort, 'runAction'>,
+  api: Pick<ProjectApi, 'runAction'>,
   requestConfirmation: CostConfirmationRequester,
   sheetId: string,
   sourceRunId: string,
@@ -29,7 +29,7 @@ export async function retryWithConfirmation(
 
 /** Retry the executions that actually produced the selected column's failures. */
 export async function retryFailedRowsWithConfirmation(
-  api: Pick<ProjectApiPort, 'runAction' | 'getSheetData'>,
+  api: Pick<ProjectApi, 'runAction' | 'getSheetData'>,
   requestConfirmation: CostConfirmationRequester,
   sheetId: string,
   column: { id: string; name: string },

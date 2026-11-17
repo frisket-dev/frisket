@@ -1,29 +1,18 @@
-// Open HTTP adapter implementing FrisketApi against the real frisket FastAPI
-// server (src/frisket/server/app.py), reached through the vite dev proxy
-// (/api → the local Frisket server; :7331 by default).
-//
-// Interface mismatches handled here:
-// - getRunProgress(): GET /actions/runs/{id}/status, supplemented with run
-//   context remembered from the runAction() call that started it.
-// - History exposes ordinary Undo/Redo and explicit selective Revert/Restore.
-//   reviewItem() posts v1 review.decision beside the bundles reads.
+// Open HTTP client for the frisket FastAPI server (src/frisket/server/app.py),
+// reached through the vite dev proxy (/api → the local Frisket server; :7331
+// by default). Instance-wide operations are module exports; everything scoped
+// to one project is composed by createProjectApi from the domain factories.
 
 import {
-  cancelRunContract,
-  createProjectContract,
-  deleteProjectContract,
   getActionJobContract,
-  getGlobalActionCatalog,
-  getProjectActionCatalog,
   getProjectContract,
   getReceiptContract,
-  getRunProgressContract,
   getRunRowsContract,
   getWorkbenchPluginRuntimeIndexContract,
   listActionJobsContract,
-  listProjectsContract,
-  updateProjectContract,
 } from './httpContractRoutes';
+import { deleteProject, updateProject } from './httpContractRoutes/projects';
+import { getGlobalActionCatalog, getProjectActionCatalog } from './httpContractRoutes/catalog';
 import { ActionCatalogCache } from './actionCatalog';
 import { createProjectQAApi } from './projectQA';
 import { emitActionCatalogInvalidated } from './catalogEvents';
@@ -33,49 +22,27 @@ import {
   resolveRunActionInvocation,
   throwIfActionAborted,
 } from './v1ActionSession';
-import { createActionCompletionApi } from './actionCompletion';
 import { createActionRunsApi } from './actionRuns';
 import { createGoogleSheetsExportApi } from './googleSheetsExport';
-import { createSheetGridDomainApi } from './sheetGrid';
-export {
-  V1ActionIdempotencyKeys,
-  v1ActionIdempotencySignature,
-} from './v1ActionSession';
-import {
-  googleOAuthStartUrl as browserGoogleOAuthStartUrl,
-} from './raw/browserAuth';
-import { signOut as browserSignOut } from './browserAuth';
+import { createSheetGridApi } from './sheetGrid';
+import { googleOAuthStartUrl } from './raw/browserAuth';
 import { createMapPointsArrowApi } from './raw/mapPointsArrow';
 import {
-  embeddingExportArtifactUrl as projectEmbeddingExportArtifactUrl,
-  projectExportUrl as projectResourceExportUrl,
-  sheetDatasetExportUrl as projectSheetDatasetExportUrl,
-  workLogExportUrl as projectWorkLogExportUrl,
+  embeddingExportArtifactUrl,
+  projectExportUrl,
+  sheetDatasetExportUrl,
+  workLogExportUrl,
 } from './raw/projectResources';
-import {
-  createActionEstimateValidationApi,
-} from './actionEstimateValidation';
-import {
-  createActionPreviewDomainApi,
-} from './actionPreviewRuns';
+import { createActionEstimateValidationApi } from './actionEstimateValidation';
+import { createActionPreviewApi } from './actionPreviewRuns';
 import { createActionHistoryApi } from './actionHistory';
 import { createHistoryReviewApi } from './historyReview';
 import { createProjectEvidenceApi } from './projectEvidence';
 import { createInstanceRuntimeApi } from './instanceRuntime';
 import { createAdminOverviewApi } from './adminOverview';
-import {
-  createAdminBrowserApi,
-  type AdminInviteResult,
-  type AdminRemoveUserResult,
-  type AdminRevokeInviteResult,
-  type AdminRoleUpdateResult,
-} from './adminBrowser';
+import { createAdminBrowserApi } from './adminBrowser';
 import { createIdentityProfileApi } from './identityProfile';
-import {
-  createErrorIntakeApi,
-  type DiagnosticBundleRequest,
-  type DiagnosticBundleResponse,
-} from './errorIntake';
+import { createErrorIntakeApi } from './errorIntake';
 import { createEmbeddingsApi } from './embeddings';
 import { createWorkbenchPluginsApi } from './workbenchPlugins';
 import { createProjectCollaborationApi } from './projectCollaboration';
@@ -85,7 +52,6 @@ import { createProjectSearchApi } from './projectSearch';
 import { createDocumentBrowsingApi } from './documentBrowsing';
 import { createProjectDataManagementApi } from './projectDataManagement';
 import { createProjectProviderKeysApi } from './projectProviderKeys';
-import type { RequestOptions } from './httpContract';
 import { createProjectSecretsApi } from './projectSecrets';
 import { createMcpServersApi } from './mcpServers';
 import { createResolvePreviewsApi } from './resolvePreviews';
@@ -108,229 +74,81 @@ import {
   embeddingErrorFromContract,
   runtimeProjectionErrorFromContract,
 } from './contractErrors';
+import { createApiTokensApi } from './apiTokens';
+import { createLocalProvidersApi } from './localProviders';
+import { createOrganizationProvidersApi } from './organizationProviders';
+import { createOrganizationOperationsApi } from './organizationOperations';
+import { createProjectAttemptsApi } from './projectAttempts';
+import { createProjectSourcesApi } from './projectSources';
+import { createTeamLocalModelsApi } from './teamLocalModels';
+import { createViewsLensesApi } from './viewsLenses';
+import { createWatchesApi } from './watches';
+import { createNotificationsApi } from './notifications';
+import type { RequestOptions } from './httpContract';
+import type {
+  ActionJob,
+  ActionJobsPage,
+  ColumnRunsInfo,
+  OcrCompareScratchInput,
+  PreviewStartResult,
+  ProjectInfo,
+  ProjectInvocationOptions,
+  RunRowsPage,
+  RuntimeConfig,
+  TranscribeCompareScratchInput,
+  V1Receipt,
+  WorkbenchPluginRuntimeIndex,
+} from './types';
+
+export {
+  V1ActionIdempotencyKeys,
+  v1ActionIdempotencySignature,
+} from './v1ActionSession';
 export {
   ApiError,
   ConfirmationRequiredError,
   rowsEstimateFromDetail,
 } from './contractErrors';
 export { runEstimateFromV1Wire } from './actionEstimateValidation';
+export { onRuntimeConfigChanged } from './runtimeConfigEvents';
+export { signOut } from './browserAuth';
+export {
+  createProject,
+  deleteProject,
+  listProjects,
+  updateProject,
+} from './httpContractRoutes/projects';
+export type { ActionProposal } from './types';
 
-import { createApiTokensApi } from './apiTokens';
-import { createLocalProvidersApi } from './localProviders';
-import { createOrganizationProvidersApi } from './organizationProviders';
-import { createOrganizationOperationsApi } from './organizationOperations';
-import { createProjectAttemptsApi } from './projectAttempts';
-import {
-  createProjectSourcesApi,
-} from './projectSources';
-import { createTeamLocalModelsApi } from './teamLocalModels';
-import {
-  createViewsLensesApi,
-} from './viewsLenses';
-import {
-  createWatchesApi,
-} from './watches';
-import {
-  createNotificationsApi,
-} from './notifications';
-import type {
-  AdminHealth,
-  AdminJobActionResult,
-  AdminJobs,
-  AdminOrgRole,
-  AdminOverview,
-  AdminUsers,
-  AdminErrors,
-  HealthStatus,
-  ApiTokenCreateResponse,
-  ApiTokenInfo,
-  MeInfo,
-  OrgEnvInfo,
-  OrgKeyInfo,
-  ProjectNetworkPolicy,
-  ProjectProviderKeys,
-  ProjectRetentionPolicy,
-  ProjectSettings,
-  ProjectSettingsPatch,
-  ProjectSecrets,
-  ProviderCatalog,
-  LocalProviderCatalog,
-  ModelPullDto,
-  LocalEndpointCatalog,
-  ProviderValidateResult,
-  ProjectInfo,
-  ProjectInvite,
-  ProjectInviteResponse,
-  ProjectInviteRole,
-  ProjectMember,
-  ProjectMemberChange,
-  ProjectRole,
-  RemovalResult,
-  RuntimeConfig,
-  SpendReport,
-} from './types';
-import type { ProjectApiPort } from './ports';
-import type {
-  ActionCatalogPayload,
-  ActionJob,
-  ActionJobsPage,
-  BackfillResult,
-  AdminAuditFilters,
-  AdminAuditLog,
-  CellEvidencePayload,
-  ColumnEvidenceBatchPayload,
-  CellEdit,
-  AddColumnResult,
-  CellValue,
-  CreateEmbeddingIndexInput,
-  DeleteRowsResult,
-  DeleteSheetResult,
-  EmbeddingExportResult,
-  EmbeddingIndexAnalysisInput,
-  EmbeddingIndexAnalysisResult,
-  EmbeddingIndexSummary,
-  EvidenceViewerPayload,
-  GeneratedActionDraft,
-  UpdateEmbeddingIndexPolicyInput,
-  EmbeddingProvider,
-  EmbeddingComposedQuery,
-  EmbeddingSimilarityResult,
-  ViewResolved,
-  ColumnDef,
-  ColumnPatch,
-  ColumnRunsInfo,
-  TextAnnotations,
-  AttemptReceiptsPage,
-  ColumnStats,
-  ColumnTypeInfo,
-  FrisketApi,
-  GoogleSheetsExportInput,
-  GoogleSheetsExportResult,
-  SheetGraphOptions,
-  SheetGraphResult,
-  HistoryState,
-  NotificationActorState,
-  NotificationChannel,
-  NotificationChannelInput,
-  NotificationChannelsPage,
-  NotificationDeliveryRequest,
-  NotificationDeliveryRequestsPage,
-  NotificationListParams,
-  NotificationPage,
-  NotificationRoute,
-  NotificationRouteInput,
-  NotificationRoutesPage,
-  NotificationStateFilter,
-  NotificationSummary,
-  OcrCompareScratchInput,
-  TranscribeCompareScratchInput,
-  TopicSegmentationCompareScratchInput,
-  TopicSegmentationCompareScratchResult,
-  TranslateCompareScratchInput,
-  TranslateCompareScratchResult,
-  OAuthConnectionInfo,
-  ProjectInvocationOptions,
-  ProjectExportOptions,
-  ProvenanceManifest,
-  ReviewAction,
-  ReviewBundleOptions,
-  ReviewBundlePage,
-  ReviewRunsOptions,
-  ReviewRunsPage,
-  ReviewRunStatus,
-  ReviewRunStatusResult,
-  MediaProxyStatus,
-  ActionExecutionRequest,
-  RunActionLaunchResult,
-  RunActionInvocationOptions,
-  RunProgress,
-  RunRowsPage,
-  PreviewStartResult,
-  PreviewSampleResult,
-  ActionParamResolution,
-  RegisteredActionRequest,
-  RunEstimate,
-  RunTraceRowEvidence,
-  SavedView,
-  SavedViewCreateInput,
-  SavedViewDefinitionReplaceInput,
-  SavedViewRenameInput,
-  SheetDatasetExportOptions,
-  MapPointsOptions,
-  RuntimeProjectionArtifactRequest,
-  RuntimeProjectionBuildPlan,
-  RuntimeProjectionBuildRequest,
-  RuntimeProjectionStatus,
-  RuntimeProjectionStatusRequest,
-  TimelineProjectionArtifact,
-  SheetDataOptions,
-  SheetDataPage,
-  Row,
-  SheetRowLocation,
-  SheetMeta,
-  SourceInput,
-  LineageDag,
-  SheetRefreshResult,
-  V1Receipt,
-  WatchInfo,
-  WatchInput,
-  WatchPatchInput,
-  WatchRunEventsPage,
-  WatchRunResult,
-  WatchRunsPage,
-  WorkbenchPluginActivation,
-  WorkbenchPluginActivationRequest,
-  WorkbenchPluginBackendActivation,
-  WorkbenchPluginBackendActivationRequest,
-  WorkbenchPluginSettings,
-  WorkbenchPluginInstallStateChange,
-  WorkbenchPluginLocalInstallExecution,
-  WorkbenchPluginLocalInstallRequest,
-  WorkbenchPluginRuntimeIndex,
-  ActionProposal,
-} from './types';
+/** A saved/deleted provider key or secret can flip a hosted engine's
+ *  availability: the server resolves keys (DEEPL_API_KEY,
+ *  GOOGLE_TRANSLATE_API_KEY, …) when it assembles ui_hints.engines, and an
+ *  installed artifact pair changes an engine's `models`. Every cached catalog
+ *  (project and env-backed global) is dropped and mounted surfaces are told to
+ *  refetch, so availability flips without a remount. */
+const actionCatalogCache = new ActionCatalogCache({
+  loadGlobal: () => getGlobalActionCatalog(),
+  loadProject: (projectId) => getProjectActionCatalog(projectId),
+  emitInvalidated: emitActionCatalogInvalidated,
+});
 
-// Arrow is a browser binary protocol, not a JSON contract. Keep its error
-// identity on the public API while the named raw owner retains route/metadata
-// and decoder details.
+function invalidatesActionCatalog<Args extends unknown[], Result>(
+  write: (...args: Args) => Promise<Result>,
+): (...args: Args) => Promise<Result> {
+  return async (...args) => {
+    const result = await write(...args);
+    actionCatalogCache.invalidate();
+    return result;
+  };
+}
+
 const localProvidersApi = createLocalProvidersApi();
-const translateComparisonApi = createTranslateComparisonApi(translateComparisonErrorFromContract);
 const instanceRuntimeApi = createInstanceRuntimeApi();
-const adminOverviewApi = createAdminOverviewApi();
-const adminBrowserApi = createAdminBrowserApi();
-const identityProfileApi = createIdentityProfileApi();
-const errorIntakeApi = createErrorIntakeApi();
-const workbenchPluginsApi = createWorkbenchPluginsApi(workbenchPluginErrorFromContract);
-const projectCollaborationApi = createProjectCollaborationApi();
-const documentBrowsingApi = createDocumentBrowsingApi();
-
-export const listProjectDocuments = documentBrowsingApi.listDocuments;
-const apiTokensApi = createApiTokensApi();
 const organizationProvidersApi = createOrganizationProvidersApi();
 const organizationOperationsApi = createOrganizationOperationsApi();
-const projectAttemptsApi = createProjectAttemptsApi();
 const teamLocalModelsApi = createTeamLocalModelsApi();
-const oauthConnectionsApi = createOAuthConnectionsApi();
-const spendApi = createSpendApi();
-// Watch lifecycle failures remain plain-string details, while Saved View
-// source refusals use the shared typed {code, message} detail. The shared
-// factory preserves both shapes, so no Watch-specific factory is needed.
-// Notification errors are plain string details end to end (every
-// NotificationRequestError detail is typed str, including the frozen raw
-// Python int() leak), so the shared factory reproduces the untyped
-// transport's ApiError exactly: status + message, code and details both
-// undefined. No scoped factory is needed.
-const resolvePreviewsApi = createResolvePreviewsApi(resolvePreviewErrorFromContract);
-const runProvenanceApi = createRunProvenanceApi();
-const entityMentionsApi = createEntityMentionsApi(resolvePreviewErrorFromContract);
-const graphLineageApi = createGraphLineageApi();
-const projectProviderKeysApi = createProjectProviderKeysApi();
-const projectSecretsApi = createProjectSecretsApi();
-const mcpServersApi = createMcpServersApi();
 
-export function listProjects(): Promise<ProjectInfo[]> {
-  return realApi.listProjects();
-}
+export const { listDocuments: listProjectDocuments } = createDocumentBrowsingApi();
 
 let runtimeConfigSnapshot: RuntimeConfig | null = null;
 let runtimeConfigRequest: Promise<RuntimeConfig> | null = null;
@@ -378,289 +196,88 @@ export async function updateLocalCostPreapproval(
   return config;
 }
 
-export { onRuntimeConfigChanged } from './runtimeConfigEvents';
-
-export function getMediaProxyStatus(): Promise<MediaProxyStatus> {
-  return organizationOperationsApi.getMediaProxyStatus();
-}
+/** Unauthenticated — used by AdminPage to tell "no admins configured yet"
+ *  apart from "you're logged in but not an admin". */
+export const { getHealth } = instanceRuntimeApi;
 
 // Identity and account APIs. Availability is supplied by the active server
 // composition; this shared client does not classify a commercial edition.
-export function getMe(): Promise<MeInfo> {
-  return identityProfileApi.getMe();
-}
-
-export function updateProfile(input: {
-  display_name?: string | null;
-  cost_preapproval_usd?: string | null;
-}): Promise<MeInfo> {
-  return identityProfileApi.updateProfile(input);
-}
-
-export function getSpend(): Promise<SpendReport> {
-  return spendApi.getSpend();
-}
-
-export function listOrgKeys(): Promise<OrgKeyInfo[]> {
-  return organizationProvidersApi.listOrgKeys();
-}
-
-export function providerCatalog(): Promise<ProviderCatalog> {
-  return organizationProvidersApi.providerCatalog();
-}
+export const { getMe, updateProfile } = createIdentityProfileApi();
+export const { getSpend } = createSpendApi();
+export const { listOrgKeys, providerCatalog, validateOrgKey } = organizationProvidersApi;
+export const setOrgKey = invalidatesActionCatalog(organizationProvidersApi.setOrgKey);
+export const deleteOrgKey = invalidatesActionCatalog(organizationProvidersApi.deleteOrgKey);
+export const {
+  listOrgEnvVars,
+  setOrgEnvVar,
+  deleteOrgEnvVar,
+  getMediaProxyStatus,
+} = organizationOperationsApi;
+export const { listApiKeys, createApiKey, revokeApiKey } = createApiTokensApi();
 
 // Local-tier provider config for the model picker (GET /api/providers +
-// UI key management + validate probe). Real-backend only — the hosted tier
-// manages keys through /org/keys and org_secrets.
-export const listProviders = localProvidersApi.listProviders;
-export const providerStatus = localProvidersApi.providerStatus;
-export async function setProviderKey(
-  provider: string,
-  key: string,
-  validationToken?: string | null,
-  options?: RequestOptions,
-): Promise<LocalProviderCatalog> {
-  const result = await localProvidersApi.setProviderKey(
-    provider,
-    key,
-    validationToken,
-    options,
-  );
-  invalidateActionCatalog();
-  return result;
-}
+// UI key management + validate probe). The hosted tier manages keys through
+// /org/keys and org_secrets.
+export const {
+  listProviders,
+  providerStatus,
+  validateProviderKey,
+  listModelPulls,
+  getModelPull,
+  cancelModelPull,
+  // Artifact-generic pull accepts qualified local model IDs plus artifact
+  // schemes such as opus-mt: and hf:; one DTO/poll/progress path serves every
+  // scheme. `unpinnedAcknowledged` gates a free-form unpinned hf: pull and is
+  // ignored for pinned + ollama refs. Coded errors survive into
+  // ApiError.details (400 invalid_model_ref, 400 unpinned_unacknowledged,
+  // 409 pull_busy with `active`, 403 model_pull_disabled).
+  startArtifactPull,
+  uninstallArtifact,
+} = localProvidersApi;
+export const setProviderKey = invalidatesActionCatalog(localProvidersApi.setProviderKey);
+export const deleteProviderKey = invalidatesActionCatalog(localProvidersApi.deleteProviderKey);
+export const createLocalEndpoint = invalidatesActionCatalog(localProvidersApi.createLocalEndpoint);
+export const discoverLocalEndpoints = invalidatesActionCatalog(
+  localProvidersApi.discoverLocalEndpoints,
+);
+export const updateLocalEndpoint = invalidatesActionCatalog(localProvidersApi.updateLocalEndpoint);
+export const deleteLocalEndpoint = invalidatesActionCatalog(localProvidersApi.deleteLocalEndpoint);
 
-export async function deleteProviderKey(
-  provider: string,
-  options?: RequestOptions,
-): Promise<LocalProviderCatalog> {
-  const result = await localProvidersApi.deleteProviderKey(provider, options);
-  invalidateActionCatalog();
-  return result;
-}
-export async function createLocalEndpoint(
-  ...args: Parameters<typeof localProvidersApi.createLocalEndpoint>
-): ReturnType<typeof localProvidersApi.createLocalEndpoint> {
-  const result = await localProvidersApi.createLocalEndpoint(...args);
-  invalidateActionCatalog();
-  return result;
-}
-
-export async function discoverLocalEndpoints(
-  ...args: Parameters<typeof localProvidersApi.discoverLocalEndpoints>
-): ReturnType<typeof localProvidersApi.discoverLocalEndpoints> {
-  const result = await localProvidersApi.discoverLocalEndpoints(...args);
-  invalidateActionCatalog();
-  return result;
-}
-
-export async function updateLocalEndpoint(
-  ...args: Parameters<typeof localProvidersApi.updateLocalEndpoint>
-): ReturnType<typeof localProvidersApi.updateLocalEndpoint> {
-  const result = await localProvidersApi.updateLocalEndpoint(...args);
-  invalidateActionCatalog();
-  return result;
-}
-
-export async function deleteLocalEndpoint(
-  ...args: Parameters<typeof localProvidersApi.deleteLocalEndpoint>
-): ReturnType<typeof localProvidersApi.deleteLocalEndpoint> {
-  const result = await localProvidersApi.deleteLocalEndpoint(...args);
-  invalidateActionCatalog();
-  return result;
-}
-
-export const listModelPulls = localProvidersApi.listModelPulls;
-export const getModelPull = localProvidersApi.getModelPull;
-export const cancelModelPull = localProvidersApi.cancelModelPull;
-
-// Artifact-generic pull accepts qualified local model IDs plus artifact
-// schemes such as opus-mt: and hf:. The
-// The same DTO/poll/progress path serves every artifact scheme.
-// `unpinnedAcknowledged` gates a free-form unpinned hf: pull and is ignored
-// for pinned + ollama refs. Coded errors survive into ApiError.details (400
-// invalid_model_ref, 400 unpinned_unacknowledged, 409 pull_busy with
-// `active`, 403 model_pull_disabled).
-export const startArtifactPull = localProvidersApi.startArtifactPull;
-export const uninstallArtifact = localProvidersApi.uninstallArtifact;
-
-/** Clear the cached action catalog and signal mounted surfaces to refetch —
- *  called after an inline pair install/uninstall so the translate form's
- *  engine `models` reflects the new install without a remount. */
-function invalidateActionCatalog(): void {
-  realApi.invalidateActionCatalog();
-}
-
-// ---------------------------------------------------------------------------
 // Org (team-tier) local model catalog + pull. The dedicated generated port
 // preserves its typed coded-error detail, including a busy pull's active DTO.
+export const {
+  listOrgLocalEndpoints,
+  orgStartArtifactPull,
+  orgListModelPulls,
+  orgGetModelPull,
+  orgCancelModelPull,
+} = teamLocalModelsApi;
 
-export function listOrgLocalEndpoints(): Promise<LocalEndpointCatalog> {
-  return teamLocalModelsApi.listOrgLocalEndpoints();
-}
+export const { getAdminOverview } = createAdminOverviewApi();
+export const {
+  getAdminHealth,
+  getAdminUsers,
+  inviteAdminUser,
+  updateAdminUserRole,
+  removeAdminUser,
+  revokeAdminInvite,
+  getAdminJobs,
+  cancelAdminJob,
+  getAdminErrors,
+  getAdminAuditLog,
+} = createAdminBrowserApi();
+export const { createDiagnosticBundle } = createErrorIntakeApi();
 
-export const orgStartArtifactPull = teamLocalModelsApi.orgStartArtifactPull;
+export const {
+  listProjectMembers,
+  setProjectMember,
+  removeProjectMember,
+  listProjectInvites,
+  createProjectInvite,
+  revokeProjectInvite,
+} = createProjectCollaborationApi();
 
-export function orgListModelPulls(): Promise<{ pulls: ModelPullDto[] }> {
-  return teamLocalModelsApi.orgListModelPulls();
-}
-
-export function orgGetModelPull(id: number): Promise<ModelPullDto> {
-  return teamLocalModelsApi.orgGetModelPull(id);
-}
-
-export function orgCancelModelPull(id: number): Promise<ModelPullDto> {
-  return teamLocalModelsApi.orgCancelModelPull(id);
-}
-
-export const validateProviderKey = localProvidersApi.validateProviderKey;
-
-// No spendCapUsd: POST /api/org/keys stores provider/encrypted/hint and has
-// never persisted a cap (the control plane's org_keys table has no such
-// column), so the field was sent and silently discarded. Project provider
-// keys are where a real, enforced cap lives.
-export async function setOrgKey(
-  provider: string,
-  key: string,
-  validationToken?: string | null,
-  options?: RequestOptions,
-): Promise<void> {
-  await organizationProvidersApi.setOrgKey(provider, key, validationToken, options);
-  invalidateActionCatalog();
-}
-
-export function validateOrgKey(
-  provider: string,
-  key?: string,
-  options?: RequestOptions,
-): Promise<ProviderValidateResult> {
-  return organizationProvidersApi.validateOrgKey(provider, key, options);
-}
-
-export async function deleteOrgKey(provider: string): Promise<void> {
-  await organizationProvidersApi.deleteOrgKey(provider);
-  invalidateActionCatalog();
-}
-
-export function listOrgEnvVars(): Promise<OrgEnvInfo[]> {
-  return organizationOperationsApi.listOrgEnvVars();
-}
-
-export async function setOrgEnvVar(
-  name: string,
-  value: string,
-): Promise<void> {
-  await organizationOperationsApi.setOrgEnvVar(name, value);
-}
-
-export async function deleteOrgEnvVar(name: string): Promise<void> {
-  await organizationOperationsApi.deleteOrgEnvVar(name);
-}
-
-export function listApiKeys(): Promise<ApiTokenInfo[]> {
-  return apiTokensApi.listApiKeys();
-}
-
-export function createApiKey(name: string): Promise<ApiTokenCreateResponse> {
-  return apiTokensApi.createApiKey(name);
-}
-
-export function revokeApiKey(tokenId: number | string): Promise<{
-  ok: boolean;
-  revoked: boolean;
-}> {
-  return apiTokensApi.revokeApiKey(tokenId);
-}
-
-/** /auth lives outside the /api prefix; ignore the response body. */
-export async function signOut(): Promise<void> {
-  await browserSignOut();
-}
-
-
-
-export function getAdminOverview(): Promise<AdminOverview> {
-  return adminOverviewApi.getAdminOverview();
-}
-
-export function getAdminHealth(): Promise<AdminHealth> {
-  return adminBrowserApi.getAdminHealth();
-}
-
-/** Unauthenticated — used by AdminPage to tell "no admins configured yet"
- *  apart from "you're logged in but not an admin" (onboard-selfhost-hardening-v1). */
-export function getHealth(): Promise<HealthStatus> {
-  return instanceRuntimeApi.getHealth();
-}
-
-
-
-
-
-
-export function getAdminUsers(): Promise<AdminUsers> {
-  return adminBrowserApi.getAdminUsers();
-}
-
-export function inviteAdminUser(
-  orgId: number,
-  email: string,
-): Promise<AdminInviteResult> {
-  return adminBrowserApi.inviteAdminUser(orgId, email);
-}
-
-export function updateAdminUserRole(
-  orgId: number,
-  userId: number,
-  role: AdminOrgRole,
-): Promise<AdminRoleUpdateResult> {
-  return adminBrowserApi.updateAdminUserRole(orgId, userId, role);
-}
-
-export function removeAdminUser(
-  orgId: number,
-  userId: number,
-): Promise<AdminRemoveUserResult> {
-  return adminBrowserApi.removeAdminUser(orgId, userId);
-}
-
-export function revokeAdminInvite(
-  orgId: number,
-  email: string,
-): Promise<AdminRevokeInviteResult> {
-  return adminBrowserApi.revokeAdminInvite(orgId, email);
-}
-
-
-
-export function getAdminJobs(): Promise<AdminJobs> {
-  return adminBrowserApi.getAdminJobs();
-}
-
-export function cancelAdminJob(jobId: number): Promise<AdminJobActionResult> {
-  return adminBrowserApi.cancelAdminJob(jobId);
-}
-
-
-export function getAdminErrors(limit = 50): Promise<AdminErrors> {
-  return adminBrowserApi.getAdminErrors(limit);
-}
-
-export function getAdminAuditLog(filters: AdminAuditFilters = {}): Promise<AdminAuditLog> {
-  return adminBrowserApi.getAdminAuditLog(filters);
-}
-
-export function createDiagnosticBundle(
-  body: DiagnosticBundleRequest,
-): Promise<DiagnosticBundleResponse> {
-  return errorIntakeApi.createDiagnosticBundle(body);
-}
-
-// ---------------------------------------------------------------------------
-// Project-wide search (FTS5; snip carries <b>…</b> highlight markers)
-
-
-
+/** Project-wide search (FTS5; snip carries <b>…</b> highlight markers). */
 export function searchProject(
   projectId: string,
   request: import('./projectSearch').ProjectSearchRequestWire,
@@ -669,77 +286,28 @@ export function searchProject(
   return createProjectSearchApi(projectId).searchProject(request, options);
 }
 
-export function createProject(name: string): Promise<ProjectInfo> {
-  return realApi.createProject(name);
-}
+type KeysOf<Parts extends readonly object[]> =
+  Parts extends readonly [infer Head, ...infer Rest extends readonly object[]]
+    ? keyof Head | KeysOf<Rest>
+    : never;
+type SharedKeys<Parts extends readonly object[]> =
+  Parts extends readonly [infer Head, ...infer Rest extends readonly object[]]
+    ? (keyof Head & KeysOf<Rest>) | SharedKeys<Rest>
+    : never;
+type Merged<Parts extends readonly object[]> =
+  Parts extends readonly [infer Head, ...infer Rest extends readonly object[]]
+    ? Head & Merged<Rest>
+    : unknown;
 
-/** Patch a project's shell metadata: the Home screen's Star/Archive flags and
- *  rename ride the same additive PATCH /api/projects/{id} endpoint. Archive
- *  sets a manifest flag; it never deletes the bundle. */
-export function updateProject(
-  projectId: string,
-  patch: { name?: string; description?: string; starred?: boolean; archived?: boolean },
-): Promise<ProjectInfo> {
-  return realApi.updateProject(projectId, patch);
-}
-
-/** Standalone (project-implicit-free) delete, for callers that only have a
- * bare project id — e.g. the sample-project picker button cleaning up a
- * just-created project whose seed failed, so a failed attempt doesn't leave
- * an orphaned empty project behind. The caller supplies the project's name as
- * the server-side confirmation; this path only ever targets a project this
- * same click created seconds earlier. */
-export function deleteProject(projectId: string, confirmName: string): Promise<void> {
-  return realApi.deleteProject(projectId, confirmName);
-}
-
-export function listProjectMembers(projectId: string): Promise<ProjectMember[]> {
-  return projectCollaborationApi.listMembers(projectId);
-}
-
-export function setProjectMember(
-  projectId: string,
-  email: string,
-  role: ProjectRole,
-): Promise<ProjectMemberChange> {
-  return projectCollaborationApi.setMember(projectId, email, role);
-}
-
-export function removeProjectMember(projectId: string, email: string): Promise<RemovalResult> {
-  return projectCollaborationApi.removeMember(projectId, email);
-}
-
-export async function listProjectInvites(projectId: string): Promise<ProjectInvite[]> {
-  return projectCollaborationApi.listInvites(projectId);
-}
-
-export function createProjectInvite(
-  projectId: string,
-  email: string,
-  role: ProjectInviteRole,
-): Promise<ProjectInviteResponse> {
-  return projectCollaborationApi.createInvite(projectId, email, role);
-}
-
-export function revokeProjectInvite(
-  projectId: string,
-  inviteId: number | string,
-): Promise<{ ok: boolean; revoked: boolean }> {
-  return projectCollaborationApi.revokeInvite(projectId, inviteId);
-}
-
-export type { ActionProposal };
-
-// ---------------------------------------------------------------------------
-// The adapter
-
-function actionDisplayNameFromActionKind(actionKind: string): string {
-  const normalized = actionKind.replace(/[._-]+/g, ' ').trim();
-  if (!normalized) return 'AI run';
-  return normalized
-    .split(/\s+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
+/** Merges domain APIs into one object. Member names must be disjoint: a name
+ * two parts share is a compile error naming it (`duplicateMembers`), never a
+ * silent override. */
+function composeDisjoint<Parts extends readonly object[]>(
+  ...parts: Parts & ([SharedKeys<Parts>] extends [never]
+    ? unknown
+    : { duplicateMembers: SharedKeys<Parts> })
+): { [Key in keyof Merged<Parts>]: Merged<Parts>[Key] } {
+  return Object.assign({}, ...parts);
 }
 
 function promptFromRunSpec(spec: Record<string, unknown>): string {
@@ -747,1145 +315,216 @@ function promptFromRunSpec(spec: Record<string, unknown>): string {
   return typeof raw === 'string' ? raw : '';
 }
 
-const actionCatalogCache = new ActionCatalogCache({
-  loadGlobal: () => getGlobalActionCatalog(),
-  loadProject: (projectId) =>
-    getProjectActionCatalog(projectId),
-  emitInvalidated: emitActionCatalogInvalidated,
-});
+/** Everything the workspace does against one project. One action session per
+ * project API owns browser idempotency state; every domain that posts v1
+ * actions shares it, so no domain mints parallel idempotency or run metadata. */
+export function createProjectApi(projectId: string) {
+  const v1ActionSession = createV1ActionSession(projectId);
+  const actionRuns = createActionRunsApi(v1ActionSession, projectId);
+  const {
+    getColumnRuns: readColumnRuns,
+    ...historyReview
+  } = createHistoryReviewApi({ v1ActionSession }, projectId);
+  const {
+    registerStarted: registerStartedPreview,
+    ...actionPreview
+  } = createActionPreviewApi(actionPreviewRunErrorFromContract, projectId);
+  const {
+    compareOcrScratch: startOcrScratchComparison,
+    compareTranscribeScratch: startTranscribeScratchComparison,
+    ...scratchComparisons
+  } = createPreviewComparisonsApi(projectId);
+  const {
+    setProjectProviderKey,
+    deleteProjectProviderKey,
+    ...providerKeyReads
+  } = createProjectProviderKeysApi(projectId);
+  const {
+    setProjectSecret,
+    deleteProjectSecret,
+    ...secretReads
+  } = createProjectSecretsApi(projectId);
 
-class RealApi implements FrisketApi {
-  readonly qa = createProjectQAApi(() => this.requireProjectId());
-  private readonly projectId: string | null;
-  private readonly mapPointsArrowApi: ReturnType<typeof createMapPointsArrowApi>;
-  private readonly previewComparisonsApi: ReturnType<typeof createPreviewComparisonsApi>;
-  private readonly projectEvidenceApi: ReturnType<typeof createProjectEvidenceApi>;
-  private readonly columnTypesApi: ReturnType<typeof createColumnTypesApi>;
-  private readonly viewsLensesApi: ReturnType<typeof createViewsLensesApi>;
-  private readonly watchesApi: ReturnType<typeof createWatchesApi>;
-  private readonly notificationsApi: ReturnType<typeof createNotificationsApi>;
-  private readonly runtimeProjectionsApi: ReturnType<typeof createRuntimeProjectionsApi>;
-  private readonly projectDataManagementApi: ReturnType<typeof createProjectDataManagementApi>;
-  private readonly actionCatalog = actionCatalogCache;
-  /**
-   * One session per adapter owns browser idempotency state.
-   *
-   * Catalog promises remain signal-free and owned by ActionCatalogCache; the
-   * session observes them through each invocation's signal. The action-runs
-   * owner receives this same session; it never creates parallel idempotency
-   * or run-metadata state.
-   */
-  private readonly v1ActionSession: ReturnType<typeof createV1ActionSession>;
-  private readonly actionEstimateValidation: ReturnType<typeof createActionEstimateValidationApi>;
-  // Preview owns its own translation, lifecycle binding, and wire mapping;
-  // this adapter remains the sole owner of the shared browser action session.
-  private readonly actionPreviewRuns: ReturnType<typeof createActionPreviewDomainApi>;
-  private readonly embeddings: ReturnType<typeof createEmbeddingsApi>;
-  // Source reads, mappings, and mutations share this adapter-owned session.
-  // The extracted owner does not create a second idempotency-key registry.
-  // This keeps all V1 action lifetimes scoped to one RealApi instance.
-  private readonly projectSources: ReturnType<typeof createProjectSourcesApi>;
-  private readonly actionCompletion = createActionCompletionApi();
-  private readonly googleSheetsExport: ReturnType<typeof createGoogleSheetsExportApi>;
-  private readonly actionRuns: ReturnType<typeof createActionRunsApi>;
-  private readonly sheetGrid: ReturnType<typeof createSheetGridDomainApi>;
-  // History and review own their reads plus the cursor and queue mutations,
-  // including the invocation each one captures. This adapter keeps the shared
-  // session and the column-run metadata it feeds back into action runs.
-  private readonly actionHistory: ReturnType<typeof createActionHistoryApi>;
-  private readonly historyReview: ReturnType<typeof createHistoryReviewApi>;
-
-  constructor(projectId: string | null = null) {
-    this.projectId = projectId;
-    const scopedProjectId = projectId ?? '';
-    this.mapPointsArrowApi = createMapPointsArrowApi(
-      (status, message) => new ApiError(status, message),
-      scopedProjectId,
-    );
-    this.previewComparisonsApi = createPreviewComparisonsApi(
-      scopedProjectId,
-    );
-    this.projectEvidenceApi = createProjectEvidenceApi(
-      projectEvidenceErrorFromContract,
-      scopedProjectId,
-    );
-    this.columnTypesApi = createColumnTypesApi(projectId);
-    this.viewsLensesApi = createViewsLensesApi(
-      viewLensApiErrorFromContract,
-      scopedProjectId,
-    );
-    this.watchesApi = createWatchesApi(scopedProjectId);
-    this.notificationsApi = createNotificationsApi(
-      scopedProjectId,
-    );
-    this.runtimeProjectionsApi = createRuntimeProjectionsApi(
-      runtimeProjectionErrorFromContract,
-      scopedProjectId,
-    );
-    this.projectDataManagementApi = createProjectDataManagementApi(
-      scopedProjectId,
-    );
-    this.v1ActionSession = createV1ActionSession(scopedProjectId);
-    this.actionRuns = createActionRunsApi({
-      v1ActionSession: this.v1ActionSession,
-      runAction: (req, options) => this.runAction(req, options),
-      getRunProgress: (id, runId, options) =>
-        getRunProgressContract(id, runId, options),
-      cancelRun: (id, runId, options) =>
-        cancelRunContract(id, runId, options),
-      waitForV1ActionCompletion: (result, fallbackMessage, invocation) =>
-        this.actionCompletion.waitForRunCompletion(result, fallbackMessage, invocation),
-      actionDisplayNameFromActionKind,
-    }, scopedProjectId);
-    this.actionEstimateValidation = createActionEstimateValidationApi(
-      actionEstimateValidationErrorFromContract,
-      scopedProjectId,
-    );
-    this.actionPreviewRuns = createActionPreviewDomainApi({
-      errorFactory: actionPreviewRunErrorFromContract,
-    }, scopedProjectId);
-    this.embeddings = createEmbeddingsApi(embeddingErrorFromContract, {
-      v1ActionSession: this.v1ActionSession,
-    });
-    this.projectSources = createProjectSourcesApi({
-      v1ActionSession: this.v1ActionSession,
-    }, scopedProjectId);
-    this.googleSheetsExport = createGoogleSheetsExportApi({
-      v1ActionSession: this.v1ActionSession,
-    }, scopedProjectId);
-    this.sheetGrid = createSheetGridDomainApi({
-      columnRunInfo: (id, sheetId, column) => this.actionRuns.columnRunInfo(id, sheetId, column),
-      v1ActionSession: this.v1ActionSession,
-    }, scopedProjectId);
-    this.actionHistory = createActionHistoryApi(scopedProjectId);
-    this.historyReview = createHistoryReviewApi({
-      v1ActionSession: this.v1ActionSession,
-    }, scopedProjectId);
+  /** Fence a read to the invocation's project and abort signal: an aborted
+   * invocation never resolves with a late response. */
+  async function fenced<Result>(
+    options: ProjectInvocationOptions | undefined,
+    read: (projectId: string, signal: AbortSignal | undefined) => Promise<Result>,
+  ): Promise<Result> {
+    const invocation = resolveRunActionInvocation(options, projectId);
+    throwIfActionAborted(invocation.signal);
+    const result = await read(invocation.projectId, invocation.signal);
+    throwIfActionAborted(invocation.signal);
+    return result;
   }
 
-  private requireProjectId(): string {
-    if (!this.projectId) throw new ApiError(400, 'Project id is required');
-    return this.projectId;
-  }
+  return composeDisjoint(
+    createWatchesApi(projectId),
+    createNotificationsApi(projectId),
+    createViewsLensesApi(viewLensApiErrorFromContract, projectId),
+    createColumnTypesApi(projectId),
+    createProjectDataManagementApi(projectId),
+    createProjectSourcesApi({ v1ActionSession }, projectId),
+    createSheetGridApi({
+      columnRunInfo: (id, sheetId, column) => actionRuns.columnRunInfo(id, sheetId, column),
+      v1ActionSession,
+    }, projectId),
+    historyReview,
+    createActionHistoryApi(projectId),
+    createGoogleSheetsExportApi({ v1ActionSession }, projectId),
+    scratchComparisons,
+    createProjectEvidenceApi(projectEvidenceErrorFromContract, projectId),
+    createRuntimeProjectionsApi(runtimeProjectionErrorFromContract, projectId),
+    // Arrow is a browser binary protocol, not a JSON contract: keep its error
+    // identity on the public API while the raw owner keeps route and decoder
+    // details.
+    createMapPointsArrowApi((status, message) => new ApiError(status, message), projectId),
+    createActionEstimateValidationApi(actionEstimateValidationErrorFromContract, projectId),
+    actionPreview,
+    createEmbeddingsApi(embeddingErrorFromContract, { v1ActionSession }, projectId),
+    createWorkbenchPluginsApi(workbenchPluginErrorFromContract, projectId),
+    createResolvePreviewsApi(resolvePreviewErrorFromContract, projectId),
+    createEntityMentionsApi(resolvePreviewErrorFromContract, projectId),
+    createGraphLineageApi(projectId),
+    createRunProvenanceApi(projectId),
+    createProjectAttemptsApi(projectId),
+    createTranslateComparisonApi(translateComparisonErrorFromContract, projectId),
+    createMcpServersApi(projectId),
+    createOAuthConnectionsApi(),
+    providerKeyReads,
+    secretReads,
+    {
+      qa: createProjectQAApi(() => projectId),
 
-  // ---- data ---------------------------------------------------------------
+      runAction: actionRuns.runAction.bind(actionRuns),
+      runProposal: actionRuns.runProposal.bind(actionRuns),
+      getRunProgress: actionRuns.getRunProgress.bind(actionRuns),
+      cancelRun: actionRuns.cancelRun.bind(actionRuns),
+      backfillColumn: actionRuns.backfillColumn.bind(actionRuns),
 
-  listActionCatalog(explicitProjectId?: string | null): Promise<ActionCatalogPayload> {
-    const projectId =
-      explicitProjectId ??
-      (() => {
-        try {
-          return this.requireProjectId();
-        } catch {
-          return null;
+      setProjectProviderKey: invalidatesActionCatalog(setProjectProviderKey),
+      deleteProjectProviderKey: invalidatesActionCatalog(deleteProjectProviderKey),
+      setProjectSecret: invalidatesActionCatalog(setProjectSecret),
+      deleteProjectSecret: invalidatesActionCatalog(deleteProjectSecret),
+
+      /** Canonical action catalog. A scoped API defaults to its own project. */
+      listActionCatalog(explicitProjectId?: string | null) {
+        return actionCatalogCache.load(explicitProjectId ?? (projectId || null));
+      },
+
+      async getProject(): Promise<ProjectInfo> {
+        return getProjectContract(projectId);
+      },
+
+      async updateCurrentProject(input: {
+        name?: string;
+        description?: string | null;
+      }): Promise<ProjectInfo> {
+        return updateProject(projectId, input);
+      },
+
+      async deleteProject(target: string | undefined, confirmName: string): Promise<void> {
+        await deleteProject(target ?? projectId, confirmName);
+      },
+
+      /** Project-scoped workbench view of completed plugin.load manifest receipts. */
+      async getWorkbenchPluginRuntimeIndex(): Promise<WorkbenchPluginRuntimeIndex> {
+        return getWorkbenchPluginRuntimeIndexContract(projectId);
+      },
+
+      async listActionJobs(
+        status?: string | null,
+        limit = 50,
+        options?: ProjectInvocationOptions,
+      ): Promise<ActionJobsPage> {
+        return fenced(options, (pid, signal) => (
+          listActionJobsContract(pid, { status, limit }, { signal })
+        ));
+      },
+
+      async getActionJob(
+        jobId: number | string,
+        options?: ProjectInvocationOptions,
+      ): Promise<ActionJob> {
+        return fenced(options, (pid, signal) => (
+          getActionJobContract(pid, Number(jobId), { signal })
+        ));
+      },
+
+      /** Canonical v1 receipt lookup shared by provenance, runs, results, and exports. */
+      async getReceipt(
+        receiptId: string,
+        options?: ProjectInvocationOptions,
+      ): Promise<V1Receipt> {
+        return fenced(options, (pid, signal) => (
+          getReceiptContract(pid, receiptId, { signal })
+        ));
+      },
+
+      async getRunRows(
+        runId: string,
+        offset = 0,
+        limit = 20,
+        status?: 'error',
+      ): Promise<RunRowsPage> {
+        return getRunRowsContract(
+          projectId,
+          Number(runId),
+          { offset, limit, ...(status ? { status } : {}) },
+        );
+      },
+
+      /** Provenance for an AI column: a bounded newest-first run history page.
+       *  The selected run's spec is remembered for the column drawer. */
+      async getColumnRuns(columnId: string, offset = 0, limit = 20): Promise<ColumnRunsInfo> {
+        const result = await readColumnRuns(columnId, offset, limit);
+        const selectedRun = result.latestRun
+          ?? result.currentRun
+          ?? result.runs.find((run) => run.current)
+          ?? result.runs[0];
+        if (selectedRun) {
+          actionRuns.rememberColumnRunInfo(projectId, columnId, {
+            runId: selectedRun.runId,
+            actionName: selectedRun.actionName,
+            prompt: promptFromRunSpec(selectedRun.spec),
+            model: selectedRun.model,
+          });
         }
-      })();
-    return this.actionCatalog.load(projectId);
-  }
-
-  async embeddingProviderCatalog(opts: {
-    modality?: string;
-    sourceColumnType?: string;
-  }): Promise<EmbeddingProvider[]> {
-    return this.embeddings.embeddingProviderCatalog(this.requireProjectId(), opts);
-  }
-
-  async embeddingIndexes(sheetId: number): Promise<EmbeddingIndexSummary[]> {
-    return this.embeddings.embeddingIndexes(this.requireProjectId(), sheetId);
-  }
-
-  async updateEmbeddingIndexPolicy(
-    input: UpdateEmbeddingIndexPolicyInput,
-  ): Promise<void> {
-    const projectId = this.requireProjectId();
-    return this.embeddings.updateEmbeddingIndexPolicy(projectId, input);
-  }
-
-  async createEmbeddingIndex(input: CreateEmbeddingIndexInput): Promise<string> {
-    const projectId = this.requireProjectId();
-    return this.embeddings.createEmbeddingIndex(projectId, input);
-  }
-
-  async refreshEmbeddingIndex(
-    indexId: string,
-    mode: 'incremental' | 'full',
-  ): Promise<{ jobId: number | null; status: string }> {
-    const projectId = this.requireProjectId();
-    return this.embeddings.refreshEmbeddingIndex(projectId, indexId, mode);
-  }
-
-  async runEmbeddingIndexAnalysis(
-    input: EmbeddingIndexAnalysisInput,
-  ): Promise<EmbeddingIndexAnalysisResult> {
-    const projectId = this.requireProjectId();
-    return this.embeddings.runEmbeddingIndexAnalysis(projectId, input);
-  }
-
-  embeddingExportArtifactUrl(indexId: string, format: string): string {
-    return projectEmbeddingExportArtifactUrl(this.requireProjectId(), indexId, format);
-  }
-
-  async exportEmbeddingIndex(
-    indexId: string,
-    opts?: { formats?: string[]; includeVectors?: boolean },
-  ): Promise<EmbeddingExportResult> {
-    return this.embeddings.exportEmbeddingIndex(this.requireProjectId(), indexId, opts);
-  }
-
-  async embeddingSimilarityPreview(
-    indexId: string,
-    query: string | EmbeddingComposedQuery,
-    opts?: { limit?: number },
-  ): Promise<EmbeddingSimilarityResult> {
-    return this.embeddings.embeddingSimilarityPreview(
-      this.requireProjectId(),
-      indexId,
-      query,
-      opts,
-    );
-  }
-
-  async embeddingHybridPreview(
-    indexId: string,
-    sheetId: number | null,
-    text: string,
-    opts?: { limit?: number },
-  ): Promise<EmbeddingSimilarityResult> {
-    return this.embeddings.embeddingHybridPreview(
-      this.requireProjectId(),
-      indexId,
-      sheetId,
-      text,
-      opts,
-    );
-  }
-
-  async listOAuthConnections(provider?: string): Promise<OAuthConnectionInfo[]> {
-    return oauthConnectionsApi.listOAuthConnections(provider);
-  }
-
-  googleOAuthStartUrl(): string {
-    return browserGoogleOAuthStartUrl();
-  }
-
-  async exportGoogleSheets(
-    input: GoogleSheetsExportInput,
-  ): Promise<GoogleSheetsExportResult> {
-    return this.googleSheetsExport.exportGoogleSheets(input);
-  }
-
-  listViews(sheetId?: string): Promise<SavedView[]> {
-    return this.viewsLensesApi.listViews(sheetId);
-  }
-
-  saveView(input: SavedViewCreateInput): Promise<SavedView> {
-    return this.viewsLensesApi.saveView(input);
-  }
-
-  renameView(viewId: number, input: SavedViewRenameInput): Promise<SavedView> {
-    return this.viewsLensesApi.renameView(viewId, input);
-  }
-
-  replaceViewDefinition(
-    viewId: number,
-    input: SavedViewDefinitionReplaceInput,
-  ): Promise<SavedView> {
-    return this.viewsLensesApi.replaceViewDefinition(viewId, input);
-  }
-
-  deleteView(viewId: number): Promise<void> {
-    return this.viewsLensesApi.deleteView(viewId);
-  }
-
-  resolveView(viewId: number, opts?: { limit?: number; offset?: number }): Promise<ViewResolved> {
-    return this.viewsLensesApi.resolveView(viewId, opts);
-  }
-
-  async listWatches(): Promise<WatchInfo[]> {
-    return this.watchesApi.listWatches();
-  }
-
-  async createWatch(input: WatchInput): Promise<WatchInfo> {
-    return this.watchesApi.createWatch(input);
-  }
-
-  async updateWatch(watchId: number, input: WatchPatchInput): Promise<WatchInfo> {
-    return this.watchesApi.updateWatch(watchId, input);
-  }
-
-  async deleteWatch(watchId: number): Promise<void> {
-    return this.watchesApi.deleteWatch(watchId);
-  }
-
-  async runWatch(watchId: number): Promise<WatchRunResult> {
-    return this.watchesApi.runWatch(watchId);
-  }
-
-  async getWatchRuns(watchId: number, offset = 0, limit = 20): Promise<WatchRunsPage> {
-    return this.watchesApi.getWatchRuns(watchId, offset, limit);
-  }
-
-  async getWatchRunEvents(
-    watchId: number,
-    runId: number,
-    offset = 0,
-    limit = 50,
-    eventKind?: string,
-  ): Promise<WatchRunEventsPage> {
-    return this.watchesApi.getWatchRunEvents(watchId, runId, offset, limit, eventKind);
-  }
-
-  async listNotifications(params: NotificationListParams = {}): Promise<NotificationPage> {
-    return this.notificationsApi.listNotifications(params);
-  }
-
-  async getNotificationsSummary(): Promise<NotificationSummary> {
-    return this.notificationsApi.getNotificationsSummary();
-  }
-
-  async markNotificationsSeen(
-    filter: NotificationStateFilter,
-  ): Promise<{ seenCount: number }> {
-    return this.notificationsApi.markNotificationsSeen(filter);
-  }
-
-  async markNotificationRead(notificationId: number): Promise<NotificationActorState> {
-    return this.notificationsApi.markNotificationRead(notificationId);
-  }
-
-  async ackNotification(notificationId: number): Promise<NotificationActorState> {
-    return this.notificationsApi.ackNotification(notificationId);
-  }
-
-  async unackNotification(notificationId: number): Promise<NotificationActorState> {
-    return this.notificationsApi.unackNotification(notificationId);
-  }
-
-  async listNotificationChannels(): Promise<NotificationChannelsPage> {
-    return this.notificationsApi.listNotificationChannels();
-  }
-
-  async createNotificationChannel(
-    input: NotificationChannelInput,
-  ): Promise<NotificationChannel> {
-    return this.notificationsApi.createNotificationChannel(input);
-  }
-
-  async updateNotificationChannel(
-    channelId: number,
-    input: Partial<NotificationChannelInput>,
-  ): Promise<NotificationChannel> {
-    return this.notificationsApi.updateNotificationChannel(channelId, input);
-  }
-
-  async listNotificationRoutes(): Promise<NotificationRoutesPage> {
-    return this.notificationsApi.listNotificationRoutes();
-  }
-
-  async createNotificationRoute(input: NotificationRouteInput): Promise<NotificationRoute> {
-    return this.notificationsApi.createNotificationRoute(input);
-  }
-
-  async updateNotificationRoute(
-    routeId: number,
-    input: Partial<NotificationRouteInput>,
-  ): Promise<NotificationRoute> {
-    return this.notificationsApi.updateNotificationRoute(routeId, input);
-  }
-
-  async testNotificationRoute(routeId: number, ownerKind?: string): Promise<NotificationDeliveryRequest> {
-    return this.notificationsApi.testNotificationRoute(routeId, ownerKind);
-  }
-
-  async listNotificationDeliveryRequests(params: {
-    status?: NotificationDeliveryRequest['status'];
-    routeId?: number;
-    channelId?: number;
-    notificationId?: number;
-    offset?: number;
-    limit?: number;
-  } = {}): Promise<NotificationDeliveryRequestsPage> {
-    return this.notificationsApi.listNotificationDeliveryRequests(params);
-  }
-
-  listColumnTypes(): Promise<ColumnTypeInfo[]> {
-    return this.columnTypesApi.listColumnTypes();
-  }
-
-  projectExportUrl(includeMediaOrOptions: boolean | ProjectExportOptions = true): string {
-    return projectResourceExportUrl(this.requireProjectId(), includeMediaOrOptions);
-  }
-
-  sheetDatasetExportUrl(options: SheetDatasetExportOptions): string {
-    return projectSheetDatasetExportUrl(this.requireProjectId(), options);
-  }
-
-  workLogExportUrl(format: 'md' | 'html' | 'pdf' = 'md'): string {
-    return projectWorkLogExportUrl(this.requireProjectId(), format);
-  }
-
-  listProjects(): Promise<ProjectInfo[]> {
-    return listProjectsContract();
-  }
-
-  createProject(name: string): Promise<ProjectInfo> {
-    return createProjectContract(name);
-  }
-
-  updateProject(
-    projectId: string,
-    patch: { name?: string; description?: string; starred?: boolean; archived?: boolean },
-  ): Promise<ProjectInfo> {
-    return updateProjectContract(projectId, patch);
-  }
-
-  async getProject(): Promise<ProjectInfo> {
-    return getProjectContract(this.requireProjectId());
-  }
-
-  async updateCurrentProject(input: {
-    name?: string;
-    description?: string | null;
-  }): Promise<ProjectInfo> {
-    return updateProjectContract(this.requireProjectId(), input);
-  }
-
-  async getProjectRetention(): Promise<ProjectRetentionPolicy> {
-    return this.projectDataManagementApi.getProjectRetention();
-  }
-
-  async updateProjectRetention(
-    input: Partial<ProjectRetentionPolicy>,
-  ): Promise<ProjectRetentionPolicy> {
-    return this.projectDataManagementApi.updateProjectRetention(input);
-  }
-
-  async getProjectNetworkPolicy(): Promise<ProjectNetworkPolicy> {
-    return this.projectDataManagementApi.getProjectNetworkPolicy();
-  }
-
-  async updateProjectNetworkPolicy(input: {
-    mode: string;
-  }): Promise<ProjectNetworkPolicy> {
-    return this.projectDataManagementApi.updateProjectNetworkPolicy(input);
-  }
-
-  async getMediaProxyStatus(): Promise<MediaProxyStatus> {
-    return organizationOperationsApi.getMediaProxyStatus();
-  }
-
-  async getProjectSettings(): Promise<ProjectSettings> {
-    return this.projectDataManagementApi.getProjectSettings();
-  }
-
-  async updateProjectSettings(
-    input: ProjectSettingsPatch,
-  ): Promise<ProjectSettings> {
-    return this.projectDataManagementApi.updateProjectSettings(input);
-  }
-
-  async compactProject(): Promise<Record<string, unknown>> {
-    return this.projectDataManagementApi.compactProject();
-  }
-
-  async getProjectProviderKeys(): Promise<ProjectProviderKeys> {
-    return projectProviderKeysApi.getProjectProviderKeys(this.requireProjectId());
-  }
-
-  async setProjectProviderKey(
-    provider: string,
-    key: string,
-    spendCapUsd?: number | null,
-    validationToken?: string | null,
-    options?: RequestOptions,
-  ): Promise<ProjectProviderKeys> {
-    const result = await projectProviderKeysApi.setProjectProviderKey(
-      this.requireProjectId(),
-      provider,
-      key,
-      spendCapUsd,
-      validationToken,
-      options,
-    );
-    this.invalidateActionCatalogCache();
-    return result;
-  }
-
-  async validateProjectProviderKey(
-    provider: string,
-    key?: string,
-    options?: RequestOptions,
-  ): Promise<ProviderValidateResult> {
-    return projectProviderKeysApi.validateProjectProviderKey(
-      this.requireProjectId(),
-      provider,
-      key,
-      options,
-    );
-  }
-
-  async deleteProjectProviderKey(provider: string): Promise<{
-    ok: boolean;
-    deleted: boolean;
-    provider: string;
-  }> {
-    const result = await projectProviderKeysApi.deleteProjectProviderKey(
-      this.requireProjectId(),
-      provider,
-    );
-    this.invalidateActionCatalogCache();
-    return result;
-  }
-
-  async getProjectSecrets(): Promise<ProjectSecrets> {
-    return projectSecretsApi.getProjectSecrets(this.requireProjectId());
-  }
-
-  async setProjectSecret(name: string, value: string): Promise<ProjectSecrets> {
-    const result = await projectSecretsApi.setProjectSecret(
-      this.requireProjectId(),
-      name,
-      value,
-    );
-    this.invalidateActionCatalogCache();
-    return result;
-  }
-
-  async deleteProjectSecret(name: string): Promise<{
-    ok: boolean;
-    deleted: boolean;
-    name: string;
-  }> {
-    const result = await projectSecretsApi.deleteProjectSecret(
-      this.requireProjectId(),
-      name,
-    );
-    this.invalidateActionCatalogCache();
-    return result;
-  }
-
-  async listMcpServers() { return mcpServersApi.list(this.requireProjectId()); }
-  async createMcpServer(input: import('./mcpServers').McpServerDraft) { return mcpServersApi.create(this.requireProjectId(), input); }
-  async updateMcpServer(id: string, patch: Partial<import('./mcpServers').McpServerDraft>) { return mcpServersApi.update(this.requireProjectId(), id, patch); }
-  async deleteMcpServer(id: string) { return mcpServersApi.remove(this.requireProjectId(), id); }
-  async testMcpServer(id: string) { return mcpServersApi.test(this.requireProjectId(), id); }
-
-  /** A saved/deleted provider secret can flip a hosted-engine's availability —
-   *  the server resolves keys (DEEPL_API_KEY / GOOGLE_TRANSLATE_API_KEY, …)
-   *  through the project secrets store when it assembles ui_hints.engines, so
-   *  a cached catalog would keep advertising the old availability until reload.
-   *  Dropping every cached catalog makes the decided "keys flip availability"
-   *  real: the next listActionCatalog refetches fresh. Clearing all keys (not
-   *  just this project's) also covers the env-backed global catalog. Clearing
-   *  the cache is only half the job: a mounted surface keeps its stale
-   *  snapshot, so we also emit an invalidation signal that useWorkspaceModel
-   *  listens to and re-fetches — the engine flips available without a
-   *  remount. */
-  private invalidateActionCatalogCache(): void {
-    this.actionCatalog.invalidate();
-  }
-
-  /** Public entry: a completed artifact pull that installs a new Opus-MT pair
-   *  changes the engine's `models`, so the mounted translate form must
-   *  refetch — the SAME clear+emit path a provider-secret save uses, so the
-   *  newly-installed pair flips to installed without a remount. */
-  invalidateActionCatalog(): void {
-    this.invalidateActionCatalogCache();
-  }
-
-  async deleteProject(projectId: string | undefined, confirmName: string): Promise<void> {
-    await deleteProjectContract(projectId ?? this.requireProjectId(), confirmName);
-  }
-
-  // ---- live sources -------------------------------------------------------
-
-  listSources() {
-    return this.projectSources.listSources();
-  }
-
-  getSource(sourceId: number, runsOffset?: number | null, runsLimit = 50) {
-    return this.projectSources.getSource(sourceId, runsOffset, runsLimit);
-  }
-
-  getSourceHealth(sourceId: number, runsOffset?: number | null, runsLimit = 20) {
-    return this.projectSources.getSourceHealth(sourceId, runsOffset, runsLimit);
-  }
-
-  createSource(input: SourceInput) {
-    return this.projectSources.createSource(input);
-  }
-
-  updateSource(sourceId: number, patch: Partial<SourceInput>) {
-    return this.projectSources.updateSource(sourceId, patch);
-  }
-
-  deleteSource(sourceId: number) {
-    return this.projectSources.deleteSource(sourceId);
-  }
-
-  fetchSource(sourceId: number) {
-    return this.projectSources.fetchSource(sourceId);
-  }
-
-  async listSheets(): Promise<SheetMeta[]> {
-    return this.sheetGrid.listSheets();
-  }
-
-  async setSheetTitleColumn(sheetId: string, titleColumnId: string | null): Promise<void> {
-    return this.sheetGrid.setSheetTitleColumn(sheetId, titleColumnId);
-  }
-
-  async deleteSheet(sheetId: string): Promise<DeleteSheetResult> {
-    return this.sheetGrid.deleteSheet(sheetId);
-  }
-
-  async getLineage(): Promise<LineageDag> {
-    return graphLineageApi.getLineage(this.requireProjectId());
-  }
-
-  async refreshSheet(
-    sheetId: string,
-    confirmation?: string,
-  ): Promise<SheetRefreshResult> {
-    return this.sheetGrid.refreshSheet(sheetId, confirmation);
-  }
-
-  async getSheetData(
-    sheetId: string,
-    offset: number,
-    limit: number,
-    options: SheetDataOptions | null = {},
-  ): Promise<SheetDataPage> {
-    return this.sheetGrid.getSheetData(sheetId, offset, limit, options);
-  }
-
-  async getSheetRows(
-    sheetId: string,
-    offset: number,
-    limit: number,
-    options: SheetDataOptions | null = {},
-  ): Promise<{ rows: Row[] }> {
-    return this.sheetGrid.getSheetRows(sheetId, offset, limit, options);
-  }
-
-  async getColumnStats(
-    sheetId: string,
-    columnId: string,
-    opts: SheetDataOptions & { force?: boolean } = {},
-  ): Promise<ColumnStats> {
-    return this.sheetGrid.getColumnStats(sheetId, columnId, opts);
-  }
-
-  async getMapPointsArrowBuffer(
-    sheetId: string,
-    columnId: string,
-    options: MapPointsOptions | null = {},
-  ): Promise<ArrayBuffer> {
-    return this.mapPointsArrowApi.getMapPointsArrowBuffer(sheetId, columnId, options);
-  }
-
-  async getRuntimeProjectionStatus(
-    input: RuntimeProjectionStatusRequest,
-  ): Promise<RuntimeProjectionStatus> {
-    return this.runtimeProjectionsApi.status(input);
-  }
-
-  async buildRuntimeProjection(
-    input: RuntimeProjectionBuildRequest,
-  ): Promise<RuntimeProjectionBuildPlan> {
-    return this.runtimeProjectionsApi.build(input);
-  }
-
-  async readRuntimeProjectionArtifact(
-    input: RuntimeProjectionArtifactRequest,
-  ): Promise<TimelineProjectionArtifact> {
-    return this.runtimeProjectionsApi.artifact(input);
-  }
-
-  async locateSheetRow(
-    sheetId: string,
-    rowId: string,
-    options: SheetDataOptions | null = {},
-    pageSize = 500,
-  ): Promise<SheetRowLocation> {
-    return this.sheetGrid.locateSheetRow(sheetId, rowId, options, pageSize);
-  }
-
-  async updateColumn(columnId: string, patch: ColumnPatch): Promise<ColumnDef> {
-    return this.sheetGrid.updateColumn(columnId, patch);
-  }
-
-  async addRow(sheetId: string, cells: Record<string, CellValue> = {}): Promise<{ rowId: string; total: number }> {
-    return this.sheetGrid.addRow(sheetId, cells);
-  }
-
-  async addColumn(
-    sheetId: string,
-    name: string,
-    options: { type?: string; position?: number | null } = {},
-  ): Promise<AddColumnResult> {
-    return this.sheetGrid.addColumn(sheetId, name, options);
-  }
-
-  async deleteRows(sheetId: string, rowIds: string[]): Promise<DeleteRowsResult> {
-    return this.sheetGrid.deleteRows(sheetId, rowIds);
-  }
-
-  async editCells(edits: CellEdit[]): Promise<void> {
-    return this.sheetGrid.editCells(edits);
-  }
-
-  // Replay preserve+surface write endpoints. These route the shipped Project
-  // helpers over the typed v1 action contract, the same way editCells routes
-  // cell.edit.
-  async acceptReplayValue(
-    sheetId: string,
-    columnId: string,
-    rowId: string,
-    generatedValueHash: string,
-    runId: string,
-  ): Promise<void> {
-    return this.sheetGrid.acceptReplayValue(
-      sheetId, columnId, rowId, generatedValueHash, runId,
-    );
-  }
-
-  async acceptReplayValuesInColumn(sheetId: string, columnId: string): Promise<void> {
-    return this.sheetGrid.acceptReplayValuesInColumn(sheetId, columnId);
-  }
-
-  async dismissReplayPending(
-    sheetId: string,
-    columnId: string,
-    rowId: string,
-    generatedValueHash: string,
-    runId: string,
-  ): Promise<void> {
-    return this.sheetGrid.dismissReplayPending(
-      sheetId, columnId, rowId, generatedValueHash, runId,
-    );
-  }
-
-  // ---- runs ---------------------------------------------------------------
-
-  runProposal(
-    proposal: ActionProposal,
-    confirmed = false,
-    consentedPromiseSetHash?: string,
-    options?: RunActionInvocationOptions,
-  ): Promise<{ run_id: number | null; output_sheet_id?: string | null }> {
-    return this.actionRuns.runProposal(
-      proposal,
-      confirmed,
-      consentedPromiseSetHash,
-      options,
-    );
-  }
-
-  async runAction(
-    req: ActionExecutionRequest,
-    options?: RunActionInvocationOptions,
-  ): Promise<RunActionLaunchResult> {
-    return this.actionRuns.runAction(req, options);
-  }
-
-  async listActionJobs(
-    status?: string | null,
-    limit = 50,
-    options?: ProjectInvocationOptions,
-  ): Promise<ActionJobsPage> {
-    const invocation = resolveRunActionInvocation(options, this.requireProjectId());
-    throwIfActionAborted(invocation.signal);
-    const page = await listActionJobsContract(
-      invocation.projectId,
-      { status, limit },
-      { signal: invocation.signal },
-    );
-    throwIfActionAborted(invocation.signal);
-    return page;
-  }
-
-  async getActionJob(
-    jobId: number | string,
-    options?: ProjectInvocationOptions,
-  ): Promise<ActionJob> {
-    const invocation = resolveRunActionInvocation(options, this.requireProjectId());
-    throwIfActionAborted(invocation.signal);
-    const job = await getActionJobContract(
-      invocation.projectId,
-      Number(jobId),
-      { signal: invocation.signal },
-    );
-    throwIfActionAborted(invocation.signal);
-    return job;
-  }
-
-  /** Attempt receipts answer "did I approve it, and what did it cost".
-   *  Omitting `runId` lists the whole project, which is what makes a
-   *  compaction-orphaned attempt reachable at all. */
-  async listAttemptReceipts(
-    runId?: number | string | null,
-    limit = 25,
-  ): Promise<AttemptReceiptsPage> {
-    return projectAttemptsApi.listAttemptReceipts(
-      this.requireProjectId(),
-      runId,
-      limit,
-    );
-  }
-
-  async getWorkbenchPluginRuntimeIndex(): Promise<WorkbenchPluginRuntimeIndex> {
-    return getWorkbenchPluginRuntimeIndexContract(this.requireProjectId());
-  }
-
-  async getWorkbenchPluginSettings(pluginId: string): Promise<WorkbenchPluginSettings> {
-    return workbenchPluginsApi.getSettings(this.requireProjectId(), pluginId);
-  }
-
-  async patchWorkbenchPluginSettings(
-    pluginId: string,
-    values: Record<string, unknown>,
-  ): Promise<WorkbenchPluginSettings> {
-    return workbenchPluginsApi.patchSettings(this.requireProjectId(), pluginId, values);
-  }
-
-  async installLocalWorkbenchPlugin(
-    input: WorkbenchPluginLocalInstallRequest,
-  ): Promise<WorkbenchPluginLocalInstallExecution> {
-    return workbenchPluginsApi.installLocal(this.requireProjectId(), input);
-  }
-
-  async activateWorkbenchPlugin(
-    input: WorkbenchPluginActivationRequest,
-  ): Promise<WorkbenchPluginActivation> {
-    return workbenchPluginsApi.activate(this.requireProjectId(), input);
-  }
-
-  async activateWorkbenchPluginBackend(
-    input: WorkbenchPluginBackendActivationRequest,
-  ): Promise<WorkbenchPluginBackendActivation> {
-    return workbenchPluginsApi.activateBackend(this.requireProjectId(), input);
-  }
-
-  async disableWorkbenchPlugin(pluginId: string): Promise<WorkbenchPluginInstallStateChange> {
-    return workbenchPluginsApi.disable(this.requireProjectId(), pluginId);
-  }
-
-  async uninstallWorkbenchPlugin(pluginId: string): Promise<WorkbenchPluginInstallStateChange> {
-    return workbenchPluginsApi.uninstall(this.requireProjectId(), pluginId);
-  }
-
-  estimateAction(req: ActionExecutionRequest): Promise<RunEstimate> {
-    return this.actionEstimateValidation.estimateAction(req);
-  }
-
-  resolveActionParams(
-    req: Pick<RegisteredActionRequest, 'action_id' | 'scope' | 'params'>,
-  ): Promise<ActionParamResolution> {
-    return this.actionEstimateValidation.resolveActionParams(req);
-  }
-
-  getRunProgress(
-    runId: string,
-    options?: ProjectInvocationOptions,
-  ): Promise<RunProgress> {
-    return this.actionRuns.getRunProgress(runId, options);
-  }
-
-  cancelRun(
-    runId: string,
-    options?: ProjectInvocationOptions,
-  ): Promise<RunProgress> {
-    return this.actionRuns.cancelRun(runId, options);
-  }
-
-  backfillColumn(
-    sheetId: string,
-    columnName: string,
-    confirmed = false,
-    rowIds?: number[],
-    consentedPromiseSetHash?: string,
-  ): Promise<BackfillResult> {
-    return this.actionRuns.backfillColumn(
-      sheetId,
-      columnName,
-      confirmed,
-      rowIds,
-      consentedPromiseSetHash,
-    );
-  }
-
-  async clusterPreview(input: Parameters<typeof resolvePreviewsApi.cluster>[1]) {
-    return resolvePreviewsApi.cluster(this.requireProjectId(), input);
-  }
-
-  async columnValuesPreview(input: Parameters<typeof resolvePreviewsApi.columnValues>[1]) {
-    return resolvePreviewsApi.columnValues(this.requireProjectId(), input);
-  }
-
-  async entityMentionDocuments(
-    input: Parameters<typeof entityMentionsApi.documents>[1],
-  ) {
-    return entityMentionsApi.documents(this.requireProjectId(), input);
-  }
-
-  async entityMentionOccurrences(
-    input: Parameters<typeof entityMentionsApi.occurrences>[1],
-  ) {
-    return entityMentionsApi.occurrences(this.requireProjectId(), input);
-  }
-
-  async entityMentionsPreview(
-    input: Parameters<typeof entityMentionsApi.preview>[1],
-  ) {
-    return entityMentionsApi.preview(this.requireProjectId(), input);
-  }
-
-  async replaceRulesPreview(input: Parameters<typeof resolvePreviewsApi.replaceRules>[1]) {
-    return resolvePreviewsApi.replaceRules(this.requireProjectId(), input);
-  }
-
-  async getSheetGraph(options: SheetGraphOptions): Promise<SheetGraphResult> {
-    return graphLineageApi.getSheetGraph(this.requireProjectId(), options);
-  }
-
-  async compareOcrScratch(
-    file: File,
-    input: OcrCompareScratchInput,
-  ): Promise<PreviewStartResult> {
-    return this.actionPreviewRuns.registerStarted(await this.previewComparisonsApi.compareOcrScratch(file, input));
-  }
-
-  estimateOcrScratch(file: File, input: OcrCompareScratchInput): Promise<RunEstimate> {
-    return this.previewComparisonsApi.estimateOcrScratch(file, input);
-  }
-
-  async compareTranscribeScratch(
-    file: File,
-    input: TranscribeCompareScratchInput,
-  ): Promise<PreviewStartResult> {
-    return this.actionPreviewRuns.registerStarted(await this.previewComparisonsApi.compareTranscribeScratch(file, input));
-  }
-
-  estimateTranscribeScratch(file: File, input: TranscribeCompareScratchInput): Promise<RunEstimate> {
-    return this.previewComparisonsApi.estimateTranscribeScratch(file, input);
-  }
-
-  async compareTopicSegmentationScratch(
-    file: File,
-    input: TopicSegmentationCompareScratchInput,
-  ): Promise<TopicSegmentationCompareScratchResult> {
-    return this.previewComparisonsApi.compareTopicSegmentationScratch(file, input);
-  }
-
-  async compareTranslateScratch(
-    input: TranslateCompareScratchInput,
-  ): Promise<TranslateCompareScratchResult> {
-    // Text-source: a JSON body, unlike ocr/transcribe's multipart — nothing
-    // uploads to the project (scratch bake-off, no blobs/sheets/rows). Billable
-    // engines (llm/deepl/google_translate) are REFUSED server-side and are not
-    // offered in the picker: compare is the free surface, so there is no
-    // allow_remote to send and no `model` (it only ever fed the llm engine).
-    return translateComparisonApi.compareTranslateScratch(this.requireProjectId(), input);
-  }
-
-  async getRunRows(
-    runId: string,
-    offset = 0,
-    limit = 20,
-    status?: 'error',
-  ): Promise<RunRowsPage> {
-    return getRunRowsContract(
-      this.requireProjectId(),
-      Number(runId),
-      { offset, limit, ...(status ? { status } : {}) },
-    );
-  }
-
-  getTextAnnotations(rowId: string, columnId: string, options?: import('./types').TextAnnotationsOptions): Promise<TextAnnotations> {
-    return this.projectEvidenceApi.getTextAnnotations(rowId, columnId, options);
-  }
-
-  getActionHistory(actionId: string, offset = 0, limit = 20) {
-    return this.actionHistory.getActionHistory(actionId, offset, limit);
-  }
-
-  getActionHistoryEntry(historyId: string) {
-    return this.actionHistory.getActionHistoryEntry(historyId);
-  }
-
-  async getColumnRuns(columnId: string, offset = 0, limit = 20): Promise<ColumnRunsInfo> {
-    const projectId = this.requireProjectId();
-    const result = await this.historyReview.getColumnRuns(columnId, offset, limit);
-    const selectedRun = result.latestRun
-      ?? result.currentRun
-      ?? result.runs.find((run) => run.current)
-      ?? result.runs[0];
-    if (selectedRun) {
-      this.actionRuns.rememberColumnRunInfo(projectId, columnId, {
-        runId: selectedRun.runId,
-        actionName: selectedRun.actionName,
-        prompt: promptFromRunSpec(selectedRun.spec),
-        model: selectedRun.model,
-      });
-    }
-    return result;
-  }
-
-  getReviewedRunRevision(columnId: string, runId: string): Promise<GeneratedActionDraft> {
-    return this.historyReview.getReviewedRunRevision(columnId, runId);
-  }
-
-  async getRunTraceRow(
-    runId: string,
-    rowId: string,
-    columnId?: string | null,
-  ): Promise<RunTraceRowEvidence> {
-    const projectId = this.requireProjectId();
-    return runProvenanceApi.getRunTraceRow(projectId, runId, rowId, columnId);
-  }
-
-  getCellEvidence(
-    rowId: string,
-    columnId: string,
-    opts?: { includeStale?: boolean },
-  ): Promise<CellEvidencePayload> {
-    return this.projectEvidenceApi.getCellEvidence(rowId, columnId, { includeStale: opts?.includeStale });
-  }
-
-  getRowSourceDocuments(
-    rowId: string,
-    opts?: { signal?: AbortSignal },
-  ): Promise<import('./types').RowSourceDocumentsPayload> {
-    return this.projectEvidenceApi.getRowSourceDocuments(rowId, { signal: opts?.signal });
-  }
-
-  getColumnEvidence(
-    sheetId: string,
-    columnId: string,
-    opts?: { rowIds?: readonly string[] },
-  ): Promise<ColumnEvidenceBatchPayload> {
-    return this.projectEvidenceApi.getColumnEvidence(sheetId, columnId, { rowIds: opts?.rowIds });
-  }
-
-  getEvidenceViewer(
-    evidenceLinkId: string | number,
-    options?: import('./types').EvidenceViewerReadOptions,
-  ): Promise<EvidenceViewerPayload> {
-    return this.projectEvidenceApi.getEvidenceViewer(evidenceLinkId, options);
-  }
-
-  async getProvenanceManifest(
-    runsOffset = 0,
-    runsLimit = 25,
-    receiptsOffset = 0,
-    receiptsLimit = 25,
-  ): Promise<ProvenanceManifest> {
-    const projectId = this.requireProjectId();
-    return runProvenanceApi.getProvenanceManifest(
-      projectId,
-      runsOffset,
-      runsLimit,
-      receiptsOffset,
-      receiptsLimit,
-    );
-  }
-
-  async getReceipt(
-    receiptId: string,
-    options?: ProjectInvocationOptions,
-  ): Promise<V1Receipt> {
-    const invocation = resolveRunActionInvocation(options, this.requireProjectId());
-    throwIfActionAborted(invocation.signal);
-    const receipt = await getReceiptContract(
-      invocation.projectId,
-      receiptId,
-      { signal: invocation.signal },
-    );
-    throwIfActionAborted(invocation.signal);
-    return receipt;
-  }
-
-  // ---- history ------------------------------------------------------------
-
-  async getHistory(offset?: number | null, limit = 50): Promise<HistoryState> {
-    return this.historyReview.getHistory(offset, limit);
-  }
-
-  async undo(): Promise<HistoryState> {
-    return this.historyReview.undo();
-  }
-
-  async redo(): Promise<HistoryState> {
-    return this.historyReview.redo();
-  }
-
-  async revertOperation(opId: string): Promise<HistoryState> {
-    return this.historyReview.revertOperation(opId);
-  }
-
-  async restoreOperation(opId: string): Promise<HistoryState> {
-    return this.historyReview.restoreOperation(opId);
-  }
-
-  async startPreview(req: ActionExecutionRequest): Promise<PreviewStartResult> {
-    const invocation = resolveRunActionInvocation(undefined, this.requireProjectId());
-    return this.actionPreviewRuns.start(req, invocation);
-  }
-
-  async getPreview(previewId: string): Promise<PreviewSampleResult> {
-    return this.actionPreviewRuns.get(previewId);
-  }
-
-  async cancelPreview(previewId: string): Promise<void> {
-    // Idempotent 204 on the server; a failed DELETE (already-gone job) is a no-op.
-    await this.actionPreviewRuns.cancel(previewId);
-  }
-
-  // ---- review queue ---------------------------------------------------------
-
-  async getReviewCount(runId?: string): Promise<number> {
-    return this.historyReview.getReviewCount(runId);
-  }
-
-  async getReviewBundles(
-    offset = 0,
-    limit = 25,
-    runId?: string,
-    includeReviewed = false,
-    options?: ReviewBundleOptions,
-  ): Promise<ReviewBundlePage> {
-    return this.historyReview.getReviewBundles(offset, limit, runId, includeReviewed, options);
-  }
-
-  async listReviewRuns(
-    offset = 0,
-    limit = 50,
-    options?: ReviewRunsOptions,
-  ): Promise<ReviewRunsPage> {
-    return this.historyReview.listReviewRuns(offset, limit, options);
-  }
-
-  async setReviewRunStatus(
-    runId: string,
-    status: ReviewRunStatus,
-  ): Promise<ReviewRunStatusResult> {
-    return this.historyReview.setReviewRunStatus(runId, status);
-  }
-
-  async setReviewNote(runId: string, rowId: string, note: string | null): Promise<void> {
-    return this.historyReview.setReviewNote(runId, rowId, note);
-  }
-
-  async reviewItem(
-    itemId: string,
-    action: ReviewAction,
-    editedValue?: CellValue,
-    note?: string | null,
-  ): Promise<void> {
-    return this.historyReview.reviewItem(itemId, action, editedValue, note);
-  }
+        return result;
+      },
+
+      async compareOcrScratch(
+        file: File,
+        input: OcrCompareScratchInput,
+      ): Promise<PreviewStartResult> {
+        return registerStartedPreview(await startOcrScratchComparison(file, input));
+      },
+
+      async compareTranscribeScratch(
+        file: File,
+        input: TranscribeCompareScratchInput,
+      ): Promise<PreviewStartResult> {
+        return registerStartedPreview(await startTranscribeScratchComparison(file, input));
+      },
+
+      projectExportUrl(includeMediaOrOptions?: Parameters<typeof projectExportUrl>[1]): string {
+        return projectExportUrl(projectId, includeMediaOrOptions);
+      },
+
+      sheetDatasetExportUrl(options: Parameters<typeof sheetDatasetExportUrl>[1]): string {
+        return sheetDatasetExportUrl(projectId, options);
+      },
+
+      workLogExportUrl(format?: Parameters<typeof workLogExportUrl>[1]): string {
+        return workLogExportUrl(projectId, format);
+      },
+
+      /** Browser download URL for a previously-exported artifact of the given format. */
+      embeddingExportArtifactUrl(indexId: string, format: string): string {
+        return embeddingExportArtifactUrl(projectId, indexId, format);
+      },
+
+      googleOAuthStartUrl,
+    },
+  );
 }
-
-const realApi = new RealApi();
-export const createProjectApi = (projectId: string): ProjectApiPort => new RealApi(projectId);

@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ProjectApiPort } from '../../src/api/ports';
+import type { ProjectApi } from '../../src/api/ports';
 import type { NotificationItem } from '../../src/api/types';
 import { NotificationsPanel } from '../../src/components/NotificationsPanel';
 import { NOTIFICATIONS_CHANGED_EVENT } from '../../src/components/notifications/useNotificationSummary';
@@ -28,7 +28,7 @@ function renderNotifications(items: NotificationItem[]) {
     unackNotification: vi.fn(),
   };
   const harness = createWorkspaceTestHarness({
-    projectId: 'notification-actions', api: { projectApi: projectApi as unknown as ProjectApiPort },
+    projectId: 'notification-actions', api: { projectApi: projectApi as unknown as ProjectApi },
   });
   harness.render(<NotificationsPanel />);
   return { ...harness, api: projectApi };

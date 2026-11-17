@@ -259,25 +259,24 @@ describe('embeddings generated HTTP contracts', () => {
     const api = createEmbeddingsApi(
       (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
+      'project one',
     );
 
-    await api.embeddingProviderCatalog('project one', {}, options);
+    await api.embeddingProviderCatalog({}, options);
     const providers = await api.embeddingProviderCatalog(
-      'project one',
       { modality: 'text', sourceColumnType: 'markdown' },
       options,
     );
-    const listed = await api.embeddingIndexes('project one', 3, options);
-    const exportResult = await api.exportEmbeddingIndex('project one', 'idx /☃', undefined, options);
+    const listed = await api.embeddingIndexes(3, options);
+    const exportResult = await api.exportEmbeddingIndex('idx /☃', undefined, options);
     const similar = await api.embeddingSimilarityPreview(
-      'project one',
       'idx_1',
       { terms: [{ text: 'needle', weight: 1 }], exclude: [{ text: 'hay', threshold: 0.5 }] },
       { limit: 10 },
       options,
     );
     const hybridResult = await api.embeddingHybridPreview(
-      'project one', 'idx_1', 3, 'needle', { limit: 10 }, options,
+      'idx_1', 3, 'needle', { limit: 10 }, options,
     );
 
     expect(providers[0]?.egress).toBe('local');
@@ -324,9 +323,9 @@ describe('embeddings generated HTTP contracts', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
     }, 409)));
-    const api = createEmbeddingsApi(errorFactory, { v1ActionSession: readOnlyV1ActionSession });
+    const api = createEmbeddingsApi(errorFactory, { v1ActionSession: readOnlyV1ActionSession }, 'project');
 
-    await expect(api.embeddingIndexes('project', 3)).rejects.toMatchObject({
+    await expect(api.embeddingIndexes(3)).rejects.toMatchObject({
       message: 'embedding failed', status: 409,
     });
     expect(errorFactory).toHaveBeenCalledWith(409, {
@@ -352,9 +351,10 @@ describe('embeddings generated HTTP contracts', () => {
     const api = createEmbeddingsApi(
       (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
+      'project',
     );
 
-    const [index] = await api.embeddingIndexes('project', 3);
+    const [index] = await api.embeddingIndexes(3);
 
     expect(index).toMatchObject({
       allowRemote: false,
@@ -382,14 +382,15 @@ describe('embeddings generated HTTP contracts', () => {
     const api = createEmbeddingsApi(
       (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
+      'project',
     );
 
-    await expect(api.embeddingIndexes('project', 3)).resolves.toMatchObject({
+    await expect(api.embeddingIndexes(3)).resolves.toMatchObject({
       0: { maxCostUsdPerRefresh: null, policyNeedsRepair: true },
     });
   });
 
-  it('normalizes the encoded project scope once before all RealApi embeddings contracts', async () => {
+  it('normalizes the encoded project scope once before all project API embeddings contracts', async () => {
     const requests: string[] = [];
     const responses = [catalog, indexes, exported, similarity, hybrid];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -414,7 +415,7 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
   });
 
-  it('uses the RealApi embeddings error mapper without exposing detail extras', async () => {
+  it('uses the project API embeddings error mapper without exposing detail extras', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
     }, 409)));

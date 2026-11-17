@@ -51,24 +51,6 @@ type EntityMentionSelectorWire =
   | EntityMentionDocumentsWire['selector']
   | EntityMentionOccurrencesWire['selector'];
 
-interface EntityMentionsApi {
-  preview(
-    projectId: string,
-    input: EntityMentionsPreviewInput,
-    options?: RequestOptions,
-  ): Promise<EntityMentionsPreview>;
-  documents(
-    projectId: string,
-    input: EntityMentionDocumentsInput,
-    options?: RequestOptions,
-  ): Promise<EntityMentionDocumentsPage>;
-  occurrences(
-    projectId: string,
-    input: EntityMentionOccurrencesInput,
-    options?: RequestOptions,
-  ): Promise<EntityMentionOccurrencesPage>;
-}
-
 function entityMentionSelector(
   selector: EntityMentionSelectorWire,
 ): EntityMentionSelector {
@@ -179,9 +161,22 @@ function mapPreview(
 
 export function createEntityMentionsApi(
   errorFactory: ContractErrorFactory,
-): EntityMentionsApi {
+  projectId: string,
+) {
   return {
-    preview(projectId, input, options = {}) {
+    /** Read-only fingerprint-grouped mention inventory for the Mentions panel
+     *  (POST /entity-mentions/v1/preview). The column must be a `json` column
+     *  marked `semantic_type='entity_mentions'` — an ineligible column is a
+     *  typed `column_not_entity_mentions` ApiError, never adapted at read time.
+     *  `search` is a case-insensitive substring match over every raw surface and
+     *  `type` a canonical entity type; both are applied server-side BEFORE
+     *  paging. limit/offset page WITHIN each type section (within the one type
+     *  when `type` is sent); limit defaults server-side to 100 (max 500),
+     *  offset to 0. */
+    async entityMentionsPreview(
+      input: EntityMentionsPreviewInput,
+      options: RequestOptions = {},
+    ): Promise<EntityMentionsPreview> {
       return httpContract(
         'tenant.entity_mentions_preview.post',
         {
@@ -201,7 +196,14 @@ export function createEntityMentionsApi(
       );
     },
 
-    documents(projectId, input, options = {}) {
+    /** The documents ONE normalized mention appears in, paged (POST
+     *  /entity-mentions/v1/documents). The SCOPED counterpart to
+     *  `entityMentionsPreview`: identity is exactly one of `fingerprint` or
+     *  `text`, matching the two selector kinds a mention group emits. */
+    async entityMentionDocuments(
+      input: EntityMentionDocumentsInput,
+      options: RequestOptions = {},
+    ): Promise<EntityMentionDocumentsPage> {
       return httpContract(
         'tenant.entity_mention_documents.post',
         {
@@ -222,7 +224,15 @@ export function createEntityMentionsApi(
       );
     },
 
-    occurrences(projectId, input, options = {}) {
+    /** Where inside ONE document a mention occurs, paged, with a text snippet
+     *  around each (POST /entity-mentions/v1/occurrences). Fetched LAZILY, only
+     *  for a document the reader expands: resolving every listed document's
+     *  occurrences up front is the cost R-snippet warns about. The identity is
+     *  the same exactly-one-of pair the documents route takes. */
+    async entityMentionOccurrences(
+      input: EntityMentionOccurrencesInput,
+      options: RequestOptions = {},
+    ): Promise<EntityMentionOccurrencesPage> {
       return httpContract(
         'tenant.entity_mention_occurrences.post',
         {

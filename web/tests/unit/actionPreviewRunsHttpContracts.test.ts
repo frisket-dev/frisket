@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  createActionPreviewDomainApi,
+  createActionPreviewApi,
   createActionPreviewRunsApi,
 } from '../../src/api/actionPreviewRuns';
 
@@ -44,13 +44,14 @@ describe('action-preview lifecycle HTTP contracts', () => {
       }),
     ];
     vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
-    const api = createActionPreviewDomainApi({
-      errorFactory: (status, payload) => new MappedContractError(status, payload),
-    }, 'project-one');
-    await api.start({ action_id: 'map.translate', scope: { kind: 'sheet_rows', sheet_id: 1 },
-      params: {}, output_names: {}, idempotency_key: 'preview-preparing' }, {});
+    const api = createActionPreviewApi(
+      (status, payload) => new MappedContractError(status, payload),
+      'project-one',
+    );
+    await api.startPreview({ action_id: 'map.translate', scope: { kind: 'sheet_rows', sheet_id: 1 },
+      params: {}, output_names: {}, idempotency_key: 'preview-preparing' });
 
-    await expect(api.get('preparing')).resolves.toMatchObject({
+    await expect(api.getPreview('preparing')).resolves.toMatchObject({
       status: 'running',
       progress: {
         done: 0,
@@ -70,12 +71,13 @@ describe('action-preview lifecycle HTTP contracts', () => {
       progress: { done: 0, total: 1 }, accounting,
     })];
     vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
-    const api = createActionPreviewDomainApi({
-      errorFactory: (code, payload) => new MappedContractError(code, payload),
-    }, 'project-one');
-    await api.start({ action_id: 'media.ocr', scope: { kind: 'project' },
-      params: {}, output_names: {}, idempotency_key: 'preview-paid' }, {});
-    await expect(api.get('paid')).resolves.toMatchObject({ status, accounting });
+    const api = createActionPreviewApi(
+      (code, payload) => new MappedContractError(code, payload),
+      'project-one',
+    );
+    await api.startPreview({ action_id: 'media.ocr', scope: { kind: 'project' },
+      params: {}, output_names: {}, idempotency_key: 'preview-paid' });
+    await expect(api.getPreview('paid')).resolves.toMatchObject({ status, accounting });
   });
   it('keeps source-free table records ordered and unknown totals null', async () => {
     const responses = [
@@ -88,13 +90,14 @@ describe('action-preview lifecycle HTTP contracts', () => {
         } }),
     ];
     vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
-    const api = createActionPreviewDomainApi({
-      errorFactory: (status, payload) => new MappedContractError(status, payload),
-    }, 'project-one');
-    await expect(api.start({ action_id: 'import.files', scope: { kind: 'project' },
-      params: {}, output_names: {}, sheet_name: 'Files', idempotency_key: 'sample' }, {}))
+    const api = createActionPreviewApi(
+      (status, payload) => new MappedContractError(status, payload),
+      'project-one',
+    );
+    await expect(api.startPreview({ action_id: 'import.files', scope: { kind: 'project' },
+      params: {}, output_names: {}, sheet_name: 'Files', idempotency_key: 'sample' }))
       .resolves.toEqual({ previewId: 'table', total: null });
-    const result = await api.get('table');
+    const result = await api.getPreview('table');
     expect(result).toMatchObject({ kind: 'table', progress: { done: 2, total: null },
       rows: [{ name: { value: 'Second' } }, { name: { value: 'First' } }], sampled: 2, total: null,
       warnings: ['Page image unavailable; text retained.'] });

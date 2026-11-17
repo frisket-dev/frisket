@@ -2,13 +2,7 @@ export {
   getGlobalActionCatalog,
   getProjectActionCatalog,
 } from './httpContractRoutes/catalog';
-export {
-  createProjectContract,
-  deleteProjectContract,
-  getProjectContract,
-  listProjectsContract,
-  updateProjectContract,
-} from './httpContractRoutes/projects';
+export { getProjectContract } from './httpContractRoutes/projects';
 export {
   getColumnStatsContract,
   deleteSheetContract,

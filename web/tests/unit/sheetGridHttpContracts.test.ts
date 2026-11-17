@@ -8,7 +8,7 @@ import {
   updateSheetContract,
 } from '../../src/api/httpContractRoutes';
 import { ApiError, createProjectApi } from '../../src/api/real';
-import { createSheetGridDomainApi } from '../../src/api/sheetGrid';
+import { createSheetGridApi } from '../../src/api/sheetGrid';
 import { createV1ActionSession } from '../../src/api/v1ActionSession';
 
 let realApi = createProjectApi('test-project');
@@ -328,7 +328,7 @@ describe('sheet and grid HTTP contracts', () => {
     await expect(request).rejects.toBe(abortError);
   });
 
-  it('RealApi decodes project once and preserves legacy rowIds scope precedence', async () => {
+  it('project API decodes project once and preserves legacy rowIds scope precedence', async () => {
     realApi = createProjectApi('tenant/a % hostile');
     const requests: Array<RequestInfo | URL> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
@@ -373,7 +373,7 @@ describe('sheet and grid HTTP contracts', () => {
     expect(viewUrl.searchParams.has('row_ids')).toBe(false);
   });
 
-  it('RealApi preserves empty rowIds and legacy message-only errors', async () => {
+  it('project API preserves empty rowIds and legacy message-only errors', async () => {
     realApi = createProjectApi('project-1');
     const requests: Array<RequestInfo | URL> = [];
     const responses = [
@@ -685,7 +685,7 @@ describe('sheet and grid HTTP contracts', () => {
         errors: [],
       });
     }));
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('grid-owner-project'),
     }, 'grid-owner-project');
@@ -720,7 +720,7 @@ describe('sheet and grid HTTP contracts', () => {
         receipt_id: null, outputs: [], errors: [],
       });
     }));
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('cell-edit-project'),
     }, 'cell-edit-project');
@@ -762,7 +762,7 @@ describe('sheet and grid HTTP contracts', () => {
         receipt_id: 'receipt-1', outputs: [], errors: [],
       });
     }));
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('replay-project'),
     }, 'replay-project');
@@ -795,7 +795,7 @@ describe('sheet and grid HTTP contracts', () => {
   it('rejects non-JSON nested row cell values before dispatch', async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('grid-json-project'),
     }, 'grid-json-project');
@@ -819,7 +819,7 @@ describe('sheet and grid HTTP contracts', () => {
         errors: [],
       });
     }));
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('grid-json-project'),
     }, 'grid-json-project');
@@ -948,7 +948,7 @@ describe('sheet and grid HTTP contracts', () => {
       prompt: 'Remembered prompt',
       model: 'remembered-model',
     }));
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo,
       v1ActionSession: createV1ActionSession('project-a'),
     }, 'project-a');
@@ -1022,7 +1022,7 @@ describe('sheet and grid HTTP contracts', () => {
         }],
       });
     }));
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('project-a'),
     }, 'project-a');
@@ -1085,7 +1085,7 @@ describe('sheet and grid HTTP contracts', () => {
         child_count: 0,
       }],
     })));
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo: () => ({ runId: cachedRunId, actionName: 'Cached action', prompt: '', model: `cached-${cachedRunId}` }),
       v1ActionSession: createV1ActionSession('mixed-project'),
     }, 'mixed-project');
@@ -1111,18 +1111,18 @@ describe('sheet and grid HTTP contracts', () => {
     }]);
   });
 
-  it('resolves a column through the domain composite and preserves the local 404', async () => {
+  it('resolves an unpatched column through the sheet list and preserves the local 404', async () => {
     const responses = [sheetListWire, sheetListWire];
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(responses.shift())));
-    const api = createSheetGridDomainApi({
+    const api = createSheetGridApi({
       columnRunInfo: () => undefined,
       v1ActionSession: createV1ActionSession('project-a'),
     }, 'project-a');
 
-    await expect(api.getColumnById('9')).resolves.toMatchObject({
+    await expect(api.updateColumn('9', {})).resolves.toMatchObject({
       id: '9', name: 'Title', type: 'text', width: 240,
     });
-    await expect(api.getColumnById('404')).rejects.toMatchObject({
+    await expect(api.updateColumn('404', {})).rejects.toMatchObject({
       name: 'ApiError', status: 404, message: 'Column 404 was not found',
     });
   });

@@ -37,7 +37,7 @@ describe('runtime projection artifact HTTP contract', () => {
     }));
     const errorFactory = vi.fn((status: number) => new Error(`status ${status}`));
     const controller = new AbortController();
-    await expect(createRuntimeProjectionsApi(errorFactory, 'project /%?☃').artifact({
+    await expect(createRuntimeProjectionsApi(errorFactory, 'project /%?☃').readRuntimeProjectionArtifact({
       projectionKind: 'timeline', artifactId: 'artifact-1', target: { sheetId: 'sheet-1' },
       params: { includeFuture: true },
     }, {
@@ -73,7 +73,7 @@ describe('runtime projection artifact HTTP contract', () => {
     const fetch = vi.fn(async () => jsonResponse({ detail: `failure ${status}` }, status));
     vi.stubGlobal('fetch', fetch);
     const errorFactory = vi.fn((received: number) => new Error(`status ${received}`));
-    await expect(createRuntimeProjectionsApi(errorFactory, 'project /%?☃').artifact({
+    await expect(createRuntimeProjectionsApi(errorFactory, 'project /%?☃').readRuntimeProjectionArtifact({
       projectionKind: 'timeline', artifactId: 'artifact-1', target: { sheetId: 'sheet-1' },
     })).rejects.toThrow(`status ${status}`);
 
@@ -89,7 +89,7 @@ describe('runtime projection artifact HTTP contract', () => {
     await expect(createRuntimeProjectionsApi(
       () => new Error('HTTP error'),
       'project /%?☃',
-    ).artifact({
+    ).readRuntimeProjectionArtifact({
       projectionKind: 'timeline', artifactId: 'artifact-1', target: { sheetId: 'sheet-1' },
     })).rejects.toThrow('Invalid runtime projection artifact');
   });

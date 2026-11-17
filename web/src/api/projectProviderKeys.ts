@@ -5,40 +5,15 @@ import type {
   ProviderValidateResult,
 } from './types';
 
-interface ProjectProviderKeysApi {
-  getProjectProviderKeys(
-    projectId: string,
-    options?: RequestOptions,
-  ): Promise<ProjectProviderKeys>;
-  setProjectProviderKey(
-    projectId: string,
-    provider: string,
-    key: string,
-    spendCapUsd?: number | null,
-    validationToken?: string | null,
-    options?: RequestOptions,
-  ): Promise<ProjectProviderKeys>;
-  validateProjectProviderKey(
-    projectId: string,
-    provider: string,
-    key?: string,
-    options?: RequestOptions,
-  ): Promise<ProviderValidateResult>;
-  deleteProjectProviderKey(
-    projectId: string,
-    provider: string,
-    options?: RequestOptions,
-  ): Promise<{ ok: boolean; deleted: boolean; provider: string }>;
-}
-
 type SetRequest = HttpContractOperationMap['tenant.set_project_provider_key.post']['request'];
 type ValidateRequest = HttpContractOperationMap['tenant.validate_project_provider_key.post']['request'];
 
 export function createProjectProviderKeysApi(
+  projectId: string,
   errorFactory?: ContractErrorFactory,
-): ProjectProviderKeysApi {
+) {
   return {
-    getProjectProviderKeys(projectId, options = {}) {
+    async getProjectProviderKeys(options: RequestOptions = {}): Promise<ProjectProviderKeys> {
       return httpContract(
         'tenant.get_project_provider_keys.get',
         {
@@ -49,7 +24,13 @@ export function createProjectProviderKeysApi(
       );
     },
 
-    setProjectProviderKey(projectId, provider, key, spendCapUsd, validationToken, options = {}) {
+    async setProjectProviderKey(
+      provider: string,
+      key: string,
+      spendCapUsd?: number | null,
+      validationToken?: string | null,
+      options: RequestOptions = {},
+    ): Promise<ProjectProviderKeys> {
       const body = {
         provider,
         key,
@@ -67,7 +48,11 @@ export function createProjectProviderKeysApi(
       );
     },
 
-    validateProjectProviderKey(projectId, provider, key, options = {}) {
+    async validateProjectProviderKey(
+      provider: string,
+      key?: string,
+      options: RequestOptions = {},
+    ): Promise<ProviderValidateResult> {
       const body = {
         provider,
         ...(key ? { key } : {}),
@@ -83,7 +68,10 @@ export function createProjectProviderKeysApi(
       );
     },
 
-    deleteProjectProviderKey(projectId, provider, options = {}) {
+    async deleteProjectProviderKey(
+      provider: string,
+      options: RequestOptions = {},
+    ): Promise<{ ok: boolean; deleted: boolean; provider: string }> {
       return httpContract(
         'tenant.delete_project_provider_key.delete',
         {

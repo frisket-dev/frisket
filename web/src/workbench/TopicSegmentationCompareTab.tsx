@@ -14,7 +14,7 @@ import {
   Plus,
 } from 'lucide-react';
 
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type {
   TopicSegmentationCompareEngineResult,
@@ -78,7 +78,7 @@ function firstDoneResult(
   return null;
 }
 
-function createTopicConfig(api: ProjectApiPort): MediaCompareConfig<TopicCompareColumnResult> {
+function createTopicConfig(api: ProjectApi): MediaCompareConfig<TopicCompareColumnResult> {
   return {
   selectorActionId: 'map.find_topic_sections',
   testidPrefix: TESTID,

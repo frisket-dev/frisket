@@ -1,20 +1,6 @@
 import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type { MediaProxyStatus, OrgEnvInfo } from './types';
 
-interface OrganizationOperationsApi {
-  listOrgEnvVars(options?: RequestOptions): Promise<OrgEnvInfo[]>;
-  setOrgEnvVar(
-    name: string,
-    value: string,
-    options?: RequestOptions,
-  ): Promise<void>;
-  deleteOrgEnvVar(
-    name: string,
-    options?: RequestOptions,
-  ): Promise<void>;
-  getMediaProxyStatus(options?: RequestOptions): Promise<MediaProxyStatus>;
-}
-
 type OrganizationEnvSaveWire =
   HttpContractSuccessResponse<'outer.set_org_env_var.post'>;
 type OrganizationEnvDeleteWire =
@@ -38,10 +24,9 @@ function mapMediaStatus(wire: OrganizationMediaProxyStatusWire): MediaProxyStatu
   };
 }
 
-export function createOrganizationOperationsApi(
-): OrganizationOperationsApi {
+export function createOrganizationOperationsApi() {
   return {
-    listOrgEnvVars(options = {}) {
+    listOrgEnvVars(options: RequestOptions = {}): Promise<OrgEnvInfo[]> {
       return httpContract(
         'outer.list_org_env_vars.get',
         {
@@ -50,7 +35,7 @@ export function createOrganizationOperationsApi(
       );
     },
 
-    setOrgEnvVar(name, value, options = {}) {
+    setOrgEnvVar(name: string, value: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         'outer.set_org_env_var.post',
         {
@@ -61,7 +46,7 @@ export function createOrganizationOperationsApi(
       );
     },
 
-    deleteOrgEnvVar(name, options = {}) {
+    deleteOrgEnvVar(name: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         'outer.delete_org_env_var.delete',
         {
@@ -72,7 +57,9 @@ export function createOrganizationOperationsApi(
       );
     },
 
-    getMediaProxyStatus(options = {}) {
+    /** Egress-proxy status for the youtube_provider_blocked remediation card.
+     *  Local tier (no org identity) 404s — callers branch on ApiError.status. */
+    getMediaProxyStatus(options: RequestOptions = {}): Promise<MediaProxyStatus> {
       return httpContract(
         'outer.org_media_proxy_status.get',
         {

@@ -2,18 +2,6 @@ import type { HttpContractSuccessResponse } from "./httpContract";
 import { httpContract, type RequestOptions } from "./httpContract";
 import type { HealthStatus, InstanceIdentity, RuntimeConfig } from "./types";
 
-interface InstanceRuntimeApi {
-  getRuntimeConfig(options?: RequestOptions): Promise<RuntimeConfig>;
-  updateRuntimeConfig(
-    cacheMode: RuntimeConfig['cache_mode'] | undefined,
-    confirmed: boolean,
-    costPreapprovalUsd?: string,
-    options?: RequestOptions,
-  ): Promise<RuntimeConfig>;
-  getHealth(options?: RequestOptions): Promise<HealthStatus>;
-  getInstanceInfo(options?: RequestOptions): Promise<InstanceIdentity>;
-}
-
 type RuntimeConfigWire = HttpContractSuccessResponse<"tenant.runtime_config.get">;
 type RuntimeConfigUpdateWire = HttpContractSuccessResponse<"tenant.update_runtime_config.patch">;
 type HealthWire = HttpContractSuccessResponse<"tenant.health.get">;
@@ -36,10 +24,9 @@ function mapHealth(wire: HealthWire): HealthStatus {
   };
 }
 
-export function createInstanceRuntimeApi(
-): InstanceRuntimeApi {
+export function createInstanceRuntimeApi() {
   return {
-    getRuntimeConfig(options = {}) {
+    getRuntimeConfig(options: RequestOptions = {}): Promise<RuntimeConfig> {
       return httpContract(
         "tenant.runtime_config.get",
         {
@@ -49,7 +36,12 @@ export function createInstanceRuntimeApi(
       );
     },
 
-    updateRuntimeConfig(cacheMode, confirmed, costPreapprovalUsd, options = {}) {
+    updateRuntimeConfig(
+      cacheMode: RuntimeConfig['cache_mode'] | undefined,
+      confirmed: boolean,
+      costPreapprovalUsd?: string,
+      options: RequestOptions = {},
+    ): Promise<RuntimeConfig> {
       return httpContract(
         "tenant.update_runtime_config.patch",
         {
@@ -64,7 +56,7 @@ export function createInstanceRuntimeApi(
       );
     },
 
-    getHealth(options = {}) {
+    getHealth(options: RequestOptions = {}): Promise<HealthStatus> {
       return httpContract(
         "tenant.health.get",
         {
@@ -74,7 +66,7 @@ export function createInstanceRuntimeApi(
       );
     },
 
-    getInstanceInfo(options = {}) {
+    getInstanceInfo(options: RequestOptions = {}): Promise<InstanceIdentity> {
       return httpContract(
         "outer.instance_info.get",
         {

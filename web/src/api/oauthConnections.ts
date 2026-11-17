@@ -1,13 +1,6 @@
 import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type { OAuthConnectionInfo } from './types';
 
-interface OAuthConnectionsApi {
-  listOAuthConnections(
-    provider?: string,
-    options?: RequestOptions,
-  ): Promise<OAuthConnectionInfo[]>;
-}
-
 type OAuthConnectionListWire =
   HttpContractSuccessResponse<'outer.list_oauth_connections.get'>;
 
@@ -19,10 +12,12 @@ function mapOAuthConnectionList(wire: OAuthConnectionListWire): OAuthConnectionI
   }));
 }
 
-export function createOAuthConnectionsApi(
-): OAuthConnectionsApi {
+export function createOAuthConnectionsApi() {
   return {
-    listOAuthConnections(provider, options = {}) {
+    listOAuthConnections(
+      provider?: string,
+      options: RequestOptions = {},
+    ): Promise<OAuthConnectionInfo[]> {
       return httpContract(
         'outer.list_oauth_connections.get',
         {

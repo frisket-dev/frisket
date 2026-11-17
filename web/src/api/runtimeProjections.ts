@@ -15,21 +15,6 @@ import type {
 
 type RuntimeProjectionArtifactWire =
   HttpContractSuccessResponse<'tenant.runtime_projection_artifact.post'>;
-interface RuntimeProjectionsApi {
-  status(
-    input: RuntimeProjectionStatusRequest,
-    options?: RequestOptions,
-  ): Promise<RuntimeProjectionStatus>;
-  build(
-    input: RuntimeProjectionBuildRequest,
-    options?: RequestOptions,
-  ): Promise<RuntimeProjectionBuildPlan>;
-  artifact(
-    input: RuntimeProjectionArtifactRequest,
-    options?: RequestOptions,
-  ): Promise<TimelineProjectionArtifact>;
-}
-
 function artifactResponse(wire: RuntimeProjectionArtifactWire): TimelineProjectionArtifact {
   const root = requiredObject(wire, 'response');
   const schemaVersion = requiredString(root.schemaVersion, 'schemaVersion');
@@ -149,9 +134,12 @@ function requiredRowId(value: unknown, field: string): string | number {
 export function createRuntimeProjectionsApi(
   errorFactory: ContractErrorFactory,
   projectId: string,
-): RuntimeProjectionsApi {
+) {
   return {
-    status(input, options = {}) {
+    async getRuntimeProjectionStatus(
+      input: RuntimeProjectionStatusRequest,
+      options: RequestOptions = {},
+    ): Promise<RuntimeProjectionStatus> {
       return httpContract(
         'tenant.runtime_projection_status.post',
         {
@@ -163,7 +151,10 @@ export function createRuntimeProjectionsApi(
       );
     },
 
-    build(input, options = {}) {
+    async buildRuntimeProjection(
+      input: RuntimeProjectionBuildRequest,
+      options: RequestOptions = {},
+    ): Promise<RuntimeProjectionBuildPlan> {
       return httpContract(
         'tenant.runtime_projection_build.post',
         {
@@ -175,7 +166,10 @@ export function createRuntimeProjectionsApi(
       );
     },
 
-    artifact(input, options = {}) {
+    async readRuntimeProjectionArtifact(
+      input: RuntimeProjectionArtifactRequest,
+      options: RequestOptions = {},
+    ): Promise<TimelineProjectionArtifact> {
       return httpContract(
         'tenant.runtime_projection_artifact.post',
         {

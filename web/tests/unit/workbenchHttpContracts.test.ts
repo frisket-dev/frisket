@@ -137,8 +137,9 @@ describe('workbench plugin generated HTTP contracts', () => {
     }));
     const controller = new AbortController();
     const options = { signal: controller.signal };
-    const api = createWorkbenchPluginsApi((status, payload) =>
-      Object.assign(new Error('workbench failed'), { status, payload }),
+    const api = createWorkbenchPluginsApi(
+      (status, payload) => Object.assign(new Error('workbench failed'), { status, payload }),
+      'project one',
     );
     const pluginId = 'plug /☃';
     const activateInput = {
@@ -146,17 +147,17 @@ describe('workbench plugin generated HTTP contracts', () => {
       permissionsAccepted: ['plugin:trusted_local_backend'], arbitraryPackageLoadAllowed: false,
     };
 
-    await api.getSettings('project one', pluginId, options);
-    await api.patchSettings('project one', pluginId, { 'plug.mode': 'detail' }, options);
-    const localInstall = await api.installLocal('project one', {
+    await api.getWorkbenchPluginSettings(pluginId, options);
+    await api.patchWorkbenchPluginSettings(pluginId, { 'plug.mode': 'detail' }, options);
+    const localInstall = await api.installLocalWorkbenchPlugin({
       pluginId, source: { kind: 'localPath', value: '/plugins/plug' }, arbitraryPackageLoadAllowed: false,
     }, options);
-    await api.activate('project one', activateInput, options);
-    const backendActivation = await api.activateBackend('project one', {
+    await api.activateWorkbenchPlugin(activateInput, options);
+    const backendActivation = await api.activateWorkbenchPluginBackend({
       pluginId, trustAcknowledged: true, arbitraryPackageLoadAllowed: false, executableHandlersAllowed: true,
     }, options);
-    const disabled = await api.disable('project one', pluginId, options);
-    await api.uninstall('project one', pluginId, options);
+    const disabled = await api.disableWorkbenchPlugin(pluginId, options);
+    await api.uninstallWorkbenchPlugin(pluginId, options);
 
     expect(localInstall).toMatchObject({
       source: { submittedPath: '/plugins/plug' },

@@ -21,26 +21,6 @@ type ProjectSourceDetailWire =
 type ProjectSourceHealthWire =
   HttpContractSuccessResponse<'tenant.get_source_health_ep.get'>;
 
-interface ProjectSourcesApi {
-  listSources(options?: RequestOptions): Promise<SourceInfo[]>;
-  getSource(
-    sourceId: number,
-    runsOffset?: number | null,
-    runsLimit?: number,
-    options?: RequestOptions,
-  ): Promise<SourceDetail>;
-  getSourceHealth(
-    sourceId: number,
-    runsOffset?: number | null,
-    runsLimit?: number,
-    options?: RequestOptions,
-  ): Promise<SourceHealth>;
-  createSource(input: SourceInput): Promise<SourceInfo>;
-  updateSource(sourceId: number, patch: Partial<SourceInput>): Promise<SourceInfo>;
-  deleteSource(sourceId: number): Promise<void>;
-  fetchSource(sourceId: number): Promise<SourceFetchResult>;
-}
-
 interface ProjectSourcesApiDependencies {
   v1ActionSession: V1ActionSession;
 }
@@ -283,11 +263,10 @@ function toSourceUpdatePatch(input: Partial<SourceInput>): SourceUpdatePatch {
   return out;
 }
 
-export function createProjectSourcesApi({
-  v1ActionSession,
-}: ProjectSourcesApiDependencies, projectId: string): ProjectSourcesApi {
+export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesApiDependencies, projectId: string) {
   return {
-    async listSources(options = {}) {
+    /** All configured sources for the project (empty when none). */
+    async listSources(options: RequestOptions = {}): Promise<SourceInfo[]> {
       const wire = await httpContract(
         'tenant.list_sources.get',
         {
@@ -298,7 +277,13 @@ export function createProjectSourcesApi({
       return wire.map(toSourceInfo);
     },
 
-    async getSource(sourceId, runsOffset, runsLimit = 50, options = {}) {
+    /** One source with its recent poll history. */
+    async getSource(
+      sourceId: number,
+      runsOffset?: number | null,
+      runsLimit = 50,
+      options: RequestOptions = {},
+    ): Promise<SourceDetail> {
       const wire = await httpContract(
         'tenant.get_source_ep.get',
         {
@@ -317,7 +302,13 @@ export function createProjectSourcesApi({
       };
     },
 
-    async getSourceHealth(sourceId, runsOffset, runsLimit = 20, options = {}) {
+    /** Redacted operational health for one source. */
+    async getSourceHealth(
+      sourceId: number,
+      runsOffset?: number | null,
+      runsLimit = 20,
+      options: RequestOptions = {},
+    ): Promise<SourceHealth> {
       const wire = await httpContract(
         'tenant.get_source_health_ep.get',
         {
@@ -332,7 +323,7 @@ export function createProjectSourcesApi({
       return toSourceHealth(wire);
     },
 
-    async createSource(input) {
+    async createSource(input: SourceInput): Promise<SourceInfo> {
       const params = toSourceCreateParams(input);
       const spec = v1ActionSession.registeredProjectActionSpec('source.create', params);
       return v1ActionSession.withV1ActionResult(spec, (out) => {
@@ -346,7 +337,7 @@ export function createProjectSourcesApi({
       }, { clearIdempotency: 'finally' });
     },
 
-    async updateSource(sourceId, patch) {
+    async updateSource(sourceId: number, patch: Partial<SourceInput>): Promise<SourceInfo> {
       const params: SourceUpdateParams = {
         source_id: sourceId,
         patch: toSourceUpdatePatch(patch),
@@ -363,7 +354,7 @@ export function createProjectSourcesApi({
       }, { clearIdempotency: 'finally' });
     },
 
-    async deleteSource(sourceId) {
+    async deleteSource(sourceId: number): Promise<void> {
       const params: SourceDeleteParams = { source_id: sourceId };
       const spec = v1ActionSession.registeredProjectActionSpec('source.delete', params);
       await v1ActionSession.withV1ActionResult(
@@ -373,7 +364,9 @@ export function createProjectSourcesApi({
       );
     },
 
-    async fetchSource(sourceId) {
+    /** Manual "fetch now" through generic source.poll. Rejects on ingest failure;
+     *  the failed poll is still recorded in the source's run history. */
+    async fetchSource(sourceId: number): Promise<SourceFetchResult> {
       if (!Number.isInteger(sourceId) || sourceId <= 0) {
         throw new ApiError(400, `Source ${sourceId} is not a valid v1 source ref`);
       }

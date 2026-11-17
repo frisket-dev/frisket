@@ -24,73 +24,9 @@ type AtLeastOne<T, Keys extends keyof T = keyof T> = Keys extends keyof T
 
 export type LocalEndpointPatch = AtLeastOne<Omit<LocalEndpointInput, "origin">>;
 
-interface LocalProvidersApi {
-  listProviders(
-    projectId?: string,
-    options?: RequestOptions,
-  ): Promise<LocalProviderCatalog>;
-  providerStatus(
-    provider: string,
-    options?: RequestOptions,
-  ): Promise<LocalProviderEntry>;
-  setProviderKey(
-    provider: string,
-    key: string,
-    validationToken?: string | null,
-    options?: RequestOptions,
-  ): Promise<LocalProviderCatalog>;
-  deleteProviderKey(
-    provider: string,
-    options?: RequestOptions,
-  ): Promise<LocalProviderCatalog>;
-  createLocalEndpoint(
-    input: LocalEndpointInput,
-    options?: RequestOptions,
-  ): Promise<LocalProviderCatalog>;
-  discoverLocalEndpoints(
-    options?: RequestOptions,
-  ): Promise<LocalEndpointDiscoveryResponse>;
-  updateLocalEndpoint(
-    endpointId: string,
-    patch: LocalEndpointPatch,
-    options?: RequestOptions,
-  ): Promise<LocalProviderCatalog>;
-  deleteLocalEndpoint(
-    endpointId: string,
-    options?: RequestOptions,
-  ): Promise<LocalProviderCatalog>;
-  listModelPulls(
-    options?: RequestOptions,
-  ): Promise<{ pulls: ModelPullDto[] }>;
-  getModelPull(
-    id: number,
-    options?: RequestOptions,
-  ): Promise<ModelPullDto>;
-  cancelModelPull(
-    id: number,
-    options?: RequestOptions,
-  ): Promise<ModelPullDto>;
-  startArtifactPull(
-    ref: string,
-    unpinnedAcknowledged?: boolean,
-    options?: RequestOptions,
-  ): Promise<ModelPullStartResult>;
-  uninstallArtifact(
-    ref: string,
-    options?: RequestOptions,
-  ): Promise<ModelPullDto>;
-  validateProviderKey(
-    provider: string,
-    key?: string,
-    options?: RequestOptions,
-  ): Promise<ProviderValidateResult>;
-}
-
-export function createLocalProvidersApi(
-  errorFactory?: ContractErrorFactory,
-): LocalProvidersApi {
+export function createLocalProvidersApi(errorFactory?: ContractErrorFactory) {
   return {
-    listProviders(projectId, options = {}) {
+    listProviders(projectId?: string, options: RequestOptions = {}): Promise<LocalProviderCatalog> {
       return httpContract(
         "tenant.list_providers.get",
         {
@@ -101,7 +37,7 @@ export function createLocalProvidersApi(
       );
     },
 
-    providerStatus(provider, options = {}) {
+    providerStatus(provider: string, options: RequestOptions = {}): Promise<LocalProviderEntry> {
       return httpContract(
         "tenant.provider_status.get",
         {
@@ -112,7 +48,12 @@ export function createLocalProvidersApi(
       );
     },
 
-    setProviderKey(provider, key, validationToken, options = {}) {
+    setProviderKey(
+      provider: string,
+      key: string,
+      validationToken?: string | null,
+      options: RequestOptions = {},
+    ): Promise<LocalProviderCatalog> {
       return httpContract(
         "tenant.set_provider_key.put",
         {
@@ -124,7 +65,10 @@ export function createLocalProvidersApi(
       );
     },
 
-    deleteProviderKey(provider, options = {}) {
+    deleteProviderKey(
+      provider: string,
+      options: RequestOptions = {},
+    ): Promise<LocalProviderCatalog> {
       return httpContract(
         "tenant.delete_provider_key.delete",
         {
@@ -135,7 +79,10 @@ export function createLocalProvidersApi(
       );
     },
 
-    createLocalEndpoint(input, options = {}) {
+    createLocalEndpoint(
+      input: LocalEndpointInput,
+      options: RequestOptions = {},
+    ): Promise<LocalProviderCatalog> {
       return httpContract(
         "tenant.create_local_endpoint.post",
         {
@@ -146,7 +93,7 @@ export function createLocalProvidersApi(
       );
     },
 
-    discoverLocalEndpoints(options = {}) {
+    discoverLocalEndpoints(options: RequestOptions = {}): Promise<LocalEndpointDiscoveryResponse> {
       return httpContract(
         "tenant.discover_local_endpoints.post",
         {
@@ -156,7 +103,11 @@ export function createLocalProvidersApi(
       );
     },
 
-    updateLocalEndpoint(endpointId, patch, options = {}) {
+    updateLocalEndpoint(
+      endpointId: string,
+      patch: LocalEndpointPatch,
+      options: RequestOptions = {},
+    ): Promise<LocalProviderCatalog> {
       return httpContract(
         "tenant.update_local_endpoint.patch",
         {
@@ -168,7 +119,10 @@ export function createLocalProvidersApi(
       );
     },
 
-    deleteLocalEndpoint(endpointId, options = {}) {
+    deleteLocalEndpoint(
+      endpointId: string,
+      options: RequestOptions = {},
+    ): Promise<LocalProviderCatalog> {
       return httpContract(
         "tenant.delete_local_endpoint.delete",
         {
@@ -179,7 +133,7 @@ export function createLocalProvidersApi(
       );
     },
 
-    listModelPulls(options = {}) {
+    listModelPulls(options: RequestOptions = {}): Promise<{ pulls: ModelPullDto[] }> {
       return httpContract(
         "tenant.list_model_pulls.get",
         {
@@ -189,7 +143,7 @@ export function createLocalProvidersApi(
       );
     },
 
-    getModelPull(id, options = {}) {
+    getModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         "tenant.get_model_pull.get",
         {
@@ -200,7 +154,7 @@ export function createLocalProvidersApi(
       ).then((pull) => observeSetup('workspace', pull));
     },
 
-    cancelModelPull(id, options = {}) {
+    cancelModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         "tenant.cancel_model_pull.post",
         {
@@ -211,7 +165,11 @@ export function createLocalProvidersApi(
       );
     },
 
-    startArtifactPull(ref, unpinnedAcknowledged = false, options = {}) {
+    startArtifactPull(
+      ref: string,
+      unpinnedAcknowledged = false,
+      options: RequestOptions = {},
+    ): Promise<ModelPullStartResult> {
       return trackSetupSubmission('workspace', 'model', httpContract(
         "tenant.pull_artifact.post",
         {
@@ -222,7 +180,7 @@ export function createLocalProvidersApi(
       ));
     },
 
-    uninstallArtifact(ref, options = {}) {
+    uninstallArtifact(ref: string, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         "tenant.uninstall_artifact.post",
         {
@@ -233,7 +191,11 @@ export function createLocalProvidersApi(
       );
     },
 
-    validateProviderKey(provider, key, options = {}) {
+    validateProviderKey(
+      provider: string,
+      key?: string,
+      options: RequestOptions = {},
+    ): Promise<ProviderValidateResult> {
       return httpContract(
         "tenant.validate_provider_key.post",
         {

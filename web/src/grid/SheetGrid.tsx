@@ -49,7 +49,7 @@ import {
   type SheetDataOptions,
   type SheetMeta,
 } from '../api/open';
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import {
   audioMedia,
@@ -647,7 +647,7 @@ function useNativeColumnGroups(
   storageScope: string,
   version: number | undefined,
   changeSink: ColumnGroupChangeSink,
-  api: ProjectApiPort,
+  api: ProjectApi,
 ): NativeColumnGroupsState {
   const groups = useMemo(
     () => buildColumnGroups(sheet.columns, sheet.documentTextColumnIds),

@@ -11,7 +11,7 @@ import type {
   SheetMeta,
   V1Receipt,
 } from '../../src/api/types';
-import type { ProjectApiPort } from '../../src/api/ports';
+import type { ProjectApi } from '../../src/api/ports';
 
 
 import { ProjectExportModals } from '../../src/components/TopNav';
@@ -25,7 +25,7 @@ const { render } = createWorkspaceTestHarness({
   projectId: projectA.id,
   api: { projectApi: api },
 });
-const projectApi = {} as unknown as ProjectApiPort;
+const projectApi = {} as unknown as ProjectApi;
 const currentSheet: SheetMeta = {
   id: '7',
   name: 'Source data',

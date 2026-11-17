@@ -1,19 +1,16 @@
 import { httpContract, type RequestOptions } from './httpContract';
 import type { AttemptReceiptsPage } from './types';
 
-interface ProjectAttemptsApi {
-  listAttemptReceipts(
-    projectId: string,
-    runId?: number | string | null,
-    limit?: number,
-    options?: RequestOptions,
-  ): Promise<AttemptReceiptsPage>;
-}
-
-export function createProjectAttemptsApi(
-): ProjectAttemptsApi {
+export function createProjectAttemptsApi(projectId: string) {
   return {
-    listAttemptReceipts(projectId, runId, limit = 25, options = {}) {
+    /** Attempt receipts for this project, newest first. `runId` narrows to one
+     *  run; omitting it is the ONLY way to reach a compaction-orphaned attempt,
+     *  whose `run_id` is null by design. */
+    async listAttemptReceipts(
+      runId?: number | string | null,
+      limit = 25,
+      options: RequestOptions = {},
+    ): Promise<AttemptReceiptsPage> {
       return httpContract(
         'tenant.project_attempts.get',
         {

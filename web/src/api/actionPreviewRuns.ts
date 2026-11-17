@@ -1,6 +1,6 @@
 import type { HttpActionPreviewRunRequest } from '../generated/openHttpContracts';
 import { httpContract, type HttpContractSuccessResponse, type ContractErrorFactory } from './httpContract';
-import { type ResolvedRunActionInvocation } from './v1ActionSession';
+import { resolveRunActionInvocation } from './v1ActionSession';
 import type {
   ActionExecutionRequest,
   CellValue,
@@ -23,37 +23,10 @@ export type ActionPreviewStartWire =
 export type ActionPreviewStatusWire =
   HttpContractSuccessResponse<'tenant.v1_action_preview_status.get'>;
 
-interface ActionPreviewRunsApi {
-  registerStarted(previewId: string): void;
-  start(
-    action: ActionPreviewRunRequest,
-    options?: ActionPreviewRunOptions,
-  ): Promise<ActionPreviewStartWire>;
-  get(
-    previewId: string,
-    options?: ActionPreviewRunOptions,
-  ): Promise<ActionPreviewStatusWire>;
-  cancel(previewId: string, options?: ActionPreviewRunOptions): Promise<void>;
-}
-
-interface ActionPreviewDomainDependencies {
-  errorFactory: ContractErrorFactory;
-}
-
-interface ActionPreviewDomainApi {
-  registerStarted(start: ActionPreviewStartWire): PreviewStartResult;
-  start(
-    request: ActionExecutionRequest,
-    invocation: ResolvedRunActionInvocation,
-  ): Promise<PreviewStartResult>;
-  get(previewId: string): Promise<PreviewSampleResult>;
-  cancel(previewId: string): Promise<void>;
-}
-
 export function createActionPreviewRunsApi(
   errorFactory: ContractErrorFactory,
   defaultProjectId: string,
-): ActionPreviewRunsApi {
+) {
   const projectsByPreviewId = new Map<string, string>();
   const previewNotFound = () => errorFactory(400, {
     schema_version: 'frisket.action_preview.v1',
@@ -69,10 +42,13 @@ export function createActionPreviewRunsApi(
   });
 
   return {
-    registerStarted(previewId) {
+    registerStarted(previewId: string): void {
       projectsByPreviewId.set(previewId, defaultProjectId);
     },
-    async start(action, options = {}) {
+    async start(
+      action: ActionPreviewRunRequest,
+      options: ActionPreviewRunOptions = {},
+    ): Promise<ActionPreviewStartWire> {
       const projectId = options.projectId ?? defaultProjectId;
       const start = await httpContract(
         'tenant.v1_action_preview_start.post',
@@ -87,7 +63,10 @@ export function createActionPreviewRunsApi(
       return start;
     },
 
-    async get(previewId, options = {}) {
+    async get(
+      previewId: string,
+      options: ActionPreviewRunOptions = {},
+    ): Promise<ActionPreviewStatusWire> {
       const projectId = projectsByPreviewId.get(previewId);
       if (!projectId) throw previewNotFound();
       const preview = await httpContract(
@@ -102,7 +81,7 @@ export function createActionPreviewRunsApi(
       return preview;
     },
 
-    async cancel(previewId, options = {}) {
+    async cancel(previewId: string, options: ActionPreviewRunOptions = {}): Promise<void> {
       const projectId = projectsByPreviewId.get(previewId);
       if (!projectId) throw previewNotFound();
       await httpContract(
@@ -209,19 +188,26 @@ function previewSampleResult(wire: ActionPreviewStatusWire): PreviewSampleResult
   };
 }
 
-/** RealApi owns the shared action session; this domain owns preview translation,
- * lifecycle binding, and preview-specific wire-to-public mapping. */
-export function createActionPreviewDomainApi({
-  errorFactory,
-}: ActionPreviewDomainDependencies, projectId: string): ActionPreviewDomainApi {
+/** Owns preview translation, lifecycle binding, and preview-specific
+ * wire-to-public mapping for one project. */
+export function createActionPreviewApi(
+  errorFactory: ContractErrorFactory,
+  projectId: string,
+) {
   const previewRuns = createActionPreviewRunsApi(errorFactory, projectId);
 
   return {
-    registerStarted(start) {
+    /** Bind a preview started by another route (scratch comparisons) to this
+     * project so its status and cancel requests resolve. */
+    registerStarted(start: ActionPreviewStartWire): PreviewStartResult {
       previewRuns.registerStarted(start.preview_id);
       return { previewId: start.preview_id, total: start.total };
     },
-    async start(request, invocation) {
+
+    /** Start an in-memory action preview: computes a small sample server-side and
+     *  returns a job id to poll. Nothing is persisted (no op/run/column/cell). */
+    async startPreview(request: ActionExecutionRequest): Promise<PreviewStartResult> {
+      const invocation = resolveRunActionInvocation(undefined, projectId);
       if (isDeriveCompositeRequest(request)) request = request.extraction;
       const start = await previewRuns.start(
         request as unknown as ActionPreviewRunRequest,
@@ -230,11 +216,14 @@ export function createActionPreviewDomainApi({
       return { previewId: start.preview_id, total: start.total };
     },
 
-    async get(previewId) {
+    /** Poll a preview job's status; once `status === 'done'` the sample rows/columns
+     *  are on the result for the grid overlay. */
+    async getPreview(previewId: string): Promise<PreviewSampleResult> {
       return previewSampleResult(await previewRuns.get(previewId));
     },
 
-    async cancel(previewId) {
+    /** Cancel a preview job (idempotent): stops server compute and drops the job. */
+    async cancelPreview(previewId: string): Promise<void> {
       await previewRuns.cancel(previewId);
     },
   };

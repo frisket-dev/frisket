@@ -4,7 +4,7 @@ import type { GeneratedActionDraft } from './types';
 export type ActionHistoryPage = HttpContractSuccessResponse<'tenant.action_history.get'>;
 export type ActionHistoryItem = ActionHistoryPage['items'][number];
 type HistoryDetailWire = HttpContractSuccessResponse<'tenant.action_history_detail.get'>;
-export type ActionHistoryDetail = Omit<HistoryDetailWire, 'draft'> & { draft: GeneratedActionDraft | null };
+type ActionHistoryDetail = Omit<HistoryDetailWire, 'draft'> & { draft: GeneratedActionDraft | null };
 
 export function createActionHistoryApi(projectId: string) {
   return {

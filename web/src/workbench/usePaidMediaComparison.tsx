@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 import type { PreviewSampleResult, PreviewStartResult, RunEstimate } from '../api/types';
 import { pollPreviewJob } from '../api/previewJobTransport';
 import { quotedUsd } from '../actions/quotedCost';
@@ -9,7 +9,7 @@ import { formatUsd } from '../format';
 import type { CompareColumn, MediaCompareConfig, ScratchDoc } from './mediaCompareSession';
 
 interface ComparisonCalls<R, Input> {
-  api: Pick<ProjectApiPort, 'getPreview' | 'cancelPreview'>;
+  api: Pick<ProjectApi, 'getPreview' | 'cancelPreview'>;
   inputFor(doc: ScratchDoc<R>, column: CompareColumn): Input;
   estimate(file: File, input: Input): Promise<RunEstimate>;
   start(file: File, input: Input & { confirmation?: string }): Promise<PreviewStartResult>;

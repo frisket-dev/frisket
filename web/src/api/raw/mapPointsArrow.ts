@@ -8,14 +8,6 @@ import type { MapPointsOptions } from '../types';
 
 type MapPointsErrorFactory = (status: number, message: string) => Error;
 
-interface MapPointsArrowApi {
-  getMapPointsArrowBuffer(
-    sheetId: string,
-    columnId: string,
-    options?: MapPointsOptions | null,
-  ): Promise<ArrayBuffer>;
-}
-
 function firstNonEmptyString(...values: Array<string | null | undefined>): string {
   for (const value of values) {
     if (typeof value === 'string' && value.trim().length > 0) return value;
@@ -39,10 +31,7 @@ function sheetViewParams(options: MapPointsOptions | null = {}): URLSearchParams
   return params;
 }
 
-export function createMapPointsArrowApi(
-  errorFactory: MapPointsErrorFactory,
-  projectId: string,
-): MapPointsArrowApi {
+export function createMapPointsArrowApi(errorFactory: MapPointsErrorFactory, projectId: string) {
   async function fetchMapPointsResponse(
     sheetId: string,
     columnId: string,
@@ -88,7 +77,16 @@ export function createMapPointsArrowApi(
   }
 
   return {
-    async getMapPointsArrowBuffer(sheetId, columnId, options = {}) {
+    /** Raw Arrow IPC bytes from the map-points route
+     *  (`/api/projects/:pid/sheets/:sheetId/map/points`) — the
+     *  transport behind `ctx.projection.fetchData` (capability
+     *  `projection.data.read`). Plugin code never sees the route; this is the
+     *  one api-client seam it goes through. */
+    async getMapPointsArrowBuffer(
+      sheetId: string,
+      columnId: string,
+      options: MapPointsOptions | null = {},
+    ): Promise<ArrayBuffer> {
       const res = await fetchMapPointsResponse(sheetId, columnId, options);
       return res.arrayBuffer();
     },

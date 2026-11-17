@@ -81,27 +81,6 @@ export interface ActionComparisonPreviewSnapshot {
   accounting: ActionPreviewStatusWire['accounting'];
 }
 
-export interface ActionComparisonApi {
-  quotePreview(
-    request: ActionComparisonPreviewRequest,
-    options?: RequestOptions,
-  ): Promise<{ schema_version: 'frisket.action_compare_quote.v1'; estimate: RunEstimate }>;
-  getContext(
-    request: ActionComparisonContextRequest,
-    options?: RequestOptions,
-  ): Promise<ActionComparisonContext>;
-  startPreview(
-    request: ActionComparisonPreviewRequest,
-    options?: RequestOptions,
-  ): Promise<ActionComparisonPreviewStart>;
-  getPreview(
-    previewId: string,
-    options?: RequestOptions,
-  ): Promise<ActionComparisonPreviewSnapshot>;
-  cancelPreview(previewId: string, options?: RequestOptions): Promise<void>;
-  discardPreview(previewId: string, options?: RequestOptions): Promise<void>;
-}
-
 function normalizedDraft(raw: HttpActionCompareContextResponse['draft']): GeneratedActionDraft {
   return { action_id: raw.action_id, params: raw.params, output_names: raw.output_names,
     scope: { kind: 'sheet_rows', sheet_id: raw.scope.sheet_id,
@@ -188,13 +167,18 @@ export function actionComparisonPreviewSnapshot(
   };
 }
 
+export type ActionComparisonApi = ReturnType<typeof createActionComparisonApi>;
+
 export function createActionComparisonApi(
   errorFactory: ContractErrorFactory,
   projectId: string,
-): ActionComparisonApi {
+) {
   const previewRuns = createActionPreviewRunsApi(errorFactory, projectId);
   return {
-    quotePreview(request, options = {}) {
+    quotePreview(
+      request: ActionComparisonPreviewRequest,
+      options: RequestOptions = {},
+    ): Promise<{ schema_version: 'frisket.action_compare_quote.v1'; estimate: RunEstimate }> {
       return httpContract('tenant.v1_action_compare_preview_quote.post', {
         pathParams: { pid: projectId },
         body: {
@@ -204,7 +188,10 @@ export function createActionComparisonApi(
         signal: options.signal, errorFactory,
       }, wire => ({ ...wire, estimate: runEstimateFromV1Wire(wire.estimate) }));
     },
-    getContext(request, options = {}) {
+    getContext(
+      request: ActionComparisonContextRequest,
+      options: RequestOptions = {},
+    ): Promise<ActionComparisonContext> {
       return httpContract(
         'tenant.v1_action_compare_context.post',
         {
@@ -214,7 +201,10 @@ export function createActionComparisonApi(
         normalizeActionComparisonContext,
       );
     },
-    async startPreview(request, options = {}) {
+    async startPreview(
+      request: ActionComparisonPreviewRequest,
+      options: RequestOptions = {},
+    ): Promise<ActionComparisonPreviewStart> {
       const start = await httpContract(
         'tenant.v1_action_compare_preview_start.post',
         {
@@ -229,13 +219,16 @@ export function createActionComparisonApi(
       previewRuns.registerStarted(start.preview_id);
       return start;
     },
-    async getPreview(previewId, options = {}) {
+    async getPreview(
+      previewId: string,
+      options: RequestOptions = {},
+    ): Promise<ActionComparisonPreviewSnapshot> {
       return actionComparisonPreviewSnapshot(await previewRuns.get(previewId, options));
     },
-    cancelPreview(previewId, options = {}) {
+    cancelPreview(previewId: string, options: RequestOptions = {}): Promise<void> {
       return previewRuns.cancel(previewId, options);
     },
-    async discardPreview(previewId, options = {}) {
+    async discardPreview(previewId: string, options: RequestOptions = {}): Promise<void> {
       await httpContract(
         'tenant.v1_action_preview_cancel.delete',
         {

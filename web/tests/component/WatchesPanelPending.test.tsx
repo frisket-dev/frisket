@@ -3,7 +3,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProjectApiPort } from '../../src/api/ports';
+import type { ProjectApi } from '../../src/api/ports';
 import type { ProjectQAApi } from '../../src/api/projectQA';
 import { ApiError, type WatchInfo, type WatchRunResult } from '../../src/api/open';
 import { WatchesPanel } from '../../src/components/WatchesPanel';
@@ -93,7 +93,7 @@ describe('WatchesPanel pending actions', () => {
     const projectApi = {
       qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([item]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'threshold-alert', api: { projectApi } });
     harness.render(<WatchesPanel canEdit />);
     expect(await screen.findByText('Threshold crossings')).toBeInTheDocument();
@@ -106,7 +106,7 @@ describe('WatchesPanel pending actions', () => {
       qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([item]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateWatch: vi.fn(async (_id, patch) => ({ ...item, detectionPolicy: patch.detection_policy })),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'conditions', api: { projectApi } });
     harness.render(<WatchesPanel canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: 'Alert conditions' }));
@@ -123,7 +123,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn().mockResolvedValue([watch(1, 'Alpha')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateWatch: vi.fn().mockRejectedValue(new Error('Rename unavailable')),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'rename-validation', api: { projectApi } });
     harness.render(<WatchesPanel canEdit />);
     fireEvent.click(await screen.findByTestId('rename-watch'));
@@ -148,7 +148,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createWatch: vi.fn().mockResolvedValue(watch(10, 'Watch: Current')),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'current-grid-watch', api: { projectApi } });
     harness.stores.watchRunLink.setPendingCreateDraft(currentGridDraft);
     harness.render(
@@ -178,7 +178,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn().mockResolvedValue([watch(1, 'Open rows')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createWatch: vi.fn().mockRejectedValue(new ApiError(500, 'Watch service unavailable')),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'sheetless-watches', api: { projectApi } });
     harness.stores.watchRunLink.setPendingCreateDraft(currentGridDraft);
 
@@ -210,7 +210,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn().mockResolvedValue([alpha, beta]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       runWatch: vi.fn((watchId: number) => watchId === alpha.id ? alphaRun.promise : betaRun.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const { render } = createWorkspaceTestHarness({ projectId: 'pending-actions', api: { projectApi } });
 
     render(<WatchesPanel canEdit />);
@@ -247,7 +247,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createWatch: vi.fn(() => create.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'create-remount', api: { projectApi } });
     harness.stores.watchRunLink.setPendingCreateDraft(currentGridDraft);
 
@@ -274,7 +274,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createWatch: vi.fn(() => create.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'create-failure-remount', api: { projectApi } });
     harness.stores.watchRunLink.setPendingCreateDraft(currentGridDraft);
     const first = harness.render(<WatchesPanel canEdit />);
@@ -297,7 +297,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       runWatch: vi.fn(() => run.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'run-remount', api: { projectApi } });
 
     const first = harness.render(<WatchesPanel canEdit />);
@@ -325,7 +325,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       runWatch: vi.fn(() => run.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'run-outcome-remount', api: { projectApi } });
 
     const first = harness.render(<WatchesPanel canEdit />);
@@ -357,7 +357,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn(() => Promise.resolve(settled ? [renamed] : [alpha])),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateWatch: vi.fn(() => rename.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'rename-remount', api: { projectApi } });
 
     const first = harness.render(<WatchesPanel canEdit />);
@@ -384,7 +384,7 @@ describe('WatchesPanel pending actions', () => {
       qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([watch(1, 'Alpha')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       deleteWatch: vi.fn(() => remove.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'delete-dialog-owner', api: { projectApi } });
     harness.render(<WatchesPanel canEdit />);
     const trigger = await screen.findByTestId('delete-watch');
@@ -414,7 +414,7 @@ describe('WatchesPanel pending actions', () => {
       listWatches: vi.fn(() => Promise.resolve(settled ? [] : [alpha])),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       deleteWatch: vi.fn(() => remove.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'delete-remount', api: { projectApi } });
 
     const first = harness.render(<WatchesPanel canEdit />);
@@ -449,7 +449,7 @@ describe('WatchesPanel pending actions', () => {
         .mockResolvedValue([renamed]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateWatch: vi.fn(() => rename.promise),
-    } as unknown as ProjectApiPort;
+    } as unknown as ProjectApi;
     const { render } = createWorkspaceTestHarness({ projectId: 'rename-list-race', api: { projectApi } });
 
     render(<WatchesPanel canEdit />);

@@ -2,30 +2,11 @@ import type { HttpContractOperationMap } from '../generated/openHttpContracts';
 import { httpContract, type RequestOptions } from './httpContract';
 import type { ProjectSecrets } from './types';
 
-interface ProjectSecretsApi {
-  getProjectSecrets(
-    projectId: string,
-    options?: RequestOptions,
-  ): Promise<ProjectSecrets>;
-  setProjectSecret(
-    projectId: string,
-    name: string,
-    value: string,
-    options?: RequestOptions,
-  ): Promise<ProjectSecrets>;
-  deleteProjectSecret(
-    projectId: string,
-    name: string,
-    options?: RequestOptions,
-  ): Promise<{ ok: boolean; deleted: boolean; name: string }>;
-}
-
 type SetRequest = HttpContractOperationMap['tenant.set_project_secret.post']['request'];
 
-export function createProjectSecretsApi(
-): ProjectSecretsApi {
+export function createProjectSecretsApi(projectId: string) {
   return {
-    getProjectSecrets(projectId, options = {}) {
+    async getProjectSecrets(options: RequestOptions = {}): Promise<ProjectSecrets> {
       return httpContract(
         'tenant.get_project_secrets.get',
         {
@@ -35,7 +16,11 @@ export function createProjectSecretsApi(
       );
     },
 
-    setProjectSecret(projectId, name, value, options = {}) {
+    async setProjectSecret(
+      name: string,
+      value: string,
+      options: RequestOptions = {},
+    ): Promise<ProjectSecrets> {
       const body = { name, value } as SetRequest;
       return httpContract(
         'tenant.set_project_secret.post',
@@ -47,7 +32,10 @@ export function createProjectSecretsApi(
       );
     },
 
-    deleteProjectSecret(projectId, name, options = {}) {
+    async deleteProjectSecret(
+      name: string,
+      options: RequestOptions = {},
+    ): Promise<{ ok: boolean; deleted: boolean; name: string }> {
       return httpContract(
         'tenant.delete_project_secret.delete',
         {

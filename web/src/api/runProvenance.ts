@@ -10,25 +10,7 @@ type RunTraceRowEvidenceWire =
 type ProvenanceManifestWire =
   HttpContractSuccessResponse<'tenant.provenance.get'>;
 
-interface RunProvenanceApi {
-  getRunTraceRow(
-    projectId: string,
-    runId: string,
-    rowId: string,
-    columnId?: string | null,
-    options?: RequestOptions,
-  ): Promise<RunTraceRowEvidence>;
-  getProvenanceManifest(
-    projectId: string,
-    runsOffset?: number,
-    runsLimit?: number,
-    receiptsOffset?: number,
-    receiptsLimit?: number,
-    options?: RequestOptions,
-  ): Promise<ProvenanceManifest>;
-}
-
-// FrisketApi keeps numeric route references as strings. The generated route
+// The public API keeps numeric route references as strings. The generated route
 // signatures reflect FastAPI's integers; this cast preserves the established
 // URL bytes without adding a second runtime parser or validator.
 const numericPathRef = (value: string): number => value as unknown as number;
@@ -170,9 +152,16 @@ function manifest(wire: ProvenanceManifestWire): ProvenanceManifest {
   };
 }
 
-export function createRunProvenanceApi(): RunProvenanceApi {
+export function createRunProvenanceApi(projectId: string) {
   return {
-    getRunTraceRow(projectId, runId, rowId, columnId, options = {}) {
+    /** Row-scoped trace evidence for "Explain this cell". Keeps large/debug
+     *  runs bounded and returns typed absence states instead of a full row list. */
+    async getRunTraceRow(
+      runId: string,
+      rowId: string,
+      columnId?: string | null,
+      options: RequestOptions = {},
+    ): Promise<RunTraceRowEvidence> {
       return httpContract(
         'tenant.action_run_trace_row.get',
         {
@@ -188,14 +177,14 @@ export function createRunProvenanceApi(): RunProvenanceApi {
       );
     },
 
-    getProvenanceManifest(
-      projectId,
+    /** Project-level data-flow manifest: which providers/models/actions/runs touched data. */
+    async getProvenanceManifest(
       runsOffset = 0,
       runsLimit = 25,
       receiptsOffset = 0,
       receiptsLimit = 25,
-      options = {},
-    ) {
+      options: RequestOptions = {},
+    ): Promise<ProvenanceManifest> {
       return httpContract(
         'tenant.provenance.get',
         {

@@ -27,11 +27,7 @@ export type AdminUsersOrg = AdminUsers['orgs'][number];
 export type AdminOrgRole = AdminUsers['capabilities']['assignable_roles'][number];
 export type AdminJob = AdminBrowserJobsWire['jobs'][number];
 export type AdminJobs = AdminBrowserJobsWire;
-export type AdminJobActionResult = AdminBrowserCancelWire;
-export type AdminInviteResult = AdminBrowserInviteWire;
-export type AdminRoleUpdateResult = AdminBrowserRoleWire;
-export type AdminRemoveUserResult = AdminBrowserRemoveWire;
-export type AdminRevokeInviteResult = AdminBrowserRevokeWire;
+type AdminJobActionResult = AdminBrowserCancelWire;
 export type AdminErrorEvent = AdminBrowserErrorsWire['errors'][number];
 export type AdminErrors = AdminBrowserErrorsWire;
 export type AdminAuditEvent = AdminBrowserAuditWire['events'][number];
@@ -44,45 +40,6 @@ export interface AdminAuditFilters {
   projectId?: string;
   user?: string;
   action?: string;
-}
-
-interface AdminBrowserApi {
-  getAdminHealth(options?: RequestOptions): Promise<AdminHealth>;
-  getAdminUsers(options?: RequestOptions): Promise<AdminUsers>;
-  inviteAdminUser(
-    orgId: number,
-    email: string,
-    options?: RequestOptions,
-  ): Promise<AdminBrowserInviteWire>;
-  updateAdminUserRole(
-    orgId: number,
-    userId: number,
-    role: AdminOrgRole,
-    options?: RequestOptions,
-  ): Promise<AdminBrowserRoleWire>;
-  removeAdminUser(
-    orgId: number,
-    userId: number,
-    options?: RequestOptions,
-  ): Promise<AdminBrowserRemoveWire>;
-  revokeAdminInvite(
-    orgId: number,
-    email: string,
-    options?: RequestOptions,
-  ): Promise<AdminBrowserRevokeWire>;
-  getAdminJobs(options?: RequestOptions): Promise<AdminJobs>;
-  cancelAdminJob(
-    jobId: number,
-    options?: RequestOptions,
-  ): Promise<AdminJobActionResult>;
-  getAdminAuditLog(
-    filters?: AdminAuditFilters,
-    options?: RequestOptions,
-  ): Promise<AdminAuditLog>;
-  getAdminErrors(
-    limit?: number,
-    options?: RequestOptions,
-  ): Promise<AdminErrors>;
 }
 
 function optionsFor(options: RequestOptions) {
@@ -102,22 +59,25 @@ function auditQuery(filters: AdminAuditFilters) {
   };
 }
 
-export function createAdminBrowserApi(
-): AdminBrowserApi {
+export function createAdminBrowserApi() {
   return {
-    getAdminHealth(options = {}) {
+    getAdminHealth(options: RequestOptions = {}): Promise<AdminHealth> {
       return httpContract(
         'outer.admin_browser_health.get',
         { ...optionsFor(options) },
       );
     },
-    getAdminUsers(options = {}) {
+    getAdminUsers(options: RequestOptions = {}): Promise<AdminUsers> {
       return httpContract(
         'outer.admin_browser_users.get',
         { ...optionsFor(options) },
       );
     },
-    inviteAdminUser(orgId, email, options = {}) {
+    inviteAdminUser(
+      orgId: number,
+      email: string,
+      options: RequestOptions = {},
+    ): Promise<AdminBrowserInviteWire> {
       return httpContract(
         'outer.admin_browser_invite_user.post',
         {
@@ -126,7 +86,12 @@ export function createAdminBrowserApi(
         },
       );
     },
-    updateAdminUserRole(orgId, userId, role, options = {}) {
+    updateAdminUserRole(
+      orgId: number,
+      userId: number,
+      role: AdminOrgRole,
+      options: RequestOptions = {},
+    ): Promise<AdminBrowserRoleWire> {
       return httpContract(
         'outer.admin_browser_update_user_role.patch',
         {
@@ -135,7 +100,11 @@ export function createAdminBrowserApi(
         },
       );
     },
-    removeAdminUser(orgId, userId, options = {}) {
+    removeAdminUser(
+      orgId: number,
+      userId: number,
+      options: RequestOptions = {},
+    ): Promise<AdminBrowserRemoveWire> {
       return httpContract(
         'outer.admin_browser_remove_user.delete',
         {
@@ -144,7 +113,11 @@ export function createAdminBrowserApi(
         },
       );
     },
-    revokeAdminInvite(orgId, email, options = {}) {
+    revokeAdminInvite(
+      orgId: number,
+      email: string,
+      options: RequestOptions = {},
+    ): Promise<AdminBrowserRevokeWire> {
       return httpContract(
         'outer.admin_browser_revoke_invite.delete',
         {
@@ -153,25 +126,28 @@ export function createAdminBrowserApi(
         },
       );
     },
-    getAdminJobs(options = {}) {
+    getAdminJobs(options: RequestOptions = {}): Promise<AdminJobs> {
       return httpContract(
         'outer.admin_browser_jobs.get',
         { ...optionsFor(options) },
       );
     },
-    cancelAdminJob(jobId, options = {}) {
+    cancelAdminJob(jobId: number, options: RequestOptions = {}): Promise<AdminJobActionResult> {
       return httpContract(
         'outer.admin_browser_cancel_job.post',
         { pathParams: { job_id: jobId }, ...optionsFor(options) },
       );
     },
-    getAdminAuditLog(filters = {}, options = {}) {
+    getAdminAuditLog(
+      filters: AdminAuditFilters = {},
+      options: RequestOptions = {},
+    ): Promise<AdminAuditLog> {
       return httpContract(
         'outer.admin_browser_audit.get',
         { query: auditQuery(filters), ...optionsFor(options) },
       );
     },
-    getAdminErrors(limit = 50, options = {}) {
+    getAdminErrors(limit = 50, options: RequestOptions = {}): Promise<AdminErrors> {
       return httpContract(
         'outer.admin_browser_errors.get',
         { query: { limit }, ...optionsFor(options) },

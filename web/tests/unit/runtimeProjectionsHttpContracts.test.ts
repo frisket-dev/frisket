@@ -56,12 +56,12 @@ describe('runtime projection generated HTTP contracts', () => {
       'hostile /%25 ☃',
     );
     const options = { signal: controller.signal };
-    await expect(api.status({
+    await expect(api.getRuntimeProjectionStatus({
       projectionKind: 'timeline',
       target: { sheetId: 'sheet/1', extension: { kept: true } },
       params: { window: 14 },
     }, options)).resolves.toEqual(status);
-    await expect(api.build({
+    await expect(api.buildRuntimeProjection({
       projectionKind: 'timeline',
       target: { sheetId: 'sheet/1' },
       params: { window: 30 },
@@ -97,7 +97,7 @@ describe('runtime projection generated HTTP contracts', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'invalid_runtime_projection_request', message: 'invalid', field: 'mode' },
     }, 400)));
-    await expect(api.build({
+    await expect(api.buildRuntimeProjection({
       projectionKind: 'timeline', target: { sheetId: 's' }, mode: 'refresh',
     })).rejects.toMatchObject({ message: 'mapped-400', status: 400 });
     expect(errorFactory).toHaveBeenCalledWith(400, {
@@ -107,28 +107,28 @@ describe('runtime projection generated HTTP contracts', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse([
       { type: 'missing', loc: ['body', 'projectionKind'], msg: 'Field required' },
     ], 422)));
-    await expect(api.status({ projectionKind: 'timeline', target: { sheetId: 's' } }))
+    await expect(api.getRuntimeProjectionStatus({ projectionKind: 'timeline', target: { sheetId: 's' } }))
       .rejects.toMatchObject({ message: 'mapped-422', status: 422 });
 
     vi.stubGlobal('fetch', vi.fn(async () => new Response('upstream unavailable', {
       status: 502,
       statusText: 'Bad Gateway',
     })));
-    await expect(api.status({ projectionKind: 'timeline', target: { sheetId: 's' } }))
+    await expect(api.getRuntimeProjectionStatus({ projectionKind: 'timeline', target: { sheetId: 's' } }))
       .rejects.toMatchObject({ message: 'mapped-502', status: 502, payload: { detail: 'Bad Gateway' } });
 
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
-    await expect(api.status({ projectionKind: 'timeline', target: { sheetId: 's' } })).rejects.toBe(network);
+    await expect(api.getRuntimeProjectionStatus({ projectionKind: 'timeline', target: { sheetId: 's' } })).rejects.toBe(network);
 
     const aborted = new DOMException('cancelled', 'AbortError');
     const fetch = vi.fn(async () => Promise.reject(aborted));
     vi.stubGlobal('fetch', fetch);
-    await expect(api.status({ projectionKind: 'timeline', target: { sheetId: 's' } })).rejects.toBe(aborted);
+    await expect(api.getRuntimeProjectionStatus({ projectionKind: 'timeline', target: { sheetId: 's' } })).rejects.toBe(aborted);
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the scoped RealApi factory without exposing producer detail extras', async () => {
+  it('uses the scoped project API factory without exposing producer detail extras', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: {
         code: 'unsupported_runtime_projection',

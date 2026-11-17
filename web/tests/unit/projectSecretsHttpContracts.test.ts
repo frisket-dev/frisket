@@ -1,11 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { onActionCatalogInvalidated } from '../../src/api/catalogEvents';
-import { ApiError, createProjectApi } from '../../src/api/real';
-import { createProjectSecretsApi } from '../../src/api/projectSecrets';
+import type { ApiError } from '../../src/api/real';
+
+type RealModule = typeof import('../../src/api/real');
+type CatalogEventsModule = typeof import('../../src/api/catalogEvents');
+type ProjectSecretsModule = typeof import('../../src/api/projectSecrets');
 
 const projectId = 'tenant /%25 ☃';
-const projectApi = createProjectApi(projectId);
+let createProjectApi: RealModule['createProjectApi'];
+let createProjectSecretsApi: ProjectSecretsModule['createProjectSecretsApi'];
+let onActionCatalogInvalidated: CatalogEventsModule['onActionCatalogInvalidated'];
+let projectApi: ReturnType<RealModule['createProjectApi']>;
 const secretName = 'SERVICE /%25 + TOKEN';
 const catalog = {
   schemaVersion: 'frisket.project_secrets.v1',
@@ -73,8 +78,17 @@ function deferred<T>(): {
   return { promise, resolve, reject };
 }
 
+// The action catalog cache and the invalidation bus are module state; each case
+// starts from fresh modules so a catalog primed by one case cannot satisfy the next.
+beforeEach(async () => {
+  vi.resetModules();
+  ({ createProjectApi } = await import('../../src/api/real'));
+  ({ createProjectSecretsApi } = await import('../../src/api/projectSecrets'));
+  ({ onActionCatalogInvalidated } = await import('../../src/api/catalogEvents'));
+  projectApi = createProjectApi(projectId);
+});
+
 afterEach(() => {
-  projectApi.invalidateActionCatalog();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -89,11 +103,11 @@ describe('project-secret generated HTTP contracts', () => {
     }));
     const controller = new AbortController();
     const options = { signal: controller.signal };
-    const api = createProjectSecretsApi();
+    const api = createProjectSecretsApi(projectId);
 
-    await expect(api.getProjectSecrets(projectId, options)).resolves.toEqual(catalog);
-    await expect(api.setProjectSecret(projectId, '', '', options)).resolves.toEqual(catalog);
-    await expect(api.deleteProjectSecret(projectId, secretName, options)).resolves.toEqual(deletion);
+    await expect(api.getProjectSecrets(options)).resolves.toEqual(catalog);
+    await expect(api.setProjectSecret('', '', options)).resolves.toEqual(catalog);
+    await expect(api.deleteProjectSecret(secretName, options)).resolves.toEqual(deletion);
 
     const base = '/api/projects/tenant%20%2F%2525%20%E2%98%83/secrets';
     expect(requests.map(({ input, init }) => [String(input), init?.method, init?.body])).toEqual([
@@ -109,13 +123,12 @@ describe('project-secret generated HTTP contracts', () => {
     expect(new Headers(requests[2].init?.headers).get('content-type')).toBeNull();
   });
 
-  it('maps contract failures, preserves network and abort identity, and resolves RealApi scope per invocation', async () => {
+  it('maps contract failures, preserves network and abort identity, and resolves project API scope per instance', async () => {
     const projectError = {
       detail: { code: 'project_secret_denied', message: 'denied', name: secretName },
     };
-    const api = createProjectSecretsApi();
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(projectError, 403)));
-    await expect(api.getProjectSecrets('denied')).rejects.toMatchObject({
+    await expect(createProjectSecretsApi('denied').getProjectSecrets()).rejects.toMatchObject({
       name: 'ApiError',
       status: 403,
       message: 'denied',
@@ -125,7 +138,7 @@ describe('project-secret generated HTTP contracts', () => {
 
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
-    await expect(api.setProjectSecret('network', 'name', 'value')).rejects.toBe(network);
+    await expect(createProjectSecretsApi('network').setProjectSecret('name', 'value')).rejects.toBe(network);
 
     const controller = new AbortController();
     let forwardedSignal: AbortSignal | null | undefined;
@@ -136,7 +149,7 @@ describe('project-secret generated HTTP contracts', () => {
       });
     }));
     const abort = new DOMException('aborted', 'AbortError');
-    const pending = api.deleteProjectSecret('abort', 'name', { signal: controller.signal });
+    const pending = createProjectSecretsApi('abort').deleteProjectSecret('name', { signal: controller.signal });
     controller.abort(abort);
     await expect(pending).rejects.toBe(abort);
     expect(forwardedSignal).toBe(controller.signal);

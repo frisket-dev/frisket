@@ -33,7 +33,6 @@ type CloudSetup = Extract<Setup, { kind: 'cloud' }>;
 type ConfigurationAction = SelectorChoice['configuration_actions'][number];
 type EditingReporter = (owner: string, editing: boolean) => void;
 const requestError = () => new Error('Setup request failed');
-const projectKeys = createProjectProviderKeysApi(requestError);
 const downloads = createLocalProvidersApi(modelSetupErrorFactory);
 const teamModels = createTeamLocalModelsApi(modelSetupErrorFactory);
 
@@ -51,9 +50,10 @@ function CredentialSetupPanel({ setup, projectId, onChanged, onEditingChange }: 
     ? setup.scopes.find(isMutableGatewayScope)
     : undefined;
   if (setup.kind === 'api_key' && projectScope?.can_mutate) {
+    const projectKeys = createProjectProviderKeysApi(projectId, requestError);
     return <ProviderKeySetupCard provider={setup.provider} canMutate
-      validate={(provider, key, signal) => projectKeys.validateProjectProviderKey(projectId, provider, key, { signal })}
-      save={(provider, key, receipt, _cap, signal) => projectKeys.setProjectProviderKey(projectId, provider, key, null, receipt, { signal })}
+      validate={(provider, key, signal) => projectKeys.validateProjectProviderKey(provider, key, { signal })}
+      save={(provider, key, receipt, _cap, signal) => projectKeys.setProjectProviderKey(provider, key, null, receipt, { signal })}
       onSaved={onChanged} onEditingChange={onEditingChange} />;
   }
   return <section className="selector-setup">

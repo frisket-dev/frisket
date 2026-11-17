@@ -46,7 +46,7 @@ import {
   type SheetMeta,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 import { canReviewProject } from '../api/projectRole';
 import { useEditionModule } from '../editions/module';
 import type { ExportTarget } from '../exportTargets';
@@ -232,7 +232,7 @@ function WorkLogExportGroup({
   canExport,
   onCloseMenu,
 }: {
-  projectApi: ProjectApiPort;
+  projectApi: ProjectApi;
   // The work log carries prompt text and before/after example cell values --
   // reviewer-tier on the backend (export_work_log*), one rung above a
   // viewer's ordinary reads. A viewer never sees this group: no dead click.
@@ -399,7 +399,7 @@ function ProjectMenuPopover({
   exportOpen: boolean;
   exportTargets: ExportTarget[] | null;
   project: ProjectInfo;
-  projectApi: ProjectApiPort;
+  projectApi: ProjectApi;
   projects: ProjectInfo[] | null;
   onCloseMenu(): void;
   onOpenExportModal(modal: ExportModalKind): void;
@@ -572,7 +572,7 @@ export function ProjectExportModals({
 }: {
   modal: ExportModalKind | null;
   project: ProjectInfo;
-  projectApi: ProjectApiPort;
+  projectApi: ProjectApi;
   currentSheet?: SheetMeta | null;
   sheets: SheetMeta[];
   currentSheetExportOptions?: SheetViewExportOptions | null;
@@ -626,7 +626,7 @@ export function ProjectMenu({
   catalogExportTargets,
 }: {
   project: ProjectInfo;
-  projectApi: ProjectApiPort;
+  projectApi: ProjectApi;
   currentSheet?: SheetMeta | null;
   sheets: SheetMeta[];
   currentSheetExportOptions?: SheetViewExportOptions | null;
@@ -729,7 +729,7 @@ function ExportDatasetModal({
   currentSheet: SheetMeta;
   currentSheetExportOptions?: SheetViewExportOptions | null;
   hasCurrentViewExport: boolean;
-  projectApi: ProjectApiPort;
+  projectApi: ProjectApi;
   onClose: () => void;
 }) {
   const { projectId } = useWorkspaceStores().chromePreferences;

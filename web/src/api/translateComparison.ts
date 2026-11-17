@@ -4,21 +4,17 @@ import type {
   TranslateCompareScratchResult,
 } from './types';
 
-interface TranslateComparisonApi {
-  compareTranslateScratch(
-    projectId: string,
-    input: TranslateCompareScratchInput,
-    options?: RequestOptions,
-  ): Promise<TranslateCompareScratchResult>;
-}
-
 // This route's public response is the server envelope. Keep the adapter
 // transport-only so warning/error extensions remain untouched.
 export function createTranslateComparisonApi(
   errorFactory: ContractErrorFactory,
-): TranslateComparisonApi {
+  projectId: string,
+) {
   return {
-    compareTranslateScratch(projectId, input, options = {}) {
+    async compareTranslateScratch(
+      input: TranslateCompareScratchInput,
+      options: RequestOptions = {},
+    ): Promise<TranslateCompareScratchResult> {
       const language = input.language?.trim();
       return httpContract(
         'tenant.translate_compare_scratch.post',

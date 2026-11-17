@@ -91,17 +91,17 @@ describe('project provider-key generated HTTP contracts', () => {
     }));
     const controller = new AbortController();
     const options = { signal: controller.signal };
-    const api = createProjectProviderKeysApi((status, payload) =>
-      Object.assign(new Error(`mapped ${status}`), { status, payload }),
-    );
     const projectId = 'tenant /%25 ☃';
     const provider = 'open/ai +%';
+    const api = createProjectProviderKeysApi(projectId, (status, payload) =>
+      Object.assign(new Error(`mapped ${status}`), { status, payload }),
+    );
 
-    await expect(api.getProjectProviderKeys(projectId, options)).resolves.toEqual(catalog);
-    await expect(api.setProjectProviderKey(projectId, provider, '', 0, '', options)).resolves.toEqual(catalog);
-    await expect(api.setProjectProviderKey(projectId, provider, 'second', undefined, null, options)).resolves.toEqual(catalog);
-    await expect(api.validateProjectProviderKey(projectId, provider, '', options)).resolves.toEqual(validation);
-    await expect(api.deleteProjectProviderKey(projectId, provider, options)).resolves.toEqual(deletion);
+    await expect(api.getProjectProviderKeys(options)).resolves.toEqual(catalog);
+    await expect(api.setProjectProviderKey(provider, '', 0, '', options)).resolves.toEqual(catalog);
+    await expect(api.setProjectProviderKey(provider, 'second', undefined, null, options)).resolves.toEqual(catalog);
+    await expect(api.validateProjectProviderKey(provider, '', options)).resolves.toEqual(validation);
+    await expect(api.deleteProjectProviderKey(provider, options)).resolves.toEqual(deletion);
 
     const base = '/api/projects/tenant%20%2F%2525%20%E2%98%83/provider-keys';
     expect(requests.map(({ input, init }) => [String(input), init?.method, init?.body])).toEqual([
@@ -122,19 +122,18 @@ describe('project provider-key generated HTTP contracts', () => {
     }
   });
 
-  it('maps contract failures, preserves network/abort identity, and resolves active RealApi scope per invocation', async () => {
+  it('maps contract failures, preserves network/abort identity, and resolves project API scope per instance', async () => {
     const projectError = { detail: { code: 'project_key_denied', message: 'denied', provider: 'openai' } };
-    const api = createProjectProviderKeysApi((status, payload) =>
-      Object.assign(new Error(`mapped ${status}`), { status, payload }),
-    );
+    const errorFactory = (status: number, payload: unknown) =>
+      Object.assign(new Error(`mapped ${status}`), { status, payload });
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(projectError, 403)));
-    await expect(api.getProjectProviderKeys('denied')).rejects.toMatchObject({
+    await expect(createProjectProviderKeysApi('denied', errorFactory).getProjectProviderKeys()).rejects.toMatchObject({
       message: 'mapped 403', status: 403, payload: projectError,
     });
 
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
-    await expect(api.setProjectProviderKey('network', 'openai', 'secret')).rejects.toBe(network);
+    await expect(createProjectProviderKeysApi('network', errorFactory).setProjectProviderKey('openai', 'secret')).rejects.toBe(network);
 
     const controller = new AbortController();
     let forwardedSignal: AbortSignal | null | undefined;
@@ -145,7 +144,8 @@ describe('project provider-key generated HTTP contracts', () => {
       });
     }));
     const abort = new DOMException('aborted', 'AbortError');
-    const pending = api.deleteProjectProviderKey('abort', 'openai', { signal: controller.signal });
+    const pending = createProjectProviderKeysApi('abort', errorFactory)
+      .deleteProjectProviderKey('openai', { signal: controller.signal });
     controller.abort(abort);
     await expect(pending).rejects.toBe(abort);
     expect(forwardedSignal).toBe(controller.signal);

@@ -4,7 +4,7 @@ import { cleanup, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PreviewTable } from '../../src/components/PreviewTable';
 import { createProjectApi } from '../../src/api/real';
-import { createActionPreviewDomainApi } from '../../src/api/actionPreviewRuns';
+import { createActionPreviewApi } from '../../src/api/actionPreviewRuns';
 import type { PreviewTableSampleResult } from '../../src/api/types';
 import { parseTimelineValue } from '../../src/temporal/model';
 import { parsePreviewTemporalValue } from '../../src/temporal/preview';
@@ -40,9 +40,9 @@ it('transports the preview-only envelope without converting it to opaque text', 
       result: { kind: 'table', columns: [{ name: 'Markers', column_type: 'timeline_points' }], rows: [{ Markers: { value } }], sampled: 1, total: 1, warnings: [] } },
   ];
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(responses.shift()), { status: 200, headers: { 'Content-Type': 'application/json' } })));
-  const api = createActionPreviewDomainApi({ errorFactory: (status) => new Error(String(status)) }, 'preview');
-  await api.start({ action_id: 'derive.temporal_segments', scope: { kind: 'sheet_rows', sheet_id: 1 }, params: {}, output_names: {}, sheet_name: 'Clips', idempotency_key: 'preview' }, {});
-  const result = await api.get('sample');
+  const api = createActionPreviewApi((status) => new Error(String(status)), 'preview');
+  await api.startPreview({ action_id: 'derive.temporal_segments', scope: { kind: 'sheet_rows', sheet_id: 1 }, params: {}, output_names: {}, sheet_name: 'Clips', idempotency_key: 'preview' });
+  const result = await api.getPreview('sample');
   expect(result).toMatchObject({ kind: 'table', rows: [{ Markers: { value } }] });
 });
 

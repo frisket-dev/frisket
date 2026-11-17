@@ -29,8 +29,6 @@
     // deckglNamespace is consumed as a module namespace by the geo plugin (ctx.libs.deckgl)
     "src/components/map/deckglNamespace.ts": ["exports"],
     // loaded through import() or read as source text by tests, which knip does not trace
-    "src/api/notifications.ts": ["exports"],
-    "src/api/watches.ts": ["exports"],
     "src/grid/replayPending.ts": ["exports"],
     "src/workbench/pluginPanelContext.ts": ["exports"],
     "src/workbench/pluginProjectionViewContext.ts": ["exports"],

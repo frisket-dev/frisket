@@ -1,18 +1,9 @@
 import { httpContract, type RequestOptions } from './httpContract';
 import type { LineageDag, SheetGraphOptions, SheetGraphResult } from './types';
 
-interface GraphLineageApi {
-  getLineage(projectId: string, options?: RequestOptions): Promise<LineageDag>;
-  getSheetGraph(
-    projectId: string,
-    input: SheetGraphOptions,
-    options?: RequestOptions,
-  ): Promise<SheetGraphResult>;
-}
-
-export function createGraphLineageApi(): GraphLineageApi {
+export function createGraphLineageApi(projectId: string) {
   return {
-    getLineage(projectId, options = {}) {
+    async getLineage(options: RequestOptions = {}): Promise<LineageDag> {
       return httpContract(
         'tenant.project_lineage.get',
         {
@@ -22,7 +13,10 @@ export function createGraphLineageApi(): GraphLineageApi {
       );
     },
 
-    getSheetGraph(projectId, input, options = {}) {
+    async getSheetGraph(
+      input: SheetGraphOptions,
+      options: RequestOptions = {},
+    ): Promise<SheetGraphResult> {
       const setColumn = (value: number | string | null | undefined) => (
         value !== null && value !== undefined && String(value).trim() !== ''
           ? Number(value)

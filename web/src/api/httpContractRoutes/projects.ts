@@ -89,7 +89,7 @@ function projectDeletionLifetimeChallenge(
   return new ProjectDeletionLifetimeChallenge(confirmation.project_row_id);
 }
 
-export function listProjectsContract(
+export function listProjects(
   options: RequestOptions = {},
 ): Promise<ProjectInfo[]> {
   return httpContract('tenant.list_projects.get', {
@@ -107,7 +107,7 @@ export function getProjectContract(
   }, mapProject);
 }
 
-export function createProjectContract(
+export function createProject(
   name: string,
   options: RequestOptions = {},
 ): Promise<ProjectInfo> {
@@ -117,7 +117,7 @@ export function createProjectContract(
   }, mapProject);
 }
 
-export function updateProjectContract(
+export function updateProject(
   projectId: string,
   input: ProjectUpdateInput,
   options: RequestOptions = {},
@@ -129,7 +129,7 @@ export function updateProjectContract(
   }, mapProject);
 }
 
-export function deleteProjectContract(
+export function deleteProject(
   projectId: string,
   confirmName: string,
   options: RequestOptions = {},

@@ -21,7 +21,7 @@ import {
   type PreviewSampleResult,
   type PreviewStatus,
 } from '../api/open';
-import type { ProjectApiPort } from '../api/ports';
+import type { ProjectApi } from '../api/ports';
 import { pollPreviewJob } from '../api/previewJobTransport';
 import { durationBucket, failureCategory, sendProductTelemetry, telemetryActionKind, type FailureCategory } from '../telemetry/productTelemetry';
 
@@ -77,7 +77,7 @@ export function previewViewForSheet(
 }
 
 export function createPreviewViewStore(api: Pick<
-  ProjectApiPort,
+  ProjectApi,
   'startPreview' | 'getPreview' | 'cancelPreview'
 >, telemetryProjectId: string | null = null): {
   store: Store<PreviewViewState>;

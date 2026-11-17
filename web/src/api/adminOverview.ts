@@ -1,14 +1,9 @@
 import { httpContract } from './httpContract';
 import type { AdminOverview } from './types';
 
-interface AdminOverviewApi {
-  getAdminOverview(): Promise<AdminOverview>;
-}
-
-export function createAdminOverviewApi(
-): AdminOverviewApi {
+export function createAdminOverviewApi() {
   return {
-    getAdminOverview() {
+    getAdminOverview(): Promise<AdminOverview> {
       return httpContract(
         'outer.admin_overview.get',
         {

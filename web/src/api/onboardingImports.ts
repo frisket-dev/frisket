@@ -214,38 +214,12 @@ interface SampleProjectSeedResult {
   rows: number;
 }
 
-interface OnboardingImportsApi {
-  seedSampleProject(
-    projectId: string,
-    options?: RequestOptions,
-  ): Promise<SampleProjectSeedWire>;
-  importCsv(file: File, options?: CsvImportOptions): Promise<ImportCsvWire>;
-  importXlsx(file: File, options?: RequestOptions): Promise<ImportXlsxWire>;
-  importFiles(files: File[], options?: RequestOptions): Promise<ImportFilesWire>;
-  importFollowTheMoney(
-    file: File,
-    datasetName?: string,
-    options?: RequestOptions,
-  ): Promise<ImportFollowTheMoneyWire>;
-  planBulkImport(
-    files: File[],
-    logicalPaths: string[],
-    expandArchive: boolean,
-    options?: RequestOptions,
-  ): Promise<BulkImportPlan>;
-  executeBulkImport(
-    planId: string,
-    decisions: Record<string, string>,
-    options?: RequestOptions,
-  ): Promise<BulkImportExecution>;
-}
-
-export function createOnboardingImportsApi(
-  errorFactory: ContractErrorFactory,
-  projectId: string,
-): OnboardingImportsApi {
+export function createOnboardingImportsApi(errorFactory: ContractErrorFactory, projectId: string) {
   return {
-    seedSampleProject(projectId, options = {}) {
+    seedSampleProject(
+      projectId: string,
+      options: RequestOptions = {},
+    ): Promise<SampleProjectSeedWire> {
       return httpContract(
         'tenant.seed_sample_project.post',
         {
@@ -256,7 +230,7 @@ export function createOnboardingImportsApi(
       );
     },
 
-    importCsv(file, options = {}) {
+    importCsv(file: File, options: CsvImportOptions = {}): Promise<ImportCsvWire> {
       const body = new FormData();
       body.append('file', file);
       if (options.destinationSheetId) body.append('destination_sheet_id', String(options.destinationSheetId));
@@ -275,7 +249,7 @@ export function createOnboardingImportsApi(
       );
     },
 
-    importXlsx(file, options = {}) {
+    importXlsx(file: File, options: RequestOptions = {}): Promise<ImportXlsxWire> {
       const body = new FormData();
       body.append('file', file);
       return httpContract(
@@ -284,7 +258,7 @@ export function createOnboardingImportsApi(
       );
     },
 
-    importFiles(files, options = {}) {
+    importFiles(files: File[], options: RequestOptions = {}): Promise<ImportFilesWire> {
       const body = new FormData();
       for (const file of files) body.append('files', file);
       return httpContract(
@@ -293,7 +267,11 @@ export function createOnboardingImportsApi(
       );
     },
 
-    importFollowTheMoney(file, datasetName, options = {}) {
+    importFollowTheMoney(
+      file: File,
+      datasetName?: string,
+      options: RequestOptions = {},
+    ): Promise<ImportFollowTheMoneyWire> {
       const body = new FormData();
       body.append('file', file);
       if (datasetName?.trim()) body.append('dataset_name', datasetName.trim());
@@ -308,7 +286,12 @@ export function createOnboardingImportsApi(
       );
     },
 
-    planBulkImport(files, logicalPaths, expandArchive, options = {}) {
+    planBulkImport(
+      files: File[],
+      logicalPaths: string[],
+      expandArchive: boolean,
+      options: RequestOptions = {},
+    ): Promise<BulkImportPlan> {
       const body = new FormData();
       for (let index = 0; index < files.length; index += 1) {
         body.append('files', files[index]);
@@ -326,7 +309,11 @@ export function createOnboardingImportsApi(
       );
     },
 
-    executeBulkImport(planId, decisions, options = {}) {
+    executeBulkImport(
+      planId: string,
+      decisions: Record<string, string>,
+      options: RequestOptions = {},
+    ): Promise<BulkImportExecution> {
       return trackImportSubmission(projectId, { importKind: 'files', format: 'unknown' }, () => httpContract(
         'tenant.import_bulk_execute.post',
         {

@@ -5,26 +5,6 @@ import type {
   ProviderValidateResult,
 } from "./types";
 
-interface OrganizationProvidersApi {
-  providerCatalog(options?: RequestOptions): Promise<ProviderCatalog>;
-  listOrgKeys(options?: RequestOptions): Promise<OrgKeyInfo[]>;
-  setOrgKey(
-    provider: string,
-    key: string,
-    validationToken?: string | null,
-    options?: RequestOptions,
-  ): Promise<void>;
-  validateOrgKey(
-    provider: string,
-    key?: string,
-    options?: RequestOptions,
-  ): Promise<ProviderValidateResult>;
-  deleteOrgKey(
-    provider: string,
-    options?: RequestOptions,
-  ): Promise<void>;
-}
-
 type OrgKeySaveWire = HttpContractSuccessResponse<"outer.set_org_key.post">;
 type OrgKeyDeleteWire = HttpContractSuccessResponse<"outer.delete_org_key.delete">;
 
@@ -36,10 +16,9 @@ function discardDeletedKey(wire: OrgKeyDeleteWire): void {
   void wire;
 }
 
-export function createOrganizationProvidersApi(
-): OrganizationProvidersApi {
+export function createOrganizationProvidersApi() {
   return {
-    providerCatalog(options = {}) {
+    providerCatalog(options: RequestOptions = {}): Promise<ProviderCatalog> {
       return httpContract(
         "tenant.provider_catalog.get",
         {
@@ -48,7 +27,7 @@ export function createOrganizationProvidersApi(
       );
     },
 
-    listOrgKeys(options = {}) {
+    listOrgKeys(options: RequestOptions = {}): Promise<OrgKeyInfo[]> {
       return httpContract(
         "outer.list_org_keys.get",
         {
@@ -57,7 +36,12 @@ export function createOrganizationProvidersApi(
       );
     },
 
-    setOrgKey(provider, key, validationToken, options = {}) {
+    setOrgKey(
+      provider: string,
+      key: string,
+      validationToken?: string | null,
+      options: RequestOptions = {},
+    ): Promise<void> {
       return httpContract(
         "outer.set_org_key.post",
         {
@@ -68,7 +52,11 @@ export function createOrganizationProvidersApi(
       );
     },
 
-    validateOrgKey(provider, key, options = {}) {
+    validateOrgKey(
+      provider: string,
+      key?: string,
+      options: RequestOptions = {},
+    ): Promise<ProviderValidateResult> {
       return httpContract(
         "outer.validate_org_key.post",
         {
@@ -78,7 +66,7 @@ export function createOrganizationProvidersApi(
       );
     },
 
-    deleteOrgKey(provider, options = {}) {
+    deleteOrgKey(provider: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         "outer.delete_org_key.delete",
         {

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  createProjectContract,
-  deleteProjectContract,
+  createProject,
+  deleteProject,
   getProjectContract,
-  updateProjectContract,
-} from '../../src/api/httpContractRoutes';
+  updateProject,
+} from '../../src/api/httpContractRoutes/projects';
 import { ApiError } from '../../src/api/contractErrors';
 
 const projectWire = {
@@ -55,7 +55,7 @@ describe('project CRUD HTTP contracts', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      deleteProjectContract('project/1', 'Project One'),
+      deleteProject('project/1', 'Project One'),
     ).resolves.toBeUndefined();
 
     expect(requests).toHaveLength(1);
@@ -89,7 +89,7 @@ describe('project CRUD HTTP contracts', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      deleteProjectContract('project/1', 'Project One'),
+      deleteProject('project/1', 'Project One'),
     ).resolves.toBeUndefined();
 
     expect(requests).toHaveLength(2);
@@ -118,7 +118,7 @@ describe('project CRUD HTTP contracts', () => {
     const fetchMock = vi.fn(async () => jsonResponse(malformed, 422));
     vi.stubGlobal('fetch', fetchMock);
 
-    const request = deleteProjectContract('project/1', 'Project One');
+    const request = deleteProject('project/1', 'Project One');
     await expect(request).rejects.toBeInstanceOf(ApiError);
     await expect(request).rejects.toMatchObject({
       name: 'ApiError',
@@ -144,7 +144,7 @@ describe('project CRUD HTTP contracts', () => {
     const fetchMock = vi.fn(async () => jsonResponse(mismatched, 422));
     vi.stubGlobal('fetch', fetchMock);
 
-    const request = deleteProjectContract('project/1', 'Project One');
+    const request = deleteProject('project/1', 'Project One');
     await expect(request).rejects.toBeInstanceOf(ApiError);
     await expect(request).rejects.toMatchObject({
       name: 'ApiError',
@@ -170,7 +170,7 @@ describe('project CRUD HTTP contracts', () => {
     const fetchMock = vi.fn(async () => jsonResponse(challenge, 422));
     vi.stubGlobal('fetch', fetchMock);
 
-    const request = deleteProjectContract('project/1', 'Project One');
+    const request = deleteProject('project/1', 'Project One');
     await expect(request).rejects.toBeInstanceOf(ApiError);
     await expect(request).rejects.toMatchObject({
       name: 'ApiError',
@@ -191,7 +191,7 @@ describe('project CRUD HTTP contracts', () => {
     const fetchMock = vi.fn(async () => responses.shift()!);
     vi.stubGlobal('fetch', fetchMock);
 
-    const declared = updateProjectContract('project-1', { name: 'Renamed' });
+    const declared = updateProject('project-1', { name: 'Renamed' });
     await expect(declared).rejects.toBeInstanceOf(ApiError);
     await expect(declared).rejects.toMatchObject({
       name: 'ApiError',
@@ -201,7 +201,7 @@ describe('project CRUD HTTP contracts', () => {
       details: undefined,
     });
 
-    const additional = updateProjectContract('project-1', { name: 'Renamed' });
+    const additional = updateProject('project-1', { name: 'Renamed' });
     await expect(additional).rejects.toBeInstanceOf(ApiError);
     await expect(additional).rejects.toMatchObject({
       name: 'ApiError',
@@ -221,7 +221,7 @@ describe('project CRUD HTTP contracts', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(createProjectContract('Project One')).resolves.toMatchObject({
+    await expect(createProject('Project One')).resolves.toMatchObject({
       id: 'project-1',
     });
 
@@ -247,7 +247,7 @@ describe('project CRUD HTTP contracts', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const request = createProjectContract('Project One', { signal: controller.signal });
+    const request = createProject('Project One', { signal: controller.signal });
     const abortError = new DOMException('cancelled', 'AbortError');
     controller.abort(abortError);
 

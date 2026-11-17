@@ -136,13 +136,15 @@ describe('translate comparison HTTP contract', () => {
     });
   });
 
-  it('forwards adapter cancellation without widening RealApi', async () => {
+  it('forwards adapter cancellation', async () => {
     const fetchMock = stubFetch(RESPONSE);
     const controller = new AbortController();
-    const adapter = createTranslateComparisonApi((status, payload) => new Error(`${status}:${payload}`));
+    const adapter = createTranslateComparisonApi(
+      (status, payload) => new Error(`${status}:${payload}`),
+      'tenant/a % hostile',
+    );
 
     await adapter.compareTranslateScratch(
-      'tenant/a % hostile',
       { engines: ['opus_mt'], text: 'hello world', targetLanguage: 'French' },
       { signal: controller.signal },
     );

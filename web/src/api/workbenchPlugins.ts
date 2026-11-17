@@ -10,50 +10,15 @@ import type {
   WorkbenchPluginSettings,
 } from './types';
 
-interface WorkbenchPluginsApi {
-  getSettings(
-    projectId: string,
-    pluginId: string,
-    options?: RequestOptions,
-  ): Promise<WorkbenchPluginSettings>;
-  patchSettings(
-    projectId: string,
-    pluginId: string,
-    values: Record<string, unknown>,
-    options?: RequestOptions,
-  ): Promise<WorkbenchPluginSettings>;
-  installLocal(
-    projectId: string,
-    input: WorkbenchPluginLocalInstallRequest,
-    options?: RequestOptions,
-  ): Promise<WorkbenchPluginLocalInstallExecution>;
-  activate(
-    projectId: string,
-    input: WorkbenchPluginActivationRequest,
-    options?: RequestOptions,
-  ): Promise<WorkbenchPluginActivation>;
-  activateBackend(
-    projectId: string,
-    input: WorkbenchPluginBackendActivationRequest,
-    options?: RequestOptions,
-  ): Promise<WorkbenchPluginBackendActivation>;
-  disable(
-    projectId: string,
-    pluginId: string,
-    options?: RequestOptions,
-  ): Promise<WorkbenchPluginInstallStateChange>;
-  uninstall(
-    projectId: string,
-    pluginId: string,
-    options?: RequestOptions,
-  ): Promise<WorkbenchPluginInstallStateChange>;
-}
-
 export function createWorkbenchPluginsApi(
   errorFactory: ContractErrorFactory,
-): WorkbenchPluginsApi {
+  projectId: string,
+) {
   return {
-    getSettings(projectId, pluginId, options = {}) {
+    async getWorkbenchPluginSettings(
+      pluginId: string,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginSettings> {
       return httpContract(
         'tenant.workbench_plugin_settings.get',
         {
@@ -64,7 +29,11 @@ export function createWorkbenchPluginsApi(
       );
     },
 
-    patchSettings(projectId, pluginId, values, options = {}) {
+    async patchWorkbenchPluginSettings(
+      pluginId: string,
+      values: Record<string, unknown>,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginSettings> {
       return httpContract(
         'tenant.patch_workbench_plugin_settings.patch',
         {
@@ -76,7 +45,11 @@ export function createWorkbenchPluginsApi(
       );
     },
 
-    installLocal(projectId, input, options = {}) {
+    /** Execute a trusted-local install plan through the backend plugin.load lifecycle. */
+    async installLocalWorkbenchPlugin(
+      input: WorkbenchPluginLocalInstallRequest,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginLocalInstallExecution> {
       const { pluginId, source, arbitraryPackageLoadAllowed } = input;
       return httpContract(
         'tenant.workbench_plugin_local_install_route.post',
@@ -89,7 +62,11 @@ export function createWorkbenchPluginsApi(
       );
     },
 
-    activate(projectId, input, options = {}) {
+    /** Trust-gated workbench activation of manifest metadata from a plugin.load receipt. */
+    async activateWorkbenchPlugin(
+      input: WorkbenchPluginActivationRequest,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginActivation> {
       const {
         pluginId,
         receiptId,
@@ -113,7 +90,10 @@ export function createWorkbenchPluginsApi(
       );
     },
 
-    activateBackend(projectId, input, options = {}) {
+    async activateWorkbenchPluginBackend(
+      input: WorkbenchPluginBackendActivationRequest,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginBackendActivation> {
       const {
         pluginId,
         trustAcknowledged,
@@ -135,7 +115,10 @@ export function createWorkbenchPluginsApi(
       );
     },
 
-    disable(projectId, pluginId, options = {}) {
+    async disableWorkbenchPlugin(
+      pluginId: string,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginInstallStateChange> {
       return httpContract(
         'tenant.disable_workbench_plugin_route.post',
         {
@@ -146,7 +129,10 @@ export function createWorkbenchPluginsApi(
       );
     },
 
-    uninstall(projectId, pluginId, options = {}) {
+    async uninstallWorkbenchPlugin(
+      pluginId: string,
+      options: RequestOptions = {},
+    ): Promise<WorkbenchPluginInstallStateChange> {
       return httpContract(
         'tenant.uninstall_workbench_plugin_route.post',
         {

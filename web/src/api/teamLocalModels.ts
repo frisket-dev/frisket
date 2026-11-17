@@ -6,23 +6,9 @@ import type {
   LocalEndpointCatalog,
 } from './types';
 
-interface TeamLocalModelsApi {
-  listOrgLocalEndpoints(options?: RequestOptions): Promise<LocalEndpointCatalog>;
-  orgStartArtifactPull(
-    ref: string,
-    unpinnedAcknowledged?: boolean,
-    options?: RequestOptions,
-  ): Promise<ModelPullStartResult>;
-  orgListModelPulls(options?: RequestOptions): Promise<{ pulls: ModelPullDto[] }>;
-  orgGetModelPull(id: number, options?: RequestOptions): Promise<ModelPullDto>;
-  orgCancelModelPull(id: number, options?: RequestOptions): Promise<ModelPullDto>;
-}
-
-export function createTeamLocalModelsApi(
-  errorFactory?: ContractErrorFactory,
-): TeamLocalModelsApi {
+export function createTeamLocalModelsApi(errorFactory?: ContractErrorFactory) {
   return {
-    listOrgLocalEndpoints(options = {}) {
+    listOrgLocalEndpoints(options: RequestOptions = {}): Promise<LocalEndpointCatalog> {
       return httpContract(
         'outer.list_org_local_endpoints.get',
         {
@@ -32,7 +18,11 @@ export function createTeamLocalModelsApi(
       );
     },
 
-    orgStartArtifactPull(ref, unpinnedAcknowledged = false, options = {}) {
+    orgStartArtifactPull(
+      ref: string,
+      unpinnedAcknowledged = false,
+      options: RequestOptions = {},
+    ): Promise<ModelPullStartResult> {
       return trackSetupSubmission('organization', 'model', httpContract(
         'outer.post_org_models_pull.post',
         {
@@ -43,7 +33,7 @@ export function createTeamLocalModelsApi(
       ));
     },
 
-    orgListModelPulls(options = {}) {
+    orgListModelPulls(options: RequestOptions = {}): Promise<{ pulls: ModelPullDto[] }> {
       return httpContract(
         'outer.list_org_model_pulls.get',
         {
@@ -53,7 +43,7 @@ export function createTeamLocalModelsApi(
       );
     },
 
-    orgGetModelPull(id, options = {}) {
+    orgGetModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         'outer.get_org_model_pull.get',
         {
@@ -64,7 +54,7 @@ export function createTeamLocalModelsApi(
       ).then((pull) => observeSetup('organization', pull));
     },
 
-    orgCancelModelPull(id, options = {}) {
+    orgCancelModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         'outer.cancel_org_model_pull.post',
         {

@@ -90,12 +90,12 @@ describe('project attempts generated HTTP port', () => {
     }));
     const controller = new AbortController();
     const { createProjectAttemptsApi } = await import('../../src/api/projectAttempts');
-    const api = createProjectAttemptsApi();
+    const api = createProjectAttemptsApi('hostile /%25 ☃');
 
-    await expect(api.listAttemptReceipts('hostile /%25 ☃', 9, 7, {
+    await expect(api.listAttemptReceipts(9, 7, {
       signal: controller.signal,
     })).resolves.toEqual(page);
-    await api.listAttemptReceipts('hostile /%25 ☃', null, 25);
+    await api.listAttemptReceipts(null, 25);
 
     expect(requests.map(({ input }) => String(input))).toEqual([
       '/api/projects/hostile%20%2F%2525%20%E2%98%83/actions/attempts?limit=7&run_id=9',
@@ -106,12 +106,12 @@ describe('project attempts generated HTTP port', () => {
     expect(requests[0].init?.signal).toBe(controller.signal);
   });
 
-  it('maps declared errors, preserves network identity, and keeps the RealApi method stable', async () => {
+  it('maps declared errors, preserves network identity, and keeps the project API method stable', async () => {
     const { createProjectAttemptsApi } = await import('../../src/api/projectAttempts');
-    const api = createProjectAttemptsApi();
+    const api = createProjectAttemptsApi('receipts');
     for (const status of [401, 403, 404, 422, 500]) {
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error-${status}` }, status)));
-      await expect(api.listAttemptReceipts('receipts', null, 25)).rejects.toMatchObject({
+      await expect(api.listAttemptReceipts(null, 25)).rejects.toMatchObject({
         name: 'ApiError',
         status,
         message: `error-${status}`,
@@ -122,7 +122,7 @@ describe('project attempts generated HTTP port', () => {
 
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
-    await expect(api.listAttemptReceipts('receipts')).rejects.toBe(network);
+    await expect(api.listAttemptReceipts()).rejects.toBe(network);
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(page)));
     const real = await import('../../src/api/real');
     const projectApi = real.createProjectApi('hostile /%25 ☃');

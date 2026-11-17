@@ -33,12 +33,12 @@ describe('project collaboration generated HTTP contracts', () => {
     const projectId = 'project /☃';
     const email = 'member +/☃@example.com';
 
-    await api.listMembers(projectId, options);
-    await api.setMember(projectId, email, 'editor', options);
-    await api.removeMember(projectId, email, options);
-    await api.listInvites(projectId, options);
-    await api.createInvite(projectId, email, 'editor', options);
-    await api.revokeInvite(projectId, '9 /☃', options);
+    await api.listProjectMembers(projectId, options);
+    await api.setProjectMember(projectId, email, 'editor', options);
+    await api.removeProjectMember(projectId, email, options);
+    await api.listProjectInvites(projectId, options);
+    await api.createProjectInvite(projectId, email, 'editor', options);
+    await api.revokeProjectInvite(projectId, '9 /☃', options);
 
     const base = '/api/projects/project%20%2F%E2%98%83';
     const encodedEmail = 'member%20%2B%2F%E2%98%83%40example.com';

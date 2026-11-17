@@ -7,33 +7,12 @@ import type {
   ProjectSettingsPatch,
 } from './types';
 
-interface ProjectDataManagementApi {
-  getProjectRetention(options?: RequestOptions): Promise<ProjectRetentionPolicy>;
-  updateProjectRetention(
-    input: Partial<ProjectRetentionPolicy>,
-    options?: RequestOptions,
-  ): Promise<ProjectRetentionPolicy>;
-  getProjectNetworkPolicy(options?: RequestOptions): Promise<ProjectNetworkPolicy>;
-  updateProjectNetworkPolicy(
-    input: { mode: string },
-    options?: RequestOptions,
-  ): Promise<ProjectNetworkPolicy>;
-  getProjectSettings(options?: RequestOptions): Promise<ProjectSettings>;
-  updateProjectSettings(
-    input: ProjectSettingsPatch,
-    options?: RequestOptions,
-  ): Promise<ProjectSettings>;
-  compactProject(options?: RequestOptions): Promise<Record<string, unknown>>;
-}
-
 type RetentionPatch = HttpContractOperationMap['tenant.update_project_retention.patch']['request'];
 type SettingsPatch = HttpContractOperationMap['tenant.update_project_settings.patch']['request'];
 
-export function createProjectDataManagementApi(
-  projectId: string,
-): ProjectDataManagementApi {
+export function createProjectDataManagementApi(projectId: string) {
   return {
-    getProjectRetention(options = {}) {
+    getProjectRetention(options: RequestOptions = {}): Promise<ProjectRetentionPolicy> {
       return httpContract(
         'tenant.get_project_retention.get',
         {
@@ -43,7 +22,10 @@ export function createProjectDataManagementApi(
       );
     },
 
-    updateProjectRetention(input, options = {}) {
+    updateProjectRetention(
+      input: Partial<ProjectRetentionPolicy>,
+      options: RequestOptions = {},
+    ): Promise<ProjectRetentionPolicy> {
       return httpContract(
         'tenant.update_project_retention.patch',
         {
@@ -54,7 +36,7 @@ export function createProjectDataManagementApi(
       );
     },
 
-    getProjectNetworkPolicy(options = {}) {
+    getProjectNetworkPolicy(options: RequestOptions = {}): Promise<ProjectNetworkPolicy> {
       return httpContract(
         'tenant.get_project_network.get',
         {
@@ -64,7 +46,10 @@ export function createProjectDataManagementApi(
       );
     },
 
-    updateProjectNetworkPolicy(input, options = {}) {
+    updateProjectNetworkPolicy(
+      input: { mode: string },
+      options: RequestOptions = {},
+    ): Promise<ProjectNetworkPolicy> {
       return httpContract(
         'outer.update_project_network.patch',
         {
@@ -75,7 +60,7 @@ export function createProjectDataManagementApi(
       );
     },
 
-    getProjectSettings(options = {}) {
+    getProjectSettings(options: RequestOptions = {}): Promise<ProjectSettings> {
       return httpContract(
         'tenant.get_project_settings.get',
         {
@@ -85,7 +70,10 @@ export function createProjectDataManagementApi(
       );
     },
 
-    updateProjectSettings(input, options = {}) {
+    updateProjectSettings(
+      input: ProjectSettingsPatch,
+      options: RequestOptions = {},
+    ): Promise<ProjectSettings> {
       return httpContract(
         'tenant.update_project_settings.patch',
         {
@@ -99,7 +87,7 @@ export function createProjectDataManagementApi(
       );
     },
 
-    compactProject(options = {}) {
+    compactProject(options: RequestOptions = {}): Promise<Record<string, unknown>> {
       return httpContract(
         'tenant.compact_project.post',
         {

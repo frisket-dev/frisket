@@ -274,12 +274,14 @@ describe('columnValuesPreview', () => {
 });
 
 describe('generated resolve preview transport', () => {
-  it('reads the current raw pid for every call and lets the renderer encode it once', async () => {
+  it('takes the raw project id once and lets the renderer encode it once', async () => {
     const fetchMock = stubFetch(COLUMN_VALUES_WIRE);
-    const transport = createResolvePreviewsApi((status, payload) => new ApiError(status, String(payload)));
-    api = createProjectApi('folder/child');
+    const transport = createResolvePreviewsApi(
+      (status, payload) => new ApiError(status, String(payload)),
+      'folder/child',
+    );
 
-    await transport.columnValues('folder/child', { sheetId: '7', inputColumn: 'city' });
+    await transport.columnValuesPreview({ sheetId: '7', inputColumn: 'city' });
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/projects/folder%2Fchild/column-values/v1/preview',
@@ -287,7 +289,7 @@ describe('generated resolve preview transport', () => {
     );
   });
 
-  it('uses RealApi’s current project for each invocation without double encoding', async () => {
+  it('uses each project API’s own project for each invocation without double encoding', async () => {
     const fetchMock = stubFetch(COLUMN_VALUES_WIRE);
     api = createProjectApi('first/project');
     await api.columnValuesPreview({ sheetId: '7', inputColumn: 'city' });
@@ -357,9 +359,12 @@ const CLUSTER_WIRE = {
 describe('clusterPreview', () => {
   it('maps the generated required cluster core directly to the browser shape', async () => {
     const fetchMock = stubFetch(CLUSTER_WIRE);
-    const transport = createResolvePreviewsApi((status, payload) => new ApiError(status, String(payload)));
+    const transport = createResolvePreviewsApi(
+      (status, payload) => new ApiError(status, String(payload)),
+      'p1',
+    );
 
-    const out = await transport.cluster('p1', {
+    const out = await transport.clusterPreview({
       sheetId: '7',
       inputColumn: 'city',
       method: 'fingerprint',
