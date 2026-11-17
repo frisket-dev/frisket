@@ -13,6 +13,7 @@ from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
 from frisket.engine.executor.group_summary_program import GroupSummaryProgram
 from frisket.engine.executor import group_summary_runtime as runtime
 from frisket.engine.store import Project, cells
+from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.ops.group_summary import (
     group_summary_rows,
     group_summary_messages,
@@ -120,8 +121,9 @@ def test_preparation_pages_and_spools_a_large_corpus_without_retaining_payloads(
             ref_pages.append(len(row_ids))
             return original_refs(project, sheet, column, row_ids, **kwargs)
 
-        monkeypatch.setattr(cells, "get_values", bounded_values)
-        monkeypatch.setattr(cells, "get_values_with_refs", bounded_refs)
+        for store in (Project, ProjectReadSnapshot):
+            monkeypatch.setattr(store, "get_values", bounded_values)
+            monkeypatch.setattr(store, "get_values_with_refs", bounded_refs)
         gc.collect()
         measurements = {}
         for capture in (False, True):

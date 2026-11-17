@@ -47,7 +47,7 @@ EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 
 class ManualClock:
     """The rate_limiter clock idiom (``now_ms``) plus a datetime view
-    (``now``) for ``SqlAlchemyJobQueue(clock=...)``. Advances only when the
+    (``now``) for ``JobQueue(clock=...)``. Advances only when the
     test says so."""
 
     def __init__(self, start_ms: int = 0) -> None:

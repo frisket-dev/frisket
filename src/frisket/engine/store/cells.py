@@ -352,8 +352,14 @@ def set_column_default_hidden(
 
 
 def set_column_type(
-    project, column_id, type, *, op_id=None, initialize=False, commit=True
-):
+    project: Any,
+    column_id: int,
+    type: str,
+    *,
+    op_id: int | None = None,
+    initialize: bool = False,
+    commit: bool = True,
+) -> None:
     """Retype a column through a Change, retaining the previous descriptor."""
     if not column_types.is_registered(type):
         raise ValueError(f"unknown column type: {type}")
@@ -371,8 +377,14 @@ def set_column_type(
 
 
 def set_column_format(
-    project, column_id, format, *, op_id=None, initialize=False, commit=True
-):
+    project: Any,
+    column_id: int,
+    format: str | None,
+    *,
+    op_id: int | None = None,
+    initialize: bool = False,
+    commit: bool = True,
+) -> None:
     if format is not None and format not in COLUMN_FORMATS:
         raise ValueError(f"unknown column format: {format}")
     from .column_descriptors import set_descriptor
@@ -389,8 +401,14 @@ def set_column_format(
 
 
 def set_column_semantic_type(
-    project, column_id, semantic_type, *, op_id=None, initialize=False, commit=True
-):
+    project: Any,
+    column_id: int,
+    semantic_type: str | None,
+    *,
+    op_id: int | None = None,
+    initialize: bool = False,
+    commit: bool = True,
+) -> None:
     from .column_descriptors import set_descriptor
 
     set_descriptor(

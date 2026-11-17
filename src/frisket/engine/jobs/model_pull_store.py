@@ -21,7 +21,7 @@ to the same row via ``pull_id``).
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from datetime import datetime, timedelta
 from typing import Any
 from collections.abc import Iterator
@@ -96,7 +96,7 @@ model_pulls_table = sa.Table(
     # Canonical endpoint identity paired with the immutable origin snapshot.
     # Both are null for non-local artifacts.
     sa.Column("endpoint_id", sa.String),
-    # Actor provenance (item 3): nullable -- the local tier has no actor
+    # Actor provenance: nullable -- the local tier has no actor
     # identity and always leaves this None; the team tier's owner-gated
     # route passes the acting user/service identity.
     sa.Column("initiated_by", sa.String),
@@ -173,32 +173,18 @@ def _truncate(text: str | None, limit: int = MAX_ERROR_MESSAGE_LENGTH) -> str | 
     return clean[: limit - 1].rstrip() + "…"
 
 
+_DATETIME_FIELDS = frozenset(
+    {"cancel_requested_at", "created_at", "started_at", "finished_at"}
+)
+
+
 def _row(raw: Any) -> ModelPullRow:
     return ModelPullRow(
-        id=raw.id,
-        workspace_root=raw.workspace_root,
-        model_ref=raw.model_ref,
-        status=raw.status,
-        job_id=raw.job_id,
-        phase=raw.phase,
-        total_bytes=raw.total_bytes,
-        completed_bytes=raw.completed_bytes,
-        error_code=raw.error_code,
-        error_message=raw.error_message,
-        correlation_id=raw.correlation_id,
-        resolved_digest=raw.resolved_digest,
-        resolved_size=raw.resolved_size,
-        cancel_requested_at=_parse(raw.cancel_requested_at),
-        created_at=_parse(raw.created_at),
-        started_at=_parse(raw.started_at),
-        finished_at=_parse(raw.finished_at),
-        endpoint_origin=raw.endpoint_origin,
-        endpoint_id=raw.endpoint_id,
-        initiated_by=raw.initiated_by,
-        artifact_kind=raw.artifact_kind,
-        artifact_source_url=raw.artifact_source_url,
-        artifact_license=raw.artifact_license,
-        artifact_manifest_version=raw.artifact_manifest_version,
+        **{
+            f.name: _parse(value) if f.name in _DATETIME_FIELDS else value
+            for f in fields(ModelPullRow)
+            for value in (getattr(raw, f.name),)
+        }
     )
 
 
@@ -386,11 +372,7 @@ class ModelPullBusyError(RuntimeError):
     workspace slot; callers (the local route) translate this into a 409
     ``pull_busy``. Deliberately a raised exception rather than a third return
     shape: every SUCCESSFUL outcome (created or same-ref dedupe) keeps the
-    existing ``tuple[ModelPullRow, bool]`` contract byte-for-byte, so a
-    caller unaware of this error (the team route's own call site, fixed by
-    its owning agent) keeps compiling/running exactly as before -- it simply
-    surfaces the same conflict as an unhandled exception it already tolerated
-    (the prior code re-raised a bare ``IntegrityError`` in this situation)."""
+    ``tuple[ModelPullRow, bool]`` contract."""
 
     def __init__(self, active: "ModelPullRow") -> None:
         super().__init__(
@@ -399,41 +381,18 @@ class ModelPullBusyError(RuntimeError):
         self.active = active
 
 
-def _active_row_for_ref(
-    engine: sa.engine.Engine, *, workspace_root: str, model_ref: str
+def _active_row(
+    engine: sa.engine.Engine, *, workspace_root: str, model_ref: str | None = None
 ) -> ModelPullRow | None:
+    """The newest still-active row for the workspace (narrowed to one ref when
+    given), after read-repair."""
     c = model_pulls_table.c
+    where = [c.workspace_root == workspace_root, c.status.in_(ACTIVE_STATUSES)]
+    if model_ref is not None:
+        where.append(c.model_ref == model_ref)
     with engine.connect() as cx:
         row = cx.execute(
-            sa.select(model_pulls_table)
-            .where(
-                c.workspace_root == workspace_root,
-                c.model_ref == model_ref,
-                c.status.in_(ACTIVE_STATUSES),
-            )
-            .order_by(c.id.desc())
-            .limit(1)
-        ).first()
-    if row is None:
-        return None
-    repaired = _read_repair(engine, _row(row))
-    return (
-        repaired
-        if repaired is not None and repaired.status in ACTIVE_STATUSES
-        else None
-    )
-
-
-def _any_active_row_for_workspace(
-    engine: sa.engine.Engine, *, workspace_root: str
-) -> ModelPullRow | None:
-    c = model_pulls_table.c
-    with engine.connect() as cx:
-        row = cx.execute(
-            sa.select(model_pulls_table)
-            .where(c.workspace_root == workspace_root, c.status.in_(ACTIVE_STATUSES))
-            .order_by(c.id.desc())
-            .limit(1)
+            sa.select(model_pulls_table).where(*where).order_by(c.id.desc()).limit(1)
         ).first()
     if row is None:
         return None
@@ -489,14 +448,12 @@ def create_or_get_active(
                 )
                 new_id = result.inserted_primary_key[0]
         except sa.exc.IntegrityError:
-            same_ref = _active_row_for_ref(
+            same_ref = _active_row(
                 engine, workspace_root=workspace_root, model_ref=model_ref
             )
             if same_ref is not None:
                 return same_ref, False
-            other_active = _any_active_row_for_workspace(
-                engine, workspace_root=workspace_root
-            )
+            other_active = _active_row(engine, workspace_root=workspace_root)
             if other_active is not None:
                 raise ModelPullBusyError(other_active) from None
             # Read-repair freed the slot (or this was a genuine transient
@@ -512,19 +469,26 @@ def create_or_get_active(
     )
 
 
-def set_job_id(engine: sa.engine.Engine, pull_id: int, *, job_id: int) -> None:
-    c = model_pulls_table.c
+def _update(
+    engine: sa.engine.Engine, pull_id: int, *guards: Any, **values: Any
+) -> bool:
+    """Update one pull row when every guard holds; returns whether it applied."""
     with engine.begin() as cx:
-        cx.execute(
+        res = cx.execute(
             model_pulls_table.update()
-            .where(c.id == pull_id)
-            .values(job_id=job_id, correlation_id=str(job_id))
+            .where(model_pulls_table.c.id == pull_id, *guards)
+            .values(**values)
         )
+    return res.rowcount > 0
+
+
+def set_job_id(engine: sa.engine.Engine, pull_id: int, *, job_id: int) -> None:
+    _update(engine, pull_id, job_id=job_id, correlation_id=str(job_id))
 
 
 def mark_running(engine: sa.engine.Engine, pull_id: int, *, job_id: int) -> bool:
-    """Idempotent across retries: a resumed attempt on the SAME row (item 1b
-    -- the row stays 'running' across a retryable failure) re-enters this
+    """Idempotent across retries: a resumed attempt on the SAME row (the
+    row stays 'running' across a retryable failure) re-enters this
     with status already 'running', not 'pending'; the WHERE guard accepts
     either active status so the retry's re-claim keeps working, while a
     terminal row (already done/failed/cancelled by a race) is left alone.
@@ -553,45 +517,39 @@ def mark_running(engine: sa.engine.Engine, pull_id: int, *, job_id: int) -> bool
     admin retry of a cancelled job) would otherwise reopen.
 
     A successful reactivation also clears whatever error_code/error_message
-    the PRIOR attempt left on the row (item 2: retry state hygiene) -- a
+    the PRIOR attempt left on the row -- a
     freshly (re)claimed row must not carry a stale terminal error into a
     fresh attempt that may go on to succeed (``mark_done`` clears the same
     fields on the completing side of that same guarantee)."""
     c = model_pulls_table.c
-    with engine.begin() as cx:
-        res = cx.execute(
-            model_pulls_table.update()
-            .where(
-                c.id == pull_id,
+    return _update(
+        engine,
+        pull_id,
+        sa.or_(
+            c.status.in_(ACTIVE_STATUSES),
+            sa.and_(
+                c.status == STATUS_FAILED,
+                c.job_id == job_id,
+                # A migration-superseded loser is PERMANENTLY fenced:
+                # its cancelled job can be resurrected by an admin
+                # queue retry (JobQueue.retry accepts cancelled jobs),
+                # and without this exclusion the retried job would
+                # reopen the row and contact the daemon. Null-safe: a failed
+                # row with no error_code must stay reactivatable.
                 sa.or_(
-                    c.status.in_(ACTIVE_STATUSES),
-                    sa.and_(
-                        c.status == STATUS_FAILED,
-                        c.job_id == job_id,
-                        # A migration-superseded loser is PERMANENTLY fenced:
-                        # its cancelled job can be resurrected by an admin
-                        # queue retry (JobQueue.retry accepts cancelled jobs),
-                        # and without this exclusion the retried job would
-                        # reopen the row and contact the daemon. Null-safe: a failed
-                        # row with no error_code must stay reactivatable.
-                        sa.or_(
-                            c.error_code.is_(None),
-                            c.error_code != "superseded_by_migration",
-                        ),
-                    ),
+                    c.error_code.is_(None),
+                    c.error_code != "superseded_by_migration",
                 ),
-            )
-            .values(
-                status=STATUS_RUNNING,
-                job_id=job_id,
-                correlation_id=str(job_id),
-                started_at=sa.func.coalesce(c.started_at, _now()),
-                finished_at=None,
-                error_code=None,
-                error_message=None,
-            )
-        )
-    return res.rowcount > 0
+            ),
+        ),
+        status=STATUS_RUNNING,
+        job_id=job_id,
+        correlation_id=str(job_id),
+        started_at=sa.func.coalesce(c.started_at, _now()),
+        finished_at=None,
+        error_code=None,
+        error_message=None,
+    )
 
 
 def set_artifact_metadata(
@@ -610,18 +568,14 @@ def set_artifact_metadata(
     ``artifact_license=None``/``artifact_manifest_version=None`` and the raw
     source URL). Idempotent -- a resumed attempt re-stamps the same values.
     """
-    c = model_pulls_table.c
-    with engine.begin() as cx:
-        cx.execute(
-            model_pulls_table.update()
-            .where(c.id == pull_id)
-            .values(
-                artifact_kind=artifact_kind,
-                artifact_source_url=artifact_source_url,
-                artifact_license=artifact_license,
-                artifact_manifest_version=artifact_manifest_version,
-            )
-        )
+    _update(
+        engine,
+        pull_id,
+        artifact_kind=artifact_kind,
+        artifact_source_url=artifact_source_url,
+        artifact_license=artifact_license,
+        artifact_manifest_version=artifact_manifest_version,
+    )
 
 
 def update_progress(
@@ -634,31 +588,25 @@ def update_progress(
 ) -> None:
     """Throttling (how often this is called) is the handler's job; this is a
     plain durable write."""
-    c = model_pulls_table.c
-    with engine.begin() as cx:
-        cx.execute(
-            model_pulls_table.update()
-            .where(c.id == pull_id)
-            .values(
-                phase=phase,
-                total_bytes=total_bytes,
-                completed_bytes=completed_bytes,
-            )
-        )
+    _update(
+        engine,
+        pull_id,
+        phase=phase,
+        total_bytes=total_bytes,
+        completed_bytes=completed_bytes,
+    )
 
 
 def request_cancel(engine: sa.engine.Engine, pull_id: int) -> bool:
     """Stamp ``cancel_requested_at`` on an active row. Returns False if the
     row is missing or already terminal (nothing to cancel)."""
     c = model_pulls_table.c
-    now = _now()
-    with engine.begin() as cx:
-        res = cx.execute(
-            model_pulls_table.update()
-            .where(c.id == pull_id, c.status.in_(ACTIVE_STATUSES))
-            .values(cancel_requested_at=sa.func.coalesce(c.cancel_requested_at, now))
-        )
-    return res.rowcount > 0
+    return _update(
+        engine,
+        pull_id,
+        c.status.in_(ACTIVE_STATUSES),
+        cancel_requested_at=sa.func.coalesce(c.cancel_requested_at, _now()),
+    )
 
 
 def mark_done(
@@ -680,22 +628,18 @@ def mark_done(
     and then completes -- must never publish a stale terminal error
     alongside a 'done' status; the DTO's ``error`` field must be null
     whenever the pull actually succeeded."""
-    c = model_pulls_table.c
-    with engine.begin() as cx:
-        res = cx.execute(
-            model_pulls_table.update()
-            .where(c.id == pull_id, c.status.in_(ACTIVE_STATUSES))
-            .values(
-                status=STATUS_DONE,
-                phase="done",
-                resolved_digest=resolved_digest,
-                resolved_size=resolved_size,
-                finished_at=_now(),
-                error_code=None,
-                error_message=None,
-            )
-        )
-    return res.rowcount > 0
+    return _update(
+        engine,
+        pull_id,
+        model_pulls_table.c.status.in_(ACTIVE_STATUSES),
+        status=STATUS_DONE,
+        phase="done",
+        resolved_digest=resolved_digest,
+        resolved_size=resolved_size,
+        finished_at=_now(),
+        error_code=None,
+        error_message=None,
+    )
 
 
 def record_attempt_error(
@@ -705,21 +649,18 @@ def record_attempt_error(
     error_code: str,
     error_message: str | None,
 ) -> None:
-    """Item 1b: records the latest attempt's error WITHOUT finalizing the
+    """Records the latest attempt's error WITHOUT finalizing the
     row -- status stays whatever active status it already was ('running').
     Used when this attempt is retryable and NOT the job's final attempt, so
     the requeued job resumes the SAME row instead of a duplicate active row
     getting created for the same ref while this one still shows 'failed'."""
-    c = model_pulls_table.c
-    with engine.begin() as cx:
-        cx.execute(
-            model_pulls_table.update()
-            .where(c.id == pull_id, c.status.in_(ACTIVE_STATUSES))
-            .values(
-                error_code=error_code,
-                error_message=_truncate(error_message),
-            )
-        )
+    _update(
+        engine,
+        pull_id,
+        model_pulls_table.c.status.in_(ACTIVE_STATUSES),
+        error_code=error_code,
+        error_message=_truncate(error_message),
+    )
 
 
 def mark_failed(
@@ -729,19 +670,15 @@ def mark_failed(
     error_code: str,
     error_message: str | None,
 ) -> bool:
-    c = model_pulls_table.c
-    with engine.begin() as cx:
-        res = cx.execute(
-            model_pulls_table.update()
-            .where(c.id == pull_id, c.status.in_(ACTIVE_STATUSES))
-            .values(
-                status=STATUS_FAILED,
-                error_code=error_code,
-                error_message=_truncate(error_message),
-                finished_at=_now(),
-            )
-        )
-    return res.rowcount > 0
+    return _update(
+        engine,
+        pull_id,
+        model_pulls_table.c.status.in_(ACTIVE_STATUSES),
+        status=STATUS_FAILED,
+        error_code=error_code,
+        error_message=_truncate(error_message),
+        finished_at=_now(),
+    )
 
 
 class UninstallInFlightError(RuntimeError):
@@ -802,18 +739,17 @@ def uninstalling_ref(
 
 
 def mark_cancelled(engine: sa.engine.Engine, pull_id: int) -> bool:
-    """Tolerant of an already-terminal row (item 1a: the cancel route may
+    """Tolerant of an already-terminal row (the cancel route may
     mark a never-claimed pull cancelled directly; the handler's own
     cooperative cancel check must not then error or double-finalize if it
     somehow still runs)."""
-    c = model_pulls_table.c
-    with engine.begin() as cx:
-        res = cx.execute(
-            model_pulls_table.update()
-            .where(c.id == pull_id, c.status.in_(ACTIVE_STATUSES))
-            .values(status=STATUS_CANCELLED, finished_at=_now())
-        )
-    return res.rowcount > 0
+    return _update(
+        engine,
+        pull_id,
+        model_pulls_table.c.status.in_(ACTIVE_STATUSES),
+        status=STATUS_CANCELLED,
+        finished_at=_now(),
+    )
 
 
 # Wire version 4 carries immutable endpoint provenance plus the operation
@@ -889,7 +825,7 @@ def to_dto(row: ModelPullRow, *, allow_remove: bool = True) -> dict[str, Any]:
         "finished_at": _iso(row.finished_at),
         "cancel_requested": row.cancel_requested_at is not None,
         "endpoint_id": row.endpoint_id,
-        # item 3: origins never carry credentials/paths (`normalize_ollama_url`
+        # Origins never carry credentials/paths (`normalize_ollama_url`
         # strips everything but scheme+host[:port]), so the full origin is
         # safe to publish verbatim -- unlike a full URL, which could smuggle a
         # path or query string.

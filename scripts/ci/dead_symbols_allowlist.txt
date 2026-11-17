@@ -88,8 +88,6 @@ src/frisket/engine/executor/temporal_transcripts.py::transcript_snapshot_by_iden
 src/frisket/engine/jobs/projection.py::diagnostic_job_event  frisket-cloud
 src/frisket/engine/jobs/queue.py::JobQueue.abandon_stopped_worker_handler_authorities  frisket-cloud
 src/frisket/engine/jobs/queue.py::JobQueue.get_scoped  test-only
-src/frisket/engine/jobs/queue.py::SqlAlchemyJobQueue.abandon_stopped_worker_handler_authorities  frisket-cloud
-src/frisket/engine/jobs/queue.py::SqlAlchemyJobQueue.get_scoped  test-only
 src/frisket/engine/jobs/queue_health.py::evaluate_run_queue_deploy_readiness  test-only
 src/frisket/engine/jobs/queue_runtime_monitor.py::<module>  frisket-cloud
 src/frisket/engine/jobs/queue_runtime_monitor.py::evaluate_run_queue_runtime_monitor  frisket-cloud
@@ -119,18 +117,12 @@ src/frisket/engine/store/effect_checkpoints.py::EffectCheckpointStore.consume_gr
 src/frisket/engine/store/materialization.py::materialized_row_source_diagnostics  test-only
 src/frisket/engine/store/materialization.py::write_edge_table  test-only
 src/frisket/engine/store/media_clip.py::cut_and_store_clip  test-only
-src/frisket/engine/store/notifications.py::enabled_notification_channels  unreferenced
 src/frisket/engine/store/notifications.py::notification_digest_item_ids  test-only
-src/frisket/engine/store/notifications.py::public_notification_channels  unreferenced
-src/frisket/engine/store/notifications.py::public_notification_routes  unreferenced
 src/frisket/engine/store/pdf_split_text.py::publish_pdf_split_page  test-only
 src/frisket/engine/store/project.py::Project._referenced_blob_hashes  test-only
 src/frisket/engine/store/project.py::Project.blob_derivation_chain  test-only
-src/frisket/engine/store/project.py::Project.enabled_notification_channels  unreferenced
 src/frisket/engine/store/project.py::Project.import_bundle  test-only
 src/frisket/engine/store/project.py::Project.notification_digest_item_ids  test-only
-src/frisket/engine/store/project.py::Project.public_notification_channels  unreferenced
-src/frisket/engine/store/project.py::Project.public_notification_routes  unreferenced
 src/frisket/engine/store/project_blobs.py::_referenced_blob_hashes  test-only
 src/frisket/engine/store/project_blobs.py::blob_derivation_chain  test-only
 src/frisket/engine/store/project_qa.py::ProjectQAStore.finish_turn  test-only

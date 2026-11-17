@@ -30,7 +30,6 @@ import logging
 import os
 import threading
 import uuid
-from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -461,317 +460,6 @@ class UnheardHandlerAuthorities:
     oldest_claim_age_seconds: float | None
 
 
-class JobQueue(ABC):
-    """The interface the worker loop runs against — identical everywhere."""
-
-    @abstractmethod
-    def enqueue(
-        self,
-        kind: str,
-        payload: dict | None = None,
-        *,
-        max_attempts: int = 3,
-        delay_seconds: float = 0.0,
-    ) -> int:
-        """Add a job; returns its id. delay_seconds defers availability."""
-
-    @abstractmethod
-    def promote_project_run(
-        self,
-        job_id: int,
-        *,
-        project_id: str,
-        storage_org_id: int | None,
-        preferred_row_id: int,
-    ) -> bool:
-        """Promote one scoped active project run and set its next-row hint."""
-
-    @abstractmethod
-    def take_preferred_row_id(self, job_id: int, *, authority_id: str) -> int | None:
-        """Atomically take a row hint using the current handler authority."""
-
-    @abstractmethod
-    def claim(
-        self,
-        worker_id: str,
-        *,
-        lease_seconds: float = 60.0,
-        worker_version: str | None = None,
-    ) -> Job | None:
-        """Atomically take an available queued job, deferring background search work.
-
-        FIFO holds within each class. Marks it running, increments ``attempts``,
-        stamps the lease. ``worker_version``
-        is diagnostic metadata supplied by a worker; direct queue users retain
-        the queue process's current identity by default."""
-
-    @abstractmethod
-    def acknowledge_handler_exit(
-        self,
-        job_id: int,
-        worker_id: str,
-        *,
-        authority_id: str | None = None,
-    ) -> bool:
-        """Release a claim's durable handler authority after code has exited.
-
-        ``authority_id`` identifies one exact claim. It may be omitted only by
-        direct queue executors that use ``complete``/``fail`` themselves; the
-        product Worker always supplies the token returned by ``claim``.
-        """
-
-    @abstractmethod
-    def handler_execution_stopped(self, job_id: int, authority_id: str) -> bool:
-        """The original handler exited; a successor on the same job is distinct.
-
-        A never-issued job id is unknown, never proof that a handler died. An
-        issued id whose row is gone belonged to a replaced older queue.
-        """
-
-    @abstractmethod
-    def job_execution_stopped(self, job_id: int) -> bool:
-        """A terminal job has no remaining durable handler authority.
-
-        A never-issued job id or an expired lease is not proof that executable
-        code has exited. Recovery must not infer death from heartbeat age alone.
-        An issued id whose row is gone belonged to a replaced older queue.
-        """
-
-    @abstractmethod
-    def has_active_project_handler(
-        self,
-        project_id: str,
-        *,
-        storage_org_id: int | None,
-    ) -> bool:
-        """Whether executable code still owns this exact project key.
-
-        This is deliberately independent of the job row's status and lease.
-        """
-
-    @abstractmethod
-    def abandon_stopped_worker_handler_authorities(
-        self,
-        worker_id: str,
-        *,
-        heartbeat_cutoff: datetime,
-    ) -> HandlerAuthorityAbandonResult:
-        """Atomically refuse a live worker or release a stopped one's claims.
-
-        The caller must establish that the named worker process cannot still
-        execute. Heartbeat age is contradictory evidence, not proof of death:
-        a heartbeat at/after ``heartbeat_cutoff`` refuses without deleting.
-        The heartbeat check and worker-scoped delete share one write
-        transaction, so a concurrent heartbeat cannot slip between them.
-        """
-
-    @abstractmethod
-    def heartbeat(
-        self, job_id: int, worker_id: str, *, lease_seconds: float = 60.0
-    ) -> bool:
-        """Extend the lease on a job this worker holds. False = lost it
-        (lease expired and someone recovered the job) — abandon the work."""
-
-    def report_progress(self, job_id: int, attempt: int, progress: dict) -> bool:
-        """Update nonterminal progress only for the currently claimed attempt."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def complete(self, job_id: int, worker_id: str, result: dict | None = None) -> bool:
-        """Mark done. False if this worker no longer holds the job."""
-
-    @abstractmethod
-    def fail(
-        self,
-        job_id: int,
-        worker_id: str,
-        error: str,
-        *,
-        retry: bool = True,
-        retry_delay_seconds: float = 0.0,
-    ) -> bool:
-        """Record a failure. Requeues with available_at = now + delay while
-        attempts < max_attempts (and retry=True); otherwise terminal-fails."""
-
-    @abstractmethod
-    def cancel(self, job_id: int) -> bool:
-        """Cancel a queued job.
-
-        Jobs of a kind in ``COOPERATIVELY_CANCELLABLE_RUNNING_KINDS``
-        (``action.run``, ``model.pull``) may also be marked cancelled while
-        running because their handlers poll the durable job row between
-        external calls. ``action.run`` additionally terminalizes a paired v1
-        receipt; other cooperatively-cancellable kinds have no receipt to
-        terminalize and just stop at the row flip.
-        """
-
-    @abstractmethod
-    def cancel_queued(self, job_id: int) -> bool:
-        """Cancel ``job_id`` if queued, including a recovered prior claim.
-
-        A concurrent claim wins by changing the row to ``running``. Lifecycle
-        deletion, which must also distinguish never-started work from a lease-
-        recovered handler, uses :meth:`cancel_unstarted` instead.
-        """
-
-    @abstractmethod
-    def cancel_unstarted(self, job_id: int) -> bool:
-        """Cancel only while queued and never claimed, checked atomically."""
-
-    @abstractmethod
-    def cancel_with_report(self, job_id: int) -> "CancelResult":
-        """Same cancellation as :meth:`cancel`, plus the pre-cancel status. A
-        caller that
-        needs to know whether the job had EVER been claimed (still
-        ``queued``, so no handler will ever run for it) reads
-        ``previous_status`` atomically from the SAME transaction that
-        performs the cancel -- never a separate get-then-cancel read, which
-        would race a concurrent claim. The model.pull cancel route uses this
-        to finalize a never-claimed pull's row directly, since its handler
-        will never get a chance to."""
-
-    @abstractmethod
-    def recover_expired(self) -> int:
-        """Return lease-expired running jobs to queued (or failed when
-        attempts are exhausted). Returns how many were recovered."""
-
-    @abstractmethod
-    def fail_queued(self, job_id: int, error: str) -> bool:
-        """Terminal-fail a job that is still ``queued`` (never claimed).
-
-        The lease-based ``fail``/``recover_expired`` path only touches jobs a
-        worker holds; a job that no worker ever claimed hangs in ``queued``
-        forever. This lets the status/timeout path fail it loudly. Returns
-        False if the job is not queued."""
-
-    @abstractmethod
-    def record_worker_heartbeat(
-        self,
-        worker_id: str,
-        *,
-        queue: str | None = None,
-        worker_version: str | None = None,
-        kinds: str | None = None,
-        now: datetime | None = None,
-    ) -> None:
-        """Upsert this worker's liveness marker (decoupled from job leases).
-        ``worker_version`` records the heartbeating worker's own code identity
-        for audit surfaces. ``kinds`` is a comma-joined,
-        sorted list of this worker's registered handler kinds."""
-
-    @abstractmethod
-    def count_live_workers(
-        self, *, within_seconds: float, now: datetime | None = None
-    ) -> int:
-        """How many workers heartbeated within the window ending at ``now``."""
-
-    @abstractmethod
-    def list_worker_heartbeats(self) -> list["WorkerHeartbeat"]:
-        """All known worker heartbeats, most-recently-seen first."""
-
-    @abstractmethod
-    def unheard_handler_authorities(
-        self, *, heartbeat_cutoff: datetime, now: datetime
-    ) -> "UnheardHandlerAuthorities":
-        """Authorities held by workers with no heartbeat at/after the cutoff.
-
-        A pure read: it releases nothing and changes no behavior. Its only
-        job is to make an otherwise invisible condition publishable, because
-        the automatic recovery paths cannot touch these rows and the operator
-        lever that can is never pulled by someone who was never told.
-
-        The liveness predicate is deliberately the SAME one
-        ``abandon_stopped_worker_handler_authorities`` uses to refuse a live
-        worker — one spelling of "this worker has gone quiet", so the surface
-        that reports the condition and the lever that resolves it cannot
-        disagree about which workers they mean. A worker with NO heartbeat
-        row at all counts: an absent fact is not evidence of liveness.
-        """
-
-    @abstractmethod
-    def oldest_queued_created_at(self) -> datetime | None:
-        """Oldest ``created_at`` across every queued job, or ``None``.
-
-        This is an aggregate health query, not a bounded job listing: queue
-        saturation must never hide the longest-waiting row.
-        """
-
-    @abstractmethod
-    def get_scoped(self, job_id: int, *, org_id: str, kind: str) -> Job | None:
-        """Same as :meth:`get`, but the WHERE clause additionally requires
-        ``org_id`` AND ``kind`` to match exactly: a caller-scoped org/kind
-        read, never fetch-then-
-        authorize. Returns ``None`` for a wrong org, a wrong kind, or a
-        missing job -- all three look identical to the caller, which is the
-        point (no oracle for "the job exists but isn't yours")."""
-
-    @abstractmethod
-    def cancel_scoped(self, job_id: int, *, org_id: str, kind: str) -> bool:
-        """Same as :meth:`cancel`, but the WHERE clause additionally requires
-        ``org_id`` AND ``kind`` to match exactly -- an atomic, single
-        transaction gate rather than a separate authorization read followed
-        by a plain ``cancel()``. A wrong org or wrong kind refuses (``False``)
-        exactly like a missing or already-terminal job."""
-
-    @abstractmethod
-    def get(self, job_id: int) -> Job | None: ...
-
-    @abstractmethod
-    def list_jobs(self, status: str | None = None, limit: int = 100) -> list[Job]: ...
-
-    @abstractmethod
-    def get_project_run_job(
-        self,
-        project_id: str,
-        run_id: int,
-        *,
-        storage_org_id: int | None = None,
-    ) -> Job | None: ...
-
-    @abstractmethod
-    def list_project_jobs(
-        self,
-        project_id: str,
-        *,
-        storage_org_id: int | None = None,
-        status: str | None = None,
-        limit: int = 100,
-        kind: str | None = None,
-        source_id: int | None = None,
-    ) -> list[Job]:
-        """Newest-first project jobs, narrowed in SQL.
-
-        ``source_id`` matches the ``jobs.source_id`` column minted by
-        ``_job_refs``. Narrowing here rather than in the caller is what makes
-        ``limit`` a budget for the rows the caller actually wants: a quiet
-        source beside a busy one used to have its jobs pushed out of the
-        window by traffic the caller then discarded in Python.
-        """
-
-    @abstractmethod
-    def find_job_by_refs(
-        self,
-        kind: str,
-        *,
-        statuses: tuple[str, ...] = ("queued", "running"),
-        project_id: str | None = None,
-        storage_org_id: int | None = None,
-        source_id: int | None = None,
-        sheet_id: int | None = None,
-        row_id: int | None = None,
-        workspace_root: str | None = None,
-        dedupe_key: str | None = None,
-        dedupe_key_prefix: str | None = None,
-    ) -> Job | None: ...
-
-    @abstractmethod
-    def counts(self) -> dict[str, int]:
-        """status -> count, for ops/status endpoints."""
-
-    def close(self) -> None:  # noqa: B027 — optional hook
-        pass
-
-
 def _queue_engine_url(locator: str | Path) -> str:
     """Map a queue locator to a SQLAlchemy URL.
 
@@ -1008,8 +696,9 @@ job_handler_authorities_table = sa.Table(
 )
 
 
-class SqlAlchemyJobQueue(JobQueue):
-    """The one SQLAlchemy-backed queue serving both backends.
+class JobQueue:
+    """The one SQLAlchemy-backed queue serving both backends; the worker loop
+    runs against it everywhere.
 
     ``locator`` is either a SQLite file path (a ``Path``, or a bare string with
     no URL scheme — the local ``<workspace>/.queue.db``) or a database URL (the
@@ -1116,12 +805,13 @@ class SqlAlchemyJobQueue(JobQueue):
 
     def enqueue(
         self,
-        kind,
-        payload=None,
+        kind: str,
+        payload: dict | None = None,
         *,
-        max_attempts=3,
-        delay_seconds=0.0,
-    ):
+        max_attempts: int = 3,
+        delay_seconds: float = 0.0,
+    ) -> int:
+        """Add a job; returns its id. delay_seconds defers availability."""
         now = self._clock()
         body = payload or {}
         refs = _job_refs(kind, body)
@@ -1181,7 +871,19 @@ class SqlAlchemyJobQueue(JobQueue):
                 raise
             return existing.id
 
-    def claim(self, worker_id, *, lease_seconds=60.0, worker_version=None):
+    def claim(
+        self,
+        worker_id: str,
+        *,
+        lease_seconds: float = 60.0,
+        worker_version: str | None = None,
+    ) -> Job | None:
+        """Atomically take an available queued job, deferring background search work.
+
+        FIFO holds within each class. Marks it running, increments ``attempts``,
+        stamps the lease. ``worker_version``
+        is diagnostic metadata supplied by a worker; direct queue users retain
+        the queue process's current identity by default."""
         now = self._clock()
         authority_id = uuid.uuid4().hex
         c = jobs_table.c
@@ -1261,6 +963,7 @@ class SqlAlchemyJobQueue(JobQueue):
         storage_org_id: int | None,
         preferred_row_id: int,
     ) -> bool:
+        """Promote one scoped active project run and set its next-row hint."""
         if type(preferred_row_id) is not int or preferred_row_id < 1:
             raise ValueError("preferred row id must be a positive integer")
         c = jobs_table.c
@@ -1288,6 +991,7 @@ class SqlAlchemyJobQueue(JobQueue):
         return result.rowcount > 0
 
     def take_preferred_row_id(self, job_id: int, *, authority_id: str) -> int | None:
+        """Atomically take a row hint using the current handler authority."""
         if not authority_id:
             raise ValueError("handler authority id is required")
         c = jobs_table.c
@@ -1327,11 +1031,17 @@ class SqlAlchemyJobQueue(JobQueue):
 
     def acknowledge_handler_exit(
         self,
-        job_id,
-        worker_id,
+        job_id: int,
+        worker_id: str,
         *,
-        authority_id=None,
-    ):
+        authority_id: str | None = None,
+    ) -> bool:
+        """Release a claim's durable handler authority after code has exited.
+
+        ``authority_id`` identifies one exact claim. It may be omitted only by
+        direct queue executors that use ``complete``/``fail`` themselves; the
+        product Worker always supplies the token returned by ``claim``.
+        """
         with self._write_transaction() as cx:
             released = self._acknowledge_handler_exit_on_connection(
                 cx,
@@ -1367,7 +1077,12 @@ class SqlAlchemyJobQueue(JobQueue):
         )
         return result.rowcount > 0
 
-    def handler_execution_stopped(self, job_id, authority_id):
+    def handler_execution_stopped(self, job_id: int, authority_id: str) -> bool:
+        """The original handler exited; a successor on the same job is distinct.
+
+        A never-issued job id is unknown, never proof that a handler died. An
+        issued id whose row is gone belonged to a replaced older queue.
+        """
         if not authority_id:
             return False
         job = jobs_table.c
@@ -1384,7 +1099,13 @@ class SqlAlchemyJobQueue(JobQueue):
                 is None
             )
 
-    def job_execution_stopped(self, job_id):
+    def job_execution_stopped(self, job_id: int) -> bool:
+        """A terminal job has no remaining durable handler authority.
+
+        A never-issued job id or an expired lease is not proof that executable
+        code has exited. Recovery must not infer death from heartbeat age alone.
+        An issued id whose row is gone belonged to a replaced older queue.
+        """
         job = jobs_table.c
         authority = job_handler_authorities_table.c
         with self.engine.connect() as cx:
@@ -1432,7 +1153,16 @@ class SqlAlchemyJobQueue(JobQueue):
             )
         return issued is not None and 0 < int(job_id) <= int(issued)
 
-    def has_active_project_handler(self, project_id, *, storage_org_id):
+    def has_active_project_handler(
+        self,
+        project_id: str,
+        *,
+        storage_org_id: int | None,
+    ) -> bool:
+        """Whether executable code still owns this exact project key.
+
+        This is deliberately independent of the job row's status and lease.
+        """
         c = job_handler_authorities_table.c
         with self.engine.connect() as cx:
             return (
@@ -1449,10 +1179,18 @@ class SqlAlchemyJobQueue(JobQueue):
 
     def abandon_stopped_worker_handler_authorities(
         self,
-        worker_id,
+        worker_id: str,
         *,
-        heartbeat_cutoff,
-    ):
+        heartbeat_cutoff: datetime,
+    ) -> HandlerAuthorityAbandonResult:
+        """Atomically refuse a live worker or release a stopped one's claims.
+
+        The caller must establish that the named worker process cannot still
+        execute. Heartbeat age is contradictory evidence, not proof of death:
+        a heartbeat at/after ``heartbeat_cutoff`` refuses without deleting.
+        The heartbeat check and worker-scoped delete share one write
+        transaction, so a concurrent heartbeat cannot slip between them.
+        """
         c = job_handler_authorities_table.c
         heartbeat = worker_heartbeats_table.c
         with self._write_transaction() as cx:
@@ -1499,7 +1237,11 @@ class SqlAlchemyJobQueue(JobQueue):
             with self.engine.begin() as conn:
                 yield conn
 
-    def heartbeat(self, job_id, worker_id, *, lease_seconds=60.0):
+    def heartbeat(
+        self, job_id: int, worker_id: str, *, lease_seconds: float = 60.0
+    ) -> bool:
+        """Extend the lease on a job this worker holds. False = lost it
+        (lease expired and someone recovered the job) — abandon the work."""
         c = jobs_table.c
         with self._write_transaction() as cx:
             res = cx.execute(
@@ -1511,7 +1253,8 @@ class SqlAlchemyJobQueue(JobQueue):
             )
         return res.rowcount > 0
 
-    def report_progress(self, job_id, attempt, progress):
+    def report_progress(self, job_id: int, attempt: int, progress: dict) -> bool:
+        """Update nonterminal progress only for the currently claimed attempt."""
         c = jobs_table.c
         with self._write_transaction() as cx:
             result = cx.execute(
@@ -1525,7 +1268,8 @@ class SqlAlchemyJobQueue(JobQueue):
             )
         return result.rowcount > 0
 
-    def complete(self, job_id, worker_id, result=None):
+    def complete(self, job_id: int, worker_id: str, result: dict | None = None) -> bool:
+        """Mark done. False if this worker no longer holds the job."""
         c = jobs_table.c
         now = self._clock()
         with self._write_transaction() as cx:
@@ -1569,7 +1313,17 @@ class SqlAlchemyJobQueue(JobQueue):
                 )
             return completed
 
-    def fail(self, job_id, worker_id, error, *, retry=True, retry_delay_seconds=0.0):
+    def fail(
+        self,
+        job_id: int,
+        worker_id: str,
+        error: str,
+        *,
+        retry: bool = True,
+        retry_delay_seconds: float = 0.0,
+    ) -> bool:
+        """Record a failure. Requeues with available_at = now + delay while
+        attempts < max_attempts (and retry=True); otherwise terminal-fails."""
         stored_error = redact_stored_error(
             error,
             fallback_code="queue_job_failed",
@@ -1664,7 +1418,16 @@ class SqlAlchemyJobQueue(JobQueue):
             self._notify_terminal("cancelled", job_to_cancel)
         return cancelled, previous_status
 
-    def cancel(self, job_id):
+    def cancel(self, job_id: int) -> bool:
+        """Cancel a queued job.
+
+        Jobs of a kind in ``COOPERATIVELY_CANCELLABLE_RUNNING_KINDS``
+        (``action.run``, ``model.pull``) may also be marked cancelled while
+        running because their handlers poll the durable job row between
+        external calls. ``action.run`` additionally terminalizes a paired v1
+        receipt; other cooperatively-cancellable kinds have no receipt to
+        terminalize and just stop at the row flip.
+        """
         cancelled, _previous_status = self._cancel_impl(job_id)
         return cancelled
 
@@ -1696,23 +1459,46 @@ class SqlAlchemyJobQueue(JobQueue):
             self._notify_terminal("cancelled", job_to_cancel)
         return cancelled
 
-    def cancel_queued(self, job_id):
+    def cancel_queued(self, job_id: int) -> bool:
+        """Cancel ``job_id`` if queued, including a recovered prior claim.
+
+        A concurrent claim wins by changing the row to ``running``. Lifecycle
+        deletion, which must also distinguish never-started work from a lease-
+        recovered handler, uses :meth:`cancel_unstarted` instead.
+        """
         return self._cancel_queued(job_id, require_unstarted=False)
 
-    def cancel_unstarted(self, job_id):
+    def cancel_unstarted(self, job_id: int) -> bool:
+        """Cancel only while queued and never claimed, checked atomically."""
         return self._cancel_queued(job_id, require_unstarted=True)
 
-    def cancel_with_report(self, job_id):
+    def cancel_with_report(self, job_id: int) -> "CancelResult":
+        """Same cancellation as :meth:`cancel`, plus the pre-cancel status. A
+        caller that
+        needs to know whether the job had EVER been claimed (still
+        ``queued``, so no handler will ever run for it) reads
+        ``previous_status`` atomically from the SAME transaction that
+        performs the cancel -- never a separate get-then-cancel read, which
+        would race a concurrent claim. The model.pull cancel route uses this
+        to finalize a never-claimed pull's row directly, since its handler
+        will never get a chance to."""
         cancelled, previous_status = self._cancel_impl(job_id)
         return CancelResult(cancelled=cancelled, previous_status=previous_status)
 
-    def cancel_scoped(self, job_id, *, org_id, kind):
+    def cancel_scoped(self, job_id: int, *, org_id: str, kind: str) -> bool:
+        """Same as :meth:`cancel`, but the WHERE clause additionally requires
+        ``org_id`` AND ``kind`` to match exactly -- an atomic, single
+        transaction gate rather than a separate authorization read followed
+        by a plain ``cancel()``. A wrong org or wrong kind refuses (``False``)
+        exactly like a missing or already-terminal job."""
         cancelled, _previous_status = self._cancel_impl(
             job_id, org_id=org_id, kind=kind
         )
         return cancelled
 
-    def recover_expired(self):
+    def recover_expired(self) -> int:
+        """Return lease-expired running jobs to queued (or failed when
+        attempts are exhausted). Returns how many were recovered."""
         now = self._clock()
         c = jobs_table.c
         recovered = 0
@@ -1753,7 +1539,13 @@ class SqlAlchemyJobQueue(JobQueue):
             self._notify_terminal("lease_exhausted", job)
         return recovered
 
-    def fail_queued(self, job_id, error):
+    def fail_queued(self, job_id: int, error: str) -> bool:
+        """Terminal-fail a job that is still ``queued`` (never claimed).
+
+        The lease-based ``fail``/``recover_expired`` path only touches jobs a
+        worker holds; a job that no worker ever claimed hangs in ``queued``
+        forever. This lets the status/timeout path fail it loudly. Returns
+        False if the job is not queued."""
         stored_error = redact_stored_error(
             error,
             fallback_code="queue_job_failed",
@@ -1776,8 +1568,18 @@ class SqlAlchemyJobQueue(JobQueue):
         return res.rowcount > 0
 
     def record_worker_heartbeat(
-        self, worker_id, *, queue=None, worker_version=None, kinds=None, now=None
-    ):
+        self,
+        worker_id: str,
+        *,
+        queue: str | None = None,
+        worker_version: str | None = None,
+        kinds: str | None = None,
+        now: datetime | None = None,
+    ) -> None:
+        """Upsert this worker's liveness marker (decoupled from job leases).
+        ``worker_version`` records the heartbeating worker's own code identity
+        for audit surfaces. ``kinds`` is a comma-joined,
+        sorted list of this worker's registered handler kinds."""
         stamp = now or self._clock()
         c = worker_heartbeats_table.c
         with self._write_transaction() as cx:
@@ -1805,7 +1607,10 @@ class SqlAlchemyJobQueue(JobQueue):
                     )
                 )
 
-    def count_live_workers(self, *, within_seconds, now=None):
+    def count_live_workers(
+        self, *, within_seconds: float, now: datetime | None = None
+    ) -> int:
+        """How many workers heartbeated within the window ending at ``now``."""
         cutoff = (now or self._clock()) - timedelta(seconds=within_seconds)
         c = worker_heartbeats_table.c
         with self.engine.connect() as cx:
@@ -1814,7 +1619,8 @@ class SqlAlchemyJobQueue(JobQueue):
             ).scalar_one()
         return int(n)
 
-    def list_worker_heartbeats(self):
+    def list_worker_heartbeats(self) -> list["WorkerHeartbeat"]:
+        """All known worker heartbeats, most-recently-seen first."""
         c = worker_heartbeats_table.c
         with self.engine.connect() as cx:
             rows = cx.execute(
@@ -1832,7 +1638,23 @@ class SqlAlchemyJobQueue(JobQueue):
             for r in rows
         ]
 
-    def unheard_handler_authorities(self, *, heartbeat_cutoff, now):
+    def unheard_handler_authorities(
+        self, *, heartbeat_cutoff: datetime, now: datetime
+    ) -> "UnheardHandlerAuthorities":
+        """Authorities held by workers with no heartbeat at/after the cutoff.
+
+        A pure read: it releases nothing and changes no behavior. Its only
+        job is to make an otherwise invisible condition publishable, because
+        the automatic recovery paths cannot touch these rows and the operator
+        lever that can is never pulled by someone who was never told.
+
+        The liveness predicate is deliberately the SAME one
+        ``abandon_stopped_worker_handler_authorities`` uses to refuse a live
+        worker — one spelling of "this worker has gone quiet", so the surface
+        that reports the condition and the lever that resolves it cannot
+        disagree about which workers they mean. A worker with NO heartbeat
+        row at all counts: an absent fact is not evidence of liveness.
+        """
         a = job_handler_authorities_table.c
         h = worker_heartbeats_table.c
         joined = job_handler_authorities_table.outerjoin(
@@ -1854,7 +1676,12 @@ class SqlAlchemyJobQueue(JobQueue):
             age = max(0.0, (_parse(now) - oldest).total_seconds())
         return UnheardHandlerAuthorities(count=count, oldest_claim_age_seconds=age)
 
-    def oldest_queued_created_at(self):
+    def oldest_queued_created_at(self) -> datetime | None:
+        """Oldest ``created_at`` across every queued job, or ``None``.
+
+        This is an aggregate health query, not a bounded job listing: queue
+        saturation must never hide the longest-waiting row.
+        """
         c = jobs_table.c
         with self.engine.connect() as cx:
             oldest = cx.execute(
@@ -1862,14 +1689,20 @@ class SqlAlchemyJobQueue(JobQueue):
             ).scalar_one()
         return _parse(oldest)
 
-    def get(self, job_id):
+    def get(self, job_id: int) -> Job | None:
         with self.engine.connect() as cx:
             row = cx.execute(
                 sa.select(jobs_table).where(jobs_table.c.id == job_id)
             ).first()
         return self._job(row) if row else None
 
-    def get_scoped(self, job_id, *, org_id, kind):
+    def get_scoped(self, job_id: int, *, org_id: str, kind: str) -> Job | None:
+        """Same as :meth:`get`, but the WHERE clause additionally requires
+        ``org_id`` AND ``kind`` to match exactly: a caller-scoped org/kind
+        read, never fetch-then-
+        authorize. Returns ``None`` for a wrong org, a wrong kind, or a
+        missing job -- all three look identical to the caller, which is the
+        point (no oracle for "the job exists but isn't yours")."""
         c = jobs_table.c
         with self.engine.connect() as cx:
             row = cx.execute(
@@ -1879,7 +1712,7 @@ class SqlAlchemyJobQueue(JobQueue):
             ).first()
         return self._job(row) if row else None
 
-    def list_jobs(self, status=None, limit=100):
+    def list_jobs(self, status: str | None = None, limit: int = 100) -> list[Job]:
         q = sa.select(jobs_table).order_by(jobs_table.c.id.desc()).limit(limit)
         if status:
             q = q.where(jobs_table.c.status == status)
@@ -1969,6 +1802,14 @@ class SqlAlchemyJobQueue(JobQueue):
         kind: str | None = None,
         source_id: int | None = None,
     ) -> list[Job]:
+        """Newest-first project jobs, narrowed in SQL.
+
+        ``source_id`` matches the ``jobs.source_id`` column minted by
+        ``_job_refs``. Narrowing here rather than in the caller is what makes
+        ``limit`` a budget for the rows the caller actually wants: a quiet
+        source beside a busy one used to have its jobs pushed out of the
+        window by traffic the caller then discarded in Python.
+        """
         c = jobs_table.c
         q = (
             sa.select(jobs_table)
@@ -1990,7 +1831,8 @@ class SqlAlchemyJobQueue(JobQueue):
             rows = cx.execute(q).fetchall()
         return [self._job(r) for r in rows]
 
-    def counts(self):
+    def counts(self) -> dict[str, int]:
+        """status -> count, for ops/status endpoints."""
         c = jobs_table.c
         with self.engine.connect() as cx:
             rows = cx.execute(
@@ -2000,13 +1842,12 @@ class SqlAlchemyJobQueue(JobQueue):
         out.update(dict(rows))
         return out
 
-    def close(self):
+    def close(self) -> None:
         self.engine.dispose()
 
 
-# Compatibility aliases for backend-specific constructors.
-SqliteJobQueue = SqlAlchemyJobQueue
-PostgresJobQueue = SqlAlchemyJobQueue
+SqliteJobQueue = JobQueue
+PostgresJobQueue = JobQueue
 
 
 def open_queue(
@@ -2026,7 +1867,7 @@ def open_queue(
     never accidentally acquire hosted posture; only the hosted app / hosted
     worker wiring declares it ``True``.
 
-    ``clock`` is ``SqlAlchemyJobQueue``'s injected time source, threaded
+    ``clock`` is ``JobQueue``'s injected time source, threaded
     through here so compositions that only reach the
     queue via ``open_queue`` (``create_app``'s workspace) can still pin
     lease/fence/liveness decisions to a manual clock. ``None`` (production)
@@ -2035,11 +1876,9 @@ def open_queue(
         selected_mode = schema_mode or os.environ.get(
             "FRISKET_RUN_QUEUE_SCHEMA_MODE", "initialize"
         )
-        return SqlAlchemyJobQueue(
+        return JobQueue(
             database_url, schema_mode=selected_mode, hosted=hosted, clock=clock
         )
     if workspace is None:
         raise ValueError("open_queue needs a workspace or a database_url")
-    return SqlAlchemyJobQueue(
-        Path(workspace) / QUEUE_DB_NAME, hosted=hosted, clock=clock
-    )
+    return JobQueue(Path(workspace) / QUEUE_DB_NAME, hosted=hosted, clock=clock)

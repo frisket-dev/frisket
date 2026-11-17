@@ -68,7 +68,7 @@ from fastapi.testclient import TestClient
 
 from frisket import cli
 from frisket.engine.jobs import SOURCE_POLL_KIND, open_queue
-from frisket.engine.jobs.queue import QUEUE_DB_NAME, SqlAlchemyJobQueue
+from frisket.engine.jobs.queue import QUEUE_DB_NAME, JobQueue
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
 from frisket.team.app import TeamConfig, create_team_app
@@ -167,7 +167,7 @@ class TestQueueWiringMatchesStandaloneWorker:
         config = _config(tmp_path, run_queue_database_url=run_queue_url)
         app = create_team_app(config, send_magic_email=_mail)
         queue = app.state.workspace.queue
-        assert isinstance(queue, SqlAlchemyJobQueue)
+        assert isinstance(queue, JobQueue)
         assert str(queue.engine.url) == run_queue_url
         # Never the multi-tenant hosted posture (queue-hosted-
         # posture-explicit-v1): the open team server has no claimed

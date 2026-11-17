@@ -547,13 +547,6 @@ def notification_channels(project: Any) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def enabled_notification_channels(project: Any) -> list[sqlite3.Row]:
-    project.ensure_default_in_app_notification_channel()
-    return project.db.execute(
-        "SELECT * FROM notification_channels WHERE enabled=1 ORDER BY id ASC"
-    ).fetchall()
-
-
 def update_notification_channel(
     project: Any,
     channel_id: int,
@@ -589,14 +582,6 @@ def public_notification_channel(project: Any, channel_id: int) -> dict[str, Any]
     if row is None:
         raise ValueError("notification channel not found")
     return _public_notification_channel_row(project, row)
-
-
-def public_notification_channels(project: Any) -> list[dict[str, Any]]:
-    project.ensure_default_in_app_notification_channel()
-    return [
-        _public_notification_channel_row(project, row)
-        for row in project.notification_channels()
-    ]
 
 
 def notification_route(project: Any, route_id: int) -> sqlite3.Row | None:
@@ -764,13 +749,6 @@ def public_notification_route(project: Any, route_id: int) -> dict[str, Any]:
     if row is None:
         raise ValueError("notification route not found")
     return _public_notification_route_row(project, row)
-
-
-def public_notification_routes(project: Any) -> list[dict[str, Any]]:
-    return [
-        _public_notification_route_row(project, row)
-        for row in project.notification_routes()
-    ]
 
 
 def notification_digest_run(project: Any, digest_run_id: int) -> sqlite3.Row | None:
