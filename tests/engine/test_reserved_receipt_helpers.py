@@ -90,167 +90,151 @@ def _unexpected_existing_result(*args: Any, **kwargs: Any) -> ActionResult:
     raise AssertionError("existing receipt path should not be called")
 
 
-def test_finalize_reserved_receipt_reports_lost_reservation(tmp_path: Path) -> None:
+def test_finalize_reserved_receipt_reports_lost_reservation(make_project) -> None:
     from frisket.engine.executor import (
         action_reservations as action_runtime_reservations,
     )
 
-    project = Project.create(tmp_path / "reservation-lost.frisket")
-    try:
-        result = action_runtime_reservations._finalize_reserved_action_receipt(  # noqa: SLF001
-            project,
-            _action(),
-            params_hash=PARAMS_HASH,
-            project_id=PROJECT_ID,
-            receipt=_receipt(status="completed"),
-            reservation_lost_message="test reservation was lost",
-            result_from_existing_fn=_unexpected_existing_result,
-        )
+    project = make_project("reservation-lost")
+    result = action_runtime_reservations._finalize_reserved_action_receipt(  # noqa: SLF001
+        project,
+        _action(),
+        params_hash=PARAMS_HASH,
+        project_id=PROJECT_ID,
+        receipt=_receipt(status="completed"),
+        reservation_lost_message="test reservation was lost",
+        result_from_existing_fn=_unexpected_existing_result,
+    )
 
-        assert result is not None
-        assert result.status == "failed"
-        assert result.receipt_id is None
-        assert result.errors[0].code == "project_write_failed"
-        assert result.errors[0].message == "test reservation was lost"
-    finally:
-        project.close()
+    assert result is not None
+    assert result.status == "failed"
+    assert result.receipt_id is None
+    assert result.errors[0].code == "project_write_failed"
+    assert result.errors[0].message == "test reservation was lost"
 
 
 def test_finalize_reserved_receipt_preserves_existing_terminal_result(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor import (
         action_reservations as action_runtime_reservations,
     )
 
-    project = Project.create(tmp_path / "reservation-update-failed.frisket")
-    try:
-        _insert_receipt(project, _receipt(status="completed"))
+    project = make_project("reservation-update-failed")
+    _insert_receipt(project, _receipt(status="completed"))
 
-        result = action_runtime_reservations._finalize_reserved_action_receipt(  # noqa: SLF001
-            project,
-            _action(),
-            params_hash=PARAMS_HASH,
-            project_id=PROJECT_ID,
-            receipt=_receipt(status="completed"),
-            reservation_lost_message="test reservation was lost",
-            result_from_existing_fn=_unexpected_existing_result,
-        )
+    result = action_runtime_reservations._finalize_reserved_action_receipt(  # noqa: SLF001
+        project,
+        _action(),
+        params_hash=PARAMS_HASH,
+        project_id=PROJECT_ID,
+        receipt=_receipt(status="completed"),
+        reservation_lost_message="test reservation was lost",
+        result_from_existing_fn=_unexpected_existing_result,
+    )
 
-        assert result is not None
-        assert result.status == "completed"
-        assert result.receipt_id == _receipt(status="completed").receipt_id
-        assert not result.errors
-        assert _receipt_row(project)["status"] == "completed"
-    finally:
-        project.close()
+    assert result is not None
+    assert result.status == "completed"
+    assert result.receipt_id == _receipt(status="completed").receipt_id
+    assert not result.errors
+    assert _receipt_row(project)["status"] == "completed"
 
 
-def test_finalize_reserved_receipt_commits_callback_atomically(tmp_path: Path) -> None:
+def test_finalize_reserved_receipt_commits_callback_atomically(make_project) -> None:
     from frisket.engine.executor import (
         action_reservations as action_runtime_reservations,
     )
 
-    project = Project.create(tmp_path / "reservation-callback.frisket")
-    try:
-        _insert_receipt(project, _receipt(status="running"))
+    project = make_project("reservation-callback")
+    _insert_receipt(project, _receipt(status="running"))
 
-        result = action_runtime_reservations._finalize_reserved_action_receipt(  # noqa: SLF001
-            project,
-            _action(),
-            params_hash=PARAMS_HASH,
-            project_id=PROJECT_ID,
-            receipt=_receipt(status="completed"),
-            reservation_lost_message="test reservation was lost",
-            result_from_existing_fn=_unexpected_existing_result,
-            before_commit=lambda: project.db.execute(
-                "INSERT INTO meta (key, value) VALUES ('callback', 'written')"
-            ),
-        )
+    result = action_runtime_reservations._finalize_reserved_action_receipt(  # noqa: SLF001
+        project,
+        _action(),
+        params_hash=PARAMS_HASH,
+        project_id=PROJECT_ID,
+        receipt=_receipt(status="completed"),
+        reservation_lost_message="test reservation was lost",
+        result_from_existing_fn=_unexpected_existing_result,
+        before_commit=lambda: project.db.execute(
+            "INSERT INTO meta (key, value) VALUES ('callback', 'written')"
+        ),
+    )
 
-        assert result is None
-        assert _receipt_row(project)["status"] == "completed"
-        assert (
-            project.db.execute(
-                "SELECT value FROM meta WHERE key='callback'"
-            ).fetchone()["value"]
-            == "written"
-        )
-    finally:
-        project.close()
+    assert result is None
+    assert _receipt_row(project)["status"] == "completed"
+    assert (
+        project.db.execute("SELECT value FROM meta WHERE key='callback'").fetchone()[
+            "value"
+        ]
+        == "written"
+    )
 
 
-def test_finalize_reserved_receipt_rolls_back_callback_failure(tmp_path: Path) -> None:
+def test_finalize_reserved_receipt_rolls_back_callback_failure(make_project) -> None:
     from frisket.engine.executor import (
         action_reservations as action_runtime_reservations,
     )
 
-    project = Project.create(tmp_path / "reservation-callback-failure.frisket")
-    try:
-        _insert_receipt(project, _receipt(status="running"))
+    project = make_project("reservation-callback-failure")
+    _insert_receipt(project, _receipt(status="running"))
 
-        def fail_after_write() -> None:
-            project.db.execute(
-                "INSERT INTO meta (key, value) VALUES ('callback', 'partial')"
-            )
-            raise RuntimeError("evidence write failed")
-
-        result = action_runtime_reservations._finalize_reserved_action_receipt(  # noqa: SLF001
-            project,
-            _action(),
-            params_hash=PARAMS_HASH,
-            project_id=PROJECT_ID,
-            receipt=_receipt(status="completed"),
-            reservation_lost_message="test reservation was lost",
-            result_from_existing_fn=_unexpected_existing_result,
-            before_commit=fail_after_write,
+    def fail_after_write() -> None:
+        project.db.execute(
+            "INSERT INTO meta (key, value) VALUES ('callback', 'partial')"
         )
+        raise RuntimeError("evidence write failed")
 
-        assert result is not None and result.status == "failed"
-        assert _receipt_row(project)["status"] == "running"
-        assert (
-            project.db.execute("SELECT 1 FROM meta WHERE key='callback'").fetchone()
-            is None
-        )
-    finally:
-        project.close()
+    result = action_runtime_reservations._finalize_reserved_action_receipt(  # noqa: SLF001
+        project,
+        _action(),
+        params_hash=PARAMS_HASH,
+        project_id=PROJECT_ID,
+        receipt=_receipt(status="completed"),
+        reservation_lost_message="test reservation was lost",
+        result_from_existing_fn=_unexpected_existing_result,
+        before_commit=fail_after_write,
+    )
+
+    assert result is not None and result.status == "failed"
+    assert _receipt_row(project)["status"] == "running"
+    assert (
+        project.db.execute("SELECT 1 FROM meta WHERE key='callback'").fetchone() is None
+    )
 
 
 def test_cleanup_reserved_receipt_deletes_failed_result_without_receipt(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor import (
         action_reservations as action_runtime_reservations,
     )
 
-    project = Project.create(tmp_path / "reservation-cleanup.frisket")
-    try:
-        _insert_receipt(project, _receipt(status="running"))
+    project = make_project("reservation-cleanup")
+    _insert_receipt(project, _receipt(status="running"))
 
-        failed = ActionResult(
-            action=ActionIdentity(kind=ACTION_KIND, action_id=ACTION_ID),
-            status="failed",
-            project_id=PROJECT_ID,
-            errors=[
-                ActionError(
-                    code="project_write_failed",
-                    message="project write failed",
-                    action_kind=ACTION_KIND,
-                )
-            ],
-        )
+    failed = ActionResult(
+        action=ActionIdentity(kind=ACTION_KIND, action_id=ACTION_ID),
+        status="failed",
+        project_id=PROJECT_ID,
+        errors=[
+            ActionError(
+                code="project_write_failed",
+                message="project write failed",
+                action_kind=ACTION_KIND,
+            )
+        ],
+    )
 
-        result = action_runtime_reservations._cleanup_reserved_receipt_on_failed_result(  # noqa: SLF001
-            project,
-            failed,
-            receipt_id=RECEIPT_ID,
-            action_kind=ACTION_KIND,
-        )
+    result = action_runtime_reservations._cleanup_reserved_receipt_on_failed_result(  # noqa: SLF001
+        project,
+        failed,
+        receipt_id=RECEIPT_ID,
+        action_kind=ACTION_KIND,
+    )
 
-        assert result is failed
-        assert _receipt_row(project) is None
-    finally:
-        project.close()
+    assert result is failed
+    assert _receipt_row(project) is None
 
 
 @pytest.mark.parametrize(

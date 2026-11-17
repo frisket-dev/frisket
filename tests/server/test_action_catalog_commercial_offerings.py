@@ -510,13 +510,12 @@ def test_known_cloud_inventory_does_not_reconstruct_own_target_for_missing_route
 
 
 def test_project_route_builds_composition_from_the_same_effective_router(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.ai.llm import ModelRouter
-    from frisket.engine.store import Project
     from frisket.server.routes.actions import register_action_catalog_routes
 
-    project = Project.create(tmp_path / "catalog.frisket", name="catalog")
+    project = make_project("catalog")
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False, local_endpoints=()
     )

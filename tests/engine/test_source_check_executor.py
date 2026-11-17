@@ -35,7 +35,7 @@ def report_page(params: ReportParams, sources: SourceChecker) -> CheckedSource:
 
 @pytest.mark.parametrize("page", [7, None])
 def test_custom_source_check_records_actual_capability_arguments(
-    tmp_path: Path, page: int | None
+    make_project, page: int | None
 ) -> None:
     import hashlib
     import json
@@ -53,52 +53,49 @@ def test_custom_source_check_records_actual_capability_arguments(
     registered = ActionRegistry([ActionNamespace("custom", actions=[definition])]).get(
         "custom.report"
     )
-    project = Project.create(tmp_path / "custom.frisket", name="custom")
-    try:
-        store = SourceStore(project)
-        source_id = store.add_source(name="API", kind="api")
-        store.record_source_run(source_id, cursor="existing")
-        bound = BoundTypedActionRequest.bind(
-            registered,
-            ActionRequest(
-                action_id="custom.report",
-                scope=ProjectScope(),
-                params={"target_id": source_id, "page": page},
-                idempotency_key="custom-report",
-            ),
-        )
+    project = make_project("custom")
+    store = SourceStore(project)
+    source_id = store.add_source(name="API", kind="api")
+    store.record_source_run(source_id, cursor="existing")
+    bound = BoundTypedActionRequest.bind(
+        registered,
+        ActionRequest(
+            action_id="custom.report",
+            scope=ProjectScope(),
+            params={"target_id": source_id, "page": page},
+            idempotency_key="custom-report",
+        ),
+    )
 
-        result = run_typed_source_action(project, "custom-project", bound)
+    result = run_typed_source_action(project, "custom-project", bound)
 
-        assert result.status == "completed", result.errors
-        cursor = f"page/{page}" if page is not None else None
-        source = store.get_source(source_id)
-        assert source["cursor"] == (cursor if cursor is not None else "existing")
-        assert source["new_rows_total"] == 3
-        body = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()["body"]
-        )
-        request = next(
-            entry["ref"] for entry in body["inputs"] if entry["name"] == "request"
-        )
-        evidence = body["evidence"][0]["ref"]
-        assert request["source_id"] == evidence["source_id"] == source_id
-        assert request["reported_new_rows"] == 3
-        assert request["cursor_provided"] is (cursor is not None)
-        assert evidence["cursor_provided"] is (cursor is not None)
-        assert evidence["cursor_hash"] == (
-            "sha256:" + hashlib.sha256((cursor or "").encode()).hexdigest()
-        )
+    assert result.status == "completed", result.errors
+    cursor = f"page/{page}" if page is not None else None
+    source = store.get_source(source_id)
+    assert source["cursor"] == (cursor if cursor is not None else "existing")
+    assert source["new_rows_total"] == 3
+    body = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()["body"]
+    )
+    request = next(
+        entry["ref"] for entry in body["inputs"] if entry["name"] == "request"
+    )
+    evidence = body["evidence"][0]["ref"]
+    assert request["source_id"] == evidence["source_id"] == source_id
+    assert request["reported_new_rows"] == 3
+    assert request["cursor_provided"] is (cursor is not None)
+    assert evidence["cursor_provided"] is (cursor is not None)
+    assert evidence["cursor_hash"] == (
+        "sha256:" + hashlib.sha256((cursor or "").encode()).hexdigest()
+    )
 
-        # Receipt replay must not need the handler's target to still exist.
-        store.delete_source(source_id)
-        replay = run_typed_source_action(project, "custom-project", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-    finally:
-        project.close()
+    # Receipt replay must not need the handler's target to still exist.
+    store.delete_source(source_id)
+    replay = run_typed_source_action(project, "custom-project", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
 
 
 def _source_check_action(
@@ -285,43 +282,40 @@ def test_source_check_validation_normalizes_params() -> None:
 
 
 def test_source_check_replay_normalizes_omitted_and_explicit_defaults(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.sources import SourceStore
 
-    project = Project.create(tmp_path / "defaults.frisket", name="defaults")
-    try:
-        source_id = SourceStore(project).add_source(name="API", kind="api")
-        base = {
-            "action_id": "source.check",
-            "scope": {"kind": "project"},
-            "params": {"source_id": source_id},
-            "idempotency_key": "source-check-defaults",
-        }
-        first = run_action_spec(project, base, project_id="project-defaults")
-        replay = run_action_spec(
-            project,
-            {
-                **base,
-                "params": {
-                    "source_id": source_id,
-                    "new_rows": 0,
-                    "status": "ok",
-                    "error": None,
-                    "cursor": None,
-                },
+    project = make_project("defaults")
+    source_id = SourceStore(project).add_source(name="API", kind="api")
+    base = {
+        "action_id": "source.check",
+        "scope": {"kind": "project"},
+        "params": {"source_id": source_id},
+        "idempotency_key": "source-check-defaults",
+    }
+    first = run_action_spec(project, base, project_id="project-defaults")
+    replay = run_action_spec(
+        project,
+        {
+            **base,
+            "params": {
+                "source_id": source_id,
+                "new_rows": 0,
+                "status": "ok",
+                "error": None,
+                "cursor": None,
             },
-            project_id="project-defaults",
-        )
-        assert first.status == replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        assert [output.ref for output in replay.outputs] == [
-            output.ref for output in first.outputs
-        ]
-        assert SourceStore(project).source_runs_total(source_id) == 1
-    finally:
-        project.close()
+        },
+        project_id="project-defaults",
+    )
+    assert first.status == replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    assert [output.ref for output in replay.outputs] == [
+        output.ref for output in first.outputs
+    ]
+    assert SourceStore(project).source_runs_total(source_id) == 1
 
 
 def test_source_check_replay_does_not_reapply_totals(

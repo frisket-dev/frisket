@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import json
 
-from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionResult
-from frisket.server.app import create_app
 from action_test_helpers import typed_map_request
 from http_test_helpers import drain_queue
 
@@ -13,8 +11,7 @@ from http_test_helpers import drain_queue
 CSV = "note\nCall 212-555-0123\nNo phone\n"
 
 
-def test_http_project_provenance_uses_run_kind_public_shape(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_http_project_provenance_uses_run_kind_public_shape(client) -> None:
     project_id = client.post("/api/projects", json={"name": "Provenance v1"}).json()[
         "id"
     ]

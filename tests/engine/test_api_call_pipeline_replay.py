@@ -9,7 +9,6 @@ import httpx
 from action_test_helpers import run_typed_map_request, typed_map_request
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.map_rows_action import _TypedMapRowsProgram
-from frisket.engine.store import Project
 from frisket.engine.executor.actions import run_action_spec
 
 
@@ -25,9 +24,9 @@ def run_action_with_exact_confirmation(project, body, **kwargs):
 
 
 def test_api_pipeline_completed_replays_keep_outputs_without_reexecution(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
-    project = Project.create(tmp_path / "api-pipeline-replay.frisket")
+    project = make_project("api-pipeline-replay")
     client: httpx.AsyncClient | None = None
     try:
         sheet_id = project.add_sheet("data")

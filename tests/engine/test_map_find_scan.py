@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 from frisket.ai.map.find_source import (
     AddressedUnit,
@@ -110,7 +109,7 @@ def test_find_requires_one_verbatim_match_location_in_cited_units() -> None:
 
 
 def test_markdown_formatted_text_is_planned_as_text_with_inline_detail_schema(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.actions.types import ActionRequest
     from tests.engine.test_map_find_runtime import _operation_for_request
@@ -119,103 +118,93 @@ def test_markdown_formatted_text_is_planned_as_text_with_inline_detail_schema(
         plan_find_scan,
     )
     from frisket.engine.executor.map_find_source import resolve_find_sources
-    from frisket.engine.store import Project
 
-    project = Project.create(tmp_path / "find.frisket", name="Find")
-    try:
-        sheet_id = project.add_sheet("Sources")
-        column_id = project.add_column(sheet_id, "body", type="text", format="markdown")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"body": "China appears here.\n\nA distractor.\n\nChina appears again."}],
-            {"body": column_id},
-        )[0]
-        params = _operation_for_request(
+    project = make_project("Find")
+    sheet_id = project.add_sheet("Sources")
+    column_id = project.add_column(sheet_id, "body", type="text", format="markdown")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"body": "China appears here.\n\nA distractor.\n\nChina appears again."}],
+        {"body": column_id},
+    )[0]
+    params = _operation_for_request(
+        ActionRequest(
+            action_id="map.find",
+            scope={"kind": "sheet_rows", "sheet_id": sheet_id, "row_ids": [row_id]},
+            sheet_name="Findings",
+            output_names={"match": "Match"},
+            idempotency_key="find-source-test",
+            params={
+                "source": "body",
+                "instruction": "Find every discussion of China.",
+                "fields": [
+                    {
+                        "name": "sentiment",
+                        "type": "category",
+                        "labels": ["positive", "neutral", "negative"],
+                    }
+                ],
+                "model": "anthropic/claude-haiku-4-5",
+            },
+        )
+    )
+
+    resolved = resolve_find_sources(project, params)
+    assert isinstance(resolved, tuple)
+    assert resolved[0].column_type == "text"
+    assert resolved[0].source_kind == "text"
+    assert [source.row_id for source in resolved] == [row_id]
+    assert "".join(unit.text for unit in resolved[0].units).startswith("China")
+    assert all(span_id < 0 for unit in resolved[0].units for span_id in unit.span_ids)
+
+    plans = plan_find_scan(params, resolved)
+    assert plans
+    assert {unit.unit_id for plan in plans for unit in plan.window.units} == {
+        unit.unit_id for unit in resolved[0].units
+    }
+    details = find_response_schema(params)["properties"]["matches"]["items"][
+        "properties"
+    ]["details"]
+    assert details["required"] == []
+    sentiment = details["properties"]["sentiment"]["anyOf"]
+    assert sentiment[0]["enum"] == [
+        "positive",
+        "neutral",
+        "negative",
+    ]
+    assert sentiment[1] == {"type": "null"}
+
+
+def test_find_skips_empty_cells_in_the_selected_row_scope(make_project) -> None:
+    from frisket.actions.types import ActionRequest
+    from tests.engine.test_map_find_runtime import _operation_for_request
+    from frisket.engine.executor.map_find_source import resolve_find_sources
+
+    project = make_project("Find")
+    sheet_id = project.add_sheet("Sources")
+    column_id = project.add_column(sheet_id, "body", "text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"body": "China appears here."}, {"body": "   "}],
+        {"body": column_id},
+    )
+    resolved = resolve_find_sources(
+        project,
+        _operation_for_request(
             ActionRequest(
                 action_id="map.find",
-                scope={"kind": "sheet_rows", "sheet_id": sheet_id, "row_ids": [row_id]},
+                scope={"kind": "sheet_rows", "sheet_id": sheet_id},
                 sheet_name="Findings",
                 output_names={"match": "Match"},
                 idempotency_key="find-source-test",
                 params={
                     "source": "body",
-                    "instruction": "Find every discussion of China.",
-                    "fields": [
-                        {
-                            "name": "sentiment",
-                            "type": "category",
-                            "labels": ["positive", "neutral", "negative"],
-                        }
-                    ],
+                    "instruction": "Find China.",
                     "model": "anthropic/claude-haiku-4-5",
                 },
             )
-        )
+        ),
+    )
 
-        resolved = resolve_find_sources(project, params)
-        assert isinstance(resolved, tuple)
-        assert resolved[0].column_type == "text"
-        assert resolved[0].source_kind == "text"
-        assert [source.row_id for source in resolved] == [row_id]
-        assert "".join(unit.text for unit in resolved[0].units).startswith("China")
-        assert all(
-            span_id < 0 for unit in resolved[0].units for span_id in unit.span_ids
-        )
-
-        plans = plan_find_scan(params, resolved)
-        assert plans
-        assert {unit.unit_id for plan in plans for unit in plan.window.units} == {
-            unit.unit_id for unit in resolved[0].units
-        }
-        details = find_response_schema(params)["properties"]["matches"]["items"][
-            "properties"
-        ]["details"]
-        assert details["required"] == []
-        sentiment = details["properties"]["sentiment"]["anyOf"]
-        assert sentiment[0]["enum"] == [
-            "positive",
-            "neutral",
-            "negative",
-        ]
-        assert sentiment[1] == {"type": "null"}
-    finally:
-        project.close()
-
-
-def test_find_skips_empty_cells_in_the_selected_row_scope(tmp_path: Path) -> None:
-    from frisket.actions.types import ActionRequest
-    from tests.engine.test_map_find_runtime import _operation_for_request
-    from frisket.engine.executor.map_find_source import resolve_find_sources
-    from frisket.engine.store import Project
-
-    project = Project.create(tmp_path / "find-empty.frisket", name="Find")
-    try:
-        sheet_id = project.add_sheet("Sources")
-        column_id = project.add_column(sheet_id, "body", "text")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"body": "China appears here."}, {"body": "   "}],
-            {"body": column_id},
-        )
-        resolved = resolve_find_sources(
-            project,
-            _operation_for_request(
-                ActionRequest(
-                    action_id="map.find",
-                    scope={"kind": "sheet_rows", "sheet_id": sheet_id},
-                    sheet_name="Findings",
-                    output_names={"match": "Match"},
-                    idempotency_key="find-source-test",
-                    params={
-                        "source": "body",
-                        "instruction": "Find China.",
-                        "model": "anthropic/claude-haiku-4-5",
-                    },
-                )
-            ),
-        )
-
-        assert isinstance(resolved, tuple)
-        assert [source.row_id for source in resolved] == [row_ids[0]]
-    finally:
-        project.close()
+    assert isinstance(resolved, tuple)
+    assert [source.row_id for source in resolved] == [row_ids[0]]

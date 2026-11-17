@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter
 from frisket.ops.cluster_fingerprint import compute_clusters, fingerprint
 from frisket.server.app import create_app
-from frisket.engine.store import Project
 from http_test_helpers import (
     post_cluster_values_as_v1_action,
     post_resolve_entities_as_v1_action,
@@ -28,8 +27,8 @@ def test_fingerprint_collides_reorderings_and_case():
     assert fingerprint("Jon Smith") != fingerprint("Jane Smith")
 
 
-def test_compute_clusters_groups_variants(tmp_path):
-    p = Project.create(tmp_path / "c.frisket", name="c")
+def test_compute_clusters_groups_variants(make_project):
+    p = make_project("c")
     sid = p.add_sheet("people")
     cid = p.add_column(sid, "name")
     p.add_rows(

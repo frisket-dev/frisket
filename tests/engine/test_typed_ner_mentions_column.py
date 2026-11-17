@@ -1,11 +1,10 @@
 """NER's published list must remain usable by the Mentions surface."""
 
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.store import Project
 from frisket.querysets import is_entity_mentions_column
 
 
-def test_typed_ner_publishes_a_recognized_mentions_column(tmp_path, monkeypatch):
+def test_typed_ner_publishes_a_recognized_mentions_column(make_project, monkeypatch):
     from frisket.ops import spacy_ner
 
     monkeypatch.setattr(
@@ -20,36 +19,33 @@ def test_typed_ner_publishes_a_recognized_mentions_column(tmp_path, monkeypatch)
             [{"text": "Alice", "type": "person", "start": 0, "end": 5, "score": None}]
         ],
     )
-    project = Project.create(tmp_path / "mentions.frisket")
-    try:
-        sheet = project.add_sheet("People")
-        column = project.add_column(sheet, "text", type="text")
-        project.add_rows(sheet, [{"text": "Alice"}], {"text": column})
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "map.ner",
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-                "params": {"source": ["text"], "labels": ["person"], "engine": "spacy"},
-                "output_names": {"entities": "mentions"},
-                "idempotency_key": "ner-mentions",
-            },
-            project_id="mentions",
-        )
-        assert result.status == "completed", result.errors
-        output = next(c for c in project.columns(sheet) if c["name"] == "mentions")
-        assert output["semantic_type"] == "entity_mentions"
-        assert is_entity_mentions_column(output)
-        run_id = int(
-            project.db.execute(
-                "SELECT id FROM runs WHERE action_kind='map.ner' ORDER BY id DESC LIMIT 1"
-            ).fetchone()["id"]
-        )
-        from frisket.engine.store.result_generations import ResultGenerationStore
+    project = make_project("mentions")
+    sheet = project.add_sheet("People")
+    column = project.add_column(sheet, "text", type="text")
+    project.add_rows(sheet, [{"text": "Alice"}], {"text": column})
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "map.ner",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {"source": ["text"], "labels": ["person"], "engine": "spacy"},
+            "output_names": {"entities": "mentions"},
+            "idempotency_key": "ner-mentions",
+        },
+        project_id="mentions",
+    )
+    assert result.status == "completed", result.errors
+    output = next(c for c in project.columns(sheet) if c["name"] == "mentions")
+    assert output["semantic_type"] == "entity_mentions"
+    assert is_entity_mentions_column(output)
+    run_id = int(
+        project.db.execute(
+            "SELECT id FROM runs WHERE action_kind='map.ner' ORDER BY id DESC LIMIT 1"
+        ).fetchone()["id"]
+    )
+    from frisket.engine.store.result_generations import ResultGenerationStore
 
-        binding = ResultGenerationStore(project).bindings_for_run(run_id)[0]
-        assert binding.output_role == "entities"
-        assert binding.output_descriptor["column_type"] == output["type"]
-        assert binding.output_descriptor["semantic_type"] == "entity_mentions"
-    finally:
-        project.close()
+    binding = ResultGenerationStore(project).bindings_for_run(run_id)[0]
+    assert binding.output_role == "entities"
+    assert binding.output_descriptor["column_type"] == output["type"]
+    assert binding.output_descriptor["semantic_type"] == "entity_mentions"

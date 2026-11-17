@@ -98,13 +98,14 @@ def _dataset_action(kind: str, *, sheet_id: int, destination: Path) -> dict[str,
 @pytest.mark.parametrize("path", ["   ", " artifact.out "])
 def test_local_export_rejects_nonsemantic_path_before_writes(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     kind: str,
     path: str,
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "invalid-path.frisket", name="Invalid path")
+    project = make_project("Invalid path")
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
     monkeypatch.chdir(export_dir)
@@ -186,13 +187,12 @@ def test_buffered_export_restores_destination_when_commit_fails_after_delivery(
 
 def test_export_work_log_removes_new_destination_when_commit_fails_after_delivery(
     tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(
-        tmp_path / "work-log-new-rollback.frisket", name="Rollback"
-    )
+    project = make_project("Rollback")
     destination = tmp_path / "work-log-new.md"
     wrapper = _wrap_project_db_commit(monkeypatch, project)
     before_receipts = _receipt_count(project)
@@ -218,41 +218,39 @@ def test_export_work_log_removes_new_destination_when_commit_fails_after_deliver
 
 def test_export_sheet_csv_restores_destination_when_commit_fails_after_delivery(
     tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "sheet-csv-rollback.frisket", name="Rollback")
-    try:
-        sheet_id = project.add_sheet("Stories")
-        name_column_id = project.add_column(sheet_id, "name", "text")
-        project.add_rows(
-            sheet_id,
-            [{"name": "Ada"}],
-            {"name": name_column_id},
-        )
-        destination = tmp_path / "stories.csv"
-        destination.write_text("previous csv\n", encoding="utf-8")
-        wrapper = _wrap_project_db_commit(monkeypatch, project)
-        wrapper.fail_commit_at = 2
-        promoted = []
-        wrapper.before_failed_commit = lambda: promoted.append(destination.read_bytes())
-        result = executor_actions.run_action_spec(
-            project,
-            _sheet_csv_action(sheet_id=sheet_id, destination=destination),
-            project_id="project-export-rollback",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert destination.read_text(encoding="utf-8") == "previous csv\n"
-        assert not list(tmp_path.glob(".stories.csv.*"))
-        assert wrapper.commit_count == 3
-        assert len(promoted) == 1 and promoted[0] != b"previous csv\n"
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt.status == "failed"
-        assert not receipt.outputs and not receipt.evidence and not receipt.exports
-    finally:
-        project.close()
+    project = make_project("Rollback")
+    sheet_id = project.add_sheet("Stories")
+    name_column_id = project.add_column(sheet_id, "name", "text")
+    project.add_rows(
+        sheet_id,
+        [{"name": "Ada"}],
+        {"name": name_column_id},
+    )
+    destination = tmp_path / "stories.csv"
+    destination.write_text("previous csv\n", encoding="utf-8")
+    wrapper = _wrap_project_db_commit(monkeypatch, project)
+    wrapper.fail_commit_at = 2
+    promoted = []
+    wrapper.before_failed_commit = lambda: promoted.append(destination.read_bytes())
+    result = executor_actions.run_action_spec(
+        project,
+        _sheet_csv_action(sheet_id=sheet_id, destination=destination),
+        project_id="project-export-rollback",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert destination.read_text(encoding="utf-8") == "previous csv\n"
+    assert not list(tmp_path.glob(".stories.csv.*"))
+    assert wrapper.commit_count == 3
+    assert len(promoted) == 1 and promoted[0] != b"previous csv\n"
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt.status == "failed"
+    assert not receipt.outputs and not receipt.evidence and not receipt.exports
 
 
 @pytest.mark.parametrize(

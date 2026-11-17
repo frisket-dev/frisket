@@ -176,16 +176,12 @@ def test_tariff_symbols_leave_open_fact_producers() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_model_calls_schema_is_neutral(tmp_path: Path) -> None:
-    from frisket.engine.store import Project
+def test_model_calls_schema_is_neutral(make_project) -> None:
 
-    project = Project.create(tmp_path / "schema-cut.frisket", name="Schema Cut")
-    try:
-        columns = {
-            row["name"] for row in project.db.execute("PRAGMA table_info(model_calls)")
-        }
-    finally:
-        project.close()
+    project = make_project("Schema Cut")
+    columns = {
+        row["name"] for row in project.db.execute("PRAGMA table_info(model_calls)")
+    }
 
     leaked = columns & TARIFF_FACT_KEYS
     assert not leaked, (

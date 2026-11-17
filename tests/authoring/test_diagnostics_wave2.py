@@ -33,7 +33,6 @@ from frisket.operability import diagnostics
 from frisket.engine.jobs import open_queue
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter, ResponseCache
 from frisket.server.app import create_app
-from frisket.engine.store import Project
 from frisket.authoring.workbench.plugin_runtime import (
     ensure_workspace_plugin_packages,
     uninstall_workbench_plugin,
@@ -407,190 +406,172 @@ def test_plugin_health_report_no_project_is_a_quiet_skip():
 
 @pytest.mark.real_bundled_plugins
 def test_plugin_health_report_bootstraps_bundled_plugins_on_a_fresh_project(
-    tmp_path, _real_bundled_plugin_registry
+    tmp_path, make_project, _real_bundled_plugin_registry
 ):
     """The probe must go through the SAME bootstrap seam
     server/services/workbench.py's WorkbenchService.plugin_index uses, not
     read the (possibly never-bootstrapped) index directly."""
     ensure_workspace_plugin_packages(tmp_path)
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        r = diagnostics.plugin_health_report(project, project_id="p")
-        assert r["available"] is True
-        assert r["installed"] > 0  # bundled first-party plugins auto-install
-        assert r["failed"] == 0
-        assert r["summary"] == (
-            f"{r['installed']} installed, {r['active']} active, 0 failed"
-        )
-    finally:
-        project.close()
+    project = make_project("p")
+    r = diagnostics.plugin_health_report(project, project_id="p")
+    assert r["available"] is True
+    assert r["installed"] > 0  # bundled first-party plugins auto-install
+    assert r["failed"] == 0
+    assert r["summary"] == (
+        f"{r['installed']} installed, {r['active']} active, 0 failed"
+    )
 
 
 @pytest.mark.real_bundled_plugins
 def test_plugin_health_report_installed_excludes_uninstalled_plugins(
-    tmp_path, _real_bundled_plugin_registry
+    tmp_path, make_project, _real_bundled_plugin_registry
 ):
     """Uninstalling 1 of N plugins must
     actually decrement 'installed' -- the runtime index keeps a ledger row
     for the uninstalled plugin (installState == 'uninstalled'), and the
     pre-fix probe counted every row via len(plugins)."""
     ensure_workspace_plugin_packages(tmp_path)
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        before = diagnostics.plugin_health_report(project, project_id="p")
-        assert before["installed"] > 0
-        first_plugin_id = workbench_plugin_runtime_index(project, project_id="p")[
-            "plugins"
-        ][0]["pluginId"]
+    project = make_project("p")
+    before = diagnostics.plugin_health_report(project, project_id="p")
+    assert before["installed"] > 0
+    first_plugin_id = workbench_plugin_runtime_index(project, project_id="p")[
+        "plugins"
+    ][0]["pluginId"]
 
-        uninstall_workbench_plugin(
-            project,
-            project_id="p",
-            plugin_id=first_plugin_id,
-            workspace_projects=(project,),
-        )
+    uninstall_workbench_plugin(
+        project,
+        project_id="p",
+        plugin_id=first_plugin_id,
+        workspace_projects=(project,),
+    )
 
-        after = diagnostics.plugin_health_report(project, project_id="p")
-        assert after["installed"] == before["installed"] - 1
-        assert first_plugin_id not in after["failed_names"]
-    finally:
-        project.close()
+    after = diagnostics.plugin_health_report(project, project_id="p")
+    assert after["installed"] == before["installed"] - 1
+    assert first_plugin_id not in after["failed_names"]
 
 
 def test_plugin_health_report_active_uses_registry_activated_not_install_state(
-    monkeypatch, tmp_path
+    monkeypatch, make_project
 ):
     """Post-restart, a plugin persisted as
     installState 'enabled' has NO in-memory registration yet
     (registryActivated False) until it's re-activated -- 'active' must
     reflect the runtime signal, not the persisted field."""
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        fake_index = {
-            "plugins": [
-                {
-                    "pluginId": "persisted-enabled-not-registered",
-                    "installState": "enabled",
-                    "registryActivated": False,
-                },
-                {
-                    "pluginId": "really-active",
-                    "installState": "enabled",
-                    "registryActivated": True,
-                },
-                {
-                    "pluginId": "gone",
-                    "installState": "uninstalled",
-                    "registryActivated": False,
-                },
-            ]
-        }
-        monkeypatch.setattr(
-            "frisket.authoring.workbench.plugin_runtime.bootstrap_project_bundled_plugins",
-            lambda *a, **k: [],
-        )
-        monkeypatch.setattr(
-            "frisket.authoring.workbench.plugin_runtime_status.workbench_plugin_runtime_index",
-            lambda *a, **k: fake_index,
-        )
-        r = diagnostics.plugin_health_report(project, project_id="p")
-        assert r["installed"] == 2  # "gone" (uninstalled) excluded
-        assert r["active"] == 1  # only "really-active" has registryActivated
-    finally:
-        project.close()
+    project = make_project("p")
+    fake_index = {
+        "plugins": [
+            {
+                "pluginId": "persisted-enabled-not-registered",
+                "installState": "enabled",
+                "registryActivated": False,
+            },
+            {
+                "pluginId": "really-active",
+                "installState": "enabled",
+                "registryActivated": True,
+            },
+            {
+                "pluginId": "gone",
+                "installState": "uninstalled",
+                "registryActivated": False,
+            },
+        ]
+    }
+    monkeypatch.setattr(
+        "frisket.authoring.workbench.plugin_runtime.bootstrap_project_bundled_plugins",
+        lambda *a, **k: [],
+    )
+    monkeypatch.setattr(
+        "frisket.authoring.workbench.plugin_runtime_status.workbench_plugin_runtime_index",
+        lambda *a, **k: fake_index,
+    )
+    r = diagnostics.plugin_health_report(project, project_id="p")
+    assert r["installed"] == 2  # "gone" (uninstalled) excluded
+    assert r["active"] == 1  # only "really-active" has registryActivated
 
 
-def test_plugin_health_report_failed_names_formatting(monkeypatch, tmp_path):
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        fake_index = {
-            "plugins": [
-                {
-                    "pluginId": "broken-one",
-                    "installState": "failed",
-                    "registryActivated": False,
-                },
-                {
-                    "pluginId": "ok-one",
-                    "installState": "enabled",
-                    "registryActivated": True,
-                },
-            ]
-        }
-        monkeypatch.setattr(
-            "frisket.authoring.workbench.plugin_runtime.bootstrap_project_bundled_plugins",
-            lambda *a, **k: [],
-        )
-        monkeypatch.setattr(
-            "frisket.authoring.workbench.plugin_runtime_status.workbench_plugin_runtime_index",
-            lambda *a, **k: fake_index,
-        )
-        r = diagnostics.plugin_health_report(project, project_id="p")
-        assert r["failed"] == 1
-        assert r["failed_names"] == ["broken-one"]
-        assert r["summary"] == "2 installed, 1 active, 1 failed (broken-one)"
-    finally:
-        project.close()
+def test_plugin_health_report_failed_names_formatting(monkeypatch, make_project):
+    project = make_project("p")
+    fake_index = {
+        "plugins": [
+            {
+                "pluginId": "broken-one",
+                "installState": "failed",
+                "registryActivated": False,
+            },
+            {
+                "pluginId": "ok-one",
+                "installState": "enabled",
+                "registryActivated": True,
+            },
+        ]
+    }
+    monkeypatch.setattr(
+        "frisket.authoring.workbench.plugin_runtime.bootstrap_project_bundled_plugins",
+        lambda *a, **k: [],
+    )
+    monkeypatch.setattr(
+        "frisket.authoring.workbench.plugin_runtime_status.workbench_plugin_runtime_index",
+        lambda *a, **k: fake_index,
+    )
+    r = diagnostics.plugin_health_report(project, project_id="p")
+    assert r["failed"] == 1
+    assert r["failed_names"] == ["broken-one"]
+    assert r["summary"] == "2 installed, 1 active, 1 failed (broken-one)"
 
 
 def test_plugin_health_report_keeps_stable_shape_on_index_exception(
-    monkeypatch, tmp_path
+    monkeypatch, make_project
 ):
     """_info_probe's generic wrapper collapses a raised
     exception to {ok, error, summary}, dropping 'available'/counts/
     failed_names -- consumers depend on the SAME 6-field shape in the error
     case as the success case, so plugin_health_report must guarantee it
     itself, not rely on the generic wrapper."""
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        monkeypatch.setattr(
-            "frisket.authoring.workbench.plugin_runtime.bootstrap_project_bundled_plugins",
-            lambda *a, **k: [],
-        )
+    project = make_project("p")
+    monkeypatch.setattr(
+        "frisket.authoring.workbench.plugin_runtime.bootstrap_project_bundled_plugins",
+        lambda *a, **k: [],
+    )
 
-        def _boom(*a, **k):
-            raise RuntimeError("index blew up")
+    def _boom(*a, **k):
+        raise RuntimeError("index blew up")
 
-        monkeypatch.setattr(
-            "frisket.authoring.workbench.plugin_runtime_status.workbench_plugin_runtime_index",
-            _boom,
-        )
-        r = diagnostics.plugin_health_report(project, project_id="p")
-        assert r["summary"].startswith("plugin health unavailable (support ID diag-")
-        assert "index blew up" not in r["summary"]
-        assert r == {
-            "available": False,
-            "installed": 0,
-            "active": 0,
-            "failed": 0,
-            "failed_names": [],
-            "summary": r["summary"],
-        }
-    finally:
-        project.close()
+    monkeypatch.setattr(
+        "frisket.authoring.workbench.plugin_runtime_status.workbench_plugin_runtime_index",
+        _boom,
+    )
+    r = diagnostics.plugin_health_report(project, project_id="p")
+    assert r["summary"].startswith("plugin health unavailable (support ID diag-")
+    assert "index blew up" not in r["summary"]
+    assert r == {
+        "available": False,
+        "installed": 0,
+        "active": 0,
+        "failed": 0,
+        "failed_names": [],
+        "summary": r["summary"],
+    }
 
 
 def test_plugin_health_report_keeps_stable_shape_when_bootstrap_raises(
-    monkeypatch, tmp_path
+    monkeypatch, make_project
 ):
-    project = Project.create(tmp_path / "p.frisket")
-    try:
+    project = make_project("p")
 
-        def _boom(*a, **k):
-            raise RuntimeError("bootstrap blew up")
+    def _boom(*a, **k):
+        raise RuntimeError("bootstrap blew up")
 
-        monkeypatch.setattr(
-            "frisket.authoring.workbench.plugin_runtime.bootstrap_project_bundled_plugins",
-            _boom,
-        )
-        r = diagnostics.plugin_health_report(project, project_id="p")
-        assert r["available"] is False
-        assert r["installed"] == 0 and r["active"] == 0 and r["failed"] == 0
-        assert r["failed_names"] == []
-        assert r["summary"].startswith("plugin health unavailable (support ID diag-")
-        assert "bootstrap blew up" not in r["summary"]
-    finally:
-        project.close()
+    monkeypatch.setattr(
+        "frisket.authoring.workbench.plugin_runtime.bootstrap_project_bundled_plugins",
+        _boom,
+    )
+    r = diagnostics.plugin_health_report(project, project_id="p")
+    assert r["available"] is False
+    assert r["installed"] == 0 and r["active"] == 0 and r["failed"] == 0
+    assert r["failed_names"] == []
+    assert r["summary"].startswith("plugin health unavailable (support ID diag-")
+    assert "bootstrap blew up" not in r["summary"]
 
 
 # ---------------------------------------------------------------------------
@@ -728,18 +709,15 @@ def test_pyicu_preflight_routes_conda_and_native_windows_away_from_source_build(
 # run_diagnostics: every new probe is wired into the aggregate report
 
 
-def test_run_diagnostics_exposes_all_new_info_keys(tmp_path):
+def test_run_diagnostics_exposes_all_new_info_keys(tmp_path, make_project):
     queue = open_queue(workspace=tmp_path)
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        report = diagnostics.run_diagnostics(
-            queue=queue,
-            workspace_root=tmp_path,
-            project=project,
-            project_id="p",
-        )
-    finally:
-        project.close()
+    project = make_project("p")
+    report = diagnostics.run_diagnostics(
+        queue=queue,
+        workspace_root=tmp_path,
+        project=project,
+        project_id="p",
+    )
     for key in (
         "provider_key_validation",
         "replay_mode",
@@ -758,8 +736,7 @@ def test_run_diagnostics_exposes_all_new_info_keys(tmp_path):
 # The project rides on the PATH (diagnose-project-on-the-path-v1).
 
 
-def test_diagnose_route_reports_new_probes(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_diagnose_route_reports_new_probes(client):
     resp = client.get("/api/diagnose")
     assert resp.status_code == 200
     info = resp.json()["info"]
@@ -789,14 +766,13 @@ def test_diagnose_route_resolves_plugin_health_for_a_real_project(
     assert plugin_health["installed"] > 0
 
 
-def test_diagnose_route_bad_project_id_refuses_instead_of_degrading(tmp_path):
+def test_diagnose_route_bad_project_id_refuses_instead_of_degrading(client):
     """The degrade-to-200 was a project-existence oracle; it now 404s.
 
     On an edition with a role ladder the ladder refuses first (403). On the
     core app there is no ladder, so the workspace's own lookup answers.
     """
 
-    client = TestClient(create_app(tmp_path / "ws"))
     resp = client.get("/api/projects/does-not-exist/diagnose")
     assert resp.status_code == 404, resp.text
 

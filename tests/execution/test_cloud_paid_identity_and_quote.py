@@ -61,9 +61,9 @@ def _new_cloud_row_request(
     return request_id
 
 
-def test_cloud_row_request_is_project_unique_and_new_intent_uses_new_key(tmp_path):
-    first = Project.create(tmp_path / "first.frisket")
-    second = Project.create(tmp_path / "second.frisket")
+def test_cloud_row_request_is_project_unique_and_new_intent_uses_new_key(make_project):
+    first = make_project("first")
+    second = make_project("second")
     try:
         first_checkpoint, first_identity = _identity(first, run_id=1)
         second_checkpoint, second_identity = _identity(second, run_id=1)

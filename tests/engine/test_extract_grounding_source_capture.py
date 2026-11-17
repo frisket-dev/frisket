@@ -19,7 +19,6 @@ from frisket.actions.core import model_rows
 from frisket.actions.model_rows import AskParams, ask
 from frisket.actions.types import ColumnRef, ModelPrompt, Row, discover_references
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import instance_principal
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.engine.store.receipts import ReceiptStore
@@ -148,7 +147,7 @@ def test_model_rows_can_select_prompt_source_from_other_typed_references():
 
 @pytest.mark.parametrize("template", [False, True])
 def test_custom_model_rows_keeps_auxiliary_references_out_of_provider(
-    tmp_path, template
+    make_project, template
 ):
     from frisket.actions.core import ActionCategory, RegisteredAction, action
     from frisket.actions.types import ActionRequest
@@ -164,48 +163,44 @@ def test_custom_model_rows_keeps_auxiliary_references_out_of_provider(
             run=model_rows(_render, source_param="source"),
         ),
     )
-    project = Project.create(tmp_path / "custom.frisket")
-    try:
-        sheet = project.add_sheet("Sources")
-        columns = {
-            name: project.add_column(sheet, name, "text")
-            for name in ("body", "private")
-        }
-        project.add_rows(
-            sheet, [{"body": "public", "private": "not-for-provider"}], columns
-        )
-        request = ActionRequest(
-            action_id="custom.prompt",
-            scope={"kind": "sheet_rows", "sheet_id": sheet},
-            params={
-                "source": {"text": "Source: {{body}}"} if template else ["body"],
-                "documents": ["private"],
-                "model": "anthropic/claude-haiku-4-5",
-                "question": "What?",
-            },
-            idempotency_key="custom-prompt-isolation",
-        )
-        requests = []
-        router = _data_router(requests, {"answer": "response"})
-        gate = _run_third_party(project, request, router, declaration)
-        assert gate.status == "needs_confirmation", gate.errors
-        assert requests == []
-        result = _run_third_party(
-            project,
-            request.model_copy(
-                update={"confirmation": gate.errors[0].details["promise_set_hash"]}
-            ),
-            router,
-            declaration,
-        )
-        assert result.status == "completed", result.errors
-        assert len(requests) == 1
-        assert "public" in json.dumps(requests[0].messages)
-        assert "not-for-provider" not in json.dumps(requests[0].messages)
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert {item.ref["name"] for item in receipt.inputs} == {"body", "private"}
-    finally:
-        project.close()
+    project = make_project("custom")
+    sheet = project.add_sheet("Sources")
+    columns = {
+        name: project.add_column(sheet, name, "text") for name in ("body", "private")
+    }
+    project.add_rows(
+        sheet, [{"body": "public", "private": "not-for-provider"}], columns
+    )
+    request = ActionRequest(
+        action_id="custom.prompt",
+        scope={"kind": "sheet_rows", "sheet_id": sheet},
+        params={
+            "source": {"text": "Source: {{body}}"} if template else ["body"],
+            "documents": ["private"],
+            "model": "anthropic/claude-haiku-4-5",
+            "question": "What?",
+        },
+        idempotency_key="custom-prompt-isolation",
+    )
+    requests = []
+    router = _data_router(requests, {"answer": "response"})
+    gate = _run_third_party(project, request, router, declaration)
+    assert gate.status == "needs_confirmation", gate.errors
+    assert requests == []
+    result = _run_third_party(
+        project,
+        request.model_copy(
+            update={"confirmation": gate.errors[0].details["promise_set_hash"]}
+        ),
+        router,
+        declaration,
+    )
+    assert result.status == "completed", result.errors
+    assert len(requests) == 1
+    assert "public" in json.dumps(requests[0].messages)
+    assert "not-for-provider" not in json.dumps(requests[0].messages)
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert {item.ref["name"] for item in receipt.inputs} == {"body", "private"}
 
 
 def _assert_captured_artifact(
@@ -251,61 +246,51 @@ def _assert_captured_artifact(
 @pytest.mark.parametrize("template", [False, True])
 @pytest.mark.parametrize("replace_during_call", [False, True])
 def test_grounding_file_is_captured_but_never_rendered(
-    tmp_path, template, replace_during_call
+    make_project, template, replace_during_call
 ):
-    project = Project.create(tmp_path / "documents.frisket")
-    try:
-        seeded = _seed(project)
-        router, adapter = _router(
-            (lambda: _replace(project, seeded)) if replace_during_call else None
-        )
-        result = run_action_with_confirmation(
-            project,
-            _request(seeded[0], template=template),
-            project_id="p",
-            router=router,
-        )
-        _assert_captured_artifact(project, result, seeded, adapter)
-    finally:
-        project.close()
+    project = make_project("documents")
+    seeded = _seed(project)
+    router, adapter = _router(
+        (lambda: _replace(project, seeded)) if replace_during_call else None
+    )
+    result = run_action_with_confirmation(
+        project,
+        _request(seeded[0], template=template),
+        project_id="p",
+        router=router,
+    )
+    _assert_captured_artifact(project, result, seeded, adapter)
 
 
 def test_grounding_file_edit_before_execution_uses_current_file_without_reapproval(
-    tmp_path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "documents.frisket")
-    try:
-        seeded = _seed(project)
-        router, adapter = _router()
-        request = _request(seeded[0])
-        deps = ExecutorDeps(
-            consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
-        )
-        gate = run_action_spec(
-            project, request, project_id="p", router=router, deps=deps
-        )
-        assert gate.status == "needs_confirmation"
-        assert adapter.requests == []
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-        request["confirmation"] = gate.errors[0].details["promise_set_hash"]
-        _replace(project, seeded)
-        _, refs = project.get_values_with_refs(
-            seeded[0], seeded[1]["document"], row_ids=[seeded[2]]
-        )
-        retry = run_action_spec(
-            project, request, project_id="p", router=router, deps=deps
-        )
-        _assert_captured_artifact(
-            project,
-            retry,
-            seeded,
-            adapter,
-            expected_file=1,
-            expected_ref=refs[seeded[2]],
-        )
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
-    finally:
-        project.close()
+    project = make_project("documents")
+    seeded = _seed(project)
+    router, adapter = _router()
+    request = _request(seeded[0])
+    deps = ExecutorDeps(
+        consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
+    )
+    gate = run_action_spec(project, request, project_id="p", router=router, deps=deps)
+    assert gate.status == "needs_confirmation"
+    assert adapter.requests == []
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+    request["confirmation"] = gate.errors[0].details["promise_set_hash"]
+    _replace(project, seeded)
+    _, refs = project.get_values_with_refs(
+        seeded[0], seeded[1]["document"], row_ids=[seeded[2]]
+    )
+    retry = run_action_spec(project, request, project_id="p", router=router, deps=deps)
+    _assert_captured_artifact(
+        project,
+        retry,
+        seeded,
+        adapter,
+        expected_file=1,
+        expected_ref=refs[seeded[2]],
+    )
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("change_after_queue", [False, True])
@@ -351,29 +336,25 @@ def test_queued_grounding_captures_file_identity_at_execution(
     ],
 )
 def test_grounding_references_validate_missing_sources_and_refuse_required_pdf_citations(
-    tmp_path, bad_source, error_code
+    make_project, bad_source, error_code
 ):
-    project = Project.create(tmp_path / "documents.frisket")
-    try:
-        seeded = _seed(project)
-        router, adapter = _router()
-        request = copy.deepcopy(_request(seeded[0]))
-        if bad_source == "missing":
-            request["params"]["source_document_columns"] = ["missing"]
-        else:
-            request["params"]["source"] = ["document"]
-        result = run_action_spec(project, request, project_id="p", router=router)
-        assert result.status == "failed"
-        assert result.errors[0].code == error_code
-        if bad_source == "required_pdf_citations":
-            assert (
-                "Citations are unavailable for direct PDF input"
-                in result.errors[0].message
-            )
-        assert adapter.requests == []
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    finally:
-        project.close()
+    project = make_project("documents")
+    seeded = _seed(project)
+    router, adapter = _router()
+    request = copy.deepcopy(_request(seeded[0]))
+    if bad_source == "missing":
+        request["params"]["source_document_columns"] = ["missing"]
+    else:
+        request["params"]["source"] = ["document"]
+    result = run_action_spec(project, request, project_id="p", router=router)
+    assert result.status == "failed"
+    assert result.errors[0].code == error_code
+    if bad_source == "required_pdf_citations":
+        assert (
+            "Citations are unavailable for direct PDF input" in result.errors[0].message
+        )
+    assert adapter.requests == []
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("template", [False, True])

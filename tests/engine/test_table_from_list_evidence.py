@@ -500,54 +500,45 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
 
 
 def test_ungrounded_list_source_propagates_no_row_evidence(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """A list source with no per-item evidence links (e.g. a plain JSON
     column, no extract-list-item-grounding-v1 write) is a silent no-op -- the
     derived rows materialize normally, just with nothing to cite."""
 
-    project = Project.create(
-        tmp_path / "table-from-list-ungrounded.frisket", name="Ungrounded"
-    )
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "items", type="json")
-        row_ids = project.add_rows(
-            sheet_id, [{"items": ["a", "b"]}], {"items": column_id}
-        )
-        row_id = row_ids[0]
-        action = {
-            "action_id": "derive.table_from_list",
-            "scope": {"kind": "project"},
-            "sheet_name": "Items",
-            "params": {
-                "source": {
-                    "kind": "column",
-                    "sheet_id": sheet_id,
-                    "column_id": column_id,
-                },
+    project = make_project("Ungrounded")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "items", type="json")
+    row_ids = project.add_rows(sheet_id, [{"items": ["a", "b"]}], {"items": column_id})
+    row_id = row_ids[0]
+    action = {
+        "action_id": "derive.table_from_list",
+        "scope": {"kind": "project"},
+        "sheet_name": "Items",
+        "params": {
+            "source": {
+                "kind": "column",
+                "sheet_id": sheet_id,
+                "column_id": column_id,
             },
-            "idempotency_key": "derive_table_from_list@sha256:ungrounded",
-        }
-        result = run_action_with_exact_confirmation(
-            project, action, project_id=PROJECT_ID
+        },
+        "idempotency_key": "derive_table_from_list@sha256:ungrounded",
+    }
+    result = run_action_with_exact_confirmation(project, action, project_id=PROJECT_ID)
+    assert result.status == "completed", result.errors
+    child_sheet_id = next(
+        output.sheet_id for output in result.outputs if output.kind == "sheet"
+    )
+    rows = project.db.execute(
+        "SELECT id FROM rows WHERE sheet_id=?", (child_sheet_id,)
+    ).fetchall()
+    assert len(rows) == 2
+    for row in rows:
+        evidence = list_row_evidence(
+            project, sheet_id=child_sheet_id, row_id=int(row["id"])
         )
-        assert result.status == "completed", result.errors
-        child_sheet_id = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        rows = project.db.execute(
-            "SELECT id FROM rows WHERE sheet_id=?", (child_sheet_id,)
-        ).fetchall()
-        assert len(rows) == 2
-        for row in rows:
-            evidence = list_row_evidence(
-                project, sheet_id=child_sheet_id, row_id=int(row["id"])
-            )
-            assert evidence["links"] == []
-        del row_id
-    finally:
-        project.close()
+        assert evidence["links"] == []
+    del row_id
 
 
 @pytest.mark.parametrize("source_kind", ["column", "named_result"])

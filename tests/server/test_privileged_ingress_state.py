@@ -6,7 +6,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionResult
-from frisket.server.app import create_app
 from frisket.server.notifications.service import LOCAL_ACTOR_ID
 from frisket.server.routes.action_runs import register_action_run_routes
 from frisket.server.services.action_runs import ActionRunResponse
@@ -38,9 +37,8 @@ class _CapturingActionRunService:
 
 
 def test_direct_base_forged_actor_header_cannot_rescope_project_idempotency(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     request_headers = {"idempotency-key": "stable-project-create"}
 
     first = client.post(
@@ -61,9 +59,8 @@ def test_direct_base_forged_actor_header_cannot_rescope_project_idempotency(
 
 
 def test_direct_base_forged_actor_header_cannot_choose_notification_owner(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Alerts"}).json()["id"]
     emitted = client.post(
         f"/api/projects/{pid}/notifications/emit",

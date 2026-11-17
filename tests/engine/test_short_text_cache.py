@@ -36,38 +36,35 @@ def old_cache(p):
     p.db.commit()
 
 
-def test_cache_is_per_cell_and_counts_utf8_bytes(tmp_path):
-    p = Project.create(tmp_path / "bounded")
-    try:
-        s = p.add_sheet("Text")
-        c = p.add_column(s, "body", type="text")
-        values = ["a"] * 99 + ["x" * 1000, "x" * 512, "x" * 513, "é" * 256, "é" * 257]
-        rows = p.add_rows(s, [{"body": v} for v in values], {"body": c})
-        expected = dict(zip(rows, values, strict=True))
-        assert p.get_values(s, c) == expected
-        cached = {
-            r[0]: r[1]
-            for r in p.db.execute(
-                "SELECT row_id,inline_value FROM current_cells WHERE inline_value_kind='text'"
-            )
-        }
-        assert cached == {
-            r: v for r, v in expected.items() if len(v.encode("utf-8")) <= 512
-        }
-        p.apply_edits([{"row_id": rows[0], "column_id": c, "value": "x" * 1000}])
-        assert (
-            p.db.execute(
-                "SELECT inline_value_kind FROM current_cells WHERE row_id=? AND column_id=?",
-                (rows[0], c),
-            ).fetchone()[0]
-            is None
+def test_cache_is_per_cell_and_counts_utf8_bytes(make_project):
+    p = make_project("bounded")
+    s = p.add_sheet("Text")
+    c = p.add_column(s, "body", type="text")
+    values = ["a"] * 99 + ["x" * 1000, "x" * 512, "x" * 513, "é" * 256, "é" * 257]
+    rows = p.add_rows(s, [{"body": v} for v in values], {"body": c})
+    expected = dict(zip(rows, values, strict=True))
+    assert p.get_values(s, c) == expected
+    cached = {
+        r[0]: r[1]
+        for r in p.db.execute(
+            "SELECT row_id,inline_value FROM current_cells WHERE inline_value_kind='text'"
         )
-        p.undo()
-        assert p.get_values(s, c) == expected
-        p.redo()
-        assert p.get_values(s, c)[rows[0]] == "x" * 1000
-    finally:
-        p.close()
+    }
+    assert cached == {
+        r: v for r, v in expected.items() if len(v.encode("utf-8")) <= 512
+    }
+    p.apply_edits([{"row_id": rows[0], "column_id": c, "value": "x" * 1000}])
+    assert (
+        p.db.execute(
+            "SELECT inline_value_kind FROM current_cells WHERE row_id=? AND column_id=?",
+            (rows[0], c),
+        ).fetchone()[0]
+        is None
+    )
+    p.undo()
+    assert p.get_values(s, c) == expected
+    p.redo()
+    assert p.get_values(s, c)[rows[0]] == "x" * 1000
 
 
 def test_upgrade_preserves_prepared_refs_and_reopens(tmp_path):
@@ -168,78 +165,69 @@ def test_a102_upgrade_chains_pdf_split_and_short_text_cache(tmp_path):
         )
 
 
-def test_upgrade_rolls_back_cache_and_stamp_on_index_failure(tmp_path):
-    p = Project.create(tmp_path / "rollback")
-    try:
-        s = p.add_sheet("Data")
-        c = p.add_column(s, "body", type="text")
-        p.add_rows(s, [{"body": "short"}], {"body": c})
-        old_cache(p)
-        p.db.set_authorizer(
-            lambda action, *_: (
-                sqlite3.SQLITE_DENY
-                if action == sqlite3.SQLITE_CREATE_INDEX
-                else sqlite3.SQLITE_OK
-            )
+def test_upgrade_rolls_back_cache_and_stamp_on_index_failure(make_project):
+    p = make_project("rollback")
+    s = p.add_sheet("Data")
+    c = p.add_column(s, "body", type="text")
+    p.add_rows(s, [{"body": "short"}], {"body": c})
+    old_cache(p)
+    p.db.set_authorizer(
+        lambda action, *_: (
+            sqlite3.SQLITE_DENY
+            if action == sqlite3.SQLITE_CREATE_INDEX
+            else sqlite3.SQLITE_OK
         )
-        with pytest.raises(sqlite3.DatabaseError):
-            run_step(p.db, *SHORT_TEXT_CACHE_STEP)
-        p.db.set_authorizer(None)
-        assert p.get_meta(SCHEMA_DIGEST_META_KEY) == SHORT_TEXT_CACHE_FROM_DIGEST
-        assert (
-            p.db.execute(
-                "SELECT inline_value_kind FROM current_cells WHERE column_id=?", (c,)
-            ).fetchone()[0]
-            is None
-        )
+    )
+    with pytest.raises(sqlite3.DatabaseError):
         run_step(p.db, *SHORT_TEXT_CACHE_STEP)
-        assert (
-            p.db.execute(
-                "SELECT value FROM current_cell_values WHERE column_id=?", (c,)
-            ).fetchone()[0]
-            == "short"
-        )
-    finally:
-        p.close()
+    p.db.set_authorizer(None)
+    assert p.get_meta(SCHEMA_DIGEST_META_KEY) == SHORT_TEXT_CACHE_FROM_DIGEST
+    assert (
+        p.db.execute(
+            "SELECT inline_value_kind FROM current_cells WHERE column_id=?", (c,)
+        ).fetchone()[0]
+        is None
+    )
+    run_step(p.db, *SHORT_TEXT_CACHE_STEP)
+    assert (
+        p.db.execute(
+            "SELECT value FROM current_cell_values WHERE column_id=?", (c,)
+        ).fetchone()[0]
+        == "short"
+    )
 
 
 @pytest.mark.parametrize("kind", ["integer", "number"])
 @pytest.mark.parametrize(
     "predicate", [{"gte": "1"}, {"lte": "3"}, {"between": {"start": "1", "end": "3"}}]
 )
-def test_numeric_range_index_matches_general_reader(tmp_path, kind, predicate):
-    p = Project.create(tmp_path / "ranges")
-    try:
-        s = p.add_sheet("Numbers")
-        c = p.add_column(s, "n", type=kind)
-        values = [None, True, "2", "oops", 1, 1.5, 2.0, 3, 4, 2**80, -(2**80), -0.0]
-        rows = p.add_rows(s, [{"n": v} for v in values], {"n": c})
-        p.apply_edits([{"row_id": rows[0], "column_id": c, "value": 2}])
-        f = json.dumps({"n": predicate})
-        _, where, params, order, order_params = sheet_row_scope_query(p, s, filter_=f)
-        expected = [
-            r[0]
-            for r in p.db.execute(
-                "SELECT r.id FROM rows r WHERE "
-                + where
-                + " ORDER BY "
-                + ",".join(order),
-                [*params, *order_params],
-            )
-        ]
-        actual = resolve_sheet_filter_rows(p, s, filter_=f, limit=100)
-        assert actual.row_ids == expected
-        plan = sheet_row_scope_plan(p, s, filter_=f)
-        explain = p.db.execute(
-            "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM "
-            + plan.filter_from_sql
-            + " WHERE "
-            + plan.where_sql,
-            [*plan.filter_join_params, *plan.where_params],
-        ).fetchall()
-        assert any(
-            "idx_current_cells_numeric_value" in row[3] and "inline_value" in row[3]
-            for row in explain
-        ), [tuple(r) for r in explain]
-    finally:
-        p.close()
+def test_numeric_range_index_matches_general_reader(make_project, kind, predicate):
+    p = make_project("ranges")
+    s = p.add_sheet("Numbers")
+    c = p.add_column(s, "n", type=kind)
+    values = [None, True, "2", "oops", 1, 1.5, 2.0, 3, 4, 2**80, -(2**80), -0.0]
+    rows = p.add_rows(s, [{"n": v} for v in values], {"n": c})
+    p.apply_edits([{"row_id": rows[0], "column_id": c, "value": 2}])
+    f = json.dumps({"n": predicate})
+    _, where, params, order, order_params = sheet_row_scope_query(p, s, filter_=f)
+    expected = [
+        r[0]
+        for r in p.db.execute(
+            "SELECT r.id FROM rows r WHERE " + where + " ORDER BY " + ",".join(order),
+            [*params, *order_params],
+        )
+    ]
+    actual = resolve_sheet_filter_rows(p, s, filter_=f, limit=100)
+    assert actual.row_ids == expected
+    plan = sheet_row_scope_plan(p, s, filter_=f)
+    explain = p.db.execute(
+        "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM "
+        + plan.filter_from_sql
+        + " WHERE "
+        + plan.where_sql,
+        [*plan.filter_join_params, *plan.where_params],
+    ).fetchall()
+    assert any(
+        "idx_current_cells_numeric_value" in row[3] and "inline_value" in row[3]
+        for row in explain
+    ), [tuple(r) for r in explain]

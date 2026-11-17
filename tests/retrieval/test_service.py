@@ -336,22 +336,17 @@ def test_weighted_query_is_not_silently_changed_to_keywords(indexed_project):
 
 
 def test_missing_model_keeps_empty_lexical_search_available(
-    tmp_path, monkeypatch, built_native_root
+    make_project, monkeypatch, built_native_root
 ):
     monkeypatch.setattr(native, "_NATIVE_ROOT", built_native_root)
-    project = Project.create(tmp_path / "empty-index.frisket", name="Empty")
-    try:
-        with RetrievalStore(project):
-            pass
-        result = search_with_encoding(
-            project, request(), runtime=Encoder(unavailable=True)
-        )
-        assert not result.results
-        assert result.coverage.state == "partial"
-        assert result.coverage.effective_modes == ("lexical",)
-        assert result.coverage.searched_channels == ("lexical",)
-    finally:
-        project.close()
+    project = make_project("Empty")
+    with RetrievalStore(project):
+        pass
+    result = search_with_encoding(project, request(), runtime=Encoder(unavailable=True))
+    assert not result.results
+    assert result.coverage.state == "partial"
+    assert result.coverage.effective_modes == ("lexical",)
+    assert result.coverage.searched_channels == ("lexical",)
 
 
 def test_cancelled_or_wrong_space_does_not_call_model(indexed_project):
@@ -369,8 +364,8 @@ def test_cancelled_or_wrong_space_does_not_call_model(indexed_project):
 
 
 @pytest.mark.parametrize("mode", ["lexical", "semantic", "hybrid"])
-def test_empty_project_reports_complete_without_starting_work(tmp_path, mode):
-    project = Project.create(tmp_path / "empty.frisket", name="Empty")
+def test_empty_project_reports_complete_without_starting_work(make_project, mode):
+    project = make_project("Empty")
     encoder = Encoder()
     try:
         result = search_with_encoding(

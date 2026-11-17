@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -27,7 +26,6 @@ from frisket.features.followthemoney import (
     validate_entity,
 )
 from frisket.features.investigations.rowsets import resolve_investigative_rowset
-from frisket.engine.store import Project
 
 
 def _diagnostic_codes(result: dict[str, Any]) -> set[str]:
@@ -66,66 +64,63 @@ def test_schema_catalog_uses_sdk_presets_and_relationship_metadata() -> None:
 
 
 def test_row_ref_mapping_normalizes_typed_values_and_preserves_refs(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "ftm.frisket", name="FtM")
-    try:
-        sheet_id = project.add_sheet("People")
-        columns = {
-            "name": project.add_column(sheet_id, "name", "text"),
-            "aliases": project.add_column(sheet_id, "aliases", "json"),
-            "birth_date": project.add_column(sheet_id, "birth_date", "date"),
-            "source_url": project.add_column(sheet_id, "source_url", "link"),
-        }
-        row_id = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "name": "Jane Smith",
-                    "aliases": ["J. Smith", "Jane S."],
-                    "birth_date": "1980-01-02",
-                    "source_url": "https://example.org/profile/jane",
-                }
-            ],
-            columns,
-        )[0]
+    project = make_project("FtM")
+    sheet_id = project.add_sheet("People")
+    columns = {
+        "name": project.add_column(sheet_id, "name", "text"),
+        "aliases": project.add_column(sheet_id, "aliases", "json"),
+        "birth_date": project.add_column(sheet_id, "birth_date", "date"),
+        "source_url": project.add_column(sheet_id, "source_url", "link"),
+    }
+    row_id = project.add_rows(
+        sheet_id,
+        [
+            {
+                "name": "Jane Smith",
+                "aliases": ["J. Smith", "Jane S."],
+                "birth_date": "1980-01-02",
+                "source_url": "https://example.org/profile/jane",
+            }
+        ],
+        columns,
+    )[0]
 
-        _values, refs = project.get_values_with_refs(
-            sheet_id, columns["name"], row_ids=[row_id]
-        )
-        artifact = record_source_artifact(
-            project,
-            stable_id="source_artifact:profile",
-            artifact_kind="html",
-            media_type="text/html",
-            source_sheet_id=sheet_id,
-            source_row_id=row_id,
-            source_column_id=columns["source_url"],
-            title="Profile",
-        )
-        span = record_source_span(
-            project,
-            stable_id="source_span:profile-name",
-            artifact_id=artifact["id"],
-            span_kind="text",
-            quote="Jane Smith",
-        )
-        evidence = record_evidence_link(
-            project,
-            stable_id="evidence_link:profile-name",
-            subject_kind="cell_value",
-            subject_ref=refs[row_id],
-            spans=[{"span_id": span["id"]}],
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=columns["name"],
-        )
+    _values, refs = project.get_values_with_refs(
+        sheet_id, columns["name"], row_ids=[row_id]
+    )
+    artifact = record_source_artifact(
+        project,
+        stable_id="source_artifact:profile",
+        artifact_kind="html",
+        media_type="text/html",
+        source_sheet_id=sheet_id,
+        source_row_id=row_id,
+        source_column_id=columns["source_url"],
+        title="Profile",
+    )
+    span = record_source_span(
+        project,
+        stable_id="source_span:profile-name",
+        artifact_id=artifact["id"],
+        span_kind="text",
+        quote="Jane Smith",
+    )
+    evidence = record_evidence_link(
+        project,
+        stable_id="evidence_link:profile-name",
+        subject_kind="cell_value",
+        subject_ref=refs[row_id],
+        spans=[{"span_id": span["id"]}],
+        sheet_id=sheet_id,
+        row_id=row_id,
+        column_id=columns["name"],
+    )
 
-        rowset = resolve_investigative_rowset(
-            project, {"kind": "sheet", "sheet_id": sheet_id}, project_id="case-1"
-        )
-    finally:
-        project.close()
+    rowset = resolve_investigative_rowset(
+        project, {"kind": "sheet", "sheet_id": sheet_id}, project_id="case-1"
+    )
 
     result = map_rowset_to_entities(
         rowset,
@@ -175,70 +170,67 @@ def test_row_ref_mapping_normalizes_typed_values_and_preserves_refs(
 
 
 def test_id_column_relationship_mapping_reports_diagnostics_and_skips_rows(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "membership.frisket", name="Membership")
-    try:
-        sheet_id = project.add_sheet("Memberships")
-        columns = {
-            "ftm_id": project.add_column(sheet_id, "ftm_id", "text"),
-            "person_ftm_id": project.add_column(sheet_id, "person_ftm_id", "text"),
-            "org_ftm_id": project.add_column(sheet_id, "org_ftm_id", "text"),
-            "role": project.add_column(sheet_id, "role", "text"),
-            "start_date": project.add_column(sheet_id, "start_date", "text"),
-            "unused": project.add_column(sheet_id, "unused", "text"),
-        }
-        project.add_rows(
-            sheet_id,
-            [
-                {
-                    "ftm_id": "membership-1",
-                    "person_ftm_id": "person-1",
-                    "org_ftm_id": "org-1",
-                    "role": "Director",
-                    "start_date": "2020-01-01",
-                    "unused": "keep",
-                },
-                {
-                    "ftm_id": "membership-2",
-                    "person_ftm_id": "",
-                    "org_ftm_id": "org-2",
-                    "role": "Advisor",
-                    "start_date": "2021-03-04",
-                    "unused": "keep",
-                },
-                {
-                    "ftm_id": "",
-                    "person_ftm_id": "person-3",
-                    "org_ftm_id": "org-3",
-                    "role": "Treasurer",
-                    "start_date": "2022-05-06",
-                    "unused": "keep",
-                },
-                {
-                    "ftm_id": "membership-4",
-                    "person_ftm_id": "person-4",
-                    "org_ftm_id": "org-4",
-                    "role": "Board",
-                    "start_date": "not a date",
-                    "unused": "keep",
-                },
-                {
-                    "ftm_id": "membership-1",
-                    "person_ftm_id": "person-5",
-                    "org_ftm_id": "org-5",
-                    "role": "Duplicate",
-                    "start_date": "2023-01-01",
-                    "unused": "keep",
-                },
-            ],
-            columns,
-        )
-        rowset = resolve_investigative_rowset(
-            project, {"kind": "sheet", "sheet_id": sheet_id}
-        )
-    finally:
-        project.close()
+    project = make_project("Membership")
+    sheet_id = project.add_sheet("Memberships")
+    columns = {
+        "ftm_id": project.add_column(sheet_id, "ftm_id", "text"),
+        "person_ftm_id": project.add_column(sheet_id, "person_ftm_id", "text"),
+        "org_ftm_id": project.add_column(sheet_id, "org_ftm_id", "text"),
+        "role": project.add_column(sheet_id, "role", "text"),
+        "start_date": project.add_column(sheet_id, "start_date", "text"),
+        "unused": project.add_column(sheet_id, "unused", "text"),
+    }
+    project.add_rows(
+        sheet_id,
+        [
+            {
+                "ftm_id": "membership-1",
+                "person_ftm_id": "person-1",
+                "org_ftm_id": "org-1",
+                "role": "Director",
+                "start_date": "2020-01-01",
+                "unused": "keep",
+            },
+            {
+                "ftm_id": "membership-2",
+                "person_ftm_id": "",
+                "org_ftm_id": "org-2",
+                "role": "Advisor",
+                "start_date": "2021-03-04",
+                "unused": "keep",
+            },
+            {
+                "ftm_id": "",
+                "person_ftm_id": "person-3",
+                "org_ftm_id": "org-3",
+                "role": "Treasurer",
+                "start_date": "2022-05-06",
+                "unused": "keep",
+            },
+            {
+                "ftm_id": "membership-4",
+                "person_ftm_id": "person-4",
+                "org_ftm_id": "org-4",
+                "role": "Board",
+                "start_date": "not a date",
+                "unused": "keep",
+            },
+            {
+                "ftm_id": "membership-1",
+                "person_ftm_id": "person-5",
+                "org_ftm_id": "org-5",
+                "role": "Duplicate",
+                "start_date": "2023-01-01",
+                "unused": "keep",
+            },
+        ],
+        columns,
+    )
+    rowset = resolve_investigative_rowset(
+        project, {"kind": "sheet", "sheet_id": sheet_id}
+    )
 
     result = map_rowset_to_entities(
         rowset,

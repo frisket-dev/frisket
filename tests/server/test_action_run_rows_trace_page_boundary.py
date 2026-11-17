@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 import frisket.server.run_payloads as run_payloads
-from frisket.server.app import create_app
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import encode_stored_value
 from frisket.operability.trace import trace_path
@@ -201,10 +200,9 @@ def _seed_run_with_trace_edge_cases(client: TestClient) -> tuple[str, int, list[
 
 
 def test_action_run_rows_ignores_trace_only_errors(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id, run_id, row_ids = _seed_run_with_trace_only_error(client)
     project = client.app.state.workspace.get(project_id)
 
@@ -239,10 +237,9 @@ def test_action_run_rows_ignores_trace_only_errors(
 
 
 def test_action_run_rows_uses_durable_results_not_trace_summaries(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id, run_id, row_ids = _seed_run_with_trace_edge_cases(client)
     project = client.app.state.workspace.get(project_id)
 

@@ -66,7 +66,7 @@ def _translate_action(sheet_id: int, engine: str, *, key: str) -> dict[str, Any]
 
 
 def test_opencage_action_persists_one_fact_per_paid_request_and_receipt_agrees(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("OPENCAGE_API_KEY", raising=False)
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -94,60 +94,57 @@ def test_opencage_action_persists_one_fact_per_paid_request_and_receipt_agrees(
             },
         )
 
-    project = Project.create(tmp_path / "geocode.frisket", name="geocode facts")
-    try:
-        sheet_id = project.add_sheet("Places")
-        column_id = project.add_column(sheet_id, "address", type="text")
-        project.add_rows(
-            sheet_id,
-            [
-                {"address": "Tokyo Skytree"},
-                {"address": "Tokyo Tower"},
-                {"address": None},
-            ],
-            {"address": column_id},
-        )
-        from frisket.engine.executor import run_action_spec
+    project = make_project("geocode facts")
+    sheet_id = project.add_sheet("Places")
+    column_id = project.add_column(sheet_id, "address", type="text")
+    project.add_rows(
+        sheet_id,
+        [
+            {"address": "Tokyo Skytree"},
+            {"address": "Tokyo Tower"},
+            {"address": None},
+        ],
+        {"address": column_id},
+    )
+    from frisket.engine.executor import run_action_spec
 
-        action = {
-            "action_id": "enrich.geocode",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-            "params": {"source": "address", "engine": "opencage"},
-            "output_names": {"geo_point": "location"},
-            "idempotency_key": "geocode-facts@sha256:stable",
-        }
-        router = _router(handler)
-        gated = run_action_spec(
-            project, action, project_id="project-geocode-facts", router=router
-        )
-        assert gated.status == "needs_confirmation", gated.errors
-        assert calls == []
-        assert RunResultStore(project).model_calls() == []
-        action["confirmation"] = gated.errors[0].details["promise_set_hash"]
-        result = run_action_spec(
-            project,
-            action,
-            project_id="project-geocode-facts",
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        assert len(calls) == 2
+    action = {
+        "action_id": "enrich.geocode",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+        "params": {"source": "address", "engine": "opencage"},
+        "output_names": {"geo_point": "location"},
+        "idempotency_key": "geocode-facts@sha256:stable",
+    }
+    router = _router(handler)
+    gated = run_action_spec(
+        project, action, project_id="project-geocode-facts", router=router
+    )
+    assert gated.status == "needs_confirmation", gated.errors
+    assert calls == []
+    assert RunResultStore(project).model_calls() == []
+    action["confirmation"] = gated.errors[0].details["promise_set_hash"]
+    result = run_action_spec(
+        project,
+        action,
+        project_id="project-geocode-facts",
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    assert len(calls) == 2
 
-        facts = RunResultStore(project).model_calls(result.run_id)
-        assert len(facts) == len(calls)
-        assert {row["provider"] for row in facts} == {"opencage"}
-        assert {row["engine"] for row in facts} == {"opencage"}
-        assert {row["credential_source"] for row in facts} == {"project_key"}
-        assert {_units(row)["requests"] for row in facts} == {1}
-        assert {row["provider_cost_usd"] for row in facts} == {0.01}
+    facts = RunResultStore(project).model_calls(result.run_id)
+    assert len(facts) == len(calls)
+    assert {row["provider"] for row in facts} == {"opencage"}
+    assert {row["engine"] for row in facts} == {"opencage"}
+    assert {row["credential_source"] for row in facts} == {"project_key"}
+    assert {_units(row)["requests"] for row in facts} == {1}
+    assert {row["provider_cost_usd"] for row in facts} == {0.01}
 
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.provider_use[0]["request_count"] == len(facts)
-        assert receipt.provider_use[0]["cost_actual"] == pytest.approx(
-            sum(float(row["provider_cost_usd"]) for row in facts)
-        )
-    finally:
-        project.close()
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.provider_use[0]["request_count"] == len(facts)
+    assert receipt.provider_use[0]["cost_actual"] == pytest.approx(
+        sum(float(row["provider_cost_usd"]) for row in facts)
+    )
 
 
 @pytest.mark.parametrize(
@@ -244,91 +241,83 @@ def test_hosted_translate_action_persists_character_fact_and_receipt_agrees(
 
 
 def test_hosted_translate_unknown_price_stays_unknown_in_fact_and_receipt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import frisket.ai.external_pricing as external_pricing
 
     monkeypatch.setenv("DEEPL_API_KEY", "test-key:fx")
     monkeypatch.setattr(external_pricing, "external_unit_price_usd", lambda _key: None)
-    project = Project.create(tmp_path / "translate-unknown.frisket", name="unknown")
-    try:
-        sheet_id = project.add_sheet("Text")
-        column_id = project.add_column(sheet_id, "statement", type="text")
-        project.add_rows(sheet_id, [{"statement": "Hello"}], {"statement": column_id})
-        result = run_action_with_confirmation(
-            project,
-            _translate_action(
-                sheet_id, "deepl", key="translate-unknown-facts@sha256:stable"
-            ),
-            project_id="project-translate-unknown-facts",
-            router=_router(
-                lambda _request: httpx.Response(
-                    200,
-                    json={
-                        "translations": [
-                            {
-                                "text": "Hola",
-                                "detected_source_language": "EN",
-                                "billed_characters": 5,
-                            }
-                        ]
-                    },
-                )
-            ),
-        )
-        assert result.status == "completed", result.errors
-        facts = RunResultStore(project).model_calls(result.run_id)
-        assert len(facts) == 1
-        assert facts[0]["provider_cost_usd"] is None
-        assert facts[0]["cost_source"] == "unknown"
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.provider_use[0]["model_call_count"] == 1
-        assert receipt.provider_use[0]["cost_actual"] is None
-    finally:
-        project.close()
+    project = make_project("unknown")
+    sheet_id = project.add_sheet("Text")
+    column_id = project.add_column(sheet_id, "statement", type="text")
+    project.add_rows(sheet_id, [{"statement": "Hello"}], {"statement": column_id})
+    result = run_action_with_confirmation(
+        project,
+        _translate_action(
+            sheet_id, "deepl", key="translate-unknown-facts@sha256:stable"
+        ),
+        project_id="project-translate-unknown-facts",
+        router=_router(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "translations": [
+                        {
+                            "text": "Hola",
+                            "detected_source_language": "EN",
+                            "billed_characters": 5,
+                        }
+                    ]
+                },
+            )
+        ),
+    )
+    assert result.status == "completed", result.errors
+    facts = RunResultStore(project).model_calls(result.run_id)
+    assert len(facts) == 1
+    assert facts[0]["provider_cost_usd"] is None
+    assert facts[0]["cost_source"] == "unknown"
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.provider_use[0]["model_call_count"] == 1
+    assert receipt.provider_use[0]["cost_actual"] is None
 
 
 def test_hosted_translate_empty_paid_response_still_persists_fact(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Output validation can fail after a provider has already billed."""
     monkeypatch.setenv("DEEPL_API_KEY", "test-key:fx")
-    project = Project.create(tmp_path / "translate-empty.frisket", name="empty")
-    try:
-        sheet_id = project.add_sheet("Text")
-        column_id = project.add_column(sheet_id, "statement", type="text")
-        project.add_rows(sheet_id, [{"statement": "Hello"}], {"statement": column_id})
-        result = run_action_with_confirmation(
-            project,
-            _translate_action(
-                sheet_id, "deepl", key="translate-empty-facts@sha256:stable"
-            ),
-            project_id="project-translate-empty-facts",
-            router=_router(
-                lambda _request: httpx.Response(
-                    200,
-                    json={
-                        "translations": [
-                            {
-                                "text": "",
-                                "detected_source_language": "EN",
-                                "billed_characters": 5,
-                            }
-                        ]
-                    },
-                )
-            ),
-        )
-        assert result.status == "failed"
-        facts = RunResultStore(project).model_calls(result.run_id)
-        assert len(facts) == 1
-        assert facts[0]["provider_cost_usd"] == pytest.approx(0.000125)
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.status == "failed"
-        assert receipt.provider_use[0]["model_call_count"] == 1
-        assert receipt.provider_use[0]["cost_actual"] == pytest.approx(0.000125)
-    finally:
-        project.close()
+    project = make_project("empty")
+    sheet_id = project.add_sheet("Text")
+    column_id = project.add_column(sheet_id, "statement", type="text")
+    project.add_rows(sheet_id, [{"statement": "Hello"}], {"statement": column_id})
+    result = run_action_with_confirmation(
+        project,
+        _translate_action(sheet_id, "deepl", key="translate-empty-facts@sha256:stable"),
+        project_id="project-translate-empty-facts",
+        router=_router(
+            lambda _request: httpx.Response(
+                200,
+                json={
+                    "translations": [
+                        {
+                            "text": "",
+                            "detected_source_language": "EN",
+                            "billed_characters": 5,
+                        }
+                    ]
+                },
+            )
+        ),
+    )
+    assert result.status == "failed"
+    facts = RunResultStore(project).model_calls(result.run_id)
+    assert len(facts) == 1
+    assert facts[0]["provider_cost_usd"] == pytest.approx(0.000125)
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.status == "failed"
+    assert receipt.provider_use[0]["model_call_count"] == 1
+    assert receipt.provider_use[0]["cost_actual"] == pytest.approx(0.000125)
 
 
 @pytest.mark.parametrize(
@@ -398,7 +387,7 @@ def test_hosted_translate_http_response_failure_persists_unknown_request_fact(
     [(0.03, 0.01, 0.03), (None, None, None)],
 )
 def test_datalab_to_markdown_action_persists_page_fact_and_receipt_agrees(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     reported_cost: float | None,
     catalog_price: float | None,
@@ -436,75 +425,66 @@ def test_datalab_to_markdown_action_persists_page_fact_and_receipt_agrees(
         return {"markdown": "# Converted", "page_count": 3}, reported_cost
 
     monkeypatch.setattr(datalab, "datalab_convert", fake_convert)
-    project = Project.create(tmp_path / "datalab.frisket", name="datalab facts")
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "doc", type="file")
-        blob = project.add_blob(
-            b"%PDF-1.4 fake",
-            filename="document.pdf",
-            mime="application/pdf",
-        )
-        row_ids = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "doc": media_cell(
-                        blob, mime="application/pdf", filename="document.pdf"
-                    )
-                }
-            ],
-            {"doc": column_id},
-        )
-        action = {
-            "action_id": "media.to_markdown",
-            "scope": {
-                "kind": "sheet_rows",
-                "sheet_id": sheet_id,
-                "row_ids": row_ids,
-            },
-            "params": {
-                "source": "doc",
-                "engine": "datalab",
-            },
-            "output_names": {"markdown": "markdown"},
-            "idempotency_key": "datalab-facts@sha256:stable",
+    project = make_project("datalab facts")
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "doc", type="file")
+    blob = project.add_blob(
+        b"%PDF-1.4 fake",
+        filename="document.pdf",
+        mime="application/pdf",
+    )
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"doc": media_cell(blob, mime="application/pdf", filename="document.pdf")}],
+        {"doc": column_id},
+    )
+    action = {
+        "action_id": "media.to_markdown",
+        "scope": {
+            "kind": "sheet_rows",
+            "sheet_id": sheet_id,
+            "row_ids": row_ids,
+        },
+        "params": {
+            "source": "doc",
+            "engine": "datalab",
+        },
+        "output_names": {"markdown": "markdown"},
+        "idempotency_key": "datalab-facts@sha256:stable",
+    }
+    router = _router(lambda _request: httpx.Response(500))
+    quote = run_action_spec(
+        project, action, project_id="project-datalab-facts", router=router
+    )
+    assert quote.status == "needs_confirmation", quote.errors
+    assert calls == 0
+    action["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    result = run_action_spec(
+        project, action, project_id="project-datalab-facts", router=router
+    )
+    assert result.status == "completed", result.errors
+    assert calls == 1
+
+    facts = RunResultStore(project).model_calls(result.run_id)
+    assert len(facts) == calls
+    fact = facts[0]
+    assert fact["provider"] == "datalab"
+    assert fact["engine"] == "datalab"
+    assert fact["credential_source"] == "local"
+    assert _units(fact) == {"pages": 3, "requests": 1}
+    assert fact["provider_reported_cost_usd"] == reported_cost
+    assert fact["provider_cost_usd"] == expected_cost
+
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.provider_use == [
+        {
+            "provider": "datalab",
+            "model": "datalab",
+            "engine": "datalab",
+            "external_api": True,
+            "service": "document.convert",
+            "operation_call_count": 1,
+            "model_call_count": 1,
+            "cost_actual": expected_cost,
         }
-        router = _router(lambda _request: httpx.Response(500))
-        quote = run_action_spec(
-            project, action, project_id="project-datalab-facts", router=router
-        )
-        assert quote.status == "needs_confirmation", quote.errors
-        assert calls == 0
-        action["confirmation"] = quote.errors[0].details["promise_set_hash"]
-        result = run_action_spec(
-            project, action, project_id="project-datalab-facts", router=router
-        )
-        assert result.status == "completed", result.errors
-        assert calls == 1
-
-        facts = RunResultStore(project).model_calls(result.run_id)
-        assert len(facts) == calls
-        fact = facts[0]
-        assert fact["provider"] == "datalab"
-        assert fact["engine"] == "datalab"
-        assert fact["credential_source"] == "local"
-        assert _units(fact) == {"pages": 3, "requests": 1}
-        assert fact["provider_reported_cost_usd"] == reported_cost
-        assert fact["provider_cost_usd"] == expected_cost
-
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.provider_use == [
-            {
-                "provider": "datalab",
-                "model": "datalab",
-                "engine": "datalab",
-                "external_api": True,
-                "service": "document.convert",
-                "operation_call_count": 1,
-                "model_call_count": 1,
-                "cost_actual": expected_cost,
-            }
-        ]
-    finally:
-        project.close()
+    ]

@@ -386,310 +386,282 @@ CASES = [
 ]
 
 
-def test_undo_on_empty_project_is_unavailable(tmp_path: Path) -> None:
+def test_undo_on_empty_project_is_unavailable(make_project) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "empty.frisket", name="Empty Operation")
-    try:
-        action = operation_action(
-            "operation.undo", key="empty_undo@sha256:v1", expected_op_id=0
-        )
-        del action["params"]["expected_op_id"]
-        result = executor_actions.run_action_spec(
-            project, action, project_id="project-empty-operation"
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "operation_unavailable"
-    finally:
-        project.close()
+    project = make_project("Empty Operation")
+    action = operation_action(
+        "operation.undo", key="empty_undo@sha256:v1", expected_op_id=0
+    )
+    del action["params"]["expected_op_id"]
+    result = executor_actions.run_action_spec(
+        project, action, project_id="project-empty-operation"
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "operation_unavailable"
 
 
 def test_corrupt_undo_info_rolls_back_and_reports_corrupt_state(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "corrupt.frisket", name="Corrupt Operation")
-    try:
-        cur = project.db.cursor()
-        cur.execute(
-            "INSERT INTO ops (kind, label, spec, undo_info, status, barrier) "
-            "VALUES (?, ?, ?, ?, 'applied', 0)",
-            (
-                "corrupt.fixture",
-                "corrupt fixture",
-                "{}",
-                json.dumps({"created_rows": ["not-an-id"]}),
-            ),
-        )
-        corrupt_op_id = int(cur.lastrowid)
-        from frisket.engine.store.changes import start_change
+    project = make_project("Corrupt Operation")
+    cur = project.db.cursor()
+    cur.execute(
+        "INSERT INTO ops (kind, label, spec, undo_info, status, barrier) "
+        "VALUES (?, ?, ?, ?, 'applied', 0)",
+        (
+            "corrupt.fixture",
+            "corrupt fixture",
+            "{}",
+            json.dumps({"created_rows": ["not-an-id"]}),
+        ),
+    )
+    corrupt_op_id = int(cur.lastrowid)
+    from frisket.engine.store.changes import start_change
 
-        start_change(project.db, corrupt_op_id)
-        cur.execute(
-            "UPDATE meta SET value=? WHERE key='op_cursor'",
-            (str(corrupt_op_id),),
-        )
-        project.db.commit()
-        before = {
-            table: int(
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            )
-            for table in ("ops", "receipts")
-        }
+    start_change(project.db, corrupt_op_id)
+    cur.execute(
+        "UPDATE meta SET value=? WHERE key='op_cursor'",
+        (str(corrupt_op_id),),
+    )
+    project.db.commit()
+    before = {
+        table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in ("ops", "receipts")
+    }
 
-        action = operation_action(
-            "operation.undo", key="corrupt_undo@sha256:v1", expected_op_id=0
-        )
-        del action["params"]["expected_op_id"]
-        result = executor_actions.run_action_spec(
-            project, action, project_id="project-corrupt-operation"
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_state_corrupt"
-        op = project.db.execute(
-            "SELECT status FROM ops WHERE id=?", (corrupt_op_id,)
-        ).fetchone()
-        assert op["status"] == "applied"
-        assert project.op_cursor == corrupt_op_id
-        after = {
-            table: int(
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            )
-            for table in ("ops", "receipts")
-        }
-        assert after == before
-    finally:
-        project.close()
+    action = operation_action(
+        "operation.undo", key="corrupt_undo@sha256:v1", expected_op_id=0
+    )
+    del action["params"]["expected_op_id"]
+    result = executor_actions.run_action_spec(
+        project, action, project_id="project-corrupt-operation"
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_state_corrupt"
+    op = project.db.execute(
+        "SELECT status FROM ops WHERE id=?", (corrupt_op_id,)
+    ).fetchone()
+    assert op["status"] == "applied"
+    assert project.op_cursor == corrupt_op_id
+    after = {
+        table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in ("ops", "receipts")
+    }
+    assert after == before
 
 
-def test_typed_undo_replays_omitted_and_explicit_default_params(tmp_path: Path) -> None:
+def test_typed_undo_replays_omitted_and_explicit_default_params(
+    tmp_path: Path, make_project
+) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "default-replay.frisket")
-    try:
-        _seed_chain(project, tmp_path)
-        omitted = {
-            "action_id": "operation.undo",
-            "scope": {"kind": "project"},
-            "params": {},
-            "idempotency_key": "operation-default-replay",
-        }
-        first = executor_actions.run_action_spec(
-            project, omitted, project_id="project-operation-default-replay"
-        )
-        explicit = executor_actions.run_action_spec(
-            project,
-            {**omitted, "params": {"expected_op_id": None}},
-            project_id="project-operation-default-replay",
-        )
+    project = make_project("default-replay")
+    _seed_chain(project, tmp_path)
+    omitted = {
+        "action_id": "operation.undo",
+        "scope": {"kind": "project"},
+        "params": {},
+        "idempotency_key": "operation-default-replay",
+    }
+    first = executor_actions.run_action_spec(
+        project, omitted, project_id="project-operation-default-replay"
+    )
+    explicit = executor_actions.run_action_spec(
+        project,
+        {**omitted, "params": {"expected_op_id": None}},
+        project_id="project-operation-default-replay",
+    )
 
-        assert first.status == explicit.status == "completed", (
-            first.errors,
-            explicit.errors,
-        )
-        assert explicit.receipt_id == first.receipt_id
-        assert explicit.outputs == first.outputs
-    finally:
-        project.close()
+    assert first.status == explicit.status == "completed", (
+        first.errors,
+        explicit.errors,
+    )
+    assert explicit.receipt_id == first.receipt_id
+    assert explicit.outputs == first.outputs
 
 
 @pytest.mark.parametrize("expected_op_id", [True, "1"])
 def test_operation_expected_op_id_is_strict(
-    tmp_path: Path, expected_op_id: object
+    make_project, expected_op_id: object
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "strict-operation-id.frisket")
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            {
-                "action_id": "operation.undo",
-                "scope": {"kind": "project"},
-                "params": {"expected_op_id": expected_op_id},
-                "idempotency_key": "operation-strict-id",
-            },
-            project_id="project-operation-strict-id",
-        )
+    project = make_project("strict-operation-id")
+    result = executor_actions.run_action_spec(
+        project,
+        {
+            "action_id": "operation.undo",
+            "scope": {"kind": "project"},
+            "params": {"expected_op_id": expected_op_id},
+            "idempotency_key": "operation-strict-id",
+        },
+        project_id="project-operation-strict-id",
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert project.db.execute("SELECT 1 FROM receipts").fetchone() is None
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert project.db.execute("SELECT 1 FROM receipts").fetchone() is None
 
 
-def test_operation_mode_is_not_a_typed_param(tmp_path: Path) -> None:
+def test_operation_mode_is_not_a_typed_param(make_project) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "operation-mode.frisket")
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            {
-                "action_id": "operation.undo",
-                "scope": {"kind": "project"},
-                "params": {"mode": "step"},
-                "idempotency_key": "operation-mode",
-            },
-            project_id="project-operation-mode",
-        )
+    project = make_project("operation-mode")
+    result = executor_actions.run_action_spec(
+        project,
+        {
+            "action_id": "operation.undo",
+            "scope": {"kind": "project"},
+            "params": {"mode": "step"},
+            "idempotency_key": "operation-mode",
+        },
+        project_id="project-operation-mode",
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
 
 
 def test_undo_and_receipt_roll_back_without_manifest_refresh(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "operation-rollback.frisket")
-    try:
-        seeded = _seed_chain(project, tmp_path)
-        refresh_calls = 0
+    project = make_project("operation-rollback")
+    seeded = _seed_chain(project, tmp_path)
+    refresh_calls = 0
 
-        def fail_receipt(*args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            raise RuntimeError("receipt unavailable")
+    def fail_receipt(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise RuntimeError("receipt unavailable")
 
-        def count_refresh(_project: Project) -> int:
-            nonlocal refresh_calls
-            refresh_calls += 1
-            return 0
+    def count_refresh(_project: Project) -> int:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        return 0
 
-        monkeypatch.setattr(ReceiptStore, "insert_completed", fail_receipt)
-        monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
-        before_receipts = int(
-            project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
-        )
-        result = executor_actions.run_action_spec(
-            project, _undo_action(seeded), project_id="project-operation-rollback"
-        )
+    monkeypatch.setattr(ReceiptStore, "insert_completed", fail_receipt)
+    monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
+    before_receipts = int(
+        project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
+    )
+    result = executor_actions.run_action_spec(
+        project, _undo_action(seeded), project_id="project-operation-rollback"
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert project.op_cursor == seeded["derive_op_id"]
-        assert (
-            project.db.execute(
-                "SELECT status FROM ops WHERE id=?", (seeded["derive_op_id"],)
-            ).fetchone()["status"]
-            == "applied"
-        )
-        assert (
-            project.db.execute(
-                "SELECT hidden FROM sheets WHERE id=?", (seeded["child_sheet_id"],)
-            ).fetchone()["hidden"]
-            == 0
-        )
-        assert (
-            int(project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0])
-            == before_receipts
-        )
-        assert refresh_calls == 0
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert project.op_cursor == seeded["derive_op_id"]
+    assert (
+        project.db.execute(
+            "SELECT status FROM ops WHERE id=?", (seeded["derive_op_id"],)
+        ).fetchone()["status"]
+        == "applied"
+    )
+    assert (
+        project.db.execute(
+            "SELECT hidden FROM sheets WHERE id=?", (seeded["child_sheet_id"],)
+        ).fetchone()["hidden"]
+        == 0
+    )
+    assert (
+        int(project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0])
+        == before_receipts
+    )
+    assert refresh_calls == 0
 
 
 def test_typed_plain_edit_undo_redo_skip_recount_but_replay_heals(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "typed-plain-edit.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "value")
-        row_id = project.add_rows(
-            sheet_id, [{"value": "before"}], {"value": column_id}
-        )[0]
-        edit_op_id = project.apply_edits(
-            [{"row_id": row_id, "column_id": column_id, "value": "after"}]
-        )
-        refresh_calls = 0
+    project = make_project("typed-plain-edit")
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "value")
+    row_id = project.add_rows(sheet_id, [{"value": "before"}], {"value": column_id})[0]
+    edit_op_id = project.apply_edits(
+        [{"row_id": row_id, "column_id": column_id, "value": "after"}]
+    )
+    refresh_calls = 0
 
-        def count_refresh(_project: Project) -> int:
-            nonlocal refresh_calls
-            refresh_calls += 1
-            return 0
+    def count_refresh(_project: Project) -> int:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        return 0
 
-        monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
-        undo_action = operation_action(
-            "operation.undo",
-            key="typed-plain-edit-undo@sha256:v1",
+    monkeypatch.setattr(Project, "refresh_pending_review_summary", count_refresh)
+    undo_action = operation_action(
+        "operation.undo",
+        key="typed-plain-edit-undo@sha256:v1",
+        expected_op_id=edit_op_id,
+    )
+
+    undone = executor_actions.run_action_spec(
+        project, undo_action, project_id="typed-plain-edit"
+    )
+    assert undone.status == "completed", undone.errors
+    assert project.get_values(sheet_id, column_id) == {row_id: "before"}
+    assert refresh_calls == 0
+
+    replay = executor_actions.run_action_spec(
+        project, undo_action, project_id="typed-plain-edit"
+    )
+    assert replay.receipt_id == undone.receipt_id
+    assert refresh_calls == 1
+
+    redone = executor_actions.run_action_spec(
+        project,
+        operation_action(
+            "operation.redo",
+            key="typed-plain-edit-redo@sha256:v1",
             expected_op_id=edit_op_id,
-        )
-
-        undone = executor_actions.run_action_spec(
-            project, undo_action, project_id="typed-plain-edit"
-        )
-        assert undone.status == "completed", undone.errors
-        assert project.get_values(sheet_id, column_id) == {row_id: "before"}
-        assert refresh_calls == 0
-
-        replay = executor_actions.run_action_spec(
-            project, undo_action, project_id="typed-plain-edit"
-        )
-        assert replay.receipt_id == undone.receipt_id
-        assert refresh_calls == 1
-
-        redone = executor_actions.run_action_spec(
-            project,
-            operation_action(
-                "operation.redo",
-                key="typed-plain-edit-redo@sha256:v1",
-                expected_op_id=edit_op_id,
-            ),
-            project_id="typed-plain-edit",
-        )
-        assert redone.status == "completed", redone.errors
-        assert project.get_values(sheet_id, column_id) == {row_id: "after"}
-        assert refresh_calls == 1
-    finally:
-        project.close()
+        ),
+        project_id="typed-plain-edit",
+    )
+    assert redone.status == "completed", redone.errors
+    assert project.get_values(sheet_id, column_id) == {row_id: "after"}
+    assert refresh_calls == 1
 
 
 def test_completed_undo_survives_refresh_failure_and_replay_heals_manifest(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "operation-refresh.frisket")
-    try:
-        seeded = _seed_chain(project, tmp_path)
-        project._write_manifest(pending_review_count=99)
-        original_refresh = Project.refresh_pending_review_summary
-        refresh_calls = 0
+    project = make_project("operation-refresh")
+    seeded = _seed_chain(project, tmp_path)
+    project._write_manifest(pending_review_count=99)
+    original_refresh = Project.refresh_pending_review_summary
+    refresh_calls = 0
 
-        def fail_once(project_: Project) -> int:
-            nonlocal refresh_calls
-            refresh_calls += 1
-            if refresh_calls == 1:
-                raise OSError("manifest temporarily unavailable")
-            return original_refresh(project_)
+    def fail_once(project_: Project) -> int:
+        nonlocal refresh_calls
+        refresh_calls += 1
+        if refresh_calls == 1:
+            raise OSError("manifest temporarily unavailable")
+        return original_refresh(project_)
 
-        monkeypatch.setattr(Project, "refresh_pending_review_summary", fail_once)
-        action = _undo_action(seeded)
-        first = executor_actions.run_action_spec(
-            project, action, project_id="project-operation-refresh"
-        )
-        stale_manifest = json.loads((project.path / "manifest.json").read_text())
-        replay = executor_actions.run_action_spec(
-            project, action, project_id="project-operation-refresh"
-        )
-        healed_manifest = json.loads((project.path / "manifest.json").read_text())
+    monkeypatch.setattr(Project, "refresh_pending_review_summary", fail_once)
+    action = _undo_action(seeded)
+    first = executor_actions.run_action_spec(
+        project, action, project_id="project-operation-refresh"
+    )
+    stale_manifest = json.loads((project.path / "manifest.json").read_text())
+    replay = executor_actions.run_action_spec(
+        project, action, project_id="project-operation-refresh"
+    )
+    healed_manifest = json.loads((project.path / "manifest.json").read_text())
 
-        assert first.status == replay.status == "completed", (
-            first.errors,
-            replay.errors,
-        )
-        assert replay.receipt_id == first.receipt_id
-        assert stale_manifest["pending_review_count"] == 99
-        assert healed_manifest["pending_review_count"] == 2
-        assert refresh_calls == 2
-    finally:
-        project.close()
+    assert first.status == replay.status == "completed", (
+        first.errors,
+        replay.errors,
+    )
+    assert replay.receipt_id == first.receipt_id
+    assert stale_manifest["pending_review_count"] == 99
+    assert healed_manifest["pending_review_count"] == 2
+    assert refresh_calls == 2

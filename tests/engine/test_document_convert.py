@@ -11,7 +11,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 import io
 import json
-from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -25,18 +24,11 @@ from frisket.engine.executor.document_convert import (
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.credential_use import CredentialUseContext
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 
 HTML = "<html><body><h1>Quarterly Report</h1><p>Revenue doubled.</p></body></html>"
-
-
-@pytest.fixture
-def project(tmp_path):
-    with closing(Project.create(tmp_path / "d.frisket", name="d")) as p:
-        yield p
 
 
 def _seed(project, value, *, coltype="text", name="doc"):

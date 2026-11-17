@@ -176,37 +176,33 @@ CASES = [
 
 
 def test_row_add_rolls_back_mutation_when_receipt_insert_fails(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "row-add-rollback.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        before_rows = project.row_count(seeded["sheet_id"])
-        before_ops = int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0])
+    project = make_project("row-add-rollback")
+    seeded = _seed(project, tmp_path)
+    before_rows = project.row_count(seeded["sheet_id"])
+    before_ops = int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0])
 
-        def fail_insert(*args, **kwargs):
-            raise RuntimeError("receipt unavailable")
+    def fail_insert(*args, **kwargs):
+        raise RuntimeError("receipt unavailable")
 
-        monkeypatch.setattr(ReceiptStore, "insert_completed", fail_insert)
-        result = run_typed_map_request(
-            project,
-            _row_add_action(
-                sheet_id=seeded["sheet_id"],
-                cells={"name": "Grace"},
-                key="row-add-receipt-failure@sha256:stable",
-            ),
-            project_id="row-add-rollback",
-        )
+    monkeypatch.setattr(ReceiptStore, "insert_completed", fail_insert)
+    result = run_typed_map_request(
+        project,
+        _row_add_action(
+            sheet_id=seeded["sheet_id"],
+            cells={"name": "Grace"},
+            key="row-add-receipt-failure@sha256:stable",
+        ),
+        project_id="row-add-rollback",
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert project.row_count(seeded["sheet_id"]) == before_rows
-        assert (
-            int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0])
-            == before_ops
-        )
-        assert project.db.execute("SELECT 1 FROM receipts").fetchone() is None
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert project.row_count(seeded["sheet_id"]) == before_rows
+    assert (
+        int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]) == before_ops
+    )
+    assert project.db.execute("SELECT 1 FROM receipts").fetchone() is None

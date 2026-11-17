@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 
 from frisket.contracts.http.document_priority import DocumentPriorityResponse
 from frisket.engine.jobs.queue import PROJECT_RUN_KIND, SqliteJobQueue
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.server.route_errors import RouteError, register_route_error_handler
 from frisket.server.routes.document_priority import register_document_priority_route
@@ -35,9 +34,10 @@ class _PromotingQueue:
 
 def test_service_promotes_only_the_marked_run_that_admits_the_exact_target(
     tmp_path,
+    make_project,
 ) -> None:
     project_id = "project-a"
-    project = Project.create(tmp_path / "project.frisket")
+    project = make_project("project")
     backing = SqliteJobQueue(tmp_path / "queue.db")
     queue = _PromotingQueue(backing)
     try:

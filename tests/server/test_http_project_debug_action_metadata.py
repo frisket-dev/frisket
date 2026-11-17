@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionResult
-from frisket.server.app import create_app
 from action_test_helpers import typed_map_request
 from http_test_helpers import drain_queue
 
@@ -21,8 +19,7 @@ def _assert_no_recipe_keys(value: object) -> None:
             _assert_no_recipe_keys(child)
 
 
-def test_project_debug_runs_and_lineage_use_action_metadata(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_project_debug_runs_and_lineage_use_action_metadata(client) -> None:
     project_id = client.post("/api/projects", json={"name": "Debug v1"}).json()["id"]
     imported = client.post(
         f"/api/projects/{project_id}/import/csv",

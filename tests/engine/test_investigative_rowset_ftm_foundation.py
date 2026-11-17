@@ -27,101 +27,96 @@ def _cell_by_name(record: dict[str, Any], name: str) -> dict[str, Any]:
     raise AssertionError(f"missing cell {name!r}")
 
 
-def test_sheet_rowset_preserves_typed_values_refs_and_evidence(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "rowset.frisket", name="Rowset")
-    try:
-        sheet_id = project.add_sheet("People")
-        columns = {
-            "name": project.add_column(sheet_id, "name", "text"),
-            "age": project.add_column(sheet_id, "age", "integer"),
-            "profile": project.add_column(sheet_id, "profile", "json"),
-            "risk": project.add_column(sheet_id, "risk", "number", ai_generated=True),
-            "internal": project.add_column(sheet_id, "internal", "text"),
-        }
-        project.db.execute(
-            "UPDATE columns SET hidden=1 WHERE id=?", (columns["internal"],)
-        )
-        project.db.commit()
-        row_ids = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "name": "Alice",
-                    "age": 40,
-                    "profile": {"aliases": ["A. Example"]},
-                    "internal": "hide me",
-                },
-                {
-                    "name": "Bob",
-                    "age": 35,
-                    "profile": {"aliases": []},
-                    "internal": "hide me too",
-                },
-            ],
-            columns,
-        )
+def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> None:
+    project = make_project("Rowset")
+    sheet_id = project.add_sheet("People")
+    columns = {
+        "name": project.add_column(sheet_id, "name", "text"),
+        "age": project.add_column(sheet_id, "age", "integer"),
+        "profile": project.add_column(sheet_id, "profile", "json"),
+        "risk": project.add_column(sheet_id, "risk", "number", ai_generated=True),
+        "internal": project.add_column(sheet_id, "internal", "text"),
+    }
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (columns["internal"],))
+    project.db.commit()
+    row_ids = project.add_rows(
+        sheet_id,
+        [
+            {
+                "name": "Alice",
+                "age": 40,
+                "profile": {"aliases": ["A. Example"]},
+                "internal": "hide me",
+            },
+            {
+                "name": "Bob",
+                "age": 35,
+                "profile": {"aliases": []},
+                "internal": "hide me too",
+            },
+        ],
+        columns,
+    )
 
-        op_id = project.append_op("map.score", {"output_column": "risk"})
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet_id,
-            "map.score",
-            total_rows=2,
-            row_ids=row_ids,
-        )
-        write_claimed_test_results(
-            project,
-            run_id,
-            [
-                {"row_id": row_ids[0], "column_id": columns["risk"], "value": 0.82},
-                {"row_id": row_ids[1], "column_id": columns["risk"], "value": 0.24},
-            ],
-        )
-        RunResultStore(project).finish_run(run_id)
-        RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
-        edit_op_id = project.apply_edits(
-            [{"row_id": row_ids[0], "column_id": columns["age"], "value": 41}],
-            label="correct age",
-        )
+    op_id = project.append_op("map.score", {"output_column": "risk"})
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.score",
+        total_rows=2,
+        row_ids=row_ids,
+    )
+    write_claimed_test_results(
+        project,
+        run_id,
+        [
+            {"row_id": row_ids[0], "column_id": columns["risk"], "value": 0.82},
+            {"row_id": row_ids[1], "column_id": columns["risk"], "value": 0.24},
+        ],
+    )
+    RunResultStore(project).finish_run(run_id)
+    RunResultStore(project).point_column_at_run(op_id, columns["risk"], run_id)
+    edit_op_id = project.apply_edits(
+        [{"row_id": row_ids[0], "column_id": columns["age"], "value": 41}],
+        label="correct age",
+    )
 
-        _values, refs = project.get_values_with_refs(
-            sheet_id, columns["risk"], row_ids=[row_ids[0]]
-        )
-        artifact = record_source_artifact(
-            project,
-            stable_id="source_artifact:fixture-risk",
-            artifact_kind="file",
-            media_type="application/pdf",
-            source_sheet_id=sheet_id,
-            source_row_id=row_ids[0],
-            source_column_id=columns["name"],
-            title="Risk dossier",
-        )
-        span = record_source_span(
-            project,
-            stable_id="source_span:fixture-risk-page",
-            artifact_id=artifact["id"],
-            span_kind="text",
-            quote="risk score 0.82",
-        )
-        evidence = record_evidence_link(
-            project,
-            stable_id="evidence_link:fixture-risk",
-            subject_kind="cell_value",
-            subject_ref=refs[row_ids[0]],
-            spans=[{"span_id": span["id"]}],
-            sheet_id=sheet_id,
-            row_id=row_ids[0],
-            column_id=columns["risk"],
-            run_id=run_id,
-            op_id=op_id,
-        )
+    _values, refs = project.get_values_with_refs(
+        sheet_id, columns["risk"], row_ids=[row_ids[0]]
+    )
+    artifact = record_source_artifact(
+        project,
+        stable_id="source_artifact:fixture-risk",
+        artifact_kind="file",
+        media_type="application/pdf",
+        source_sheet_id=sheet_id,
+        source_row_id=row_ids[0],
+        source_column_id=columns["name"],
+        title="Risk dossier",
+    )
+    span = record_source_span(
+        project,
+        stable_id="source_span:fixture-risk-page",
+        artifact_id=artifact["id"],
+        span_kind="text",
+        quote="risk score 0.82",
+    )
+    evidence = record_evidence_link(
+        project,
+        stable_id="evidence_link:fixture-risk",
+        subject_kind="cell_value",
+        subject_ref=refs[row_ids[0]],
+        spans=[{"span_id": span["id"]}],
+        sheet_id=sheet_id,
+        row_id=row_ids[0],
+        column_id=columns["risk"],
+        run_id=run_id,
+        op_id=op_id,
+    )
 
-        resolved = resolve_investigative_rowset(
-            project, {"kind": "sheet", "sheet_id": sheet_id}, project_id="case-1"
-        )
-    finally:
-        project.close()
+    resolved = resolve_investigative_rowset(
+        project, {"kind": "sheet", "sheet_id": sheet_id}, project_id="case-1"
+    )
 
     assert resolved["schema_version"] == INVESTIGATIVE_ROWSET_SCHEMA_VERSION
     assert resolved["rowset"] == {"kind": "sheet", "sheet_id": sheet_id}
@@ -202,44 +197,41 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(tmp_path: Path) -
 
 
 def test_materialized_sheet_rowset_exposes_parent_sheet_and_row_lineage(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "materialized.frisket", name="Materialized")
-    try:
-        source_sheet_id = project.add_sheet("Source People")
-        source_columns = {
-            "name": project.add_column(source_sheet_id, "name", "text"),
-        }
-        source_rows = project.add_rows(
-            source_sheet_id,
-            [{"name": "Alice"}, {"name": "Bob"}],
-            source_columns,
-        )
-        derive_op_id = project.append_op("resolve.entities", {"target": "Reviewed"})
-        child_sheet_id = project.add_sheet(
-            "Reviewed People",
-            parent_sheet_id=source_sheet_id,
-            parent_op_id=derive_op_id,
-        )
-        child_columns = {
-            "caption": project.add_column(child_sheet_id, "caption", "text"),
-            "confidence": project.add_column(child_sheet_id, "confidence", "number"),
-        }
-        child_rows = project.add_rows(
-            child_sheet_id,
-            [
-                {"caption": "Bob B.", "confidence": 0.91},
-                {"caption": "Alice A.", "confidence": 0.88},
-            ],
-            child_columns,
-            parent_row_ids=[source_rows[1], source_rows[0]],
-        )
+    project = make_project("Materialized")
+    source_sheet_id = project.add_sheet("Source People")
+    source_columns = {
+        "name": project.add_column(source_sheet_id, "name", "text"),
+    }
+    source_rows = project.add_rows(
+        source_sheet_id,
+        [{"name": "Alice"}, {"name": "Bob"}],
+        source_columns,
+    )
+    derive_op_id = project.append_op("resolve.entities", {"target": "Reviewed"})
+    child_sheet_id = project.add_sheet(
+        "Reviewed People",
+        parent_sheet_id=source_sheet_id,
+        parent_op_id=derive_op_id,
+    )
+    child_columns = {
+        "caption": project.add_column(child_sheet_id, "caption", "text"),
+        "confidence": project.add_column(child_sheet_id, "confidence", "number"),
+    }
+    child_rows = project.add_rows(
+        child_sheet_id,
+        [
+            {"caption": "Bob B.", "confidence": 0.91},
+            {"caption": "Alice A.", "confidence": 0.88},
+        ],
+        child_columns,
+        parent_row_ids=[source_rows[1], source_rows[0]],
+    )
 
-        resolved = resolve_investigative_rowset(
-            project, {"kind": "materialized_sheet", "sheet_id": child_sheet_id}
-        )
-    finally:
-        project.close()
+    resolved = resolve_investigative_rowset(
+        project, {"kind": "materialized_sheet", "sheet_id": child_sheet_id}
+    )
 
     assert resolved["rowset"] == {
         "kind": "materialized_sheet",
@@ -299,51 +291,43 @@ def test_unsupported_rowset_kinds_fail_with_typed_errors(
 
 
 def test_rowset_metadata_drift_fails_with_typed_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.features.investigations import rowsets
 
-    project = Project.create(tmp_path / "drift.frisket", name="Drift")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        columns = {"name": project.add_column(sheet_id, "name", "text")}
-        row_ids = project.add_rows(sheet_id, [{"name": "Alice"}], columns)
+    project = make_project("Drift")
+    sheet_id = project.add_sheet("Rows")
+    columns = {"name": project.add_column(sheet_id, "name", "text")}
+    row_ids = project.add_rows(sheet_id, [{"name": "Alice"}], columns)
 
-        def fake_batches(*_args: Any, **_kwargs: Any) -> list[list[int]]:
-            return [[row_ids[0], row_ids[0] + 10_000]]
+    def fake_batches(*_args: Any, **_kwargs: Any) -> list[list[int]]:
+        return [[row_ids[0], row_ids[0] + 10_000]]
 
-        monkeypatch.setattr(rowsets.export_rowset, "iter_row_id_batches", fake_batches)
+    monkeypatch.setattr(rowsets.export_rowset, "iter_row_id_batches", fake_batches)
 
-        with pytest.raises(InvestigativeRowsetError) as excinfo:
-            resolve_investigative_rowset(
-                project, {"kind": "sheet", "sheet_id": sheet_id}
-            )
-    finally:
-        project.close()
+    with pytest.raises(InvestigativeRowsetError) as excinfo:
+        resolve_investigative_rowset(project, {"kind": "sheet", "sheet_id": sheet_id})
 
     assert excinfo.value.code == "row_metadata_missing"
     assert excinfo.value.field == "rowset.rows"
     assert excinfo.value.details == {"row_ids": [row_ids[0] + 10_000]}
 
 
-def test_rowset_metadata_lookup_batches_without_changing_order(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "chunked.frisket", name="Chunked")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        columns = {"name": project.add_column(sheet_id, "name", "text")}
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"name": "Alice"}, {"name": "Bob"}, {"name": "Carla"}],
-            columns,
-        )
+def test_rowset_metadata_lookup_batches_without_changing_order(make_project) -> None:
+    project = make_project("Chunked")
+    sheet_id = project.add_sheet("Rows")
+    columns = {"name": project.add_column(sheet_id, "name", "text")}
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"name": "Alice"}, {"name": "Bob"}, {"name": "Carla"}],
+        columns,
+    )
 
-        resolved = resolve_investigative_rowset(
-            project,
-            {"kind": "sheet", "sheet_id": sheet_id},
-            batch_size=1,
-        )
-    finally:
-        project.close()
+    resolved = resolve_investigative_rowset(
+        project,
+        {"kind": "sheet", "sheet_id": sheet_id},
+        batch_size=1,
+    )
 
     assert [ref["row_id"] for ref in resolved["row_refs"]] == row_ids
     assert [record["values"]["name"] for record in resolved["records"]] == [
@@ -354,33 +338,28 @@ def test_rowset_metadata_lookup_batches_without_changing_order(tmp_path: Path) -
 
 
 def test_missing_value_ref_fails_with_typed_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "missing-ref.frisket", name="Missing Ref")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        columns = {"name": project.add_column(sheet_id, "name", "text")}
-        row_id = project.add_rows(sheet_id, [{"name": "Alice"}], columns)[0]
-        original = project.get_values_with_refs
+    project = make_project("Missing Ref")
+    sheet_id = project.add_sheet("Rows")
+    columns = {"name": project.add_column(sheet_id, "name", "text")}
+    row_id = project.add_rows(sheet_id, [{"name": "Alice"}], columns)[0]
+    original = project.get_values_with_refs
 
-        def fake_values_with_refs(
-            sheet_id_arg: int,
-            column_id_arg: int,
-            row_ids: list[int] | None = None,
-        ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
-            values, refs = original(sheet_id_arg, column_id_arg, row_ids=row_ids)
-            if column_id_arg == columns["name"]:
-                refs.pop(row_id, None)
-            return values, refs
+    def fake_values_with_refs(
+        sheet_id_arg: int,
+        column_id_arg: int,
+        row_ids: list[int] | None = None,
+    ) -> tuple[dict[int, Any], dict[int, dict[str, Any]]]:
+        values, refs = original(sheet_id_arg, column_id_arg, row_ids=row_ids)
+        if column_id_arg == columns["name"]:
+            refs.pop(row_id, None)
+        return values, refs
 
-        monkeypatch.setattr(project, "get_values_with_refs", fake_values_with_refs)
+    monkeypatch.setattr(project, "get_values_with_refs", fake_values_with_refs)
 
-        with pytest.raises(InvestigativeRowsetError) as excinfo:
-            resolve_investigative_rowset(
-                project, {"kind": "sheet", "sheet_id": sheet_id}
-            )
-    finally:
-        project.close()
+    with pytest.raises(InvestigativeRowsetError) as excinfo:
+        resolve_investigative_rowset(project, {"kind": "sheet", "sheet_id": sheet_id})
 
     assert excinfo.value.code == "row_value_ref_missing"
     assert excinfo.value.field == "rowset.cells"
@@ -390,16 +369,13 @@ def test_missing_value_ref_fails_with_typed_error(
     }
 
 
-def test_invalid_batch_size_fails_with_typed_error(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "batch.frisket", name="Batch")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        with pytest.raises(InvestigativeRowsetError) as excinfo:
-            resolve_investigative_rowset(
-                project, {"kind": "sheet", "sheet_id": sheet_id}, batch_size=0
-            )
-    finally:
-        project.close()
+def test_invalid_batch_size_fails_with_typed_error(make_project) -> None:
+    project = make_project("Batch")
+    sheet_id = project.add_sheet("Rows")
+    with pytest.raises(InvestigativeRowsetError) as excinfo:
+        resolve_investigative_rowset(
+            project, {"kind": "sheet", "sheet_id": sheet_id}, batch_size=0
+        )
 
     assert excinfo.value.code == "invalid_rowset_spec"
     assert excinfo.value.field == "batch_size"

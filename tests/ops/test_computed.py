@@ -12,15 +12,7 @@ from action_test_helpers import run_typed_map_request, typed_map_request
 from frisket.ai.llm import ModelRouter
 from frisket.engine.runner import MapRunner
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.engine.store import Project
 from runner_test_helpers import run_with_output_claim
-
-
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
 
 
 def run_recipe(p, spec):

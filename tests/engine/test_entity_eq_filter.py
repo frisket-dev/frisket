@@ -34,13 +34,6 @@ from frisket.querysets import (
 )
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "ner.frisket", name="ner")
-    yield p
-    p.close()
-
-
 def _entities(*surfaces: tuple[str, str]) -> list[dict]:
     return canonicalize_entities(
         [

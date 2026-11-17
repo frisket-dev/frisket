@@ -201,13 +201,13 @@ def test_capture_sidecar_never_lingers_in_justification(tmp_path, monkeypatch):
 
 
 def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "ner-generations.frisket")
+    project = make_project("ner-generations")
     sheet_id = project.add_sheet("data")
     body_column_id = project.add_column(sheet_id, "body", type="text")
     row_ids = project.add_rows(
@@ -329,12 +329,14 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
         project.close()
 
 
-def test_evidence_failure_rolls_back_result_head_and_evidence(tmp_path, monkeypatch):
+def test_evidence_failure_rolls_back_result_head_and_evidence(
+    make_project, monkeypatch
+):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
     from frisket.engine.executor import actions as executor_actions
 
-    project = Project.create(tmp_path / "ner-evidence-rollback.frisket")
+    project = make_project("ner-evidence-rollback")
     sheet_id = project.add_sheet("data")
     body_column_id = project.add_column(sheet_id, "body", type="text")
     project.add_rows(sheet_id, [{"body": "Ada"}], {"body": body_column_id})

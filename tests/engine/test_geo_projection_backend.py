@@ -26,13 +26,6 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "geo.frisket", name="geo")
-    yield p
-    p.close()
-
-
 def _seed(project: Project):
     """A sheet with a source geo_point column: 2 valid, 1 out-of-range, 1 empty."""
     sheet = project.add_sheet("places")
@@ -236,12 +229,12 @@ def test_default_export_excludes_geo_sidecar(project, tmp_path):
     assert not any(n.endswith(GEO_SIDECAR_FILENAME) for n in names)
 
 
-def test_to_geo_point_conversion_feeds_the_map(tmp_path):
+def test_to_geo_point_conversion_feeds_the_map(make_project):
     """End-to-end data-layer chain: lat/lon source columns -> the real
     typed to_geo_point action -> the generated geo_point column -> the map
     projection. Proves the map reads exactly what the conversion writes (the
     geo_point column is run-backed via current_run_id)."""
-    project = Project.create(tmp_path / "geo.frisket", name="geo")
+    project = make_project("geo")
     sheet = project.add_sheet("places")
     cols = {
         "name": project.add_column(sheet, "name", type="text"),
@@ -325,14 +318,14 @@ def test_to_geo_point_conversion_feeds_the_map(tmp_path):
     project.close()
 
 
-def test_concurrent_first_requests_do_not_race_schema(tmp_path):
+def test_concurrent_first_requests_do_not_race_schema(make_project):
     """Concurrent first map requests must not race sidecar schema creation (the
     rtree virtual table + shadow tables). FastAPI sync routes run in a
     threadpool, so first-ever requests across columns hit ensure_schema()
     simultaneously on separate sidecar connections."""
     import concurrent.futures as cf
 
-    project = Project.create(tmp_path / "geo.frisket", name="geo")
+    project = make_project("geo")
     sheet = project.add_sheet("places")
     name_col = project.add_column(sheet, "name", type="text")
     geo_cols = [

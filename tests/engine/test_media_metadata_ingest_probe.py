@@ -9,7 +9,6 @@ import struct
 import wave
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.ops.media_metadata import MEDIA_METADATA_FORMAT_REGISTRY
 from frisket.ops.media_probe import (
@@ -19,8 +18,6 @@ from frisket.ops.media_probe import (
 )
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.engine.jobs.worker import Worker
-from frisket.server.app import create_app
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     backfill_blob_metadata,
@@ -167,89 +164,82 @@ def test_probe_runs_for_a_registry_extension_without_a_content_type(tmp_path):
     assert meta["duration_seconds"] == pytest.approx(1.25, abs=0.01)
 
 
-def test_blob_metadata_persists_and_backfills(tmp_path):
-    project = Project.create(tmp_path / "p.frisket", name="p")
-    try:
-        digest = project.add_blob(
-            _png_header(4, 3),
-            filename="a.png",
-            mime="image/png",
-            metadata=owned_media_metadata_document(probe={"kind": "image", "width": 4}),
-        )
-        assert MediaBlobStore(project).probe_metadata(digest)["width"] == 4
-        MediaBlobStore(project).replace_probe_metadata(
-            digest, {"kind": "image", "width": 4, "height": 3}
-        )
-        assert MediaBlobStore(project).probe_metadata(digest)["height"] == 3
+def test_blob_metadata_persists_and_backfills(make_project):
+    project = make_project("p")
+    digest = project.add_blob(
+        _png_header(4, 3),
+        filename="a.png",
+        mime="image/png",
+        metadata=owned_media_metadata_document(probe={"kind": "image", "width": 4}),
+    )
+    assert MediaBlobStore(project).probe_metadata(digest)["width"] == 4
+    MediaBlobStore(project).replace_probe_metadata(
+        digest, {"kind": "image", "width": 4, "height": 3}
+    )
+    assert MediaBlobStore(project).probe_metadata(digest)["height"] == 3
 
-        blank = project.add_blob(b"hello\nworld", filename="a.txt", mime="text/plain")
-        out = backfill_blob_metadata(project)
-        assert out["scanned"] == 1
-        assert out["updated"] == 1
-        assert MediaBlobStore(project).probe_metadata(blank) == {
-            "kind": "text",
-            "size_bytes": 11,
-        }
-    finally:
-        project.close()
+    blank = project.add_blob(b"hello\nworld", filename="a.txt", mime="text/plain")
+    out = backfill_blob_metadata(project)
+    assert out["scanned"] == 1
+    assert out["updated"] == 1
+    assert MediaBlobStore(project).probe_metadata(blank) == {
+        "kind": "text",
+        "size_bytes": 11,
+    }
 
 
-def test_forced_refresh_replaces_only_probe_namespace(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "force-refresh.frisket", name="force")
-    try:
-        cache = {
-            "generation": 7,
-            "content_facts_hash": "sha256:" + "a" * 64,
-        }
-        source_url = "https://media.example/watch/123"
-        digest = project.add_blob(
-            b"probe input",
-            filename="clip.mp4",
-            mime="video/mp4",
-            source_url=source_url,
-            metadata=owned_media_metadata_document(
-                probe={"kind": "video", "duration_seconds": 40.0, "width": 640},
-                acquisition={
-                    "title": "Acquisition title",
-                    "duration_seconds": 42.5,
-                    "webpage_url": source_url,
-                    "managed_runtime": {"content_hash": "sha256:runtime"},
-                },
-                owner={"_media_metadata_v1": cache},
-            ),
-        )
-
-        monkeypatch.setattr(
-            "frisket.ops.media_probe.probe_for_ingest",
-            lambda *_args, **_kwargs: {
-                "kind": "video",
-                "duration_seconds": 99.0,
-                "width": 1920,
-                "height": 1080,
+def test_forced_refresh_replaces_only_probe_namespace(make_project, monkeypatch):
+    project = make_project("force")
+    cache = {
+        "generation": 7,
+        "content_facts_hash": "sha256:" + "a" * 64,
+    }
+    source_url = "https://media.example/watch/123"
+    digest = project.add_blob(
+        b"probe input",
+        filename="clip.mp4",
+        mime="video/mp4",
+        source_url=source_url,
+        metadata=owned_media_metadata_document(
+            probe={"kind": "video", "duration_seconds": 40.0, "width": 640},
+            acquisition={
+                "title": "Acquisition title",
+                "duration_seconds": 42.5,
+                "webpage_url": source_url,
+                "managed_runtime": {"content_hash": "sha256:runtime"},
             },
-        )
+            owner={"_media_metadata_v1": cache},
+        ),
+    )
 
-        refreshed = update_blob_metadata(project, digest, force=True)
+    monkeypatch.setattr(
+        "frisket.ops.media_probe.probe_for_ingest",
+        lambda *_args, **_kwargs: {
+            "kind": "video",
+            "duration_seconds": 99.0,
+            "width": 1920,
+            "height": 1080,
+        },
+    )
 
-        assert refreshed["duration_seconds"] == 99.0
-        assert refreshed["width"] == 1920
-        assert refreshed["height"] == 1080
-        store = MediaBlobStore(project)
-        assert store.probe_metadata(digest) == refreshed
-        assert store.acquisition_metadata(digest) == {
-            "title": "Acquisition title",
-            "duration_seconds": 42.5,
-            "webpage_url": source_url,
-            "managed_runtime": {"content_hash": "sha256:runtime"},
-        }
-        assert store.metadata(digest)["_media_metadata_v1"] == cache
-        assert MediaBlobStore(project).blob_row(digest)["source_url"] == source_url
-    finally:
-        project.close()
+    refreshed = update_blob_metadata(project, digest, force=True)
+
+    assert refreshed["duration_seconds"] == 99.0
+    assert refreshed["width"] == 1920
+    assert refreshed["height"] == 1080
+    store = MediaBlobStore(project)
+    assert store.probe_metadata(digest) == refreshed
+    assert store.acquisition_metadata(digest) == {
+        "title": "Acquisition title",
+        "duration_seconds": 42.5,
+        "webpage_url": source_url,
+        "managed_runtime": {"content_hash": "sha256:runtime"},
+    }
+    assert store.metadata(digest)["_media_metadata_v1"] == cache
+    assert MediaBlobStore(project).blob_row(digest)["source_url"] == source_url
 
 
-def test_file_import_stores_probe_metadata_and_identity_cell(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_file_import_stores_probe_metadata_and_identity_cell(client):
     pid = client.post("/api/projects", json={"name": "Meta"}).json()["id"]
     response = client.post(
         f"/api/projects/{pid}/import/files",
@@ -290,68 +280,65 @@ def test_file_import_stores_probe_metadata_and_identity_cell(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("ffprobe") is None, reason="ffprobe not installed")
-def test_billable_transcribe_estimate_uses_blob_duration(tmp_path, monkeypatch):
+def test_billable_transcribe_estimate_uses_blob_duration(
+    tmp_path, make_project, monkeypatch
+):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-estimate-key")
-    project = Project.create(tmp_path / "t.frisket", name="t")
-    try:
-        wav = _wav(tmp_path / "a.wav", seconds=2.0)
-        digest = project.add_blob(wav.read_bytes(), filename="a.wav", mime="audio/wav")
-        with project.materialize_blob(digest) as path:
-            metadata = probe_for_ingest(path, mime="audio/wav", digest=digest)
-        MediaBlobStore(project).replace_probe_metadata(digest, metadata)
-        sheet = project.add_sheet("audio")
-        cols = {"audio": project.add_column(sheet, "audio", type="audio")}
-        project.add_rows(
-            sheet,
-            [{"audio": {"blob": digest, "mime": "audio/wav", "filename": "a.wav"}}],
-            cols,
-        )
+    project = make_project("t")
+    wav = _wav(tmp_path / "a.wav", seconds=2.0)
+    digest = project.add_blob(wav.read_bytes(), filename="a.wav", mime="audio/wav")
+    with project.materialize_blob(digest) as path:
+        metadata = probe_for_ingest(path, mime="audio/wav", digest=digest)
+    MediaBlobStore(project).replace_probe_metadata(digest, metadata)
+    sheet = project.add_sheet("audio")
+    cols = {"audio": project.add_column(sheet, "audio", type="audio")}
+    project.add_rows(
+        sheet,
+        [{"audio": {"blob": digest, "mime": "audio/wav", "filename": "a.wav"}}],
+        cols,
+    )
 
-        plan = _transcription_plan(sheet)
-        est = MapRunner(
-            project, router=None, authority=UnroutedOnlyAuthority(project)
-        ).estimate(plan.spec_dict(), program=plan.program)
-        assert est["cost"] == pytest.approx(0.0002)
-        assert est["cost_source"] == "pricing_data"
-        assert est["engine"] == "openai/whisper-1"
-        assert est["pricing_key"] == "openai/whisper-1.audio_second"
-        assert est["audio_seconds"] == pytest.approx(2.0, abs=0.01)
-        assert "provider_cost_usd" not in est
-        assert "units" not in est
-    finally:
-        project.close()
+    plan = _transcription_plan(sheet)
+    est = MapRunner(
+        project, router=None, authority=UnroutedOnlyAuthority(project)
+    ).estimate(plan.spec_dict(), program=plan.program)
+    assert est["cost"] == pytest.approx(0.0002)
+    assert est["cost_source"] == "pricing_data"
+    assert est["engine"] == "openai/whisper-1"
+    assert est["pricing_key"] == "openai/whisper-1.audio_second"
+    assert est["audio_seconds"] == pytest.approx(2.0, abs=0.01)
+    assert "provider_cost_usd" not in est
+    assert "units" not in est
 
 
-def test_billable_provider_transcribe_unknown_without_duration(tmp_path, monkeypatch):
+def test_billable_provider_transcribe_unknown_without_duration(
+    make_project, monkeypatch
+):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-estimate-key")
-    project = Project.create(tmp_path / "t.frisket", name="t")
-    try:
-        digest = project.add_blob(
-            b"not audio",
-            filename="a.bin",
-            mime="application/octet-stream",
-        )
-        sheet = project.add_sheet("audio")
-        cols = {"audio": project.add_column(sheet, "audio", type="file")}
-        project.add_rows(sheet, [{"audio": {"blob": digest}}], cols)
-        plan = _transcription_plan(sheet)
-        runner = MapRunner(
-            project,
-            router=None,
-            authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
-        )
-        est = runner.estimate(plan.spec_dict(), program=plan.program)
-        assert est["cost"] is None
-        assert est["cost_source"] == "unknown"
-        with pytest.raises(CostGate):
-            runner.prepare_run(plan.spec_dict(), program=plan.program)
-    finally:
-        project.close()
+    project = make_project("t")
+    digest = project.add_blob(
+        b"not audio",
+        filename="a.bin",
+        mime="application/octet-stream",
+    )
+    sheet = project.add_sheet("audio")
+    cols = {"audio": project.add_column(sheet, "audio", type="file")}
+    project.add_rows(sheet, [{"audio": {"blob": digest}}], cols)
+    plan = _transcription_plan(sheet)
+    runner = MapRunner(
+        project,
+        router=None,
+        authority=UnroutedOnlyAuthority(project),
+        allow_action_lifecycle_only_recipes=True,
+    )
+    est = runner.estimate(plan.spec_dict(), program=plan.program)
+    assert est["cost"] is None
+    assert est["cost_source"] == "unknown"
+    with pytest.raises(CostGate):
+        runner.prepare_run(plan.spec_dict(), program=plan.program)
 
 
-def test_metadata_backfill_endpoint_updates_blank_blobs(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_metadata_backfill_endpoint_updates_blank_blobs(client):
     pid = client.post("/api/projects", json={"name": "Backfill"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     digest = project.add_blob(b"hello\nworld", filename="a.txt", mime="text/plain")

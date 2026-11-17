@@ -64,7 +64,7 @@ def _age_silent_attempt(project: Project, attempt_id: str) -> None:
 
 
 def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ) -> None:
     """Named Lane 2.2(a) acceptance: a recipe bug's TypeError BEFORE any wire
     I/O, on a metered-but-local row (no remote capability resolves — static,
@@ -77,123 +77,80 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
     from frisket.actions.types import ActionRequest, SheetRows
     from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 
-    project = Project.create(tmp_path / "pre-egress-bug.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        columns = {"audio": project.add_column(sheet, "audio", type="audio")}
-        project.add_rows(
-            sheet,
-            [{"audio": _wav(tmp_path / f"row-{index}.wav")} for index in range(2)],
-            columns,
-        )
-        request = ActionRequest(
-            action_id="media.transcribe",
-            scope=SheetRows(sheet_id=sheet),
-            params={"source": "audio", "engine": "faster_whisper"},
-            output_names={"text": "transcript"},
-            idempotency_key="pre-egress-bug",
-        )
-        plan = build_typed_map_rows_plan(
-            project,
-            BoundTypedActionRequest.bind(
-                ACTION_REGISTRY.get(request.action_id), request
-            ),
-        )
-        spec = plan.spec_dict()
-        receipt_id = "receipt_pre_egress_bug"
-        claim_token = f"output-claim:{receipt_id}"
-        ReceiptStore(project).insert_running(
-            Receipt(
-                receipt_id=receipt_id,
-                project_id="project",
-                action_id="action_pre_egress_bug",
-                action_kind="media.transcribe",
-                status="running",
-            )
-        )
-        output_names = [
-            str(field["name"]) for field in plan.program.output_fields(spec)
-        ]
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet,
-            output_names=output_names,
-            action_kind="media.transcribe",
+    project = make_project("pre-egress-bug")
+    sheet = project.add_sheet("data")
+    columns = {"audio": project.add_column(sheet, "audio", type="audio")}
+    project.add_rows(
+        sheet,
+        [{"audio": _wav(tmp_path / f"row-{index}.wav")} for index in range(2)],
+        columns,
+    )
+    request = ActionRequest(
+        action_id="media.transcribe",
+        scope=SheetRows(sheet_id=sheet),
+        params={"source": "audio", "engine": "faster_whisper"},
+        output_names={"text": "transcript"},
+        idempotency_key="pre-egress-bug",
+    )
+    plan = build_typed_map_rows_plan(
+        project,
+        BoundTypedActionRequest.bind(ACTION_REGISTRY.get(request.action_id), request),
+    )
+    spec = plan.spec_dict()
+    receipt_id = "receipt_pre_egress_bug"
+    claim_token = f"output-claim:{receipt_id}"
+    ReceiptStore(project).insert_running(
+        Receipt(
             receipt_id=receipt_id,
+            project_id="project",
+            action_id="action_pre_egress_bug",
+            action_kind="media.transcribe",
+            status="running",
+        )
+    )
+    output_names = [str(field["name"]) for field in plan.program.output_fields(spec)]
+    claims, conflict = OutputColumnClaimStore(project).acquire(
+        sheet_id=sheet,
+        output_names=output_names,
+        action_kind="media.transcribe",
+        receipt_id=receipt_id,
+        claim_token=claim_token,
+    )
+    assert conflict is None
+    assert len(claims) == len(output_names)
+
+    def bind_claim(progress) -> None:  # noqa: ANN001
+        OutputColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
-        )
-        assert conflict is None
-        assert len(claims) == len(output_names)
-
-        def bind_claim(progress) -> None:  # noqa: ANN001
-            OutputColumnClaimStore(project).bind_to_run(
-                claim_token=claim_token,
-                run_id=progress.run_id,
-                expected_output_names=output_names,
-            )
-
-        calls = 0
-        explode = True
-
-        async def typeerror_then_recover(self, path, spec, *, should_cancel=None):  # noqa: ANN001
-            nonlocal calls
-            del self, path, spec
-            calls += 1
-            if explode and calls == 2:
-                # The recipe-bug shape: an ordinary uncaught exception, not an
-                # allowlisted RecipeInvocationHalt, raised before any egress.
-                raise TypeError("'NoneType' object is not subscriptable")
-            return {
-                "text": f"transcript {calls}",
-                "segments": [{"start": 0.0, "end": 0.5, "text": f"transcript {calls}"}],
-                "language": "en",
-                "duration": 0.5,
-            }
-
-        monkeypatch.setattr(
-            transcribe_engines.FasterWhisperAdapter,
-            "transcribe",
-            typeerror_then_recover,
-        )
-        with pytest.raises(TypeError, match="not subscriptable"):
-            asyncio.run(
-                MapRunner(
-                    project,
-                    ModelRouter(
-                        model_call_policy=LOCAL_PURCHASE_POLICY,
-                        cache=None,
-                        cache_mode="off",
-                    ),
-                    concurrency=1,
-                    authority=open_attempt_authority(project),
-                    on_progress=bind_claim,
-                    allow_action_lifecycle_only_recipes=True,
-                ).run(
-                    spec, program=plan.program, confirmed=True, claim_token=claim_token
-                )
-            )
-        run_id = int(project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0])
-        assert calls == 2
-        # The buggy row provably bought nothing; its reservation must be
-        # discarded, never left to brick the row behind
-        # external_effect_reconciliation_required.
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints "
-                "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
-                (run_id,),
-            ).fetchone()[0]
-            == 0
+            run_id=progress.run_id,
+            expected_output_names=output_names,
         )
 
-        explode = False
-        first_attempt_id = str(
-            project.db.execute(
-                "SELECT id FROM execution_attempts WHERE run_id=? ORDER BY seq",
-                (run_id,),
-            ).fetchone()[0]
-        )
-        _age_silent_attempt(project, first_attempt_id)
-        resumed = asyncio.run(
+    calls = 0
+    explode = True
+
+    async def typeerror_then_recover(self, path, spec, *, should_cancel=None):  # noqa: ANN001
+        nonlocal calls
+        del self, path, spec
+        calls += 1
+        if explode and calls == 2:
+            # The recipe-bug shape: an ordinary uncaught exception, not an
+            # allowlisted RecipeInvocationHalt, raised before any egress.
+            raise TypeError("'NoneType' object is not subscriptable")
+        return {
+            "text": f"transcript {calls}",
+            "segments": [{"start": 0.0, "end": 0.5, "text": f"transcript {calls}"}],
+            "language": "en",
+            "duration": 0.5,
+        }
+
+    monkeypatch.setattr(
+        transcribe_engines.FasterWhisperAdapter,
+        "transcribe",
+        typeerror_then_recover,
+    )
+    with pytest.raises(TypeError, match="not subscriptable"):
+        asyncio.run(
             MapRunner(
                 project,
                 ModelRouter(
@@ -205,36 +162,68 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
                 authority=open_attempt_authority(project),
                 on_progress=bind_claim,
                 allow_action_lifecycle_only_recipes=True,
-            ).run(
-                spec,
-                program=plan.program,
-                confirmed=True,
-                resume_run_id=run_id,
-                claim_token=claim_token,
-            )
+            ).run(spec, program=plan.program, confirmed=True, claim_token=claim_token)
         )
+    run_id = int(project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0])
+    assert calls == 2
+    # The buggy row provably bought nothing; its reservation must be
+    # discarded, never left to brick the row behind
+    # external_effect_reconciliation_required.
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints "
+            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
+            (run_id,),
+        ).fetchone()[0]
+        == 0
+    )
 
-        assert resumed.done is True
-        assert resumed.halted_code is None
-        assert resumed.completed == 1
-        assert calls == 3
-        transcript = next(
-            c for c in project.columns(sheet) if c["name"] == "transcript"
+    explode = False
+    first_attempt_id = str(
+        project.db.execute(
+            "SELECT id FROM execution_attempts WHERE run_id=? ORDER BY seq",
+            (run_id,),
+        ).fetchone()[0]
+    )
+    _age_silent_attempt(project, first_attempt_id)
+    resumed = asyncio.run(
+        MapRunner(
+            project,
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                cache=None,
+                cache_mode="off",
+            ),
+            concurrency=1,
+            authority=open_attempt_authority(project),
+            on_progress=bind_claim,
+            allow_action_lifecycle_only_recipes=True,
+        ).run(
+            spec,
+            program=plan.program,
+            confirmed=True,
+            resume_run_id=run_id,
+            claim_token=claim_token,
         )
-        assert sorted(project.get_values(sheet, transcript["id"]).values()) == [
-            "transcript 1",
-            "transcript 3",
-        ]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM effect_checkpoints "
-                "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
-                (run_id,),
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    )
+
+    assert resumed.done is True
+    assert resumed.halted_code is None
+    assert resumed.completed == 1
+    assert calls == 3
+    transcript = next(c for c in project.columns(sheet) if c["name"] == "transcript")
+    assert sorted(project.get_values(sheet, transcript["id"]).values()) == [
+        "transcript 1",
+        "transcript 3",
+    ]
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM effect_checkpoints "
+            "WHERE family='row_effect' AND group_key=CAST(? AS TEXT)",
+            (run_id,),
+        ).fetchone()[0]
+        == 0
+    )
 
 
 @pytest.fixture()

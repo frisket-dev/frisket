@@ -14,7 +14,6 @@ from types import SimpleNamespace
 import pytest
 
 from frisket.engine.executor.action_inventory import BoundLocalFile
-from frisket.engine.store import Project
 from frisket.retrieval.encoding import (
     AudioEncodingInput,
     ImageEncodingInput,
@@ -612,29 +611,26 @@ def test_stream_fallback_still_rejects_bytes_that_do_not_match_digest() -> None:
 
 
 def test_materialized_blob_lease_decodes_in_place_and_fails_after_exit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = tmp_path / "leased-frame.mkv"
     _cfr_fixture(fixture)
-    project = Project.create(tmp_path / "lease.frisket")
-    try:
-        digest = project.add_blob(fixture.read_bytes(), mime="video/x-matroska")
+    project = make_project("lease")
+    digest = project.add_blob(fixture.read_bytes(), mime="video/x-matroska")
 
-        async def unexpected(*args, **kwargs):
-            raise AssertionError("verified materialization was restaged")
+    async def unexpected(*args, **kwargs):
+        raise AssertionError("verified materialization was restaged")
 
-        monkeypatch.setattr("frisket.retrieval.media._stage_source", unexpected)
-        with _borrow_materialized_media(project, digest) as source:
-            frame = asyncio.run(decode_video_frame(source, 0.6))
+    monkeypatch.setattr("frisket.retrieval.media._stage_source", unexpected)
+    with _borrow_materialized_media(project, digest) as source:
+        frame = asyncio.run(decode_video_frame(source, 0.6))
 
-        assert frame.point.seconds == pytest.approx(0.75)
-        assert frame.input.image_bytes.startswith(b"\xff\xd8")
-        with pytest.raises(MediaProductionError) as caught:
-            asyncio.run(decode_video_frame(source, 0.6))
-        assert caught.value.code == "invalid_media_source"
-        assert "lease has ended" in str(caught.value)
-    finally:
-        project.close()
+    assert frame.point.seconds == pytest.approx(0.75)
+    assert frame.input.image_bytes.startswith(b"\xff\xd8")
+    with pytest.raises(MediaProductionError) as caught:
+        asyncio.run(decode_video_frame(source, 0.6))
+    assert caught.value.code == "invalid_media_source"
+    assert "lease has ended" in str(caught.value)
 
 
 def test_decoder_observed_shorter_audio_end_replaces_container_estimate(

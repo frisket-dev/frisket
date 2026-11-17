@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
 
@@ -47,8 +46,7 @@ def test_row_trace_and_provenance_contracts_are_typed_and_query_bounded(
     assert params["receipts_limit"]["schema"]["maximum"] == 100
 
 
-def test_run_provenance_contracts_preserve_existing_route_bytes(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_run_provenance_contracts_preserve_existing_route_bytes(client) -> None:
     project_id = client.post("/api/projects", json={"name": "contracts"}).json()["id"]
 
     invalid = client.get(

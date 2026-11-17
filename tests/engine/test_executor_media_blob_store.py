@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 
-
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
     MEDIA_PROBE_NAMESPACE,
     MediaBlobStore,
@@ -12,8 +9,8 @@ from frisket.engine.store.media_blobs import (
 )
 
 
-def test_media_blob_store_owns_metadata_and_typed_cells(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "media-blobs.frisket", name="Media Blobs")
+def test_media_blob_store_owns_metadata_and_typed_cells(make_project) -> None:
+    project = make_project("Media Blobs")
     store = MediaBlobStore(project)
 
     digest = project.add_blob(

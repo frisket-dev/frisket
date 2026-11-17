@@ -564,7 +564,7 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
     assert prepared["citation_id"] in tools.citation_ids
 
 
-def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
+def test_file_scope_reads_current_prepared_text_and_finds_it(make_project):
     from frisket.engine.store.evidence import (
         record_evidence_link,
         record_source_artifact,
@@ -573,146 +573,134 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(tmp_path):
     from frisket.engine.store.media_blobs import media_cell
     from frisket.server.services.project_qa_citations import resolve_citation
 
-    project = Project.create(tmp_path / "prepared-file.frisket", name="Prepared")
-    try:
-        sheet = project.add_sheet("Documents")
-        source_column = project.add_column(sheet, "Document", type="file")
-        text_column = project.add_column(sheet, "Text result")
-        blob = project.add_blob(
-            b"fixture pdf", filename="document.pdf", mime="application/pdf"
-        )
-        [row] = project.add_rows(
-            sheet,
-            [{"Document": media_cell(blob, filename="document.pdf")}],
-            {"Document": source_column},
-        )
-        prepared_text = (
-            "opening " * 10_000
-            + "NEEDLE decisive prepared evidence."
-            + " ending" * 2_000
-        )
-        project.apply_edits(
-            [
+    project = make_project("Prepared")
+    sheet = project.add_sheet("Documents")
+    source_column = project.add_column(sheet, "Document", type="file")
+    text_column = project.add_column(sheet, "Text result")
+    blob = project.add_blob(
+        b"fixture pdf", filename="document.pdf", mime="application/pdf"
+    )
+    [row] = project.add_rows(
+        sheet,
+        [{"Document": media_cell(blob, filename="document.pdf")}],
+        {"Document": source_column},
+    )
+    prepared_text = (
+        "opening " * 10_000 + "NEEDLE decisive prepared evidence." + " ending" * 2_000
+    )
+    project.apply_edits(
+        [
+            {
+                "row_id": row,
+                "column_id": text_column,
+                "value": prepared_text,
+            }
+        ]
+    )
+    _, refs = project.get_values_with_refs(sheet, text_column, [row])
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="ocr_document",
+        media_type="application/pdf",
+        blob_hash=blob,
+        source_sheet_id=sheet,
+        source_row_id=row,
+        source_column_id=source_column,
+        title="document.pdf",
+    )
+    span = record_source_span(
+        project,
+        artifact_id=artifact["id"],
+        span_kind="page",
+        quote="A grounded page quote outside this search passage.",
+        page_start=1,
+        page_end=1,
+    )
+    record_evidence_link(
+        project,
+        subject_kind="cell_value",
+        subject_ref=refs[row],
+        spans=[{"span_id": span["id"]}],
+        sheet_id=sheet,
+        row_id=row,
+        column_id=text_column,
+    )
+    store = ProjectQAStore(project)
+    thread = store.create_thread(title="Ask")
+    turn = store.submit_turn(
+        thread["id"],
+        request_id="file",
+        question="Read the document",
+        scope={
+            "kind": "sources",
+            "sources": [
                 {
-                    "row_id": row,
-                    "column_id": text_column,
-                    "value": prepared_text,
-                }
-            ]
-        )
-        _, refs = project.get_values_with_refs(sheet, text_column, [row])
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="ocr_document",
-            media_type="application/pdf",
-            blob_hash=blob,
-            source_sheet_id=sheet,
-            source_row_id=row,
-            source_column_id=source_column,
-            title="document.pdf",
-        )
-        span = record_source_span(
-            project,
-            artifact_id=artifact["id"],
-            span_kind="page",
-            quote="A grounded page quote outside this search passage.",
-            page_start=1,
-            page_end=1,
-        )
-        record_evidence_link(
-            project,
-            subject_kind="cell_value",
-            subject_ref=refs[row],
-            spans=[{"span_id": span["id"]}],
-            sheet_id=sheet,
-            row_id=row,
-            column_id=text_column,
-        )
-        store = ProjectQAStore(project)
-        thread = store.create_thread(title="Ask")
-        turn = store.submit_turn(
-            thread["id"],
-            request_id="file",
-            question="Read the document",
-            scope={
-                "kind": "sources",
-                "sources": [
-                    {
-                        "kind": "file",
-                        "sheet_id": sheet,
-                        "row_id": row,
-                        "column_id": source_column,
-                    }
-                ],
-            },
-        )
-        tools = ProjectQATools(project, turn, store)
-        drain_index(project)
-        [hit] = tools.search_cells("NEEDLE", sheet)["hits"]
-        assert hit["column_id"] == source_column
-        citation_id = hit["citation_id"]
-
-        opened = tools.open_source(citation_id)
-
-        assert opened["needs_preparation"] is False
-        assert "NEEDLE decisive prepared evidence." in opened["passages"][0]["text"]
-        assert opened["range"]["start"] > 50_000
-        assert all(part["kind"] != "prepared_evidence" for part in opened["passages"])
-        found = tools.find_in_source(citation_id, "NEEDLE")
-        assert "NEEDLE decisive prepared evidence." in found["matches"][0]["text"]
-        resolved = resolve_citation(project, turn["thread_id"], citation_id)
-        assert resolved["status"] == "current"
-        assert resolved["target"] is not None
-        assert {
-            key: resolved["target"][key]
-            for key in ("kind", "sheet_id", "row_id", "column_id")
-        } == {
-            "kind": "cell",
-            "sheet_id": sheet,
-            "row_id": row,
-            "column_id": text_column,
-        }
-        resolved_range = resolved["target"]["text_range"]
-        assert prepared_text[resolved_range["start"] : resolved_range["end"]] == (
-            "NEEDLE"
-        )
-        with pytest.raises(ProjectQAScopeError, match="file scope"):
-            tools.read_rows(sheet, [row], [text_column])
-
-        project.apply_edits(
-            [{"row_id": row, "column_id": text_column, "value": "replacement"}]
-        )
-        stale_output = tools.open_source(citation_id)
-        assert stale_output["source_changed"] is True
-        assert stale_output["needs_preparation"] is True
-        assert all(
-            part["kind"] != "prepared_evidence" for part in stale_output["passages"]
-        )
-        assert (
-            resolve_citation(project, turn["thread_id"], citation_id)["status"]
-            == "changed"
-        )
-
-        project.apply_edits(
-            [
-                {
+                    "kind": "file",
+                    "sheet_id": sheet,
                     "row_id": row,
                     "column_id": source_column,
-                    "value": media_cell(
-                        project.add_blob(
-                            b"replacement pdf",
-                            filename="replacement.pdf",
-                            mime="application/pdf",
-                        ),
-                        filename="replacement.pdf",
-                    ),
                 }
-            ]
-        )
-        stale_file = tools.open_source(citation_id)
-        assert stale_file["needs_preparation"] is True
-        assert all(
-            part["kind"] != "prepared_evidence" for part in stale_file["passages"]
-        )
-    finally:
-        project.close()
+            ],
+        },
+    )
+    tools = ProjectQATools(project, turn, store)
+    drain_index(project)
+    [hit] = tools.search_cells("NEEDLE", sheet)["hits"]
+    assert hit["column_id"] == source_column
+    citation_id = hit["citation_id"]
+
+    opened = tools.open_source(citation_id)
+
+    assert opened["needs_preparation"] is False
+    assert "NEEDLE decisive prepared evidence." in opened["passages"][0]["text"]
+    assert opened["range"]["start"] > 50_000
+    assert all(part["kind"] != "prepared_evidence" for part in opened["passages"])
+    found = tools.find_in_source(citation_id, "NEEDLE")
+    assert "NEEDLE decisive prepared evidence." in found["matches"][0]["text"]
+    resolved = resolve_citation(project, turn["thread_id"], citation_id)
+    assert resolved["status"] == "current"
+    assert resolved["target"] is not None
+    assert {
+        key: resolved["target"][key]
+        for key in ("kind", "sheet_id", "row_id", "column_id")
+    } == {
+        "kind": "cell",
+        "sheet_id": sheet,
+        "row_id": row,
+        "column_id": text_column,
+    }
+    resolved_range = resolved["target"]["text_range"]
+    assert prepared_text[resolved_range["start"] : resolved_range["end"]] == ("NEEDLE")
+    with pytest.raises(ProjectQAScopeError, match="file scope"):
+        tools.read_rows(sheet, [row], [text_column])
+
+    project.apply_edits(
+        [{"row_id": row, "column_id": text_column, "value": "replacement"}]
+    )
+    stale_output = tools.open_source(citation_id)
+    assert stale_output["source_changed"] is True
+    assert stale_output["needs_preparation"] is True
+    assert all(part["kind"] != "prepared_evidence" for part in stale_output["passages"])
+    assert (
+        resolve_citation(project, turn["thread_id"], citation_id)["status"] == "changed"
+    )
+
+    project.apply_edits(
+        [
+            {
+                "row_id": row,
+                "column_id": source_column,
+                "value": media_cell(
+                    project.add_blob(
+                        b"replacement pdf",
+                        filename="replacement.pdf",
+                        mime="application/pdf",
+                    ),
+                    filename="replacement.pdf",
+                ),
+            }
+        ]
+    )
+    stale_file = tools.open_source(citation_id)
+    assert stale_file["needs_preparation"] is True
+    assert all(part["kind"] != "prepared_evidence" for part in stale_file["passages"])

@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import gzip
 import json
-from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.engine.store.runs import RunResultStore
 from frisket.operability.trace import trace_path
-from frisket.server.app import create_app
 from helpers import write_claimed_test_results
 
 
@@ -22,9 +19,8 @@ from helpers import write_claimed_test_results
     ],
 )
 def test_run_outcomes_agree_across_status_trace_and_provenance(
-    tmp_path: Path, errors: list[bool], expected: str
+    client, errors: list[bool], expected: str
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "outcomes"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet = project.add_sheet("stories")

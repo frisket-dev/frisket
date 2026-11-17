@@ -182,9 +182,10 @@ def test_directory_fsync_is_optional_on_unsupported_platforms(
 
 def test_project_add_blob_from_path_streams_and_records_metadata(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    project = Project.create(tmp_path / "stream.frisket", name="stream")
+    project = make_project("stream")
     source = tmp_path / "large-enough-to-chunk.bin"
     payload = (b"0123456789abcdef" * (1024 * 128)) + b"tail"
     source.write_bytes(payload)
@@ -262,8 +263,9 @@ def test_filesystem_path_ingest_is_atomic_and_fails_closed_on_corruption(
 
 def test_add_blob_from_path_commit_false_obeys_caller_transaction(
     tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "transaction.frisket", name="transaction")
+    project = make_project("transaction")
     source = tmp_path / "clip.bin"
     source.write_bytes(b"transactional metadata, durable canonical bytes")
     expected = hashlib.sha256(source.read_bytes()).hexdigest()

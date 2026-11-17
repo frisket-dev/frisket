@@ -354,11 +354,11 @@ def test_existing_parent_page_selector_still_reads_only_selected_page(
 
 
 def test_ocr_checkpoint_crash_replays_compact_prepared_page(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "scan.pdf"
     source.write_bytes(_scan_pdf("CHECKPOINT OCR"))
-    project = Project.create(tmp_path / "ocr-replay.frisket", name="OCR replay")
+    project = make_project("OCR replay")
     calls = 0
     try:
         imported = _import_pdf(project, source, key="ocr-import")

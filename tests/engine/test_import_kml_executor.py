@@ -155,7 +155,9 @@ CASES = [
 ]
 
 
-def test_import_kmz_polygons_and_extended_data_columns(tmp_path: Path) -> None:
+def test_import_kmz_polygons_and_extended_data_columns(
+    tmp_path: Path, make_project
+) -> None:
     """A zipped KMZ archive imports like its inner doc.kml, ExtendedData maps
     to declared property columns, and placemarks without <name>/<description>
     leave those cells empty."""
@@ -168,55 +170,46 @@ def test_import_kmz_polygons_and_extended_data_columns(tmp_path: Path) -> None:
     with zipfile.ZipFile(kmz_path, "w") as archive:
         archive.writestr("doc.kml", nps_kml.read_bytes())
 
-    project = Project.create(tmp_path / "nps.frisket", name="NPS KMZ")
-    try:
-        result = run_action_spec(
-            project,
-            _import_kml_action(
-                kmz_path,
-                sheet_name="Parks",
-                idempotency_key="import_kml_nps@sha256:stable",
-                property_columns=[
-                    {"name": "UNIT_CODE", "type": "text"},
-                    {"name": "UNIT_NAME", "type": "text"},
-                ],
-            ),
-            project_id="project-nps",
-        )
-        assert result.status == "completed", result.errors
+    project = make_project("NPS KMZ")
+    result = run_action_spec(
+        project,
+        _import_kml_action(
+            kmz_path,
+            sheet_name="Parks",
+            idempotency_key="import_kml_nps@sha256:stable",
+            property_columns=[
+                {"name": "UNIT_CODE", "type": "text"},
+                {"name": "UNIT_NAME", "type": "text"},
+            ],
+        ),
+        project_id="project-nps",
+    )
+    assert result.status == "completed", result.errors
 
-        sheet = project.db.execute("SELECT * FROM sheets WHERE name='Parks'").fetchone()
-        assert project.row_count(int(sheet["id"])) == 2
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=?", (sheet["id"],)
-            ).fetchall()
-        }
-        assert columns["UNIT_CODE"]["type"] == "text"
-        assert columns["geometry"]["type"] == "geo_shape"
-        unit_codes = list(
-            project.get_values(
-                int(sheet["id"]), int(columns["UNIT_CODE"]["id"])
-            ).values()
-        )
-        assert unit_codes[0] == "UPDE"
-        unit_names = list(
-            project.get_values(
-                int(sheet["id"]), int(columns["UNIT_NAME"]["id"])
-            ).values()
-        )
-        assert unit_names[0] == "Upper Delaware"
-        geometries = list(
-            project.get_values(
-                int(sheet["id"]), int(columns["geometry"]["id"])
-            ).values()
-        )
-        assert geometries[0]["type"] in {"Polygon", "MultiPolygon"}
-        # NPS placemarks carry no <name>/<description>, so those cells are empty.
-        names = list(
-            project.get_values(int(sheet["id"]), int(columns["name"]["id"])).values()
-        )
-        assert names == [None, None]
-    finally:
-        project.close()
+    sheet = project.db.execute("SELECT * FROM sheets WHERE name='Parks'").fetchone()
+    assert project.row_count(int(sheet["id"])) == 2
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=?", (sheet["id"],)
+        ).fetchall()
+    }
+    assert columns["UNIT_CODE"]["type"] == "text"
+    assert columns["geometry"]["type"] == "geo_shape"
+    unit_codes = list(
+        project.get_values(int(sheet["id"]), int(columns["UNIT_CODE"]["id"])).values()
+    )
+    assert unit_codes[0] == "UPDE"
+    unit_names = list(
+        project.get_values(int(sheet["id"]), int(columns["UNIT_NAME"]["id"])).values()
+    )
+    assert unit_names[0] == "Upper Delaware"
+    geometries = list(
+        project.get_values(int(sheet["id"]), int(columns["geometry"]["id"])).values()
+    )
+    assert geometries[0]["type"] in {"Polygon", "MultiPolygon"}
+    # NPS placemarks carry no <name>/<description>, so those cells are empty.
+    names = list(
+        project.get_values(int(sheet["id"]), int(columns["name"]["id"])).values()
+    )
+    assert names == [None, None]

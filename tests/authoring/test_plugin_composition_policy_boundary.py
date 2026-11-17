@@ -277,13 +277,14 @@ def test_workspace_startup_is_the_only_catalog_ensure_path(
 @pytest.mark.real_bundled_plugins
 def test_modified_local_bytes_under_allowed_bundled_id_are_refused(
     tmp_path,
+    make_project,
 ) -> None:
     install_plugin_composition_policy(
         PluginCompositionPolicy(
             allowed_bundled_ids=frozenset({GEO}), nonbundled_enabled=False
         )
     )
-    project = Project.create(tmp_path / "proj.frisket", name="proj")
+    project = make_project("proj")
 
     from frisket.authoring.workbench.plugin_runtime_status import _bundled_plugins_root
 

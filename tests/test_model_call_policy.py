@@ -13,7 +13,6 @@ from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter, Respo
 from frisket.ai.llm.cache import request_key
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.jobs.runs import _router_for
-from frisket.engine.store import Project
 from frisket.server.workspace import Workspace
 
 
@@ -265,11 +264,11 @@ async def test_before_live_runs_for_each_real_retry_but_after_live_runs_once(
 
 
 def test_project_key_overlay_reconstruction_retains_policy_and_provenance(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    tmp_path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     events: list[tuple] = []
     policy = _RecordingPolicy(events)
-    project = Project.create(tmp_path / "project.frisket", name="policy")
+    project = make_project("policy")
     base = _router(policy=policy)
     workspace = Workspace(tmp_path / "workspace", router=base)
     monkeypatch.setattr(
@@ -297,7 +296,9 @@ def test_project_key_overlay_reconstruction_retains_policy_and_provenance(
     ]
 
 
-def test_queued_local_endpoint_overlay_retains_the_identical_policy(tmp_path) -> None:
+def test_queued_local_endpoint_overlay_retains_the_identical_policy(
+    make_project,
+) -> None:
     policy = _RecordingPolicy([])
     original_endpoint = LocalModelEndpointConfig(
         endpoint_id="old",
@@ -315,7 +316,7 @@ def test_queued_local_endpoint_overlay_retains_the_identical_policy(tmp_path) ->
         edge_auth=False,
         source="test",
     )
-    project = Project.create(tmp_path / "queued.frisket", name="queued")
+    project = make_project("queued")
     base = ModelRouter(
         keys={"openai": "test-key"},
         key_sources={"openai": "platform_key"},

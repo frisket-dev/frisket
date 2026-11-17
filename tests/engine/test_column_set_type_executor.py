@@ -313,42 +313,40 @@ CASES = [
 
 
 def test_url_alias_normalizes_to_link_and_replays_as_same_request(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "alias.frisket", name="Alias")
-    try:
-        sheet_id = project.add_sheet("Links")
-        column_id = project.add_column(sheet_id, "url", type="text")
-        first = run_typed_map_request(
-            project,
-            _set_type_action(
-                column_id=column_id,
-                type_="url",
-                key="column_set_type_url_alias@sha256:v1",
-            ),
-            project_id="alias",
-        )
-        replay = run_typed_map_request(
-            project,
-            _set_type_action(
-                column_id=column_id,
-                type_="link",
-                key="column_set_type_url_alias@sha256:v1",
-            ),
-            project_id="alias",
-        )
+    project = make_project("Alias")
+    sheet_id = project.add_sheet("Links")
+    column_id = project.add_column(sheet_id, "url", type="text")
+    first = run_typed_map_request(
+        project,
+        _set_type_action(
+            column_id=column_id,
+            type_="url",
+            key="column_set_type_url_alias@sha256:v1",
+        ),
+        project_id="alias",
+    )
+    replay = run_typed_map_request(
+        project,
+        _set_type_action(
+            column_id=column_id,
+            type_="link",
+            key="column_set_type_url_alias@sha256:v1",
+        ),
+        project_id="alias",
+    )
 
-        assert first.status == replay.status == "completed"
-        assert replay.receipt_id == first.receipt_id
-        assert replay.op_ids == first.op_ids
-        assert _column_type(project, column_id) == "link"
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
-    finally:
-        project.close()
+    assert first.status == replay.status == "completed"
+    assert replay.receipt_id == first.receipt_id
+    assert replay.op_ids == first.op_ids
+    assert _column_type(project, column_id) == "link"
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
 
 
 def test_set_type_requires_plugin_enablement_then_accepts_valid_values(
     tmp_path: Path,
+    make_project,
 ) -> None:
     plugin_type = "strict_code"
     column_types.register_column_type(
@@ -358,7 +356,7 @@ def test_set_type_requires_plugin_enablement_then_accepts_valid_values(
         description="Test code",
         plugin="demo.strict_code",
     )
-    project = Project.create(tmp_path / "plugin-type.frisket", name="Plugin type")
+    project = make_project("Plugin type")
     try:
         sheet_id = project.add_sheet("Codes")
         column_id = project.add_column(sheet_id, "code", type="text")
@@ -524,33 +522,29 @@ def test_set_type_validates_plugin_case_id_values(tmp_path: Path) -> None:
 
 
 def test_set_type_and_receipt_roll_back_together(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "receipt-rollback.frisket", name="Rollback")
-    try:
-        seeded = _seed(project, tmp_path)
-        seeded_op_count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    project = make_project("Rollback")
+    seeded = _seed(project, tmp_path)
+    seeded_op_count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
 
-        def fail_receipt(*args: Any, **kwargs: Any) -> None:
-            del args, kwargs
-            raise RuntimeError("receipt write failed")
+    def fail_receipt(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        raise RuntimeError("receipt write failed")
 
-        monkeypatch.setattr(ReceiptStore, "insert_completed", fail_receipt)
-        result = run_typed_map_request(
-            project,
-            _make_action(seeded),
-            project_id="column-set-type-receipt-rollback",
-        )
+    monkeypatch.setattr(ReceiptStore, "insert_completed", fail_receipt)
+    result = run_typed_map_request(
+        project,
+        _make_action(seeded),
+        project_id="column-set-type-receipt-rollback",
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert _column_type(project, seeded["columns"]["published"]) == "text"
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
-            == seeded_op_count
-        )
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert _column_type(project, seeded["columns"]["published"]) == "text"
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == seeded_op_count
+    )
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0

@@ -15,10 +15,11 @@ from frisket.features.url_classification import (
 from frisket.ops.http_urls import is_http_url
 
 
-def test_ops_media_input_url_accepts_arbitrary_http_url(tmp_path, monkeypatch) -> None:
+def test_ops_media_input_url_accepts_arbitrary_http_url(
+    make_project, monkeypatch
+) -> None:
     from frisket.engine.executor import media_download
     from frisket.engine.executor.row_file_stage import RowFileStager
-    from frisket.engine.store import Project
     from frisket.ops.ytdlp import DownloadedMedia
 
     seen = []
@@ -33,7 +34,7 @@ def test_ops_media_input_url_accepts_arbitrary_http_url(tmp_path, monkeypatch) -
         lambda url, **kw: DownloadedMedia(b"video", "video/mp4", "clip.mp4"),
     )
     value = "https://media.example.org/watch/anything"
-    project = Project.create(tmp_path / "urls.frisket")
+    project = make_project("urls")
     stager = RowFileStager(project)
     owner = media_download.AdmittedMediaDownloader(project, stager)
 

@@ -7,7 +7,6 @@ from pathlib import Path
 from frisket.contracts.action import ActionIdentity, ActionResult, Receipt
 from frisket.engine.executor.action_jobs import ActionJobEnvelope
 from frisket.engine.executor.queued_actions import QueuedV1PayloadEnvelope
-from frisket.engine.store import Project
 from frisket.server.app import create_app
 from helpers import run_cli
 
@@ -26,7 +25,7 @@ def test_workflow_report_evaluator_and_cli_are_retired() -> None:
 
 
 def test_public_action_contracts_and_new_projects_have_only_truthful_ids(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     identity_fields = set(ActionIdentity.model_json_schema()["properties"])
     result_fields = set(ActionResult.model_json_schema()["properties"])
@@ -38,14 +37,10 @@ def test_public_action_contracts_and_new_projects_have_only_truthful_ids(
     assert {"receipt_id", "action_id", "action_kind", "run_id"} <= receipt_fields
     assert {"receipt_id", "run_id", "job_id"} <= result_fields
 
-    project = Project.create(tmp_path / "clean-receipts.frisket")
-    try:
-        receipt_columns = {
-            str(row["name"])
-            for row in project.db.execute("PRAGMA table_info(receipts)")
-        }
-    finally:
-        project.close()
+    project = make_project("clean-receipts")
+    receipt_columns = {
+        str(row["name"]) for row in project.db.execute("PRAGMA table_info(receipts)")
+    }
 
     assert not FALSE_PROVENANCE_FIELDS & receipt_columns
     assert {"id", "run_id", "action_kind", "action_id"} <= receipt_columns

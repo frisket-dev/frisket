@@ -18,7 +18,6 @@ import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
 import frisket.ops.media_metadata as metadata
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
     MEDIA_ACQUISITION_NAMESPACE,
     MEDIA_METADATA_CACHE_NAMESPACE,
@@ -3568,92 +3567,89 @@ def test_webp_header_dimensions_cover_lossy_and_lossless_bitstreams() -> None:
 
 
 def test_cache_cas_preserves_acquisition_metadata_and_uses_generation_guard(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     payload = _png_header(5, 4)
-    project = Project.create(tmp_path / "cache.frisket", name="cache")
-    try:
-        digest = project.add_blob(
-            payload,
-            filename="acquired.png",
-            mime="image/png",
-            metadata=owned_media_metadata_document(
-                acquisition={"title": "Acquisition title", "duration_seconds": 91},
-                owner={"source_id": "upstream-123"},
-            ),
-        )
-        materialized = tmp_path / "materialized"
-        materialized.write_bytes(payload)
-        monkeypatch.setattr(
-            metadata,
-            "_exiftool_adapter",
-            lambda *_args, **_kwargs: metadata._AdapterResult(
-                name="exiftool",
-                outcome="success",
-                available=True,
-                version="13.59",
-            ),
-        )
-        envelope = metadata.extract_media_metadata(
-            materialized,
-            digest=digest,
-            size_bytes=len(payload),
-            filename=None,
-            claimed_mime=None,
-        )
-        proposal = metadata.cache_entry_from_envelope(envelope)
-        store = MediaBlobStore(project)
+    project = make_project("cache")
+    digest = project.add_blob(
+        payload,
+        filename="acquired.png",
+        mime="image/png",
+        metadata=owned_media_metadata_document(
+            acquisition={"title": "Acquisition title", "duration_seconds": 91},
+            owner={"source_id": "upstream-123"},
+        ),
+    )
+    materialized = tmp_path / "materialized"
+    materialized.write_bytes(payload)
+    monkeypatch.setattr(
+        metadata,
+        "_exiftool_adapter",
+        lambda *_args, **_kwargs: metadata._AdapterResult(
+            name="exiftool",
+            outcome="success",
+            available=True,
+            version="13.59",
+        ),
+    )
+    envelope = metadata.extract_media_metadata(
+        materialized,
+        digest=digest,
+        size_bytes=len(payload),
+        filename=None,
+        claimed_mime=None,
+    )
+    proposal = metadata.cache_entry_from_envelope(envelope)
+    store = MediaBlobStore(project)
 
-        invalid_hash = copy.deepcopy(proposal)
-        invalid_hash["content_facts_hash"] = "sha256:not-a-digest"
-        with pytest.raises(ValueError, match="sha256 content_facts_hash"):
-            store.compare_and_swap_media_metadata_cache(
-                digest, invalid_hash, expected_generation=0
-            )
-
-        first = store.compare_and_swap_media_metadata_cache(
-            digest, proposal, expected_generation=0
+    invalid_hash = copy.deepcopy(proposal)
+    invalid_hash["content_facts_hash"] = "sha256:not-a-digest"
+    with pytest.raises(ValueError, match="sha256 content_facts_hash"):
+        store.compare_and_swap_media_metadata_cache(
+            digest, invalid_hash, expected_generation=0
         )
-        assert first.written is True
-        assert first.entry is not None
-        assert first.entry["generation"] == 1
-        document = store.metadata(digest)
-        assert document[MEDIA_ACQUISITION_NAMESPACE] == {
-            "title": "Acquisition title",
-            "duration_seconds": 91,
-        }
-        assert document["source_id"] == "upstream-123"
-        assert document[MEDIA_METADATA_CACHE_NAMESPACE]["generation"] == 1
 
-        detached = store.media_metadata_cache(digest)
-        assert detached is not None
-        detached["generation"] = 999
-        assert store.media_metadata_cache(digest)["generation"] == 1
+    first = store.compare_and_swap_media_metadata_cache(
+        digest, proposal, expected_generation=0
+    )
+    assert first.written is True
+    assert first.entry is not None
+    assert first.entry["generation"] == 1
+    document = store.metadata(digest)
+    assert document[MEDIA_ACQUISITION_NAMESPACE] == {
+        "title": "Acquisition title",
+        "duration_seconds": 91,
+    }
+    assert document["source_id"] == "upstream-123"
+    assert document[MEDIA_METADATA_CACHE_NAMESPACE]["generation"] == 1
 
-        degraded = copy.deepcopy(proposal)
-        degraded["content_facts"]["envelope"]["extraction"]["completeness"] = (
-            "retryable_failure"
-        )
-        degraded["content_facts"]["envelope"]["extraction"]["retryable"] = True
-        _rehash_cache_entry(degraded)
-        loser = store.compare_and_swap_media_metadata_cache(
-            digest, degraded, expected_generation=1
-        )
-        assert loser.written is False
-        assert loser.reason == "not_reusable"
-        assert loser.entry["generation"] == 1
+    detached = store.media_metadata_cache(digest)
+    assert detached is not None
+    detached["generation"] = 999
+    assert store.media_metadata_cache(digest)["generation"] == 1
 
-        stale_equal = store.compare_and_swap_media_metadata_cache(
-            digest, proposal, expected_generation=0
-        )
-        assert stale_equal.written is False
-        assert stale_equal.reason == "generation_mismatch"
+    degraded = copy.deepcopy(proposal)
+    degraded["content_facts"]["envelope"]["extraction"]["completeness"] = (
+        "retryable_failure"
+    )
+    degraded["content_facts"]["envelope"]["extraction"]["retryable"] = True
+    _rehash_cache_entry(degraded)
+    loser = store.compare_and_swap_media_metadata_cache(
+        digest, degraded, expected_generation=1
+    )
+    assert loser.written is False
+    assert loser.reason == "not_reusable"
+    assert loser.entry["generation"] == 1
 
-        current = store.compare_and_swap_media_metadata_cache(
-            digest, proposal, expected_generation=1
-        )
-        assert current.written is True
-        assert current.entry["generation"] == 2
-        assert store.acquisition_metadata(digest)["title"] == "Acquisition title"
-    finally:
-        project.close()
+    stale_equal = store.compare_and_swap_media_metadata_cache(
+        digest, proposal, expected_generation=0
+    )
+    assert stale_equal.written is False
+    assert stale_equal.reason == "generation_mismatch"
+
+    current = store.compare_and_swap_media_metadata_cache(
+        digest, proposal, expected_generation=1
+    )
+    assert current.written is True
+    assert current.entry["generation"] == 2
+    assert store.acquisition_metadata(digest)["title"] == "Acquisition title"

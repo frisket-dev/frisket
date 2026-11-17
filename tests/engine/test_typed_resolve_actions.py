@@ -213,32 +213,29 @@ def test_fill_missing_preserves_zero_and_widens_only_when_needed(
 
 
 def test_fill_missing_does_not_repair_an_invalid_typed_source_value(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "exceptional-integer.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        column_id = project.add_column(sheet_id, "source", type="integer")
-        [row_id] = project.add_rows(sheet_id, [{"source": 1.5}], {"source": column_id})
+    project = make_project("exceptional-integer")
+    sheet_id = project.add_sheet("data")
+    column_id = project.add_column(sheet_id, "source", type="integer")
+    [row_id] = project.add_rows(sheet_id, [{"source": 1.5}], {"source": column_id})
 
-        result = run_action_spec(
-            project,
-            _request(
-                "resolve.fill_missing",
-                sheet_id,
-                {"method": "value", "fill_value": "4"},
-                key="fill",
-            ),
-            project_id=PROJECT_ID,
-        )
+    result = run_action_spec(
+        project,
+        _request(
+            "resolve.fill_missing",
+            sheet_id,
+            {"method": "value", "fill_value": "4"},
+            key="fill",
+        ),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        assert _output_values(project, sheet_id, [row_id], "cleaned") == (
-            "integer",
-            [None],
-        )
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    assert _output_values(project, sheet_id, [row_id], "cleaned") == (
+        "integer",
+        [None],
+    )
 
 
 def test_output_collision_and_active_claim_are_atomic(text_project) -> None:
@@ -501,37 +498,33 @@ def test_same_idempotency_key_race_publishes_once(
 
 
 def test_preview_computes_full_scope_then_bounds_display_and_never_writes(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "preview.frisket")
-    try:
-        sheet_id = project.add_sheet("data")
-        column_id = project.add_column(sheet_id, "source", type="text")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"source": None} for _ in range(20)] + [{"source": "tail"}],
-            {"source": column_id},
-        )
-        before = _counts(project)
-        request = _request(
-            "resolve.fill_missing", sheet_id, {"method": "up"}, key="preview"
-        )
-        plan = build_column_transform_preview_plan(
-            project, typed_action_for_request(request)
-        )
-        assert not hasattr(plan, "code")
-        preview = plan.run()
+    project = make_project("preview")
+    sheet_id = project.add_sheet("data")
+    column_id = project.add_column(sheet_id, "source", type="text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"source": None} for _ in range(20)] + [{"source": "tail"}],
+        {"source": column_id},
+    )
+    before = _counts(project)
+    request = _request(
+        "resolve.fill_missing", sheet_id, {"method": "up"}, key="preview"
+    )
+    plan = build_column_transform_preview_plan(
+        project, typed_action_for_request(request)
+    )
+    assert not hasattr(plan, "code")
+    preview = plan.run()
 
-        assert preview.row_ids == row_ids[:20]
-        assert preview.sampled == 20
-        assert preview.total == 21
-        assert all(
-            preview.values[row_id]["cleaned"]["value"] == "tail"
-            for row_id in row_ids[:20]
-        )
-        assert _counts(project) == before
-    finally:
-        project.close()
+    assert preview.row_ids == row_ids[:20]
+    assert preview.sampled == 20
+    assert preview.total == 21
+    assert all(
+        preview.values[row_id]["cleaned"]["value"] == "tail" for row_id in row_ids[:20]
+    )
+    assert _counts(project) == before
 
 
 def test_source_edit_waits_for_atomic_transform_snapshot(text_project) -> None:
@@ -611,88 +604,81 @@ def test_source_edit_waits_for_atomic_transform_snapshot(text_project) -> None:
 
 @pytest.mark.parametrize("hidden", [False, True])
 def test_fill_publishes_real_saved_results_and_preserves_unavailable_source(
-    tmp_path, hidden
+    make_project, hidden
 ):
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "fill-outcomes.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        source = project.add_column(sheet, "source", type="number")
-        rows = project.add_rows(
-            sheet,
-            [{"source": 2}, {"source": "n/a"}, {"source": None}, {"source": 4}],
-            {"source": source},
-        )
-        if hidden:
-            project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (source,))
-            project.db.commit()
-        request = _request(
-            "resolve.fill_missing", sheet, {"method": "mean"}, key="fill-outcomes"
-        )
-        result = run_action_spec(project, request, project_id=PROJECT_ID)
-        assert result.status == "completed", result.errors
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None and receipt.run_id is not None
-        output = result.outputs[0].column_id
-        saved = project.db.execute(
-            "SELECT row_id,outcome,error_code FROM results WHERE run_id=? ORDER BY row_id",
-            (receipt.run_id,),
-        ).fetchall()
-        assert len(saved) == 4
-        assert saved[1]["outcome"] == "not_completed"
-        assert saved[1]["error_code"] == "input_invalid"
-        values, refs = project.get_values_with_refs(
-            sheet, output, include_validity=True
-        )
-        assert [values.get(row) for row in rows] == [2, None, 3, 4]
-        assert refs[rows[1]]["outcome"] == "not_completed"
-        assert all(ref["kind"] == "run_result" for ref in refs.values())
-        assert (
-            project.get_values(sheet, source, preserve_invalid=True)[rows[1]] == "n/a"
-        )
-        assert (
-            project.db.execute(
-                "SELECT count(*) FROM cells WHERE column_id=?", (output,)
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT count(*) FROM consumed_source_bundles WHERE owner_op_id=? AND run_id=?",
-                (result.op_ids[0], receipt.run_id),
-            ).fetchone()[0]
-            == 1
-        )
-        assert run_action_spec(project, request, project_id=PROJECT_ID) == result
-
-        # A second transform cannot turn the first transform's unavailable output
-        # into an ordinary null eligible for filling.
-        follow = _request(
-            "resolve.fill_missing",
-            sheet,
-            {"source": "cleaned", "method": "value", "fill_value": "99"},
-            key="follow",
-            output_name="again",
-        )
-        again = run_action_spec(project, follow, project_id=PROJECT_ID)
-        assert again.status == "completed", again.errors
-        values, refs = project.get_values_with_refs(
-            sheet, again.outputs[0].column_id, include_validity=True
-        )
-        assert [values.get(row) for row in rows] == [2, None, 3, 4]
-        assert refs[rows[1]]["outcome"] == "not_completed"
-        from frisket.engine.store.consumed_sources import verify_bundle
-
-        bundle = project.db.execute(
-            "SELECT id FROM consumed_source_bundles WHERE run_id=?", (receipt.run_id,)
+    project = make_project("fill-outcomes")
+    sheet = project.add_sheet("data")
+    source = project.add_column(sheet, "source", type="number")
+    rows = project.add_rows(
+        sheet,
+        [{"source": 2}, {"source": "n/a"}, {"source": None}, {"source": 4}],
+        {"source": source},
+    )
+    if hidden:
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (source,))
+        project.db.commit()
+    request = _request(
+        "resolve.fill_missing", sheet, {"method": "mean"}, key="fill-outcomes"
+    )
+    result = run_action_spec(project, request, project_id=PROJECT_ID)
+    assert result.status == "completed", result.errors
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None and receipt.run_id is not None
+    output = result.outputs[0].column_id
+    saved = project.db.execute(
+        "SELECT row_id,outcome,error_code FROM results WHERE run_id=? ORDER BY row_id",
+        (receipt.run_id,),
+    ).fetchall()
+    assert len(saved) == 4
+    assert saved[1]["outcome"] == "not_completed"
+    assert saved[1]["error_code"] == "input_invalid"
+    values, refs = project.get_values_with_refs(sheet, output, include_validity=True)
+    assert [values.get(row) for row in rows] == [2, None, 3, 4]
+    assert refs[rows[1]]["outcome"] == "not_completed"
+    assert all(ref["kind"] == "run_result" for ref in refs.values())
+    assert project.get_values(sheet, source, preserve_invalid=True)[rows[1]] == "n/a"
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM cells WHERE column_id=?", (output,)
         ).fetchone()[0]
-        assert verify_bundle(project, bundle) == "fresh"
-        replace_test_source_cell(project, row_id=rows[0], column_id=source, value=20)
-        assert verify_bundle(project, bundle) == "stale"
-        assert project.get_values(sheet, output)[rows[0]] == 2
-    finally:
-        project.close()
+        == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT count(*) FROM consumed_source_bundles WHERE owner_op_id=? AND run_id=?",
+            (result.op_ids[0], receipt.run_id),
+        ).fetchone()[0]
+        == 1
+    )
+    assert run_action_spec(project, request, project_id=PROJECT_ID) == result
+
+    # A second transform cannot turn the first transform's unavailable output
+    # into an ordinary null eligible for filling.
+    follow = _request(
+        "resolve.fill_missing",
+        sheet,
+        {"source": "cleaned", "method": "value", "fill_value": "99"},
+        key="follow",
+        output_name="again",
+    )
+    again = run_action_spec(project, follow, project_id=PROJECT_ID)
+    assert again.status == "completed", again.errors
+    values, refs = project.get_values_with_refs(
+        sheet, again.outputs[0].column_id, include_validity=True
+    )
+    assert [values.get(row) for row in rows] == [2, None, 3, 4]
+    assert refs[rows[1]]["outcome"] == "not_completed"
+    from frisket.engine.store.consumed_sources import verify_bundle
+
+    bundle = project.db.execute(
+        "SELECT id FROM consumed_source_bundles WHERE run_id=?", (receipt.run_id,)
+    ).fetchone()[0]
+    assert verify_bundle(project, bundle) == "fresh"
+    replace_test_source_cell(project, row_id=rows[0], column_id=source, value=20)
+    assert verify_bundle(project, bundle) == "stale"
+    assert project.get_values(sheet, output)[rows[0]] == 2
 
 
 def test_active_hidden_output_is_not_replaced(text_project):
@@ -715,32 +701,29 @@ def test_active_hidden_output_is_not_replaced(text_project):
     assert _counts(project) == before
 
 
-def test_fill_preview_exposes_unavailable_and_preserves_blank_semantics(tmp_path):
-    project = Project.create(tmp_path / "preview-invalid.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        column = project.add_column(sheet, "source", type="number")
-        rows = project.add_rows(
-            sheet, [{"source": "n/a"}, {"source": None}], {"source": column}
-        )
-        request = _request(
-            "resolve.fill_missing",
-            sheet,
-            {"method": "value", "fill_value": "7"},
-            key="preview",
-        )
-        bound = typed_action_for_request(request)
-        plan = build_column_transform_preview_plan(project, bound)
-        before = _counts(project)
-        preview = plan.run()
-        assert preview.values[rows[0]]["cleaned"]["error_code"] == "input_invalid"
-        assert preview.values[rows[1]]["cleaned"]["value"] == 7
-        assert _counts(project) == before
-    finally:
-        project.close()
+def test_fill_preview_exposes_unavailable_and_preserves_blank_semantics(make_project):
+    project = make_project("preview-invalid")
+    sheet = project.add_sheet("data")
+    column = project.add_column(sheet, "source", type="number")
+    rows = project.add_rows(
+        sheet, [{"source": "n/a"}, {"source": None}], {"source": column}
+    )
+    request = _request(
+        "resolve.fill_missing",
+        sheet,
+        {"method": "value", "fill_value": "7"},
+        key="preview",
+    )
+    bound = typed_action_for_request(request)
+    plan = build_column_transform_preview_plan(project, bound)
+    before = _counts(project)
+    preview = plan.run()
+    assert preview.values[rows[0]]["cleaned"]["error_code"] == "input_invalid"
+    assert preview.values[rows[1]]["cleaned"]["value"] == 7
+    assert _counts(project) == before
 
 
-def test_fill_does_not_wait_for_or_fill_failed_and_pending_sources(tmp_path):
+def test_fill_does_not_wait_for_or_fill_failed_and_pending_sources(make_project):
     from tests.engine.test_result_generation_store import (
         _start_claimed_run,
         _declare,
@@ -748,69 +731,66 @@ def test_fill_does_not_wait_for_or_fill_failed_and_pending_sources(tmp_path):
     )
     from frisket.engine.store.result_generations import ResultGenerationStore
 
-    project = Project.create(tmp_path / "pending-fill.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        column = project.add_column(sheet, "source", type="text", ai_generated=True)
-        rows = project.add_rows(sheet, [{}, {}, {}], {})
-        producer = _start_claimed_run(
-            project,
-            sheet_id=sheet,
-            output_column_id=column,
-            row_ids=rows,
-            label="source",
-        )
-        _declare(ResultGenerationStore(project), producer, column, write_mode="create")
-        _write(
-            project,
-            producer,
-            [
-                {
-                    "row_id": rows[0],
-                    "column_id": column,
-                    "value": None,
-                    "error": "provider failed",
-                    "error_code": "provider_error",
-                    "publication_effect": "publish_error",
-                },
-                {
-                    "row_id": rows[1],
-                    "column_id": column,
-                    "value": None,
-                    "publication_effect": "publish_null",
-                },
-            ],
-        )
-        result = run_action_spec(
-            project,
-            _request(
-                "resolve.fill_missing",
-                sheet,
-                {"method": "value", "fill_value": "filled"},
-                key="pending-fill",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        values = project.get_values(sheet, result.outputs[0].column_id)
-        assert [values.get(row) for row in rows] == [None, "filled", None]
-        errors = project.db.execute(
-            "SELECT row_id,error_code FROM results WHERE column_id=? ORDER BY row_id",
-            (result.outputs[0].column_id,),
-        ).fetchall()
-        assert [item["error_code"] for item in errors] == [
-            "input_failed",
-            None,
-            "input_pending",
-        ]
-        assert (
-            project.db.execute(
-                "SELECT status FROM runs WHERE id=?", (producer.run_id,)
-            ).fetchone()[0]
-            == "running"
-        )
-    finally:
-        project.close()
+    project = make_project("pending-fill")
+    sheet = project.add_sheet("data")
+    column = project.add_column(sheet, "source", type="text", ai_generated=True)
+    rows = project.add_rows(sheet, [{}, {}, {}], {})
+    producer = _start_claimed_run(
+        project,
+        sheet_id=sheet,
+        output_column_id=column,
+        row_ids=rows,
+        label="source",
+    )
+    _declare(ResultGenerationStore(project), producer, column, write_mode="create")
+    _write(
+        project,
+        producer,
+        [
+            {
+                "row_id": rows[0],
+                "column_id": column,
+                "value": None,
+                "error": "provider failed",
+                "error_code": "provider_error",
+                "publication_effect": "publish_error",
+            },
+            {
+                "row_id": rows[1],
+                "column_id": column,
+                "value": None,
+                "publication_effect": "publish_null",
+            },
+        ],
+    )
+    result = run_action_spec(
+        project,
+        _request(
+            "resolve.fill_missing",
+            sheet,
+            {"method": "value", "fill_value": "filled"},
+            key="pending-fill",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    values = project.get_values(sheet, result.outputs[0].column_id)
+    assert [values.get(row) for row in rows] == [None, "filled", None]
+    errors = project.db.execute(
+        "SELECT row_id,error_code FROM results WHERE column_id=? ORDER BY row_id",
+        (result.outputs[0].column_id,),
+    ).fetchall()
+    assert [item["error_code"] for item in errors] == [
+        "input_failed",
+        None,
+        "input_pending",
+    ]
+    assert (
+        project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (producer.run_id,)
+        ).fetchone()[0]
+        == "running"
+    )
 
 
 def test_column_transform_large_scope_respects_sqlite_bind_limit(tmp_path):

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
 
 from frisket.engine.store import Project
 
@@ -33,13 +30,6 @@ def test_evidence_span_selector_carries_speaker():
     )
     assert spans[0]["selector"]["speaker"] == "S2"
     assert "speaker" not in spans[1]["selector"]
-
-
-@pytest.fixture
-def project(tmp_path: Path):
-    value = Project.create(tmp_path / "p.frisket")
-    yield value
-    value.close()
 
 
 def _speaker_artifact(project: Project) -> tuple[int, int, int]:

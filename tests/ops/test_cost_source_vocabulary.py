@@ -21,7 +21,6 @@ different meaning (CLAUDE.md recurring pattern 3).
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
@@ -164,7 +163,7 @@ class _MeteredRecipe(Recipe):
     name: str = "metered-probe"
 
 
-def test_estimate_run_llm_branches_stay_in_vocabulary(tmp_path: Path) -> None:
+def test_estimate_run_llm_branches_stay_in_vocabulary(make_project) -> None:
     """``estimate_run``'s two LLM branches — the last two estimate producers
     covered by neither ``cost_estimate``'s runtime check nor the pins above.
 
@@ -173,66 +172,62 @@ def test_estimate_run_llm_branches_stay_in_vocabulary(tmp_path: Path) -> None:
     the rate still comes from ``pricing_data`` and carries its catalog key.
     ``avg_input_tokens`` represents the approximate quantity separately.
     """
-    from frisket.engine.store import Project
     from typed_model_fixtures import estimate_model_spec
 
-    project = Project.create(tmp_path / "llm-estimate.frisket", name="llm estimate")
-    try:
-        sheet_id = project.add_sheet("Docs")
-        columns = {"text": project.add_column(sheet_id, "text", type="text")}
-        project.add_rows(sheet_id, [{"text": "alpha beta"}], columns)
-        # A typed map.classify request bound through the real plan builder;
-        # ``estimate_run`` receives that plan's program exactly as the runner
-        # facade passes it.
-        spec = {
-            "action_kind": "map.classify",
-            "sheet_id": sheet_id,
-            "input_columns": ["text"],
-            "context": "what is this about?",
-            "fields": [{"name": "topic", "type": "text"}],
-        }
+    project = make_project("llm estimate")
+    sheet_id = project.add_sheet("Docs")
+    columns = {"text": project.add_column(sheet_id, "text", type="text")}
+    project.add_rows(sheet_id, [{"text": "alpha beta"}], columns)
+    # A typed map.classify request bound through the real plan builder;
+    # ``estimate_run`` receives that plan's program exactly as the runner
+    # facade passes it.
+    spec = {
+        "action_kind": "map.classify",
+        "sheet_id": sheet_id,
+        "input_columns": ["text"],
+        "context": "what is this about?",
+        "fields": [{"name": "topic", "type": "text"}],
+    }
 
-        unpriced = estimate_model_spec(project, {**spec, "model": "unknown/frontier"})
-        assert unpriced["cost"] is None
-        assert unpriced["cost_source"] == "unknown"
-        assert "pricing_key" not in unpriced
+    unpriced = estimate_model_spec(project, {**spec, "model": "unknown/frontier"})
+    assert unpriced["cost"] is None
+    assert unpriced["cost_source"] == "unknown"
+    assert "pricing_key" not in unpriced
 
-        priced = estimate_model_spec(
-            project, {**spec, "model": "anthropic/claude-haiku-4-5"}
-        )
-        assert priced["cost"] is not None
-        assert priced["cost_source"] == "pricing_data"
-        assert priced["pricing_key"] == "anthropic/claude-haiku-4-5.tokens"
+    priced = estimate_model_spec(
+        project, {**spec, "model": "anthropic/claude-haiku-4-5"}
+    )
+    assert priced["cost"] is not None
+    assert priced["cost_source"] == "pricing_data"
+    assert priced["pricing_key"] == "anthropic/claude-haiku-4-5.tokens"
 
-        openrouter_base = estimate_model_spec(
-            project, {**spec, "model": "openrouter/qwen/qwen3-vl-8b-instruct"}
-        )
-        assert openrouter_base["cost"] is not None
-        assert openrouter_base["cost_source"] == "pricing_data"
-        assert openrouter_base["pricing_key"] == (
-            "openrouter/qwen/qwen3-vl-8b-instruct.tokens"
-        )
+    openrouter_base = estimate_model_spec(
+        project, {**spec, "model": "openrouter/qwen/qwen3-vl-8b-instruct"}
+    )
+    assert openrouter_base["cost"] is not None
+    assert openrouter_base["cost_source"] == "pricing_data"
+    assert openrouter_base["pricing_key"] == (
+        "openrouter/qwen/qwen3-vl-8b-instruct.tokens"
+    )
 
-        openrouter_variant = estimate_model_spec(
-            project, {**spec, "model": "openrouter/qwen/qwen3-8b:free"}
-        )
-        assert openrouter_variant["cost"] is None
-        assert openrouter_variant["cost_source"] == "unknown"
-        assert "pricing_key" not in openrouter_variant
+    openrouter_variant = estimate_model_spec(
+        project, {**spec, "model": "openrouter/qwen/qwen3-8b:free"}
+    )
+    assert openrouter_variant["cost"] is None
+    assert openrouter_variant["cost_source"] == "unknown"
+    assert "pricing_key" not in openrouter_variant
 
-        assert {
-            unpriced["cost_source"],
-            priced["cost_source"],
-            openrouter_base["cost_source"],
-            openrouter_variant["cost_source"],
-        } <= ESTIMATE_COST_SOURCES
+    assert {
+        unpriced["cost_source"],
+        priced["cost_source"],
+        openrouter_base["cost_source"],
+        openrouter_variant["cost_source"],
+    } <= ESTIMATE_COST_SOURCES
 
-        local = estimate_model_spec(project, {**spec, "model": "ollama/@desk/unlisted"})
-        assert local["cost"] == 0.0
-        assert local["cost_source"] == "free_local"
-        assert "pricing_key" not in local
-    finally:
-        project.close()
+    local = estimate_model_spec(project, {**spec, "model": "ollama/@desk/unlisted"})
+    assert local["cost"] == 0.0
+    assert local["cost_source"] == "free_local"
+    assert "pricing_key" not in local
 
 
 def test_unestimated_cost_stays_in_vocabulary() -> None:

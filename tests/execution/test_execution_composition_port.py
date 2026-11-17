@@ -9,7 +9,6 @@ import dis
 import importlib.util
 import pkgutil
 from functools import cache
-from pathlib import Path
 from types import SimpleNamespace
 from types import CodeType
 
@@ -52,8 +51,8 @@ from tests.execution.typed_transcription_helpers import (
 from frisket.server.workspace import Workspace
 
 
-def test_request_context_is_typed_detached_and_passed_by_identity(tmp_path) -> None:
-    project = Project.create(tmp_path / "context.frisket")
+def test_request_context_is_typed_detached_and_passed_by_identity(make_project) -> None:
+    project = make_project("context")
     snapshot = {"funding": {"reservation": 7}}
     context = ExecutionCompositionContext(
         storage_key=None,
@@ -218,11 +217,11 @@ def test_routed_authority_has_no_implicit_open_composition_fallback() -> None:
 
 
 def test_two_requests_keep_effective_provider_funding_and_admission_together(
-    tmp_path: Path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     """S != F regression: no storage/env fallback and no cached fact bleed."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    project = Project.create(tmp_path / "composition.frisket")
+    project = make_project("composition")
     sheet_id = project.add_sheet("Audio")
     column_id = project.add_column(sheet_id, "audio", type="audio")
     blob = project.add_blob(

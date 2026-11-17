@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
-
-
-def test_walkthrough_catalog_is_backend_authored_and_typed(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_walkthrough_catalog_is_backend_authored_and_typed(client) -> None:
 
     response = client.get("/api/walkthroughs")
 

@@ -174,7 +174,7 @@ def test_attempt_insert_failure_rolls_back_terminal_state(delivery_request):
 
 @pytest.mark.parametrize("unknown", [False, True])
 def test_late_transient_provider_response_does_not_append_retry_outcome(
-    tmp_path, unknown
+    tmp_path, make_project, unknown
 ):
     from types import SimpleNamespace
     from frisket.engine.jobs.notifications_delivery import deliver_notification_request
@@ -184,53 +184,48 @@ def test_late_transient_provider_response_does_not_append_retry_outcome(
     )
     from frisket.server.notifications.secrets import StaticNotificationSecretResolver
 
-    project = Project.create(tmp_path / "late.frisket")
-    try:
-        channel = project.create_notification_channel(
-            kind="email",
-            name="Test",
-            config={"to": "test@example.com"},
-            secret_ref="env:RESEND_API_KEY",
+    project = make_project("late")
+    channel = project.create_notification_channel(
+        kind="email",
+        name="Test",
+        config={"to": "test@example.com"},
+        secret_ref="env:RESEND_API_KEY",
+    )
+    request = project.create_notification_delivery_request(
+        route_id=None,
+        channel_id=channel["id"],
+        delivery_kind="test",
+        dedupe_key="late",
+    )
+
+    def send(message, *, channel):
+        project.terminalize_notification_delivery_request(
+            request["id"], status="sent", provider_ref="winner"
         )
-        request = project.create_notification_delivery_request(
-            route_id=None,
-            channel_id=channel["id"],
-            delivery_kind="test",
-            dedupe_key="late",
+        return DeliveryProviderResult(
+            status="failed",
+            error="late failure",
+            transient=True,
+            outcome_unknown=unknown,
         )
 
-        def send(message, *, channel):
-            project.terminalize_notification_delivery_request(
-                request["id"], status="sent", provider_ref="winner"
-            )
-            return DeliveryProviderResult(
-                status="failed",
-                error="late failure",
-                transient=True,
-                outcome_unknown=unknown,
-            )
-
-        result = deliver_notification_request(
-            workspace_root=tmp_path,
-            project_id="late",
-            request_id=request["id"],
-            job_id=None,
-            delivery_runtime=NotificationDeliveryRuntime(
-                provider_factory=lambda _: SimpleNamespace(send=send),
-                secret_resolver=StaticNotificationSecretResolver(
-                    {"env:RESEND_API_KEY": "fake"}
-                ),
+    result = deliver_notification_request(
+        workspace_root=tmp_path,
+        project_id="late",
+        request_id=request["id"],
+        job_id=None,
+        delivery_runtime=NotificationDeliveryRuntime(
+            provider_factory=lambda _: SimpleNamespace(send=send),
+            secret_resolver=StaticNotificationSecretResolver(
+                {"env:RESEND_API_KEY": "fake"}
             ),
-        )
-        assert result == {"request_id": request["id"], "status": "sent"}
-        assert (
-            project.notification_delivery_request(request["id"])["last_error"] is None
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM notification_delivery_attempts"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+        ),
+    )
+    assert result == {"request_id": request["id"], "status": "sent"}
+    assert project.notification_delivery_request(request["id"])["last_error"] is None
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM notification_delivery_attempts"
+        ).fetchone()[0]
+        == 0
+    )

@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from frisket.server import provider_config
 from frisket.server.app import create_app
 from frisket.server.workspace import Workspace
-from frisket.engine.store import Project
 
 
 LOOPBACK = "http://127.0.0.1:11434"
@@ -165,7 +164,9 @@ def test_hand_edited_noncanonical_store_fails_closed(tmp_path) -> None:
     assert notes == []
 
 
-def test_workspace_router_threads_exact_persisted_endpoint_bundle(tmp_path) -> None:
+def test_workspace_router_threads_exact_persisted_endpoint_bundle(
+    tmp_path, make_project
+) -> None:
     root = tmp_path / "ws"
     endpoint = provider_config.create_local_endpoint(
         root,
@@ -175,11 +176,8 @@ def test_workspace_router_threads_exact_persisted_endpoint_bundle(tmp_path) -> N
         provisioning_token="provisioning-secret",
         edge_auth=True,
     )
-    project = Project.create(tmp_path / "project.frisket", name="project")
-    try:
-        router = Workspace(root).router_for(project)
-    finally:
-        project.close()
+    project = make_project("project")
+    router = Workspace(root).router_for(project)
     assert router.local_endpoints == (endpoint,)
     selected, adapter, bare = router._resolve_local_model(
         f"ollama/@{endpoint.endpoint_id}/qwen3:8b"

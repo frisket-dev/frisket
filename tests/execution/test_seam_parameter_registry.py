@@ -171,53 +171,49 @@ def test_route_store_no_longer_answers_installation_scoped_questions():
     assert hasattr(ConsentRegistry, "action_consents")
 
 
-def test_every_surviving_route_store_read_actually_uses_its_subject(tmp_path):
+def test_every_surviving_route_store_read_actually_uses_its_subject(make_project):
     """The property the split restored: two stores on DIFFERENT subjects give
     different answers for every read ``RouteStore`` still owns. Before the
     split, ``standing_consents``/``action_consents`` returned identical rows
     for every subject — which is what made the fake one harmless enough to
     survive three releases."""
-    from frisket.engine.store import Project
     from frisket.engine.store.execution_routes import RouteStore
 
-    project = Project.create(tmp_path / "subjects.frisket")
-    try:
-        run_store = RouteStore.for_run(project, 1)
-        promise_set = run_store.append_promise_set(
-            promises=[
-                {
-                    "field": "egress_class",
-                    "op": "eq",
-                    "value": "none",
-                    "basis": None,
-                    "order_ref": None,
-                    "audience": "user_claim",
-                }
-            ],
-            predecessor_id=None,
-        )
-        run_store.append_route(
-            promise_set_id=promise_set.id,
-            engine="faster_whisper",
-            options={},
-            target_snapshot={
-                "target_id": "local",
-                "capability": "transcribe",
-                "transport": "local",
-                "run_scoped": False,
-            },
-            operator="self",
-            egress_class="none",
-            region=None,
-            credential_source="local",
-            cost_posture="operator_borne",
-            predecessor_id=None,
-        )
-        other = RouteStore.for_run(project, 2)
-        assert run_store.head() is not None
-        assert other.head() is None
-        assert run_store.promise_sets() and other.promise_sets() == []
-        assert run_store.consents() == [] and other.consents() == []
-        assert run_store.violations() == [] and other.violations() == []
-    finally:
-        project.close()
+    project = make_project("subjects")
+    run_store = RouteStore.for_run(project, 1)
+    promise_set = run_store.append_promise_set(
+        promises=[
+            {
+                "field": "egress_class",
+                "op": "eq",
+                "value": "none",
+                "basis": None,
+                "order_ref": None,
+                "audience": "user_claim",
+            }
+        ],
+        predecessor_id=None,
+    )
+    run_store.append_route(
+        promise_set_id=promise_set.id,
+        engine="faster_whisper",
+        options={},
+        target_snapshot={
+            "target_id": "local",
+            "capability": "transcribe",
+            "transport": "local",
+            "run_scoped": False,
+        },
+        operator="self",
+        egress_class="none",
+        region=None,
+        credential_source="local",
+        cost_posture="operator_borne",
+        predecessor_id=None,
+    )
+    other = RouteStore.for_run(project, 2)
+    assert run_store.head() is not None
+    assert other.head() is None
+    assert run_store.promise_sets() and other.promise_sets() == []
+    assert run_store.consents() == [] and other.consents() == []
+    assert run_store.violations() == [] and other.violations() == []

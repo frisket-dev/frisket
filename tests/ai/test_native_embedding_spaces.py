@@ -20,14 +20,6 @@ from frisket.ai.embeddings import (
     descriptor_hash,
     vector_options_hash,
 )
-from frisket.engine.store import Project
-
-
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "emb.frisket", name="emb")
-    yield p
-    p.close()
 
 
 def _descriptor(**over):

@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 import frisket.server.services.action_runs as action_runs_module
 from frisket.execution.purchases import PurchaseAdmission
 from frisket.ai.llm import ChaosConfig, ModelRouter, ResponseCache
-from frisket.engine.store import Project
 from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
@@ -178,6 +177,7 @@ def test_non_action_consumers_never_resolve_the_execution_router(
 
 def test_cached_app_builds_one_fresh_effective_router_per_execution(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "platform-env-key")
@@ -227,7 +227,7 @@ def test_cached_app_builds_one_fresh_effective_router_per_execution(
         enable_provider_config=False,
     )
     workspace = app.state.workspace
-    project = Project.create(tmp_path / "project.frisket", name="fresh routers")
+    project = make_project("fresh routers")
     monkeypatch.setattr(
         project,
         "provider_model_keys",

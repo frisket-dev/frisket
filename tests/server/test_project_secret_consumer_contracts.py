@@ -42,8 +42,7 @@ def _install_and_activate(client: TestClient, pid: str) -> None:
     assert activated.status_code == 200, activated.text
 
 
-def test_project_secrets_surface_plugin_consumers(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_secrets_surface_plugin_consumers(client) -> None:
     pid = client.post("/api/projects", json={"name": "Secret consumers"}).json()["id"]
     _install_and_activate(client, pid)
 
@@ -59,13 +58,12 @@ def test_project_secrets_surface_plugin_consumers(tmp_path) -> None:
 
 
 def test_plugin_env_write_does_not_mirror_into_global_project_secrets(
-    tmp_path,
+    client,
 ) -> None:
     # The former dual-write mirrored a
     # plugin env value into the GLOBAL project_secrets namespace is removed. A
     # plugin secret is plugin-scoped only and must never appear in the shared
     # project-secrets surface consumed by core/sources/jobs/mcp.
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Secret bridge"}).json()["id"]
     _install_and_activate(client, pid)
 

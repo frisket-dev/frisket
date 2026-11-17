@@ -176,17 +176,16 @@ def test_action_job_launch_rejects_identity_overrides_before_enqueue() -> None:
 
 
 def test_concurrent_action_job_reservation_rechecks_params_after_lock(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The transaction loser must not inherit a different normalized action."""
     import threading
 
     from frisket.contracts.action import ActionResult, ActionSpec
     from frisket.engine.executor.action_jobs import reserve_queued_action_job_receipt
-    from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "reservation-race.frisket")
+    project = make_project("reservation-race")
     key = "action-job-reservation-race@sha256:stable"
     actions = [
         ActionSpec(
@@ -339,7 +338,7 @@ def test_action_job_replay_resumes_after_pre_enqueue_failure(tmp_path) -> None:
 
 
 def test_dynamic_plugin_prepared_receipt_does_not_enter_static_resume_path(
-    tmp_path,
+    make_project,
 ) -> None:
     from frisket.contracts.action import ActionResult, ActionSpec
     from frisket.engine.executor.action_jobs import (
@@ -348,7 +347,6 @@ def test_dynamic_plugin_prepared_receipt_does_not_enter_static_resume_path(
         reserve_queued_action_job_receipt,
     )
     from frisket.engine.executor.action_specs import declared_queued_action_job_kinds
-    from frisket.engine.store import Project
 
     class RecordingQueue:
         payload: dict | None = None
@@ -363,43 +361,40 @@ def test_dynamic_plugin_prepared_receipt_does_not_enter_static_resume_path(
         idempotency_key="dynamic-plugin-prepared-replay@sha256:stable",
     )
     assert action.kind not in declared_queued_action_job_kinds()
-    project = Project.create(tmp_path / "dynamic-plugin-prepared-replay.frisket")
-    try:
-        reservation = reserve_queued_action_job_receipt(
-            project,
-            action,
+    project = make_project("dynamic-plugin-prepared-replay")
+    reservation = reserve_queued_action_job_receipt(
+        project,
+        action,
+        project_id="project-dynamic-plugin-replay",
+    )
+    assert isinstance(reservation, dict)
+    queue = RecordingQueue()
+    launched = launch_queued_action_job(
+        envelope=ActionJobEnvelope(
+            action_kind=action.kind,
+            action_id=reservation["action_id"],
+            receipt_id=reservation["receipt_id"],
+            params_hash=reservation["params_hash"],
+            idempotency_key=action.idempotency_key or "",
             project_id="project-dynamic-plugin-replay",
-        )
-        assert isinstance(reservation, dict)
-        queue = RecordingQueue()
-        launched = launch_queued_action_job(
-            envelope=ActionJobEnvelope(
-                action_kind=action.kind,
-                action_id=reservation["action_id"],
-                receipt_id=reservation["receipt_id"],
-                params_hash=reservation["params_hash"],
-                idempotency_key=action.idempotency_key or "",
-                project_id="project-dynamic-plugin-replay",
-                action=action.model_dump(mode="json", exclude_none=True),
-            ),
-            queue=queue,
-            job_kind="action.run",
-        )
-        assert launched.job_id == 17
-        assert queue.payload is not None
-        assert "dedupe_key" not in queue.payload
+            action=action.model_dump(mode="json", exclude_none=True),
+        ),
+        queue=queue,
+        job_kind="action.run",
+    )
+    assert launched.job_id == 17
+    assert queue.payload is not None
+    assert "dedupe_key" not in queue.payload
 
-        replay = reserve_queued_action_job_receipt(
-            project,
-            action,
-            project_id="project-dynamic-plugin-replay",
-        )
-        assert isinstance(replay, ActionResult)
-        assert replay.status == "queued"
-        assert replay.job_id is None
-        assert replay.receipt_id == reservation["receipt_id"]
-    finally:
-        project.close()
+    replay = reserve_queued_action_job_receipt(
+        project,
+        action,
+        project_id="project-dynamic-plugin-replay",
+    )
+    assert isinstance(replay, ActionResult)
+    assert replay.status == "queued"
+    assert replay.job_id is None
+    assert replay.receipt_id == reservation["receipt_id"]
 
 
 def test_action_job_replay_repairs_post_enqueue_evidence_without_duplicate(
@@ -1048,24 +1043,22 @@ def test_action_job_terminal_receipt_cannot_be_rewritten_by_late_completion(
     assert stored.status == "cancelled"
 
 
-def test_action_job_terminalization_fails_closed_for_missing_receipt(tmp_path) -> None:
+def test_action_job_terminalization_fails_closed_for_missing_receipt(
+    make_project,
+) -> None:
     from frisket.engine.executor.action_jobs import (
         ActionJobTerminalizationError,
         action_job_success_result,
     )
-    from frisket.engine.store import Project
 
-    project = Project.create(tmp_path / "action-job-missing-receipt.frisket")
-    try:
-        with pytest.raises(ActionJobTerminalizationError, match="not found"):
-            action_job_success_result(
-                project,
-                project_id="project-action-job-missing-receipt",
-                receipt_id="receipt_action_job_missing_terminalization",
-                action_kind="test.action_job_missing_terminalization",
-            )
-    finally:
-        project.close()
+    project = make_project("action-job-missing-receipt")
+    with pytest.raises(ActionJobTerminalizationError, match="not found"):
+        action_job_success_result(
+            project,
+            project_id="project-action-job-missing-receipt",
+            receipt_id="receipt_action_job_missing_terminalization",
+            action_kind="test.action_job_missing_terminalization",
+        )
 
 
 def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) -> None:
@@ -1259,66 +1252,62 @@ def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:
 
 
 def test_action_job_terminal_projection_keeps_outputs_warnings_and_coordinates(
-    tmp_path,
+    make_project,
 ) -> None:
     from frisket.contracts.action import Receipt, ReceiptIO
     from frisket.engine.executor.action_jobs import (
         _mark_action_job_receipt_running,
         action_job_success_result,
     )
-    from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
     project_id = "project-action-job-terminal-projection"
     receipt_id = "receipt_action_job_terminal_projection"
     action_kind = "test.action_job_terminal_projection"
-    project = Project.create(tmp_path / "action-job-terminal-projection.frisket")
-    try:
-        ReceiptStore(project).insert_running(
-            Receipt(
-                receipt_id=receipt_id,
-                project_id=project_id,
-                action_id="act_action_job_terminal_projection",
-                action_kind=action_kind,
-                op_ids=[23],
-                status="running",
-                outputs=[
-                    ReceiptIO(
-                        name="rows",
-                        ref={
-                            "kind": "source_rows",
-                            "sheet_id": 4,
-                            "row_ids": [10, 11],
-                        },
-                    )
-                ],
-                warnings=["terminal warning"],
-            )
+    project = make_project("action-job-terminal-projection")
+    ReceiptStore(project).insert_running(
+        Receipt(
+            receipt_id=receipt_id,
+            project_id=project_id,
+            action_id="act_action_job_terminal_projection",
+            action_kind=action_kind,
+            op_ids=[23],
+            status="running",
+            outputs=[
+                ReceiptIO(
+                    name="rows",
+                    ref={
+                        "kind": "source_rows",
+                        "sheet_id": 4,
+                        "row_ids": [10, 11],
+                    },
+                )
+            ],
+            warnings=["terminal warning"],
         )
+    )
 
-        result = action_job_success_result(
-            project,
-            project_id=project_id,
-            receipt_id=receipt_id,
-            action_kind=action_kind,
-            status="partial",
-            job_id=92,
-        )
-        replay = action_job_success_result(
-            project,
-            project_id=project_id,
-            receipt_id=receipt_id,
-            action_kind=action_kind,
-            job_id=92,
-        )
-        worker_replay = _mark_action_job_receipt_running(
-            project,
-            project_id=project_id,
-            receipt_id=receipt_id,
-            job_id=92,
-        )
-    finally:
-        project.close()
+    result = action_job_success_result(
+        project,
+        project_id=project_id,
+        receipt_id=receipt_id,
+        action_kind=action_kind,
+        status="partial",
+        job_id=92,
+    )
+    replay = action_job_success_result(
+        project,
+        project_id=project_id,
+        receipt_id=receipt_id,
+        action_kind=action_kind,
+        job_id=92,
+    )
+    worker_replay = _mark_action_job_receipt_running(
+        project,
+        project_id=project_id,
+        receipt_id=receipt_id,
+        job_id=92,
+    )
 
     for projected in (result, replay, worker_replay):
         assert projected is not None

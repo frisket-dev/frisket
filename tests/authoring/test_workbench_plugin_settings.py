@@ -4,8 +4,6 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
-
 
 PLUGIN_ID = "demo.env_settings"
 PLUGIN_ROOT = (
@@ -35,9 +33,8 @@ def _install_and_activate(client: TestClient, pid: str) -> None:
 
 
 def test_workbench_plugin_settings_read_defaults_and_patch_project_values(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Plugin settings"}).json()["id"]
     _install_and_activate(client, pid)
 
@@ -62,9 +59,8 @@ def test_workbench_plugin_settings_read_defaults_and_patch_project_values(
 
 
 def test_workbench_plugin_settings_reject_unknown_and_secret_like_values(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Plugin settings"}).json()["id"]
     _install_and_activate(client, pid)
 

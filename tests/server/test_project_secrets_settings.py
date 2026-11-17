@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 
 from frisket.team.security.secrets import decrypt_secret
-from frisket.server.app import create_app
 
 
-def test_project_secrets_are_write_only_redacted_and_deletable(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_secrets_are_write_only_redacted_and_deletable(client) -> None:
     pid = client.post("/api/projects", json={"name": "Secrets"}).json()["id"]
 
     saved = client.post(

@@ -103,8 +103,8 @@ def _run_embedding_action(project: Project, action: dict) -> Receipt:
     return Receipt.model_validate(json.loads(row["body"]))
 
 
-def test_single_parent_writer_records_rows_undo_and_standard_refs(tmp_path: Path):
-    project = Project.create(tmp_path / "helper.frisket", name="helper")
+def test_single_parent_writer_records_rows_undo_and_standard_refs(make_project):
+    project = make_project("helper")
     source_sheet_id = project.add_sheet("Source")
     source_column_id = project.add_column(source_sheet_id, "name")
     project.add_rows(
@@ -171,8 +171,8 @@ def test_single_parent_writer_records_rows_undo_and_standard_refs(tmp_path: Path
     assert score_values[write.row_ids[1]] is None
 
 
-def test_single_parent_writer_rejects_parentless_rows(tmp_path: Path):
-    project = Project.create(tmp_path / "bad-helper.frisket", name="bad-helper")
+def test_single_parent_writer_rejects_parentless_rows(make_project):
+    project = make_project("bad-helper")
     source_sheet_id = project.add_sheet("Source")
     cur = project.db.cursor()
     cur.execute("BEGIN IMMEDIATE")

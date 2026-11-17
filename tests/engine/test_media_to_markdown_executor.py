@@ -397,34 +397,30 @@ def test_media_to_markdown_replay_preserves_identity_rejections(
 
 def test_media_to_markdown_trafilatura_html_engine_converts_html_blob(
     tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor import run_action_spec
 
-    project = Project.create(tmp_path / "to-markdown.frisket", name="To Markdown v1")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _to_markdown_action(
-            sheet_id=seeded["sheet_id"],
-            row_ids=[seeded["row_ids"][0]],
-            engine="trafilatura_html",
-            output_name="page_markdown",
-            idempotency_key="media_to_markdown@sha256:trafilatura-html",
-        )
-        typed_action_for_request(action)
+    project = make_project("To Markdown v1")
+    seeded = _seed(project, tmp_path)
+    action = _to_markdown_action(
+        sheet_id=seeded["sheet_id"],
+        row_ids=[seeded["row_ids"][0]],
+        engine="trafilatura_html",
+        output_name="page_markdown",
+        idempotency_key="media_to_markdown@sha256:trafilatura-html",
+    )
+    typed_action_for_request(action)
 
-        result = run_action_spec(project, action, project_id=PROJECT_ID)
-        assert result.status == "completed", result.errors
-        columns = _columns(project, seeded["sheet_id"])
-        values = project.get_values(
-            seeded["sheet_id"], int(columns["page_markdown"]["id"])
-        )
-        markdown = values[seeded["row_ids"][0]]
-        assert "Quarterly Report" in markdown
-        assert "Revenue doubled this year" in markdown
-        assert "<html" not in markdown.lower()
-    finally:
-        project.close()
+    result = run_action_spec(project, action, project_id=PROJECT_ID)
+    assert result.status == "completed", result.errors
+    columns = _columns(project, seeded["sheet_id"])
+    values = project.get_values(seeded["sheet_id"], int(columns["page_markdown"]["id"]))
+    markdown = values[seeded["row_ids"][0]]
+    assert "Quarterly Report" in markdown
+    assert "Revenue doubled this year" in markdown
+    assert "<html" not in markdown.lower()
 
 
 def test_url_import_failure_becomes_truthful_missing_document_without_provider_call(

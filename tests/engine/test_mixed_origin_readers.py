@@ -145,99 +145,96 @@ def _point_heads(
     )
 
 
-def test_scalar_only_ai_results_are_not_a_live_reader_lane(tmp_path: Path) -> None:
+def test_scalar_only_ai_results_are_not_a_live_reader_lane(make_project) -> None:
     """A stray scalar pointer cannot make headless AI results current again."""
 
-    project = Project.create(tmp_path / "scalar-only-reader.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        source_column_id = project.add_column(sheet_id, "source")
-        output_column_id = project.add_column(sheet_id, "generated", ai_generated=True)
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"source": "value"}, {"source": "failure"}],
-            {"source": source_column_id},
-        )
-        op_id = project.append_op("map", {"phase": "retired scalar fixture"})
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet_id,
-            "test.retired_scalar_fixture",
-            row_ids=row_ids,
-            total_rows=len(row_ids),
-        )
-        project.db.executemany(
-            "INSERT INTO results "
-            "(run_id,row_id,column_id,value_kind,value,confidence,error,outcome) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            [
-                (
-                    run_id,
-                    row_ids[0],
-                    output_column_id,
-                    *encode_stored_value("retired-result"),
-                    0.99,
-                    None,
-                    "ok",
-                ),
-                (
-                    run_id,
-                    row_ids[1],
-                    output_column_id,
-                    None,
-                    None,
-                    None,
-                    "retired failure",
-                    "model_error",
-                ),
-            ],
-        )
-        project.db.execute(
-            "UPDATE columns SET current_run_id=? WHERE id=?",
-            (run_id, output_column_id),
-        )
-        project.db.commit()
+    project = make_project("scalar-only-reader")
+    sheet_id = project.add_sheet("Rows")
+    source_column_id = project.add_column(sheet_id, "source")
+    output_column_id = project.add_column(sheet_id, "generated", ai_generated=True)
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"source": "value"}, {"source": "failure"}],
+        {"source": source_column_id},
+    )
+    op_id = project.append_op("map", {"phase": "retired scalar fixture"})
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "test.retired_scalar_fixture",
+        row_ids=row_ids,
+        total_rows=len(row_ids),
+    )
+    project.db.executemany(
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value_kind,value,confidence,error,outcome) "
+        "VALUES (?,?,?,?,?,?,?,?)",
+        [
+            (
+                run_id,
+                row_ids[0],
+                output_column_id,
+                *encode_stored_value("retired-result"),
+                0.99,
+                None,
+                "ok",
+            ),
+            (
+                run_id,
+                row_ids[1],
+                output_column_id,
+                None,
+                None,
+                None,
+                "retired failure",
+                "model_error",
+            ),
+        ],
+    )
+    project.db.execute(
+        "UPDATE columns SET current_run_id=? WHERE id=?",
+        (run_id, output_column_id),
+    )
+    project.db.commit()
 
-        assert (
-            resolve_sheet_filter_rows(
-                project,
-                sheet_id,
-                filter_=json.dumps({"generated": {"eq": "retired-result"}}),
-            ).row_ids
-            == []
-        )
-        assert (
-            resolve_sheet_filter_rows(
-                project,
-                sheet_id,
-                filter_=json.dumps({"generated": {"failed": "any"}}),
-            ).row_ids
-            == []
-        )
-
-        grid = _sheet_data_payload(
+    assert (
+        resolve_sheet_filter_rows(
             project,
             sheet_id,
-            project.columns(sheet_id),
-            row_ids,
-            total=len(row_ids),
-        )
-        column = next(
-            item for item in grid["columns"] if int(item["id"]) == output_column_id
-        )
-        assert column["generation_managed"] is False
-        assert column["current_run_id"] is None
-        assert column["latest_run_id"] is None
-        assert column["replay_pending_count"] == 0
-        for row in grid["rows"]:
-            assert row["cells"][str(output_column_id)] is None
-            cell_meta = row["meta"][str(output_column_id)]
-            assert "state" not in cell_meta
-            assert "confidence" not in cell_meta
-            assert "error" not in cell_meta
-            assert "pending_value" not in cell_meta
-    finally:
-        project.close()
+            filter_=json.dumps({"generated": {"eq": "retired-result"}}),
+        ).row_ids
+        == []
+    )
+    assert (
+        resolve_sheet_filter_rows(
+            project,
+            sheet_id,
+            filter_=json.dumps({"generated": {"failed": "any"}}),
+        ).row_ids
+        == []
+    )
+
+    grid = _sheet_data_payload(
+        project,
+        sheet_id,
+        project.columns(sheet_id),
+        row_ids,
+        total=len(row_ids),
+    )
+    column = next(
+        item for item in grid["columns"] if int(item["id"]) == output_column_id
+    )
+    assert column["generation_managed"] is False
+    assert column["current_run_id"] is None
+    assert column["latest_run_id"] is None
+    assert column["replay_pending_count"] == 0
+    for row in grid["rows"]:
+        assert row["cells"][str(output_column_id)] is None
+        cell_meta = row["meta"][str(output_column_id)]
+        assert "state" not in cell_meta
+        assert "confidence" not in cell_meta
+        assert "error" not in cell_meta
+        assert "pending_value" not in cell_meta
 
 
 @pytest.fixture

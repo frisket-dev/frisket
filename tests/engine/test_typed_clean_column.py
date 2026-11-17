@@ -88,54 +88,51 @@ def test_clean_column_batch_persists_canonical_values_without_touching_source(
     assert review_queue(store, sheet_id=sheet_id) == []
 
 
-def test_clean_column_numeric_batch_records_row_local_failure(tmp_path: Path) -> None:
-    store = Project.create(tmp_path / "typed-clean-number.frisket")
-    try:
-        sheet_id = store.add_sheet("amounts")
-        source_id = store.add_column(sheet_id, "amount", type="text")
-        row_ids = store.add_rows(
-            sheet_id,
-            [{"amount": "$1,299.00"}, {"amount": "ambiguous"}, {"amount": "N/A"}],
-            {"amount": source_id},
-        )
-        request = ActionRequest(
-            action_id="map.clean_column",
-            scope=SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
-            params={
-                "source": "amount",
-                "make_numeric": True,
-                "remove_thousands_separators": True,
-            },
-            idempotency_key="clean-number@1",
-        )
+def test_clean_column_numeric_batch_records_row_local_failure(make_project) -> None:
+    store = make_project("typed-clean-number")
+    sheet_id = store.add_sheet("amounts")
+    source_id = store.add_column(sheet_id, "amount", type="text")
+    row_ids = store.add_rows(
+        sheet_id,
+        [{"amount": "$1,299.00"}, {"amount": "ambiguous"}, {"amount": "N/A"}],
+        {"amount": source_id},
+    )
+    request = ActionRequest(
+        action_id="map.clean_column",
+        scope=SheetRows(sheet_id=sheet_id, row_ids=tuple(row_ids)),
+        params={
+            "source": "amount",
+            "make_numeric": True,
+            "remove_thousands_separators": True,
+        },
+        idempotency_key="clean-number@1",
+    )
 
-        result = run_typed_map_rows_action(
-            store,
-            "project-1",
-            BoundTypedActionRequest.bind(CLEAN_COLUMN, request),
-            None,
-            _runner,
-        )
+    result = run_typed_map_rows_action(
+        store,
+        "project-1",
+        BoundTypedActionRequest.bind(CLEAN_COLUMN, request),
+        None,
+        _runner,
+    )
 
-        assert result.status == "partial", result.errors
-        output = next(
-            column for column in store.columns(sheet_id) if column["name"] == "cleaned"
-        )
-        assert output["type"] == "number"
-        assert store.get_values(sheet_id, output["id"], row_ids=row_ids) == {
-            row_ids[0]: 1299.0,
-            row_ids[1]: None,
-            row_ids[2]: None,
-        }
-        failure = store.db.execute(
-            "SELECT error_code, error FROM results "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (result.run_id, row_ids[1], output["id"]),
-        ).fetchone()
-        assert failure["error_code"] == "invalid_numeric_value"
-        assert failure["error"] == "The source value could not be parsed as a number."
-    finally:
-        store.close()
+    assert result.status == "partial", result.errors
+    output = next(
+        column for column in store.columns(sheet_id) if column["name"] == "cleaned"
+    )
+    assert output["type"] == "number"
+    assert store.get_values(sheet_id, output["id"], row_ids=row_ids) == {
+        row_ids[0]: 1299.0,
+        row_ids[1]: None,
+        row_ids[2]: None,
+    }
+    failure = store.db.execute(
+        "SELECT error_code, error FROM results "
+        "WHERE run_id=? AND row_id=? AND column_id=?",
+        (result.run_id, row_ids[1], output["id"]),
+    ).fetchone()
+    assert failure["error_code"] == "invalid_numeric_value"
+    assert failure["error"] == "The source value could not be parsed as a number."
 
 
 def test_clean_column_batch_preview_is_global_and_write_free(project) -> None:

@@ -15,7 +15,6 @@ from frisket.engine.jobs import runs as run_jobs
 from frisket.engine.executor.action_reservations import (
     _local_endpoint_bindings_for_runner_spec,
 )
-from frisket.engine.store import Project
 from frisket.server import provider_config
 from frisket.server.app import create_app
 from frisket.server.workspace import Workspace
@@ -221,19 +220,18 @@ def test_catalog_attributes_only_qualified_models_to_each_endpoint(
     assert local[2]["models"] == []
 
 
-def test_workspace_and_worker_resolve_the_same_endpoint_list(tmp_path) -> None:
+def test_workspace_and_worker_resolve_the_same_endpoint_list(
+    tmp_path, make_project
+) -> None:
     first = provider_config.create_local_endpoint(
         tmp_path, name="Ollama", url="http://127.0.0.1:11434"
     )
     second = provider_config.create_local_endpoint(
         tmp_path, name="LM Studio", url="http://127.0.0.1:1234"
     )
-    project = Project.create(tmp_path / "project.frisket", name="project")
-    try:
-        live = Workspace(tmp_path).router_for(project).local_endpoints
-        queued = run_jobs.resolve_run_local_endpoints(tmp_path, org_id=None, env={})
-    finally:
-        project.close()
+    project = make_project("project")
+    live = Workspace(tmp_path).router_for(project).local_endpoints
+    queued = run_jobs.resolve_run_local_endpoints(tmp_path, org_id=None, env={})
     assert [endpoint.endpoint_id for endpoint in live] == [
         first.endpoint_id,
         second.endpoint_id,

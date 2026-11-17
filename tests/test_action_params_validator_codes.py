@@ -258,7 +258,7 @@ def test_duplicate_emitted_output_columns_refuse_at_typed_binder() -> None:
     ],
 )
 def test_reduce_group_summary_emitted_output_collisions_refuse_at_prepare(
-    tmp_path, output_names, root_message, prepare_message
+    make_project, output_names, root_message, prepare_message
 ) -> None:
     """The reduce-specific emitted-column fact the legacy
     `duplicate_output_column` code carried is refused twice: at ROOT binding
@@ -282,70 +282,67 @@ def test_reduce_group_summary_emitted_output_collisions_refuse_at_prepare(
             for table in ("sheets", "columns", "runs", "ops", "receipts", "model_calls")
         }
 
-    project = Project.create(tmp_path / "group-summary.frisket", name="Ledger")
-    try:
-        sheet_id = project.add_sheet("Ledger")
-        columns = {
-            "notes": project.add_column(sheet_id, "notes", type="text"),
-            "beat": project.add_column(sheet_id, "beat", type="text"),
-        }
-        project.add_rows(
-            sheet_id,
-            [{"notes": "a", "beat": "x"}, {"notes": "b", "beat": "x"}],
-            columns,
-        )
-        request = {
-            "action_id": "reduce.group_summary",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-            "sheet_name": "Groups",
-            "params": {
-                "source": ["notes"],
-                "group_by": "beat",
-                "model": "anthropic/claude-haiku-4-5",
-                "instruction": "Summarize.",
-            },
-            "output_names": output_names,
-            "idempotency_key": "group-summary@emitted-output-collision",
-        }
-        # Root binding refuses every case before any executor seam is reached.
-        validation = validate_root_action(request)
-        assert validation.ok is False
-        assert validation.error is not None
-        assert validation.error.code == "invalid_action_request"
-        assert validation.error.message == root_message
-        assert validation.error.action_kind == "reduce.group_summary"
-        before = _counts(project)
+    project = make_project("Ledger")
+    sheet_id = project.add_sheet("Ledger")
+    columns = {
+        "notes": project.add_column(sheet_id, "notes", type="text"),
+        "beat": project.add_column(sheet_id, "beat", type="text"),
+    }
+    project.add_rows(
+        sheet_id,
+        [{"notes": "a", "beat": "x"}, {"notes": "b", "beat": "x"}],
+        columns,
+    )
+    request = {
+        "action_id": "reduce.group_summary",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+        "sheet_name": "Groups",
+        "params": {
+            "source": ["notes"],
+            "group_by": "beat",
+            "model": "anthropic/claude-haiku-4-5",
+            "instruction": "Summarize.",
+        },
+        "output_names": output_names,
+        "idempotency_key": "group-summary@emitted-output-collision",
+    }
+    # Root binding refuses every case before any executor seam is reached.
+    validation = validate_root_action(request)
+    assert validation.ok is False
+    assert validation.error is not None
+    assert validation.error.code == "invalid_action_request"
+    assert validation.error.message == root_message
+    assert validation.error.action_kind == "reduce.group_summary"
+    before = _counts(project)
 
-        result = run_action_spec(project, request, project_id="p")
+    result = run_action_spec(project, request, project_id="p")
 
-        assert result.status == "failed"
-        assert result.run_id is None
-        assert [
-            (error.code, error.message, error.action_kind) for error in result.errors
-        ] == [("invalid_action_request", root_message, "reduce.group_summary")]
-        assert _counts(project) == before
+    assert result.status == "failed"
+    assert result.run_id is None
+    assert [
+        (error.code, error.message, error.action_kind) for error in result.errors
+    ] == [("invalid_action_request", root_message, "reduce.group_summary")]
+    assert _counts(project) == before
 
-        # Prepare seam on its own: bind the request with clean output names so
-        # root admits it, then hand prepare a bound request carrying the
-        # colliding names. The reduce roster check must refuse independently.
-        clean = typed_action_for_request({**request, "output_names": {}})
-        bound = BoundTypedActionRequest(
-            clean.action,
-            ActionRequest.model_validate(request),
-            clean.params,
-            clean.output_fields,
-        )
-        with pytest.raises(ValueError, match=prepare_message):
-            prepare_group_summary_action(project, bound)
-        assert _counts(project) == before
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM sheets WHERE name='Groups'"
-            ).fetchone()[0]
-            == 0
-        )
-    finally:
-        project.close()
+    # Prepare seam on its own: bind the request with clean output names so
+    # root admits it, then hand prepare a bound request carrying the
+    # colliding names. The reduce roster check must refuse independently.
+    clean = typed_action_for_request({**request, "output_names": {}})
+    bound = BoundTypedActionRequest(
+        clean.action,
+        ActionRequest.model_validate(request),
+        clean.params,
+        clean.output_fields,
+    )
+    with pytest.raises(ValueError, match=prepare_message):
+        prepare_group_summary_action(project, bound)
+    assert _counts(project) == before
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM sheets WHERE name='Groups'"
+        ).fetchone()[0]
+        == 0
+    )
 
 
 @pytest.mark.parametrize("duplicate", ["projection", "rename"])

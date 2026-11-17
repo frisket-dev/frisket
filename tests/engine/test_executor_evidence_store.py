@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
 
-from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     EVIDENCE_VIEWER_SCHEMA_VERSION,
     list_cell_evidence,
@@ -17,9 +15,9 @@ from helpers import write_claimed_test_results
 
 
 def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "evidence-store.frisket", name="Evidence")
+    project = make_project("Evidence")
     sheet_id = project.add_sheet("Docs")
     source_col = project.add_column(sheet_id, "source", type="file")
     output_col = project.add_column(sheet_id, "answer", type="text", ai_generated=True)

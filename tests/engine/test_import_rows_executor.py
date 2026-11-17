@@ -76,11 +76,11 @@ def _append_rows_action(sheet_id: int, *, column_type: str = "text") -> dict[str
 
 
 def test_import_append_rows_is_atomic_idempotent_and_refuses_incompatible_mapping(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "append.frisket", name="Append")
+    project = make_project("Append")
     created = run_action_spec(project, _import_rows_action(), project_id="project")
     sheet_id = int(created.outputs[0].sheet_id)
     # A root sheet may retain its creation op without being derived.
@@ -140,12 +140,12 @@ def test_import_append_rows_is_atomic_idempotent_and_refuses_incompatible_mappin
 
 
 def test_import_append_rows_enforces_per_request_limit_atomically(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor import ExecutorDeps, ImportWorkloadLimits
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "append-limit.frisket", name="Append limit")
+    project = make_project("Append limit")
     created = run_action_spec(project, _import_rows_action(), project_id="project")
     sheet_id = int(created.outputs[0].sheet_id)
     request = _append_rows_action(sheet_id)
@@ -459,61 +459,54 @@ def test_import_rows_rejects_values_outside_core_int64_contract(value: Any) -> N
     assert result.error.code == "invalid_action_request"
 
 
-def test_import_rows_default_allows_more_than_10000_rows(tmp_path: Path) -> None:
+def test_import_rows_default_allows_more_than_10000_rows(make_project) -> None:
     """The direct Solo action path has no deployment total-row ceiling."""
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "large-inline.frisket", name="Large inline")
-    try:
-        action = _import_rows_action(idempotency_key="import_rows@sha256:10001")
-        action["params"]["rows"] = [
-            {
-                "summary": f"Record {index}",
-                "source_url": f"https://example.com/{index}",
-                "score": index,
-            }
-            for index in range(10_001)
-        ]
+    project = make_project("Large inline")
+    action = _import_rows_action(idempotency_key="import_rows@sha256:10001")
+    action["params"]["rows"] = [
+        {
+            "summary": f"Record {index}",
+            "source_url": f"https://example.com/{index}",
+            "score": index,
+        }
+        for index in range(10_001)
+    ]
 
-        result = run_action_spec(project, action, project_id="large-inline")
+    result = run_action_spec(project, action, project_id="large-inline")
 
-        assert result.status == "completed", result.errors
-        sheet = project.db.execute("SELECT id FROM sheets WHERE name='Rows'").fetchone()
-        assert sheet is not None
-        assert project.row_count(int(sheet["id"])) == 10_001
-        receipt = project.db.execute(
-            "SELECT action_kind, body FROM receipts WHERE id=?", (result.receipt_id,)
-        ).fetchone()
-        assert receipt is not None
-        assert receipt["action_kind"] == "import.rows"
-        # A 10k-row inline request may be materialized locally, but its durable
-        # receipt must still retain a compact action summary rather than every
-        # user value.
-        body = str(receipt["body"])
-        assert len(body.encode("utf-8")) < 100_000
-        assert "Record 10000" not in body
-        op = project.db.execute(
-            "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
-        ).fetchone()
-        assert op is not None
-        assert json.loads(op["spec"])["import_row_count"] == 10_001
-        assert "rows" not in json.loads(op["spec"])["params"]
-        replayed = run_action_spec(project, action, project_id="large-inline")
-        original_rows = next(
-            output for output in result.outputs if output.kind == "rows"
-        )
-        replayed_rows = next(
-            output for output in replayed.outputs if output.kind == "rows"
-        )
-        assert replayed.status == "completed"
-        assert replayed.receipt_id == result.receipt_id
-        assert replayed_rows.row_ids == original_rows.row_ids
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    sheet = project.db.execute("SELECT id FROM sheets WHERE name='Rows'").fetchone()
+    assert sheet is not None
+    assert project.row_count(int(sheet["id"])) == 10_001
+    receipt = project.db.execute(
+        "SELECT action_kind, body FROM receipts WHERE id=?", (result.receipt_id,)
+    ).fetchone()
+    assert receipt is not None
+    assert receipt["action_kind"] == "import.rows"
+    # A 10k-row inline request may be materialized locally, but its durable
+    # receipt must still retain a compact action summary rather than every
+    # user value.
+    body = str(receipt["body"])
+    assert len(body.encode("utf-8")) < 100_000
+    assert "Record 10000" not in body
+    op = project.db.execute(
+        "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
+    ).fetchone()
+    assert op is not None
+    assert json.loads(op["spec"])["import_row_count"] == 10_001
+    assert "rows" not in json.loads(op["spec"])["params"]
+    replayed = run_action_spec(project, action, project_id="large-inline")
+    original_rows = next(output for output in result.outputs if output.kind == "rows")
+    replayed_rows = next(output for output in replayed.outputs if output.kind == "rows")
+    assert replayed.status == "completed"
+    assert replayed.receipt_id == result.receipt_id
+    assert replayed_rows.row_ids == original_rows.row_ids
 
 
 def test_import_rows_hosted_limit_is_injected_and_never_partially_publishes(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """Finite hosted policy is opt-in and rejects before a project mutation."""
     from frisket.engine.executor.action_inventory import (
@@ -522,34 +515,31 @@ def test_import_rows_hosted_limit_is_injected_and_never_partially_publishes(
     )
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "hosted-limit.frisket", name="Hosted limit")
-    try:
-        exact = _import_rows_action(idempotency_key="import_rows@sha256:hosted-exact")
-        exact["params"]["rows"] = exact["params"]["rows"][:2]
-        deps = ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=2))
-        completed = run_action_spec(project, exact, project_id="hosted", deps=deps)
-        assert completed.status == "completed", completed.errors
+    project = make_project("Hosted limit")
+    exact = _import_rows_action(idempotency_key="import_rows@sha256:hosted-exact")
+    exact["params"]["rows"] = exact["params"]["rows"][:2]
+    deps = ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=2))
+    completed = run_action_spec(project, exact, project_id="hosted", deps=deps)
+    assert completed.status == "completed", completed.errors
 
-        over = _import_rows_action(idempotency_key="import_rows@sha256:hosted-over")
-        over["sheet_name"] = "Must not publish"
-        over["params"]["rows"] = [
-            *over["params"]["rows"],
-            {
-                "summary": "third",
-                "source_url": "https://example.com/third",
-                "score": 3,
-            },
-        ]
-        failed = run_action_spec(project, over, project_id="hosted", deps=deps)
+    over = _import_rows_action(idempotency_key="import_rows@sha256:hosted-over")
+    over["sheet_name"] = "Must not publish"
+    over["params"]["rows"] = [
+        *over["params"]["rows"],
+        {
+            "summary": "third",
+            "source_url": "https://example.com/third",
+            "score": 3,
+        },
+    ]
+    failed = run_action_spec(project, over, project_id="hosted", deps=deps)
 
-        assert failed.status == "failed"
-        assert failed.errors[0].code == "import_workload_limit_exceeded"
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM columns").fetchone()[0] == 3
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
-        assert project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 6
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-    finally:
-        project.close()
+    assert failed.status == "failed"
+    assert failed.errors[0].code == "import_workload_limit_exceeded"
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM columns").fetchone()[0] == 3
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
+    assert project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 6
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1

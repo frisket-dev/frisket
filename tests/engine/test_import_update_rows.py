@@ -53,8 +53,8 @@ def _request(sheet_id: int, params: UpdateRowsParams, key="update-1"):
     }
 
 
-def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "update.frisket", name="Update")
+def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(make_project) -> None:
+    project = make_project("Update")
     sheet_id, columns, row_ids = _seed(project)
     params = _params(
         [
@@ -93,9 +93,9 @@ def test_exact_update_preserves_rows_and_undoes_as_one_edit_op(tmp_path: Path) -
 
 
 def test_updates_use_current_cells_and_late_duplicate_group_is_skipped(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "stale.frisket", name="Stale")
+    project = make_project("Stale")
     sheet_id, columns, row_ids = _seed(project)
     params = _params([{"id": "a", "name": "Alicia", "note": "new"}])
     project.apply_edits(
@@ -123,8 +123,8 @@ def test_updates_use_current_cells_and_late_duplicate_group_is_skipped(
     assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == before
 
 
-def test_keep_existing_blank_preserves_current_values(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "blank.frisket", name="Blank")
+def test_keep_existing_blank_preserves_current_values(make_project) -> None:
+    project = make_project("Blank")
     sheet_id, columns, row_ids = _seed(project)
     params = _params([{"id": "a", "name": "", "note": None}], keep=True)
     result = run_action_spec(project, _request(sheet_id, params), project_id="p")
@@ -166,9 +166,9 @@ def test_whitespace_only_imports_are_blank_without_trimming_nonblank_text(
 
 
 def test_number_keys_use_exact_numeric_semantics_without_text_coercion(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "numeric.frisket", name="Numeric")
+    project = make_project("Numeric")
     sheet_id = project.add_sheet("Numbers")
     columns = {
         "key": project.add_column(sheet_id, "key", "number"),
@@ -219,13 +219,13 @@ def test_update_temporal_value_requires_live_project_anchor(tmp_path: Path) -> N
 
 
 def test_custom_rows_updater_uses_same_publication_without_outer_transaction(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     from dataclasses import replace
     from frisket.actions.core import RegisteredAction
     from frisket.actions.registry import ACTION_REGISTRY
 
-    project = Project.create(tmp_path / "custom.frisket")
+    project = make_project("custom")
     sheet, columns, rows = _seed(project)
     original = ACTION_REGISTRY.get("import.update_rows")
     custom = RegisteredAction("test.update_people", replace(original.definition))
@@ -247,7 +247,7 @@ def test_custom_rows_updater_uses_same_publication_without_outer_transaction(
     assert replay.receipt_id == result.receipt_id
 
 
-def test_queued_custom_updater_keeps_original_receipt(tmp_path, monkeypatch):
+def test_queued_custom_updater_keeps_original_receipt(make_project, monkeypatch):
     from dataclasses import replace
     from frisket.actions.core import RegisteredAction
     from frisket.actions.registry import ACTION_REGISTRY
@@ -257,7 +257,7 @@ def test_queued_custom_updater_keeps_original_receipt(tmp_path, monkeypatch):
         run_action_run_job,
     )
 
-    project = Project.create(tmp_path / "queued-custom.frisket")
+    project = make_project("queued-custom")
     sheet, columns, rows = _seed(project)
     original = ACTION_REGISTRY.get("import.update_rows")
     custom = RegisteredAction("test.queued_update", replace(original.definition))
@@ -280,8 +280,8 @@ def test_queued_custom_updater_keeps_original_receipt(tmp_path, monkeypatch):
     assert project.get_values(sheet, columns["note"])[rows[0]] == "from worker"
 
 
-def test_rekey_then_delete_cannot_restore_row_under_old_source_key(tmp_path):
-    project = Project.create(tmp_path / "hidden-rekey.frisket")
+def test_rekey_then_delete_cannot_restore_row_under_old_source_key(make_project):
+    project = make_project("hidden-rekey")
     sheet, columns, rows = _seed(project)
     params = _params([{"id": "a", "name": "from source"}])
     params.relationship_id = "import:rekey"
@@ -305,14 +305,14 @@ def test_rekey_then_delete_cannot_restore_row_under_old_source_key(tmp_path):
 
 
 def test_custom_updater_failure_after_publication_keeps_work_and_records_failure(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     from dataclasses import replace
     from frisket.actions.core import RegisteredAction
     from frisket.actions.registry import ACTION_REGISTRY
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "failed-handler.frisket")
+    project = make_project("failed-handler")
     sheet, columns, rows = _seed(project)
     original = ACTION_REGISTRY.get("import.update_rows")
 
@@ -371,12 +371,12 @@ def test_custom_updater_failure_after_publication_keeps_work_and_records_failure
 
 
 def test_large_single_record_exceeds_batch_target_without_new_api_size_limit(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     import frisket.engine.jobs.import_table as table_job
 
     monkeypatch.setattr(table_job, "_PAGE_BYTES", 64)
-    project = Project.create(tmp_path / "large-record.frisket")
+    project = make_project("large-record")
     sheet, columns, rows = _seed(project)
     value = "Long report " * 100
     params = _params([{"id": "a", "name": value}, {"id": "b", "name": "second"}])
@@ -391,11 +391,11 @@ def test_large_single_record_exceeds_batch_target_without_new_api_size_limit(
 
 
 def test_direct_update_publication_failure_closes_its_reserved_receipt(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     import frisket.engine.jobs.import_table as table_job
 
-    project = Project.create(tmp_path / "failed-update.frisket", name="Failed update")
+    project = make_project("Failed update")
     sheet_id, columns, row_ids = _seed(project)
     actual = table_job.run_table_import
 

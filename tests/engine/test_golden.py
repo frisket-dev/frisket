@@ -16,7 +16,6 @@ import pytest
 
 from frisket.ai.llm import ModelRouter, ResponseCache
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.testing import llm_cache_path
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from typed_model_fixtures import estimate_model_run, run_with_exact_confirmation
@@ -75,73 +74,64 @@ LABELS = ["corruption", "transit", "public_health", "education", "other"]
 
 
 @pytest.mark.parametrize("model", ["gemini/gemini-3.5-flash"])
-def test_golden_classify_categories(tmp_path, model, golden_model_keys):
-    p = Project.create(tmp_path / "golden.frisket", name="golden-classify")
-    try:
-        sheet = p.add_sheet("stories")
-        cols = {"snippet": p.add_column(sheet, "snippet")}
-        p.add_rows(sheet, [{"snippet": s} for s, _ in SNIPPETS], cols)
+def test_golden_classify_categories(make_project, model, golden_model_keys):
+    p = make_project("golden-classify")
+    sheet = p.add_sheet("stories")
+    cols = {"snippet": p.add_column(sheet, "snippet")}
+    p.add_rows(sheet, [{"snippet": s} for s, _ in SNIPPETS], cols)
 
-        spec = {
-            "action_kind": "map.classify",
-            "engine": "llm",
-            "model": model,
-            "sheet_id": sheet,
-            "input_columns": ["snippet"],
-            "context": "Each row is a one-sentence local news story summary.",
-            "fields": [
-                {
-                    "name": "beat",
-                    "type": "category",
-                    "labels": LABELS,
-                    "description": "Which news beat does this story belong to?",
-                }
-            ],
-            "include_justification": True,
-        }
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys=golden_model_keys,
-            use_env_keys=False,
-            cache=ResponseCache(CACHE_PATH),
-            cache_mode=MODE,
-        )
-        runner = MapRunner(p, router, authority=UnroutedOnlyAuthority(p))
+    spec = {
+        "action_kind": "map.classify",
+        "engine": "llm",
+        "model": model,
+        "sheet_id": sheet,
+        "input_columns": ["snippet"],
+        "context": "Each row is a one-sentence local news story summary.",
+        "fields": [
+            {
+                "name": "beat",
+                "type": "category",
+                "labels": LABELS,
+                "description": "Which news beat does this story belong to?",
+            }
+        ],
+        "include_justification": True,
+    }
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys=golden_model_keys,
+        use_env_keys=False,
+        cache=ResponseCache(CACHE_PATH),
+        cache_mode=MODE,
+    )
+    runner = MapRunner(p, router, authority=UnroutedOnlyAuthority(p))
 
-        est = estimate_model_run(runner, spec)
-        assert est["cost"] < 0.05, "golden must stay cheap"
+    est = estimate_model_run(runner, spec)
+    assert est["cost"] < 0.05, "golden must stay cheap"
 
-        progress = asyncio.run(run_with_exact_confirmation(runner, spec))
-        assert progress.done and progress.failed == 0
+    progress = asyncio.run(run_with_exact_confirmation(runner, spec))
+    assert progress.done and progress.failed == 0
 
-        beat_col = next(c for c in p.columns(sheet) if c["name"] == "beat")
-        just_col = next(
-            c for c in p.columns(sheet) if c["name"] == "beat_justification"
-        )
-        values = p.get_values(sheet, beat_col["id"])
-        justs = p.get_values(sheet, just_col["id"])
+    beat_col = next(c for c in p.columns(sheet) if c["name"] == "beat")
+    just_col = next(c for c in p.columns(sheet) if c["name"] == "beat_justification")
+    values = p.get_values(sheet, beat_col["id"])
+    justs = p.get_values(sheet, just_col["id"])
 
-        # accuracy against hand labels: require 100% on this easy set
-        row_ids = [
-            r["id"] for r in p.db.execute("SELECT id FROM rows ORDER BY position")
-        ]
-        got = [values[r] for r in row_ids]
-        want = [label for _, label in SNIPPETS]
-        assert got == want, f"misclassified: {list(zip(got, want))}"
-        assert all(justs[r] and len(justs[r]) > 10 for r in row_ids)
+    # accuracy against hand labels: require 100% on this easy set
+    row_ids = [r["id"] for r in p.db.execute("SELECT id FROM rows ORDER BY position")]
+    got = [values[r] for r in row_ids]
+    want = [label for _, label in SNIPPETS]
+    assert got == want, f"misclassified: {list(zip(got, want))}"
+    assert all(justs[r] and len(justs[r]) > 10 for r in row_ids)
 
-        # provenance: the run envelope is queryable
-        run = p.db.execute(
-            "SELECT * FROM runs WHERE id=?", (progress.run_id,)
-        ).fetchone()
-        assert run["model"] == model
-        assert run["prompt_hash"]
-        asyncio.run(router.aclose())
-    finally:
-        p.close()
+    # provenance: the run envelope is queryable
+    run = p.db.execute("SELECT * FROM runs WHERE id=?", (progress.run_id,)).fetchone()
+    assert run["model"] == model
+    assert run["prompt_hash"]
+    asyncio.run(router.aclose())
 
 
-def test_vision_input_reaches_model(tmp_path, golden_model_keys):
+def test_vision_input_reaches_model(tmp_path, make_project, golden_model_keys):
     """Image-column blobs must reach the model as
     pixels. A synthetic card (red background, the word FRISKET) leaves no
     room for interpretation: reading the text proves vision input works."""
@@ -159,54 +149,51 @@ def test_vision_input_reaches_model(tmp_path, golden_model_keys):
     path = tmp_path / "card.png"
     cv2.imwrite(str(path), img)
 
-    p = Project.create(tmp_path / "v.frisket")
-    try:
-        sheet = p.add_sheet("cards")
-        cols = {"card": p.add_column(sheet, "card", type="image")}
-        digest = p.add_blob(path.read_bytes(), filename="card.png", mime="image/png")
-        p.add_rows(sheet, [{"card": {"blob": digest, "mime": "image/png"}}], cols)
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys=golden_model_keys,
-            use_env_keys=False,
-            cache=ResponseCache(CACHE_PATH),
-            cache_mode=MODE,
+    p = make_project("v")
+    sheet = p.add_sheet("cards")
+    cols = {"card": p.add_column(sheet, "card", type="image")}
+    digest = p.add_blob(path.read_bytes(), filename="card.png", mime="image/png")
+    p.add_rows(sheet, [{"card": {"blob": digest, "mime": "image/png"}}], cols)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys=golden_model_keys,
+        use_env_keys=False,
+        cache=ResponseCache(CACHE_PATH),
+        cache_mode=MODE,
+    )
+    runner = MapRunner(p, router, authority=UnroutedOnlyAuthority(p))
+    prog = asyncio.run(
+        run_with_exact_confirmation(
+            runner,
+            {
+                "action_kind": "map.extract",
+                "grounding": {"enabled": False},
+                "model": "gemini/gemini-3.5-flash",
+                "sheet_id": sheet,
+                "input_columns": ["card"],
+                "instruction": "Read the single word printed on the card and "
+                "name the background color.",
+                "fields": [
+                    {"name": "word", "type": "text"},
+                    {
+                        "name": "background",
+                        "type": "category",
+                        "labels": ["red", "green", "blue", "white"],
+                    },
+                ],
+            },
         )
-        runner = MapRunner(p, router, authority=UnroutedOnlyAuthority(p))
-        prog = asyncio.run(
-            run_with_exact_confirmation(
-                runner,
-                {
-                    "action_kind": "map.extract",
-                    "grounding": {"enabled": False},
-                    "model": "gemini/gemini-3.5-flash",
-                    "sheet_id": sheet,
-                    "input_columns": ["card"],
-                    "instruction": "Read the single word printed on the card and "
-                    "name the background color.",
-                    "fields": [
-                        {"name": "word", "type": "text"},
-                        {
-                            "name": "background",
-                            "type": "category",
-                            "labels": ["red", "green", "blue", "white"],
-                        },
-                    ],
-                },
-            )
+    )
+    assert prog.failed == 0, [
+        dict(row)
+        for row in p.db.execute(
+            "SELECT error_code, error FROM results WHERE run_id=?",
+            (prog.run_id,),
         )
-        assert prog.failed == 0, [
-            dict(row)
-            for row in p.db.execute(
-                "SELECT error_code, error FROM results WHERE run_id=?",
-                (prog.run_id,),
-            )
-        ]
-        cols2 = {c["name"]: c["id"] for c in p.columns(sheet)}
-        (word,) = p.get_values(sheet, cols2["word"]).values()
-        (bg,) = p.get_values(sheet, cols2["background"]).values()
-        assert word.strip().upper() == "FRISKET"
-        assert bg == "red"
-        asyncio.run(router.aclose())
-    finally:
-        p.close()
+    ]
+    cols2 = {c["name"]: c["id"] for c in p.columns(sheet)}
+    (word,) = p.get_values(sheet, cols2["word"]).values()
+    (bg,) = p.get_values(sheet, cols2["background"]).values()
+    assert word.strip().upper() == "FRISKET"
+    assert bg == "red"
+    asyncio.run(router.aclose())

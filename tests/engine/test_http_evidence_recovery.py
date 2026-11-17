@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 
-from fastapi.testclient import TestClient
 
 from frisket.engine.store.evidence import (
     record_evidence_link,
@@ -11,7 +9,6 @@ from frisket.engine.store.evidence import (
     record_source_span,
     record_text_surface,
 )
-from frisket.server.app import create_app
 from frisket.server.services import project_evidence as project_evidence_service
 
 
@@ -32,9 +29,8 @@ def _counts(project) -> tuple[int, ...]:
 
 
 def test_manual_text_recovery_is_a_read_only_viewer_preview(
-    tmp_path: Path, monkeypatch
+    client, monkeypatch
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Recovery"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Sources")

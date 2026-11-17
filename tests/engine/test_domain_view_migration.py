@@ -1,12 +1,11 @@
 import json
 
-from frisket.engine.store import Project
 from frisket.upgrades.project.domain_view_migration import migrate_unified_views
 from frisket.engine.views.evaluate import open_selection
 
 
-def test_all_old_definitions_and_watch_identity_survive_one_time_cutover(tmp_path):
-    project = Project.create(tmp_path / "old-views")
+def test_all_old_definitions_and_watch_identity_survive_one_time_cutover(make_project):
+    project = make_project("old-views")
     try:
         sheet = project.add_sheet("records")
         col = project.add_column(sheet, "status")

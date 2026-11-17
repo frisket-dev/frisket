@@ -275,8 +275,8 @@ def test_having_is_numeric_and_denominator_precedes_group_filtering(tmp_path):
     project.close()
 
 
-def test_metric_sort_counts_excluded_groups_in_the_page_query(tmp_path):
-    project = Project.create(tmp_path / "sorted-null-groups.frisket")
+def test_metric_sort_counts_excluded_groups_in_the_page_query(make_project):
+    project = make_project("sorted-null-groups")
     sheet = project.add_sheet("values")
     group = project.add_column(sheet, "group")
     amount = project.add_column(sheet, "amount", type="number")
@@ -342,8 +342,8 @@ def test_metric_sort_counts_excluded_groups_in_the_page_query(tmp_path):
     project.close()
 
 
-def test_overflow_and_pre_cancel_fail_the_whole_analytics_request(tmp_path):
-    project = Project.create(tmp_path / "overflow.frisket", name="overflow")
+def test_overflow_and_pre_cancel_fail_the_whole_analytics_request(make_project):
+    project = make_project("overflow")
     sheet = project.add_sheet("values")
     amount = project.add_column(sheet, "amount", type="integer")
     project.add_rows(
@@ -371,8 +371,8 @@ def test_overflow_and_pre_cancel_fail_the_whole_analytics_request(tmp_path):
     project.close()
 
 
-def test_grouped_float_overflow_hidden_by_having_and_in_denominator_fails(tmp_path):
-    project = Project.create(tmp_path / "grouped-float-overflow.frisket")
+def test_grouped_float_overflow_hidden_by_having_and_in_denominator_fails(make_project):
+    project = make_project("grouped-float-overflow")
 
     hidden_sheet = project.add_sheet("hidden group overflow")
     hidden_group = project.add_column(hidden_sheet, "group", type="category")
@@ -478,7 +478,7 @@ def test_date_bucket_and_missing_locator_are_backend_generated(tmp_path):
 
 
 def test_relative_date_filter_is_anchored_for_results_and_group_replay(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     class AprilTenth(datetime):
         @classmethod
@@ -494,7 +494,7 @@ def test_relative_date_filter_is_anchored_for_results_and_group_replay(
 
     monkeypatch.setattr(querysets, "datetime", AprilTenth)
     monkeypatch.setattr(project_qa_analytics, "datetime", AprilTenth, raising=False)
-    project = Project.create(tmp_path / "anchored-dates.frisket", name="anchored")
+    project = make_project("anchored")
     sheet = project.add_sheet("awards")
     columns = {
         "supplier": project.add_column(sheet, "supplier"),
@@ -588,8 +588,8 @@ def test_value_missing_and_invalid_locators_replay_through_ordinary_query(tmp_pa
     project.close()
 
 
-def test_group_locator_replays_non_ascii_value(tmp_path):
-    project = Project.create(tmp_path / "unicode-group.frisket", name="unicode-group")
+def test_group_locator_replays_non_ascii_value(make_project):
+    project = make_project("unicode-group")
     sheet = project.add_sheet("contracts")
     supplier = project.add_column(sheet, "supplier")
     project.add_rows(
@@ -624,8 +624,8 @@ def test_group_locator_replays_non_ascii_value(tmp_path):
     project.close()
 
 
-def test_numeric_groups_and_distinct_count_use_decoded_values(tmp_path):
-    project = Project.create(tmp_path / "numeric-groups.frisket", name="numeric-groups")
+def test_numeric_groups_and_distinct_count_use_decoded_values(make_project):
+    project = make_project("numeric-groups")
     sheet = project.add_sheet("values")
     amount = project.add_column(sheet, "amount", type="number")
     project.add_rows(
@@ -664,8 +664,8 @@ def test_numeric_groups_and_distinct_count_use_decoded_values(tmp_path):
     project.close()
 
 
-def test_distinct_count_preserves_json_scalar_types(tmp_path):
-    project = Project.create(tmp_path / "json-distinct.frisket", name="json-distinct")
+def test_distinct_count_preserves_json_scalar_types(make_project):
+    project = make_project("json-distinct")
     sheet = project.add_sheet("values")
     value = project.add_column(sheet, "value", type="json")
     project.add_rows(
@@ -689,8 +689,8 @@ def test_distinct_count_preserves_json_scalar_types(tmp_path):
     project.close()
 
 
-def test_count_by_decodes_values_and_keeps_invalid_distinct_from_missing(tmp_path):
-    project = Project.create(tmp_path / "count-by.frisket", name="count-by")
+def test_count_by_decodes_values_and_keeps_invalid_distinct_from_missing(make_project):
+    project = make_project("count-by")
     sheet = project.add_sheet("values")
     amount = project.add_column(sheet, "amount", type="number")
     project.add_rows(
@@ -718,8 +718,8 @@ def test_count_by_decodes_values_and_keeps_invalid_distinct_from_missing(tmp_pat
     project.close()
 
 
-def test_boolean_group_values_and_locators_remain_boolean(tmp_path):
-    project = Project.create(tmp_path / "boolean-groups.frisket", name="boolean-groups")
+def test_boolean_group_values_and_locators_remain_boolean(make_project):
+    project = make_project("boolean-groups")
     sheet = project.add_sheet("values")
     flag = project.add_column(sheet, "flag", type="boolean")
     project.add_rows(
@@ -758,50 +758,45 @@ def test_boolean_group_values_and_locators_remain_boolean(tmp_path):
 
 
 @pytest.mark.parametrize(("literal", "expected"), [("true", 2), ("false", 1)])
-def test_boolean_filter_literals_used_by_ask_tool_guidance(tmp_path, literal, expected):
-    project = Project.create(
-        tmp_path / "boolean-filters.frisket", name="boolean-filters"
+def test_boolean_filter_literals_used_by_ask_tool_guidance(
+    make_project, literal, expected
+):
+    project = make_project("boolean-filters")
+    sheet = project.add_sheet("agencies")
+    public_agency = project.add_column(sheet, "Public agency", type="boolean")
+    project.add_rows(
+        sheet,
+        [
+            {"Public agency": True},
+            {"Public agency": True},
+            {"Public agency": False},
+        ],
+        {"Public agency": public_agency},
     )
-    try:
-        sheet = project.add_sheet("agencies")
-        public_agency = project.add_column(sheet, "Public agency", type="boolean")
-        project.add_rows(
-            sheet,
-            [
-                {"Public agency": True},
-                {"Public agency": True},
-                {"Public agency": False},
-            ],
-            {"Public agency": public_agency},
-        )
-        filter_ = {"Public agency": {"eq": literal}}
-        query = {
-            "schema_version": "frisket.query.v1",
-            "kind": "sheet.filter",
-            "scope": {"kind": "sheet", "sheet_id": sheet},
+    filter_ = {"Public agency": {"eq": literal}}
+    query = {
+        "schema_version": "frisket.query.v1",
+        "kind": "sheet.filter",
+        "scope": {"kind": "sheet", "sheet_id": sheet},
+        "filter": filter_,
+    }
+    assert (
+        evaluate_query(project, query, {"kind": "sheet", "sheet_id": sheet})["total"]
+        == expected
+    )
+    request = AnalyticsRequest.model_validate(
+        {
+            "sheet_id": sheet,
             "filter": filter_,
+            "metrics": [{"id": "rows", "kind": "count"}],
         }
-        assert (
-            evaluate_query(project, query, {"kind": "sheet", "sheet_id": sheet})[
-                "total"
-            ]
-            == expected
-        )
-        request = AnalyticsRequest.model_validate(
-            {
-                "sheet_id": sheet,
-                "filter": filter_,
-                "metrics": [{"id": "rows", "kind": "count"}],
-            }
-        )
-        assert (
-            evaluate_analytics(project, request, {"kind": "sheet", "sheet_id": sheet})[
-                "row_count"
-            ]
-            == expected
-        )
-    finally:
-        project.close()
+    )
+    assert (
+        evaluate_analytics(project, request, {"kind": "sheet", "sheet_id": sheet})[
+            "row_count"
+        ]
+        == expected
+    )
 
 
 def test_analytics_rejects_plugin_filter_and_non_numeric_sum(tmp_path):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
@@ -85,9 +84,9 @@ def _judge_receipt(
 
 
 def test_column_run_scores_keep_humans_and_exact_completed_judges_separate(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "scores.frisket", name="scores")
+    project = make_project("scores")
     sheet_id = project.add_sheet("stories")
     source_column_id = project.add_column(sheet_id, "answer", type="text")
     other_source_column_id = project.add_column(sheet_id, "other_answer", type="text")

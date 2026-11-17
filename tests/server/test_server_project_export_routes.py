@@ -13,7 +13,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.server.routes.exports import register_project_export_routes
 from frisket.server.services.project_exports import (
     ProjectExportError,
@@ -62,9 +61,8 @@ class _FailingProjectExportService:
 
 
 def test_project_export_routes_preserve_bundle_and_action_contract(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     pid, sheet_id = _make_project(client)
 
     action_links = client.get(f"/api/projects/{pid}/actions/export")
@@ -102,8 +100,8 @@ def test_project_export_routes_preserve_bundle_and_action_contract(
 
 def test_project_export_routes_preserve_include_media_and_database_mode(
     tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     pid, _ = _make_project(client)
     blob = client.post(
         f"/api/projects/{pid}/import/files",
@@ -147,9 +145,8 @@ def test_project_export_routes_preserve_include_media_and_database_mode(
 
 
 def test_project_export_routes_preserve_404s_and_mode_validation(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     pid, _ = _make_project(client)
 
     assert client.get("/api/projects/nope/actions/export").status_code == 404
@@ -158,8 +155,7 @@ def test_project_export_routes_preserve_404s_and_mode_validation(
     assert client.get(f"/api/projects/{pid}/export?mode=archive").status_code == 422
 
 
-def test_project_export_filenames_use_safe_download_helper(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_project_export_filenames_use_safe_download_helper(client) -> None:
     pid = client.post(
         "/api/projects",
         json={"name": 'Unsafe "Export" Name'},

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.engine.store.runs import RunResultStore
 from frisket.operability.trace import trace_path
 from helpers import write_claimed_test_results
@@ -107,9 +106,8 @@ def _seed_completed_run_with_failed_row(client: TestClient) -> tuple[str, int, i
 
 
 def test_action_run_rows_route_exposes_error_rows_with_action_metadata(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id, run_id, failed_row_id = _seed_completed_run_with_failed_row(client)
 
     response = client.get(

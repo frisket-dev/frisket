@@ -24,7 +24,6 @@ from frisket.actions.types import (
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
@@ -39,7 +38,7 @@ class Output(BaseModel):
 
 
 def test_cancelled_typed_receipt_owns_only_produced_rows_and_replays_exact_heads(
-    tmp_path,
+    make_project,
     monkeypatch,
 ):
     calls = []
@@ -65,126 +64,119 @@ def test_cancelled_typed_receipt_owns_only_produced_rows_and_replays_exact_heads
             )
         ]
     )
-    project = Project.create(tmp_path / "cancelled-receipt.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        source = project.add_column(sheet, "source")
-        rows = project.add_rows(
-            sheet,
-            [{"source": value} for value in ("one", "two", "three")],
-            {"source": source},
+    project = make_project("cancelled-receipt")
+    sheet = project.add_sheet("data")
+    source = project.add_column(sheet, "source")
+    rows = project.add_rows(
+        sheet,
+        [{"source": value} for value in ("one", "two", "three")],
+        {"source": source},
+    )
+
+    def bind(selected, *, key, replace=False):
+        request = ActionRequest(
+            action_id="test.cancelled_render",
+            scope=SheetRows(sheet_id=sheet, row_ids=tuple(selected)),
+            params={"source": "source", "tag": key},
+            output_names={"rendered": "Rendered"},
+            replace_existing=replace,
+            idempotency_key=key,
         )
+        return BoundTypedActionRequest.bind(registry.get(request.action_id), request)
 
-        def bind(selected, *, key, replace=False):
-            request = ActionRequest(
-                action_id="test.cancelled_render",
-                scope=SheetRows(sheet_id=sheet, row_ids=tuple(selected)),
-                params={"source": "source", "tag": key},
-                output_names={"rendered": "Rendered"},
-                replace_existing=replace,
-                idempotency_key=key,
-            )
-            return BoundTypedActionRequest.bind(
-                registry.get(request.action_id), request
-            )
-
-        def factory(store, router, *, cancel_after_result=False):
-            return MapRunner(
-                store,
-                router,
-                concurrency=1,
-                should_cancel=(
-                    lambda run_id: (
-                        store.db.execute(
-                            "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
-                        ).fetchone()[0]
-                        >= 1
-                    )
+    def factory(store, router, *, cancel_after_result=False):
+        return MapRunner(
+            store,
+            router,
+            concurrency=1,
+            should_cancel=(
+                lambda run_id: (
+                    store.db.execute(
+                        "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+                    ).fetchone()[0]
+                    >= 1
                 )
-                if cancel_after_result
-                else None,
-                authority=UnroutedOnlyAuthority(store),
             )
-
-        def run(bound, runner_factory=factory):
-            return run_typed_map_rows_action(
-                project,
-                "project-1",
-                bound,
-                ModelRouter(
-                    model_call_policy=LOCAL_PURCHASE_POLICY,
-                    cache=None,
-                    cache_mode="off",
-                    use_env_keys=False,
-                ),
-                runner_factory,
-            )
-
-        seed = run(bind(rows, key="seed"))
-        assert seed.status == "completed", seed.errors
-        assert len(calls) == 3
-        output = next(
-            column for column in project.columns(sheet) if column["name"] == "Rendered"
-        )
-        bound = bind(rows[:2], key="cancelled", replace=True)
-        # This receipt/replay fixture cancels after observing one durable row.
-        # Force that boundary independently of the normal local batch size.
-        with monkeypatch.context() as publication:
-            publication.setattr(
-                "frisket.engine.runner.map_runner.LOCAL_RESULT_BATCH_ROWS", 1
-            )
-            cancelled = run(
-                bound,
-                lambda store, router: factory(store, router, cancel_after_result=True),
-            )
-        assert cancelled.status == "cancelled", cancelled.errors
-        assert calls[3:] == [("cancelled", "one")]
-        produced = project.db.execute(
-            "SELECT row_id FROM results WHERE run_id=? ORDER BY row_id",
-            (cancelled.run_id,),
-        ).fetchall()
-        assert [row["row_id"] for row in produced] == rows[:1]
-
-        receipt = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (cancelled.receipt_id,)
-            ).fetchone()["body"]
-        )
-        refs = [item["ref"] for item in receipt["outputs"]]
-        assert len(refs) == 1
-        assert refs[0]["kind"] == "map_result_column"
-        assert refs[0]["run_id"] == cancelled.run_id
-        assert refs[0]["row_ids"] == rows[:1]
-        # The selected-but-unproduced row is explicitly not completed; only
-        # the unselected row retains its old head. Neither is evidence of a
-        # produced answer from this cancelled replacement invocation.
-        heads = ResultGenerationStore(project).read_cell_heads(output["id"])
-        assert heads[rows[0]].run_id == cancelled.run_id
-        assert rows[1] not in heads
-        assert heads[rows[2]].run_id == seed.run_id
-        values, refs = project.get_values_with_refs(sheet, output["id"], row_ids=rows)
-        assert values[rows[1]] is None
-        assert refs[rows[1]]["outcome"] == "not_completed"
-
-        def forbidden_runner(*_args):
-            raise AssertionError("same-key replay must not create a runner")
-
-        before_runs = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-        replay = run(bound, forbidden_runner)
-        assert replay.status == "cancelled", replay.errors
-        assert replay.receipt_id == cancelled.receipt_id
-        assert replay.run_id == cancelled.run_id
-        assert len(calls) == 4
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == before_runs
+            if cancel_after_result
+            else None,
+            authority=UnroutedOnlyAuthority(store),
         )
 
-        successor = run(bind(rows[:1], key="successor", replace=True))
-        assert successor.status == "completed", successor.errors
-        stale = run(bound, forbidden_runner)
-        assert stale.status == "failed"
-        assert [error.code for error in stale.errors] == ["stale_replay"]
-        assert stale.errors[0].details["changed_row_ids"] == rows[:1]
-        assert len(calls) == 5
-    finally:
-        project.close()
+    def run(bound, runner_factory=factory):
+        return run_typed_map_rows_action(
+            project,
+            "project-1",
+            bound,
+            ModelRouter(
+                model_call_policy=LOCAL_PURCHASE_POLICY,
+                cache=None,
+                cache_mode="off",
+                use_env_keys=False,
+            ),
+            runner_factory,
+        )
+
+    seed = run(bind(rows, key="seed"))
+    assert seed.status == "completed", seed.errors
+    assert len(calls) == 3
+    output = next(
+        column for column in project.columns(sheet) if column["name"] == "Rendered"
+    )
+    bound = bind(rows[:2], key="cancelled", replace=True)
+    # This receipt/replay fixture cancels after observing one durable row.
+    # Force that boundary independently of the normal local batch size.
+    with monkeypatch.context() as publication:
+        publication.setattr(
+            "frisket.engine.runner.map_runner.LOCAL_RESULT_BATCH_ROWS", 1
+        )
+        cancelled = run(
+            bound,
+            lambda store, router: factory(store, router, cancel_after_result=True),
+        )
+    assert cancelled.status == "cancelled", cancelled.errors
+    assert calls[3:] == [("cancelled", "one")]
+    produced = project.db.execute(
+        "SELECT row_id FROM results WHERE run_id=? ORDER BY row_id",
+        (cancelled.run_id,),
+    ).fetchall()
+    assert [row["row_id"] for row in produced] == rows[:1]
+
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (cancelled.receipt_id,)
+        ).fetchone()["body"]
+    )
+    refs = [item["ref"] for item in receipt["outputs"]]
+    assert len(refs) == 1
+    assert refs[0]["kind"] == "map_result_column"
+    assert refs[0]["run_id"] == cancelled.run_id
+    assert refs[0]["row_ids"] == rows[:1]
+    # The selected-but-unproduced row is explicitly not completed; only
+    # the unselected row retains its old head. Neither is evidence of a
+    # produced answer from this cancelled replacement invocation.
+    heads = ResultGenerationStore(project).read_cell_heads(output["id"])
+    assert heads[rows[0]].run_id == cancelled.run_id
+    assert rows[1] not in heads
+    assert heads[rows[2]].run_id == seed.run_id
+    values, refs = project.get_values_with_refs(sheet, output["id"], row_ids=rows)
+    assert values[rows[1]] is None
+    assert refs[rows[1]]["outcome"] == "not_completed"
+
+    def forbidden_runner(*_args):
+        raise AssertionError("same-key replay must not create a runner")
+
+    before_runs = project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    replay = run(bound, forbidden_runner)
+    assert replay.status == "cancelled", replay.errors
+    assert replay.receipt_id == cancelled.receipt_id
+    assert replay.run_id == cancelled.run_id
+    assert len(calls) == 4
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == before_runs
+
+    successor = run(bind(rows[:1], key="successor", replace=True))
+    assert successor.status == "completed", successor.errors
+    stale = run(bound, forbidden_runner)
+    assert stale.status == "failed"
+    assert [error.code for error in stale.errors] == ["stale_replay"]
+    assert stale.errors[0].details["changed_row_ids"] == rows[:1]
+    assert len(calls) == 5

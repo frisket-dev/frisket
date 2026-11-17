@@ -586,9 +586,9 @@ def test_sidecar_without_a_producing_transcript_run_is_rejected(tmp_path: Path) 
 
 
 def test_completed_partial_run_resolves_only_rows_with_successful_sidecars(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "partial-topic.frisket", name="partial")
+    project = make_project("partial")
     sheet_id = project.add_sheet("Interviews")
     source_column_id = project.add_column(sheet_id, "Source", "text")
     selection_column_id = project.add_column(

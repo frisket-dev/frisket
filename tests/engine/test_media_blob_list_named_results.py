@@ -6,7 +6,6 @@ from typing import Any
 
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.engine.store import Project
 
 from test_media_extract_faces_executor import (
     _extract_faces_action,
@@ -55,9 +54,10 @@ def _derive_action(
 
 def test_media_extract_faces_named_result_feeds_typed_image_derive(
     tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
-    project = Project.create(tmp_path / "faces.frisket", name="blob list faces")
+    project = make_project("blob list faces")
     seeded = _seed_image_rows(project, tmp_path)
     sheet_id, row_ids = seeded["sheet_id"], seeded["row_ids"]
 
@@ -144,9 +144,10 @@ def test_media_extract_faces_named_result_feeds_typed_image_derive(
 
 def test_media_video_frames_named_result_feeds_typed_image_derive(
     tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
-    project = Project.create(tmp_path / "frames.frisket", name="blob list frames")
+    project = make_project("blob list frames")
     seeded = _seed_video_rows(project, tmp_path)
     sheet_id, row_ids = seeded["sheet_id"], seeded["row_ids"]
 

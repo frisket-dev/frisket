@@ -37,7 +37,7 @@ def _action(urls: list[str], *, key: str) -> dict[str, Any]:
 
 
 def test_import_urls_action_processes_every_url_beyond_the_legacy_ceiling(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     seen: list[str] = []
@@ -48,21 +48,18 @@ def test_import_urls_action_processes_every_url_beyond_the_legacy_ceiling(
         return f"ID3{url}".encode(), "audio/mpeg", "episode.mp3", None
 
     monkeypatch.setattr(import_family, "download_url", fake_download)
-    project = Project.create(tmp_path / "urls.frisket", name="Many URLs")
-    try:
-        result = run_action_spec(
-            project,
-            _action(urls, key="import_urls@sha256:many"),
-            project_id="project-many-urls",
-        )
+    project = make_project("Many URLs")
+    result = run_action_spec(
+        project,
+        _action(urls, key="import_urls@sha256:many"),
+        project_id="project-many-urls",
+    )
 
-        assert result.status == "completed", result.errors
-        assert seen == urls
-        rows = next(output for output in result.outputs if output.kind == "rows")
-        assert len(rows.row_ids or []) == len(urls)
-        assert project.row_count(int(rows.sheet_id)) == len(urls)
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    assert seen == urls
+    rows = next(output for output in result.outputs if output.kind == "rows")
+    assert len(rows.row_ids or []) == len(urls)
+    assert project.row_count(int(rows.sheet_id)) == len(urls)
 
 
 def test_typed_url_table_names_receipt_and_replay(tmp_path, monkeypatch):
@@ -374,7 +371,7 @@ def test_custom_params_capability_uses_actual_arguments_and_quota(
 
 
 def test_import_urls_action_uses_the_injected_limit_before_network_or_mutation(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     seen: list[str] = []
@@ -384,47 +381,40 @@ def test_import_urls_action_uses_the_injected_limit_before_network_or_mutation(
         return b"ID3fixture", "audio/mpeg", "episode.mp3", None
 
     monkeypatch.setattr(import_family, "download_url", fake_download)
-    project = Project.create(tmp_path / "bounded.frisket", name="Bounded URLs")
-    try:
-        exact = ["https://cdn.example/one.mp3", "https://cdn.example/two.mp3"]
-        accepted = run_action_spec(
-            project,
-            _action(exact, key="import_urls@sha256:exact-bound"),
-            project_id="project-bounded-urls",
-            deps=ExecutorDeps(url_import_limits=UrlImportLimits(max_urls=2)),
-        )
-        assert accepted.status == "completed", accepted.errors
-        assert seen == exact
-        before = {
-            table: int(
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            )
-            for table in ("sheets", "rows", "cells", "blobs", "ops", "receipts")
-        }
+    project = make_project("Bounded URLs")
+    exact = ["https://cdn.example/one.mp3", "https://cdn.example/two.mp3"]
+    accepted = run_action_spec(
+        project,
+        _action(exact, key="import_urls@sha256:exact-bound"),
+        project_id="project-bounded-urls",
+        deps=ExecutorDeps(url_import_limits=UrlImportLimits(max_urls=2)),
+    )
+    assert accepted.status == "completed", accepted.errors
+    assert seen == exact
+    before = {
+        table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in ("sheets", "rows", "cells", "blobs", "ops", "receipts")
+    }
 
-        refused = run_action_spec(
-            project,
-            _action(
-                [
-                    *exact,
-                    "https://cdn.example/three.mp3",
-                ],
-                key="import_urls@sha256:over-bound",
-            ),
-            project_id="project-bounded-urls",
-            deps=ExecutorDeps(url_import_limits=UrlImportLimits(max_urls=2)),
-        )
+    refused = run_action_spec(
+        project,
+        _action(
+            [
+                *exact,
+                "https://cdn.example/three.mp3",
+            ],
+            key="import_urls@sha256:over-bound",
+        ),
+        project_id="project-bounded-urls",
+        deps=ExecutorDeps(url_import_limits=UrlImportLimits(max_urls=2)),
+    )
 
-        assert refused.status == "failed"
-        assert refused.errors[0].code == "url_limit_exceeded"
-        assert "2" in refused.errors[0].message
-        assert seen == exact
-        after = {
-            table: int(
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            )
-            for table in ("sheets", "rows", "cells", "blobs", "ops", "receipts")
-        }
-        assert after == before
-    finally:
-        project.close()
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "url_limit_exceeded"
+    assert "2" in refused.errors[0].message
+    assert seen == exact
+    after = {
+        table: int(project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in ("sheets", "rows", "cells", "blobs", "ops", "receipts")
+    }
+    assert after == before

@@ -144,10 +144,10 @@ def test_projection_runtime_contract_calls_trusted_status_and_build_handler(
 
 
 def test_projection_runtime_contract_fails_closed_for_unbound_kind(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     _reset_default_registry_for_tests()
-    project = Project.create(tmp_path / "unbound-projection.frisket")
+    project = make_project("unbound-projection")
 
     assert projection_runtime_binding("frisket.runtime_demo.unbound") is None
 

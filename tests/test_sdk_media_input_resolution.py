@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.executor import run_action_spec
 from frisket.ops.integrations import natural_pdf
 
@@ -23,78 +22,75 @@ from frisket.ops.integrations import natural_pdf
 )
 @pytest.mark.parametrize("failure", ("sheet", "column", "type", "rows", "empty"))
 def test_typed_media_input_admission_precedes_execution(
-    tmp_path, monkeypatch, action_id, column_type, accepted_types, failure
+    make_project, monkeypatch, action_id, column_type, accepted_types, failure
 ):
     def forbidden(*args, **kwargs):
         pytest.fail("Invalid or empty inputs must not dispatch a media download")
 
     monkeypatch.setattr("frisket.ops.ytdlp.download_media", forbidden)
-    project = Project.create(tmp_path / "typed-media-inputs.frisket")
-    try:
-        sheet = project.add_sheet("Media")
-        name = "missing" if failure == "column" else "source"
-        columns = {}
-        if failure != "column":
-            columns[name] = project.add_column(
-                sheet, name, type="boolean" if failure == "type" else column_type
-            )
-        rows = project.add_rows(sheet, [{}], columns) if failure == "rows" else []
-        result = run_action_spec(
-            project,
-            {
-                "action_id": action_id,
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": 999_999 if failure == "sheet" else sheet,
-                    "row_ids": [*rows, 999_999] if failure == "rows" else None,
-                },
-                "params": {
-                    "source": name,
-                    **(
-                        {"engine": "faster_whisper"}
-                        if action_id == "media.transcribe"
-                        else {}
-                    ),
-                },
-                "idempotency_key": f"input-{failure}",
-            },
-            project_id="p",
+    project = make_project("typed-media-inputs")
+    sheet = project.add_sheet("Media")
+    name = "missing" if failure == "column" else "source"
+    columns = {}
+    if failure != "column":
+        columns[name] = project.add_column(
+            sheet, name, type="boolean" if failure == "type" else column_type
         )
-        if failure == "empty":
-            # Empty typed media work is a no-op, including known-free local
-            # downloads. Admission still runs before any transport dispatch.
-            assert result.status == "completed", result.errors
-            assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
-            assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
-            return
-        assert result.status == "failed", result.errors
-        assert result.errors[0].code == "invalid_input_ref", result.errors
-        assert result.errors[0].action_kind == action_id
-        assert {
-            table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("runs", "blobs", "results")
-        } == {"runs": 0, "blobs": 0, "results": 0}
-        if failure == "column":
-            assert result.errors[0].details == {"columns": [name]}
-        elif failure == "type":
-            assert result.errors[0].details == {
-                "columns": [
-                    {
-                        "name": name,
-                        "actual_type": "boolean",
-                        "accepted_column_types": accepted_types,
-                    }
-                ]
-            }
-    finally:
-        project.close()
+    rows = project.add_rows(sheet, [{}], columns) if failure == "rows" else []
+    result = run_action_spec(
+        project,
+        {
+            "action_id": action_id,
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": 999_999 if failure == "sheet" else sheet,
+                "row_ids": [*rows, 999_999] if failure == "rows" else None,
+            },
+            "params": {
+                "source": name,
+                **(
+                    {"engine": "faster_whisper"}
+                    if action_id == "media.transcribe"
+                    else {}
+                ),
+            },
+            "idempotency_key": f"input-{failure}",
+        },
+        project_id="p",
+    )
+    if failure == "empty":
+        # Empty typed media work is a no-op, including known-free local
+        # downloads. Admission still runs before any transport dispatch.
+        assert result.status == "completed", result.errors
+        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
+        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
+        return
+    assert result.status == "failed", result.errors
+    assert result.errors[0].code == "invalid_input_ref", result.errors
+    assert result.errors[0].action_kind == action_id
+    assert {
+        table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in ("runs", "blobs", "results")
+    } == {"runs": 0, "blobs": 0, "results": 0}
+    if failure == "column":
+        assert result.errors[0].details == {"columns": [name]}
+    elif failure == "type":
+        assert result.errors[0].details == {
+            "columns": [
+                {
+                    "name": name,
+                    "actual_type": "boolean",
+                    "accepted_column_types": accepted_types,
+                }
+            ]
+        }
 
 
 @pytest.mark.parametrize("failure", ("sheet", "column", "type", "rows", "empty"))
 def test_typed_pdf_input_refusals_precede_reader_dispatch(
-    tmp_path, monkeypatch, failure
+    make_project, monkeypatch, failure
 ):
-    project = Project.create(tmp_path / "pdf-input-resolution.frisket")
+    project = make_project("pdf-input-resolution")
 
     def forbidden(*args, **kwargs):
         raise AssertionError("Invalid inputs must not reach PDF extraction")

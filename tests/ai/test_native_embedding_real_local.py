@@ -16,7 +16,6 @@ from frisket.ai.embeddings import EmbeddingGateway
 from frisket.ai.embeddings.backends import local_embedder
 from frisket.ai.embeddings.similarity import resolve_embedding_similarity
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 
 pytestmark = [
     pytest.mark.network,
@@ -38,8 +37,8 @@ def _row(project, sheet, col, text):
     return next(r for r, v in project.get_values(sheet, col).items() if v == text)
 
 
-def test_real_local_text_embedding_end_to_end(tmp_path):
-    project = Project.create(tmp_path / "p.frisket", name="p")
+def test_real_local_text_embedding_end_to_end(make_project):
+    project = make_project("p")
     sheet = project.add_sheet("s")
     col = project.add_column(sheet, "headline")
     project.add_rows(sheet, [{"headline": t} for t in _ROWS], {"headline": col})

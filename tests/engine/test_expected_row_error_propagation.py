@@ -28,7 +28,6 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.action_families.runs import _resolve_backfill_target
 from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import (
@@ -85,15 +84,6 @@ REGISTRY = ActionRegistry(
         )
     ]
 )
-
-
-@pytest.fixture
-def project(tmp_path):
-    store = Project.create(tmp_path / "row-errors.frisket", name="Row errors")
-    try:
-        yield store
-    finally:
-        store.close()
 
 
 def _run(project, values, *, threshold=3):

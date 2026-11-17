@@ -191,7 +191,7 @@ def test_classify_model_call_receipt_binds_to_route(
 
 @pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
 def test_classify_quote_measures_selected_text_and_questions(
-    tmp_path, monkeypatch, action_id
+    make_project, monkeypatch, action_id
 ):
     from frisket.actions.registry import ACTION_REGISTRY
     from frisket.actions.system import BoundTypedActionRequest
@@ -203,7 +203,6 @@ def test_classify_quote_measures_selected_text_and_questions(
         estimate_clef_input_tokens,
     )
     from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-    from frisket.engine.store import Project
     from frisket.execution.provider import (
         ExecutionCompositionContext,
         open_execution_composition,
@@ -212,63 +211,60 @@ def test_classify_quote_measures_selected_text_and_questions(
 
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", ACCOUNT_ID)
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "token")
-    project = Project.create(tmp_path / "classify.frisket", name="classify")
-    try:
-        sheet = project.add_sheet("Text")
-        column = project.add_column(sheet, "body", type="text")
-        row_ids = project.add_rows(
-            sheet,
-            [{"body": "hello"}, {"body": "  "}, {"body": "excluded " * 1000}],
-            {"body": column},
+    project = make_project("classify")
+    sheet = project.add_sheet("Text")
+    column = project.add_column(sheet, "body", type="text")
+    row_ids = project.add_rows(
+        sheet,
+        [{"body": "hello"}, {"body": "  "}, {"body": "excluded " * 1000}],
+        {"body": column},
+    )
+    fields = [{"name": "topic", "type": "category", "labels": ["a", "b"]}]
+    parameters = {
+        "source": ["body"],
+        "engine": "clef",
+        "fields": fields,
+        "context": "News archive",
+    }
+    if action_id == "map.classify":
+        # The public field default is category; durable identities omit it.
+        parameters["fields"] = [{"name": "topic", "labels": ["a", "b"]}]
+    else:
+        parameters.update(
+            grounding=None, instruction="Decide only from explicit content."
         )
-        fields = [{"name": "topic", "type": "category", "labels": ["a", "b"]}]
-        parameters = {
-            "source": ["body"],
-            "engine": "clef",
-            "fields": fields,
-            "context": "News archive",
-        }
-        if action_id == "map.classify":
-            # The public field default is category; durable identities omit it.
-            parameters["fields"] = [{"name": "topic", "labels": ["a", "b"]}]
-        else:
-            parameters.update(
-                grounding=None, instruction="Decide only from explicit content."
-            )
-        plan = build_typed_map_rows_plan(
-            project,
-            BoundTypedActionRequest.bind(
-                ACTION_REGISTRY.get(action_id),
-                ActionRequest(
-                    action_id=action_id,
-                    scope=SheetRows(sheet_id=sheet, row_ids=row_ids[:2]),
-                    params=parameters,
-                    idempotency_key="classify-quote",
-                ),
+    plan = build_typed_map_rows_plan(
+        project,
+        BoundTypedActionRequest.bind(
+            ACTION_REGISTRY.get(action_id),
+            ActionRequest(
+                action_id=action_id,
+                scope=SheetRows(sheet_id=sheet, row_ids=row_ids[:2]),
+                params=parameters,
+                idempotency_key="classify-quote",
             ),
-        )
-        resolved = resolve_for_action(
+        ),
+    )
+    resolved = resolve_for_action(
+        project,
+        plan.spec_dict(),
+        plan.program,
+        composition=open_execution_composition(
             project,
-            plan.spec_dict(),
-            plan.program,
-            composition=open_execution_composition(
-                project,
-                ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-                ExecutionCompositionContext.direct(),
-            ),
-        )
-        assert resolved is not None and not isinstance(resolved, Refusal)
-        assert resolved.resolution.target.id == "cloudflare-clef"
-        assert resolved.resolution.facts.egress_class == "third_party_api"
-        basis = resolved.cost_basis
-        assert isinstance(basis, PricedCostBasis)
-        expected = estimate_clef_input_tokens(
-            "hello", clef_questions(fields, classification_context(parameters))
-        )
-        assert int(basis.estimated_quantity) == expected
-        claims = {
-            p.field for p in resolved.promise_set.promises if p.audience == "user_claim"
-        }
-        assert claims >= {"cost", "egress_class"}
-    finally:
-        project.close()
+            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
+            ExecutionCompositionContext.direct(),
+        ),
+    )
+    assert resolved is not None and not isinstance(resolved, Refusal)
+    assert resolved.resolution.target.id == "cloudflare-clef"
+    assert resolved.resolution.facts.egress_class == "third_party_api"
+    basis = resolved.cost_basis
+    assert isinstance(basis, PricedCostBasis)
+    expected = estimate_clef_input_tokens(
+        "hello", clef_questions(fields, classification_context(parameters))
+    )
+    assert int(basis.estimated_quantity) == expected
+    claims = {
+        p.field for p in resolved.promise_set.promises if p.audience == "user_claim"
+    }
+    assert claims >= {"cost", "egress_class"}

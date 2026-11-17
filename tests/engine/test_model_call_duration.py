@@ -42,13 +42,6 @@ from frisket.engine.store.runs import RunResultStore
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "duration.frisket", name="duration")
-    yield p
-    p.close()
-
-
 def _row_and_column(p: Project) -> tuple[int, int, int]:
     sheet = p.add_sheet("data")
     col = p.add_column(sheet, "text")

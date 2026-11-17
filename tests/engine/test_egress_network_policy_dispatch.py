@@ -32,13 +32,6 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.consent_coverage import ConsentCoverage
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
-
-
 def _seed_statement_sheet(p: Project) -> int:
     sheet = p.add_sheet("data")
     cols = {"statement": p.add_column(sheet, "statement")}

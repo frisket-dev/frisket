@@ -1,14 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
-
-
-def test_work_log_export_routes_preserve_download_contract(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_work_log_export_routes_preserve_download_contract(client) -> None:
     pid = client.post("/api/projects", json={"name": "Export Test"}).json()["id"]
 
     cases = (

@@ -27,7 +27,6 @@ from frisket.actions.types import (
 from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
 from frisket.engine.runner.network_policy import remote_capability_for_spec
 from frisket.engine.runner.validation import NetworkDisabled, assert_network_policy
-from frisket.engine.store import Project
 from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
 
 
@@ -65,7 +64,7 @@ CUSTOM = ActionRegistry(
 @pytest.mark.parametrize("custom", [False, True])
 @pytest.mark.parametrize("engine", ["markitdown", "docling", "datalab"])
 def test_document_network_policy_follows_capability_not_builtin_id(
-    tmp_path, custom, engine
+    make_project, custom, engine
 ):
     action_id = "custom.document" if custom else "media.to_markdown"
     registry = CUSTOM if custom else ACTION_REGISTRY
@@ -92,19 +91,16 @@ def test_document_network_policy_follows_capability_not_builtin_id(
     spec["capabilities"] = [] if engine == "datalab" else ["external:datalab"]
     remote = remote_capability_for_spec(plan.program, spec)
     assert remote == ("engine:datalab" if engine == "datalab" else None)
-    project = Project.create(tmp_path / "policy.frisket")
-    try:
-        project.set_network_policy(mode="off")
-        if engine == "datalab":
-            with pytest.raises(NetworkDisabled):
-                assert_network_policy(project, plan.program, spec)
-        else:
+    project = make_project("policy")
+    project.set_network_policy(mode="off")
+    if engine == "datalab":
+        with pytest.raises(NetworkDisabled):
             assert_network_policy(project, plan.program, spec)
-    finally:
-        project.close()
+    else:
+        assert_network_policy(project, plan.program, spec)
 
 
-def test_network_policy_uses_selected_route_egress(tmp_path):
+def test_network_policy_uses_selected_route_egress(make_project):
     request = ActionRequest(
         action_id="media.to_markdown",
         scope=SheetRows(sheet_id=1),
@@ -115,21 +111,18 @@ def test_network_policy_uses_selected_route_egress(tmp_path):
         BoundTypedActionRequest.bind(ACTION_REGISTRY.get(request.action_id), request)
     )
     spec = plan.spec_dict()
-    project = Project.create(tmp_path / "selected-route.frisket")
-    try:
-        project.set_network_policy(mode="off")
+    project = make_project("selected-route")
+    project.set_network_policy(mode="off")
+    assert_network_policy(
+        project,
+        plan.program,
+        spec,
+        selected_egress_class="operator_lan",
+    )
+    with pytest.raises(NetworkDisabled, match="execution_route:frisket_shared"):
         assert_network_policy(
             project,
             plan.program,
             spec,
-            selected_egress_class="operator_lan",
+            selected_egress_class="frisket_shared",
         )
-        with pytest.raises(NetworkDisabled, match="execution_route:frisket_shared"):
-            assert_network_policy(
-                project,
-                plan.program,
-                spec,
-                selected_egress_class="frisket_shared",
-            )
-    finally:
-        project.close()

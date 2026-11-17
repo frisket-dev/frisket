@@ -516,62 +516,59 @@ def test_running_execution_keeps_completed_rows_reviewable(tmp_path, monkeypatch
 
 
 def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del monkeypatch
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.runs import RunResultStore
     from helpers import write_claimed_test_results
 
-    project = Project.create(tmp_path / "review-error-sibling.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
-        error_id = project.add_column(sheet_id, "other", ai_generated=True)
-        row_id = project.add_rows(sheet_id, [{}], {})[0]
-        op_id = project.append_op("map", {"fixture": "mixed review outcomes"})
-        run_id = RunResultStore(project).start_run(
-            op_id,
-            sheet_id,
-            "map.extract",
-            row_ids=[row_id],
-            total_rows=1,
-        )
-        write_claimed_test_results(
-            project,
-            run_id,
-            [
-                {"row_id": row_id, "column_id": answer_id, "value": "ok"},
-                {
-                    "row_id": row_id,
-                    "column_id": error_id,
-                    "error": "bad sibling",
-                    "outcome": "model_error",
-                },
-            ],
-        )
-        RunResultStore(project).finish_run(run_id, "completed")
-        page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
-        [bundle] = page["bundles"]
-        assert [item["column_id"] for item in bundle["fields"]] == [answer_id]
-        assert [item["column_id"] for item in bundle["evidence"]] == [error_id]
-        [review_run] = review_runs_page(project, run_id=run_id)["runs"]
-        assert [field["column_id"] for field in review_run["fields"]] == [answer_id]
+    project = make_project("review-error-sibling")
+    sheet_id = project.add_sheet("Rows")
+    answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
+    error_id = project.add_column(sheet_id, "other", ai_generated=True)
+    row_id = project.add_rows(sheet_id, [{}], {})[0]
+    op_id = project.append_op("map", {"fixture": "mixed review outcomes"})
+    run_id = RunResultStore(project).start_run(
+        op_id,
+        sheet_id,
+        "map.extract",
+        row_ids=[row_id],
+        total_rows=1,
+    )
+    write_claimed_test_results(
+        project,
+        run_id,
+        [
+            {"row_id": row_id, "column_id": answer_id, "value": "ok"},
+            {
+                "row_id": row_id,
+                "column_id": error_id,
+                "error": "bad sibling",
+                "outcome": "model_error",
+            },
+        ],
+    )
+    RunResultStore(project).finish_run(run_id, "completed")
+    page = review_bundle_page(project, run_id=run_id, include_reviewed=True)
+    [bundle] = page["bundles"]
+    assert [item["column_id"] for item in bundle["fields"]] == [answer_id]
+    assert [item["column_id"] for item in bundle["evidence"]] == [error_id]
+    [review_run] = review_runs_page(project, run_id=run_id)["runs"]
+    assert [field["column_id"] for field in review_run["fields"]] == [answer_id]
 
-        accepted = run_action_spec(
-            project,
-            _review_action(
-                run_id=run_id,
-                row_id=row_id,
-                column_id=answer_id,
-                decision="accept",
-                key="review-valid-sibling-only@sha256:v1",
-            ),
-            project_id="review-error-sibling",
-        )
-        assert accepted.status == "completed", accepted.errors
-    finally:
-        project.close()
+    accepted = run_action_spec(
+        project,
+        _review_action(
+            run_id=run_id,
+            row_id=row_id,
+            column_id=answer_id,
+            decision="accept",
+            key="review-valid-sibling-only@sha256:v1",
+        ),
+        project_id="review-error-sibling",
+    )
+    assert accepted.status == "completed", accepted.errors
 
 
 def test_clear_decision_preserves_review_note_and_visible_edit_overlay(

@@ -245,8 +245,8 @@ def test_batch_preview_and_publication_never_dispatch_unavailable_required_rows(
 
 
 @pytest.mark.parametrize("invalid_row", [False, True])
-def test_empty_batch_executes_but_unavailable_batch_does_not(tmp_path, invalid_row):
-    project = Project.create(tmp_path / "empty-batch.frisket")
+def test_empty_batch_executes_but_unavailable_batch_does_not(make_project, invalid_row):
+    project = make_project("empty-batch")
     project.db.execute("CREATE TABLE batch_evidence_probe (row_id INTEGER NOT NULL)")
     sheet = project.add_sheet("Rows")
     source = project.add_column(sheet, "source", type="integer")

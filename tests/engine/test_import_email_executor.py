@@ -138,56 +138,55 @@ def _visible_counts(project: Project) -> dict[str, int]:
     }
 
 
-def test_import_email_uses_explicit_names_refuses_collision_and_replays(tmp_path):
+def test_import_email_uses_explicit_names_refuses_collision_and_replays(
+    tmp_path, make_project
+):
     source = _write(tmp_path / "mail.eml", _message_bytes("Message"))
     sources = [(source, "mail.eml", "eml")]
-    project = Project.create(tmp_path / "email.frisket", name="Email")
-    try:
-        results = [
-            run_action_spec(
-                project,
-                _import_email_action(
-                    sources,
-                    key=f"email-{index}",
-                    sheet_name="Emails" if index == 0 else "Emails-2",
-                ),
-                project_id="p",
-                deps=_trusted_deps(sources),
-            )
-            for index in range(2)
-        ]
-        assert [result.status for result in results] == ["completed", "completed"]
-        assert [
-            row["name"]
-            for row in project.db.execute("SELECT name FROM sheets ORDER BY id")
-        ] == ["Emails", "Emails-2"]
-        before = _visible_counts(project)
-        collision = run_action_spec(
+    project = make_project("Email")
+    results = [
+        run_action_spec(
             project,
-            _import_email_action(sources, key="email-collision"),
+            _import_email_action(
+                sources,
+                key=f"email-{index}",
+                sheet_name="Emails" if index == 0 else "Emails-2",
+            ),
             project_id="p",
             deps=_trusted_deps(sources),
         )
-        assert collision.status == "failed"
-        assert collision.errors[0].code == "duplicate_sheet_name"
-        assert _visible_counts(project) == before
-        source.unlink()
-        replay = run_action_spec(
-            project,
-            _import_email_action(sources, key="email-1", sheet_name="Emails-2"),
-            project_id="p",
-        )
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == results[1].receipt_id
-        assert replay.outputs[0].name == results[1].outputs[0].name == "Emails-2"
-        assert replay.outputs[0].sheet_id == results[1].outputs[0].sheet_id
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 2
-    finally:
-        project.close()
+        for index in range(2)
+    ]
+    assert [result.status for result in results] == ["completed", "completed"]
+    assert [
+        row["name"] for row in project.db.execute("SELECT name FROM sheets ORDER BY id")
+    ] == ["Emails", "Emails-2"]
+    before = _visible_counts(project)
+    collision = run_action_spec(
+        project,
+        _import_email_action(sources, key="email-collision"),
+        project_id="p",
+        deps=_trusted_deps(sources),
+    )
+    assert collision.status == "failed"
+    assert collision.errors[0].code == "duplicate_sheet_name"
+    assert _visible_counts(project) == before
+    source.unlink()
+    replay = run_action_spec(
+        project,
+        _import_email_action(sources, key="email-1", sheet_name="Emails-2"),
+        project_id="p",
+    )
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == results[1].receipt_id
+    assert replay.outputs[0].name == results[1].outputs[0].name == "Emails-2"
+    assert replay.outputs[0].sheet_id == results[1].outputs[0].sheet_id
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 2
 
 
 def test_import_email_publishes_one_sorted_sheet_and_canonical_attachment(
     tmp_path: Path,
+    make_project,
 ) -> None:
     attachment = b"%PDF-1.4\ncanonical invoice bytes\n"
     last = _write(
@@ -219,114 +218,111 @@ def test_import_email_publishes_one_sorted_sheet_and_canonical_attachment(
             (bad, "bad/bad.eml", "eml"),
         ]
     )
-    project = Project.create(tmp_path / "email.frisket", name="Email import")
-    try:
-        result = run_action_spec(
-            project,
-            action,
-            project_id="project-email",
-            deps=_trusted_deps(
-                [
-                    (last, "z/last.eml", "eml"),
-                    (mbox_path, "m/mailbox.mbox", "mbox"),
-                    (first, "a/first.eml", "eml"),
-                    (bad, "bad/bad.eml", "eml"),
-                ]
-            ),
-        )
+    project = make_project("Email import")
+    result = run_action_spec(
+        project,
+        action,
+        project_id="project-email",
+        deps=_trusted_deps(
+            [
+                (last, "z/last.eml", "eml"),
+                (mbox_path, "m/mailbox.mbox", "mbox"),
+                (first, "a/first.eml", "eml"),
+                (bad, "bad/bad.eml", "eml"),
+            ]
+        ),
+    )
 
-        assert result.status == "completed", result.errors
-        assert len(result.op_ids) == 1
-        assert len(result.warnings) == 1
-        assert "bad/bad.eml" in result.warnings[0]
+    assert result.status == "completed", result.errors
+    assert len(result.op_ids) == 1
+    assert len(result.warnings) == 1
+    assert "bad/bad.eml" in result.warnings[0]
 
-        sheets = project.db.execute(
-            "SELECT * FROM sheets WHERE name='Emails' ORDER BY id"
-        ).fetchall()
-        assert len(sheets) == 1
-        sheet_id = int(sheets[0]["id"])
-        columns = _columns(project, sheet_id)
-        assert list(columns) == EMAIL_COLUMNS
-        assert columns["body"]["type"] == "text"
-        assert columns["body"]["format"] == "plain_text"
-        assert columns["html"]["type"] == "text"
-        assert columns["html"]["format"] == "plain_text"
-        assert _values(project, sheet_id, columns["subject"]) == [
-            "First",
-            "Mbox one",
-            "Mbox two",
-            "Last",
-        ]
-        assert _values(project, sheet_id, columns["source_file"]) == [
-            "a/first.eml",
-            "m/mailbox.mbox#1",
-            "m/mailbox.mbox#2",
-            "z/last.eml",
-        ]
+    sheets = project.db.execute(
+        "SELECT * FROM sheets WHERE name='Emails' ORDER BY id"
+    ).fetchall()
+    assert len(sheets) == 1
+    sheet_id = int(sheets[0]["id"])
+    columns = _columns(project, sheet_id)
+    assert list(columns) == EMAIL_COLUMNS
+    assert columns["body"]["type"] == "text"
+    assert columns["body"]["format"] == "plain_text"
+    assert columns["html"]["type"] == "text"
+    assert columns["html"]["format"] == "plain_text"
+    assert _values(project, sheet_id, columns["subject"]) == [
+        "First",
+        "Mbox one",
+        "Mbox two",
+        "Last",
+    ]
+    assert _values(project, sheet_id, columns["source_file"]) == [
+        "a/first.eml",
+        "m/mailbox.mbox#1",
+        "m/mailbox.mbox#2",
+        "z/last.eml",
+    ]
 
-        attachment_cells = _values(project, sheet_id, columns["attachments"])
-        assert attachment_cells[:3] == [[], [], []]
-        digest = hashlib.sha256(attachment).hexdigest()
-        assert attachment_cells[3] == [
-            {
-                "blob": digest,
-                "mime": "application/pdf",
-                "filename": "invoice.pdf",
-            }
-        ]
-        blob = project.db.execute(
-            "SELECT hash, filename, mime, size FROM blobs WHERE hash=?",
-            (digest,),
-        ).fetchone()
-        assert dict(blob) == {
-            "hash": digest,
-            "filename": "invoice.pdf",
+    attachment_cells = _values(project, sheet_id, columns["attachments"])
+    assert attachment_cells[:3] == [[], [], []]
+    digest = hashlib.sha256(attachment).hexdigest()
+    assert attachment_cells[3] == [
+        {
+            "blob": digest,
             "mime": "application/pdf",
-            "size": len(attachment),
+            "filename": "invoice.pdf",
         }
-        with project.blob_store.materialize(digest) as stored:
-            assert stored.read_bytes() == attachment
-        assert _visible_counts(project) == {
-            "sheets": 1,
-            "columns": 9,
-            "rows": 4,
-            "cells": 36,
-            "blobs": 1,
-            "ops": 1,
-            "receipts": 1,
-        }
-    finally:
-        project.close()
+    ]
+    blob = project.db.execute(
+        "SELECT hash, filename, mime, size FROM blobs WHERE hash=?",
+        (digest,),
+    ).fetchone()
+    assert dict(blob) == {
+        "hash": digest,
+        "filename": "invoice.pdf",
+        "mime": "application/pdf",
+        "size": len(attachment),
+    }
+    with project.blob_store.materialize(digest) as stored:
+        assert stored.read_bytes() == attachment
+    assert _visible_counts(project) == {
+        "sheets": 1,
+        "columns": 9,
+        "rows": 4,
+        "cells": 36,
+        "blobs": 1,
+        "ops": 1,
+        "receipts": 1,
+    }
 
 
-def test_import_email_all_invalid_fails_without_an_empty_sheet(tmp_path: Path) -> None:
+def test_import_email_all_invalid_fails_without_an_empty_sheet(
+    tmp_path: Path, make_project
+) -> None:
     bad = _write(tmp_path / "bad.eml", b"\x00\xffnot an email")
-    project = Project.create(tmp_path / "invalid.frisket", name="Invalid email")
-    try:
-        result = run_action_spec(
-            project,
-            _import_email_action([(bad, "bad.eml", "eml")]),
-            project_id="project-invalid-email",
-            deps=_trusted_deps([(bad, "bad.eml", "eml")]),
-        )
+    project = make_project("Invalid email")
+    result = run_action_spec(
+        project,
+        _import_email_action([(bad, "bad.eml", "eml")]),
+        project_id="project-invalid-email",
+        deps=_trusted_deps([(bad, "bad.eml", "eml")]),
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "email_parse_failed"
-        assert _visible_counts(project) == {
-            "sheets": 0,
-            "columns": 0,
-            "rows": 0,
-            "cells": 0,
-            "blobs": 0,
-            "ops": 0,
-            "receipts": 0,
-        }
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "email_parse_failed"
+    assert _visible_counts(project) == {
+        "sheets": 0,
+        "columns": 0,
+        "rows": 0,
+        "cells": 0,
+        "blobs": 0,
+        "ops": 0,
+        "receipts": 0,
+    }
 
 
 def test_import_email_never_opens_an_opaque_ref_without_trusted_ingress(
     tmp_path: Path,
+    make_project,
 ) -> None:
     sensitive = _write(tmp_path / "host-secret.eml", _message_bytes("Do not read"))
     action = {
@@ -344,51 +340,47 @@ def test_import_email_never_opens_an_opaque_ref_without_trusted_ingress(
         },
         "idempotency_key": "import_email@sha256:opaque-ref",
     }
-    project = Project.create(tmp_path / "opaque.frisket", name="Opaque email")
-    try:
-        result = run_action_spec(project, action, project_id="project-opaque-email")
-        assert result.status == "failed"
-        assert result.errors[0].code == "email_sources_unavailable"
-        assert sensitive.read_bytes() == _message_bytes("Do not read")
-        assert _visible_counts(project) == {
-            "sheets": 0,
-            "columns": 0,
-            "rows": 0,
-            "cells": 0,
-            "blobs": 0,
-            "ops": 0,
-            "receipts": 0,
-        }
-    finally:
-        project.close()
+    project = make_project("Opaque email")
+    result = run_action_spec(project, action, project_id="project-opaque-email")
+    assert result.status == "failed"
+    assert result.errors[0].code == "email_sources_unavailable"
+    assert sensitive.read_bytes() == _message_bytes("Do not read")
+    assert _visible_counts(project) == {
+        "sheets": 0,
+        "columns": 0,
+        "rows": 0,
+        "cells": 0,
+        "blobs": 0,
+        "ops": 0,
+        "receipts": 0,
+    }
 
 
 def test_import_email_replays_before_opening_a_missing_staged_source(
     tmp_path: Path,
+    make_project,
 ) -> None:
     source = _write(tmp_path / "message.eml", _message_bytes("Recorded"))
     action = _import_email_action([(source, "message.eml", "eml")])
-    project = Project.create(tmp_path / "replay.frisket", name="Email replay")
-    try:
-        first = run_action_spec(
-            project,
-            action,
-            project_id="project-email-replay",
-            deps=_trusted_deps([(source, "message.eml", "eml")]),
-        )
-        assert first.status == "completed", first.errors
-        source.unlink()
+    project = make_project("Email replay")
+    first = run_action_spec(
+        project,
+        action,
+        project_id="project-email-replay",
+        deps=_trusted_deps([(source, "message.eml", "eml")]),
+    )
+    assert first.status == "completed", first.errors
+    source.unlink()
 
-        replay = run_action_spec(project, action, project_id="project-email-replay")
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == first.receipt_id
-        assert replay.action.action_id == first.action.action_id
-    finally:
-        project.close()
+    replay = run_action_spec(project, action, project_id="project-email-replay")
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == first.receipt_id
+    assert replay.action.action_id == first.action.action_id
 
 
 def test_import_email_storage_failure_rolls_back_all_visible_database_state(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     first = _write(
@@ -405,7 +397,7 @@ def test_import_email_storage_failure_rolls_back_all_visible_database_state(
             attachment=(b"second attachment", "text/plain", "second.txt"),
         ),
     )
-    project = Project.create(tmp_path / "rollback.frisket", name="Atomic email")
+    project = make_project("Atomic email")
     original_put_path = project.blob_store.put_path
     calls = 0
 
@@ -463,6 +455,7 @@ def test_import_email_storage_failure_rolls_back_all_visible_database_state(
 
 def test_email_temp_cleanup_failure_aborts_hidden_stage(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = _write(
@@ -492,33 +485,29 @@ def test_email_temp_cleanup_failure_aborts_hidden_stage(
 
     monkeypatch.setattr(email_action, "TemporaryDirectory", _FailingTemporaryDirectory)
     monkeypatch.setattr(table_action, "_TABLE_BATCH_SIZE", 1)
-    project = Project.create(tmp_path / "cleanup.frisket", name="Cleanup failure")
-    try:
-        result = run_action_spec(
-            project,
-            _import_email_action([(source, "cleanup.eml", "eml")]),
-            project_id="project-email-cleanup",
-            deps=_trusted_deps([(source, "cleanup.eml", "eml")]),
-        )
-        assert result.status == "failed"
-        assert cleanup_observed == [True]
-        assert result.errors[0].code == "project_write_failed"
-        counts = _visible_counts(project)
-        assert counts["sheets"] == counts["columns"] == counts["rows"] == 0
-        assert counts["cells"] == counts["ops"] == counts["receipts"] == 0
-        assert counts["blobs"] == 0
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=1").fetchone()[
-                0
-            ]
-            == 0
-        )
-    finally:
-        project.close()
+    project = make_project("Cleanup failure")
+    result = run_action_spec(
+        project,
+        _import_email_action([(source, "cleanup.eml", "eml")]),
+        project_id="project-email-cleanup",
+        deps=_trusted_deps([(source, "cleanup.eml", "eml")]),
+    )
+    assert result.status == "failed"
+    assert cleanup_observed == [True]
+    assert result.errors[0].code == "project_write_failed"
+    counts = _visible_counts(project)
+    assert counts["sheets"] == counts["columns"] == counts["rows"] == 0
+    assert counts["cells"] == counts["ops"] == counts["receipts"] == 0
+    assert counts["blobs"] == 0
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=1").fetchone()[0]
+        == 0
+    )
 
 
 def test_email_attachment_scratch_is_empty_before_the_next_message(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = _write_mbox(
@@ -545,23 +534,21 @@ def test_email_attachment_scratch_is_empty_before_the_next_message(
 
     monkeypatch.setattr(email_import, "iter_email_messages", messages)
 
-    project = Project.create(tmp_path / "scratch.frisket", name="Scratch batches")
-    try:
-        result = run_action_spec(
-            project,
-            _import_email_action([(source, "source.mbox", "mbox")]),
-            project_id="project-email-scratch",
-            deps=_trusted_deps([(source, "source.mbox", "mbox")]),
-        )
-        assert result.status == "completed", result.errors
-        assert checked == ["first", "second"]
-        assert source.exists()
-    finally:
-        project.close()
+    project = make_project("Scratch batches")
+    result = run_action_spec(
+        project,
+        _import_email_action([(source, "source.mbox", "mbox")]),
+        project_id="project-email-scratch",
+        deps=_trusted_deps([(source, "source.mbox", "mbox")]),
+    )
+    assert result.status == "completed", result.errors
+    assert checked == ["first", "second"]
+    assert source.exists()
 
 
 def test_concurrent_same_key_same_attachment_keeps_winner_blob_reference(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     attachment = b"shared attachment"
@@ -582,7 +569,7 @@ def test_concurrent_same_key_same_attachment_keeps_winner_blob_reference(
 
     monkeypatch.setattr(AdmittedImportBlobStager, "stage", concurrent_stage)
 
-    project = Project.create(tmp_path / "concurrent.frisket", name="Concurrent")
+    project = make_project("Concurrent")
     results: list[Any] = []
     failures: list[BaseException] = []
 

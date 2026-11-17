@@ -83,7 +83,7 @@ def _counts(project: Project) -> dict[str, int]:
 
 @pytest.mark.parametrize("render", ["images", "fallback", "disabled"])
 def test_pdf_publication_retains_pages_original_and_replays_without_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, render: str
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch, render: str
 ) -> None:
     raw = _pdf_bytes()
     source = tmp_path / "uploaded.pdf"
@@ -107,238 +107,226 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
         }
 
     monkeypatch.setattr(AdmittedPdfPageRenderer, "render", render_pages)
-    project = Project.create(tmp_path / "pdf.frisket", name="PDF")
-    try:
-        action = _action(source, render_pages=render != "disabled", dpi=200)
-        result = run_action_spec(project, action, project_id="pdf")
-        assert result.status == "completed", result.errors
-        sheet_id = result.outputs[0].sheet_id
-        columns = result.outputs[0].ref["columns"]
-        assert list(columns) == ["page", "text", "source"] + (
-            ["page_image"] if render != "disabled" else []
+    project = make_project("PDF")
+    action = _action(source, render_pages=render != "disabled", dpi=200)
+    result = run_action_spec(project, action, project_id="pdf")
+    assert result.status == "completed", result.errors
+    sheet_id = result.outputs[0].sheet_id
+    columns = result.outputs[0].ref["columns"]
+    assert list(columns) == ["page", "text", "source"] + (
+        ["page_image"] if render != "disabled" else []
+    )
+    assert project.row_count(sheet_id) == 2
+    assert list(project.get_values(sheet_id, columns["page"]).values()) == [1, 2]
+    assert [
+        value.strip()
+        for value in project.get_values(sheet_id, columns["text"]).values()
+    ] == ["First page", "Second page"]
+    digest = hashlib.sha256(raw).hexdigest()
+    children = list(project.get_values(sheet_id, columns["source"]).values())
+    assert len({child["blob"] for child in children}) == 2
+    for child, expected in zip(children, ("First page", "Second page"), strict=True):
+        assert set(child) == {"blob", "filename", "mime"}
+        assert child["filename"] == "docket.pdf"
+        assert child["mime"] == "application/pdf"
+        assert child["blob"] != digest
+        with project.materialize_blob(child["blob"]) as stored:
+            pages = pypdf.PdfReader(stored).pages
+            assert len(pages) == 1
+            assert pages[0].extract_text().strip() == expected
+    assert calls == ([] if render == "disabled" else [200])
+    if render == "fallback":
+        assert list(project.get_values(sheet_id, columns["page_image"]).values()) == [
+            None,
+            None,
+        ]
+    artifact = project.db.execute(
+        "SELECT * FROM source_artifacts WHERE blob_hash=?", (digest,)
+    ).fetchone()
+    assert artifact is not None
+    assert artifact["artifact_kind"] == "file"
+    assert artifact["media_type"] == "application/pdf"
+    assert artifact["filename"] == "docket.pdf"
+    assert artifact["page_count"] == 2
+    assert artifact["source_sheet_id"] == sheet_id
+    receipt = Receipt.model_validate(
+        json.loads(
+            project.db.execute(
+                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+            ).fetchone()[0]
         )
-        assert project.row_count(sheet_id) == 2
-        assert list(project.get_values(sheet_id, columns["page"]).values()) == [1, 2]
-        assert [
-            value.strip()
-            for value in project.get_values(sheet_id, columns["text"]).values()
-        ] == ["First page", "Second page"]
-        digest = hashlib.sha256(raw).hexdigest()
-        children = list(project.get_values(sheet_id, columns["source"]).values())
-        assert len({child["blob"] for child in children}) == 2
-        for child, expected in zip(
-            children, ("First page", "Second page"), strict=True
-        ):
-            assert set(child) == {"blob", "filename", "mime"}
-            assert child["filename"] == "docket.pdf"
-            assert child["mime"] == "application/pdf"
-            assert child["blob"] != digest
-            with project.materialize_blob(child["blob"]) as stored:
-                pages = pypdf.PdfReader(stored).pages
-                assert len(pages) == 1
-                assert pages[0].extract_text().strip() == expected
-        assert calls == ([] if render == "disabled" else [200])
-        if render == "fallback":
-            assert list(
-                project.get_values(sheet_id, columns["page_image"]).values()
-            ) == [None, None]
-        artifact = project.db.execute(
-            "SELECT * FROM source_artifacts WHERE blob_hash=?", (digest,)
+    )
+    assert bool(receipt.warnings) == (render == "fallback")
+    document = next(
+        item.ref
+        for item in receipt.evidence
+        if item.ref["kind"] == "imported_pdf_document"
+    )
+    assert document["hash"] == digest
+    assert document["artifact_id"] == artifact["id"]
+    assert document["size"] == len(raw)
+    native_pages = [
+        item.ref
+        for item in receipt.evidence
+        if item.ref["kind"] == "imported_blob"
+        and item.ref.get("source_artifact_id") == artifact["id"]
+    ]
+    assert [ref["hash"] for ref in native_pages] == [
+        child["blob"] for child in children
+    ]
+    assert len({ref["artifact_id"] for ref in native_pages}) == 2
+    provenance = project.db.execute(
+        "SELECT span.artifact_id,span.page_start,span.page_end "
+        "FROM evidence_links link JOIN evidence_link_spans membership "
+        "ON membership.link_id=link.id "
+        "JOIN source_spans span ON span.id=membership.span_id "
+        "WHERE link.link_role='source_provenance' ORDER BY link.row_id"
+    ).fetchall()
+    assert [tuple(row) for row in provenance] == [
+        (artifact["id"], 1, 1),
+        (artifact["id"], 2, 2),
+    ]
+    stored_text = project.db.execute(
+        "SELECT cell.value_kind,cell.value FROM cells AS cell "
+        "JOIN rows AS row ON row.id=cell.row_id "
+        "JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id "
+        "WHERE row.sheet_id=? AND cell.column_id=? ORDER BY row.position",
+        (sheet_id, columns["text"]),
+    ).fetchall()
+    assert [row["value_kind"] for row in stored_text] == [
+        "prepared_content_ref",
+        "prepared_content_ref",
+    ]
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM prepared_content_sets").fetchone()[0]
+        == 2
+    )
+    prepared_pages = project.db.execute(
+        "SELECT page_number,prepared_text FROM prepared_page_versions "
+        "ORDER BY page_number"
+    ).fetchall()
+    assert [tuple(row) for row in prepared_pages] == [
+        (1, "First page"),
+        (1, "Second page"),
+    ]
+    for row, child in zip(stored_text, children, strict=True):
+        prepared = PreparedContentStore(project).resolve(int(row["value"]))
+        assert [pin.page_number for pin in prepared.pins] == [1]
+        owner = project.db.execute(
+            "SELECT blob_hash FROM source_artifacts WHERE id=?",
+            (prepared.source_artifact_id,),
         ).fetchone()
-        assert artifact is not None
-        assert artifact["artifact_kind"] == "file"
-        assert artifact["media_type"] == "application/pdf"
-        assert artifact["filename"] == "docket.pdf"
-        assert artifact["page_count"] == 2
-        assert artifact["source_sheet_id"] == sheet_id
-        receipt = Receipt.model_validate(
-            json.loads(
-                project.db.execute(
-                    "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-                ).fetchone()[0]
-            )
-        )
-        assert bool(receipt.warnings) == (render == "fallback")
-        document = next(
+        assert owner[0] == child["blob"]
+    file_read = next(
+        item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
+    )
+    assert file_read["sha256"] == "sha256:" + digest
+    assert file_read["byte_count"] == len(raw)
+    if render == "images":
+        images = list(project.get_values(sheet_id, columns["page_image"]).values())
+        assert images == [
+            {
+                "blob": hashlib.sha256(PNG).hexdigest(),
+                "filename": f"docket-p{page:04d}.png",
+                "mime": "image/png",
+            }
+            for page in (1, 2)
+        ]
+        refs = [
             item.ref
             for item in receipt.evidence
-            if item.ref["kind"] == "imported_pdf_document"
-        )
-        assert document["hash"] == digest
-        assert document["artifact_id"] == artifact["id"]
-        assert document["size"] == len(raw)
-        native_pages = [
-            item.ref
-            for item in receipt.evidence
-            if item.ref["kind"] == "imported_blob"
-            and item.ref.get("source_artifact_id") == artifact["id"]
+            if item.ref["kind"] == "imported_pdf_page_image"
         ]
-        assert [ref["hash"] for ref in native_pages] == [
-            child["blob"] for child in children
-        ]
-        assert len({ref["artifact_id"] for ref in native_pages}) == 2
-        provenance = project.db.execute(
-            "SELECT span.artifact_id,span.page_start,span.page_end "
-            "FROM evidence_links link JOIN evidence_link_spans membership "
-            "ON membership.link_id=link.id "
-            "JOIN source_spans span ON span.id=membership.span_id "
-            "WHERE link.link_role='source_provenance' ORDER BY link.row_id"
-        ).fetchall()
-        assert [tuple(row) for row in provenance] == [
-            (artifact["id"], 1, 1),
-            (artifact["id"], 2, 2),
-        ]
-        stored_text = project.db.execute(
-            "SELECT cell.value_kind,cell.value FROM cells AS cell "
-            "JOIN rows AS row ON row.id=cell.row_id "
-            "JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id "
-            "WHERE row.sheet_id=? AND cell.column_id=? ORDER BY row.position",
-            (sheet_id, columns["text"]),
-        ).fetchall()
-        assert [row["value_kind"] for row in stored_text] == [
-            "prepared_content_ref",
-            "prepared_content_ref",
-        ]
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM prepared_content_sets").fetchone()[
-                0
-            ]
-            == 2
-        )
-        prepared_pages = project.db.execute(
-            "SELECT page_number,prepared_text FROM prepared_page_versions "
-            "ORDER BY page_number"
-        ).fetchall()
-        assert [tuple(row) for row in prepared_pages] == [
-            (1, "First page"),
-            (1, "Second page"),
-        ]
-        for row, child in zip(stored_text, children, strict=True):
-            prepared = PreparedContentStore(project).resolve(int(row["value"]))
-            assert [pin.page_number for pin in prepared.pins] == [1]
-            owner = project.db.execute(
-                "SELECT blob_hash FROM source_artifacts WHERE id=?",
-                (prepared.source_artifact_id,),
-            ).fetchone()
-            assert owner[0] == child["blob"]
-        file_read = next(
-            item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
-        )
-        assert file_read["sha256"] == "sha256:" + digest
-        assert file_read["byte_count"] == len(raw)
-        if render == "images":
-            images = list(project.get_values(sheet_id, columns["page_image"]).values())
-            assert images == [
-                {
-                    "blob": hashlib.sha256(PNG).hexdigest(),
-                    "filename": f"docket-p{page:04d}.png",
-                    "mime": "image/png",
-                }
-                for page in (1, 2)
-            ]
-            refs = [
-                item.ref
-                for item in receipt.evidence
-                if item.ref["kind"] == "imported_pdf_page_image"
-            ]
-            assert [ref["page"] for ref in refs] == [1, 2]
-            assert all(ref["artifact_id"] == artifact["id"] for ref in refs)
-            assert len({ref["evidence_link_id"] for ref in refs}) == 2
-        # The original is not a cell value, but must remain a live GC root.
-        assert project.gc_blobs()["blobs_removed"] == 0
-        with project.materialize_blob(digest) as stored:
-            assert stored.read_bytes() == raw
-        before = _counts(project)
-        source.unlink()
+        assert [ref["page"] for ref in refs] == [1, 2]
+        assert all(ref["artifact_id"] == artifact["id"] for ref in refs)
+        assert len({ref["evidence_link_id"] for ref in refs}) == 2
+    # The original is not a cell value, but must remain a live GC root.
+    assert project.gc_blobs()["blobs_removed"] == 0
+    with project.materialize_blob(digest) as stored:
+        assert stored.read_bytes() == raw
+    before = _counts(project)
+    source.unlink()
 
-        def forbidden(*args, **kwargs):
-            raise AssertionError("receipt replay must not render or reread its source")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("receipt replay must not render or reread its source")
 
-        monkeypatch.setattr(AdmittedPdfPageRenderer, "render", forbidden)
-        replay = run_action_spec(project, action, project_id="pdf")
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-        assert replay.op_ids == result.op_ids
-        assert _counts(project) == before
-        bundle_path = project.path
-        project.close()
-        project = Project(bundle_path)
-        assert [
-            value.strip()
-            for value in project.get_values(sheet_id, columns["text"]).values()
-        ] == ["First page", "Second page"]
-        assert project.undo() == result.op_ids[0]
-        assert project.redo() == result.op_ids[0]
-        assert [
-            value.strip()
-            for value in project.get_values(sheet_id, columns["text"]).values()
-        ] == ["First page", "Second page"]
-    finally:
-        project.close()
+    monkeypatch.setattr(AdmittedPdfPageRenderer, "render", forbidden)
+    replay = run_action_spec(project, action, project_id="pdf")
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
+    assert replay.op_ids == result.op_ids
+    assert _counts(project) == before
+    bundle_path = project.path
+    project.close()
+    project = Project(bundle_path)
+    assert [
+        value.strip()
+        for value in project.get_values(sheet_id, columns["text"]).values()
+    ] == ["First page", "Second page"]
+    assert project.undo() == result.op_ids[0]
+    assert project.redo() == result.op_ids[0]
+    assert [
+        value.strip()
+        for value in project.get_values(sheet_id, columns["text"]).values()
+    ] == ["First page", "Second page"]
 
 
-def test_pdf_prepared_text_uses_renamed_output_column(tmp_path: Path) -> None:
+def test_pdf_prepared_text_uses_renamed_output_column(
+    tmp_path: Path, make_project
+) -> None:
     source = tmp_path / "renamed.pdf"
     source.write_bytes(_pdf_bytes())
-    project = Project.create(tmp_path / "renamed.frisket", name="PDF")
-    try:
-        action = _action(source, render_pages=False)
-        action["output_names"] = {"text": "body"}
+    project = make_project("PDF")
+    action = _action(source, render_pages=False)
+    action["output_names"] = {"text": "body"}
 
-        result = run_action_spec(project, action, project_id="pdf")
+    result = run_action_spec(project, action, project_id="pdf")
 
-        assert result.status == "completed", result.errors
-        sheet_id = result.outputs[0].sheet_id
-        columns = result.outputs[0].ref["columns"]
-        assert list(columns) == ["page", "body", "source"]
-        assert [
-            value.strip()
-            for value in project.get_values(sheet_id, columns["body"]).values()
-        ] == ["First page", "Second page"]
-        assert {
-            row["value_kind"]
-            for row in project.db.execute(
-                "SELECT cell.value_kind FROM cells cell JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id WHERE cell.column_id=?",
-                (columns["body"],),
-            )
-        } == {"prepared_content_ref"}
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    sheet_id = result.outputs[0].sheet_id
+    columns = result.outputs[0].ref["columns"]
+    assert list(columns) == ["page", "body", "source"]
+    assert [
+        value.strip()
+        for value in project.get_values(sheet_id, columns["body"]).values()
+    ] == ["First page", "Second page"]
+    assert {
+        row["value_kind"]
+        for row in project.db.execute(
+            "SELECT cell.value_kind FROM cells cell JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id WHERE cell.column_id=?",
+            (columns["body"],),
+        )
+    } == {"prepared_content_ref"}
 
 
 @pytest.mark.parametrize("dpi", [49, 601])
 def test_pdf_invalid_dpi_refuses_before_source_or_publication(
-    tmp_path: Path, dpi: int
+    tmp_path: Path, make_project, dpi: int
 ) -> None:
-    project = Project.create(tmp_path / "invalid.frisket", name="PDF")
-    try:
-        result = run_action_spec(
-            project, _action(tmp_path / "missing.pdf", dpi=dpi), project_id="pdf"
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert not any(_counts(project).values())
-    finally:
-        project.close()
+    project = make_project("PDF")
+    result = run_action_spec(
+        project, _action(tmp_path / "missing.pdf", dpi=dpi), project_id="pdf"
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert not any(_counts(project).values())
 
 
 def test_pdf_parse_failure_leaves_no_published_blob_or_hidden_sheet(
     tmp_path: Path,
+    make_project,
 ) -> None:
     source = tmp_path / "invalid.pdf"
     source.write_bytes(b"not a PDF")
-    project = Project.create(tmp_path / "invalid.frisket", name="PDF")
-    try:
-        result = run_action_spec(project, _action(source), project_id="pdf")
-        assert result.status == "failed"
-        assert result.errors[0].code == "pdf_parse_failed"
-        assert not any(_counts(project).values())
-    finally:
-        project.close()
+    project = make_project("PDF")
+    result = run_action_spec(project, _action(source), project_id="pdf")
+    assert result.status == "failed"
+    assert result.errors[0].code == "pdf_parse_failed"
+    assert not any(_counts(project).values())
 
 
 def test_pdf_page_text_failure_keeps_empty_cell_without_prepared_version(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "source.pdf"
     source.write_bytes(_pdf_bytes())
@@ -353,49 +341,48 @@ def test_pdf_page_text_failure_keeps_empty_cell_without_prepared_version(
         return original(page, *args, **kwargs)
 
     monkeypatch.setattr(pypdf._page.PageObject, "extract_text", extract_text)
-    project = Project.create(tmp_path / "partial.frisket", name="PDF")
-    try:
-        result = run_action_spec(
-            project,
-            _action(source, render_pages=False),
-            project_id="pdf",
-        )
-        assert result.status == "completed", result.errors
-        sheet_id = result.outputs[0].sheet_id
-        columns = result.outputs[0].ref["columns"]
-        assert list(project.get_values(sheet_id, columns["text"]).values()) == [
-            "First page",
-            "",
-        ]
-        stored = project.db.execute(
-            "SELECT cell.value_kind FROM cells AS cell "
-            "JOIN rows AS row ON row.id=cell.row_id "
-            "JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id "
-            "WHERE row.sheet_id=? AND cell.column_id=? ORDER BY row.position",
-            (sheet_id, columns["text"]),
-        ).fetchall()
-        assert [row["value_kind"] for row in stored] == [
-            "prepared_content_ref",
-            "text",
-        ]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM prepared_page_versions"
-            ).fetchone()[0]
-            == 1
-        )
-        assert all(
-            "page" not in value
-            for value in project.get_values(sheet_id, columns["source"]).values()
-        )
-    finally:
-        project.close()
+    project = make_project("PDF")
+    result = run_action_spec(
+        project,
+        _action(source, render_pages=False),
+        project_id="pdf",
+    )
+    assert result.status == "completed", result.errors
+    sheet_id = result.outputs[0].sheet_id
+    columns = result.outputs[0].ref["columns"]
+    assert list(project.get_values(sheet_id, columns["text"]).values()) == [
+        "First page",
+        "",
+    ]
+    stored = project.db.execute(
+        "SELECT cell.value_kind FROM cells AS cell "
+        "JOIN rows AS row ON row.id=cell.row_id "
+        "JOIN effective_current_cells head ON head.row_id=cell.row_id AND head.column_id=cell.column_id AND head.base_producer_id=cell.producer_id "
+        "WHERE row.sheet_id=? AND cell.column_id=? ORDER BY row.position",
+        (sheet_id, columns["text"]),
+    ).fetchall()
+    assert [row["value_kind"] for row in stored] == [
+        "prepared_content_ref",
+        "text",
+    ]
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM prepared_page_versions").fetchone()[0]
+        == 1
+    )
+    assert all(
+        "page" not in value
+        for value in project.get_values(sheet_id, columns["source"]).values()
+    )
 
 
 @pytest.mark.parametrize("target", ["document", "page"])
 @pytest.mark.parametrize("damage", ["metadata", "missing", "corrupt"])
 def test_pdf_replay_refuses_damaged_document_or_page_blob(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, damage: str
+    tmp_path: Path,
+    make_project,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+    damage: str,
 ) -> None:
     source = tmp_path / "source.pdf"
     raw = _pdf_bytes()
@@ -412,26 +399,23 @@ def test_pdf_replay_refuses_damaged_document_or_page_blob(
         }
 
     monkeypatch.setattr(AdmittedPdfPageRenderer, "render", render_pages)
-    project = Project.create(tmp_path / "damaged.frisket", name="PDF")
-    try:
-        action = _action(source)
-        first = run_action_spec(project, action, project_id="pdf")
-        assert first.status == "completed", first.errors
-        digest = hashlib.sha256(raw if target == "document" else PNG).hexdigest()
-        if damage == "metadata":
-            project.db.execute("UPDATE blobs SET size=size+1 WHERE hash=?", (digest,))
-            project.db.commit()
-        else:
-            with project.materialize_blob(digest) as stored:
-                if damage == "missing":
-                    stored.unlink()
-                else:
-                    stored.write_bytes(b"corrupt published bytes")
-        before = _counts(project)
-        source.unlink()
-        replay = run_action_spec(project, action, project_id="pdf")
-        assert replay.status == "failed"
-        assert replay.errors[0].code == "stale_replay"
-        assert _counts(project) == before
-    finally:
-        project.close()
+    project = make_project("PDF")
+    action = _action(source)
+    first = run_action_spec(project, action, project_id="pdf")
+    assert first.status == "completed", first.errors
+    digest = hashlib.sha256(raw if target == "document" else PNG).hexdigest()
+    if damage == "metadata":
+        project.db.execute("UPDATE blobs SET size=size+1 WHERE hash=?", (digest,))
+        project.db.commit()
+    else:
+        with project.materialize_blob(digest) as stored:
+            if damage == "missing":
+                stored.unlink()
+            else:
+                stored.write_bytes(b"corrupt published bytes")
+    before = _counts(project)
+    source.unlink()
+    replay = run_action_spec(project, action, project_id="pdf")
+    assert replay.status == "failed"
+    assert replay.errors[0].code == "stale_replay"
+    assert _counts(project) == before

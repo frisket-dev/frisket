@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 
 from action_test_helpers import typed_map_request
 from frisket.contracts.action import ActionResult
-from frisket.server.app import create_app
 
 
 def _assert_no_recipe_keys(value: object) -> None:
@@ -18,9 +16,8 @@ def _assert_no_recipe_keys(value: object) -> None:
 
 
 def test_programmatic_actions_schema_and_describe_use_action_metadata(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Programmatic v1"}).json()[
         "id"
     ]

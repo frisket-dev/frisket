@@ -30,7 +30,6 @@ from frisket.engine.executor.queued_actions import (
     queued_v1_payload_metadata,
 )
 from frisket.engine.jobs.queue import QUEUE_DB_NAME, SqliteJobQueue
-from frisket.engine.store import Project
 
 
 def _classify_action(sheet_id: int = 1, *, source: str = "story") -> dict:
@@ -71,54 +70,51 @@ def test_every_registry_kind_example_builds_a_queued_request() -> None:
 
 
 def test_queued_placement_with_unbuildable_request_fails_not_inline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.server import action_enqueue
 
-    project = Project.create(tmp_path / "fence.frisket", name="G1 fence")
-    try:
-        sheet_id = project.add_sheet("notes")
-        columns = {"note": project.add_column(sheet_id, "note", type="text")}
-        project.add_rows(sheet_id, [{"note": "call 212-555-0123"}], columns)
+    project = make_project("G1 fence")
+    sheet_id = project.add_sheet("notes")
+    columns = {"note": project.add_column(sheet_id, "note", type="text")}
+    project.add_rows(sheet_id, [{"note": "call 212-555-0123"}], columns)
 
-        action_body = _classify_action(sheet_id, source="note")
-        # Simulate original-class failure: the queued request cannot be built
-        # (canonical re-validation ValueError / registry divergence).
-        monkeypatch.setattr(
-            action_enqueue,
-            "queued_v1_action_request",
-            lambda body, **_kwargs: None,
+    action_body = _classify_action(sheet_id, source="note")
+    # Simulate original-class failure: the queued request cannot be built
+    # (canonical re-validation ValueError / registry divergence).
+    monkeypatch.setattr(
+        action_enqueue,
+        "queued_v1_action_request",
+        lambda body, **_kwargs: None,
+    )
+    queue = SqliteJobQueue(tmp_path / QUEUE_DB_NAME)
+    try:
+        ctx = action_enqueue.QueuedV1ActionRunContext(
+            queue=queue,
+            workspace_root=tmp_path,
+            router_for=lambda _project: None,  # type: ignore[arg-type]
+            execution_composition_for=lambda _project, _router, _context: None,  # type: ignore[arg-type]
+            active_runs={},
+            run_jobs={},
+            queue_payload_extra={},
+            logger=logging.getLogger("test.g1"),
         )
-        queue = SqliteJobQueue(tmp_path / QUEUE_DB_NAME)
-        try:
-            ctx = action_enqueue.QueuedV1ActionRunContext(
-                queue=queue,
-                workspace_root=tmp_path,
-                router_for=lambda _project: None,  # type: ignore[arg-type]
-                execution_composition_for=lambda _project, _router, _context: None,  # type: ignore[arg-type]
-                active_runs={},
-                run_jobs={},
-                queue_payload_extra={},
-                logger=logging.getLogger("test.g1"),
-            )
-            result = action_enqueue.queue_v1_action_run(
-                project,
-                "project-g1-fence",
-                action_body,
-                ctx=ctx,
-                execution_context=ExecutionCompositionContext.direct(),
-            )
-        finally:
-            queue.close()
-        # NEVER None: None means "run it inline", silently discarding the
-        # declared queued placement.
-        assert result is not None
-        assert result.status == "failed"
-        assert result.errors
-        assert result.errors[0].code == "invalid_params"
-        assert "queued" in result.errors[0].message
+        result = action_enqueue.queue_v1_action_run(
+            project,
+            "project-g1-fence",
+            action_body,
+            ctx=ctx,
+            execution_context=ExecutionCompositionContext.direct(),
+        )
     finally:
-        project.close()
+        queue.close()
+    # NEVER None: None means "run it inline", silently discarding the
+    # declared queued placement.
+    assert result is not None
+    assert result.status == "failed"
+    assert result.errors
+    assert result.errors[0].code == "invalid_params"
+    assert "queued" in result.errors[0].message
 
 
 # --------------------------------------------------------------------------- #

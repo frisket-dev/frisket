@@ -32,13 +32,6 @@ def _polygon(lon0: float, lat0: float, size: float = 0.02) -> dict:
     }
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "geo.frisket", name="geo")
-    yield p
-    p.close()
-
-
 def _seed(project: Project):
     """A sheet with a geo_shape column: 2 polygons + 1 point + 1 empty."""
     sheet = project.add_sheet("regions")

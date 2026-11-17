@@ -132,7 +132,7 @@ def _table_count(project: Project, table: str) -> int:
 
 
 def test_source_poll_materializes_boolean_columns_as_valid_booleans(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor import run_action_spec
 
@@ -142,7 +142,7 @@ def test_source_poll_materializes_boolean_columns_as_valid_booleans(
         SourcePollItem(dedupe_key="two", row={"available": False}),
     ]
     register_source_poller(poller)
-    project = Project.create(tmp_path / "boolean-source.frisket", name="Boolean")
+    project = make_project("Boolean")
     try:
         result = run_action_spec(
             project,
@@ -289,14 +289,14 @@ def _renamed_poll(params: _RenamedPollParams, poller: PollCapability) -> PolledS
 
 
 def test_reused_poll_capability_records_actual_arguments_and_not_custom_return(
-    tmp_path,
+    make_project,
 ):
     from frisket.engine.executor.source_poll_action import run_typed_source_poll_action
 
     poller = FakePoller()
     poller.items = [SourcePollItem(dedupe_key="a", row={"title": "Actual"})]
     register_source_poller(poller)
-    project = Project.create(tmp_path / "custom.frisket", name="Custom")
+    project = make_project("Custom")
     try:
         source_id = SourceStore(project).add_source(name="Actual", kind="fake")
         custom = action(
@@ -346,7 +346,9 @@ def test_reused_poll_capability_records_actual_arguments_and_not_custom_return(
 
 
 @pytest.mark.parametrize("failure", ["value_error", "runtime_error", "wrong_return"])
-def test_post_poll_handler_failure_preserves_accounting_and_replay(tmp_path, failure):
+def test_post_poll_handler_failure_preserves_accounting_and_replay(
+    make_project, failure
+):
     from frisket.engine.executor.source_poll_action import run_typed_source_poll_action
 
     def produce(params: _RenamedPollParams, sources: PollCapability) -> PolledSource:
@@ -360,7 +362,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(tmp_path, fai
     poller = FakePoller()
     poller.items = [SourcePollItem(dedupe_key="a", row={"title": "Unpublished"})]
     register_source_poller(poller)
-    project = Project.create(tmp_path / "post-poll.frisket", name="Post poll")
+    project = make_project("Post poll")
     try:
         source_id = SourceStore(project).add_source(name="Actual", kind="fake")
         cursor_before = SourceStore(project).get_source(source_id)["cursor"]
@@ -442,12 +444,12 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(tmp_path, fai
         unregister_source_poller("fake")
 
 
-def test_new_source_config_refusal_and_failed_poll_lifecycle(tmp_path):
+def test_new_source_config_refusal_and_failed_poll_lifecycle(make_project):
     from frisket.engine.executor import run_action_spec
 
     poller = FakePoller()
     register_source_poller(poller)
-    project = Project.create(tmp_path / "failure.frisket", name="Failure")
+    project = make_project("Failure")
     try:
         invalid = run_action_spec(
             project,
@@ -491,14 +493,14 @@ def test_new_source_config_refusal_and_failed_poll_lifecycle(tmp_path):
         unregister_source_poller("fake")
 
 
-def test_poll_publication_rolls_back_with_receipt_failure(tmp_path, monkeypatch):
+def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypatch):
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.receipts import ReceiptStore
 
     poller = FakePoller()
     poller.items = [SourcePollItem(dedupe_key="a", row={"title": "Actual"})]
     register_source_poller(poller)
-    project = Project.create(tmp_path / "rollback.frisket", name="Rollback")
+    project = make_project("Rollback")
     try:
         source_id = SourceStore(project).add_source(name="Actual", kind="fake")
         before = dict(SourceStore(project).get_source(source_id))
@@ -529,13 +531,13 @@ def test_poll_publication_rolls_back_with_receipt_failure(tmp_path, monkeypatch)
         unregister_source_poller("fake")
 
 
-def test_poll_preview_and_legacy_request_refuse_before_source_creation(tmp_path):
+def test_poll_preview_and_legacy_request_refuse_before_source_creation(make_project):
     from frisket.engine.executor import run_action_spec
     from frisket.engine.executor.actions import resolve_map_preview
 
     poller = FakePoller()
     register_source_poller(poller)
-    project = Project.create(tmp_path / "refusal.frisket", name="Refusal")
+    project = make_project("Refusal")
     try:
         preview = resolve_map_preview(project, _source_poll_action(source=_source()))
         assert preview.code == "unsupported_action_kind"
@@ -819,6 +821,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
 
 def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_action(
     tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.jobs import (
@@ -829,25 +832,22 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
         register_source_poll_handler,
     )
 
-    project = Project.create(tmp_path / "unsupported.frisket", name="Unsupported")
-    try:
-        unsupported_source_id = SourceStore(project).add_source(
-            name="Unsupported",
-            kind="not-registered",
-            url="https://example.com/source",
-        )
-        rejected = run_action_spec(
-            project,
-            _source_poll_action(
-                source_id=unsupported_source_id,
-                idempotency_key="source_poll@sha256:unsupported",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert rejected.status == "failed"
-        assert rejected.errors[0].code == "unsupported_source_kind"
-    finally:
-        project.close()
+    project = make_project("Unsupported")
+    unsupported_source_id = SourceStore(project).add_source(
+        name="Unsupported",
+        kind="not-registered",
+        url="https://example.com/source",
+    )
+    rejected = run_action_spec(
+        project,
+        _source_poll_action(
+            source_id=unsupported_source_id,
+            idempotency_key="source_poll@sha256:unsupported",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert rejected.status == "failed"
+    assert rejected.errors[0].code == "unsupported_source_kind"
 
     workspace = tmp_path / "ws"
     workspace.mkdir()

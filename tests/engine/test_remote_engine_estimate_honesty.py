@@ -18,13 +18,6 @@ from frisket.execution.attempt_authority import (
 from tests.execution_composition_helpers import open_attempt_authority
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
-
-
 def _ocr_project(p: Project, *, value: str | dict = "/nonexistent/scan.png"):
     sheet = p.add_sheet("data")
     cols = {"page": p.add_column(sheet, "page", type="image")}

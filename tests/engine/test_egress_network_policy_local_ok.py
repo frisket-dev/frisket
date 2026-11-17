@@ -14,7 +14,6 @@ from frisket.engine.runner.map_runner import MapRunner
 from frisket.engine.runner.network_policy import remote_capability_for_spec
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
-from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
 
@@ -149,80 +148,74 @@ def test_always_remote_kinds_classify_from_the_catalog() -> None:
         assert remote_capability_for_spec(recipe, {"action_kind": kind}) == tag, kind
 
 
-def test_off_project_still_validates_local_translate_run(tmp_path) -> None:
+def test_off_project_still_validates_local_translate_run(make_project) -> None:
     """End-to-end: _validate_spec under ``off`` lets a local engine through
     (any failure must not be NetworkDisabled)."""
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        cols = {"statement": project.add_column(sheet, "statement")}
-        project.add_rows(sheet, [{"statement": "Hello"}], cols)
-        project.set_network_policy(mode="off")
-        runner = MapRunner(
-            project,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-            authority=UnroutedOnlyAuthority(project),
-        )
-        program, spec = _engine_program(
-            "map.translate",
-            "opus_mt",
-            project=project,
-            sheet_id=sheet,
-            source="statement",
-        )
-        validation.validate_spec(
-            runner.project,
-            runner.router,
-            runner.run_store,
-            spec,
-            program=program,
-            confirmed=True,
-            resume_run_id=None,
-            pricing_policy=runner.pricing_policy,
-            composition=runner.execution_composition,
-        )
-    finally:
-        project.close()
+    project = make_project("p")
+    sheet = project.add_sheet("data")
+    cols = {"statement": project.add_column(sheet, "statement")}
+    project.add_rows(sheet, [{"statement": "Hello"}], cols)
+    project.set_network_policy(mode="off")
+    runner = MapRunner(
+        project,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    program, spec = _engine_program(
+        "map.translate",
+        "opus_mt",
+        project=project,
+        sheet_id=sheet,
+        source="statement",
+    )
+    validation.validate_spec(
+        runner.project,
+        runner.router,
+        runner.run_store,
+        spec,
+        program=program,
+        confirmed=True,
+        resume_run_id=None,
+        pricing_policy=runner.pricing_policy,
+        composition=runner.execution_composition,
+    )
 
 
-def test_off_project_any_canonical_ollama_run_never_cost_gates(tmp_path) -> None:
+def test_off_project_any_canonical_ollama_run_never_cost_gates(make_project) -> None:
     """An unlisted local model is known zero and remains allowed offline."""
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        sheet = project.add_sheet("data")
-        cols = {"text": project.add_column(sheet, "text")}
-        project.add_rows(sheet, [{"text": "Hello"}], cols)
-        project.set_network_policy(mode="off")
-        runner = MapRunner(
-            project,
-            ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY,
-                cache=None,
-                cache_mode="off",
-                local_endpoints=(_local_endpoint(),),
-            ),
-            authority=UnroutedOnlyAuthority(project),
-        )
-        program, spec = _engine_program(
-            "map.classify",
-            "llm",
-            project=project,
-            sheet_id=sheet,
-            source="text",
-            model="ollama/@test-local/frisket-new-unlisted-model",
-        )
-        validation.validate_spec(
-            runner.project,
-            runner.router,
-            runner.run_store,
-            spec,
-            program=program,
-            confirmed=False,
-            resume_run_id=None,
-            pricing_policy=runner.pricing_policy,
-            composition=runner.execution_composition,
-        )  # must not raise ClaimsGate or NetworkDisabled
-    finally:
-        project.close()
+    project = make_project("p")
+    sheet = project.add_sheet("data")
+    cols = {"text": project.add_column(sheet, "text")}
+    project.add_rows(sheet, [{"text": "Hello"}], cols)
+    project.set_network_policy(mode="off")
+    runner = MapRunner(
+        project,
+        ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY,
+            cache=None,
+            cache_mode="off",
+            local_endpoints=(_local_endpoint(),),
+        ),
+        authority=UnroutedOnlyAuthority(project),
+    )
+    program, spec = _engine_program(
+        "map.classify",
+        "llm",
+        project=project,
+        sheet_id=sheet,
+        source="text",
+        model="ollama/@test-local/frisket-new-unlisted-model",
+    )
+    validation.validate_spec(
+        runner.project,
+        runner.router,
+        runner.run_store,
+        spec,
+        program=program,
+        confirmed=False,
+        resume_run_id=None,
+        pricing_policy=runner.pricing_policy,
+        composition=runner.execution_composition,
+    )  # must not raise ClaimsGate or NetworkDisabled

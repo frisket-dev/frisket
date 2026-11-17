@@ -1007,9 +1007,9 @@ def test_datalab_missing_key_refuses_the_run_with_the_remedy(tmp_path, monkeypat
 # --- estimate(): the cost-gate safety net ------------------------------------
 
 
-def test_datalab_ocr_estimate_is_unknown_cost_not_free(tmp_path, monkeypatch):
+def test_datalab_ocr_estimate_is_unknown_cost_not_free(make_project, monkeypatch):
     monkeypatch.setenv("DATALAB_API_KEY", "test-key")
-    project = Project.create(tmp_path / "unknown.frisket")
+    project = make_project("unknown")
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "page", type="file")
     digest = project.add_blob(

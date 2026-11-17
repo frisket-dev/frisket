@@ -66,33 +66,30 @@ def test_wire_format_empty_transient_golden_bytes_are_unchanged() -> None:
     assert hashlib.sha256(payload).hexdigest() == EMPTY_TRANSIENT_GOLDEN_SHA256
 
 
-def test_full_backend_golden_bytes_are_unchanged(tmp_path) -> None:
+def test_full_backend_golden_bytes_are_unchanged(make_project) -> None:
     """Same fixture shape as tests/test_geo_projection_backend.py::_seed,
     through the re-homed backend end to end (materialize -> query -> wire)."""
-    project = Project.create(tmp_path / "golden.frisket", name="golden")
+    project = make_project("golden")
+    sheet = project.add_sheet("places")
+    name_col = project.add_column(sheet, "name", type="text")
+    geo_col = project.add_column(sheet, "location", type="geo_point")
+    project.add_rows(
+        sheet,
+        [
+            {"name": "NYC", "location": {"lat": 40.7128, "lon": -74.0060}},
+            {"name": "Tokyo", "location": {"lat": 35.6764, "lon": 139.65}},
+            {"name": "BadLat", "location": {"lat": 91, "lon": 0}},
+            {"name": "Empty", "location": None},
+        ],
+        {"name": name_col, "location": geo_col},
+    )
+    backend = GeoProjectionBackend(project)
     try:
-        sheet = project.add_sheet("places")
-        name_col = project.add_column(sheet, "name", type="text")
-        geo_col = project.add_column(sheet, "location", type="geo_point")
-        project.add_rows(
-            sheet,
-            [
-                {"name": "NYC", "location": {"lat": 40.7128, "lon": -74.0060}},
-                {"name": "Tokyo", "location": {"lat": 35.6764, "lon": 139.65}},
-                {"name": "BadLat", "location": {"lat": 91, "lon": 0}},
-                {"name": "Empty", "location": None},
-            ],
-            {"name": name_col, "location": geo_col},
-        )
-        backend = GeoProjectionBackend(project)
-        try:
-            backend.materialize_geo_column(sheet, geo_col)
-            points, status = backend.query_points(sheet, geo_col)
-            payload = serialize_map_points_arrow(points, transient=status["transient"])
-        finally:
-            backend.close()
+        backend.materialize_geo_column(sheet, geo_col)
+        points, status = backend.query_points(sheet, geo_col)
+        payload = serialize_map_points_arrow(points, transient=status["transient"])
     finally:
-        project.close()
+        backend.close()
 
     assert hashlib.sha256(payload).hexdigest() == FULL_BACKEND_GOLDEN_SHA256
 

@@ -8,8 +8,10 @@ from frisket.server.services import sheet_grid
 from frisket.server.services.sheet_grid import SheetGridService
 
 
-def test_grid_read_keeps_membership_and_values_in_one_snapshot(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "grid.frisket")
+def test_grid_read_keeps_membership_and_values_in_one_snapshot(
+    make_project, monkeypatch
+):
+    project = make_project("grid")
     sheet = project.add_sheet("documents")
     column = project.add_column(sheet, "body", type="text")
     [old] = project.add_rows(sheet, [{"body": "old"}], {"body": column})
@@ -43,8 +45,8 @@ def test_grid_read_keeps_membership_and_values_in_one_snapshot(tmp_path, monkeyp
     project.close()
 
 
-def test_grid_read_preserves_caller_transaction_and_filtered_scope(tmp_path):
-    project = Project.create(tmp_path / "grid.frisket")
+def test_grid_read_preserves_caller_transaction_and_filtered_scope(make_project):
+    project = make_project("grid")
     sheet = project.add_sheet("documents")
     column = project.add_column(sheet, "body", type="text")
     [old] = project.add_rows(sheet, [{"body": "old"}], {"body": column})

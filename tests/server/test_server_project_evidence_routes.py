@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionError
-from frisket.server.app import create_app
 
 
 def test_project_evidence_cell_not_found_keeps_typed_action_error(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Evidence misses"}).json()[
         "id"
     ]
@@ -27,9 +22,8 @@ def test_project_evidence_cell_not_found_keeps_typed_action_error(
 
 
 def test_project_evidence_missing_project_keeps_detail_wrapped_action_error(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
 
     response = client.get("/api/projects/missing-project/cells/999/888/evidence")
 

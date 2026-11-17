@@ -212,8 +212,8 @@ def test_all_terms_embed_in_a_single_gateway_batch(env):
     assert gw.calls[0] == ["drone", "defense", "agriculture"]
 
 
-def test_remote_without_allow_remote_blocks_before_any_embed(tmp_path):
-    project = Project.create(tmp_path / "remote.frisket", name="r")
+def test_remote_without_allow_remote_blocks_before_any_embed(make_project):
+    project = make_project("r")
     sheet = project.add_sheet("s")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": r} for r in _ROWS], cols)

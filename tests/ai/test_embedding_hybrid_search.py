@@ -303,10 +303,10 @@ def test_typed_preview_preserves_local_hybrid_and_receipt_facts(env, monkeypatch
     assert receipt.provider_use[0]["external_api"] is False
 
 
-def test_hybrid_saved_limit_above_public_cap_remains_valid(tmp_path):
+def test_hybrid_saved_limit_above_public_cap_remains_valid(make_project):
     from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
 
-    project = Project.create(tmp_path / "large-hybrid.frisket", name="large-hybrid")
+    project = make_project("large-hybrid")
     sheet = project.add_sheet("documents")
     cols = {"headline": project.add_column(sheet, "headline")}
     texts = [f"semantic document {index:03d}" for index in range(501)]
@@ -381,11 +381,11 @@ def test_hybrid_blocks_stale_index(env):
     assert exc.value.code == "embedding_index_incomplete"
 
 
-def test_hybrid_remote_without_allow_remote_blocks_before_embed(tmp_path):
+def test_hybrid_remote_without_allow_remote_blocks_before_embed(make_project):
     from frisket.ai.embeddings.hybrid import resolve_embedding_hybrid
     from frisket.ai.embeddings.similarity import SimilarityError
 
-    project = Project.create(tmp_path / "hyr.frisket", name="r")
+    project = make_project("r")
     sheet = project.add_sheet("s")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": r} for r in _ROWS], cols)

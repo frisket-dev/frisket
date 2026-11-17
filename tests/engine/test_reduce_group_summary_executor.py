@@ -208,6 +208,7 @@ def _bound_request(action: dict[str, Any]):
 
 def test_semantic_sources_admit_group_by_without_rewriting_saved_params(
     tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.actions.types import discover_references
     from frisket.engine.executor.group_summary_action import (
@@ -215,41 +216,36 @@ def test_semantic_sources_admit_group_by_without_rewriting_saved_params(
         prepare_group_summary_action,
     )
 
-    project = Project.create(tmp_path / "reduce-inputs.frisket", name="reduce-inputs")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _reduce_action(seeded["sheet_id"])
-        bound = _bound_request(action)
-        assert {
-            reference.column for reference in discover_references(bound.params)
-        } == {
-            "story",
-            "risk_score",
-            "beat",
-        }
-        assert bound.params.model_dump()["source"] == ["story", "risk_score"]
-        assert bound.params.model_dump()["group_by"] == "beat"
-        prepared = prepare_group_summary_action(project, bound)
-        resolved = prepared.resolved
-        assert set(resolved["source_columns"]) == {"story", "risk_score"}
-        assert resolved["group_column"]["name"] == "beat"
-        assert [group["name"] for group in resolved["groups"]] == [
-            "accountability",
-            "infrastructure",
-        ]
-        for param, value, expected_field in (
-            ("source", ["missing"], "params.source"),
-            ("group_by", "missing", "params.group_by"),
-        ):
-            missing_action = _reduce_action(seeded["sheet_id"])
-            missing_action["params"][param] = value
-            with pytest.raises(GroupSummaryRefused) as caught:
-                prepare_group_summary_action(project, _bound_request(missing_action))
-            assert caught.value.error.code == "invalid_input_ref"
-            assert caught.value.error.field == expected_field
-            assert caught.value.error.details == {"missing": ["missing"]}
-    finally:
-        project.close()
+    project = make_project("reduce-inputs")
+    seeded = _seed(project, tmp_path)
+    action = _reduce_action(seeded["sheet_id"])
+    bound = _bound_request(action)
+    assert {reference.column for reference in discover_references(bound.params)} == {
+        "story",
+        "risk_score",
+        "beat",
+    }
+    assert bound.params.model_dump()["source"] == ["story", "risk_score"]
+    assert bound.params.model_dump()["group_by"] == "beat"
+    prepared = prepare_group_summary_action(project, bound)
+    resolved = prepared.resolved
+    assert set(resolved["source_columns"]) == {"story", "risk_score"}
+    assert resolved["group_column"]["name"] == "beat"
+    assert [group["name"] for group in resolved["groups"]] == [
+        "accountability",
+        "infrastructure",
+    ]
+    for param, value, expected_field in (
+        ("source", ["missing"], "params.source"),
+        ("group_by", "missing", "params.group_by"),
+    ):
+        missing_action = _reduce_action(seeded["sheet_id"])
+        missing_action["params"][param] = value
+        with pytest.raises(GroupSummaryRefused) as caught:
+            prepare_group_summary_action(project, _bound_request(missing_action))
+        assert caught.value.error.code == "invalid_input_ref"
+        assert caught.value.error.field == expected_field
+        assert caught.value.error.details == {"missing": ["missing"]}
 
 
 def _make_action(seeded: dict[str, Any]) -> dict[str, Any]:

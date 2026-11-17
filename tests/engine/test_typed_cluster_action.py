@@ -454,7 +454,7 @@ def test_actual_prepared_call_not_builtin_parameter_names_controls_source(
 
 @pytest.mark.parametrize("values", [["Jon Smith", "Smith Jon", None, " Acme "], []])
 def test_cluster_publishes_actual_groups_with_canonical_values(
-    tmp_path, monkeypatch, values
+    make_project, monkeypatch, values
 ):
     registered = RegisteredAction("custom.cluster", CLUSTER_VALUES)
     monkeypatch.setattr(
@@ -462,55 +462,52 @@ def test_cluster_publishes_actual_groups_with_canonical_values(
         "_actions",
         {**ACTION_REGISTRY._actions, "custom.cluster": registered},
     )
-    project = Project.create(tmp_path / "cluster.frisket")
-    try:
-        sheet = project.add_sheet("Names")
-        source = project.add_column(sheet, "name")
-        rows = project.add_rows(
-            sheet, [{"name": value} for value in values], {"name": source}
-        )
-        request = ActionRequest(
-            action_id="custom.cluster",
-            scope={"kind": "sheet_rows", "sheet_id": sheet},
-            params={"source": "name"},
-            output_names={"canonical": "Reviewed"},
-            idempotency_key="cluster-actual",
-        )
-        bound = BoundTypedActionRequest.bind(registered, request)
-        result = run_typed_cluster_action(
-            project, "test", bound, None, _default_map_runner_factory
-        )
-        assert result.status == "completed", result.model_dump(mode="json")
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        [fact] = [
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "value_clusters"
-        ]
-        output = next(
-            column for column in project.columns(sheet) if column["name"] == "Reviewed"
-        )
-        current = project.get_values(sheet, output["id"])
-        assert fact["canonical_values"] == [
-            {"row_id": row, "value": current.get(row)} for row in rows
-        ]
-        assert fact["source"]["column_id"] == source
-        assert fact["output"]["column_id"] == output["id"]
-        run = project.db.execute(
-            "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
-            (result.run_id,),
-        ).fetchone()
-        op_spec = json.loads(run["spec"])
-        assert "value_clusters_result" not in op_spec
-        assert op_spec["value_clusters_result_storage"] == "receipt_evidence_v1"
-        assert len(fact["clusters"]) == (1 if values else 0)
-        replay = run_typed_cluster_action(
-            project, "test", bound, None, _default_map_runner_factory
-        )
-        assert replay.status == "completed", replay.model_dump()
-        assert replay.receipt_id == result.receipt_id
-    finally:
-        project.close()
+    project = make_project("cluster")
+    sheet = project.add_sheet("Names")
+    source = project.add_column(sheet, "name")
+    rows = project.add_rows(
+        sheet, [{"name": value} for value in values], {"name": source}
+    )
+    request = ActionRequest(
+        action_id="custom.cluster",
+        scope={"kind": "sheet_rows", "sheet_id": sheet},
+        params={"source": "name"},
+        output_names={"canonical": "Reviewed"},
+        idempotency_key="cluster-actual",
+    )
+    bound = BoundTypedActionRequest.bind(registered, request)
+    result = run_typed_cluster_action(
+        project, "test", bound, None, _default_map_runner_factory
+    )
+    assert result.status == "completed", result.model_dump(mode="json")
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    [fact] = [
+        item.ref
+        for item in receipt.evidence
+        if item.ref.get("kind") == "value_clusters"
+    ]
+    output = next(
+        column for column in project.columns(sheet) if column["name"] == "Reviewed"
+    )
+    current = project.get_values(sheet, output["id"])
+    assert fact["canonical_values"] == [
+        {"row_id": row, "value": current.get(row)} for row in rows
+    ]
+    assert fact["source"]["column_id"] == source
+    assert fact["output"]["column_id"] == output["id"]
+    run = project.db.execute(
+        "SELECT ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
+        (result.run_id,),
+    ).fetchone()
+    op_spec = json.loads(run["spec"])
+    assert "value_clusters_result" not in op_spec
+    assert op_spec["value_clusters_result_storage"] == "receipt_evidence_v1"
+    assert len(fact["clusters"]) == (1 if values else 0)
+    replay = run_typed_cluster_action(
+        project, "test", bound, None, _default_map_runner_factory
+    )
+    assert replay.status == "completed", replay.model_dump()
+    assert replay.receipt_id == result.receipt_id
 
 
 def test_stop_after_cluster_rows_before_publication_closes_cancelled(

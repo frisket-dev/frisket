@@ -449,12 +449,12 @@ def test_action_run_creates_pdf_file_column(
 
 
 def test_action_run_compose_failure_errors_only_pdf_cell_text_survives(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import run_action_spec
 
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
-    project = Project.create(tmp_path / "action-fail.frisket", name="OCR fail")
+    project = make_project("OCR fail")
     sheet_id = project.add_sheet("Scans")
     cols = {"media": project.add_column(sheet_id, "media", type="file")}
     digest = project.add_blob(
@@ -497,15 +497,12 @@ def test_action_run_compose_failure_errors_only_pdf_cell_text_survives(
 
 
 def test_zero_success_pdf_field_error_keeps_successful_text_outputs_visible(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import run_action_spec
 
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
-    project = Project.create(
-        tmp_path / "action-zero-success-field-aware.frisket",
-        name="OCR field-aware",
-    )
+    project = make_project("OCR field-aware")
     sheet_id = project.add_sheet("Scans")
     cols = {"media": project.add_column(sheet_id, "media", type="file")}
     digest = project.add_blob(
@@ -541,7 +538,7 @@ def test_zero_success_pdf_field_error_keeps_successful_text_outputs_visible(
 
 
 def test_action_run_is_partial_when_only_some_rows_fail_to_compose(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A mix of a composable and a corrupt source PDF ⇒ partial (existing
     media_action_status): the good row gets its searchable PDF, the corrupt row
@@ -549,7 +546,7 @@ def test_action_run_is_partial_when_only_some_rows_fail_to_compose(
     from frisket.engine.executor import run_action_spec
 
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
-    project = Project.create(tmp_path / "action-mixed.frisket", name="OCR mixed")
+    project = make_project("OCR mixed")
     sheet_id = project.add_sheet("Scans")
     cols = {"media": project.add_column(sheet_id, "media", type="file")}
     good = project.add_blob(_source_pdf(1), filename="ok.pdf", mime="application/pdf")

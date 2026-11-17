@@ -383,120 +383,117 @@ CASES = [
 
 
 def test_live_list_copies_selected_parent_context_with_exact_metadata_and_nulls(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.contracts.action import Receipt
     from frisket.engine.executor import run_action_spec
 
-    project = Project.create(tmp_path / "parent-context.frisket")
-    try:
-        sheet_id = project.add_sheet("Cases")
-        case_id = project.add_column(sheet_id, "case", type="text")
-        score_id = project.add_column(
-            sheet_id, "score", type="number", ai_generated=True, format="0.0"
-        )
-        notes_id = project.add_column(sheet_id, "large_notes", type="text")
-        items_id = project.add_column(sheet_id, "items", type="json")
-        parent_rows = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "case": "A",
-                    "score": 0.5,
-                    "large_notes": "unselected " * 100,
-                    "items": [{"name": "a"}, {"name": "b"}],
-                },
-                {
-                    "case": None,
-                    "score": 0.8,
-                    "large_notes": "unselected " * 100,
-                    "items": [{"name": "c"}],
-                },
-                {
-                    "case": "C",
-                    "score": None,
-                    "large_notes": "unselected " * 100,
-                    "items": [{"name": "d"}, {"name": "e"}],
-                },
-            ],
+    project = make_project("parent-context")
+    sheet_id = project.add_sheet("Cases")
+    case_id = project.add_column(sheet_id, "case", type="text")
+    score_id = project.add_column(
+        sheet_id, "score", type="number", ai_generated=True, format="0.0"
+    )
+    notes_id = project.add_column(sheet_id, "large_notes", type="text")
+    items_id = project.add_column(sheet_id, "items", type="json")
+    parent_rows = project.add_rows(
+        sheet_id,
+        [
             {
-                "case": case_id,
-                "score": score_id,
-                "large_notes": notes_id,
-                "items": items_id,
+                "case": "A",
+                "score": 0.5,
+                "large_notes": "unselected " * 100,
+                "items": [{"name": "a"}, {"name": "b"}],
             },
-        )
-        result = run_action_spec(
-            project,
             {
-                "action_id": "derive.table_from_list",
-                "scope": {"kind": "project"},
-                "sheet_name": "Expanded",
-                "params": {
-                    "source": {
-                        "kind": "column",
-                        "sheet_id": sheet_id,
-                        "column_id": items_id,
-                    },
-                    "parent_columns": [
-                        {"column_id": case_id, "output_name": "source_case"},
-                        {"column_id": score_id, "output_name": "source_score"},
-                    ],
-                },
-                "idempotency_key": "parent-context-live-v1",
+                "case": None,
+                "score": 0.8,
+                "large_notes": "unselected " * 100,
+                "items": [{"name": "c"}],
             },
-            project_id="parent-context",
+            {
+                "case": "C",
+                "score": None,
+                "large_notes": "unselected " * 100,
+                "items": [{"name": "d"}, {"name": "e"}],
+            },
+        ],
+        {
+            "case": case_id,
+            "score": score_id,
+            "large_notes": notes_id,
+            "items": items_id,
+        },
+    )
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "derive.table_from_list",
+            "scope": {"kind": "project"},
+            "sheet_name": "Expanded",
+            "params": {
+                "source": {
+                    "kind": "column",
+                    "sheet_id": sheet_id,
+                    "column_id": items_id,
+                },
+                "parent_columns": [
+                    {"column_id": case_id, "output_name": "source_case"},
+                    {"column_id": score_id, "output_name": "source_score"},
+                ],
+            },
+            "idempotency_key": "parent-context-live-v1",
+        },
+        project_id="parent-context",
+    )
+    assert result.status == "completed", result.errors
+    child_id = next(
+        output.sheet_id for output in result.outputs if output.kind == "sheet"
+    )
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=? ORDER BY position", (child_id,)
         )
-        assert result.status == "completed", result.errors
-        child_id = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=? ORDER BY position", (child_id,)
-            )
-        }
-        assert list(columns) == ["name", "source_case", "source_score"]
-        assert "large_notes" not in columns
-        assert "items" not in columns
-        assert columns["name"]["ai_generated"] == 0
-        assert columns["source_case"]["ai_generated"] == 0
-        assert columns["source_score"]["ai_generated"] == 1
-        assert columns["source_score"]["format"] == "0.0"
-        assert list(
-            project.get_values(child_id, columns["source_case"]["id"]).values()
-        ) == ["A", "A", None, "C", "C"]
-        assert list(
-            project.get_values(child_id, columns["source_score"]["id"]).values()
-        ) == [0.5, 0.5, 0.8, None, None]
-        child_rows = project.db.execute(
-            "SELECT parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
-            (child_id,),
-        ).fetchall()
-        assert [row["parent_row_id"] for row in child_rows] == [
-            parent_rows[0],
-            parent_rows[0],
-            parent_rows[1],
-            parent_rows[2],
-            parent_rows[2],
-        ]
-        receipt = Receipt.model_validate_json(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()["body"]
-        )
-        read = next(
-            item.ref for item in receipt.inputs if item.ref["kind"] == "list_table_read"
-        )
-        assert [column["column_id"] for column in read["parent_columns"]] == [
-            case_id,
-            score_id,
-        ]
-        assert read["parent_source_row_ids"] == parent_rows
-        assert read["parent_values_hash"].startswith("sha256:")
-    finally:
-        project.close()
+    }
+    assert list(columns) == ["name", "source_case", "source_score"]
+    assert "large_notes" not in columns
+    assert "items" not in columns
+    assert columns["name"]["ai_generated"] == 0
+    assert columns["source_case"]["ai_generated"] == 0
+    assert columns["source_score"]["ai_generated"] == 1
+    assert columns["source_score"]["format"] == "0.0"
+    assert list(
+        project.get_values(child_id, columns["source_case"]["id"]).values()
+    ) == ["A", "A", None, "C", "C"]
+    assert list(
+        project.get_values(child_id, columns["source_score"]["id"]).values()
+    ) == [0.5, 0.5, 0.8, None, None]
+    child_rows = project.db.execute(
+        "SELECT parent_row_id FROM rows WHERE sheet_id=? ORDER BY position",
+        (child_id,),
+    ).fetchall()
+    assert [row["parent_row_id"] for row in child_rows] == [
+        parent_rows[0],
+        parent_rows[0],
+        parent_rows[1],
+        parent_rows[2],
+        parent_rows[2],
+    ]
+    receipt = Receipt.model_validate_json(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()["body"]
+    )
+    read = next(
+        item.ref for item in receipt.inputs if item.ref["kind"] == "list_table_read"
+    )
+    assert [column["column_id"] for column in read["parent_columns"]] == [
+        case_id,
+        score_id,
+    ]
+    assert read["parent_source_row_ids"] == parent_rows
+    assert read["parent_values_hash"].startswith("sha256:")
 
 
 def test_named_result_retains_historical_output_and_inherits_actual_input_freshness(

@@ -267,7 +267,9 @@ def test_import_csv_cli_round_trip(tmp_path: Path) -> None:
     assert failed_result.errors[0].code == "invalid_file_source"
 
 
-def test_import_csv_default_allows_more_than_10000_file_rows(tmp_path: Path) -> None:
+def test_import_csv_default_allows_more_than_10000_file_rows(
+    tmp_path: Path, make_project
+) -> None:
     """File-backed Solo imports have no legacy total-row refusal either."""
     from frisket.engine.executor.actions import run_action_spec
 
@@ -283,34 +285,33 @@ def test_import_csv_default_allows_more_than_10000_file_rows(tmp_path: Path) -> 
     )
     action["params"]["columns"] = [{"name": "name", "type": "text"}]
 
-    project = Project.create(tmp_path / "large-csv.frisket", name="Large CSV")
-    try:
-        result = run_action_spec(project, action, project_id="large-csv")
+    project = make_project("Large CSV")
+    result = run_action_spec(project, action, project_id="large-csv")
 
-        assert result.status == "completed", result.errors
-        sheet = project.db.execute(
-            "SELECT id FROM sheets WHERE name='Large CSV'"
-        ).fetchone()
-        assert sheet is not None
-        assert project.row_count(int(sheet["id"])) == 10_001
-        receipt = project.db.execute(
-            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-        ).fetchone()
-        assert receipt is not None
-        body = str(receipt["body"])
-        assert len(body.encode("utf-8")) < 100_000
-        assert "Record 10000" not in body
-        op = project.db.execute(
-            "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
-        ).fetchone()
-        assert op is not None
-        assert json.loads(op["spec"])["import_row_count"] == 10_001
-        assert "rows" not in json.loads(op["spec"])["params"]
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    sheet = project.db.execute(
+        "SELECT id FROM sheets WHERE name='Large CSV'"
+    ).fetchone()
+    assert sheet is not None
+    assert project.row_count(int(sheet["id"])) == 10_001
+    receipt = project.db.execute(
+        "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+    ).fetchone()
+    assert receipt is not None
+    body = str(receipt["body"])
+    assert len(body.encode("utf-8")) < 100_000
+    assert "Record 10000" not in body
+    op = project.db.execute(
+        "SELECT spec FROM ops WHERE id=?", (result.op_ids[0],)
+    ).fetchone()
+    assert op is not None
+    assert json.loads(op["spec"])["import_row_count"] == 10_001
+    assert "rows" not in json.loads(op["spec"])["params"]
 
 
-def test_import_csv_executes_a_real_source_larger_than_5mb(tmp_path: Path) -> None:
+def test_import_csv_executes_a_real_source_larger_than_5mb(
+    tmp_path: Path, make_project
+) -> None:
     """Typed streaming ingestion does not restore the retired source-byte cap."""
     from frisket.engine.executor.actions import run_action_spec
 
@@ -324,18 +325,15 @@ def test_import_csv_executes_a_real_source_larger_than_5mb(tmp_path: Path) -> No
     )
     action["params"]["columns"] = [{"name": "name", "type": "text"}]
 
-    project = Project.create(tmp_path / "over-5mb.frisket", name="Over 5 MB")
-    try:
-        result = run_action_spec(project, action, project_id="over-5mb")
+    project = make_project("Over 5 MB")
+    result = run_action_spec(project, action, project_id="over-5mb")
 
-        assert result.status == "completed", result.errors
-        sheet = project.db.execute(
-            "SELECT id FROM sheets WHERE name='Over 5 MB'"
-        ).fetchone()
-        assert sheet is not None
-        assert project.row_count(int(sheet["id"])) == 1
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    sheet = project.db.execute(
+        "SELECT id FROM sheets WHERE name='Over 5 MB'"
+    ).fetchone()
+    assert sheet is not None
+    assert project.row_count(int(sheet["id"])) == 1
 
 
 def test_csv_field_policy_is_configured_at_package_startup() -> None:
@@ -411,6 +409,7 @@ def test_csv_field_policy_is_stable_across_concurrent_imports(
 
 def test_typed_file_imports_accept_10001_rows_without_a_deployment_cap(
     tmp_path: Path,
+    make_project,
 ) -> None:
     """The complete typed import path has no fixed total-row ceiling."""
     from openpyxl import Workbook
@@ -461,33 +460,30 @@ def test_typed_file_imports_accept_10001_rows_without_a_deployment_cap(
     )
 
     one_text_column = [{"name": "name", "type": "text"}]
-    project = Project.create(tmp_path / "many-project")
-    try:
-        for kind, source_path, options in (
-            (
-                "import.xlsx",
-                xlsx_path,
-                {"columns": one_text_column, "header": "present"},
-            ),
-            ("import.geojson", geojson_path, {"property_columns": []}),
-            ("import.kml", kml_path, {"property_columns": []}),
-        ):
-            result = run_action_spec(
-                project,
-                {
-                    "action_id": kind,
-                    "scope": {"kind": "project"},
-                    "sheet_name": f"Many {kind}",
-                    "params": {
-                        "source": {"kind": "file", "path": str(source_path)},
-                        **options,
-                    },
-                    "idempotency_key": f"many-{kind}",
+    project = make_project("many-project")
+    for kind, source_path, options in (
+        (
+            "import.xlsx",
+            xlsx_path,
+            {"columns": one_text_column, "header": "present"},
+        ),
+        ("import.geojson", geojson_path, {"property_columns": []}),
+        ("import.kml", kml_path, {"property_columns": []}),
+    ):
+        result = run_action_spec(
+            project,
+            {
+                "action_id": kind,
+                "scope": {"kind": "project"},
+                "sheet_name": f"Many {kind}",
+                "params": {
+                    "source": {"kind": "file", "path": str(source_path)},
+                    **options,
                 },
-                project_id="p",
-            )
-            assert result.status == "completed", result.errors
-            assert result.outputs[0].ref["row_count"] == count
-            assert project.row_count(result.outputs[0].ref["sheet_id"]) == count
-    finally:
-        project.close()
+                "idempotency_key": f"many-{kind}",
+            },
+            project_id="p",
+        )
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["row_count"] == count
+        assert project.row_count(result.outputs[0].ref["sheet_id"]) == count

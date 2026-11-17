@@ -234,26 +234,25 @@ def test_source_update_clears_schedule_with_null_patch(
         assert source["schedule"] is None
 
 
-def test_source_update_rejects_empty_patch_at_typed_ingress(tmp_path: Path) -> None:
+def test_source_update_rejects_empty_patch_at_typed_ingress(
+    tmp_path: Path, make_project
+) -> None:
     from frisket.engine.executor import run_action_spec
 
-    project = Project.create(tmp_path / "empty-patch.frisket", name="empty-patch")
-    try:
-        seeded = _seed(project, tmp_path)
-        before = dict(_get_source(project, seeded["source_id"]))
+    project = make_project("empty-patch")
+    seeded = _seed(project, tmp_path)
+    before = dict(_get_source(project, seeded["source_id"]))
 
-        result = run_action_spec(
-            project,
-            _empty_patch_action(seeded),
-            project_id="project-empty-patch",
-        )
+    result = run_action_spec(
+        project,
+        _empty_patch_action(seeded),
+        project_id="project-empty-patch",
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert dict(_get_source(project, seeded["source_id"])) == before
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert dict(_get_source(project, seeded["source_id"])) == before
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("field", ["name", "kind", "enabled"])

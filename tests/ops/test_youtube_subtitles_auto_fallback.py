@@ -10,7 +10,6 @@ from frisket.actions.media_download_types import download_outputs
 from frisket.actions.types import Row, StagedAudio, StagedFile
 from frisket.engine.executor.media_download import AdmittedMediaDownloader
 from frisket.engine.executor.row_file_stage import RowFileStager
-from frisket.engine.store import Project
 from frisket.ops.ytdlp import DownloadedMedia, SidecarFile
 from frisket.ops.ytdlp_outputs import _select_subtitle_file
 
@@ -39,13 +38,6 @@ def _execute(project, options=None, *, url=YOUTUBE_WATCH):
         return asyncio.run(run())
     finally:
         stager.close()
-
-
-@pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "captions.frisket")
-    yield project
-    project.close()
 
 
 def _fake_downloaded_media(sidecars=()):

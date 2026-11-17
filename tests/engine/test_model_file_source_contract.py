@@ -195,9 +195,9 @@ def test_pdf_sources_survive_http_and_worker_reconstruction_and_publish_output(
 @pytest.mark.parametrize("kind", ["map.ask", "map.summarize"])
 @pytest.mark.parametrize("source", [["document"], {"text": "Read {{document}}"}])
 def test_non_pdf_file_rows_refuse_without_sending_metadata_to_model(
-    tmp_path, kind, source
+    make_project, kind, source
 ):
-    project = Project.create(tmp_path / "non-pdf.frisket")
+    project = make_project("non-pdf")
     router, adapter = router_and_adapter()
     try:
         sheet_id = project.add_sheet("Rows")
@@ -240,55 +240,52 @@ def test_non_pdf_file_rows_refuse_without_sending_metadata_to_model(
 
 @pytest.mark.parametrize("kind", ["map.ask", "map.summarize"])
 def test_model_sources_still_send_text_pixels_and_ordinary_json(
-    tmp_path, kind, monkeypatch
+    make_project, kind, monkeypatch
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     router, adapter = router_and_adapter()
-    project = Project.create(tmp_path / "inputs.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        columns = {
-            name: project.add_column(sheet_id, name, type=type_)
-            for name, type_ in [
-                ("body", "text"),
-                ("picture", "image"),
-                ("metadata", "json"),
-            ]
-        }
-        pixels = base64.b64decode(
-            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
-        )
-        digest = project.add_blob(pixels, mime="image/png", filename="pixel.png")
-        project.add_rows(
-            sheet_id,
-            [
-                {
-                    "body": "Actual document text",
-                    "picture": {"blob": digest, "mime": "image/png"},
-                    "metadata": {"blob": "an ordinary metadata identifier"},
-                }
-            ],
-            columns,
-        )
-        body = request(kind, sheet_id, list(columns))
-        quote = run_action_spec(project, body, project_id="test", router=router)
-        assert quote.status == "needs_confirmation", quote.errors
-        assert adapter.requests == []
-        body["confirmation"] = quote.errors[0].details["promise_set_hash"]
-        result = run_action_spec(project, body, project_id="test", router=router)
-        assert result.status == "completed", result.errors
-        assert len(adapter.requests) == 1
-        parts = adapter.requests[0].messages[1]["content"]
-        assert any(
-            part["type"] == "text"
-            and "Actual document text" in part["text"]
-            and "ordinary metadata identifier" in part["text"]
-            for part in parts
-        )
-        image = next(part for part in parts if part["type"] == "image")
-        assert base64.b64decode(image["data"]) == pixels
-    finally:
-        project.close()
+    project = make_project("inputs")
+    sheet_id = project.add_sheet("Rows")
+    columns = {
+        name: project.add_column(sheet_id, name, type=type_)
+        for name, type_ in [
+            ("body", "text"),
+            ("picture", "image"),
+            ("metadata", "json"),
+        ]
+    }
+    pixels = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+    )
+    digest = project.add_blob(pixels, mime="image/png", filename="pixel.png")
+    project.add_rows(
+        sheet_id,
+        [
+            {
+                "body": "Actual document text",
+                "picture": {"blob": digest, "mime": "image/png"},
+                "metadata": {"blob": "an ordinary metadata identifier"},
+            }
+        ],
+        columns,
+    )
+    body = request(kind, sheet_id, list(columns))
+    quote = run_action_spec(project, body, project_id="test", router=router)
+    assert quote.status == "needs_confirmation", quote.errors
+    assert adapter.requests == []
+    body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    result = run_action_spec(project, body, project_id="test", router=router)
+    assert result.status == "completed", result.errors
+    assert len(adapter.requests) == 1
+    parts = adapter.requests[0].messages[1]["content"]
+    assert any(
+        part["type"] == "text"
+        and "Actual document text" in part["text"]
+        and "ordinary metadata identifier" in part["text"]
+        for part in parts
+    )
+    image = next(part for part in parts if part["type"] == "image")
+    assert base64.b64decode(image["data"]) == pixels
 
 
 @pytest.mark.parametrize(
@@ -333,39 +330,33 @@ def test_document_readers_keep_file_support(kind):
     )
 
 
-def test_nontext_reference_keeps_incompatible_type_diagnostic(tmp_path):
+def test_nontext_reference_keeps_incompatible_type_diagnostic(make_project):
     class NumericParams(BaseModel):
         source: ColumnRef[int]
 
-    project = Project.create(tmp_path / "numeric.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        project.add_column(sheet_id, "document", type="file")
-        with pytest.raises(ValueError, match="incompatible types"):
-            validate_typed_project_references(
-                project, sheet_id, NumericParams.model_validate({"source": "document"})
-            )
-    finally:
-        project.close()
+    project = make_project("numeric")
+    sheet_id = project.add_sheet("Rows")
+    project.add_column(sheet_id, "document", type="file")
+    with pytest.raises(ValueError, match="incompatible types"):
+        validate_typed_project_references(
+            project, sheet_id, NumericParams.model_validate({"source": "document"})
+        )
 
 
 @pytest.mark.parametrize("type_", ["image", "link", "json", "text"])
-def test_translation_templates_keep_supported_rich_references(tmp_path, type_):
-    project = Project.create(tmp_path / "translation.frisket")
-    try:
-        sheet_id = project.add_sheet("Rows")
-        project.add_column(sheet_id, "content", type=type_)
-        body = request("map.translate", sheet_id, {"text": "Read {{content}}"})
-        spec = build_typed_map_rows_plan(
-            project, typed_action_for_request(body)
-        ).spec_dict()
-        assert typed_program_from_runner_spec(project, spec) is not None
-    finally:
-        project.close()
+def test_translation_templates_keep_supported_rich_references(make_project, type_):
+    project = make_project("translation")
+    sheet_id = project.add_sheet("Rows")
+    project.add_column(sheet_id, "content", type=type_)
+    body = request("map.translate", sheet_id, {"text": "Read {{content}}"})
+    spec = build_typed_map_rows_plan(
+        project, typed_action_for_request(body)
+    ).spec_dict()
+    assert typed_program_from_runner_spec(project, spec) is not None
 
 
-def test_group_summary_file_source_refuses_before_provider(tmp_path):
-    project = Project.create(tmp_path / "group-file.frisket")
+def test_group_summary_file_source_refuses_before_provider(make_project):
+    project = make_project("group-file")
     router, adapter = router_and_adapter()
     try:
         sheet_id = project.add_sheet("Rows")
@@ -388,7 +379,7 @@ def test_group_summary_file_source_refuses_before_provider(tmp_path):
         project.close()
 
 
-def test_file_excluding_refs_keep_late_plugin_types_and_file_group_keys(tmp_path):
+def test_file_excluding_refs_keep_late_plugin_types_and_file_group_keys(make_project):
     from frisket.actions.group_summary import GroupSummaryParams
     from frisket.actions.ner import NerParams
     from frisket.actions.types import discover_references
@@ -402,7 +393,7 @@ def test_file_excluding_refs_keep_late_plugin_types_and_file_group_keys(tmp_path
 
     custom_type = "file_policy_test_custom"
     register_column_type(custom_type, plugin="file-policy-test")
-    project = Project.create(tmp_path / "custom.frisket")
+    project = make_project("custom")
     try:
         sheet_id = project.add_sheet("Rows")
         columns = {

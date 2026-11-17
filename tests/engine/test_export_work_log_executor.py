@@ -331,7 +331,7 @@ def _row_delete_action(sheet_id: int, row_ids: list[int]) -> dict[str, Any]:
     }
 
 
-def test_work_log_payload_omits_deleted_rows_and_hidden_columns(tmp_path: Path) -> None:
+def test_work_log_payload_omits_deleted_rows_and_hidden_columns(make_project) -> None:
     """The work log reads what the sheet reads.
 
     A deleted row (``rows.hidden``) and a plumbing column (``columns.hidden``,
@@ -340,47 +340,44 @@ def test_work_log_payload_omits_deleted_rows_and_hidden_columns(tmp_path: Path) 
     """
     from frisket.server.exports.work_log import build_work_log_payload
 
-    project = Project.create(tmp_path / "work-log-hidden.frisket", name="Hidden")
-    try:
-        _run_seed_action(project, _seed_import_action())
-        sheet_id = int(
-            project.db.execute(
-                "SELECT id FROM sheets WHERE name='Transcripts'"
-            ).fetchone()["id"]
-        )
-        _run_seed_action(project, _regex_extract_action(sheet_id))
-        _run_seed_action(project, _map_named_results_action(sheet_id))
+    project = make_project("Hidden")
+    _run_seed_action(project, _seed_import_action())
+    sheet_id = int(
+        project.db.execute("SELECT id FROM sheets WHERE name='Transcripts'").fetchone()[
+            "id"
+        ]
+    )
+    _run_seed_action(project, _regex_extract_action(sheet_id))
+    _run_seed_action(project, _map_named_results_action(sheet_id))
 
-        hidden_column = project.db.execute(
-            "SELECT hidden FROM columns WHERE sheet_id=? AND name='__result_entities'",
-            (sheet_id,),
-        ).fetchone()
-        assert hidden_column is not None and hidden_column["hidden"] == 1
+    hidden_column = project.db.execute(
+        "SELECT hidden FROM columns WHERE sheet_id=? AND name='__result_entities'",
+        (sheet_id,),
+    ).fetchone()
+    assert hidden_column is not None and hidden_column["hidden"] == 1
 
-        deleted_row_id = int(
-            project.db.execute(
-                "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
-            ).fetchall()[0]["id"]
-        )
-        _run_seed_action(project, _row_delete_action(sheet_id, [deleted_row_id]))
-        assert project.row_count(sheet_id) == 1
+    deleted_row_id = int(
+        project.db.execute(
+            "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
+        ).fetchall()[0]["id"]
+    )
+    _run_seed_action(project, _row_delete_action(sheet_id, [deleted_row_id]))
+    assert project.row_count(sheet_id) == 1
 
-        payload = build_work_log_payload(
-            project, "project-export-work-log", include_receipts=False
-        )
-        runs = {run["action_kind"]: run for run in payload["runs"]}
+    payload = build_work_log_payload(
+        project, "project-export-work-log", include_receipts=False
+    )
+    runs = {run["action_kind"]: run for run in payload["runs"]}
 
-        assert runs["map.python"]["outputs"] == []
-        assert runs["map.python"]["examples"] == []
-        assert runs["map.regex_extract"]["outputs"] == ["speaker"]
-        surviving = runs["map.regex_extract"]["examples"]
-        assert [example["value"] for example in surviving] == ["Bob"]
-        # The op-log label is a separate surface (project.history() shows it
-        # too); the run rows are the ones that dumped cell values.
-        assert "Alice" not in json.dumps(payload)
-        assert "__result_entities" not in json.dumps(payload["runs"])
-    finally:
-        project.close()
+    assert runs["map.python"]["outputs"] == []
+    assert runs["map.python"]["examples"] == []
+    assert runs["map.regex_extract"]["outputs"] == ["speaker"]
+    surviving = runs["map.regex_extract"]["examples"]
+    assert [example["value"] for example in surviving] == ["Bob"]
+    # The op-log label is a separate surface (project.history() shows it
+    # too); the run rows are the ones that dumped cell values.
+    assert "Alice" not in json.dumps(payload)
+    assert "__result_entities" not in json.dumps(payload["runs"])
 
 
 def test_export_work_log_artifact_trust_on_replay(

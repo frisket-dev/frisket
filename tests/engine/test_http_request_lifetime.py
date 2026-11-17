@@ -15,7 +15,6 @@ from frisket.engine.executor.http_request import (
     AdmittedHttpRequester,
     HttpRequestCancelled,
 )
-from frisket.engine.store import Project
 from frisket.ops.base import OpContext
 from tests.engine.test_typed_api_call import _confirmed, _install_handler
 from tests.ops.test_api_call import _allow_egress as _allow_egress
@@ -74,7 +73,7 @@ def test_requester_refuses_revoked_lifetime_before_egress(
 
 
 def test_requester_cannot_escape_completed_typed_invocation(
-    tmp_path, monkeypatch, _allow_egress
+    make_project, monkeypatch, _allow_egress
 ):
     captured = []
 
@@ -85,7 +84,7 @@ def test_requester_cannot_escape_completed_typed_invocation(
         return RowResult(output=ApiCallOutput(api_result={"ok": True}))
 
     _install_handler(monkeypatch, escape)
-    project = Project.create(tmp_path / "escape.frisket")
+    project = make_project("escape")
     sheet = project.add_sheet("Rows")
     project.add_rows(sheet, [{}], {})
     calls = []

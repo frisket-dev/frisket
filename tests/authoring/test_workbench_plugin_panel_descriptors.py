@@ -5,8 +5,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
-
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_ID = "demo.selection_summary"
@@ -50,9 +48,8 @@ def _activate_selection_summary_plugin(
 
 
 def test_selection_summary_panel_descriptor_projects_from_runtime_index(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post(
         "/api/projects", json={"name": "Selection summary panel"}
     ).json()["id"]

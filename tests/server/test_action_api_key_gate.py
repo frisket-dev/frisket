@@ -24,7 +24,6 @@ from frisket.team.security.secrets import encrypt_secret
 from frisket.server.action_enqueue import MISSING_ACTION_CREDENTIAL_ERROR_CODE
 from frisket.server.app import create_app
 from frisket.server.services.action_runs import v1_action_result_http_status
-from frisket.engine.store import Project
 
 
 def _client(tmp_path) -> TestClient:
@@ -87,32 +86,28 @@ def test_only_census_demographics_declares_a_required_credential(tmp_path) -> No
     assert gated == ["enrich.census_demographics"]
 
 
-def test_resolve_credential_prefers_env_var(tmp_path, monkeypatch) -> None:
-    project = Project.create(tmp_path / "env.frisket")
-    try:
-        monkeypatch.setenv("CENSUS_API_KEY", "env-value")
-        assert resolve_credential(project, "CENSUS_API_KEY") == "env-value"
-        assert missing_required_credentials(project, ["CENSUS_API_KEY"]) == []
-    finally:
-        project.close()
+def test_resolve_credential_prefers_env_var(make_project, monkeypatch) -> None:
+    project = make_project("env")
+    monkeypatch.setenv("CENSUS_API_KEY", "env-value")
+    assert resolve_credential(project, "CENSUS_API_KEY") == "env-value"
+    assert missing_required_credentials(project, ["CENSUS_API_KEY"]) == []
 
 
-def test_resolve_credential_falls_back_to_project_secret(tmp_path, monkeypatch) -> None:
-    project = Project.create(tmp_path / "secret.frisket")
-    try:
-        monkeypatch.delenv("CENSUS_API_KEY", raising=False)
-        assert missing_required_credentials(project, ["CENSUS_API_KEY"]) == [
-            "CENSUS_API_KEY"
-        ]
-        project.set_secret(
-            name="CENSUS_API_KEY",
-            encrypted=encrypt_secret("secret-value"),
-            hint="cens***",
-        )
-        assert resolve_credential(project, "CENSUS_API_KEY") == "secret-value"
-        assert missing_required_credentials(project, ["CENSUS_API_KEY"]) == []
-    finally:
-        project.close()
+def test_resolve_credential_falls_back_to_project_secret(
+    make_project, monkeypatch
+) -> None:
+    project = make_project("secret")
+    monkeypatch.delenv("CENSUS_API_KEY", raising=False)
+    assert missing_required_credentials(project, ["CENSUS_API_KEY"]) == [
+        "CENSUS_API_KEY"
+    ]
+    project.set_secret(
+        name="CENSUS_API_KEY",
+        encrypted=encrypt_secret("secret-value"),
+        hint="cens***",
+    )
+    assert resolve_credential(project, "CENSUS_API_KEY") == "secret-value"
+    assert missing_required_credentials(project, ["CENSUS_API_KEY"]) == []
 
 
 def test_queued_run_refuses_without_credential_distinct_from_cost_gate(

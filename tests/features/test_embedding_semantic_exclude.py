@@ -189,8 +189,8 @@ def test_exclude_threshold_override(env):
     assert mil in ids  # cos 0.707 < 0.9 -> kept
 
 
-def test_remote_without_allow_remote_blocks_before_any_embed(tmp_path):
-    project = Project.create(tmp_path / "rex.frisket", name="r")
+def test_remote_without_allow_remote_blocks_before_any_embed(make_project):
+    project = make_project("r")
     sheet = project.add_sheet("s")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": r} for r in _ROWS], cols)

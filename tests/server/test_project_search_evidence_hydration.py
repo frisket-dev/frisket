@@ -130,134 +130,120 @@ def _search(
 
 
 def test_search_route_hydrates_transcript_and_ocr_from_its_pinned_snapshot(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "located-evidence.frisket")
-    try:
-        _seed_source(project)
-        _seed_ocr(project)
-        assert drain_index(project) >= 2
+    project = make_project("located-evidence")
+    _seed_source(project)
+    _seed_ocr(project)
+    assert drain_index(project) >= 2
 
-        client = _client(project)
-        transcript = _search(client, "Second sentence")
-        ocr = _search(client, "China")
+    client = _client(project)
+    transcript = _search(client, "Second sentence")
+    ocr = _search(client, "China")
 
-        transcript_hits = [
-            group["primary"]
-            for group in transcript["groups"]
-            if group["primary"]["source"]["source_kind"] == "transcript"
-        ]
-        ocr_hits = [
-            group["primary"]
-            for group in ocr["groups"]
-            if group["primary"]["source"]["source_kind"] == "ocr_text"
-        ]
-        assert len(transcript_hits) == 1
-        assert "sentence" in transcript_hits[0]["snippet"].lower()
-        second_span = project.db.execute(
-            "SELECT stable_id FROM source_spans WHERE quote='Second sentence.'"
-        ).fetchone()
-        assert second_span is not None
-        assert transcript_hits[0]["navigation"]["span_id"] == second_span["stable_id"]
-        assert len(ocr_hits) == 1
-        assert "china" in ocr_hits[0]["snippet"].lower()
-    finally:
-        project.close()
+    transcript_hits = [
+        group["primary"]
+        for group in transcript["groups"]
+        if group["primary"]["source"]["source_kind"] == "transcript"
+    ]
+    ocr_hits = [
+        group["primary"]
+        for group in ocr["groups"]
+        if group["primary"]["source"]["source_kind"] == "ocr_text"
+    ]
+    assert len(transcript_hits) == 1
+    assert "sentence" in transcript_hits[0]["snippet"].lower()
+    second_span = project.db.execute(
+        "SELECT stable_id FROM source_spans WHERE quote='Second sentence.'"
+    ).fetchone()
+    assert second_span is not None
+    assert transcript_hits[0]["navigation"]["span_id"] == second_span["stable_id"]
+    assert len(ocr_hits) == 1
+    assert "china" in ocr_hits[0]["snippet"].lower()
 
 
-def test_search_identifies_document_and_all_matching_phrase_spans(tmp_path) -> None:
-    project = Project.create(tmp_path / "phrase.frisket")
-    try:
-        _seed_ocr(project)
-        drain_index(project)
-        payload = _search(_client(project), "China trade")
-        hits = [
-            group["primary"]
-            for group in payload["groups"]
-            if group["primary"]["source"]["source_kind"] == "ocr_text"
-        ]
-        assert len(hits) == 1
-        hit = hits[0]
-        assert hit["source_name"] == "scan.png"
-        expected = {
-            row["stable_id"]
-            for row in project.db.execute(
-                "SELECT stable_id FROM source_spans WHERE quote IN ('China','trade policy')"
-            )
-        }
-        assert set(hit["navigation"]["span_ids"]) == expected
-        assert hit["navigation"]["span_id"] in expected
-    finally:
-        project.close()
+def test_search_identifies_document_and_all_matching_phrase_spans(make_project) -> None:
+    project = make_project("phrase")
+    _seed_ocr(project)
+    drain_index(project)
+    payload = _search(_client(project), "China trade")
+    hits = [
+        group["primary"]
+        for group in payload["groups"]
+        if group["primary"]["source"]["source_kind"] == "ocr_text"
+    ]
+    assert len(hits) == 1
+    hit = hits[0]
+    assert hit["source_name"] == "scan.png"
+    expected = {
+        row["stable_id"]
+        for row in project.db.execute(
+            "SELECT stable_id FROM source_spans WHERE quote IN ('China','trade policy')"
+        )
+    }
+    assert set(hit["navigation"]["span_ids"]) == expected
+    assert hit["navigation"]["span_id"] in expected
 
 
 @pytest.mark.parametrize("position", ["beginning", "end"])
 def test_search_api_bounds_long_token_context_without_changing_absolute_hit(
-    tmp_path, position
+    make_project, position
 ):
-    project = Project.create(tmp_path / "bounded-snippet.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        query = f"beacon{position}"
-        context = f"😀 Ω café é & <script>plain text</script> {query} Ω 😀"
-        if position == "beginning":
-            text = context + " " + "unbrokentoken" * 80_660
-        else:
-            text = "longtoken" * 2_330_169 + " " + context
-        [row] = project.add_rows(sheet, [{"body": text}], {"body": column})
-        drain_index(project)
-        payload = _search(_client(project), query)
-        [group] = payload["groups"]
-        hit = group["primary"]
-        snippet = hit["snippet"]
-        assert len(snippet) <= 520
-        assert len(snippet.encode("utf-8")) <= 4096
-        assert f"<b>{query}</b>" in snippet
-        assert snippet.count("<b>") == snippet.count("</b>") == 1
-        assert "FRISKET_SEARCH_HIT" not in snippet
-        assert "…" in snippet
-        assert "😀" in snippet
-        # The raw-text wire contract is rendered through escaped React text nodes.
-        assert "<script>plain text</script>" in snippet
-        assert "&lt;script" not in snippet
-        location = hit["location"]
-        assert location["precision"] == "exact"
-        expected_start = text.index(query)
-        assert location["text"]["start"] == expected_start
-        assert location["text"]["end"] == expected_start + len(query)
-        assert hit["navigation"]["text_range"] == location["text"]
-        assert hit["binding"]["row_id"] == row
-        assert hit["binding"]["column_id"] == column
-    finally:
-        project.close()
+    project = make_project("bounded-snippet")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    query = f"beacon{position}"
+    context = f"😀 Ω café é & <script>plain text</script> {query} Ω 😀"
+    if position == "beginning":
+        text = context + " " + "unbrokentoken" * 80_660
+    else:
+        text = "longtoken" * 2_330_169 + " " + context
+    [row] = project.add_rows(sheet, [{"body": text}], {"body": column})
+    drain_index(project)
+    payload = _search(_client(project), query)
+    [group] = payload["groups"]
+    hit = group["primary"]
+    snippet = hit["snippet"]
+    assert len(snippet) <= 520
+    assert len(snippet.encode("utf-8")) <= 4096
+    assert f"<b>{query}</b>" in snippet
+    assert snippet.count("<b>") == snippet.count("</b>") == 1
+    assert "FRISKET_SEARCH_HIT" not in snippet
+    assert "…" in snippet
+    assert "😀" in snippet
+    # The raw-text wire contract is rendered through escaped React text nodes.
+    assert "<script>plain text</script>" in snippet
+    assert "&lt;script" not in snippet
+    location = hit["location"]
+    assert location["precision"] == "exact"
+    expected_start = text.index(query)
+    assert location["text"]["start"] == expected_start
+    assert location["text"]["end"] == expected_start + len(query)
+    assert hit["navigation"]["text_range"] == location["text"]
+    assert hit["binding"]["row_id"] == row
+    assert hit["binding"]["column_id"] == column
 
 
 def test_search_api_caps_a_matched_token_excerpt_without_shortening_its_locator(
-    tmp_path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "matched-token.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "body")
-        token = "massivematch" + "x" * 5000
-        text = "😀 prefix " + token + " Ω tail"
-        project.add_rows(sheet, [{"body": text}], {"body": column})
-        drain_index(project)
-        [group] = _search(_client(project), "massivematch*", lexical_syntax="fts")[
-            "groups"
-        ]
-        hit = group["primary"]
-        snippet = hit["snippet"]
-        assert len(snippet) <= 520
-        assert len(snippet.encode("utf-8")) <= 4096
-        assert "<b>massivematch" in snippet
-        assert snippet.endswith("</b>…")
-        assert snippet.count("<b>") == snippet.count("</b>") == 1
-        location = hit["location"]
-        assert location["precision"] == "exact"
-        assert location["text"]["start"] == len("😀 prefix ")
-        assert location["text"]["end"] == len("😀 prefix ") + len(token)
-        assert hit["navigation"]["text_range"] == location["text"]
-    finally:
-        project.close()
+    project = make_project("matched-token")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "body")
+    token = "massivematch" + "x" * 5000
+    text = "😀 prefix " + token + " Ω tail"
+    project.add_rows(sheet, [{"body": text}], {"body": column})
+    drain_index(project)
+    [group] = _search(_client(project), "massivematch*", lexical_syntax="fts")["groups"]
+    hit = group["primary"]
+    snippet = hit["snippet"]
+    assert len(snippet) <= 520
+    assert len(snippet.encode("utf-8")) <= 4096
+    assert "<b>massivematch" in snippet
+    assert snippet.endswith("</b>…")
+    assert snippet.count("<b>") == snippet.count("</b>") == 1
+    location = hit["location"]
+    assert location["precision"] == "exact"
+    assert location["text"]["start"] == len("😀 prefix ")
+    assert location["text"]["end"] == len("😀 prefix ") + len(token)
+    assert hit["navigation"]["text_range"] == location["text"]

@@ -150,7 +150,7 @@ def _table_count(project: Project, table: str) -> int:
 
 
 def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
-    tmp_path: Path,
+    make_project,
     restore_api_poller: None,
 ) -> None:
     first_payload = {
@@ -204,154 +204,149 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
         replace=True,
     )
 
-    project = Project.create(tmp_path / "api-list-source.frisket", name="API")
-    try:
-        first = run_action_spec(
-            project,
-            _source_poll_action(source=_api_source()),
-            project_id=PROJECT_ID,
-        )
-        assert first.status == "completed"
-        assert first.receipt_id is not None
-        assert fake_http.calls == [{"url": API_URL, "max_bytes": 1_000_000}]
-        source_id = next(
-            output.ref["source_id"]
-            for output in first.outputs
-            if output.kind == "source"
-        )
-        source_run_id = next(
-            output.ref["source_run_id"]
-            for output in first.outputs
-            if output.kind == "source_run"
-        )
-        sheet_id = next(
-            output.sheet_id for output in first.outputs if output.kind == "sheet"
-        )
-        assert sheet_id is not None
+    project = make_project("API")
+    first = run_action_spec(
+        project,
+        _source_poll_action(source=_api_source()),
+        project_id=PROJECT_ID,
+    )
+    assert first.status == "completed"
+    assert first.receipt_id is not None
+    assert fake_http.calls == [{"url": API_URL, "max_bytes": 1_000_000}]
+    source_id = next(
+        output.ref["source_id"] for output in first.outputs if output.kind == "source"
+    )
+    source_run_id = next(
+        output.ref["source_run_id"]
+        for output in first.outputs
+        if output.kind == "source_run"
+    )
+    sheet_id = next(
+        output.sheet_id for output in first.outputs if output.kind == "sheet"
+    )
+    assert sheet_id is not None
 
-        rows = _rows(project, sheet_id)
-        assert [row["id"] for row in rows] == ["case-1", "case-2"]
-        assert rows[0]["source_id"] == source_id
-        assert rows[0]["source_run_id"] == source_run_id
-        assert rows[0]["source_item_id"] == "case-1"
-        assert rows[0]["source_url"] == API_URL
-        assert rows[0]["source_fetched_at"] == "2026-06-23T12:00:00Z"
-        assert rows[0]["source_updated_at"] == "2026-06-22T10:00:00Z"
-        assert rows[0]["source_raw"]["id"] == "case-1"
-        assert rows[0]["details"] == {"score": 1}
-        assert rows[0]["tags"] == ["records", "alpha"]
-        record_columns = [
-            name
-            for name in _columns(project, sheet_id)
-            if not name.startswith("source_") and name not in {"_revision", "_revises"}
-        ]
-        assert record_columns == ["id", "name", "details", "tags", "updated", "status"]
+    rows = _rows(project, sheet_id)
+    assert [row["id"] for row in rows] == ["case-1", "case-2"]
+    assert rows[0]["source_id"] == source_id
+    assert rows[0]["source_run_id"] == source_run_id
+    assert rows[0]["source_item_id"] == "case-1"
+    assert rows[0]["source_url"] == API_URL
+    assert rows[0]["source_fetched_at"] == "2026-06-23T12:00:00Z"
+    assert rows[0]["source_updated_at"] == "2026-06-22T10:00:00Z"
+    assert rows[0]["source_raw"]["id"] == "case-1"
+    assert rows[0]["details"] == {"score": 1}
+    assert rows[0]["tags"] == ["records", "alpha"]
+    record_columns = [
+        name
+        for name in _columns(project, sheet_id)
+        if not name.startswith("source_") and name not in {"_revision", "_revises"}
+    ]
+    assert record_columns == ["id", "name", "details", "tags", "updated", "status"]
 
-        first_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (source_run_id,),
-        ).fetchone()
-        assert first_run is not None
-        assert first_run["status"] == "ok"
-        assert first_run["new_rows"] == 2
-        assert first_run["warning_count"] == 0
-        first_cursor = json.loads(first_run["cursor_after"])
-        assert first_cursor["schema_version"] == "frisket.api_list_dicts_cursor.v1"
-        assert first_cursor["list_path"] == "/results"
-        assert first_cursor["items_seen"] == 2
-        assert first_cursor["items_materialized"] == 2
-        assert first_cursor["record_keys"] == [
-            "id",
-            "name",
-            "details",
-            "tags",
-            "updated",
-            "status",
-        ]
-        receipt = _receipt(project, first.receipt_id)
-        assert receipt["action_kind"] == "source.poll"
-        assert receipt["status"] == "completed"
-        assert receipt["warnings"] == []
-        assert receipt["provider_use"][0]["provider"] == "http"
-        assert receipt["provider_use"][0]["service"] == "https_get"
-        assert receipt["provider_use"][0]["url_host"] == "data.example.gov"
-        assert API_URL not in json.dumps(receipt["provider_use"])
-        assert _table_count(project, "keyed_observations") == 2
-        assert _table_count(project, "blobs") == 0
+    first_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (source_run_id,),
+    ).fetchone()
+    assert first_run is not None
+    assert first_run["status"] == "ok"
+    assert first_run["new_rows"] == 2
+    assert first_run["warning_count"] == 0
+    first_cursor = json.loads(first_run["cursor_after"])
+    assert first_cursor["schema_version"] == "frisket.api_list_dicts_cursor.v1"
+    assert first_cursor["list_path"] == "/results"
+    assert first_cursor["items_seen"] == 2
+    assert first_cursor["items_materialized"] == 2
+    assert first_cursor["record_keys"] == [
+        "id",
+        "name",
+        "details",
+        "tags",
+        "updated",
+        "status",
+    ]
+    receipt = _receipt(project, first.receipt_id)
+    assert receipt["action_kind"] == "source.poll"
+    assert receipt["status"] == "completed"
+    assert receipt["warnings"] == []
+    assert receipt["provider_use"][0]["provider"] == "http"
+    assert receipt["provider_use"][0]["service"] == "https_get"
+    assert receipt["provider_use"][0]["url_host"] == "data.example.gov"
+    assert API_URL not in json.dumps(receipt["provider_use"])
+    assert _table_count(project, "keyed_observations") == 2
+    assert _table_count(project, "blobs") == 0
 
-        second = run_action_spec(
-            project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_api_list_dicts@sha256:second",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert second.status == "completed"
-        second_run_id = next(
-            output.ref["source_run_id"]
-            for output in second.outputs
-            if output.kind == "source_run"
-        )
-        second_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (second_run_id,),
-        ).fetchone()
-        assert second_run["new_rows"] == 0
-        assert second_run["skipped_rows"] == 2
-        assert second_run["changed_rows"] == 0
-        assert second_run["revisions"] == 0
-        assert [row["id"] for row in _rows(project, sheet_id)] == [
-            "case-1",
-            "case-2",
-        ]
+    second = run_action_spec(
+        project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_api_list_dicts@sha256:second",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert second.status == "completed"
+    second_run_id = next(
+        output.ref["source_run_id"]
+        for output in second.outputs
+        if output.kind == "source_run"
+    )
+    second_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (second_run_id,),
+    ).fetchone()
+    assert second_run["new_rows"] == 0
+    assert second_run["skipped_rows"] == 2
+    assert second_run["changed_rows"] == 0
+    assert second_run["revisions"] == 0
+    assert [row["id"] for row in _rows(project, sheet_id)] == [
+        "case-1",
+        "case-2",
+    ]
 
-        stable_rows = dict(
-            project.db.execute(
-                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
-                (source_id,),
-            )
+    stable_rows = dict(
+        project.db.execute(
+            "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+            (source_id,),
         )
-        third = run_action_spec(
-            project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_api_list_dicts@sha256:third",
-            ),
-            project_id=PROJECT_ID,
+    )
+    third = run_action_spec(
+        project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_api_list_dicts@sha256:third",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert third.status == "completed"
+    third_run_id = next(
+        output.ref["source_run_id"]
+        for output in third.outputs
+        if output.kind == "source_run"
+    )
+    third_run = project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (third_run_id,),
+    ).fetchone()
+    assert third_run["new_rows"] == 1
+    assert third_run["skipped_rows"] == 1
+    assert third_run["changed_rows"] == 1
+    assert third_run["revisions"] == 0
+    after_rows = dict(
+        project.db.execute(
+            "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
+            (source_id,),
         )
-        assert third.status == "completed"
-        third_run_id = next(
-            output.ref["source_run_id"]
-            for output in third.outputs
-            if output.kind == "source_run"
-        )
-        third_run = project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (third_run_id,),
-        ).fetchone()
-        assert third_run["new_rows"] == 1
-        assert third_run["skipped_rows"] == 1
-        assert third_run["changed_rows"] == 1
-        assert third_run["revisions"] == 0
-        after_rows = dict(
-            project.db.execute(
-                "SELECT key,row_id FROM keyed_observations WHERE relationship_id='source:' || ?",
-                (source_id,),
-            )
-        )
-        assert {key: after_rows[key] for key in stable_rows} == stable_rows
-        rows = _rows(project, sheet_id)
-        assert [row["name"] for row in rows] == [
-            "Alpha",
-            "Beta revised",
-            "Gamma",
-        ]
-        assert rows[1]["agency"] == "Records Office"
-        assert "agency" in _columns(project, sheet_id)
-        assert _table_count(project, "keyed_observations") == 3
-    finally:
-        project.close()
+    )
+    assert {key: after_rows[key] for key in stable_rows} == stable_rows
+    rows = _rows(project, sheet_id)
+    assert [row["name"] for row in rows] == [
+        "Alpha",
+        "Beta revised",
+        "Gamma",
+    ]
+    assert rows[1]["agency"] == "Records Office"
+    assert "agency" in _columns(project, sheet_id)
+    assert _table_count(project, "keyed_observations") == 3
 
 
 def test_api_list_dicts_skips_non_dict_items_with_warning() -> None:
@@ -422,7 +417,7 @@ def test_api_list_dicts_invalid_identity_falls_back_with_warning() -> None:
 
 
 def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
-    tmp_path: Path,
+    make_project,
     restore_api_poller: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -447,36 +442,33 @@ def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
     source = _api_source({"updated_at_path": None})
     source["config"].pop("max_items")
 
-    project = Project.create(tmp_path / "api-list-unbounded.frisket", name="API")
-    try:
-        result = run_action_spec(
-            project,
-            _source_poll_action(
-                source=source,
-                idempotency_key="source_api_list_dicts@sha256:legacy-cap-plus-one",
-            ),
-            project_id=PROJECT_ID,
-        )
+    project = make_project("API")
+    result = run_action_spec(
+        project,
+        _source_poll_action(
+            source=source,
+            idempotency_key="source_api_list_dicts@sha256:legacy-cap-plus-one",
+        ),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        assert _table_count(project, "keyed_observations") == 10_001
-        assert sum(append_sizes) == 10_001
-        assert len(append_sizes) < 50
-        assert max(append_sizes) <= 1_000
-        run_ref = next(
-            output.ref for output in result.outputs if output.kind == "source_run"
-        )
-        source_run = project.db.execute(
-            "SELECT cursor_after FROM source_runs WHERE id=?",
-            (run_ref["source_run_id"],),
-        ).fetchone()
-        assert source_run is not None
-        cursor = json.loads(source_run["cursor_after"])
-        assert cursor["items_seen"] == 10_001
-        assert cursor["items_materialized"] == 10_001
-        assert cursor["truncated"] is False
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    assert _table_count(project, "keyed_observations") == 10_001
+    assert sum(append_sizes) == 10_001
+    assert len(append_sizes) < 50
+    assert max(append_sizes) <= 1_000
+    run_ref = next(
+        output.ref for output in result.outputs if output.kind == "source_run"
+    )
+    source_run = project.db.execute(
+        "SELECT cursor_after FROM source_runs WHERE id=?",
+        (run_ref["source_run_id"],),
+    ).fetchone()
+    assert source_run is not None
+    cursor = json.loads(source_run["cursor_after"])
+    assert cursor["items_seen"] == 10_001
+    assert cursor["items_materialized"] == 10_001
+    assert cursor["truncated"] is False
 
 
 def test_api_list_dicts_operator_can_raise_remote_response_byte_guard() -> None:
@@ -504,26 +496,23 @@ def test_api_list_dicts_operator_can_raise_remote_response_byte_guard() -> None:
 
 
 def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
-    tmp_path: Path,
+    make_project,
     restore_api_poller: None,
 ) -> None:
-    project = Project.create(tmp_path / "invalid.frisket", name="Invalid")
-    try:
-        invalid = run_action_spec(
-            project,
-            _source_poll_action(
-                source=_api_source({"method": "POST"}),
-                idempotency_key="source_api_list_dicts@sha256:invalid",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert invalid.status == "failed"
-        assert invalid.errors[0].code == "unsupported_source_config"
-        assert "method must be GET" in invalid.errors[0].message
-        assert _table_count(project, "sources") == 0
-        assert _table_count(project, "source_runs") == 0
-    finally:
-        project.close()
+    project = make_project("Invalid")
+    invalid = run_action_spec(
+        project,
+        _source_poll_action(
+            source=_api_source({"method": "POST"}),
+            idempotency_key="source_api_list_dicts@sha256:invalid",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert invalid.status == "failed"
+    assert invalid.errors[0].code == "unsupported_source_config"
+    assert "method must be GET" in invalid.errors[0].message
+    assert _table_count(project, "sources") == 0
+    assert _table_count(project, "source_runs") == 0
 
     capped_http = FakeHttpGet(
         [
@@ -540,44 +529,41 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
         ApiListDictsPoller(http_get=capped_http, now=lambda: FIXED_FETCHED_AT),
         replace=True,
     )
-    capped_project = Project.create(tmp_path / "capped.frisket", name="Capped")
-    try:
-        capped = run_action_spec(
-            capped_project,
-            _source_poll_action(
-                source=_api_source(
-                    {
-                        "list_path": "/",
-                        "updated_at_path": None,
-                        "max_items": 2,
-                    }
-                ),
-                idempotency_key="source_api_list_dicts@sha256:capped",
+    capped_project = make_project("Capped")
+    capped = run_action_spec(
+        capped_project,
+        _source_poll_action(
+            source=_api_source(
+                {
+                    "list_path": "/",
+                    "updated_at_path": None,
+                    "max_items": 2,
+                }
             ),
-            project_id=PROJECT_ID,
-        )
-        assert capped.status == "completed"
-        sheet_id = next(
-            output.sheet_id for output in capped.outputs if output.kind == "sheet"
-        )
-        assert sheet_id is not None
-        assert [row["id"] for row in _rows(capped_project, sheet_id)] == ["one", "two"]
-        run_ref = next(
-            output.ref for output in capped.outputs if output.kind == "source_run"
-        )
-        source_run = capped_project.db.execute(
-            "SELECT * FROM source_runs WHERE id=?",
-            (run_ref["source_run_id"],),
-        ).fetchone()
-        cursor = json.loads(source_run["cursor_after"])
-        assert cursor["list_path"] == "/"
-        assert cursor["truncated"] is True
-        assert cursor["max_items"] == 2
-        assert _receipt(capped_project, capped.receipt_id)["warnings"] == [
-            "api_list_dicts item cap reached; limited to 2 items"
-        ]
-    finally:
-        capped_project.close()
+            idempotency_key="source_api_list_dicts@sha256:capped",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert capped.status == "completed"
+    sheet_id = next(
+        output.sheet_id for output in capped.outputs if output.kind == "sheet"
+    )
+    assert sheet_id is not None
+    assert [row["id"] for row in _rows(capped_project, sheet_id)] == ["one", "two"]
+    run_ref = next(
+        output.ref for output in capped.outputs if output.kind == "source_run"
+    )
+    source_run = capped_project.db.execute(
+        "SELECT * FROM source_runs WHERE id=?",
+        (run_ref["source_run_id"],),
+    ).fetchone()
+    cursor = json.loads(source_run["cursor_after"])
+    assert cursor["list_path"] == "/"
+    assert cursor["truncated"] is True
+    assert cursor["max_items"] == 2
+    assert _receipt(capped_project, capped.receipt_id)["warnings"] == [
+        "api_list_dicts item cap reached; limited to 2 items"
+    ]
 
     oversized_http = FakeHttpGet(
         [ApiListDictsHttpResponse(status_code=200, body=b'{"rows": []}xxxxx')]
@@ -586,36 +572,34 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
         ApiListDictsPoller(http_get=oversized_http, now=lambda: FIXED_FETCHED_AT),
         replace=True,
     )
-    failed_project = Project.create(tmp_path / "oversized.frisket", name="Oversized")
-    try:
-        source_id = SourceStore(failed_project).add_source(
-            name="Too large",
-            kind=API_LIST_DICTS_KIND,
-            url=API_URL,
-            config={"list_path": "/rows", "max_bytes": 10},
-        )
-        failed = run_action_spec(
-            failed_project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_api_list_dicts@sha256:oversized",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert failed.status == "failed"
-        assert failed.receipt_id is not None
-        assert failed.errors[0].code == "source_poll_failed"
-        assert "max_bytes=10" in failed.errors[0].message
-        source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
-        assert source_run["status"] == "error"
-        assert _table_count(failed_project, "keyed_observations") == 0
-        assert _receipt(failed_project, failed.receipt_id)["status"] == "failed"
-    finally:
-        failed_project.close()
+    failed_project = make_project("Oversized")
+    source_id = SourceStore(failed_project).add_source(
+        name="Too large",
+        kind=API_LIST_DICTS_KIND,
+        url=API_URL,
+        config={"list_path": "/rows", "max_bytes": 10},
+    )
+    failed = run_action_spec(
+        failed_project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_api_list_dicts@sha256:oversized",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert failed.status == "failed"
+    assert failed.receipt_id is not None
+    assert failed.errors[0].code == "source_poll_failed"
+    assert "max_bytes=10" in failed.errors[0].message
+    source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
+    assert source_run["status"] == "error"
+    assert _table_count(failed_project, "keyed_observations") == 0
+    assert _receipt(failed_project, failed.receipt_id)["status"] == "failed"
 
 
 def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
     tmp_path: Path,
+    make_project,
     restore_api_poller: None,
 ) -> None:
     failing_http = FakeHttpGet(
@@ -629,37 +613,34 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
         ApiListDictsPoller(http_get=failing_http, now=lambda: FIXED_FETCHED_AT),
         replace=True,
     )
-    failed_project = Project.create(tmp_path / "failed.frisket", name="Failed")
-    try:
-        source_id = SourceStore(failed_project).add_source(
-            name="Failing API",
-            kind=API_LIST_DICTS_KIND,
-            url=API_URL,
-            config={"list_path": "/results"},
-        )
-        failed = run_action_spec(
-            failed_project,
-            _source_poll_action(
-                source_id=source_id,
-                idempotency_key="source_api_list_dicts@sha256:provider-failed",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert failed.status == "failed"
-        assert failed.receipt_id is not None
-        assert failed.errors[0].code == "source_poll_failed"
-        assert "SECRET" not in failed.errors[0].message
-        assert "abc123" not in failed.errors[0].message
-        source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
-        assert source_run["status"] == "error"
-        assert "SECRET" not in source_run["error"]
-        assert "abc123" not in source_run["error"]
-        receipt = _receipt(failed_project, failed.receipt_id)
-        assert receipt["status"] == "failed"
-        assert "SECRET" not in receipt["errors"][0]["message"]
-        assert "abc123" not in receipt["errors"][0]["message"]
-    finally:
-        failed_project.close()
+    failed_project = make_project("Failed")
+    source_id = SourceStore(failed_project).add_source(
+        name="Failing API",
+        kind=API_LIST_DICTS_KIND,
+        url=API_URL,
+        config={"list_path": "/results"},
+    )
+    failed = run_action_spec(
+        failed_project,
+        _source_poll_action(
+            source_id=source_id,
+            idempotency_key="source_api_list_dicts@sha256:provider-failed",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert failed.status == "failed"
+    assert failed.receipt_id is not None
+    assert failed.errors[0].code == "source_poll_failed"
+    assert "SECRET" not in failed.errors[0].message
+    assert "abc123" not in failed.errors[0].message
+    source_run = SourceStore(failed_project).source_runs(source_id, limit=1)[0]
+    assert source_run["status"] == "error"
+    assert "SECRET" not in source_run["error"]
+    assert "abc123" not in source_run["error"]
+    receipt = _receipt(failed_project, failed.receipt_id)
+    assert receipt["status"] == "failed"
+    assert "SECRET" not in receipt["errors"][0]["message"]
+    assert "abc123" not in receipt["errors"][0]["message"]
 
     scheduled_http = FakeHttpGet(
         [_response_json({"results": [{"id": "sched-1", "name": "Scheduled"}]})]

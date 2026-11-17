@@ -10,7 +10,6 @@ from frisket.authoring.workbench import (
     plugin_subprocess_operators as operators,
     plugin_subprocess_projections as projections,
 )
-from frisket.engine.store import Project
 from frisket.plugins.process_client import PluginProcessError, PluginProcessFailure
 
 
@@ -30,7 +29,7 @@ def test_each_contribution_type_owns_its_public_lifecycle(
 
 
 def test_process_failure_payload_is_identical_across_contribution_types(
-    tmp_path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     failure = PluginProcessFailure(
@@ -65,34 +64,31 @@ def test_process_failure_payload_is_identical_across_contribution_types(
         "handlerKey": "example.plugin:handler",
         "modulePath": "plugin.py",
     }
-    project = Project.create(tmp_path / "parity.frisket", name="parity")
-    try:
-        binding = SimpleNamespace(
-            plugin=common["pluginId"],
-            handler_key=common["handlerKey"],
-            kind="example.plugin.importer",
-        )
-        importer_response = importers._run_child_importer(
-            project,
-            plugin_root="plugin-root",
-            request={
-                **common,
+    project = make_project("parity")
+    binding = SimpleNamespace(
+        plugin=common["pluginId"],
+        handler_key=common["handlerKey"],
+        kind="example.plugin.importer",
+    )
+    importer_response = importers._run_child_importer(
+        project,
+        plugin_root="plugin-root",
+        request={
+            **common,
+            "importerKind": binding.kind,
+            "source": {},
+            "handlerParams": {},
+            "context": {
+                "projectId": "project",
+                "pluginId": common["pluginId"],
+                "handlerKey": common["handlerKey"],
                 "importerKind": binding.kind,
-                "source": {},
-                "handlerParams": {},
-                "context": {
-                    "projectId": "project",
-                    "pluginId": common["pluginId"],
-                    "handlerKey": common["handlerKey"],
-                    "importerKind": binding.kind,
-                    "capabilities": ["project:write"],
-                },
+                "capabilities": ["project:write"],
             },
-            binding=binding,
-            source_label="source",
-        )
-    finally:
-        project.close()
+        },
+        binding=binding,
+        source_label="source",
+    )
     operator_response = operators._run_child_operator(
         plugin_root="plugin-root",
         request={

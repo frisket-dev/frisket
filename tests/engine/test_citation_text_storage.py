@@ -72,9 +72,9 @@ def _link(project: Project, spans: list[dict]) -> dict:
 
 
 def test_native_context_reads_current_text_then_becomes_stale_without_copy(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "native-citation.frisket")
+    project = make_project("native-citation")
     sheet_id = project.add_sheet("Sources")
     column_id = project.add_column(sheet_id, "body", type="text")
     row_id = project.add_rows(
@@ -111,8 +111,8 @@ def test_native_context_reads_current_text_then_becomes_stale_without_copy(
     assert viewer["link"]["stale_reason"] == "source_changed"
 
 
-def test_synthesized_context_is_saved_once_and_remains_viewable(tmp_path) -> None:
-    project = Project.create(tmp_path / "composite-citation.frisket")
+def test_synthesized_context_is_saved_once_and_remains_viewable(make_project) -> None:
+    project = make_project("composite-citation")
     text = "Subject: Ada 🚀"
     content_hash = _hash(text)
     surface = record_text_surface(
@@ -161,9 +161,9 @@ def test_synthesized_context_is_saved_once_and_remains_viewable(tmp_path) -> Non
 
 
 def test_snapshot_repairs_malformed_unicode_before_hashing_and_keeps_anchors(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "unicode-citation.frisket")
+    project = make_project("unicode-citation")
     raw_text = "before \ud800 after 🚀"
     text = "before \ufffd after 🚀"
     content_hash = _hash(text)
@@ -206,8 +206,10 @@ def test_snapshot_repairs_malformed_unicode_before_hashing_and_keeps_anchors(
     ]
 
 
-def test_rendered_json_cell_surface_is_not_compared_as_native_text(tmp_path) -> None:
-    project = Project.create(tmp_path / "rendered-json-citation.frisket")
+def test_rendered_json_cell_surface_is_not_compared_as_native_text(
+    make_project,
+) -> None:
+    project = make_project("rendered-json-citation")
     sheet_id = project.add_sheet("Sources")
     column_id = project.add_column(sheet_id, "segments", type="json")
     row_id = project.add_rows(
@@ -259,9 +261,9 @@ def test_rendered_json_cell_surface_is_not_compared_as_native_text(tmp_path) -> 
 
 
 def test_viewer_keeps_independent_native_contexts_for_multiple_artifacts(
-    tmp_path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "batched-citation.frisket")
+    project = make_project("batched-citation")
     sheet_id = project.add_sheet("Sources")
     column_id = project.add_column(sheet_id, "body", type="text")
     row_ids = project.add_rows(
@@ -293,8 +295,8 @@ def test_viewer_keeps_independent_native_contexts_for_multiple_artifacts(
     )
 
 
-def test_legacy_inline_context_migrates_to_deduplicated_snapshot(tmp_path) -> None:
-    project = Project.create(tmp_path / "legacy-citation.frisket")
+def test_legacy_inline_context_migrates_to_deduplicated_snapshot(make_project) -> None:
+    project = make_project("legacy-citation")
     legacy = json.dumps({"captured_text": "saved history", "kept": True})
     project.db.executemany(
         "INSERT INTO source_artifacts "
@@ -329,8 +331,8 @@ def test_legacy_inline_context_migrates_to_deduplicated_snapshot(tmp_path) -> No
     assert read_text_snapshot(project.db, _hash("saved history")) == "saved history"
 
 
-def test_snapshot_collision_and_mutation_are_rejected(tmp_path) -> None:
-    project = Project.create(tmp_path / "citation-collision.frisket")
+def test_snapshot_collision_and_mutation_are_rejected(make_project) -> None:
+    project = make_project("citation-collision")
     content_hash = _hash("wanted")
     project.db.execute(
         "INSERT INTO citation_texts(content_hash,text) VALUES (?,?)",

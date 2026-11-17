@@ -202,185 +202,179 @@ def test_refresh_is_idempotent_on_replay(tmp_path: Path) -> None:
 
 
 def test_refresh_reuses_typed_runtime_output_names_and_column_ids(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "renamed.frisket")
-    try:
-        imported = run_action_spec(project, _seed_parent(), project_id="p-ref")
-        parent = imported.outputs[0].ref
-        action = _derive(
-            sheet_id=parent["sheet_id"], column_id=parent["columns"]["rows_json"]
+    project = make_project("renamed")
+    imported = run_action_spec(project, _seed_parent(), project_id="p-ref")
+    parent = imported.outputs[0].ref
+    action = _derive(
+        sheet_id=parent["sheet_id"], column_id=parent["columns"]["rows_json"]
+    )
+    action["output_names"] = {"vendor": "Supplier"}
+    created = run_action_spec(project, action, project_id="p-ref")
+    assert created.status == "completed", created.errors
+    child_id = next(
+        output.sheet_id for output in created.outputs if output.kind == "sheet"
+    )
+    before_columns = [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+            (child_id,),
         )
-        action["output_names"] = {"vendor": "Supplier"}
-        created = run_action_spec(project, action, project_id="p-ref")
-        assert created.status == "completed", created.errors
-        child_id = next(
-            output.sheet_id for output in created.outputs if output.kind == "sheet"
-        )
-        before_columns = [
-            tuple(row)
-            for row in project.db.execute(
-                "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
-                (child_id,),
-            )
-        ]
-        assert [column[1] for column in before_columns] == ["Supplier"]
-        source_row = project.db.execute(
-            "SELECT id FROM rows WHERE sheet_id=? ORDER BY position",
-            (parent["sheet_id"],),
-        ).fetchone()[0]
-        edited = run_action_spec(
-            project,
-            {
-                "action_id": "cell.edit",
-                "scope": {"kind": "project"},
-                "params": {
-                    "edits": [
-                        {
-                            "row_id": source_row,
-                            "column_id": parent["columns"]["rows_json"],
-                            "value": [{"vendor": "Changed"}],
-                        }
-                    ]
-                },
-                "idempotency_key": "rename-source-edit",
+    ]
+    assert [column[1] for column in before_columns] == ["Supplier"]
+    source_row = project.db.execute(
+        "SELECT id FROM rows WHERE sheet_id=? ORDER BY position",
+        (parent["sheet_id"],),
+    ).fetchone()[0]
+    edited = run_action_spec(
+        project,
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {
+                        "row_id": source_row,
+                        "column_id": parent["columns"]["rows_json"],
+                        "value": [{"vendor": "Changed"}],
+                    }
+                ]
             },
-            project_id="p-ref",
+            "idempotency_key": "rename-source-edit",
+        },
+        project_id="p-ref",
+    )
+    assert edited.status == "completed", edited.errors
+    refreshed = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="renamed-refresh"),
+        project_id="p-ref",
+    )
+    assert refreshed.status == "completed", refreshed.errors
+    after_columns = [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+            (child_id,),
         )
-        assert edited.status == "completed", edited.errors
-        refreshed = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="renamed-refresh"),
-            project_id="p-ref",
-        )
-        assert refreshed.status == "completed", refreshed.errors
-        after_columns = [
-            tuple(row)
-            for row in project.db.execute(
-                "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
-                (child_id,),
-            )
-        ]
-        assert after_columns == before_columns
-        assert list(project.get_values(child_id, before_columns[0][0]).values()) == [
-            "Changed",
-            "Initech",
-        ]
-    finally:
-        project.close()
+    ]
+    assert after_columns == before_columns
+    assert list(project.get_values(child_id, before_columns[0][0]).values()) == [
+        "Changed",
+        "Initech",
+    ]
 
 
 def test_refresh_updates_parent_context_and_preserves_column_ids(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "parent-context-refresh.frisket")
-    try:
-        imported = run_action_spec(project, _seed_parent(), project_id="p-ref")
-        parent = imported.outputs[0].ref
-        action = _derive(
-            sheet_id=parent["sheet_id"],
-            column_id=parent["columns"]["rows_json"],
-            parent_columns=[
-                {"column_id": parent["columns"]["title"], "output_name": "quarter"}
-            ],
-        )
-        created = run_action_spec(project, action, project_id="p-ref")
-        assert created.status == "completed", created.errors
-        child_id = next(
-            output.sheet_id for output in created.outputs if output.kind == "sheet"
-        )
-        before = {column["name"]: column["id"] for column in project.columns(child_id)}
-        source_row = project.db.execute(
-            "SELECT id FROM rows WHERE sheet_id=? ORDER BY position",
-            (parent["sheet_id"],),
-        ).fetchone()["id"]
-        edited = run_action_spec(
-            project,
-            {
-                "action_id": "cell.edit",
-                "scope": {"kind": "project"},
-                "params": {
-                    "edits": [
-                        {
-                            "row_id": source_row,
-                            "column_id": parent["columns"]["title"],
-                            "value": "First quarter",
-                        }
-                    ]
-                },
-                "idempotency_key": "edit-parent-context",
+    project = make_project("parent-context-refresh")
+    imported = run_action_spec(project, _seed_parent(), project_id="p-ref")
+    parent = imported.outputs[0].ref
+    action = _derive(
+        sheet_id=parent["sheet_id"],
+        column_id=parent["columns"]["rows_json"],
+        parent_columns=[
+            {"column_id": parent["columns"]["title"], "output_name": "quarter"}
+        ],
+    )
+    created = run_action_spec(project, action, project_id="p-ref")
+    assert created.status == "completed", created.errors
+    child_id = next(
+        output.sheet_id for output in created.outputs if output.kind == "sheet"
+    )
+    before = {column["name"]: column["id"] for column in project.columns(child_id)}
+    source_row = project.db.execute(
+        "SELECT id FROM rows WHERE sheet_id=? ORDER BY position",
+        (parent["sheet_id"],),
+    ).fetchone()["id"]
+    edited = run_action_spec(
+        project,
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {
+                        "row_id": source_row,
+                        "column_id": parent["columns"]["title"],
+                        "value": "First quarter",
+                    }
+                ]
             },
-            project_id="p-ref",
-        )
-        assert edited.status == "completed", edited.errors
-        refreshed = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="refresh-parent-context"),
-            project_id="p-ref",
-        )
-        assert refreshed.status == "completed", refreshed.errors
-        after = {column["name"]: column["id"] for column in project.columns(child_id)}
-        assert after == before
-        assert list(project.get_values(child_id, after["quarter"]).values()) == [
-            "First quarter",
-            "First quarter",
-            "Q2",
-        ]
+            "idempotency_key": "edit-parent-context",
+        },
+        project_id="p-ref",
+    )
+    assert edited.status == "completed", edited.errors
+    refreshed = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="refresh-parent-context"),
+        project_id="p-ref",
+    )
+    assert refreshed.status == "completed", refreshed.errors
+    after = {column["name"]: column["id"] for column in project.columns(child_id)}
+    assert after == before
+    assert list(project.get_values(child_id, after["quarter"]).values()) == [
+        "First quarter",
+        "First quarter",
+        "Q2",
+    ]
 
-        child_format = run_action_spec(
-            project,
-            {
-                "action_id": "column.patch",
-                "scope": {"kind": "project"},
-                "params": {
-                    "sheet_id": child_id,
-                    "column_id": after["quarter"],
-                    "format": "markdown",
-                },
-                "idempotency_key": "format-copied-child-column",
+    child_format = run_action_spec(
+        project,
+        {
+            "action_id": "column.patch",
+            "scope": {"kind": "project"},
+            "params": {
+                "sheet_id": child_id,
+                "column_id": after["quarter"],
+                "format": "markdown",
             },
-            project_id="p-ref",
-        )
-        assert child_format.status == "completed", child_format.errors
-        parent_format = run_action_spec(
-            project,
-            {
-                "action_id": "column.patch",
-                "scope": {"kind": "project"},
-                "params": {
-                    "sheet_id": parent["sheet_id"],
-                    "column_id": parent["columns"]["title"],
-                    "format": "currency",
-                },
-                "idempotency_key": "format-parent-source-column",
+            "idempotency_key": "format-copied-child-column",
+        },
+        project_id="p-ref",
+    )
+    assert child_format.status == "completed", child_format.errors
+    parent_format = run_action_spec(
+        project,
+        {
+            "action_id": "column.patch",
+            "scope": {"kind": "project"},
+            "params": {
+                "sheet_id": parent["sheet_id"],
+                "column_id": parent["columns"]["title"],
+                "format": "currency",
             },
-            project_id="p-ref",
+            "idempotency_key": "format-parent-source-column",
+        },
+        project_id="p-ref",
+    )
+    assert parent_format.status == "completed", parent_format.errors
+    refreshed_again = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="refresh-parent-context-format-change"),
+        project_id="p-ref",
+    )
+    assert refreshed_again.status == "completed", refreshed_again.errors
+    assert {
+        column["name"]: column["id"] for column in project.columns(child_id)
+    } == after
+    assert (
+        next(
+            column["format"]
+            for column in project.columns(child_id)
+            if column["name"] == "quarter"
         )
-        assert parent_format.status == "completed", parent_format.errors
-        refreshed_again = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="refresh-parent-context-format-change"),
-            project_id="p-ref",
-        )
-        assert refreshed_again.status == "completed", refreshed_again.errors
-        assert {
-            column["name"]: column["id"] for column in project.columns(child_id)
-        } == after
-        assert (
-            next(
-                column["format"]
-                for column in project.columns(child_id)
-                if column["name"] == "quarter"
-            )
-            == "markdown"
-        )
-        assert list(project.get_values(child_id, after["quarter"]).values()) == [
-            "First quarter",
-            "First quarter",
-            "Q2",
-        ]
-    finally:
-        project.close()
+        == "markdown"
+    )
+    assert list(project.get_values(child_id, after["quarter"]).values()) == [
+        "First quarter",
+        "First quarter",
+        "Q2",
+    ]
 
 
 def test_refresh_of_root_sheet_is_unsupported(tmp_path: Path) -> None:
@@ -398,111 +392,100 @@ def test_refresh_of_root_sheet_is_unsupported(tmp_path: Path) -> None:
 
 
 def test_unkeyed_refresh_retains_enrichment_history_without_guessing_new_row_identity(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "enriched-context.frisket")
-    try:
-        imported = run_action_spec(project, _seed_parent(), project_id="p-ref")
-        parent = imported.outputs[0].ref
-        derived = run_action_spec(
-            project,
-            _derive(
-                sheet_id=parent["sheet_id"],
-                column_id=parent["columns"]["rows_json"],
-                parent_columns=[
-                    {"column_id": parent["columns"]["title"], "output_name": "quarter"}
-                ],
-            ),
-            project_id="p-ref",
-        )
-        assert derived.status == "completed", derived.errors
-        child_id = next(
-            output.sheet_id for output in derived.outputs if output.kind == "sheet"
-        )
-        enriched = run_action_spec(
-            project,
-            {
-                "action_id": "map.clean_column",
-                "scope": {"kind": "sheet_rows", "sheet_id": child_id},
-                "params": {"source": "vendor"},
-                "output_names": {"cleaned": "reviewed_vendor"},
-                "idempotency_key": "clean-child-vendor",
+    project = make_project("enriched-context")
+    imported = run_action_spec(project, _seed_parent(), project_id="p-ref")
+    parent = imported.outputs[0].ref
+    derived = run_action_spec(
+        project,
+        _derive(
+            sheet_id=parent["sheet_id"],
+            column_id=parent["columns"]["rows_json"],
+            parent_columns=[
+                {"column_id": parent["columns"]["title"], "output_name": "quarter"}
+            ],
+        ),
+        project_id="p-ref",
+    )
+    assert derived.status == "completed", derived.errors
+    child_id = next(
+        output.sheet_id for output in derived.outputs if output.kind == "sheet"
+    )
+    enriched = run_action_spec(
+        project,
+        {
+            "action_id": "map.clean_column",
+            "scope": {"kind": "sheet_rows", "sheet_id": child_id},
+            "params": {"source": "vendor"},
+            "output_names": {"cleaned": "reviewed_vendor"},
+            "idempotency_key": "clean-child-vendor",
+        },
+        project_id="p-ref",
+    )
+    assert enriched.status == "completed", enriched.errors
+    output_id = enriched.outputs[0].column_id
+    child_rows = list(project.get_values(child_id, output_id))
+    parent_row = next(
+        iter(project.get_values(parent["sheet_id"], parent["columns"]["title"]))
+    )
+    edited = run_action_spec(
+        project,
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {
+                        "row_id": child_rows[0],
+                        "column_id": output_id,
+                        "value": "Reviewed supplier",
+                    },
+                    {
+                        "row_id": parent_row,
+                        "column_id": parent["columns"]["title"],
+                        "value": "First quarter",
+                    },
+                ]
             },
-            project_id="p-ref",
-        )
-        assert enriched.status == "completed", enriched.errors
-        output_id = enriched.outputs[0].column_id
-        child_rows = list(project.get_values(child_id, output_id))
-        parent_row = next(
-            iter(project.get_values(parent["sheet_id"], parent["columns"]["title"]))
-        )
-        edited = run_action_spec(
-            project,
-            {
-                "action_id": "cell.edit",
-                "scope": {"kind": "project"},
-                "params": {
-                    "edits": [
-                        {
-                            "row_id": child_rows[0],
-                            "column_id": output_id,
-                            "value": "Reviewed supplier",
-                        },
-                        {
-                            "row_id": parent_row,
-                            "column_id": parent["columns"]["title"],
-                            "value": "First quarter",
-                        },
-                    ]
-                },
-                "idempotency_key": "review-child-edit-parent",
-            },
-            project_id="p-ref",
-        )
-        assert edited.status == "completed", edited.errors
-        columns = project.columns(child_id)
-        values = {
-            column["id"]: project.get_values(child_id, column["id"])
-            for column in columns
-        }
-        context_id = next(
-            column["id"] for column in columns if column["name"] == "quarter"
-        )
-        assert list(values[context_id].values()) == ["Q1", "Q1", "Q2"]
-        assert values[output_id][child_rows[0]] == "Reviewed supplier"
-        assert (
-            project.db.execute(
-                "SELECT value FROM results WHERE run_id=? AND column_id=? AND row_id=?",
-                (enriched.run_id, output_id, child_rows[0]),
-            ).fetchone()[0]
-            == "Acme"
-        )
-        assert sheet_supports_refresh(project, child_id) is True
-        refreshed = run_action_spec(
-            project,
-            _refresh(sheet_id=child_id, key="refresh-enriched-context"),
-            project_id="p-ref",
-        )
-        assert refreshed.status == "completed", refreshed.errors
-        assert set(project.visible_row_ids(child_id)).isdisjoint(child_rows)
-        assert all(
-            value is None for value in project.get_values(child_id, output_id).values()
-        )
-        # Replacement retains history and can restore the old working rows.
-        project.undo()
-        assert project.visible_row_ids(child_id) == child_rows
-        assert (
-            project.get_values(child_id, output_id)[child_rows[0]]
-            == "Reviewed supplier"
-        )
-        assert (
-            project.get_values(parent["sheet_id"], parent["columns"]["title"])[
-                parent_row
-            ]
-            == "First quarter"
-        )
-    finally:
-        project.close()
+            "idempotency_key": "review-child-edit-parent",
+        },
+        project_id="p-ref",
+    )
+    assert edited.status == "completed", edited.errors
+    columns = project.columns(child_id)
+    values = {
+        column["id"]: project.get_values(child_id, column["id"]) for column in columns
+    }
+    context_id = next(column["id"] for column in columns if column["name"] == "quarter")
+    assert list(values[context_id].values()) == ["Q1", "Q1", "Q2"]
+    assert values[output_id][child_rows[0]] == "Reviewed supplier"
+    assert (
+        project.db.execute(
+            "SELECT value FROM results WHERE run_id=? AND column_id=? AND row_id=?",
+            (enriched.run_id, output_id, child_rows[0]),
+        ).fetchone()[0]
+        == "Acme"
+    )
+    assert sheet_supports_refresh(project, child_id) is True
+    refreshed = run_action_spec(
+        project,
+        _refresh(sheet_id=child_id, key="refresh-enriched-context"),
+        project_id="p-ref",
+    )
+    assert refreshed.status == "completed", refreshed.errors
+    assert set(project.visible_row_ids(child_id)).isdisjoint(child_rows)
+    assert all(
+        value is None for value in project.get_values(child_id, output_id).values()
+    )
+    # Replacement retains history and can restore the old working rows.
+    project.undo()
+    assert project.visible_row_ids(child_id) == child_rows
+    assert project.get_values(child_id, output_id)[child_rows[0]] == "Reviewed supplier"
+    assert (
+        project.get_values(parent["sheet_id"], parent["columns"]["title"])[parent_row]
+        == "First quarter"
+    )
 
 
 def test_refresh_support_matches_the_runtime_admission(tmp_path: Path) -> None:

@@ -24,7 +24,6 @@ from typing import Any
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.engine.executor import ExecutorDeps
 from frisket.ai.llm import (
@@ -52,7 +51,6 @@ from frisket.sdk.ops.transcribe_engines import LocalTranscribeUnsupportedError
 from frisket.engine.runner import MapRunner, MissingProviderKey
 from frisket.engine.runner.validation import ClaimsGate
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 
 PROJECT_ID = "project-error-diagnose"
@@ -311,100 +309,93 @@ def _exactly_confirmed_spec(runner: MapRunner, spec: dict[str, Any]) -> dict[str
 
 
 def test_prepare_run_blocks_before_any_row_work_when_key_is_missing(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        sheet_id, _cols = _seed_sheet(project)
-        spec = _classify_spec(sheet_id)
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY
-        )  # no keys configured for any live provider
-        runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
-        confirmed_spec = _exactly_confirmed_spec(runner, spec)
-        with pytest.raises(MissingProviderKey) as excinfo:
-            prepare_model_run(runner, confirmed_spec, confirmed=True)
-        assert excinfo.value.provider == "anthropic"
-        # no run row was ever created for this attempt — it never queued
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    finally:
-        project.close()
+    project = make_project("p")
+    sheet_id, _cols = _seed_sheet(project)
+    spec = _classify_spec(sheet_id)
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY
+    )  # no keys configured for any live provider
+    runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
+    confirmed_spec = _exactly_confirmed_spec(runner, spec)
+    with pytest.raises(MissingProviderKey) as excinfo:
+        prepare_model_run(runner, confirmed_spec, confirmed=True)
+    assert excinfo.value.provider == "anthropic"
+    # no run row was ever created for this attempt — it never queued
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
-def test_replay_strict_golden_cache_run_is_not_treated_as_missing_key(tmp_path):
+def test_replay_strict_golden_cache_run_is_not_treated_as_missing_key(
+    tmp_path, make_project
+):
     """cache_mode=replay_strict (tests/test_golden.py's default) never calls
     a live adapter — a keyless router replaying a committed cache is not a
     misconfiguration and must keep working."""
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        sheet_id, _cols = _seed_sheet(project)
-        spec = _classify_spec(sheet_id)
-        cache = ResponseCache(tmp_path / "c.db")
-        recipe = model_plan(spec).program
-        call = recipe.render({"text": "hello there"}, spec)
-        req = LLMRequest(
+    project = make_project("p")
+    sheet_id, _cols = _seed_sheet(project)
+    spec = _classify_spec(sheet_id)
+    cache = ResponseCache(tmp_path / "c.db")
+    recipe = model_plan(spec).program
+    call = recipe.render({"text": "hello there"}, spec)
+    req = LLMRequest(
+        model=spec["model"],
+        messages=call.messages,
+        schema=call.schema,
+        max_tokens=call.max_tokens,
+    )
+    cache.put(
+        request_key(req, recipe.version),
+        LLMResponse(
+            content=None,
+            data={"relevance": 7},
+            tokens_in=10,
+            tokens_out=2,
+            cost=0.0001,
             model=spec["model"],
-            messages=call.messages,
-            schema=call.schema,
-            max_tokens=call.max_tokens,
-        )
-        cache.put(
-            request_key(req, recipe.version),
-            LLMResponse(
-                content=None,
-                data={"relevance": 7},
-                tokens_in=10,
-                tokens_out=2,
-                cost=0.0001,
-                model=spec["model"],
-            ),
-        )
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            cache=cache,
-            cache_mode="replay_strict",
-        )  # no keys
-        runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
-        progress = asyncio.run(run_with_output_claim(runner, spec, confirmed=True))
-        assert progress.done and progress.failed == 0 and progress.completed == 1
-    finally:
-        project.close()
+        ),
+    )
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=cache,
+        cache_mode="replay_strict",
+    )  # no keys
+    runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
+    progress = asyncio.run(run_with_output_claim(runner, spec, confirmed=True))
+    assert progress.done and progress.failed == 0 and progress.completed == 1
 
 
-def test_configured_local_model_never_hits_missing_provider_key(tmp_path):
+def test_configured_local_model_never_hits_missing_provider_key(make_project):
     """An explicitly configured endpoint is a keyless-capable local adapter;
     its known-zero run needs no cost consent and fails on reachability, not keys."""
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        sheet_id, _cols = _seed_sheet(project)
-        spec = _classify_spec(sheet_id, model="ollama/@desktop/llama3")
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            max_retries=0,
-            local_endpoints=(
-                LocalModelEndpointConfig(
-                    endpoint_id="desktop",
-                    display_name="Desktop",
-                    origin="http://127.0.0.1:1",
-                    source="local_file",
-                ),
+    project = make_project("p")
+    sheet_id, _cols = _seed_sheet(project)
+    spec = _classify_spec(sheet_id, model="ollama/@desktop/llama3")
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        max_retries=0,
+        local_endpoints=(
+            LocalModelEndpointConfig(
+                endpoint_id="desktop",
+                display_name="Desktop",
+                origin="http://127.0.0.1:1",
+                source="local_file",
             ),
-        )
-        runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
-        assert estimate_model_run(runner, spec)["cost"] == 0.0
-        try:
-            progress = asyncio.run(
-                run_with_output_claim(
-                    runner,
-                    spec,
-                )
+        ),
+    )
+    runner = MapRunner(project, router, authority=UnroutedOnlyAuthority(project))
+    assert estimate_model_run(runner, spec)["cost"] == 0.0
+    try:
+        progress = asyncio.run(
+            run_with_output_claim(
+                runner,
+                spec,
             )
-        except MissingProviderKey:
-            pytest.fail("ollama model incorrectly treated as a missing key")
-        assert progress.done and progress.failed == 1
-    finally:
-        project.close()
+        )
+    except MissingProviderKey:
+        pytest.fail("ollama model incorrectly treated as a missing key")
+    assert progress.done and progress.failed == 1
 
 
 # ---------------------------------------------------------------------------
@@ -501,8 +492,7 @@ def test_map_classify_missing_provider_key_is_a_typed_run_confirm_error(tmp_path
 # /api/diagnose: same probe module as `frisket doctor`
 
 
-def test_diagnose_route_reports_providers_local_endpoints_and_static_assets(tmp_path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_diagnose_route_reports_providers_local_endpoints_and_static_assets(client):
     resp = client.get("/api/diagnose")
     assert resp.status_code == 200
     body = resp.json()

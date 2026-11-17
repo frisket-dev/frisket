@@ -112,7 +112,7 @@ def test_typed_list_table_validation_preserves_request_and_hash():
     ],
 )
 def test_typed_list_table_malformed_shapes_and_id_coercions_refuse_before_effects(
-    tmp_path, path, value
+    make_project, path, value
 ):
     request = _list_table_request()
     _set_path(request["params"], path, value)
@@ -121,15 +121,12 @@ def test_typed_list_table_malformed_shapes_and_id_coercions_refuse_before_effect
     assert validation.error.code == "invalid_action_request"
     assert "source" in validation.error.message
 
-    project = Project.create(tmp_path / "list-table-shape.frisket")
-    try:
-        before = _project_counts(project)
-        result = run_action_spec(project, request, project_id="shape-ownership")
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert _project_counts(project) == before
-    finally:
-        project.close()
+    project = make_project("list-table-shape")
+    before = _project_counts(project)
+    result = run_action_spec(project, request, project_id="shape-ownership")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert _project_counts(project) == before
 
 
 @pytest.mark.parametrize(

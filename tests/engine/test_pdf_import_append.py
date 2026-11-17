@@ -78,412 +78,374 @@ def _visible_names(project: Project, sheet_id: int, filename_column: int) -> lis
 
 
 def test_append_session_resumes_once_and_undo_owns_only_imported_rows(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "append.frisket", name="append")
-    try:
-        sheet_id, columns = _existing_sheet(project)
-        writer = _start_append(project, sheet_id)
-        writer.append_page(
-            [{"filename": "one.pdf", "size": 11, "text": "one"}],
-            expected_cursor=0,
-            next_cursor=1,
-        )
-        writer.abort()
+    project = make_project("append")
+    sheet_id, columns = _existing_sheet(project)
+    writer = _start_append(project, sheet_id)
+    writer.append_page(
+        [{"filename": "one.pdf", "size": 11, "text": "one"}],
+        expected_cursor=0,
+        next_cursor=1,
+    )
+    writer.abort()
 
-        resumed = StreamingSheetWriter.resume_session(
-            project,
-            session_id="pdf-commit:one",
-            writer_authority="claim:two",
-            expected_cursor=1,
-        )
-        with pytest.raises(ImportSessionConflict):
-            resumed.append_page(
-                [{"filename": "duplicate.pdf", "size": 11}],
-                expected_cursor=0,
-                next_cursor=1,
-            )
+    resumed = StreamingSheetWriter.resume_session(
+        project,
+        session_id="pdf-commit:one",
+        writer_authority="claim:two",
+        expected_cursor=1,
+    )
+    with pytest.raises(ImportSessionConflict):
         resumed.append_page(
-            [{"filename": "two.pdf", "size": 12, "text": "two"}],
-            expected_cursor=1,
-            next_cursor=2,
-        )
-        publication = resumed.finalize_session(
-            expected_cursor=2, enumeration_complete=True
-        )
-
-        assert publication.sheet_id == sheet_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == [
-            "before.pdf",
-            "one.pdf",
-            "two.pdf",
-        ]
-        op = project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
-        ).fetchone()
-        assert json.loads(op["undo_info"]) == {
-            "created_rows": [],
-            "created_rows_import_session_id": "pdf-commit:one",
-            "created_columns": [],
-        }
-        assert project.undo() == publication.op_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
-        assert project.redo() == publication.op_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == [
-            "before.pdf",
-            "one.pdf",
-            "two.pdf",
-        ]
-    finally:
-        project.close()
-
-
-def test_append_undo_hides_columns_created_for_the_import(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "append-column.frisket", name="append")
-    try:
-        sheet_id, _columns = _existing_sheet(project)
-        writer = StreamingSheetWriter.start_append_session(
-            project,
-            session_id="pdf-commit:column",
-            writer_authority="claim:column",
-            sheet_id=sheet_id,
-            columns=[
-                {"name": "filename", "type": "text"},
-                {"name": "PDF import note", "type": "text"},
-            ],
-            project_id="pdf-project",
-            action_kind="import.files",
-            idempotency_key="pdf-commit:column",
-            params_hash="sha256:pdf-commit-column",
-            action_id="act:pdf-commit-column",
-            receipt_id="receipt:pdf-commit-column",
-            source_ref={"kind": "pdf_import_draft", "draft_id": "draft:column"},
-        )
-        writer.append_page(
-            [{"filename": "one.pdf", "PDF import note": "created"}],
+            [{"filename": "duplicate.pdf", "size": 11}],
             expected_cursor=0,
             next_cursor=1,
         )
-        publication = writer.finalize_session(
-            expected_cursor=1, enumeration_complete=True
-        )
-        created_column = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
-            (sheet_id, "PDF import note"),
-        ).fetchone()
-        assert created_column is not None
-        undo_info = json.loads(
-            project.db.execute(
-                "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
-            ).fetchone()["undo_info"]
-        )
-        assert undo_info["created_columns"] == [int(created_column["id"])]
+    resumed.append_page(
+        [{"filename": "two.pdf", "size": 12, "text": "two"}],
+        expected_cursor=1,
+        next_cursor=2,
+    )
+    publication = resumed.finalize_session(expected_cursor=2, enumeration_complete=True)
 
-        assert project.undo() == publication.op_id
-        assert (
-            project.db.execute(
-                "SELECT 1 FROM columns WHERE id=? AND active=1",
-                (int(created_column["id"]),),
-            ).fetchone()
-            is None
-        )
-    finally:
-        project.close()
+    assert publication.sheet_id == sheet_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == [
+        "before.pdf",
+        "one.pdf",
+        "two.pdf",
+    ]
+    op = project.db.execute(
+        "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+    ).fetchone()
+    assert json.loads(op["undo_info"]) == {
+        "created_rows": [],
+        "created_rows_import_session_id": "pdf-commit:one",
+        "created_columns": [],
+    }
+    assert project.undo() == publication.op_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
+    assert project.redo() == publication.op_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == [
+        "before.pdf",
+        "one.pdf",
+        "two.pdf",
+    ]
+
+
+def test_append_undo_hides_columns_created_for_the_import(make_project) -> None:
+    project = make_project("append")
+    sheet_id, _columns = _existing_sheet(project)
+    writer = StreamingSheetWriter.start_append_session(
+        project,
+        session_id="pdf-commit:column",
+        writer_authority="claim:column",
+        sheet_id=sheet_id,
+        columns=[
+            {"name": "filename", "type": "text"},
+            {"name": "PDF import note", "type": "text"},
+        ],
+        project_id="pdf-project",
+        action_kind="import.files",
+        idempotency_key="pdf-commit:column",
+        params_hash="sha256:pdf-commit-column",
+        action_id="act:pdf-commit-column",
+        receipt_id="receipt:pdf-commit-column",
+        source_ref={"kind": "pdf_import_draft", "draft_id": "draft:column"},
+    )
+    writer.append_page(
+        [{"filename": "one.pdf", "PDF import note": "created"}],
+        expected_cursor=0,
+        next_cursor=1,
+    )
+    publication = writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+    created_column = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1",
+        (sheet_id, "PDF import note"),
+    ).fetchone()
+    assert created_column is not None
+    undo_info = json.loads(
+        project.db.execute(
+            "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+        ).fetchone()["undo_info"]
+    )
+    assert undo_info["created_columns"] == [int(created_column["id"])]
+
+    assert project.undo() == publication.op_id
+    assert (
+        project.db.execute(
+            "SELECT 1 FROM columns WHERE id=? AND active=1",
+            (int(created_column["id"]),),
+        ).fetchone()
+        is None
+    )
 
 
 @pytest.mark.parametrize("replace_writer", [False, True])
 def test_pre_upgrade_append_undo_includes_rows_added_after_restart(
-    tmp_path: Path, replace_writer: bool
+    make_project, replace_writer: bool
 ) -> None:
-    project = Project.create(tmp_path / "old-append.frisket", name="append")
-    try:
-        sheet_id, columns = _existing_sheet(project)
-        writer = _start_append(project, sheet_id)
-        old_rows = writer.append_page(
-            [{"filename": "before-upgrade.pdf"}], expected_cursor=0, next_cursor=1
+    project = make_project("append")
+    sheet_id, columns = _existing_sheet(project)
+    writer = _start_append(project, sheet_id)
+    old_rows = writer.append_page(
+        [{"filename": "before-upgrade.pdf"}], expected_cursor=0, next_cursor=1
+    )
+    session = ImportSessionStore(project).get("pdf-commit:one")
+    assert session is not None
+    project.db.execute(
+        "UPDATE ops SET undo_info=? WHERE id=?",
+        (
+            json.dumps({"created_rows": old_rows, "created_columns": []}),
+            session.op_id,
+        ),
+    )
+    project.db.commit()
+    if replace_writer:
+        resumed = StreamingSheetWriter.resume_session(
+            project,
+            session_id=session.id,
+            writer_authority="claim:two",
+            expected_cursor=1,
         )
-        session = ImportSessionStore(project).get("pdf-commit:one")
-        assert session is not None
-        project.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?",
-            (
-                json.dumps({"created_rows": old_rows, "created_columns": []}),
-                session.op_id,
-            ),
-        )
-        project.db.commit()
-        if replace_writer:
-            resumed = StreamingSheetWriter.resume_session(
-                project,
-                session_id=session.id,
-                writer_authority="claim:two",
-                expected_cursor=1,
-            )
-        else:
-            resumed = StreamingSheetWriter._from_session(project, session)
-        resumed.append_page(
-            [{"filename": "after-upgrade.pdf"}], expected_cursor=1, next_cursor=2
-        )
-        publication = resumed.finalize_session(
-            expected_cursor=2, enumeration_complete=True
-        )
-        assert project.undo() == publication.op_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
-        assert project.redo() == publication.op_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == [
-            "before.pdf",
-            "before-upgrade.pdf",
-            "after-upgrade.pdf",
-        ]
-    finally:
-        project.close()
+    else:
+        resumed = StreamingSheetWriter._from_session(project, session)
+    resumed.append_page(
+        [{"filename": "after-upgrade.pdf"}], expected_cursor=1, next_cursor=2
+    )
+    publication = resumed.finalize_session(expected_cursor=2, enumeration_complete=True)
+    assert project.undo() == publication.op_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
+    assert project.redo() == publication.op_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == [
+        "before.pdf",
+        "before-upgrade.pdf",
+        "after-upgrade.pdf",
+    ]
 
 
-def test_cancelled_append_is_kept_then_removed_by_normal_undo(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "remove-append.frisket", name="append")
-    try:
-        sheet_id, columns = _existing_sheet(project)
-        writer = _start_append(project, sheet_id)
-        writer.append_page(
-            [{"filename": "remove.pdf", "size": 13}],
-            expected_cursor=0,
-            next_cursor=1,
-        )
-        writer.cancel(expected_cursor=1)
-        publication = writer.finalize_session(expected_cursor=1, keep_cancelled=True)
+def test_cancelled_append_is_kept_then_removed_by_normal_undo(make_project) -> None:
+    project = make_project("append")
+    sheet_id, columns = _existing_sheet(project)
+    writer = _start_append(project, sheet_id)
+    writer.append_page(
+        [{"filename": "remove.pdf", "size": 13}],
+        expected_cursor=0,
+        next_cursor=1,
+    )
+    writer.cancel(expected_cursor=1)
+    publication = writer.finalize_session(expected_cursor=1, keep_cancelled=True)
 
-        assert _visible_names(project, sheet_id, columns["filename"]) == [
-            "before.pdf",
-            "remove.pdf",
-        ]
-        session = ImportSessionStore(project).get("pdf-commit:one")
-        assert session is not None and session.state == "kept"
-        assert project.undo() == publication.op_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
-    finally:
-        project.close()
+    assert _visible_names(project, sheet_id, columns["filename"]) == [
+        "before.pdf",
+        "remove.pdf",
+    ]
+    session = ImportSessionStore(project).get("pdf-commit:one")
+    assert session is not None and session.state == "kept"
+    assert project.undo() == publication.op_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
 
 
 def test_pdf_created_sheet_remove_preserves_unrelated_row_for_restore(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "remove-new-pdf.frisket", name="pdf")
-    try:
-        ReceiptStore(project).insert_running(
-            Receipt(
-                receipt_id="receipt:pdf-new",
-                project_id="pdf-project",
-                action_id="act:pdf-new",
-                action_kind="import.files",
-                idempotency_key="pdf-new",
-                params_hash="sha256:pdf-new",
-                status="running",
-                inputs=[
-                    ReceiptIO(
-                        name="pdf_import_commit",
-                        ref={"kind": "pdf_import_commit", "commit_id": "commit:new"},
-                    )
-                ],
-            )
-        )
-        writer = StreamingSheetWriter.start_session(
-            project,
-            session_id="pdf-new",
-            writer_authority="claim:new",
-            sheet_name="New PDFs",
-            columns=[{"name": "filename", "type": "text"}],
+    project = make_project("pdf")
+    ReceiptStore(project).insert_running(
+        Receipt(
+            receipt_id="receipt:pdf-new",
             project_id="pdf-project",
+            action_id="act:pdf-new",
             action_kind="import.files",
             idempotency_key="pdf-new",
             params_hash="sha256:pdf-new",
-            action_id="act:pdf-new",
-            receipt_id="receipt:pdf-new",
-            source_ref={"kind": "file_inventory", "inventory_id": "pdf-new"},
+            status="running",
+            inputs=[
+                ReceiptIO(
+                    name="pdf_import_commit",
+                    ref={"kind": "pdf_import_commit", "commit_id": "commit:new"},
+                )
+            ],
         )
-        writer.append_page(
-            [{"filename": "imported.pdf"}], expected_cursor=0, next_cursor=1
-        )
-        filename_column = int(project.columns(writer.sheet_id)[0]["id"])
-        [foreign_row] = project.add_rows(
-            writer.sheet_id,
-            [{"filename": "unrelated.pdf"}],
-            {"filename": filename_column},
-        )
-        writer.cancel(expected_cursor=1)
+    )
+    writer = StreamingSheetWriter.start_session(
+        project,
+        session_id="pdf-new",
+        writer_authority="claim:new",
+        sheet_name="New PDFs",
+        columns=[{"name": "filename", "type": "text"}],
+        project_id="pdf-project",
+        action_kind="import.files",
+        idempotency_key="pdf-new",
+        params_hash="sha256:pdf-new",
+        action_id="act:pdf-new",
+        receipt_id="receipt:pdf-new",
+        source_ref={"kind": "file_inventory", "inventory_id": "pdf-new"},
+    )
+    writer.append_page([{"filename": "imported.pdf"}], expected_cursor=0, next_cursor=1)
+    filename_column = int(project.columns(writer.sheet_id)[0]["id"])
+    [foreign_row] = project.add_rows(
+        writer.sheet_id,
+        [{"filename": "unrelated.pdf"}],
+        {"filename": filename_column},
+    )
+    writer.cancel(expected_cursor=1)
 
-        writer.remove_session(expected_cursor=1)
-        assert project.sheets() == []
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (writer.sheet_id,)
-            ).fetchone()[0]
-            == 2
-        )
-        assert ImportSessionStore(project).get("pdf-new").state == "removed"
-        from frisket.engine.store.op_log import step_operation
+    writer.remove_session(expected_cursor=1)
+    assert project.sheets() == []
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (writer.sheet_id,)
+        ).fetchone()[0]
+        == 2
+    )
+    assert ImportSessionStore(project).get("pdf-new").state == "removed"
+    from frisket.engine.store.op_log import step_operation
 
-        project.db.execute("BEGIN IMMEDIATE")
-        step_operation(project, "restore", op_id=writer._op_id)
-        project.db.commit()
-        assert _visible_names(project, writer.sheet_id, filename_column) == [
-            "imported.pdf",
-            "unrelated.pdf",
-        ]
+    project.db.execute("BEGIN IMMEDIATE")
+    step_operation(project, "restore", op_id=writer._op_id)
+    project.db.commit()
+    assert _visible_names(project, writer.sheet_id, filename_column) == [
+        "imported.pdf",
+        "unrelated.pdf",
+    ]
 
-        assert (
-            project.db.execute(
-                "SELECT hidden FROM rows WHERE id=?", (foreign_row,)
-            ).fetchone()["hidden"]
-            == 0
-        )
-    finally:
-        project.close()
+    assert (
+        project.db.execute(
+            "SELECT hidden FROM rows WHERE id=?", (foreign_row,)
+        ).fetchone()["hidden"]
+        == 0
+    )
 
 
 def test_append_adds_missing_import_columns_without_touching_existing_data(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "append-columns.frisket", name="append")
-    try:
-        sheet_id = project.add_sheet("Notes")
-        notes = project.add_column(sheet_id, "notes")
-        old_row = project.add_rows(sheet_id, [{"notes": "keep"}], {"notes": notes})[0]
-        writer = _start_append(project, sheet_id)
-        writer.append_page(
-            [{"filename": "new.pdf", "size": 8}],
-            expected_cursor=0,
-            next_cursor=1,
-        )
-        publication = writer.finalize_session(
-            expected_cursor=1, enumeration_complete=True
-        )
+    project = make_project("append")
+    sheet_id = project.add_sheet("Notes")
+    notes = project.add_column(sheet_id, "notes")
+    old_row = project.add_rows(sheet_id, [{"notes": "keep"}], {"notes": notes})[0]
+    writer = _start_append(project, sheet_id)
+    writer.append_page(
+        [{"filename": "new.pdf", "size": 8}],
+        expected_cursor=0,
+        next_cursor=1,
+    )
+    publication = writer.finalize_session(expected_cursor=1, enumeration_complete=True)
 
-        columns = {
-            str(row["name"]): int(row["id"]) for row in project.columns(sheet_id)
-        }
-        assert {"notes", "filename", "media", "size"} <= set(columns)
-        assert project.get_values(sheet_id, notes)[old_row] == "keep"
-        assert project.undo() == publication.op_id
-        assert project.get_values(sheet_id, notes)[old_row] == "keep"
-        assert {str(row["name"]) for row in project.columns(sheet_id)} == {"notes"}
-    finally:
-        project.close()
+    columns = {str(row["name"]): int(row["id"]) for row in project.columns(sheet_id)}
+    assert {"notes", "filename", "media", "size"} <= set(columns)
+    assert project.get_values(sheet_id, notes)[old_row] == "keep"
+    assert project.undo() == publication.op_id
+    assert project.get_values(sheet_id, notes)[old_row] == "keep"
+    assert {str(row["name"]) for row in project.columns(sheet_id)} == {"notes"}
 
 
 def test_unrelated_write_during_append_keeps_normal_history_order(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "interleaved.frisket", name="append")
-    try:
-        sheet_id, columns = _existing_sheet(project)
-        writer = _start_append(project, sheet_id)
+    project = make_project("append")
+    sheet_id, columns = _existing_sheet(project)
+    writer = _start_append(project, sheet_id)
+    writer.append_page(
+        [{"filename": "imported.pdf", "size": 13}],
+        expected_cursor=0,
+        next_cursor=1,
+    )
+    unrelated_id = project.add_rows(
+        sheet_id,
+        [{"filename": "user-added.pdf", "size": 2}],
+        columns,
+    )[0]
+    unrelated_op = project.op_cursor
+    publication = writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+
+    assert project.undo() == unrelated_op
+    assert _visible_names(project, sheet_id, columns["filename"]) == [
+        "before.pdf",
+        "imported.pdf",
+    ]
+    assert project.undo() == publication.op_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
+    assert (
+        project.db.execute(
+            "SELECT hidden FROM rows WHERE id=?", (unrelated_id,)
+        ).fetchone()["hidden"]
+        == 1
+    )
+    assert project.redo() == publication.op_id
+    assert _visible_names(project, sheet_id, columns["filename"]) == [
+        "before.pdf",
+        "imported.pdf",
+    ]
+    assert project.redo() == unrelated_op
+    assert _visible_names(project, sheet_id, columns["filename"]) == [
+        "before.pdf",
+        "imported.pdf",
+        "user-added.pdf",
+    ]
+
+
+def test_large_append_keeps_undo_metadata_bounded(make_project) -> None:
+    project = make_project("append")
+    sheet_id, columns = _existing_sheet(project)
+    writer = _start_append(project, sheet_id)
+    cursor = 0
+    metadata_sizes: list[int] = []
+    for page in range(10):
+        records = [
+            {"filename": f"file-{ordinal}.pdf", "size": ordinal}
+            for ordinal in range(page * 1_000, (page + 1) * 1_000)
+        ]
         writer.append_page(
-            [{"filename": "imported.pdf", "size": 13}],
-            expected_cursor=0,
-            next_cursor=1,
+            records,
+            expected_cursor=cursor,
+            next_cursor=cursor + len(records),
         )
-        unrelated_id = project.add_rows(
-            sheet_id,
-            [{"filename": "user-added.pdf", "size": 2}],
-            columns,
-        )[0]
-        unrelated_op = project.op_cursor
-        publication = writer.finalize_session(
-            expected_cursor=1, enumeration_complete=True
-        )
-
-        assert project.undo() == unrelated_op
-        assert _visible_names(project, sheet_id, columns["filename"]) == [
-            "before.pdf",
-            "imported.pdf",
-        ]
-        assert project.undo() == publication.op_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == ["before.pdf"]
-        assert (
-            project.db.execute(
-                "SELECT hidden FROM rows WHERE id=?", (unrelated_id,)
-            ).fetchone()["hidden"]
-            == 1
-        )
-        assert project.redo() == publication.op_id
-        assert _visible_names(project, sheet_id, columns["filename"]) == [
-            "before.pdf",
-            "imported.pdf",
-        ]
-        assert project.redo() == unrelated_op
-        assert _visible_names(project, sheet_id, columns["filename"]) == [
-            "before.pdf",
-            "imported.pdf",
-            "user-added.pdf",
-        ]
-    finally:
-        project.close()
-
-
-def test_large_append_keeps_undo_metadata_bounded(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "bounded-undo.frisket", name="append")
-    try:
-        sheet_id, columns = _existing_sheet(project)
-        writer = _start_append(project, sheet_id)
-        cursor = 0
-        metadata_sizes: list[int] = []
-        for page in range(10):
-            records = [
-                {"filename": f"file-{ordinal}.pdf", "size": ordinal}
-                for ordinal in range(page * 1_000, (page + 1) * 1_000)
-            ]
-            writer.append_page(
-                records,
-                expected_cursor=cursor,
-                next_cursor=cursor + len(records),
+        cursor += len(records)
+        metadata_sizes.append(
+            len(
+                project.db.execute(
+                    "SELECT undo_info FROM ops WHERE id=?", (writer._op_id,)
+                ).fetchone()["undo_info"]
             )
-            cursor += len(records)
-            metadata_sizes.append(
-                len(
-                    project.db.execute(
-                        "SELECT undo_info FROM ops WHERE id=?", (writer._op_id,)
-                    ).fetchone()["undo_info"]
-                )
-            )
-        publication = writer.finalize_session(
-            expected_cursor=cursor, enumeration_complete=True
         )
+    publication = writer.finalize_session(
+        expected_cursor=cursor, enumeration_complete=True
+    )
 
-        undo_info = project.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
-        ).fetchone()["undo_info"]
-        assert json.loads(undo_info) == {
-            "created_rows": [],
-            "created_rows_import_session_id": "pdf-commit:one",
-            "created_columns": [],
-        }
-        assert set(metadata_sizes) == {len(undo_info)}
-        assert len(undo_info) < 160
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM import_session_rows WHERE session_id=?",
-                ("pdf-commit:one",),
-            ).fetchone()[0]
-            == 10_000
-        )
+    undo_info = project.db.execute(
+        "SELECT undo_info FROM ops WHERE id=?", (publication.op_id,)
+    ).fetchone()["undo_info"]
+    assert json.loads(undo_info) == {
+        "created_rows": [],
+        "created_rows_import_session_id": "pdf-commit:one",
+        "created_columns": [],
+    }
+    assert set(metadata_sizes) == {len(undo_info)}
+    assert len(undo_info) < 160
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM import_session_rows WHERE session_id=?",
+            ("pdf-commit:one",),
+        ).fetchone()[0]
+        == 10_000
+    )
 
-        assert project.undo() == publication.op_id
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=1", (sheet_id,)
-            ).fetchone()[0]
-            == 10_000
-        )
-        assert project.redo() == publication.op_id
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
-            ).fetchone()[0]
-            == 10_001
-        )
-        assert _visible_names(project, sheet_id, columns["filename"])[0] == "before.pdf"
-    finally:
-        project.close()
+    assert project.undo() == publication.op_id
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=1", (sheet_id,)
+        ).fetchone()[0]
+        == 10_000
+    )
+    assert project.redo() == publication.op_id
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM rows WHERE sheet_id=? AND hidden=0", (sheet_id,)
+        ).fetchone()[0]
+        == 10_001
+    )
+    assert _visible_names(project, sheet_id, columns["filename"])[0] == "before.pdf"
 
 
 @pytest.mark.parametrize("text_action", ["media.read_pdf_text", "media.ocr"])
@@ -570,71 +532,70 @@ def test_import_undo_after_derived_text_result_preserves_existing_rows(
 
 
 def test_unreadable_import_row_uses_standard_run_error_and_null_text(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "unreadable-result.frisket", name="append")
-    try:
-        sheet_id, columns = _existing_sheet(project)
-        writer = _start_append(project, sheet_id)
-        [imported_row] = writer.append_page(
-            [{"filename": "broken.pdf", "size": 13}],
-            expected_cursor=0,
-            next_cursor=1,
-        )
-        writer.finalize_session(expected_cursor=1, enumeration_complete=True)
-        derived = _start_claimed_run(
-            project,
-            sheet_id=sheet_id,
-            output_column_id=columns["text"],
-            row_ids=[imported_row],
-            label="PDF unreadable text",
-            replace_existing=True,
-        )
-        generations = ResultGenerationStore(project)
-        _declare(
-            generations,
-            derived,
-            columns["text"],
-            write_mode="replace_scope",
-        )
-        _write(
-            project,
-            derived,
-            [
-                {
-                    "row_id": imported_row,
-                    "column_id": columns["text"],
-                    "value": None,
-                    "error": "PDF xref could not be read",
-                    "error_code": "row_error",
-                    "outcome": "row_error",
-                    "publication_effect": "publish_error",
-                }
-            ],
-        )
-        _seal(generations, derived, columns["text"])
-        _release(project, derived)
+    project = make_project("append")
+    sheet_id, columns = _existing_sheet(project)
+    writer = _start_append(project, sheet_id)
+    [imported_row] = writer.append_page(
+        [{"filename": "broken.pdf", "size": 13}],
+        expected_cursor=0,
+        next_cursor=1,
+    )
+    writer.finalize_session(expected_cursor=1, enumeration_complete=True)
+    derived = _start_claimed_run(
+        project,
+        sheet_id=sheet_id,
+        output_column_id=columns["text"],
+        row_ids=[imported_row],
+        label="PDF unreadable text",
+        replace_existing=True,
+    )
+    generations = ResultGenerationStore(project)
+    _declare(
+        generations,
+        derived,
+        columns["text"],
+        write_mode="replace_scope",
+    )
+    _write(
+        project,
+        derived,
+        [
+            {
+                "row_id": imported_row,
+                "column_id": columns["text"],
+                "value": None,
+                "error": "PDF xref could not be read",
+                "error_code": "row_error",
+                "outcome": "row_error",
+                "publication_effect": "publish_error",
+            }
+        ],
+    )
+    _seal(generations, derived, columns["text"])
+    _release(project, derived)
 
-        assert project.get_values(sheet_id, columns["text"]).get(imported_row) is None
-        assert RunResultStore(project).row_error_summary(derived.run_id) == {
-            "total_failed_rows": 1,
-            "groups": [
-                {
-                    "message": "PDF xref could not be read",
-                    "count": 1,
-                    "code": "row_error",
-                    "outcome": "row_error",
-                    "terminal": False,
-                    "row_ids": [imported_row],
-                }
-            ],
-        }
-    finally:
-        project.close()
+    assert project.get_values(sheet_id, columns["text"]).get(imported_row) is None
+    assert RunResultStore(project).row_error_summary(derived.run_id) == {
+        "total_failed_rows": 1,
+        "groups": [
+            {
+                "message": "PDF xref could not be read",
+                "count": 1,
+                "code": "row_error",
+                "outcome": "row_error",
+                "terminal": False,
+                "row_ids": [imported_row],
+            }
+        ],
+    }
 
 
-def test_existing_import_files_page_adapter_uses_append_writer(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "adapter.frisket", name="append")
+def test_existing_import_files_page_adapter_uses_append_writer(
+    tmp_path: Path, make_project
+) -> None:
+    project = make_project("append")
     inventory = ImportInventory(tmp_path / "commit-inventory.db")
     try:
         sheet_id, columns = _existing_sheet(project)

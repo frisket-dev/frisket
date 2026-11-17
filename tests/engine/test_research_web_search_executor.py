@@ -306,106 +306,100 @@ def test_search_without_selected_model_refuses_without_provider_calls(
 
 
 def test_above_preapproval_requires_exact_confirmation_before_egress(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_provider(monkeypatch)
-    project = Project.create(tmp_path / "confirmation.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _action(seeded["sheet_id"])
-        before = {
-            table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("runs", "results", "ops", "receipts")
-        }
+    project = make_project("confirmation")
+    seeded = _seed(project, tmp_path)
+    action = _action(seeded["sheet_id"])
+    before = {
+        table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in ("runs", "results", "ops", "receipts")
+    }
 
-        deps = ExecutorDeps(
-            consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
-        )
-        challenge = run_typed_map_request(
-            project, action, project_id="project-web-search", deps=deps
-        )
-        assert challenge.status == "needs_confirmation"
-        error = challenge.errors[0]
-        assert error.code == "model_cost_requires_confirmation"
-        assert error.field == "confirmation"
-        assert error.details["estimate"]["cost"] > 0
-        assert error.details["estimate"]["remote_capability"] == "external:web_search"
-        assert len(error.details["promise_set_hash"]) == 64
-        assert _FakeDDGS.seen == []
-        assert {
-            table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in before
-        } == before
+    deps = ExecutorDeps(
+        consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
+    )
+    challenge = run_typed_map_request(
+        project, action, project_id="project-web-search", deps=deps
+    )
+    assert challenge.status == "needs_confirmation"
+    error = challenge.errors[0]
+    assert error.code == "model_cost_requires_confirmation"
+    assert error.field == "confirmation"
+    assert error.details["estimate"]["cost"] > 0
+    assert error.details["estimate"]["remote_capability"] == "external:web_search"
+    assert len(error.details["promise_set_hash"]) == 64
+    assert _FakeDDGS.seen == []
+    assert {
+        table: project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in before
+    } == before
 
-        wrong = dict(action, confirmation="0" * 64)
-        rechallenge = run_typed_map_request(
-            project, wrong, project_id="project-web-search", deps=deps
-        )
-        assert rechallenge.status == "needs_confirmation"
-        assert (
-            rechallenge.errors[0].details["promise_set_hash"]
-            == error.details["promise_set_hash"]
-        )
-        assert _FakeDDGS.seen == []
+    wrong = dict(action, confirmation="0" * 64)
+    rechallenge = run_typed_map_request(
+        project, wrong, project_id="project-web-search", deps=deps
+    )
+    assert rechallenge.status == "needs_confirmation"
+    assert (
+        rechallenge.errors[0].details["promise_set_hash"]
+        == error.details["promise_set_hash"]
+    )
+    assert _FakeDDGS.seen == []
 
-        confirmed = dict(action, confirmation=error.details["promise_set_hash"])
-        result = run_typed_map_request(
-            project, confirmed, project_id="project-web-search", deps=deps
-        )
-        assert result.status == "completed", result.errors
-        assert len(_FakeDDGS.seen) == 2
-    finally:
-        project.close()
+    confirmed = dict(action, confirmation=error.details["promise_set_hash"])
+    result = run_typed_map_request(
+        project, confirmed, project_id="project-web-search", deps=deps
+    )
+    assert result.status == "completed", result.errors
+    assert len(_FakeDDGS.seen) == 2
 
 
 def test_constant_query_needs_no_sources_and_output_can_be_replaced(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_provider(monkeypatch)
-    project = Project.create(tmp_path / "constant.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _action(
-            seeded["sheet_id"],
-            key="research-web-search@constant",
-            output_name="results",
-        )
-        action["params"]["query"] = {"text": "fixed public-records query"}
-        first = _run_with_confirmation(project, action)
-        assert first.status == "completed", first.errors
-        first_output_id = first.outputs[1].column_id
-        first_receipt = ReceiptStore(project).parsed_by_id(first.receipt_id)
-        assert first_receipt is not None and first_receipt.inputs == []
-        assert _FakeDDGS.seen == [
-            {"query": "fixed public-records query", "max_results": 2},
-            {"query": "fixed public-records query", "max_results": 2},
-        ]
+    project = make_project("constant")
+    seeded = _seed(project, tmp_path)
+    action = _action(
+        seeded["sheet_id"],
+        key="research-web-search@constant",
+        output_name="results",
+    )
+    action["params"]["query"] = {"text": "fixed public-records query"}
+    first = _run_with_confirmation(project, action)
+    assert first.status == "completed", first.errors
+    first_output_id = first.outputs[1].column_id
+    first_receipt = ReceiptStore(project).parsed_by_id(first.receipt_id)
+    assert first_receipt is not None and first_receipt.inputs == []
+    assert _FakeDDGS.seen == [
+        {"query": "fixed public-records query", "max_results": 2},
+        {"query": "fixed public-records query", "max_results": 2},
+    ]
 
-        replacement = _action(
-            seeded["sheet_id"], key="research-web-search@replace", output_name="results"
-        )
-        replacement["params"]["query"] = {"text": "replacement query"}
-        replacement["replace_existing"] = True
-        replaced = _run_with_confirmation(project, replacement)
-        assert replaced.status == "completed", replaced.errors
-        assert replaced.outputs[1].column_id == first_output_id
-        assert project.get_values(seeded["sheet_id"], first_output_id) == {
-            row_id: [
-                {
-                    "title": f"replacement query result {index}",
-                    "url": f"https://example.test/search/{index}",
-                    "snippet": f"Snippet {index} about replacement query",
-                }
-                for index in (1, 2)
-            ]
-            for row_id in seeded["row_ids"]
-        }
-    finally:
-        project.close()
+    replacement = _action(
+        seeded["sheet_id"], key="research-web-search@replace", output_name="results"
+    )
+    replacement["params"]["query"] = {"text": "replacement query"}
+    replacement["replace_existing"] = True
+    replaced = _run_with_confirmation(project, replacement)
+    assert replaced.status == "completed", replaced.errors
+    assert replaced.outputs[1].column_id == first_output_id
+    assert project.get_values(seeded["sheet_id"], first_output_id) == {
+        row_id: [
+            {
+                "title": f"replacement query result {index}",
+                "url": f"https://example.test/search/{index}",
+                "snippet": f"Snippet {index} about replacement query",
+            }
+            for index in (1, 2)
+        ]
+        for row_id in seeded["row_ids"]
+    }
 
 
 def test_all_rows_failed_retries_four_times_and_replays_failed_receipt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def fast_sleep(_seconds: float) -> None:
         return None
@@ -414,122 +408,114 @@ def test_all_rows_failed_retries_four_times_and_replays_failed_receipt(
     patch_quick_search_model(monkeypatch)
     _FailingDDGS.seen = []
     monkeypatch.setattr(ddgs, "DDGS", _FailingDDGS)
-    project = Project.create(tmp_path / "failed.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _action(seeded["sheet_id"], key="research-web-search@failed")
-        failed = _run_with_confirmation(project, action)
-        assert failed.status == "failed"
-        assert failed.errors[0].code == "model_run_failed"
-        assert len(_FailingDDGS.seen) == 8
-        receipt = ReceiptStore(project).parsed_by_id(failed.receipt_id)
-        assert isinstance(receipt, Receipt)
-        assert receipt.status == "failed"
-        assert (
-            next(item for item in receipt.provider_use if item["provider"] == "ddgs")[
-                "successful_row_count"
-            ]
-            == 0
-        )
-        assert (
-            next(item for item in receipt.provider_use if item["provider"] == "ddgs")[
-                "failed_row_count"
-            ]
-            == 2
-        )
-        assert (
-            next(item for item in receipt.provider_use if item["provider"] == "ddgs")[
-                "operation_call_count"
-            ]
-            == 8
-        )
-        observed = [
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "web_search_call"
+    project = make_project("failed")
+    seeded = _seed(project, tmp_path)
+    action = _action(seeded["sheet_id"], key="research-web-search@failed")
+    failed = _run_with_confirmation(project, action)
+    assert failed.status == "failed"
+    assert failed.errors[0].code == "model_run_failed"
+    assert len(_FailingDDGS.seen) == 8
+    receipt = ReceiptStore(project).parsed_by_id(failed.receipt_id)
+    assert isinstance(receipt, Receipt)
+    assert receipt.status == "failed"
+    assert (
+        next(item for item in receipt.provider_use if item["provider"] == "ddgs")[
+            "successful_row_count"
         ]
-        assert len(observed) == 8
-        assert all(
-            item["provider"] == "ddgs" and not item["succeeded"] for item in observed
-        )
+        == 0
+    )
+    assert (
+        next(item for item in receipt.provider_use if item["provider"] == "ddgs")[
+            "failed_row_count"
+        ]
+        == 2
+    )
+    assert (
+        next(item for item in receipt.provider_use if item["provider"] == "ddgs")[
+            "operation_call_count"
+        ]
+        == 8
+    )
+    observed = [
+        item.ref
+        for item in receipt.evidence
+        if item.ref.get("kind") == "web_search_call"
+    ]
+    assert len(observed) == 8
+    assert all(
+        item["provider"] == "ddgs" and not item["succeeded"] for item in observed
+    )
 
-        replay = _run_with_confirmation(project, action)
-        assert replay.status == "failed"
-        assert replay.receipt_id == failed.receipt_id
-        assert len(_FailingDDGS.seen) == 8
-    finally:
-        project.close()
+    replay = _run_with_confirmation(project, action)
+    assert replay.status == "failed"
+    assert replay.receipt_id == failed.receipt_id
+    assert len(_FailingDDGS.seen) == 8
 
 
 def test_cancelled_search_receipt_counts_only_completed_successes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_provider(monkeypatch)
-    project = Project.create(tmp_path / "cancelled.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        action = _action(seeded["sheet_id"], key="research-web-search@cancelled")
+    project = make_project("cancelled")
+    seeded = _seed(project, tmp_path)
+    action = _action(seeded["sheet_id"], key="research-web-search@cancelled")
 
-        def dispatch(body: dict[str, Any]) -> Any:
-            request = ActionRequest.model_validate(body)
-            bound = BoundTypedActionRequest.bind(
-                ACTION_REGISTRY.get(request.action_id), request
-            )
-
-            from frisket.engine.executor.actions import _default_map_runner_factory
-
-            def runner_factory(target: Project, router: Any) -> MapRunner:
-                runner = _default_map_runner_factory(target, router)
-                runner.concurrency = 1
-                runner.should_cancel = lambda _run_id: len(_FakeDDGS.seen) >= 2
-                return runner
-
-            return run_typed_map_rows_action(
-                project,
-                "project-web-search",
-                bound,
-                quick_search_router(),
-                runner_factory,
-            )
-
-        result = dispatch(action)
-
-        assert result.status == "cancelled", result.errors
-        run = project.db.execute(
-            "SELECT status,total_rows,completed_rows,failed_rows FROM runs WHERE id=?",
-            (result.run_id,),
-        ).fetchone()
-        assert tuple(run) == ("cancelled", 2, 1, 0)
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt is not None
-        assert [
-            item for item in receipt.provider_use if item["provider"] == "ddgs"
-        ] == [
-            {
-                "provider": "ddgs",
-                "service": "ddgs.text",
-                "external_api": True,
-                "selected_row_count": 2,
-                "successful_row_count": 1,
-                "failed_row_count": 0,
-                "max_attempts_per_row": 4,
-                "operation_call_count": 2,
-                "cost_actual": 0.0,
-            }
-        ]
-        counts = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "map_rows_run_counts"
+    def dispatch(body: dict[str, Any]) -> Any:
+        request = ActionRequest.model_validate(body)
+        bound = BoundTypedActionRequest.bind(
+            ACTION_REGISTRY.get(request.action_id), request
         )
-        assert (
-            counts["total_rows"],
-            counts["completed_rows"],
-            counts["failed_rows"],
-        ) == (
-            2,
-            1,
-            0,
+
+        from frisket.engine.executor.actions import _default_map_runner_factory
+
+        def runner_factory(target: Project, router: Any) -> MapRunner:
+            runner = _default_map_runner_factory(target, router)
+            runner.concurrency = 1
+            runner.should_cancel = lambda _run_id: len(_FakeDDGS.seen) >= 2
+            return runner
+
+        return run_typed_map_rows_action(
+            project,
+            "project-web-search",
+            bound,
+            quick_search_router(),
+            runner_factory,
         )
-    finally:
-        project.close()
+
+    result = dispatch(action)
+
+    assert result.status == "cancelled", result.errors
+    run = project.db.execute(
+        "SELECT status,total_rows,completed_rows,failed_rows FROM runs WHERE id=?",
+        (result.run_id,),
+    ).fetchone()
+    assert tuple(run) == ("cancelled", 2, 1, 0)
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt is not None
+    assert [item for item in receipt.provider_use if item["provider"] == "ddgs"] == [
+        {
+            "provider": "ddgs",
+            "service": "ddgs.text",
+            "external_api": True,
+            "selected_row_count": 2,
+            "successful_row_count": 1,
+            "failed_row_count": 0,
+            "max_attempts_per_row": 4,
+            "operation_call_count": 2,
+            "cost_actual": 0.0,
+        }
+    ]
+    counts = next(
+        item.ref
+        for item in receipt.evidence
+        if item.ref.get("kind") == "map_rows_run_counts"
+    )
+    assert (
+        counts["total_rows"],
+        counts["completed_rows"],
+        counts["failed_rows"],
+    ) == (
+        2,
+        1,
+        0,
+    )

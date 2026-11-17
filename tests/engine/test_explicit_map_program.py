@@ -4,7 +4,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -44,13 +43,6 @@ class _ExplicitProgram(Recipe):
     ) -> dict[str, Any]:
         del ctx
         return {spec["output_name"]: str(row_values["source"]).upper()}
-
-
-@pytest.fixture
-def project(tmp_path: Path):
-    value = Project.create(tmp_path / "explicit-program.frisket")
-    yield value
-    value.close()
 
 
 def _seed(project: Project) -> tuple[dict[str, Any], list[int]]:

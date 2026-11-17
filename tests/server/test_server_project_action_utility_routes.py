@@ -1,10 +1,4 @@
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
-
-
-def test_project_action_data_routes_preserve_http_contract(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_action_data_routes_preserve_http_contract(client) -> None:
     pid = client.post("/api/projects", json={"name": "Action Utilities"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet_id = project.add_sheet("people")

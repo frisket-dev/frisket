@@ -43,7 +43,7 @@ MODEL = "openai/gpt-5-mini"
 
 @pytest.mark.parametrize("action_kind", ["map.summarize", "map.ask", "map.extract"])
 def test_cloud_model_estimate_and_run_quote_the_same_uncapped_purchase(
-    tmp_path, action_kind
+    make_project, action_kind
 ):
     from frisket.actions.system import typed_action_for_request
     from frisket.ai.llm import ModelRouter
@@ -51,7 +51,6 @@ def test_cloud_model_estimate_and_run_quote_the_same_uncapped_purchase(
     from frisket.contracts.http.cloud_connection import CloudTokenPrice
     from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
     from frisket.engine.runner import validation
-    from frisket.engine.store import Project
     from frisket.engine.store.execution_routes import (
         CONSENT_BASIS_PREAPPROVED,
         instance_principal,
@@ -81,127 +80,124 @@ def test_cloud_model_estimate_and_run_quote_the_same_uncapped_purchase(
     )
     provider._targets = (provider.own, provider.cloud)
     composition = _composition(provider, model_routes={MODEL: "cloud"})
-    project = Project.create(tmp_path / "cloud-estimate.frisket")
-    try:
-        sheet_id = project.add_sheet("Sources")
-        source_id = project.add_column(sheet_id, "source")
-        project.add_rows(
-            sheet_id,
-            [{"source": "First source."}, {"source": "Second source."}],
-            {"source": source_id},
+    project = make_project("cloud-estimate")
+    sheet_id = project.add_sheet("Sources")
+    source_id = project.add_column(sheet_id, "source")
+    project.add_rows(
+        sheet_id,
+        [{"source": "First source."}, {"source": "Second source."}],
+        {"source": source_id},
+    )
+    params = {"source": ["source"], "model": MODEL}
+    if action_kind == "map.ask":
+        params["question"] = "What does the source describe?"
+    if action_kind == "map.extract":
+        params["instruction"] = "Describe the source."
+        params["fields"] = [{"name": "answer", "type": "text"}]
+        params["grounding"] = {"enabled": False}
+    plan = _typed_map_rows_plan(
+        typed_action_for_request(
+            {
+                "action_id": action_kind,
+                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+                "params": params,
+                "idempotency_key": "cloud-estimate",
+            }
         )
-        params = {"source": ["source"], "model": MODEL}
-        if action_kind == "map.ask":
-            params["question"] = "What does the source describe?"
-        if action_kind == "map.extract":
-            params["instruction"] = "Describe the source."
-            params["fields"] = [{"name": "answer", "type": "text"}]
-            params["grounding"] = {"enabled": False}
-        plan = _typed_map_rows_plan(
-            typed_action_for_request(
-                {
-                    "action_id": action_kind,
-                    "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-                    "params": params,
-                    "idempotency_key": "cloud-estimate",
-                }
-            )
-        )
-        spec = plan.spec_dict()
-        coverage = ConsentCoverage(instance_principal(project), Decimal("0"))
-        policy = default_pricing_policy()
-        estimate = validation.estimate_run(
-            project,
-            spec,
-            program=plan.program,
-            composition=composition,
-            pricing_policy=policy,
-            consent_coverage=coverage,
-        )
-        assert estimate["cost_source"] == "cloud_route_quote"
-        assert estimate["billed_cost"] > 0
-        assert estimate["rows"] == 2
+    )
+    spec = plan.spec_dict()
+    coverage = ConsentCoverage(instance_principal(project), Decimal("0"))
+    policy = default_pricing_policy()
+    estimate = validation.estimate_run(
+        project,
+        spec,
+        program=plan.program,
+        composition=composition,
+        pricing_policy=policy,
+        consent_coverage=coverage,
+    )
+    assert estimate["cost_source"] == "cloud_route_quote"
+    assert estimate["billed_cost"] > 0
+    assert estimate["rows"] == 2
 
-        kwargs = dict(
-            program=plan.program,
-            confirmed=False,
-            resume_run_id=None,
-            persistence="ephemeral",
-            composition=composition,
-            pricing_policy=policy,
-            consent_coverage=coverage,
-        )
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            use_env_keys=False,
-            cache_mode="off",
-        )
-        with pytest.raises(validation.ClaimsGate) as caught:
-            validation.validate_spec(
-                project, router, RunResultStore(project), spec, **kwargs
-            )
-        gate = caught.value
-        assert gate.estimate == estimate["billed_cost"] / 1_000_000
-        assert gate.estimate_details == estimate
-        assert gate.claims == estimate["claims"]
-        assert gate.promise_set_hash == estimate["promise_set_hash"]
-
-        # A bare confirmed flag still refuses; exact quote echo is required.
-        kwargs["confirmed"] = True
-        with pytest.raises(validation.ClaimsGate):
-            validation.validate_spec(
-                project, router, RunResultStore(project), spec, **kwargs
-            )
-        validated = validation.validate_spec(
-            project,
-            router,
-            RunResultStore(project),
-            {**spec, "consented_promise_set_hash": gate.promise_set_hash},
-            **kwargs,
-        )
-        resolved = validated.resolved_execution
-        cost = next(p for p in resolved.promise_set.promises if p.field == "cost")
-        assert cost.op == "unbounded" and cost.value is None
-        assert cost.basis["ceiling_mode"] == "none"
-        assert cost.basis["row_settlement_mode"] == "all_metered"
-        assert (
-            cloud_quote_authority_for_row(
-                resolved.cost_basis, row_id=1
-            ).maximum_charge_micro
-            is None
-        )
-
-        from frisket.project_settings import ProjectSettings, write_project_settings
-
-        # Standing coverage includes the selected payer, then admission binds
-        # that exact account, quote, route, and source scope for the worker.
-        write_project_settings(
-            project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
-        )
-        kwargs["consent_coverage"] = ConsentCoverage(
-            instance_principal(project), Decimal("2")
-        )
-        kwargs["confirmed"] = False
-        approved = validation.validate_spec(
+    kwargs = dict(
+        program=plan.program,
+        confirmed=False,
+        resume_run_id=None,
+        persistence="ephemeral",
+        composition=composition,
+        pricing_policy=policy,
+        consent_coverage=coverage,
+    )
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        use_env_keys=False,
+        cache_mode="off",
+    )
+    with pytest.raises(validation.ClaimsGate) as caught:
+        validation.validate_spec(
             project, router, RunResultStore(project), spec, **kwargs
         )
-        assert approved.consent_required is True
-        assert approved.consent_basis == CONSENT_BASIS_PREAPPROVED
-        assert approved.est["requires_confirmation"] is False
-        assert "claims" not in approved.est
-        for settings in (
-            ProjectSettings(),
-            ProjectSettings(cloud_user_id=8, cloud_account_id=41),
-            ProjectSettings(cloud_user_id=7, cloud_account_id=42),
-        ):
-            write_project_settings(project, settings)
-            with pytest.raises(validation.ClaimsGate) as changed:
-                validation.validate_spec(
-                    project, router, RunResultStore(project), spec, **kwargs
-                )
-            assert [claim["field"] for claim in changed.value.claims] == ["cloud_payer"]
-    finally:
-        project.close()
+    gate = caught.value
+    assert gate.estimate == estimate["billed_cost"] / 1_000_000
+    assert gate.estimate_details == estimate
+    assert gate.claims == estimate["claims"]
+    assert gate.promise_set_hash == estimate["promise_set_hash"]
+
+    # A bare confirmed flag still refuses; exact quote echo is required.
+    kwargs["confirmed"] = True
+    with pytest.raises(validation.ClaimsGate):
+        validation.validate_spec(
+            project, router, RunResultStore(project), spec, **kwargs
+        )
+    validated = validation.validate_spec(
+        project,
+        router,
+        RunResultStore(project),
+        {**spec, "consented_promise_set_hash": gate.promise_set_hash},
+        **kwargs,
+    )
+    resolved = validated.resolved_execution
+    cost = next(p for p in resolved.promise_set.promises if p.field == "cost")
+    assert cost.op == "unbounded" and cost.value is None
+    assert cost.basis["ceiling_mode"] == "none"
+    assert cost.basis["row_settlement_mode"] == "all_metered"
+    assert (
+        cloud_quote_authority_for_row(
+            resolved.cost_basis, row_id=1
+        ).maximum_charge_micro
+        is None
+    )
+
+    from frisket.project_settings import ProjectSettings, write_project_settings
+
+    # Standing coverage includes the selected payer, then admission binds
+    # that exact account, quote, route, and source scope for the worker.
+    write_project_settings(
+        project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
+    )
+    kwargs["consent_coverage"] = ConsentCoverage(
+        instance_principal(project), Decimal("2")
+    )
+    kwargs["confirmed"] = False
+    approved = validation.validate_spec(
+        project, router, RunResultStore(project), spec, **kwargs
+    )
+    assert approved.consent_required is True
+    assert approved.consent_basis == CONSENT_BASIS_PREAPPROVED
+    assert approved.est["requires_confirmation"] is False
+    assert "claims" not in approved.est
+    for settings in (
+        ProjectSettings(),
+        ProjectSettings(cloud_user_id=8, cloud_account_id=41),
+        ProjectSettings(cloud_user_id=7, cloud_account_id=42),
+    ):
+        write_project_settings(project, settings)
+        with pytest.raises(validation.ClaimsGate) as changed:
+            validation.validate_spec(
+                project, router, RunResultStore(project), spec, **kwargs
+            )
+        assert [claim["field"] for claim in changed.value.claims] == ["cloud_payer"]
 
 
 def test_exact_restriction_cannot_select_another_target_for_same_engine():

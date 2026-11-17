@@ -11,13 +11,6 @@ from frisket.engine.store.runs import RunResultStore
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "geo.frisket", name="geo")
-    yield p
-    p.close()
-
-
 def _seed_source(project: Project):
     """Source geo_point column with 2 valid points and 1 out-of-range row."""
     sheet = project.add_sheet("places")

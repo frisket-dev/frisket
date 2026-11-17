@@ -139,7 +139,7 @@ def test_finder_catalog_types_and_retry_placement() -> None:
     ],
 )
 def test_topic_engine_runtime_availability_is_only_a_served_hint(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     runtime_state: str,
     available: bool,
@@ -175,13 +175,10 @@ def test_topic_engine_runtime_availability_is_only_a_served_hint(
     )
 
     global_payload = action_catalog_payload_with_launcher_hints({})
-    project = Project.create(tmp_path / "catalog.frisket")
-    try:
-        project_payload = project_action_catalog_payload_with_launcher_hints(
-            project, sidecar_capabilities={}
-        )
-    finally:
-        project.close()
+    project = make_project("catalog")
+    project_payload = project_action_catalog_payload_with_launcher_hints(
+        project, sidecar_capabilities={}
+    )
 
     for payload in (global_payload, project_payload):
         topic_entry = next(
@@ -218,10 +215,9 @@ def test_topic_finder_validation_rejects_unknown_engine_and_settings() -> None:
 
 
 def test_visual_finder_queues_multi_row_map_and_keeps_row_errors(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id, project = _project(client, "Visual finder")
     sheet_id = project.add_sheet("Videos")
     video_column_id = project.add_column(sheet_id, "video", "video")
@@ -758,10 +754,9 @@ def _seed_timestamped_transcripts(
 
 
 def test_topic_finder_uses_exact_engine_and_persists_ranges_and_provenance(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id, project = _project(client, "Topic finder")
     sheet_id, row_ids, _transcript_column_id, source_link = (
         _seed_timestamped_transcripts(project)

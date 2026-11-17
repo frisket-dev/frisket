@@ -95,8 +95,8 @@ def test_numeric_ranges_do_not_coerce_malformed_cells_to_zero(tmp_path):
         project.close()
 
 
-def test_numeric_histograms_and_ranges_share_native_json_number_validity(tmp_path):
-    project = Project.create(tmp_path / "facet-number-validity.frisket", name="facets")
+def test_numeric_histograms_and_ranges_share_native_json_number_validity(make_project):
+    project = make_project("facets")
     sheet = project.add_sheet("Numbers")
     amount = project.add_column(sheet, "amount", type="number")
     rows = project.add_rows(
@@ -121,8 +121,8 @@ def test_numeric_histograms_and_ranges_share_native_json_number_validity(tmp_pat
         project.close()
 
 
-def test_integer_ranges_keep_signed_64_bit_endpoints_exact(tmp_path):
-    project = Project.create(tmp_path / "facet-integer-exact.frisket", name="facets")
+def test_integer_ranges_keep_signed_64_bit_endpoints_exact(make_project):
+    project = make_project("facets")
     sheet = project.add_sheet("Identifiers")
     identifier = project.add_column(sheet, "identifier", type="integer")
     rows = project.add_rows(
@@ -168,7 +168,7 @@ def test_integer_ranges_keep_signed_64_bit_endpoints_exact(tmp_path):
         project.close()
 
 
-def test_registered_plugin_number_facet_previews_and_filters_end_to_end(tmp_path):
+def test_registered_plugin_number_facet_previews_and_filters_end_to_end(make_project):
     type_name = "plugin_number_facet"
     column_types.register_column_type(
         type_name,
@@ -181,7 +181,7 @@ def test_registered_plugin_number_facet_previews_and_filters_end_to_end(tmp_path
         },
         plugin="test.facets",
     )
-    project = Project.create(tmp_path / "plugin-number.frisket", name="facets")
+    project = make_project("facets")
     try:
         sheet = project.add_sheet("Plugin numbers")
         score = project.add_column(sheet, "score", type=type_name)
@@ -206,8 +206,8 @@ def test_registered_plugin_number_facet_previews_and_filters_end_to_end(tmp_path
         column_types.unregister_column_type(type_name)
 
 
-def test_boolean_in_rejects_unknown_spellings(tmp_path):
-    project = Project.create(tmp_path / "facet-boolean.frisket", name="facets")
+def test_boolean_in_rejects_unknown_spellings(make_project):
+    project = make_project("facets")
     sheet = project.add_sheet("Flags")
     flag = project.add_column(sheet, "flag", type="boolean")
     rows = project.add_rows(
@@ -273,8 +273,8 @@ def test_column_preview_includes_exact_numeric_and_date_histograms(tmp_path):
         project.close()
 
 
-def test_histograms_include_timestamps_and_extreme_finite_numbers(tmp_path):
-    project = Project.create(tmp_path / "facet-extremes.frisket", name="facets")
+def test_histograms_include_timestamps_and_extreme_finite_numbers(make_project):
+    project = make_project("facets")
     sheet = project.add_sheet("Events")
     columns = {
         "amount": project.add_column(sheet, "amount", type="number"),
@@ -309,8 +309,8 @@ def test_histograms_include_timestamps_and_extreme_finite_numbers(tmp_path):
         project.close()
 
 
-def test_histogram_handles_subnormal_spans_without_dropping_counts(tmp_path):
-    project = Project.create(tmp_path / "facet-subnormal.frisket", name="facets")
+def test_histogram_handles_subnormal_spans_without_dropping_counts(make_project):
+    project = make_project("facets")
     sheet = project.add_sheet("Tiny")
     amount = project.add_column(sheet, "amount", type="number")
     project.add_rows(

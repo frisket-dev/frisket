@@ -9,13 +9,6 @@ import pytest
 from frisket.engine.store import Project
 
 
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
-
-
 def test_unconfigured_default_is_on(project) -> None:
     assert project.network_policy() == {"mode": "inherit", "org_default": None}
     assert project.effective_network_policy() == "on"

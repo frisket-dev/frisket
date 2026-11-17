@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 
 import pytest
 
@@ -50,68 +49,60 @@ def _blob_cell(
     return sheet_id, row_id, column_id
 
 
-def test_long_text_anchor_requires_a_bounded_passage(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "long-text.frisket")
-    try:
-        sheet_id = project.add_sheet("Sources")
-        column_id = project.add_column(sheet_id, "source")
-        row_id = project.add_rows(
-            sheet_id, [{"source": "x" * 2049}], {"source": column_id}
-        )[0]
+def test_long_text_anchor_requires_a_bounded_passage(make_project) -> None:
+    project = make_project("long-text")
+    sheet_id = project.add_sheet("Sources")
+    column_id = project.add_column(sheet_id, "source")
+    row_id = project.add_rows(
+        sheet_id, [{"source": "x" * 2049}], {"source": column_id}
+    )[0]
 
-        with pytest.raises(RetrievalQueryError) as caught:
-            resolve_cell_anchor(project, CellAnchor(sheet_id, row_id, column_id))
+    with pytest.raises(RetrievalQueryError) as caught:
+        resolve_cell_anchor(project, CellAnchor(sheet_id, row_id, column_id))
 
-        assert caught.value.code == "source_location_required"
-        assert "at most 2048" in str(caught.value)
-    finally:
-        project.close()
+    assert caught.value.code == "source_location_required"
+    assert "at most 2048" in str(caught.value)
 
 
-def test_text_anchor_encodes_the_exact_bounded_selection(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "selected-text.frisket")
-    try:
-        sheet_id = project.add_sheet("Sources")
-        column_id = project.add_column(sheet_id, "source")
-        value = "prefix selected passage suffix"
-        row_id = project.add_rows(sheet_id, [{"source": value}], {"source": column_id})[
-            0
-        ]
-        with project.read_snapshot() as snapshot:
-            source = resolve_cell_text_sources(
-                snapshot,
-                sheet_id=sheet_id,
-                column_id=column_id,
-                row_ids=[row_id],
-            )[row_id]
-        surface = source.surface
-        start = value.index("selected")
-        end = start + len("selected passage")
-        selected = CellAnchor(
-            sheet_id,
-            row_id,
-            column_id,
-            locator=SourceLocator(
-                kind="text",
-                text=TextRange(
-                    surface.text_surface_id,
-                    surface.content_hash,
-                    start,
-                    end,
-                ),
+def test_text_anchor_encodes_the_exact_bounded_selection(make_project) -> None:
+    project = make_project("selected-text")
+    sheet_id = project.add_sheet("Sources")
+    column_id = project.add_column(sheet_id, "source")
+    value = "prefix selected passage suffix"
+    row_id = project.add_rows(sheet_id, [{"source": value}], {"source": column_id})[0]
+    with project.read_snapshot() as snapshot:
+        source = resolve_cell_text_sources(
+            snapshot,
+            sheet_id=sheet_id,
+            column_id=column_id,
+            row_ids=[row_id],
+        )[row_id]
+    surface = source.surface
+    start = value.index("selected")
+    end = start + len("selected passage")
+    selected = CellAnchor(
+        sheet_id,
+        row_id,
+        column_id,
+        locator=SourceLocator(
+            kind="text",
+            text=TextRange(
+                surface.text_surface_id,
+                surface.content_hash,
+                start,
+                end,
             ),
-        )
+        ),
+    )
 
-        resolved = resolve_cell_anchor(project, selected)
+    resolved = resolve_cell_anchor(project, selected)
 
-        assert resolved.anchor.locator == selected.locator
-        assert resolved.input == TextEncodingInput("selected passage")
-    finally:
-        project.close()
+    assert resolved.anchor.locator == selected.locator
+    assert resolved.input == TextEncodingInput("selected passage")
 
 
-def test_image_anchor_uses_exact_current_blob_bytes(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "image.frisket")
+def test_image_anchor_uses_exact_current_blob_bytes(make_project) -> None:
+    project = make_project("image")
     image = b"\x89PNG\r\n\x1a\nfixture"
     try:
         sheet_id, row_id, column_id = _blob_cell(
@@ -129,28 +120,25 @@ def test_image_anchor_uses_exact_current_blob_bytes(tmp_path: Path) -> None:
         project.close()
 
 
-def test_pdf_anchor_requires_one_explicit_current_page(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "pdf-location.frisket")
-    try:
-        sheet_id, row_id, column_id = _blob_cell(
-            project,
-            column_type="file",
-            mime="application/pdf",
-            data=b"pdf fixture",
-        )
+def test_pdf_anchor_requires_one_explicit_current_page(make_project) -> None:
+    project = make_project("pdf-location")
+    sheet_id, row_id, column_id = _blob_cell(
+        project,
+        column_type="file",
+        mime="application/pdf",
+        data=b"pdf fixture",
+    )
 
-        with pytest.raises(RetrievalQueryError) as caught:
-            resolve_cell_anchor(project, CellAnchor(sheet_id, row_id, column_id))
+    with pytest.raises(RetrievalQueryError) as caught:
+        resolve_cell_anchor(project, CellAnchor(sheet_id, row_id, column_id))
 
-        assert caught.value.code == "source_location_required"
-    finally:
-        project.close()
+    assert caught.value.code == "source_location_required"
 
 
 def test_pdf_anchor_renders_only_selected_page(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "pdf-page.frisket")
+    project = make_project("pdf-page")
     calls: list[list[int] | None] = []
 
     async def render(source, scratch, *, pages, **kwargs):
@@ -184,9 +172,9 @@ def test_pdf_anchor_renders_only_selected_page(
 
 
 def test_video_anchor_returns_decoder_observed_frame_time(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "video.frisket")
+    project = make_project("video")
     borrowed = []
 
     async def decode(source, at_seconds, **kwargs):
@@ -221,9 +209,9 @@ def test_video_anchor_returns_decoder_observed_frame_time(
 
 
 def test_audio_anchor_returns_effective_decoded_interval(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "audio.frisket")
+    project = make_project("audio")
     borrowed = []
 
     async def decode(source, start_seconds, end_seconds, **kwargs):
@@ -256,47 +244,44 @@ def test_audio_anchor_returns_effective_decoded_interval(
 
 @pytest.mark.parametrize("kind", ["text", "image"])
 def test_explicit_anchor_can_use_hidden_active_column_but_not_withdrawn_column(
-    tmp_path, kind
+    make_project, kind
 ):
     from frisket.retrieval.source_adapter import resolve_cell_blob_source
 
-    project = Project.create(tmp_path / "hidden-anchor.frisket")
-    try:
-        if kind == "image":
-            image = b"\x89PNG\r\n\x1a\nfixture"
-            sheet, row, column = _blob_cell(
-                project, column_type="image", mime="image/png", data=image
+    project = make_project("hidden-anchor")
+    if kind == "image":
+        image = b"\x89PNG\r\n\x1a\nfixture"
+        sheet, row, column = _blob_cell(
+            project, column_type="image", mime="image/png", data=image
+        )
+        expected = ImageEncodingInput(image)
+    else:
+        sheet = project.add_sheet("Sources")
+        column = project.add_column(sheet, "source")
+        row = project.add_rows(
+            sheet, [{"source": "explicit hidden text"}], {"source": column}
+        )[0]
+        expected = TextEncodingInput("explicit hidden text")
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column,))
+    project.db.commit()
+    anchor = CellAnchor(sheet, row, column)
+    assert resolve_cell_anchor(project, anchor).input == expected
+    with project.read_snapshot() as snapshot:
+        # Ordinary visible discovery does not inherit the anchor's intent.
+        assert (
+            resolve_cell_text_sources(
+                snapshot, sheet_id=sheet, column_id=column, row_ids=[row]
             )
-            expected = ImageEncodingInput(image)
-        else:
-            sheet = project.add_sheet("Sources")
-            column = project.add_column(sheet, "source")
-            row = project.add_rows(
-                sheet, [{"source": "explicit hidden text"}], {"source": column}
-            )[0]
-            expected = TextEncodingInput("explicit hidden text")
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column,))
-        project.db.commit()
-        anchor = CellAnchor(sheet, row, column)
-        assert resolve_cell_anchor(project, anchor).input == expected
-        with project.read_snapshot() as snapshot:
-            # Ordinary visible discovery does not inherit the anchor's intent.
-            assert (
-                resolve_cell_text_sources(
-                    snapshot, sheet_id=sheet, column_id=column, row_ids=[row]
-                )
-                == {}
+            == {}
+        )
+        assert (
+            resolve_cell_blob_source(
+                snapshot, sheet_id=sheet, column_id=column, row_id=row
             )
-            assert (
-                resolve_cell_blob_source(
-                    snapshot, sheet_id=sheet, column_id=column, row_id=row
-                )
-                is None
-            )
-        project.db.execute("UPDATE columns SET active=0 WHERE id=?", (column,))
-        project.db.commit()
-        with pytest.raises(RetrievalQueryError) as caught:
-            resolve_cell_anchor(project, anchor)
-        assert caught.value.code == "source_anchor_unavailable"
-    finally:
-        project.close()
+            is None
+        )
+    project.db.execute("UPDATE columns SET active=0 WHERE id=?", (column,))
+    project.db.commit()
+    with pytest.raises(RetrievalQueryError) as caught:
+        resolve_cell_anchor(project, anchor)
+    assert caught.value.code == "source_anchor_unavailable"

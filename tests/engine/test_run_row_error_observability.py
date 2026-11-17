@@ -66,13 +66,6 @@ MODEL = "anthropic/claude-haiku-4-5"
 # --------------------------------------------------------------------------
 
 
-@pytest.fixture
-def project(tmp_path: Path):
-    p = Project.create(tmp_path / "p.frisket")
-    yield p
-    p.close()
-
-
 def _classify_spec(sheet_id: int) -> dict[str, Any]:
     return {
         "action_kind": "map.classify",

@@ -172,26 +172,23 @@ def test_ocr_roster_has_a_billable_engine_to_fence() -> None:
 @pytest.mark.parametrize(
     "engine", _billable_ids(OCR_ENGINE_TABLE) + [PROVIDER_MODEL_ID]
 )
-def test_ocr_compare_refuses_every_billable_engine(engine: str, tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "ocr.frisket", name="OCR closure")
-    try:
-        with pytest.raises(ocr_compare.OcrComparePreviewError) as refused:
-            asyncio.run(
-                ocr_compare.compare_ocr_preview(
-                    project,
-                    {
-                        "sheet_id": 1,
-                        "row_id": 1,
-                        "input_column": "Document",
-                        "pages": [1],
-                        "engines": [engine, "rapidocr"],
-                    },
-                )
+def test_ocr_compare_refuses_every_billable_engine(engine: str, make_project) -> None:
+    project = make_project("OCR closure")
+    with pytest.raises(ocr_compare.OcrComparePreviewError) as refused:
+        asyncio.run(
+            ocr_compare.compare_ocr_preview(
+                project,
+                {
+                    "sheet_id": 1,
+                    "row_id": 1,
+                    "input_column": "Document",
+                    "pages": [1],
+                    "engines": [engine, "rapidocr"],
+                },
             )
-        assert refused.value.code == "billable_engine_requires_run"
-        assert refused.value.details == {"engine": engine, "action": "media.ocr"}
-    finally:
-        project.close()
+        )
+    assert refused.value.code == "billable_engine_requires_run"
+    assert refused.value.details == {"engine": engine, "action": "media.ocr"}
 
 
 @pytest.mark.parametrize("engine", sorted(translate_compare._REMOTE_ENGINES))
@@ -239,25 +236,22 @@ def test_free_engines_are_not_refused() -> None:
         ).engines == [engine]
 
 
-def test_ocr_dispatch_helper_refuses_billable(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "fence.frisket", name="fence")
-    try:
-        page = ocr_compare.RenderedPreviewPage(
-            page=1, path=tmp_path / "p.png", width=1, height=1
-        )
-        for engine in _billable_ids(OCR_ENGINE_TABLE) + [PROVIDER_MODEL_ID]:
-            with pytest.raises(BillablePreviewDispatch):
-                asyncio.run(
-                    ocr_compare.run_ocr_engine_preview(
-                        engine,
-                        [page],
-                        project=project,
-                        language=None,
-                        scratch=tmp_path,
-                    )
+def test_ocr_dispatch_helper_refuses_billable(tmp_path: Path, make_project) -> None:
+    project = make_project("fence")
+    page = ocr_compare.RenderedPreviewPage(
+        page=1, path=tmp_path / "p.png", width=1, height=1
+    )
+    for engine in _billable_ids(OCR_ENGINE_TABLE) + [PROVIDER_MODEL_ID]:
+        with pytest.raises(BillablePreviewDispatch):
+            asyncio.run(
+                ocr_compare.run_ocr_engine_preview(
+                    engine,
+                    [page],
+                    project=project,
+                    language=None,
+                    scratch=tmp_path,
                 )
-    finally:
-        project.close()
+            )
 
 
 def test_translate_dispatch_helper_refuses_billable() -> None:

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 from typing import Any
 
-from fastapi.testclient import TestClient
 
 from frisket.contracts.action import ActionError
 from frisket.engine.store.evidence import (
@@ -14,7 +12,6 @@ from frisket.engine.store.evidence import (
     record_text_surface,
 )
 from frisket.engine.executor.actions import run_action_spec
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
@@ -25,9 +22,8 @@ def _text_hash(text: str) -> str:
 
 
 def test_http_viewer_does_not_treat_html_blob_hash_as_cell_text_hash(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Web capture"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("Pages")
@@ -71,9 +67,8 @@ def test_http_viewer_does_not_treat_html_blob_hash_as_cell_text_hash(
 
 
 def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Frozen citation"}).json()[
         "id"
     ]
@@ -321,9 +316,8 @@ def _evidence_counts(project: Project) -> dict[str, int]:
 
 
 def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
-    tmp_path: Path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Evidence HTTP"}).json()[
         "id"
     ]
@@ -450,8 +444,7 @@ def test_http_cell_evidence_route_lists_current_links_and_stale_audit(
     assert stale_viewer["link"]["stale_reason"] == "manual_cell_edit"
 
 
-def test_http_evidence_viewer_missing_refs_are_typed_404(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
+def test_http_evidence_viewer_missing_refs_are_typed_404(client) -> None:
     project_id = client.post("/api/projects", json={"name": "Evidence 404"}).json()[
         "id"
     ]

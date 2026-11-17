@@ -584,8 +584,10 @@ def test_artifact_trust_on_replay(
 # --- per-shape rendering (unique; the lifecycle above is shape-agnostic) ---
 
 
-def test_dict_shape_no_group_by_is_one_artifact_per_row(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "no-group.frisket", name="No Group")
+def test_dict_shape_no_group_by_is_one_artifact_per_row(
+    tmp_path: Path, make_project
+) -> None:
+    project = make_project("No Group")
     sheet_id, column_id, _title = _seed_pdf_tables_sheet(project)
     dest_dir = tmp_path / "out"
     dest_dir.mkdir()
@@ -610,8 +612,8 @@ def test_dict_shape_no_group_by_is_one_artifact_per_row(tmp_path: Path) -> None:
     project.close()
 
 
-def test_list_shape_headerless_default(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "list-shape.frisket", name="List Shape")
+def test_list_shape_headerless_default(tmp_path: Path, make_project) -> None:
+    project = make_project("List Shape")
     sheet_id, column_id = _seed_list_of_lists_sheet(project)
     dest_dir = tmp_path / "out"
     dest_dir.mkdir()
@@ -634,8 +636,8 @@ def test_list_shape_headerless_default(tmp_path: Path) -> None:
     project.close()
 
 
-def test_list_shape_first_row_header(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "list-header.frisket", name="List Header")
+def test_list_shape_first_row_header(tmp_path: Path, make_project) -> None:
+    project = make_project("List Header")
     sheet_id, column_id = _seed_list_of_lists_sheet(project)
     dest_dir = tmp_path / "out"
     dest_dir.mkdir()
@@ -673,8 +675,8 @@ def test_list_shape_group_by_is_structurally_valid() -> None:
     assert validation.ok is True
 
 
-def test_scalar_shape_single_value_column(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "scalar-shape.frisket", name="Scalar Shape")
+def test_scalar_shape_single_value_column(tmp_path: Path, make_project) -> None:
+    project = make_project("Scalar Shape")
     sheet_id, column_id = _seed_scalar_list_sheet(project)
     dest_dir = tmp_path / "out"
     dest_dir.mkdir()
@@ -693,8 +695,10 @@ def test_scalar_shape_single_value_column(tmp_path: Path) -> None:
     project.close()
 
 
-def test_name_template_collision_gets_deterministic_suffix(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "collision.frisket", name="Collision")
+def test_name_template_collision_gets_deterministic_suffix(
+    tmp_path: Path, make_project
+) -> None:
+    project = make_project("Collision")
     sheet_id, column_id, _title = _seed_pdf_tables_sheet(project)
     dest_dir = tmp_path / "out"
     dest_dir.mkdir()
@@ -719,8 +723,8 @@ def test_name_template_collision_gets_deterministic_suffix(tmp_path: Path) -> No
     project.close()
 
 
-def test_project_file_destination_stores_content_addressed_blob(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "p.frisket", name="P")
+def test_project_file_destination_stores_content_addressed_blob(make_project) -> None:
+    project = make_project("P")
     sheet_id, column_id, _title = _seed_pdf_tables_sheet(project)
     action = _export_action(
         sheet_id=sheet_id,

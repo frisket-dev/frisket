@@ -469,9 +469,9 @@ def test_non_pdf_content_with_pdf_labels_is_not_refused(
 
 
 def test_pdf_table_extraction_limit_stops_the_adapter_before_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    project = Project.create(tmp_path / "tables.frisket", name="tables")
+    project = make_project("tables")
     sheet_id, row_id, media = _stored_pdf(project)
     calls: list[object] = []
 
@@ -512,13 +512,13 @@ def test_pdf_table_extraction_limit_stops_the_adapter_before_dispatch(
 
 
 def test_pdf_markdown_limit_stops_datalab_before_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.executor.action_inventory import ExecutorDeps
 
     monkeypatch.setenv("DATALAB_API_KEY", "test-key")
-    project = Project.create(tmp_path / "markdown.frisket", name="markdown")
+    project = make_project("markdown")
     sheet_id, _, _ = _stored_pdf(project)
     calls: list[Path] = []
 
@@ -620,7 +620,7 @@ def test_video_frames_limit_stops_ffprobe_before_subprocess_dispatch(
 
 
 def test_visual_cuts_limit_stops_pyscenedetect_before_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import frisket.engine.executor.visual_cuts_read as visual_reader
     from frisket.actions.registry import ACTION_REGISTRY
@@ -628,7 +628,7 @@ def test_visual_cuts_limit_stops_pyscenedetect_before_dispatch(
     from frisket.actions.types import ActionRequest, SheetRows
     from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 
-    project = Project.create(tmp_path / "cuts.frisket", name="cuts")
+    project = make_project("cuts")
     sheet_id = project.add_sheet("Video")
     column_id = project.add_column(sheet_id, "video", type="video")
     digest = project.add_blob(
@@ -795,11 +795,11 @@ class _LimitCaptureRecipe(Recipe):
 
 
 def test_run_preview_and_row_clone_receive_the_same_execution_limits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     recipe = _LimitCaptureRecipe()
     monkeypatch.setattr(validation, "recipe_for_spec", lambda _spec: recipe)
-    project = Project.create(tmp_path / "propagation.frisket", name="propagation")
+    project = make_project("propagation")
     sheet_id = project.add_sheet("Rows")
     row_id = project.add_rows(sheet_id, [{}], {})[0]
     router = ModelRouter(

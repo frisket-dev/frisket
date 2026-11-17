@@ -39,7 +39,9 @@ async def discard_download(
 
 
 @pytest.mark.parametrize("discard", [False, True])
-def test_unaccepted_download_never_backfills_channels(tmp_path, monkeypatch, discard):
+def test_unaccepted_download_never_backfills_channels(
+    make_project, monkeypatch, discard
+):
     if discard:
         original = ACTION_REGISTRY.get("media.ytdlp_download")
         custom = RegisteredAction(
@@ -64,55 +66,50 @@ def test_unaccepted_download_never_backfills_channels(tmp_path, monkeypatch, dis
             metadata={"provider": "youtube", "channel_id": "UC-must-not-publish"},
         ),
     )
-    project = Project.create(tmp_path / "unaccepted.frisket")
-    try:
-        sheet = project.add_sheet("Data")
-        columns = {
-            name: project.add_column(sheet, name, type="text")
-            for name in ("url", "channel_id")
-        }
-        project.add_rows(sheet, [{"url": "https://example.test/media"}], columns)
-        body = {
-            "action_id": "media.ytdlp_download",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "url"},
-            "idempotency_key": "unaccepted",
-        }
-        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        if not discard:
-            from frisket.engine.executor import actions
-            from frisket.engine.store.runs import RunResultStore
+    project = make_project("unaccepted")
+    sheet = project.add_sheet("Data")
+    columns = {
+        name: project.add_column(sheet, name, type="text")
+        for name in ("url", "channel_id")
+    }
+    project.add_rows(sheet, [{"url": "https://example.test/media"}], columns)
+    body = {
+        "action_id": "media.ytdlp_download",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"source": "url"},
+        "idempotency_key": "unaccepted",
+    }
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+    if not discard:
+        from frisket.engine.executor import actions
+        from frisket.engine.store.runs import RunResultStore
 
-            cancelled = False
-            original_complete = RunResultStore.complete_row_effect_checkpoint
-            original_factory = actions._default_map_runner_factory
+        cancelled = False
+        original_complete = RunResultStore.complete_row_effect_checkpoint
+        original_factory = actions._default_map_runner_factory
 
-            def complete(self, *args, **kwargs):
-                nonlocal cancelled
-                returned = original_complete(self, *args, **kwargs)
-                cancelled = True
-                return returned
+        def complete(self, *args, **kwargs):
+            nonlocal cancelled
+            returned = original_complete(self, *args, **kwargs)
+            cancelled = True
+            return returned
 
-            def factory(*args, **kwargs):
-                runner = original_factory(*args, **kwargs)
-                runner.should_cancel = lambda _run_id: cancelled
-                return runner
+        def factory(*args, **kwargs):
+            runner = original_factory(*args, **kwargs)
+            runner.should_cancel = lambda _run_id: cancelled
+            return runner
 
-            monkeypatch.setattr(
-                RunResultStore, "complete_row_effect_checkpoint", complete
-            )
-            monkeypatch.setattr(actions, "_default_map_runner_factory", factory)
-        result = run_action_spec(project, body, project_id="unaccepted", router=router)
-        assert result.status == ("completed" if discard else "cancelled"), (
-            result.model_dump(mode="json")
-        )
-        assert list(project.get_values(sheet, columns["channel_id"]).values()) == [None]
-        assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 0
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert not any(e.ref.get("kind") == "row_file_output" for e in receipt.evidence)
-        assert any(e.ref.get("kind") == "row_file_call" for e in receipt.evidence)
-    finally:
-        project.close()
+        monkeypatch.setattr(RunResultStore, "complete_row_effect_checkpoint", complete)
+        monkeypatch.setattr(actions, "_default_map_runner_factory", factory)
+    result = run_action_spec(project, body, project_id="unaccepted", router=router)
+    assert result.status == ("completed" if discard else "cancelled"), (
+        result.model_dump(mode="json")
+    )
+    assert list(project.get_values(sheet, columns["channel_id"]).values()) == [None]
+    assert project.db.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 0
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert not any(e.ref.get("kind") == "row_file_output" for e in receipt.evidence)
+    assert any(e.ref.get("kind") == "row_file_call" for e in receipt.evidence)
 
 
 @pytest.mark.parametrize(
@@ -138,7 +135,7 @@ def test_download_concurrency_policy(monkeypatch, proxy, override, expected):
 @pytest.mark.parametrize("media_type", ["audio", "video"])
 @pytest.mark.parametrize("sidecars", [False, True])
 def test_typed_download_publication_and_replay(
-    tmp_path, monkeypatch, media_type, sidecars
+    make_project, monkeypatch, media_type, sidecars
 ):
     calls = []
 
@@ -173,70 +170,61 @@ def test_typed_download_publication_and_replay(
         )
 
     monkeypatch.setattr("frisket.ops.ytdlp.download_media", download)
-    project = Project.create(tmp_path / "download.frisket")
-    try:
-        sheet = project.add_sheet("Data")
-        cols = {
-            name: project.add_column(sheet, name, type="text")
-            for name in ("url", "channel_id", "channel_title")
-        }
-        project.add_rows(
-            sheet,
-            [{"url": "https://example.test/video", "channel_title": "Manual"}],
-            cols,
-        )
-        body = {
-            "action_id": "media.ytdlp_download",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {
-                "source": "url",
-                "media_type": media_type,
-                "extra_opts": {
-                    "writesubtitles": True,
-                    "writeinfojson": True,
-                    "writethumbnail": True,
-                },
+    project = make_project("download")
+    sheet = project.add_sheet("Data")
+    cols = {
+        name: project.add_column(sheet, name, type="text")
+        for name in ("url", "channel_id", "channel_title")
+    }
+    project.add_rows(
+        sheet,
+        [{"url": "https://example.test/video", "channel_title": "Manual"}],
+        cols,
+    )
+    body = {
+        "action_id": "media.ytdlp_download",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {
+            "source": "url",
+            "media_type": media_type,
+            "extra_opts": {
+                "writesubtitles": True,
+                "writeinfojson": True,
+                "writethumbnail": True,
             },
-            "output_names": {media_type: "media"},
-            "idempotency_key": "download-proof",
-        }
-        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        result = run_action_spec(project, body, project_id="download", router=router)
-        expected_status = "completed" if sidecars else "partial"
-        assert result.status == expected_status, result.model_dump(mode="json")
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        occurrences = [
-            e.ref for e in receipt.evidence if e.ref.get("kind") == "row_file_output"
-        ]
-        main = next(e for e in occurrences if e["output_key"] == media_type)
-        assert main["facts"]["url"] == calls[0][0]
-        assert len(occurrences) == (3 if sidecars else 1)
-        assert (
-            next(c for c in project.columns(sheet) if c["name"] == "media")["type"]
-            == media_type
-        )
-        assert list(project.get_values(sheet, cols["channel_id"]).values()) == [
-            "UC-actual"
-        ]
-        assert list(project.get_values(sheet, cols["channel_title"]).values()) == [
-            "Manual"
-        ]
-        assert (
-            run_action_spec(project, body, project_id="download", router=router).status
-            == expected_status
-        )
-        assert len(calls) == 1
-        project.undo()
-        assert list(project.get_values(sheet, cols["channel_id"]).values()) == [None]
-        assert list(project.get_values(sheet, cols["channel_title"]).values()) == [
-            "Manual"
-        ]
-    finally:
-        project.close()
+        },
+        "output_names": {media_type: "media"},
+        "idempotency_key": "download-proof",
+    }
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+    result = run_action_spec(project, body, project_id="download", router=router)
+    expected_status = "completed" if sidecars else "partial"
+    assert result.status == expected_status, result.model_dump(mode="json")
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    occurrences = [
+        e.ref for e in receipt.evidence if e.ref.get("kind") == "row_file_output"
+    ]
+    main = next(e for e in occurrences if e["output_key"] == media_type)
+    assert main["facts"]["url"] == calls[0][0]
+    assert len(occurrences) == (3 if sidecars else 1)
+    assert (
+        next(c for c in project.columns(sheet) if c["name"] == "media")["type"]
+        == media_type
+    )
+    assert list(project.get_values(sheet, cols["channel_id"]).values()) == ["UC-actual"]
+    assert list(project.get_values(sheet, cols["channel_title"]).values()) == ["Manual"]
+    assert (
+        run_action_spec(project, body, project_id="download", router=router).status
+        == expected_status
+    )
+    assert len(calls) == 1
+    project.undo()
+    assert list(project.get_values(sheet, cols["channel_id"]).values()) == [None]
+    assert list(project.get_values(sheet, cols["channel_title"]).values()) == ["Manual"]
 
 
 def test_downloader_is_reusable_with_renamed_params_and_derived_url(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     original = ACTION_REGISTRY.get("media.ytdlp_download")
     custom = RegisteredAction(
@@ -259,23 +247,20 @@ def test_downloader_is_reusable_with_renamed_params_and_derived_url(
             calls.append(url) or DownloadedMedia(b"video", "video/mp4", "a.mp4")
         ),
     )
-    project = Project.create(tmp_path / "derived.frisket")
-    try:
-        sheet = project.add_sheet("Data")
-        col = project.add_column(sheet, "url", type="text")
-        project.add_rows(sheet, [{"url": "https://example.test/media"}], {"url": col})
-        body = {
-            "action_id": original.action_id,
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"address": "url"},
-            "idempotency_key": "derived",
-        }
-        router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        result = run_action_spec(project, body, project_id="derived", router=router)
-        assert result.status == "completed", result.model_dump(mode="json")
-        assert calls == ["https://example.test/media?derived=1"]
-    finally:
-        project.close()
+    project = make_project("derived")
+    sheet = project.add_sheet("Data")
+    col = project.add_column(sheet, "url", type="text")
+    project.add_rows(sheet, [{"url": "https://example.test/media"}], {"url": col})
+    body = {
+        "action_id": original.action_id,
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"address": "url"},
+        "idempotency_key": "derived",
+    }
+    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
+    result = run_action_spec(project, body, project_id="derived", router=router)
+    assert result.status == "completed", result.model_dump(mode="json")
+    assert calls == ["https://example.test/media?derived=1"]
 
 
 @pytest.mark.parametrize(
@@ -343,54 +328,49 @@ def test_known_free_preview_admits_a_job_without_downloading_before_start(
     assert callable(starts[0][2])
 
 
-def test_channel_backfill_rechecks_current_source(tmp_path):
+def test_channel_backfill_rechecks_current_source(make_project):
     from frisket.engine.executor.media_download import publish_download_channel_facts
 
-    project = Project.create(tmp_path / "changed.frisket")
-    try:
-        sheet = project.add_sheet("Data")
-        cols = {
-            name: project.add_column(sheet, name, type="text")
-            for name in ("url", "channel_id")
-        }
-        row_id = project.add_rows(sheet, [{"url": "https://example.test/old"}], cols)[0]
-        values, refs = project.get_values_with_refs(
-            sheet, cols["url"], row_ids=[row_id]
-        )
-        captured = {
-            "column_id": cols["url"],
-            "value": values[row_id],
-            "value_ref": refs[row_id],
-        }
-        project.apply_edits(
-            [
-                {
-                    "row_id": row_id,
-                    "column_id": cols["url"],
-                    "value": "https://example.test/new",
-                }
-            ]
-        )
-        publish_download_channel_facts(
-            project,
+    project = make_project("changed")
+    sheet = project.add_sheet("Data")
+    cols = {
+        name: project.add_column(sheet, name, type="text")
+        for name in ("url", "channel_id")
+    }
+    row_id = project.add_rows(sheet, [{"url": "https://example.test/old"}], cols)[0]
+    values, refs = project.get_values_with_refs(sheet, cols["url"], row_ids=[row_id])
+    captured = {
+        "column_id": cols["url"],
+        "value": values[row_id],
+        "value_ref": refs[row_id],
+    }
+    project.apply_edits(
+        [
             {
-                "facts": {
-                    "row_id": row_id,
-                    "sheet_id": sheet,
-                    "sources": {"url": captured},
-                    "channel": {"channel_id": "UC-old"},
-                }
-            },
-            run_id=1,
-            op_id=1,
-            row_id=row_id,
-        )
-        assert list(project.get_values(sheet, cols["channel_id"]).values()) == [None]
-    finally:
-        project.close()
+                "row_id": row_id,
+                "column_id": cols["url"],
+                "value": "https://example.test/new",
+            }
+        ]
+    )
+    publish_download_channel_facts(
+        project,
+        {
+            "facts": {
+                "row_id": row_id,
+                "sheet_id": sheet,
+                "sources": {"url": captured},
+                "channel": {"channel_id": "UC-old"},
+            }
+        },
+        run_id=1,
+        op_id=1,
+        row_id=row_id,
+    )
+    assert list(project.get_values(sheet, cols["channel_id"]).values()) == [None]
 
 
-def test_cancelled_worker_settles_before_scope_closes(tmp_path, monkeypatch):
+def test_cancelled_worker_settles_before_scope_closes(make_project, monkeypatch):
     started, stopped = threading.Event(), threading.Event()
 
     def download(_url, *, should_cancel, **_):
@@ -401,7 +381,7 @@ def test_cancelled_worker_settles_before_scope_closes(tmp_path, monkeypatch):
         raise RuntimeError("cancelled child")
 
     monkeypatch.setattr("frisket.ops.ytdlp.download_media", download)
-    project = Project.create(tmp_path / "cancel.frisket")
+    project = make_project("cancel")
     stager = RowFileStager(project)
     owner = AdmittedMediaDownloader(project, stager)
 

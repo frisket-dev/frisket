@@ -2,7 +2,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.executor.cluster_receipt_read import AdmittedClusterReceiptReader
 from frisket.actions.entity_types import ClusterReceiptSource
 from frisket.server.app import create_app
@@ -10,40 +9,37 @@ from http_test_helpers import drain_queue
 
 
 @pytest.mark.parametrize("values", [[], ["Jon Smith", "Smith Jon"]])
-def test_review_cluster_empty_and_nonempty_replay(tmp_path, values):
-    project = Project.create(tmp_path / "review.frisket")
-    try:
-        sheet = project.add_sheet("Names")
-        column = project.add_column(sheet, "name")
-        rows = project.add_rows(
-            sheet, [{"name": value} for value in values], {"name": column}
+def test_review_cluster_empty_and_nonempty_replay(make_project, values):
+    project = make_project("review")
+    sheet = project.add_sheet("Names")
+    column = project.add_column(sheet, "name")
+    rows = project.add_rows(
+        sheet, [{"name": value} for value in values], {"name": column}
+    )
+    request = {
+        "action_id": "cluster.values",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"source": "name"},
+        "idempotency_key": "review-cluster",
+    }
+    result = run_action_spec(project, request, project_id="review")
+    assert result.status == "completed", result.model_dump()
+    replay = run_action_spec(project, request, project_id="review")
+    assert replay.status == "completed", replay.model_dump()
+    assert replay.receipt_id == result.receipt_id
+    groups = AdmittedClusterReceiptReader(project).read(
+        ClusterReceiptSource(kind="cluster_values", receipt_id=result.receipt_id)
+    )
+    assert len(groups) == bool(values)
+    if rows:
+        project.apply_edits(
+            [{"row_id": rows[0], "column_id": column, "value": "Changed"}]
         )
-        request = {
-            "action_id": "cluster.values",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "name"},
-            "idempotency_key": "review-cluster",
-        }
-        result = run_action_spec(project, request, project_id="review")
-        assert result.status == "completed", result.model_dump()
-        replay = run_action_spec(project, request, project_id="review")
-        assert replay.status == "completed", replay.model_dump()
-        assert replay.receipt_id == result.receipt_id
-        groups = AdmittedClusterReceiptReader(project).read(
-            ClusterReceiptSource(kind="cluster_values", receipt_id=result.receipt_id)
-        )
-        assert len(groups) == bool(values)
-        if rows:
-            project.apply_edits(
-                [{"row_id": rows[0], "column_id": column, "value": "Changed"}]
-            )
-        else:
-            project.add_rows(sheet, [{"name": "New"}], {"name": column})
-        stale = run_action_spec(project, request, project_id="review")
-        assert stale.status == "failed", stale.model_dump()
-        assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()
+    else:
+        project.add_rows(sheet, [{"name": "New"}], {"name": column})
+    stale = run_action_spec(project, request, project_id="review")
+    assert stale.status == "failed", stale.model_dump()
+    assert stale.errors[0].code == "stale_replay"
 
 
 @pytest.mark.parametrize("edit_before_drain", [True, False])

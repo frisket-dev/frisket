@@ -24,7 +24,6 @@ import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.runs import RunResultStore
@@ -43,13 +42,6 @@ PROMISES = [
         "audience": "user_claim",
     }
 ]
-
-
-@pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "t.frisket", name="t")
-    yield p
-    p.close()
 
 
 class _CallFact(dict):

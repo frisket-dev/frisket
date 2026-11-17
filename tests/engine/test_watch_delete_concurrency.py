@@ -3,15 +3,12 @@ from __future__ import annotations
 from tests.watch_helpers import add_watch
 
 import threading
-from pathlib import Path
-
-from frisket.engine.store import Project
 
 
 def test_watch_delete_serializes_a_concurrent_different_row_update(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "watch-delete.frisket", name="Watches")
+    project = make_project("Watches")
     delete_id = add_watch(
         project, "Delete me", scope="project", query={"kind": "fts", "q": "one"}
     )

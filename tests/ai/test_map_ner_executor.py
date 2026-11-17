@@ -25,31 +25,28 @@ from frisket.ops.ner_evidence import _write_entity_spans
 _SIDECAR_CALLS: list[tuple[str, dict[str, Any]]] = []
 
 
-def test_entity_span_result_lookup_chunks_large_scope(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "spans.frisket")
-    try:
-        sheet_id = project.add_sheet("rows")
-        output_column = project.add_column(sheet_id, "entities", type="json")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{} for _ in range(901)],
-            {},
-        )
-        project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 902)
+def test_entity_span_result_lookup_chunks_large_scope(make_project) -> None:
+    project = make_project("spans")
+    sheet_id = project.add_sheet("rows")
+    output_column = project.add_column(sheet_id, "entities", type="json")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{} for _ in range(901)],
+        {},
+    )
+    project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 902)
 
-        _write_entity_spans(
-            project,
-            {},
-            sheet_id=sheet_id,
-            output_column_id=output_column,
-            run_id=999_999,
-            op_id=1,
-            receipt_id="receipt",
-            input_column_ids={},
-            row_ids=row_ids,
-        )
-    finally:
-        project.close()
+    _write_entity_spans(
+        project,
+        {},
+        sheet_id=sheet_id,
+        output_column_id=output_column,
+        run_id=999_999,
+        op_id=1,
+        receipt_id="receipt",
+        input_column_ids={},
+        row_ids=row_ids,
+    )
 
 
 class _SidecarResponse:

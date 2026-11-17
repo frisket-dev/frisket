@@ -15,7 +15,6 @@ from frisket.actions.types import ActionParams, ColumnRef, Row, RowResult
 from frisket.actions.geospatial_types import Geocoder, GeocodedAddress
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from tests.engine.test_typed_geocode import RenamedGeocodeParams
 from tests.engine.test_typed_geocode import env as env
@@ -75,10 +74,10 @@ def _confirmed(project, body, router):
     [(False, False), (True, False), (False, True)],
 )
 def test_actual_derived_request_is_checked_and_error_never_echoes_arguments(
-    tmp_path, monkeypatch, _allow_egress, missing_reference, malformed_request
+    make_project, monkeypatch, _allow_egress, missing_reference, malformed_request
 ):
     _install_handler(monkeypatch, derived_request)
-    project = Project.create(tmp_path / "api.frisket")
+    project = make_project("api")
     sheet = project.add_sheet("Data")
     column = project.add_column(sheet, "private", type="text")
     private = "private-customer-123"
@@ -130,10 +129,10 @@ def test_actual_derived_request_is_checked_and_error_never_echoes_arguments(
 
 
 def test_custom_http_capability_network_off_refuses_before_effect(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     _install_handler(monkeypatch, derived_request)
-    project = Project.create(tmp_path / "network.frisket")
+    project = make_project("network")
     sheet = project.add_sheet("Data")
     column = project.add_column(sheet, "private", type="text")
     project.add_rows(sheet, [{"private": "one"}], {"private": column})
@@ -346,8 +345,8 @@ def test_queued_http_request_replay_redelivery_and_backfill(
     assert calls == ["/1", "/2", "/3"]
 
 
-def test_http_row_failures_do_not_halt_remaining_requests(tmp_path, _allow_egress):
-    project = Project.create(tmp_path / "many.frisket")
+def test_http_row_failures_do_not_halt_remaining_requests(make_project, _allow_egress):
+    project = make_project("many")
     sheet = project.add_sheet("Data")
     project.add_rows(sheet, [{} for _ in range(20)], {})
     calls = []

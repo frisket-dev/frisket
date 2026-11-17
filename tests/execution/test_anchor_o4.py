@@ -22,10 +22,8 @@ tree's types, tables, and evaluators already EXPRESS the offering.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 
 from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.claim_labels import claim_display
@@ -111,7 +109,7 @@ def test_anchor_o4_resolves_with_pinned_region_through_existing_resolver():
     assert facts.region == "us-east-1"  # region flows: recorded truthfully
 
 
-def test_anchor_o4_compiles_region_promise_and_persists_route(tmp_path: Path):
+def test_anchor_o4_compiles_region_promise_and_persists_route(make_project):
     """The route row + promise set persist through the SAME store and writer
     columns every other offering uses — the region promise included. No new
     tables, no new columns, no new writer."""
@@ -128,38 +126,35 @@ def test_anchor_o4_compiles_region_promise_and_persists_route(tmp_path: Path):
     # Dedicated egress is off-box: a user claim, gated on first consent.
     assert by_field["egress_class"].audience == "user_claim"
 
-    project = Project.create(tmp_path / "o4.frisket")
-    try:
-        sheet_id = project.add_sheet("Media")
-        cur = project.db.execute("INSERT INTO ops (kind, spec) VALUES ('map','{}')")
-        project.db.commit()
-        run_id = RunResultStore(project).start_run(
-            int(cur.lastrowid), sheet_id, "media.transcribe"
-        )
-        store = RouteStore.for_run(project, run_id)
-        stored_set = store.append_promise_set(
-            promises=promise_rows(promise_set), predecessor_id=None
-        )
-        route = store.append_route(
-            promise_set_id=stored_set.id,
-            engine=facts.engine,
-            options={},
-            target_snapshot=target_snapshot(resolution),
-            operator=facts.operator,
-            egress_class=facts.egress_class,
-            region=facts.region,
-            credential_source=facts.credential_source,
-            cost_posture=facts.cost_posture,
-            predecessor_id=None,
-        )
-        head_route, head_set = store.head()
-        assert head_route.id == route.id
-        assert head_route.region == "us-east-1"  # the schema already has it
-        assert head_route.egress_class == "frisket_dedicated_org"
-        assert head_route.target_snapshot["target_id"] == "dedicated:acme-box-1"
-        assert any(row["field"] == "region" for row in head_set.promises)
-    finally:
-        project.close()
+    project = make_project("o4")
+    sheet_id = project.add_sheet("Media")
+    cur = project.db.execute("INSERT INTO ops (kind, spec) VALUES ('map','{}')")
+    project.db.commit()
+    run_id = RunResultStore(project).start_run(
+        int(cur.lastrowid), sheet_id, "media.transcribe"
+    )
+    store = RouteStore.for_run(project, run_id)
+    stored_set = store.append_promise_set(
+        promises=promise_rows(promise_set), predecessor_id=None
+    )
+    route = store.append_route(
+        promise_set_id=stored_set.id,
+        engine=facts.engine,
+        options={},
+        target_snapshot=target_snapshot(resolution),
+        operator=facts.operator,
+        egress_class=facts.egress_class,
+        region=facts.region,
+        credential_source=facts.credential_source,
+        cost_posture=facts.cost_posture,
+        predecessor_id=None,
+    )
+    head_route, head_set = store.head()
+    assert head_route.id == route.id
+    assert head_route.region == "us-east-1"  # the schema already has it
+    assert head_route.egress_class == "frisket_dedicated_org"
+    assert head_route.target_snapshot["target_id"] == "dedicated:acme-box-1"
+    assert any(row["field"] == "region" for row in head_set.promises)
 
 
 def test_anchor_o4_claims_require_injected_dedicated_venue_copy():

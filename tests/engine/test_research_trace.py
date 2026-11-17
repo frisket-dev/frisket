@@ -11,7 +11,6 @@ import pytest
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.runner.row_execution import AdaptiveThrottle, execute_row
-from frisket.engine.store import Project
 from frisket.operability.trace import (
     MAX_ROW_BYTES,
     RowTrace,
@@ -401,7 +400,7 @@ def test_serialized_utf8_row_cap_removes_old_bodies_and_retains_headers_and_tool
 
 
 def test_research_only_cancellation_trace_is_persisted_and_cancellation_re_raised(
-    tmp_path,
+    make_project,
 ):
     class CancelledRecipe(Recipe):
         consumes_resolution = False
@@ -428,36 +427,33 @@ def test_research_only_cancellation_trace_is_persisted_and_cancellation_re_raise
                     }
                 )
 
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        writer = TraceWriter.open(project.path, 3)
-        with pytest.raises(asyncio.CancelledError):
-            asyncio.run(
-                execute_row(
-                    project,
-                    ModelRouter(
-                        model_call_policy=LOCAL_PURCHASE_POLICY,
-                        cache=None,
-                        cache_mode="off",
-                    ),
-                    AdaptiveThrottle(),
-                    CancelledRecipe(llm=False),
-                    {},
-                    {"action_kind": "map.cancelled_test"},
-                    OpContext(
-                        project=project,
-                        extras={"preview": True, "cancelled": lambda: False},
-                    ),
-                    row_id=1,
-                    recorder=writer,
-                )
+    project = make_project("p")
+    writer = TraceWriter.open(project.path, 3)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            execute_row(
+                project,
+                ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
+                ),
+                AdaptiveThrottle(),
+                CancelledRecipe(llm=False),
+                {},
+                {"action_kind": "map.cancelled_test"},
+                OpContext(
+                    project=project,
+                    extras={"preview": True, "cancelled": lambda: False},
+                ),
+                row_id=1,
+                recorder=writer,
             )
-        row = read_trace_row(project.path, 3, 1)["row"]
-        assert row["calls"] == []
-        assert row["research"]["steps"][0]["status"] == "cancelled"
-        assert row["error"].startswith("cancelled:")
-    finally:
-        project.close()
+        )
+    row = read_trace_row(project.path, 3, 1)["row"]
+    assert row["calls"] == []
+    assert row["research"]["steps"][0]["status"] == "cancelled"
+    assert row["error"].startswith("cancelled:")
 
 
 def test_call_body_count_and_tool_body_omissions_are_explicit():

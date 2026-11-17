@@ -12,7 +12,6 @@ from __future__ import annotations
 from frisket.ai.embeddings import EmbeddingBackendUnavailable, EmbeddingGateway
 from frisket.ai.embeddings.source_payload import build_source_payloads, source_hash
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 from helpers import replace_test_source_cell
 
 _CLIP = "open_clip/ViT-B-32/laion2b_s34b_b79k"
@@ -37,8 +36,8 @@ def _create_image_index(project, sheet):
     )
 
 
-def test_image_index_create_disabled_with_reason_when_engine_absent(tmp_path):
-    project = Project.create(tmp_path / "p.frisket", name="p")
+def test_image_index_create_disabled_with_reason_when_engine_absent(make_project):
+    project = make_project("p")
     sheet = project.add_sheet("s")
     project.add_column(sheet, "pic", type="image")
 
@@ -57,8 +56,8 @@ def test_image_index_create_disabled_with_reason_when_engine_absent(tmp_path):
     )
 
 
-def test_build_source_payloads_image_column_uses_blob_hash_not_repr(tmp_path):
-    project = Project.create(tmp_path / "p.frisket", name="p")
+def test_build_source_payloads_image_column_uses_blob_hash_not_repr(make_project):
+    project = make_project("p")
     sheet = project.add_sheet("s")
     col = project.add_column(sheet, "pic", type="image")
     # a realistic 64-hex content digest (the format Project.add_blob stores under; a
@@ -91,8 +90,8 @@ def test_build_source_payloads_image_column_uses_blob_hash_not_repr(tmp_path):
     assert out2[0]["source_hash"] != entry["source_hash"]
 
 
-def test_file_page_participates_in_embedding_content_identity(tmp_path):
-    project = Project.create(tmp_path / "pages.frisket", name="pages")
+def test_file_page_participates_in_embedding_content_identity(make_project):
+    project = make_project("pages")
     sheet = project.add_sheet("pages")
     column = project.add_column(sheet, "page", type="file")
     blob = project.add_blob(
@@ -138,8 +137,8 @@ def test_file_page_participates_in_embedding_content_identity(tmp_path):
     assert first["source_hash"] != second["source_hash"]
 
 
-def test_embedding_payload_repairs_malformed_unicode_and_hashes_it(tmp_path):
-    project = Project.create(tmp_path / "unicode.frisket", name="unicode")
+def test_embedding_payload_repairs_malformed_unicode_and_hashes_it(make_project):
+    project = make_project("unicode")
     sheet = project.add_sheet("s")
     column = project.add_column(sheet, "body", type="text")
     [row] = project.add_rows(
@@ -173,12 +172,12 @@ def test_gateway_image_modality_routes_to_sidecar_typed_unavailable(tmp_path):
         assert "sidecar" in msg
 
 
-def test_image_blob_traversal_digest_is_not_materializable(tmp_path):
+def test_image_blob_traversal_digest_is_not_materializable(make_project):
     # Review (LOW security): a media cell whose blob "digest" is a path-traversal string
     # must NOT be materializable — otherwise the image embedder could open a file
     # outside the project blob store. A malformed digest leaves no host path in the
     # durable source ref and refresh surfaces an honest error.
-    project = Project.create(tmp_path / "p.frisket", name="p")
+    project = make_project("p")
     sheet = project.add_sheet("s")
     col = project.add_column(sheet, "pic", type="image")
     envelope = {"blob": "../../../../etc/passwd", "mime": "image/png"}

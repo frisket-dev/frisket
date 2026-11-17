@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 from frisket.authoring.plugin_registry import _reset_default_registry_for_tests
 from frisket.authoring.project_ask_actions import prepare_validated_project_ask_draft
 from frisket.contracts.action import CURRENT_ACTION_AUTHORING_CONTRACT_VERSION
-from frisket.server.app import create_app
 
 
 TRUSTED_LOCAL_BACKEND_CAPABILITY = "plugin:trusted_local_backend"
@@ -70,7 +69,7 @@ def _activate_backend(client: TestClient, project_id: str) -> dict[str, Any]:
 
 
 def test_project_action_catalog_merges_enabled_plugin_actions_only(
-    tmp_path: Path,
+    client,
 ) -> None:
     """An installed Action reaches exactly the project that admitted it.
 
@@ -79,7 +78,6 @@ def test_project_action_catalog_merges_enabled_plugin_actions_only(
     (`form_params`, `default_outputs`) beside it: every parameter is described
     by `input_schema`, and the outputs by `ui_hints.logical_outputs`.
     """
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_a = client.post(
         "/api/projects", json={"name": "Plugin action catalog A"}
     ).json()["id"]

@@ -10,11 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 import frisket.preview.ocr as ocr_compare
 from frisket.engine.store.media_blobs import media_cell
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 
 
@@ -165,10 +163,9 @@ def _install_fakes(
 
 
 def test_ocr_compare_preview_http_route_is_read_only_and_returns_contract(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "ws"))
     pid = client.post("/api/projects", json={"name": "OCR Preview"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet_id, row_id, column_id, digest = _add_pdf_row(project)
@@ -265,6 +262,7 @@ def test_ocr_compare_preview_http_route_is_read_only_and_returns_contract(
 
 def test_page_scoped_pdf_preview_materializes_only_its_physical_page(
     tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     pypdf = pytest.importorskip("pypdf")
@@ -275,99 +273,90 @@ def test_page_scoped_pdf_preview_materializes_only_its_physical_page(
     writer.write(output)
     writer.close()
 
-    project = Project.create(tmp_path / "page-preview.frisket")
-    try:
-        sheet_id, row_id, _column_id, digest = _add_pdf_row(
-            project,
-            page_count=2,
-            page=2,
-            data=output.getvalue(),
-        )
-        source = ocr_compare.resolve_ocr_compare_source(
-            project,
-            ocr_compare.OcrComparePreviewRequest(
-                sheet_id=sheet_id,
-                row_id=row_id,
-                input_column="pdf",
-                pages=[2],
-                engines=["rapidocr", "dots.mocr"],
-            ),
-        )
-        assert source.page == 2
+    project = make_project("page-preview")
+    sheet_id, row_id, _column_id, digest = _add_pdf_row(
+        project,
+        page_count=2,
+        page=2,
+        data=output.getvalue(),
+    )
+    source = ocr_compare.resolve_ocr_compare_source(
+        project,
+        ocr_compare.OcrComparePreviewRequest(
+            sheet_id=sheet_id,
+            row_id=row_id,
+            input_column="pdf",
+            pages=[2],
+            engines=["rapidocr", "dots.mocr"],
+        ),
+    )
+    assert source.page == 2
 
-        async def page_images(self, path, media, options, scratch, *, engine=None):
-            del self, media
-            assert engine == "rapidocr"
-            selected = pypdf.PdfReader(path)
-            assert len(selected.pages) == 1
-            assert float(selected.pages[0].mediabox.width) == 333
-            assert options["_selected_pages"] == [1]
-            rendered = scratch / "page-1.png"
-            rendered.write_bytes(b"rendered")
-            return [rendered]
+    async def page_images(self, path, media, options, scratch, *, engine=None):
+        del self, media
+        assert engine == "rapidocr"
+        selected = pypdf.PdfReader(path)
+        assert len(selected.pages) == 1
+        assert float(selected.pages[0].mediabox.width) == 333
+        assert options["_selected_pages"] == [1]
+        rendered = scratch / "page-1.png"
+        rendered.write_bytes(b"rendered")
+        return [rendered]
 
-        monkeypatch.setattr(ocr_compare.OcrEngines, "_page_images", page_images)
-        monkeypatch.setattr(ocr_compare, "_image_size", lambda _path: (300, 400))
-        scratch = tmp_path / "scratch"
-        scratch.mkdir()
-        with project.materialize_blob(digest) as path:
-            rendered = asyncio.run(
-                ocr_compare.render_selected_pdf_pages(
-                    replace(source, path=Path(path)),
-                    [2],
-                    dpi=180,
-                    scratch=scratch,
-                    max_pdf_pages=1,
-                    engine="rapidocr",
-                )
+    monkeypatch.setattr(ocr_compare.OcrEngines, "_page_images", page_images)
+    monkeypatch.setattr(ocr_compare, "_image_size", lambda _path: (300, 400))
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    with project.materialize_blob(digest) as path:
+        rendered = asyncio.run(
+            ocr_compare.render_selected_pdf_pages(
+                replace(source, path=Path(path)),
+                [2],
+                dpi=180,
+                scratch=scratch,
+                max_pdf_pages=1,
+                engine="rapidocr",
             )
+        )
 
-        assert rendered.page_count == 2
-        assert [(page.page, page.width, page.height) for page in rendered.pages] == [
-            (2, 300, 400)
-        ]
-    finally:
-        project.close()
+    assert rendered.page_count == 2
+    assert [(page.page, page.width, page.height) for page in rendered.pages] == [
+        (2, 300, 400)
+    ]
 
 
 def test_ocr_compare_preview_refuses_billable_engines(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Billable -> run. A provider/model VLM id is refused while the request is
     # coerced, so nothing dispatches and no money can be spent. There is no
     # allow_remote to flip and no router parameter to pass.
-    project = Project.create(tmp_path / "remote.frisket", name="Remote OCR Preview")
-    try:
-        sheet_id, row_id, _column_id, _digest = _add_pdf_row(project)
-        calls: list[dict[str, Any]] = []
-        _install_fakes(monkeypatch, calls)
+    project = make_project("Remote OCR Preview")
+    sheet_id, row_id, _column_id, _digest = _add_pdf_row(project)
+    calls: list[dict[str, Any]] = []
+    _install_fakes(monkeypatch, calls)
 
-        with pytest.raises(ocr_compare.OcrComparePreviewError) as blocked:
-            asyncio.run(
-                ocr_compare.compare_ocr_preview(
-                    project,
-                    _request(
-                        sheet_id,
-                        row_id,
-                        engines=["rapidocr", "provider/model"],
-                    ),
-                )
+    with pytest.raises(ocr_compare.OcrComparePreviewError) as blocked:
+        asyncio.run(
+            ocr_compare.compare_ocr_preview(
+                project,
+                _request(
+                    sheet_id,
+                    row_id,
+                    engines=["rapidocr", "provider/model"],
+                ),
             )
-        assert blocked.value.code == "billable_engine_requires_run"
-        assert blocked.value.details == {
-            "engine": "provider/model",
-            "action": "media.ocr",
-        }
-        assert "media.ocr" in blocked.value.message
-        assert calls == []
-        # Even asking nicely is unspellable: the entry point takes no router.
-        assert (
-            "router"
-            not in inspect.signature(ocr_compare.compare_ocr_preview).parameters
         )
-    finally:
-        project.close()
+    assert blocked.value.code == "billable_engine_requires_run"
+    assert blocked.value.details == {
+        "engine": "provider/model",
+        "action": "media.ocr",
+    }
+    assert "media.ocr" in blocked.value.message
+    assert calls == []
+    # Even asking nicely is unspellable: the entry point takes no router.
+    assert "router" not in inspect.signature(ocr_compare.compare_ocr_preview).parameters
 
 
 @pytest.mark.parametrize(
@@ -382,117 +371,99 @@ def test_ocr_compare_preview_refuses_billable_engines(
     ],
 )
 def test_ocr_compare_preview_rejects_invalid_pages(
-    tmp_path: Path,
+    make_project,
     pages: list[Any],
     expected_field: str,
 ) -> None:
-    project = Project.create(tmp_path / "pages.frisket", name="Page Validation")
-    try:
-        sheet_id, row_id, _column_id, _digest = _add_pdf_row(project, page_count=4)
-        with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
-            asyncio.run(
-                ocr_compare.compare_ocr_preview(
-                    project,
-                    _request(sheet_id, row_id, pages=pages),
-                )
+    project = make_project("Page Validation")
+    sheet_id, row_id, _column_id, _digest = _add_pdf_row(project, page_count=4)
+    with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
+        asyncio.run(
+            ocr_compare.compare_ocr_preview(
+                project,
+                _request(sheet_id, row_id, pages=pages),
             )
-        assert excinfo.value.code == "invalid_page_ref"
-        assert excinfo.value.field == expected_field
-    finally:
-        project.close()
+        )
+    assert excinfo.value.code == "invalid_page_ref"
+    assert excinfo.value.field == expected_field
 
 
 def test_ocr_compare_preview_rejects_missing_non_blob_non_pdf_and_unknown_engines(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "invalid.frisket", name="Invalid OCR Preview")
-    try:
-        sheet_id, row_id, _column_id, _digest = _add_pdf_row(project)
-        missing_row = _request(sheet_id, row_id)
-        missing_row["row_id"] = row_id + 999
+    project = make_project("Invalid OCR Preview")
+    sheet_id, row_id, _column_id, _digest = _add_pdf_row(project)
+    missing_row = _request(sheet_id, row_id)
+    missing_row["row_id"] = row_id + 999
 
-        cases = [
-            (
-                missing_row,
-                "invalid_input_ref",
-                "row_id",
-            ),
-            (
-                _request(sheet_id, row_id, engines=["rapidocr", "madeup"]),
-                "invalid_ocr_engine",
-                "engines[1]",
-            ),
-            (
-                # A retired venue word is an unknown engine now,
-                # not an alias-duplicate.
-                _request(sheet_id, row_id, engines=["rapidocr", "light"]),
-                "invalid_ocr_engine",
-                "engines[1]",
-            ),
-            (
-                # Alias-duplicate detection still fires on a LIVE alias.
-                _request(sheet_id, row_id, engines=["tesseract", "tess"]),
-                "invalid_ocr_engine",
-                "engines",
-            ),
-        ]
-        for body, code, field in cases:
-            with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
-                asyncio.run(ocr_compare.compare_ocr_preview(project, body))
-            assert excinfo.value.code == code
-            assert excinfo.value.field == field
-    finally:
-        project.close()
-
-    non_blob = Project.create(tmp_path / "non-blob.frisket", name="Non Blob")
-    try:
-        sheet_id, row_id, _column_id, _digest = _add_pdf_row(
-            non_blob,
-            cell_value="not a blob",
-        )
+    cases = [
+        (
+            missing_row,
+            "invalid_input_ref",
+            "row_id",
+        ),
+        (
+            _request(sheet_id, row_id, engines=["rapidocr", "madeup"]),
+            "invalid_ocr_engine",
+            "engines[1]",
+        ),
+        (
+            # A retired venue word is an unknown engine now,
+            # not an alias-duplicate.
+            _request(sheet_id, row_id, engines=["rapidocr", "light"]),
+            "invalid_ocr_engine",
+            "engines[1]",
+        ),
+        (
+            # Alias-duplicate detection still fires on a LIVE alias.
+            _request(sheet_id, row_id, engines=["tesseract", "tess"]),
+            "invalid_ocr_engine",
+            "engines",
+        ),
+    ]
+    for body, code, field in cases:
         with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
-            asyncio.run(
-                ocr_compare.compare_ocr_preview(non_blob, _request(sheet_id, row_id))
-            )
-        assert excinfo.value.code == "invalid_input_ref"
-        assert excinfo.value.field == "input_column"
-    finally:
-        non_blob.close()
+            asyncio.run(ocr_compare.compare_ocr_preview(project, body))
+        assert excinfo.value.code == code
+        assert excinfo.value.field == field
 
-    non_pdf = Project.create(tmp_path / "non-pdf.frisket", name="Non PDF")
-    try:
-        sheet_id, row_id, _column_id, _digest = _add_pdf_row(
-            non_pdf,
-            filename="scan.png",
-            mime="image/png",
-            data=PNG_BYTES,
-        )
-        with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
-            asyncio.run(
-                ocr_compare.compare_ocr_preview(non_pdf, _request(sheet_id, row_id))
-            )
-        assert excinfo.value.code == "invalid_input_ref"
-        assert excinfo.value.field == "input_column"
-    finally:
-        non_pdf.close()
-
-    wrong_column_type = Project.create(
-        tmp_path / "wrong-column.frisket",
-        name="Wrong Column",
+    non_blob = make_project("Non Blob")
+    sheet_id, row_id, _column_id, _digest = _add_pdf_row(
+        non_blob,
+        cell_value="not a blob",
     )
-    try:
-        sheet_id, row_id, _column_id, _digest = _add_pdf_row(
-            wrong_column_type,
-            column_type="text",
+    with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
+        asyncio.run(
+            ocr_compare.compare_ocr_preview(non_blob, _request(sheet_id, row_id))
         )
-        with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
-            asyncio.run(
-                ocr_compare.compare_ocr_preview(
-                    wrong_column_type,
-                    _request(sheet_id, row_id),
-                )
+    assert excinfo.value.code == "invalid_input_ref"
+    assert excinfo.value.field == "input_column"
+
+    non_pdf = make_project("Non PDF")
+    sheet_id, row_id, _column_id, _digest = _add_pdf_row(
+        non_pdf,
+        filename="scan.png",
+        mime="image/png",
+        data=PNG_BYTES,
+    )
+    with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
+        asyncio.run(
+            ocr_compare.compare_ocr_preview(non_pdf, _request(sheet_id, row_id))
+        )
+    assert excinfo.value.code == "invalid_input_ref"
+    assert excinfo.value.field == "input_column"
+
+    wrong_column_type = make_project("Wrong Column")
+    sheet_id, row_id, _column_id, _digest = _add_pdf_row(
+        wrong_column_type,
+        column_type="text",
+    )
+    with pytest.raises(ocr_compare.OcrComparePreviewError) as excinfo:
+        asyncio.run(
+            ocr_compare.compare_ocr_preview(
+                wrong_column_type,
+                _request(sheet_id, row_id),
             )
-        assert excinfo.value.code == "invalid_input_ref"
-        assert excinfo.value.field == "input_column"
-    finally:
-        wrong_column_type.close()
+        )
+    assert excinfo.value.code == "invalid_input_ref"
+    assert excinfo.value.field == "input_column"

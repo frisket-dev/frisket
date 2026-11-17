@@ -21,7 +21,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import sqlite3
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -77,13 +76,6 @@ class _FreshPrepareRecipe(Recipe):
                 "description": "",
             }
         ]
-
-
-@pytest.fixture
-def project(tmp_path: Path):
-    value = Project.create(tmp_path / "store01.frisket", name="store01")
-    yield value
-    value.close()
 
 
 def _seed(project: Project) -> tuple[int, list[int]]:

@@ -121,9 +121,9 @@ def test_nonterminal_registered_executor_must_not_publish_completed(tmp_path, st
 )
 @pytest.mark.parametrize("owned", [True, False])
 def test_reservation_after_insert_interrupt_respects_transaction_owner(
-    tmp_path, monkeypatch, interrupt, owned
+    make_project, monkeypatch, interrupt, owned
 ):
-    project = Project.create(tmp_path / "reservation.frisket")
+    project = make_project("reservation")
     sheet_id = project.add_sheet("Before")
     params = Params()
     action = ActionSpec(
@@ -182,8 +182,10 @@ def test_reservation_after_insert_interrupt_respects_transaction_owner(
         project.close()
 
 
-def test_reservation_does_not_own_a_transaction_when_begin_fails(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "caller.frisket")
+def test_reservation_does_not_own_a_transaction_when_begin_fails(
+    make_project, monkeypatch
+):
+    project = make_project("caller")
     sheet_id = project.add_sheet("Before")
     action = ActionSpec(kind="test.reserve", params={}, idempotency_key="reserve")
     spec = SimpleNamespace(

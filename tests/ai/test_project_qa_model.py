@@ -322,134 +322,126 @@ def test_action_proposal_heterogeneous_file_scope_checks_each_target_row(
 
 
 def test_read_observation_budget_and_scope_admission_are_bounded(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "bounded.frisket", name="Bounded")
-    try:
-        sheet_id = project.add_sheet("Evidence")
-        column_ids = {
-            f"Column {index}": project.add_column(sheet_id, f"Column {index}")
-            for index in range(12)
-        }
-        [row_id] = project.add_rows(
-            sheet_id,
-            [{name: "x" * 2_000 for name in column_ids}],
-            column_ids,
+    project = make_project("Bounded")
+    sheet_id = project.add_sheet("Evidence")
+    column_ids = {
+        f"Column {index}": project.add_column(sheet_id, f"Column {index}")
+        for index in range(12)
+    }
+    [row_id] = project.add_rows(
+        sheet_id,
+        [{name: "x" * 2_000 for name in column_ids}],
+        column_ids,
+    )
+    scope = {
+        "kind": "sources",
+        "sources": [{"kind": "rows", "sheet_id": sheet_id, "row_ids": [row_id]}],
+    }
+    store = ProjectQAStore(project)
+    thread = store.create_thread(title="Bounded", scope=scope)
+    turn = store.submit_turn(
+        thread["id"], request_id="bounded", question="Read", scope=scope
+    )
+    tools = ProjectQATools(project, turn, store)
+    read = tools.read_rows(sheet_id)
+    values = [cell["value"] for row in read["rows"] for cell in row["cells"]]
+    assert read["observation_truncated"] is True
+    assert sum(len(str(value)) for value in values) <= MAX_OBSERVATION_CHARS + 12
+    with pytest.raises(ProjectQAScopeError, match="hidden or missing row"):
+        validate_scope(
+            project,
+            {
+                "kind": "sources",
+                "sources": [{"kind": "rows", "sheet_id": sheet_id, "row_ids": [999]}],
+            },
         )
-        scope = {
-            "kind": "sources",
-            "sources": [{"kind": "rows", "sheet_id": sheet_id, "row_ids": [row_id]}],
-        }
-        store = ProjectQAStore(project)
-        thread = store.create_thread(title="Bounded", scope=scope)
-        turn = store.submit_turn(
-            thread["id"], request_id="bounded", question="Read", scope=scope
-        )
-        tools = ProjectQATools(project, turn, store)
-        read = tools.read_rows(sheet_id)
-        values = [cell["value"] for row in read["rows"] for cell in row["cells"]]
-        assert read["observation_truncated"] is True
-        assert sum(len(str(value)) for value in values) <= MAX_OBSERVATION_CHARS + 12
-        with pytest.raises(ProjectQAScopeError, match="hidden or missing row"):
-            validate_scope(
-                project,
-                {
-                    "kind": "sources",
-                    "sources": [
-                        {"kind": "rows", "sheet_id": sheet_id, "row_ids": [999]}
-                    ],
-                },
-            )
-    finally:
-        project.close()
 
 
 def test_scoped_query_count_search_and_open_source_do_not_widen_rows(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "scoped-tools.frisket", name="Scoped tools")
-    try:
-        sheet_id = project.add_sheet("Evidence")
-        columns = {
-            "Text": project.add_column(sheet_id, "Text"),
-            "Group": project.add_column(sheet_id, "Group"),
-            "Private": project.add_column(sheet_id, "Private"),
-        }
-        row_ids = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "Text": "visible alpha " + "x" * 9_000,
-                    "Group": "A",
-                    "Private": "private alpha",
-                },
-                {
-                    "Text": "visible beta",
-                    "Group": "B",
-                    "Private": "private beta",
-                },
-                {
-                    "Text": "visible gamma",
-                    "Group": "C",
-                    "Private": "private gamma",
-                },
-            ],
-            columns,
-        )
-        scope = {
-            "kind": "sources",
-            "sources": [{"kind": "rows", "sheet_id": sheet_id, "row_ids": row_ids[:2]}],
-        }
-        store = ProjectQAStore(project)
-        thread = store.create_thread(title="Scoped", scope=scope)
-        turn = store.submit_turn(
-            thread["id"], request_id="scoped", question="Read", scope=scope
-        )
-        tools = ProjectQATools(project, turn, store)
-        query = {
-            "schema_version": "frisket.query.v1",
-            "kind": "sheet.filter",
-            "scope": {"kind": "sheet", "sheet_id": sheet_id},
-            "filter": {"Text": {"contains": "visible"}},
-        }
-        result = tools.query_rows(query, limit=0, count_by=columns["Group"])
-        assert result["total"] == 2
-        assert result["row_ids"] == []
-        assert result["scope"]["row_ids"] == row_ids[:2]
-        assert result["count_by"] == {
-            "column_id": columns["Group"],
-            "values": [
-                {"kind": "valid", "value": "A", "count": 1},
-                {"kind": "valid", "value": "B", "count": 1},
-            ],
-            "complete": True,
-        }
-        assert result["query_hash"]
-        replayed = evaluate_query(project, result["query"], result["scope"], limit=0)
-        assert replayed["total"] == result["total"]
-        assert replayed["scope"] == result["scope"]
-        drain_index(project)
-        search = tools.search_cells("visible", sheet_id)
-        assert {hit["row_id"] for hit in search["hits"]} == set(row_ids[:2])
-        assert {hit["column_id"] for hit in search["hits"]} == {columns["Text"]}
-        read = tools.read_rows(sheet_id, [row_ids[0]], [columns["Text"]])
-        opened = tools.open_source(read["rows"][0]["cells"][0]["citation_id"])
-        assert len(opened["passages"][0]["text"]) > 2_000
-        assert opened["truncated"] is True
-        proposal = tools.propose_action(
-            "Copy text",
+    project = make_project("Scoped tools")
+    sheet_id = project.add_sheet("Evidence")
+    columns = {
+        "Text": project.add_column(sheet_id, "Text"),
+        "Group": project.add_column(sheet_id, "Group"),
+        "Private": project.add_column(sheet_id, "Private"),
+    }
+    row_ids = project.add_rows(
+        sheet_id,
+        [
             {
-                "action_id": "map.template",
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-                "params": {"template": {"text": "{{Text}}"}},
-                "output_names": {},
+                "Text": "visible alpha " + "x" * 9_000,
+                "Group": "A",
+                "Private": "private alpha",
             },
-        )["proposal"]
-        assert proposal["spec"]["scope"]["row_ids"] == row_ids[:2]
-        assert "kind" not in proposal
-        assert store.events(thread["id"])["events"][-1]["kind"] == "action_proposal"
-    finally:
-        project.close()
+            {
+                "Text": "visible beta",
+                "Group": "B",
+                "Private": "private beta",
+            },
+            {
+                "Text": "visible gamma",
+                "Group": "C",
+                "Private": "private gamma",
+            },
+        ],
+        columns,
+    )
+    scope = {
+        "kind": "sources",
+        "sources": [{"kind": "rows", "sheet_id": sheet_id, "row_ids": row_ids[:2]}],
+    }
+    store = ProjectQAStore(project)
+    thread = store.create_thread(title="Scoped", scope=scope)
+    turn = store.submit_turn(
+        thread["id"], request_id="scoped", question="Read", scope=scope
+    )
+    tools = ProjectQATools(project, turn, store)
+    query = {
+        "schema_version": "frisket.query.v1",
+        "kind": "sheet.filter",
+        "scope": {"kind": "sheet", "sheet_id": sheet_id},
+        "filter": {"Text": {"contains": "visible"}},
+    }
+    result = tools.query_rows(query, limit=0, count_by=columns["Group"])
+    assert result["total"] == 2
+    assert result["row_ids"] == []
+    assert result["scope"]["row_ids"] == row_ids[:2]
+    assert result["count_by"] == {
+        "column_id": columns["Group"],
+        "values": [
+            {"kind": "valid", "value": "A", "count": 1},
+            {"kind": "valid", "value": "B", "count": 1},
+        ],
+        "complete": True,
+    }
+    assert result["query_hash"]
+    replayed = evaluate_query(project, result["query"], result["scope"], limit=0)
+    assert replayed["total"] == result["total"]
+    assert replayed["scope"] == result["scope"]
+    drain_index(project)
+    search = tools.search_cells("visible", sheet_id)
+    assert {hit["row_id"] for hit in search["hits"]} == set(row_ids[:2])
+    assert {hit["column_id"] for hit in search["hits"]} == {columns["Text"]}
+    read = tools.read_rows(sheet_id, [row_ids[0]], [columns["Text"]])
+    opened = tools.open_source(read["rows"][0]["cells"][0]["citation_id"])
+    assert len(opened["passages"][0]["text"]) > 2_000
+    assert opened["truncated"] is True
+    proposal = tools.propose_action(
+        "Copy text",
+        {
+            "action_id": "map.template",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
+            "params": {"template": {"text": "{{Text}}"}},
+            "output_names": {},
+        },
+    )["proposal"]
+    assert proposal["spec"]["scope"]["row_ids"] == row_ids[:2]
+    assert "kind" not in proposal
+    assert store.events(thread["id"])["events"][-1]["kind"] == "action_proposal"
 
 
 def test_file_scope_query_and_search_reject_unselected_columns(tmp_path: Path) -> None:
@@ -498,40 +490,37 @@ def test_file_scope_query_and_search_reject_unselected_columns(tmp_path: Path) -
         project.close()
 
 
-def test_file_search_filters_exact_cells_before_ranking(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "file-search.frisket", name="File search")
-    try:
-        sheet_id = project.add_sheet("Evidence")
-        selected = project.add_column(sheet_id, "Selected")
-        private = project.add_column(sheet_id, "Private")
-        [row_id] = project.add_rows(
-            sheet_id,
-            [{"Selected": "needle", "Private": "needle " * 100}],
-            {"Selected": selected, "Private": private},
-        )
-        scope = {
-            "kind": "sources",
-            "sources": [
-                {
-                    "kind": "file",
-                    "sheet_id": sheet_id,
-                    "row_id": row_id,
-                    "column_id": selected,
-                }
-            ],
-        }
-        store = ProjectQAStore(project)
-        thread = store.create_thread(title="File search", scope=scope)
-        turn = store.submit_turn(
-            thread["id"], request_id="file-search", question="Find", scope=scope
-        )
-        drain_index(project)
-        hits = ProjectQATools(project, turn, store).search_cells(
-            "needle", sheet_id, limit=1
-        )["hits"]
-        assert hits and hits[0]["column_id"] == selected
-    finally:
-        project.close()
+def test_file_search_filters_exact_cells_before_ranking(make_project) -> None:
+    project = make_project("File search")
+    sheet_id = project.add_sheet("Evidence")
+    selected = project.add_column(sheet_id, "Selected")
+    private = project.add_column(sheet_id, "Private")
+    [row_id] = project.add_rows(
+        sheet_id,
+        [{"Selected": "needle", "Private": "needle " * 100}],
+        {"Selected": selected, "Private": private},
+    )
+    scope = {
+        "kind": "sources",
+        "sources": [
+            {
+                "kind": "file",
+                "sheet_id": sheet_id,
+                "row_id": row_id,
+                "column_id": selected,
+            }
+        ],
+    }
+    store = ProjectQAStore(project)
+    thread = store.create_thread(title="File search", scope=scope)
+    turn = store.submit_turn(
+        thread["id"], request_id="file-search", question="Find", scope=scope
+    )
+    drain_index(project)
+    hits = ProjectQATools(project, turn, store).search_cells(
+        "needle", sheet_id, limit=1
+    )["hits"]
+    assert hits and hits[0]["column_id"] == selected
 
 
 def test_web_reads_are_bounded_cited_and_projected_without_url_tokens(

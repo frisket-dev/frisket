@@ -254,13 +254,13 @@ def test_receipt_evidence_records_degraded_pages(
 
 
 def test_receipt_evidence_skips_rows_whose_pdf_cell_failed_to_compose(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A whole-PDF compose hard-fail errors only the _pdf cell for that row
     (recipe-mode contract) — the evidence list must not fabricate a row entry
     for a row that never produced a blob."""
     _patch_engine(monkeypatch, [_stub_page("HELLO WORLD")])
-    project = Project.create(tmp_path / "action-mixed.frisket", name="OCR mixed")
+    project = make_project("OCR mixed")
     sheet_id = project.add_sheet("Scans")
     cols = {"media": project.add_column(sheet_id, "media", type="file")}
     good = project.add_blob(_source_pdf(1), filename="ok.pdf", mime="application/pdf")
