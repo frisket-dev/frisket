@@ -49,8 +49,12 @@ _TIMESTAMP_RE = re.compile(
     r"^(?:(?P<hours>\d+):)?(?P<minutes>[0-5]?\d):"
     r"(?P<seconds>[0-5]?\d)(?:[,.](?P<millis>\d{1,3}))?$"
 )
-_TAG_RE = re.compile(r"<[^>]+>")
-_VOICE_RE = re.compile(r"<v(?:\.[^\s>]+)*\s+([^>]+)>", re.IGNORECASE)
+# Cue text is an untrusted upload of up to tens of megabytes: a tag never spans
+# another "<", so a run of unclosed tags is scanned once rather than once per "<".
+_TAG_RE = re.compile(r"<[^<>]+>")
+# One optional class run (classes may themselves contain dots) and a single
+# separator character keep the match linear; the caller strips the name.
+_VOICE_RE = re.compile(r"<v(?:\.[^\s<>]+)?\s([^<>]+)>", re.IGNORECASE)
 
 
 class TopicSegmentationCompareError(ComparePreviewError):

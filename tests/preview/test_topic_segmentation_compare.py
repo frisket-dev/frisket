@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -208,6 +209,28 @@ def test_scratch_parsers_produce_ephemeral_ordered_units() -> None:
         filename="identifier.vtt",
     )
     assert [unit.text for unit in cue_identifier.snapshot.units] == ["A real cue"]
+
+
+def test_vtt_cue_markup_parses_in_linear_time_on_adversarial_uploads() -> None:
+    classes = b"<v." + b"!." * 30 + b"\n"
+    unclosed_voices = b"<v " * 50_000 + b"\n"
+    unclosed_tags = b"<" * 50_000 + b"\n"
+    upload = (
+        b"WEBVTT\n\n00:00.000 --> 00:01.000\n<v.loud.x   Jane>Opening line\n"
+        + b"\n00:01.000 --> 00:02.000\n"
+        + classes
+        + unclosed_voices
+        + unclosed_tags
+    )
+
+    started = time.perf_counter()
+    parsed = topic_compare.parse_scratch_transcript(upload, filename="hostile.vtt")
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 2.0
+    assert parsed.snapshot.units[0].speaker == "Jane"
+    assert parsed.snapshot.units[0].text == "Opening line"
+    assert len(parsed.snapshot.units) == 2
 
 
 def test_scratch_variants_share_only_their_request_local_embedding_cache(
