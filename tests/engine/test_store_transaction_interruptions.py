@@ -323,3 +323,41 @@ def test_consume_group_retained_rolls_back_interrupted_consumption(project, fail
     assert caught.value is error
     assert not db.in_transaction
     assert _snapshot(db) == before
+
+
+@pytest.mark.parametrize("failure", INTERRUPTS)
+def test_blob_metadata_update_rolls_back_interrupted_document_write(
+    project, monkeypatch, failure
+):
+    from frisket.engine.store.media_blobs import MediaBlobStore
+
+    digest = project.add_blob(b"bytes", filename="a.bin")
+    before = _snapshot(project.db)
+    error = failure("interrupted after the metadata UPDATE")
+    db = _interrupt_project_db(project, monkeypatch, "UPDATE blobs SET metadata", error)
+
+    with pytest.raises(failure) as caught:
+        MediaBlobStore(project).update_metadata(digest, {"marked": True})
+
+    assert caught.value is error
+    assert not db.in_transaction
+    assert _snapshot(db) == before
+
+
+@pytest.mark.parametrize("failure", INTERRUPTS)
+def test_set_descriptor_rolls_back_interrupted_descriptor_change(
+    project, monkeypatch, failure
+):
+    from frisket.engine.store.column_descriptors import set_descriptor
+
+    column_id = project.db.execute("SELECT id FROM columns").fetchone()[0]
+    before = _snapshot(project.db)
+    error = failure("interrupted after the descriptor UPDATE")
+    db = _interrupt_project_db(project, monkeypatch, "UPDATE columns SET type", error)
+
+    with pytest.raises(failure) as caught:
+        set_descriptor(project, column_id, "type", "number")
+
+    assert caught.value is error
+    assert not db.in_transaction
+    assert _snapshot(db) == before

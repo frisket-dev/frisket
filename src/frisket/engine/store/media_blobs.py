@@ -14,6 +14,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.blob_metadata import (
     BlobMetadataDocumentStore,
     BlobMetadataNamespaceCASDecision,
@@ -390,15 +391,15 @@ class MediaBlobStore(BlobMetadataDocumentStore):
     ) -> None:
         if not metadata:
             return
-        if replace:
-            self.transactionally_update_document(
-                digest,
-                lambda _current: dict(metadata),
-                commit=False,
-            )
-        else:
-            self.merge_metadata(digest, metadata)
-        self.db.commit()
+        with write_transaction(self.db):
+            if replace:
+                self.transactionally_update_document(
+                    digest,
+                    lambda _current: dict(metadata),
+                    commit=False,
+                )
+            else:
+                self.merge_metadata(digest, metadata)
 
     def merge_metadata(self, digest: str, metadata: dict[str, Any]) -> None:
         def merge(current: dict[str, Any]) -> dict[str, Any]:

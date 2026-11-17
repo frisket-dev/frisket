@@ -381,9 +381,23 @@ def _mark(document):
     return {**document, "marked": True}
 
 
-def test_blob_document_update_commit_false_without_transaction_hands_one_back(
+def test_blob_document_update_commit_false_requires_caller_transaction(
     project, blob_digest
 ):
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        BlobMetadataDocumentStore(project).transactionally_update_document(
+            blob_digest, _mark, commit=False
+        )
+
+    assert not project.db.in_transaction
+    assert "marked" not in _committed_blob_metadata(project, blob_digest)
+
+
+def test_blob_document_update_commit_false_joins_caller_transaction(
+    project, blob_digest
+):
+    _open_caller_transaction(project)
+
     BlobMetadataDocumentStore(project).transactionally_update_document(
         blob_digest, _mark, commit=False
     )
@@ -394,16 +408,18 @@ def test_blob_document_update_commit_false_without_transaction_hands_one_back(
     assert "marked" in _committed_blob_metadata(project, blob_digest)
 
 
-def test_blob_document_update_joins_caller_transaction(project, blob_digest):
+def test_blob_document_update_commit_true_inside_caller_transaction_refuses(
+    project, blob_digest
+):
     _open_caller_transaction(project)
 
-    BlobMetadataDocumentStore(project).transactionally_update_document(
-        blob_digest, _mark
-    )
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        BlobMetadataDocumentStore(project).transactionally_update_document(
+            blob_digest, _mark
+        )
 
     assert project.db.in_transaction
-    assert "marked" not in _committed_blob_metadata(project, blob_digest)
-    project.db.commit()
+    project.db.rollback()
 
 
 def test_blob_document_update_owns_its_transaction_when_none_is_open(
@@ -425,16 +441,25 @@ def _write_namespace(_current, proposal):
     )
 
 
-def test_blob_namespace_swap_commit_false_without_transaction_hands_one_back(
+def test_blob_namespace_swap_commit_false_requires_caller_transaction(
     project, blob_digest
 ):
-    BlobMetadataDocumentStore(project).compare_and_swap_metadata_namespace(
-        blob_digest, "ns", {"v": 1}, _write_namespace, commit=False
-    )
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        BlobMetadataDocumentStore(project).compare_and_swap_metadata_namespace(
+            blob_digest, "ns", {"v": 1}, _write_namespace, commit=False
+        )
 
-    assert project.db.in_transaction
+    assert not project.db.in_transaction
     assert '"ns"' not in _committed_blob_metadata(project, blob_digest)
-    project.db.rollback()
+
+
+def test_media_metadata_update_owns_the_merge_transaction(project, blob_digest):
+    from frisket.engine.store.media_blobs import MediaBlobStore
+
+    MediaBlobStore(project).update_metadata(blob_digest, {"marked": True})
+
+    assert not project.db.in_transaction
+    assert "marked" in _committed_blob_metadata(project, blob_digest)
 
 
 # -- column descriptors -------------------------------------------------------
@@ -450,8 +475,19 @@ def _value_column(project) -> int:
     return int(project.db.execute("SELECT id FROM columns").fetchone()[0])
 
 
-def test_set_descriptor_commit_false_without_transaction_hands_one_back(project):
+def test_set_descriptor_commit_false_requires_caller_transaction(project):
     column_id = _value_column(project)
+
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        set_descriptor(project, column_id, "type", "number", commit=False)
+
+    assert not project.db.in_transaction
+    assert _committed_column_type(project, column_id) != "number"
+
+
+def test_set_descriptor_commit_false_joins_caller_transaction(project):
+    column_id = _value_column(project)
+    _open_caller_transaction(project)
 
     set_descriptor(project, column_id, "type", "number", commit=False)
 
@@ -461,15 +497,15 @@ def test_set_descriptor_commit_false_without_transaction_hands_one_back(project)
     assert _committed_column_type(project, column_id) == "number"
 
 
-def test_set_descriptor_joins_caller_transaction(project):
+def test_set_descriptor_commit_true_inside_caller_transaction_refuses(project):
     column_id = _value_column(project)
     _open_caller_transaction(project)
 
-    set_descriptor(project, column_id, "type", "number")
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        set_descriptor(project, column_id, "type", "number")
 
     assert project.db.in_transaction
-    assert _committed_column_type(project, column_id) != "number"
-    project.db.commit()
+    project.db.rollback()
 
 
 def test_set_descriptor_owns_its_transaction_when_none_is_open(project):

@@ -6,7 +6,7 @@ import json
 import sqlite3
 from collections.abc import Mapping
 from typing import Any
-from .transactions import require_transaction
+from .transactions import require_transaction, write_transaction
 
 
 DESCRIPTOR_FIELDS = {
@@ -109,10 +109,7 @@ def set_descriptor(
     if property_name not in DESCRIPTOR_FIELDS:
         raise ValueError("unknown column descriptor property")
     db = project.db
-    owns_transaction = not db.in_transaction
-    if owns_transaction:
-        db.execute("BEGIN IMMEDIATE")
-    try:
+    with write_transaction(db, commit=commit, what="column descriptor change"):
         column = db.execute(
             f"SELECT {property_name} FROM columns WHERE id=?", (column_id,)
         ).fetchone()
@@ -161,9 +158,3 @@ def set_descriptor(
         from .current_cells import refresh_current_cells
 
         refresh_current_cells(db, column_ids=[column_id])
-        if commit and owns_transaction:
-            db.commit()
-    except BaseException:
-        if owns_transaction:
-            db.rollback()
-        raise

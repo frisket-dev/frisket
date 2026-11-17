@@ -138,11 +138,10 @@ def _run_ocr_pages(
     project: Project = seeded["project"]
     from frisket.engine.store.media_blobs import MediaBlobStore
 
-    MediaBlobStore(project).merge_metadata(
+    MediaBlobStore(project).update_metadata(
         seeded["blob"],
         owned_media_metadata_document(probe={"pages": len(pages), "kind": "pdf"}),
     )
-    project.db.commit()
     fake_pages, fake_ocr = _fake_multi_page_engine(pages)
     monkeypatch.setattr(OcrEngines, "_page_images", fake_pages)
     monkeypatch.setattr(OcrEngines, "_ocr_rapidocr", fake_ocr)
