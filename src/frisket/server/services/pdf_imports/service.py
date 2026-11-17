@@ -1432,7 +1432,7 @@ class PdfImportService:
                 remote_work = remote_ocr and int(current_binding["selected_count"]) > 0
                 if remote_work and batch_ocr["state"] != "ready":
                     raise PdfImportDraftError(
-                        409, "paid or remote OCR requires an exact frozen quote"
+                        409, "paid or remote OCR requires an exact frozen estimate"
                     )
                 ocr_authorization = None
                 if batch_ocr["state"] == "ready":
@@ -1443,7 +1443,8 @@ class PdfImportService:
                         != current_binding["manifest_hash"]
                     ):
                         raise PdfImportDraftError(
-                            409, "batch OCR quote no longer matches the selected PDFs"
+                            409,
+                            "batch OCR estimate no longer matches the selected PDFs",
                         )
                     if remote_work:
                         current_estimate, current_authorization = self._quote_batch_ocr(
@@ -1455,7 +1456,8 @@ class PdfImportService:
                             "estimate"
                         ) or current_authorization != header.get("ocr_approval"):
                             raise PdfImportDraftError(
-                                409, "PDF OCR quote changed; review the current price"
+                                409,
+                                "PDF OCR estimate changed; review the current price",
                             )
                         if current_estimate.get("requires_confirmation"):
                             expected_confirmation = current_estimate.get(
@@ -1464,7 +1466,7 @@ class PdfImportService:
                             if ocr_confirmation != expected_confirmation:
                                 raise PdfImportDraftError(
                                     409,
-                                    "PDF OCR approval does not match the exact quote",
+                                    "PDF OCR consent does not match the exact estimate",
                                 )
                         ocr_authorization = current_authorization
             current_semantic = self._resolve_semantic_setup(project_id, request_context)
@@ -2367,7 +2369,7 @@ class PdfImportService:
             ).model_dump(mode="json", exclude_unset=True)
             return estimate, None
         if self._batch_ocr_quoter is None:
-            raise PdfImportDraftError(503, "batch OCR quote is unavailable")
+            raise PdfImportDraftError(503, "batch OCR estimate is unavailable")
         try:
             quoted = dict(self._batch_ocr_quoter(project_id, binding, request_context))
             estimate = ActionEstimate.model_validate(quoted["estimate"]).model_dump(
@@ -2378,20 +2380,20 @@ class PdfImportService:
         except PdfImportOcrApprovalError as exc:
             raise PdfImportDraftError(409, str(exc)) from exc
         except (KeyError, TypeError, ValueError) as exc:
-            raise PdfImportDraftError(503, "batch OCR quote is invalid") from exc
+            raise PdfImportDraftError(503, "batch OCR estimate is invalid") from exc
         if (
             authorization.get("schema_version") != PDF_IMPORT_OCR_APPROVAL_SCHEMA
             or authorization.get("scope_hash") != binding["manifest_hash"]
             or not isinstance(authorization.get("actor"), str)
             or not authorization["actor"]
         ):
-            raise PdfImportDraftError(503, "batch OCR quote is invalid")
+            raise PdfImportDraftError(503, "batch OCR estimate is invalid")
         approval_hash = authorization.get("promise_set_hash")
         if not isinstance(approval_hash, str) or len(approval_hash) != 64:
-            raise PdfImportDraftError(503, "batch OCR quote is invalid")
+            raise PdfImportDraftError(503, "batch OCR estimate is invalid")
         if estimate.get("requires_confirmation"):
             if estimate.get("promise_set_hash") != approval_hash:
-                raise PdfImportDraftError(503, "batch OCR quote is invalid")
+                raise PdfImportDraftError(503, "batch OCR estimate is invalid")
             if estimate.get("billed_cost") is None:
                 raise PdfImportDraftError(
                     409, "the selected paid OCR route has no exact price"

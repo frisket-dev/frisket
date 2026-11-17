@@ -23,7 +23,7 @@ def find(params: FindParams, scanner: FindScanner) -> PreparedFind:
 FIND = action(
     name="find",
     title="Find grounded occurrences",
-    description="Scan every source window and create evidence-linked findings.",
+    description="Scan every source window and create findings with citations.",
     category=ActionCategory.TEXT,
     run=find,
     examples=(

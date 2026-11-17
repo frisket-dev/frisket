@@ -2783,7 +2783,7 @@ def _typed_replay_error(
         except (LookupError, TypeError, ValueError, OSError):
             return ActionError(
                 code="stale_replay",
-                message="A recorded file or its publication evidence is missing or changed.",
+                message="A recorded file or its publication record is missing or changed.",
                 action_kind=action.action_id,
             )
         if receipt.status in {"cancelled", "failed"} and not (
@@ -3646,7 +3646,7 @@ def typed_queued_map_spec(
         ):
             return ActionError(
                 code="stale_input",
-                message="the judged column provenance changed before queue reservation",
+                message="the judged column's receipt changed before queue reservation",
                 action_kind=bound.action.action_id,
                 field="params.judged_column",
             )
@@ -3804,7 +3804,7 @@ def typed_queued_map_spec(
         if current_evaluation_context != expected_evaluation_context:
             return ActionError(
                 code="stale_input",
-                message="the judged column provenance changed after this action was queued",
+                message="the judged column's receipt changed after this action was queued",
                 action_kind=bound.action.action_id,
                 field="params.judged_column",
             )

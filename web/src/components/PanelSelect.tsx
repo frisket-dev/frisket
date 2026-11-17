@@ -231,7 +231,7 @@ export const PanelSelect = forwardRef<HTMLSelectElement, PanelSelectProps>(funct
                       <span className="menu-item-copy">
                         <span className="menu-item-label">
                           {option.leadingIcon}
-                          {option.ai && <Zap size={12} className="panel-select-ai" aria-label="AI column" />}
+                          {option.ai && <Zap size={12} className="panel-select-ai" aria-label="Generated column" />}
                           {option.label}
                         </span>
                         {option.description && (

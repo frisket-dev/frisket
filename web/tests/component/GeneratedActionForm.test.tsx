@@ -702,9 +702,9 @@ describe('GeneratedActionForm', () => {
 
     // Both JSON surfaces use the shared fallback in this non-layout DOM.
     const options = screen.getByLabelText('Options');
-    const renames = screen.getByLabelText('Output column renames');
+    const renames = screen.getByLabelText('Generated column renames');
     Object.defineProperty(renames, 'scrollHeight', { configurable: true, value: 180 });
-    fireEvent.click(screen.getByText('Rename output columns'));
+    fireEvent.click(screen.getByText('Rename generated columns'));
     await waitFor(() => expect(renames.style.height).toBe('180px'));
     for (const editor of [options, renames]) {
       expect(editor).toHaveClass('form-textarea', 'form-textarea-autogrow');
@@ -1256,7 +1256,7 @@ describe('GeneratedActionForm', () => {
   });
 
   it.each([
-    { label: 'a resolved dynamic output', outputs: [{ key: 'extracted', column_type: 'text' }], count: '1 output column' },
+    { label: 'a resolved dynamic output', outputs: [{ key: 'extracted', column_type: 'text' }], count: '1 generated column' },
     { label: 'an unresolved dynamic output shape', outputs: [], count: null },
   ])('only reports a known output-column count for $label', async ({ outputs, count }) => {
     const entry = generatedEntry('map.regex_extract');
@@ -1274,8 +1274,8 @@ describe('GeneratedActionForm', () => {
     await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveTextContent(/\b1 row\b/));
     const line = screen.getByTestId('cost-estimate');
     expect(line).toHaveTextContent(/\b1 row\b/);
-    if (count) expect(line).toHaveTextContent(/\b1 output column\b/);
-    else expect(line).not.toHaveTextContent(/output column/);
+    if (count) expect(line).toHaveTextContent(/\b1 generated column\b/);
+    else expect(line).not.toHaveTextContent(/generated column/);
   });
 
   it('does not retain an old dynamic output width while resolving changed parameters', async () => {
@@ -1298,16 +1298,16 @@ describe('GeneratedActionForm', () => {
       estimateAction={vi.fn(async () => ({ cost: 0.01, rows: 1, billed_cost: 1_000 }))}
       onExecute={vi.fn()} onClose={vi.fn()} />);
 
-    await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveTextContent(/\b1 output column\b/));
+    await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveTextContent(/\b1 generated column\b/));
     fireEvent.change(screen.getByTestId('field-pattern'), { target: { value: '(value)(other)' } });
     await waitFor(() => expect(resolveSecond).toBeDefined());
-    expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent(/output column/);
+    expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent(/generated column/);
 
     resolveSecond!({ diagnostics: {}, logical_outputs: [
       { key: 'extracted_1', column_type: 'text' },
       { key: 'extracted_2', column_type: 'text' },
     ] });
-    await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveTextContent('2 output columns'));
+    await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveTextContent('2 generated columns'));
   });
 
   it('keeps a saved clean-dates logical target instead of applying fresh-name defaults', async () => {

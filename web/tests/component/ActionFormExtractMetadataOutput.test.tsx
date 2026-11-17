@@ -213,12 +213,12 @@ describe('typed metadata output naming', () => {
     renderMetadata();
     await screen.findByTestId('field-output-details');
     fireEvent.change(screen.getByTestId('field-output-prefix'), { target: { value: '  ' } });
-    expect(screen.getByText('Name every output column.')).toBeVisible();
+    expect(screen.getByText('Name every generated column.')).toBeVisible();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     fireEvent.change(screen.getByTestId('field-output-prefix'), { target: { value: 'Meta' } });
     await screen.findByTestId('field-output-size_bytes');
     fireEvent.change(screen.getByTestId('field-output-size_bytes'), { target: { value: 'meta_DETAILS' } });
-    expect(screen.getByText('Output column names must be unique.')).toBeVisible();
+    expect(screen.getByText('Generated column names must be unique.')).toBeVisible();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     fireEvent.change(screen.getByTestId('field-output-size_bytes'), { target: { value: 'Bytes' } });
     expect(screen.getByTestId('generated-action-run')).toBeEnabled();

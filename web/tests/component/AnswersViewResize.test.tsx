@@ -74,7 +74,7 @@ describe('Answers evidence pane resizing', () => {
     expect(view).toHaveStyle('--answers-evidence-max-width: 960px');
 
     const seam = screen.getByRole('separator', {
-      name: 'Resize the Answers evidence pane',
+      name: 'Resize the Answers citation pane',
     });
     expect(seam).toHaveAttribute('aria-orientation', 'vertical');
     expect(seam).toHaveAttribute('aria-valuemin', '420');

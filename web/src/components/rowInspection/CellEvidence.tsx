@@ -44,7 +44,7 @@ export function CellEvidenceBlock({
   if (state.phase === 'error') {
     return (
       <div className="cell-evidence cell-evidence-error" data-testid={`cell-evidence-error-${columnName}`}>
-        Evidence unavailable
+        Citation unavailable
       </div>
     );
   }
@@ -74,7 +74,7 @@ export function CellEvidenceBlock({
             <CitationChip
               key={link.stable_id}
               linkId={link.stable_id}
-              label="Evidence"
+              label="Citation"
               snippet={link.snippet}
               testId={`cell-evidence-open-${columnName}`}
             />
@@ -97,7 +97,7 @@ export function CellEvidenceBlock({
             <CitationChip
               key={link.stable_id}
               linkId={link.stable_id}
-              label="Stale evidence"
+              label="Stale citation"
               snippet={link.snippet}
               className="cell-evidence-link-stale"
               testId={`cell-evidence-open-stale-${columnName}`}

@@ -121,7 +121,7 @@ describe('row source documents', () => {
     });
     render(<RowSourceDocuments rowId="90" onOpenDocument={() => {}} />);
 
-    expect(await screen.findByText('Open evidence')).toBeInTheDocument();
+    expect(await screen.findByText('Open citation')).toBeInTheDocument();
     expect(screen.getByTestId('row-open-source-document')).toBeInTheDocument();
     expect(screen.getByTestId('row-source-documents-unavailable')).toHaveTextContent('1 source row is unavailable');
     expect(screen.getByTestId('row-source-documents-truncated')).toBeInTheDocument();

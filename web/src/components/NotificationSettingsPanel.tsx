@@ -68,7 +68,7 @@ const initialChannelDraft: ChannelDraft = {
 };
 
 const initialRouteDraft: RouteDraft = {
-  name: 'Watch Slack immediate',
+  name: 'Alert Slack immediate',
   channelId: '',
   enabled: true,
   sourceKind: 'watch',
@@ -144,11 +144,11 @@ function routePayload(draft: RouteDraft) {
   };
 }
 
-const routeDefaultNames = new Set(['', 'Watch Slack immediate', 'Watch daily email digest']);
+const routeDefaultNames = new Set(['', 'Alert Slack immediate', 'Alert daily email digest']);
 
 function nextRouteNameForMode(currentName: string, deliveryMode: RouteDraft['deliveryMode']): string {
   if (!routeDefaultNames.has(currentName.trim())) return currentName;
-  return deliveryMode === 'digest' ? 'Watch daily email digest' : 'Watch Slack immediate';
+  return deliveryMode === 'digest' ? 'Alert daily email digest' : 'Alert Slack immediate';
 }
 
 interface NotifState {
@@ -511,17 +511,17 @@ function RouteSection({
             ))}
           </PanelSelect>
         </FormField>
-        <FormField layout="inline" label="Source">
+        <FormField layout="inline" label="Triggered by">
           <PanelSelect data-testid="notification-route-source-kind" value={draft.sourceKind} onChange={(event) => onDraftChange({ sourceKind: event.target.value as RouteDraft['sourceKind'] })}>
-            <option value="watch">Watch</option>
+            <option value="watch">Alert</option>
             <option value="run">Run</option>
-            <option value="source">Source</option>
+            <option value="source">Feed</option>
             <option value="all">All</option>
           </PanelSelect>
         </FormField>
         {draft.sourceKind === 'watch' && (
-          <FormField layout="inline" label="Watch ID">
-            <TextInput aria-label="Watch ID" data-testid="notification-route-watch-id" value={draft.watchId} onChange={(event) => onDraftChange({ watchId: event.target.value })} placeholder="Watch ID" />
+          <FormField layout="inline" label="Alert ID">
+            <TextInput aria-label="Alert ID" data-testid="notification-route-watch-id" value={draft.watchId} onChange={(event) => onDraftChange({ watchId: event.target.value })} placeholder="Alert ID" />
           </FormField>
         )}
         <FormField layout="inline" label="Delivery">

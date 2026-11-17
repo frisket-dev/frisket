@@ -90,9 +90,9 @@ CREATE = action(
         ),
     ),
     name="create",
-    title="Create source",
+    title="Create feed",
     description=(
-        "Create source metadata for later polling without fetching external content."
+        "Create feed metadata for later polling without fetching external content."
     ),
     category=ActionCategory.SOURCES,
     run=create_source,
@@ -109,10 +109,10 @@ POLL = action(
         ),
     ),
     name="poll",
-    title="Poll source",
+    title="Poll feed",
     description=(
-        "Poll a registered source, deduplicate new and revised items, and record "
-        "source-run, cursor and provider evidence."
+        "Poll a registered feed, deduplicate new and revised items, and record "
+        "the feed check, cursor and provider in a receipt."
     ),
     category=ActionCategory.SOURCES,
     run=poll_source,
@@ -122,8 +122,8 @@ POLL = action(
 UPDATE = action(
     examples=(SourceUpdateParams(source_id=1, patch=SourcePatch(enabled=False)),),
     name="update",
-    title="Update source",
-    description="Update selected fields on an existing source.",
+    title="Update feed",
+    description="Update selected fields on an existing feed.",
     category=ActionCategory.SOURCES,
     run=update_source,
     form="source_update",
@@ -132,8 +132,8 @@ UPDATE = action(
 DELETE = action(
     examples=(SourceDeleteParams(source_id=1),),
     name="delete",
-    title="Delete source",
-    description="Delete a source and its source-run history.",
+    title="Delete feed",
+    description="Delete a feed and its poll history.",
     category=ActionCategory.SOURCES,
     run=delete_source,
     form="source_delete",
@@ -142,11 +142,10 @@ DELETE = action(
 CHECK = action(
     examples=(SourceCheckParams(source_id=1, new_rows=3, cursor="page:2"),),
     name="check",
-    title="Record source check",
+    title="Record feed check",
     description=(
-        "Record an externally observed non-RSS source check, update source "
-        "monitoring state, and write source-run receipt evidence. RSS feed "
-        "polling is owned by source.poll."
+        "Record an externally observed non-RSS feed check, update the feed's "
+        "status, and write a receipt. RSS feed polling is owned by source.poll."
     ),
     category=ActionCategory.SOURCES,
     run=check_source,

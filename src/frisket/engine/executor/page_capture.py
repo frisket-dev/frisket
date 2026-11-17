@@ -274,7 +274,7 @@ def _resolve_web_capture_page_inputs(
         ):
             return ActionError(
                 code="output_column_type_mismatch",
-                message=f"{action_kind} existing output column has an incompatible type",
+                message=f"{action_kind} existing generated column has an incompatible type",
                 action_kind=action_kind,
                 field="params.output_name",
                 details={
@@ -873,7 +873,7 @@ def _web_capture_page_add_output_column(
             raise ValueError("output name is reserved by a hidden column")
         if row["type"] != params.output_column_type:
             raise ValueError(
-                f"output column is {row['type']}, expected {params.output_column_type}"
+                f"generated column is {row['type']}, expected {params.output_column_type}"
             )
         return int(row["id"])
     cur = project.db.execute(
@@ -1483,7 +1483,7 @@ def _web_capture_page_replay_error(
             ).fetchone()
             if column is None or (expected_type and column["type"] != expected_type):
                 return stale(
-                    replay + "links output column is missing", output=output.name
+                    replay + "links generated column is missing", output=output.name
                 )
             continue
         if ref.get("kind") != "web_capture_page_output_column":
@@ -1506,7 +1506,7 @@ def _web_capture_page_replay_error(
                 column_id=column_id,
             )
         if column is None or column["type"] != expected_type:
-            return stale(replay + "output column is missing", column_id=column_id)
+            return stale(replay + "generated column is missing", column_id=column_id)
         if ref.get("value_hash") != media_output_column_value_hash(
             project,
             sheet_id=sheet_id,
@@ -1539,7 +1539,7 @@ def _web_capture_page_replay_error(
             if link is None:
                 return stale(replay + "evidence link is missing", stable_id=stable_id)
     if receipt.status in {"completed", "partial"} and not seen_output:
-        return stale(replay + "receipt has no output column ref")
+        return stale(replay + "receipt has no generated column ref")
     return None
 
 
@@ -1660,7 +1660,7 @@ def _web_capture_page_links_replay_error(
             or ref.get("sheet_id") != sheet_id
             or ref.get("op_id") != op_id
         ):
-            return stale("links output column ref is invalid", output=name)
+            return stale("links generated column ref is invalid", output=name)
         column = project.db.execute(
             "SELECT id, name, type FROM columns WHERE id=? AND sheet_id=? AND hidden=0",
             (column_id, sheet_id),
@@ -1670,7 +1670,7 @@ def _web_capture_page_links_replay_error(
             or column["name"] != column_outputs[name].name
             or column["type"] != expected_type
         ):
-            return stale("links output column is missing or changed", output=name)
+            return stale("links generated column is missing or changed", output=name)
         if value_hashes[name] != media_output_column_value_hash(
             project,
             sheet_id=sheet_id,

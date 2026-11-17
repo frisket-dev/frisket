@@ -192,7 +192,7 @@ const RIBBON_LAYOUT: readonly RibbonTabLayout[] = [
     id: 'data', label: 'Data', groups: [
       { caption: 'DATA', commands: [
         { command: 'import', label: 'Import data…', icon: Upload, primary: true },
-        { command: 'sources', label: 'Sources & connections', icon: Database },
+        { command: 'sources', label: 'Feeds & connections', icon: Database },
         { command: 'export-csv', label: 'Export data', icon: Download },
         { command: 'export-google-sheets', label: 'Google Sheets', icon: FileSpreadsheet },
         { command: 'export-column-tables', label: 'Tables as ZIP', icon: FileArchive },

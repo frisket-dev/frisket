@@ -225,7 +225,7 @@ def _resolve_and_poll_source(
         # existing source_id with an unsupported kind reaches here (nothing to roll back).
         return ActionError(
             code="unsupported_source_kind",
-            message="No registered poller supports this source kind",
+            message="Frisket cannot poll this feed type",
             action_kind=action.kind,
             field="params",
             details={"source_kind": source_kind},
@@ -485,7 +485,7 @@ def _resolve_source_poll_source(
     if get_source_poller(selector.kind) is None:
         return ActionError(
             code="unsupported_source_kind",
-            message="No registered poller supports this source kind",
+            message="Frisket cannot poll this feed type",
             action_kind=action.kind,
             field="params",
             details={"source_kind": selector.kind},

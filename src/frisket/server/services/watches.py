@@ -67,7 +67,7 @@ class WatchService:
         project = self._workspace.get(project_id)
         watch_name = name.strip()
         if not watch_name:
-            raise WatchRequestError("watch name is required")
+            raise WatchRequestError("alert name is required")
         view = project.get_view(view_id)
         if view is None:
             raise WatchRequestError("view not found", status_code=404)
@@ -93,7 +93,7 @@ class WatchService:
         project = self._workspace.get(project_id)
         row = project.get_watch(watch_id)
         if row is None:
-            raise WatchNotFound("watch not found")
+            raise WatchNotFound("alert not found")
         try:
             evaluation = run_watch_evaluation(project, row)
         except WatchBindingError as exc:
@@ -140,17 +140,17 @@ class WatchService:
         name = fields.get("name")
         if "name" in fields:
             if not isinstance(name, str):
-                raise WatchRequestError("watch name is required")
+                raise WatchRequestError("alert name is required")
             name = name.strip()
             if not name:
-                raise WatchRequestError("watch name is required")
+                raise WatchRequestError("alert name is required")
         enabled = fields.get("enabled")
         if "enabled" in fields and not isinstance(enabled, bool):
             raise WatchRequestError("enabled must be a boolean")
         project = self._workspace.get(project_id)
         existing = project.get_watch(watch_id)
         if existing is None:
-            raise WatchNotFound("watch not found")
+            raise WatchNotFound("alert not found")
         policy = (
             _normalize_watch_detection_policy(
                 project,
@@ -171,13 +171,13 @@ class WatchService:
         except ValueError as exc:
             raise WatchRequestError(str(exc)) from exc
         if row is None:
-            raise WatchNotFound("watch not found")
+            raise WatchNotFound("alert not found")
         return Watch.model_validate(_watch_dict(project, row))
 
     def delete_watch(self, project_id: str, watch_id: int) -> WatchDelete:
         project = self._workspace.get(project_id)
         if not project.delete_watch(watch_id):
-            raise WatchNotFound("watch not found")
+            raise WatchNotFound("alert not found")
         return WatchDelete(ok=True, deleted=int(watch_id))
 
     def list_watch_runs(
@@ -191,7 +191,7 @@ class WatchService:
     ) -> WatchRunsPage:
         project = self._workspace.get(project_id)
         if project.get_watch(watch_id) is None:
-            raise WatchNotFound("watch not found")
+            raise WatchNotFound("alert not found")
         runs = [
             _watch_run_dict(project, row, include_hits=True, hits_limit=hits_limit)
             for row in project.watch_runs_page(watch_id, offset=offset, limit=limit)
@@ -224,12 +224,12 @@ class WatchService:
     ) -> WatchRunEventsPage:
         project = self._workspace.get(project_id)
         if project.get_watch(watch_id) is None:
-            raise WatchNotFound("watch not found")
+            raise WatchNotFound("alert not found")
         run = project.get_watch_run(run_id)
         if run is None or int(run["watch_id"]) != int(watch_id):
-            raise WatchRunNotFound("watch run not found")
+            raise WatchRunNotFound("alert check not found")
         if event_kind is not None and event_kind not in ALLOWED_EVENT_KINDS:
-            raise WatchRequestError("unsupported watch run event kind")
+            raise WatchRequestError("unsupported alert check event kind")
         events = [
             decode_watch_run_event(row)
             for row in project.watch_run_events(

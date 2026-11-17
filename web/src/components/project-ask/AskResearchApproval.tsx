@@ -117,8 +117,16 @@ function TurnLimitApproval({ approval, onContinue, onStop, disabled = false }: O
   </>;
 }
 
+const PENDING_LABELS: Record<AskResearchPendingApproval['kind'], string> = {
+  action: 'Consent to the next research action',
+  budget: 'Research budget reached',
+  turn_limit: 'Research turn limit reached',
+  unknown_cost: 'Research cost unavailable',
+  skills: 'Research skill unavailable',
+};
+
 export function AskResearchApproval({ approval, onContinue, onSkip, onStop, disabled = false }: AskResearchApprovalProps) {
-  return <section className="ask-research-approval" aria-label="Research approval">
+  return <section className="ask-research-approval" aria-label={PENDING_LABELS[approval.kind]}>
     {approval.kind === 'action' && <>
       <h3>{approval.title}</h3>
       <p>{approval.effect}</p>

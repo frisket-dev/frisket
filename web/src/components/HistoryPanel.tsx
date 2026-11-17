@@ -191,7 +191,7 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
                     </code>,
                   ],
                   [
-                    'Output columns',
+                    'Generated columns',
                     <span key="output-columns" data-testid={`history-output-columns-${op.id}`}>
                       {outputColumnsSummary(run)}
                     </span>,

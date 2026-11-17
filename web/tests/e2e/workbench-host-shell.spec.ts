@@ -111,7 +111,7 @@ test('workbench host shell exposes fixed regions while the grid remains usable',
 
   // An unavailable map never grows a repair affordance.
   await expect(page.getByTestId('workbench-plugin-repair-frisket-geo-view-map')).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Jobs' }).click();
+  await page.getByRole('tab', { name: 'Runs' }).click();
 
   const bottomDock = page.getByTestId('workbench-region-bottomDock');
   // The main view region sits above the bottom dock (the retired sidebar used
@@ -122,7 +122,7 @@ test('workbench host shell exposes fixed regions while the grid remains usable',
   expect(bottomDockBox).not.toBeNull();
   expect(mainBox!.y + mainBox!.height).toBeLessThanOrEqual(bottomDockBox!.y + 1);
   await expect(bottomDock.getByRole('tablist', { name: 'Operational output' })).toBeVisible();
-  await expect(bottomDock.getByRole('tab', { name: 'Jobs' })).toHaveAttribute(
+  await expect(bottomDock.getByRole('tab', { name: 'Runs' })).toHaveAttribute(
     'aria-selected',
     'true',
   );

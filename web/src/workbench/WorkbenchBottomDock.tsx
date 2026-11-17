@@ -151,9 +151,9 @@ function dockDetailRows(job: DockActionJob): Array<[string, ReactNode]> {
       })}>{context.sheetName}</Button>
     ) : `Sheet ${context.sheetId}`]] as Array<[string, ReactNode]>) : []),
     ...(context?.outputColumns.length
-      ? ([['Output columns', context.outputColumns.map((column) => column.name).join(', ')]] as Array<[string, ReactNode]>)
+      ? ([['Generated columns', context.outputColumns.map((column) => column.name).join(', ')]] as Array<[string, ReactNode]>)
       : []),
-    ['Job id', String(job.jobId)],
+    ['Queue id', String(job.jobId)],
     ['Run id', job.runId ?? '—'],
     ['Receipt id', job.receiptId ?? '—'],
     ['Status', dockJobStatus(job)],
@@ -249,7 +249,7 @@ function HaltedRunResumeSection({
       >
         <h4>Resume</h4>
         <p>
-          The terms changed since you approved this run, so resuming needs
+          The terms changed since you consented to this run, so resuming needs
           your consent to the new ones — which this panel cannot collect. Open
           the run&apos;s target column and choose &ldquo;Run missing
           cells&rdquo;: it shows you what changed before anything runs, and
@@ -429,7 +429,7 @@ export function WorkbenchJobSplitPanel({
           jobColumn('finished', 'Finished', (job) => formatDockTime(job.timing.finishedAt)),
         ]
       : [
-          jobColumn('job', 'Job', (job) => <strong>{dockJobTitle(job)}</strong>),
+          jobColumn('job', 'Action', (job) => <strong>{dockJobTitle(job)}</strong>),
           jobColumn('status', 'Status', dockJobStatus, errorStatusClass),
           jobColumn('run', 'Run', dockJobRunRef),
           jobColumn('rows', 'Rows', dockJobRows),
@@ -442,8 +442,8 @@ export function WorkbenchJobSplitPanel({
   const visibleJobs = mode === 'errors' ? jobs.filter(isErrorJob) : jobs;
   const emptyText = error ?? (
     loading
-      ? mode === 'errors' ? 'Loading errors...' : 'Loading jobs...'
-      : mode === 'errors' ? 'No failed run jobs' : 'No run jobs yet'
+      ? mode === 'errors' ? 'Loading errors...' : 'Loading runs...'
+      : mode === 'errors' ? 'No failed runs' : 'No runs yet'
   );
   return (
     <WorkbenchListDetailPanel
@@ -452,7 +452,7 @@ export function WorkbenchJobSplitPanel({
       columns={columns}
       renderDetail={(job) => renderJobDetail(job, currentProjectId, onResumeHaltedRun)}
       emptyText={emptyText}
-      ariaLabel={mode === 'errors' ? 'Run errors' : 'Run jobs'}
+      ariaLabel={mode === 'errors' ? 'Run errors' : 'Runs'}
       detailAriaLabel="Selected run details"
       tableWidthsStorageKey={bottomDockTableWidthStorageKey(mode)}
       detailWidthStorageKey={BOTTOM_DOCK_DETAIL_WIDTH_STORAGE_KEY}

@@ -117,7 +117,7 @@ def _resolve_backfill_target(
     if not bool(column["ai_generated"]):
         return ActionError(
             code="column_not_ai_generated",
-            message=f"column '{column_name}' is not AI-generated",
+            message=f"column '{column_name}' is not a generated column",
             action_kind=action_kind,
             field="params.column",
         )
@@ -338,7 +338,7 @@ def _resolve_backfill_target(
         if missing_outputs:
             return ActionError(
                 code="backfill_source_unavailable",
-                message="stored typed action output columns no longer exist",
+                message="stored typed action generated columns no longer exist",
                 action_kind=action_kind,
                 field="params.column",
                 details={"column_ids": missing_outputs},

@@ -115,7 +115,7 @@ class ConsentQuoteRefused(ValueError):
     def __init__(self, key: str, problem: str):
         super().__init__(
             f"this run's cost estimate cannot be confirmed: its {key!r} "
-            f"{problem}. There is no quote to approve until the recipe's "
+            f"{problem}. There is no estimate to consent to until the action's "
             "estimate() stops emitting it that way."
         )
         self.key = key

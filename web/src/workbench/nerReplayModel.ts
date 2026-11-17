@@ -28,7 +28,7 @@ export function nerReplayPlan(
   const sheetId = Number(target.sheetId);
   const outputName = target.columnName?.trim();
   if (!Number.isSafeInteger(sheetId) || sheetId <= 0 || !outputName) {
-    return { kind: 'refused', reason: 'The entity output column is no longer available.' };
+    return { kind: 'refused', reason: 'The generated entity column is no longer available.' };
   }
   const params = Object.fromEntries(
     ['source', 'labels', 'threshold', 'engine', 'model', 'extra_instructions']

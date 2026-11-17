@@ -93,8 +93,8 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine,
         onValueChange={setCitationMode}
         options={[
           { value: 'none', label: 'Off', description: 'Extract values without citations.' },
-          { value: 'cite', label: 'Cite sources', description: 'Keep values when evidence is unavailable.', disabled: pdfInput },
-          { value: 'require', label: 'Require citations', description: 'Withhold values without usable evidence.', disabled: pdfInput },
+          { value: 'cite', label: 'Cite sources', description: 'Keep values when no citation is available.', disabled: pdfInput },
+          { value: 'require', label: 'Require citations', description: 'Withhold values without a usable citation.', disabled: pdfInput },
         ]} />
       {pdfInput && <span className="form-hint" data-testid="pdf-citation-policy">
         PDF inputs do not support citations.{citationRequired ? ' Turn citations off to continue.' : ''}

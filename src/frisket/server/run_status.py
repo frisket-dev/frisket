@@ -548,7 +548,7 @@ def _terminalize_v1_queued_receipt(
         action_kind = _run_action_kind(row, job)
         error = ActionError(
             code=code or "queue_job_failed",
-            message=message or "queued project run job failed",
+            message=message or "queued project run failed",
             action_kind=action_kind,
             details={
                 "run_id": run_id,
@@ -630,7 +630,7 @@ def reconcile_project_run_status(
                 status="failed",
                 job=job,
                 code="queue_job_failed",
-                message=job.error or "queued project run job failed",
+                message=job.error or "queued project run failed",
             )
             row = project.db.execute(
                 "SELECT * FROM runs WHERE id=?", (run_id,)

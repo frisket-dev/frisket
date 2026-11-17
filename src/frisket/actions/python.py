@@ -95,7 +95,7 @@ async def run_python(
 PYTHON = action(
     name="python",
     title="Run trusted local Python",
-    description="Run a trusted local Python transform over selected JSON row values, routing results to columns, named results, and receipt evidence.",
+    description="Run a trusted local Python transform over selected JSON row values, routing results to columns, named results, and the receipt.",
     category=ActionCategory.CONVERT,
     run=map_rows(run_python, dynamic_outputs=python_outputs),
     examples=(

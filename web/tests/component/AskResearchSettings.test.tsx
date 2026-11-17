@@ -30,7 +30,7 @@ describe('AskResearchSettings', () => {
     const onChange = vi.fn();
     const { rerender } = render(<AskResearchSettings value={options} onChange={onChange} availableSkills={[]} />);
 
-    expect(screen.getByText('Uses your current action approval limit when blank.')).toBeVisible();
+    expect(screen.getByText('Uses your current action allowance when blank.')).toBeVisible();
     fireEvent.change(screen.getByLabelText('Write access'), { target: { value: 'ask_each' } });
     expect(onChange).toHaveBeenLastCalledWith({ ...options, write_mode: 'ask_each' });
 

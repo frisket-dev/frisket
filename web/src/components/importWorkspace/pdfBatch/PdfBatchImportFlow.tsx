@@ -893,7 +893,7 @@ export function PdfBatchImportFlow({
       }
       if (ocrConfirmation !== confirmation) {
         setBatchOcrConsent(null);
-        setError('The OCR quote changed. Review the current estimate and confirm again.');
+        setError('The OCR estimate changed. Review it and confirm again.');
         return;
       }
     }

@@ -83,11 +83,11 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
       </p>
       <p className="form-hint" data-testid={`embedding-refresh-jobs-${index.indexId}`}>
         {freshness.pendingRefreshJobId != null
-          ? `refresh queued (job ${freshness.pendingRefreshJobId})`
+          ? `refresh queued (#${freshness.pendingRefreshJobId})`
           : index.lastRefreshedAt
             ? `last refreshed ${index.lastRefreshedAt}${
                 freshness.lastRefreshJobId != null
-                  ? ` (job ${freshness.lastRefreshJobId})`
+                  ? ` (#${freshness.lastRefreshJobId})`
                   : ''
               }`
             : 'never refreshed'}

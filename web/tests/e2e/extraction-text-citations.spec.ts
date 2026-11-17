@@ -30,7 +30,7 @@ test('Recorded live extraction opens all cited source text with newline and repe
     await expect(viewer).not.toContainText('no_word_stream');
     await expect(viewer.getByTestId('evidence-viewer-detail-pane')).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath(`source-${index}.png`) });
-    await viewer.getByRole('button', { name: 'Close evidence viewer' }).click();
+    await viewer.getByRole('button', { name: 'Close citation viewer' }).click();
   }
   expect(new Set(seen)).toEqual(new Set(seeded.sources));
 });

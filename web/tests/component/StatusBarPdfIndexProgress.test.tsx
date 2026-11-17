@@ -116,8 +116,8 @@ describe('StatusBar PDF indexing progress', () => {
     expect(screen.getByRole('progressbar', { name: 'Indexing pages for Doc-06.pdf' }))
       .toHaveAttribute('value', '11449');
     fireEvent.click(screen.getByTestId('search-preparation-details'));
-    expect(screen.getByText('Job 2,042')).toBeVisible();
-    expect(screen.queryByText('Job 2,036')).not.toBeInTheDocument();
+    expect(screen.getByText('Indexing #2,042')).toBeVisible();
+    expect(screen.queryByText('Indexing #2,036')).not.toBeInTheDocument();
 
     const activity = importActivity(importSession());
     expect(activity).not.toBeNull();

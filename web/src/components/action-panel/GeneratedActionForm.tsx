@@ -482,18 +482,18 @@ function validateOutputNames(
     }
     const final = expectedKeys.length ? expectedKeys.map((key) => names[key]?.trim() ?? key)
       : Object.values(names).map((name) => name.trim());
-    if (final.some((name) => !name)) return 'Output column names must not be blank.';
+    if (final.some((name) => !name)) return 'Generated column names must not be blank.';
     return new Set(final.map((name) => name.toLowerCase())).size === final.length
-      ? null : 'Output column names must be unique.';
+      ? null : 'Generated column names must be unique.';
   }
   if (submittedKeys.length !== expectedKeys.length
     || submittedKeys.some((key) => !expectedKeys.includes(key))) {
     return `Output names do not match ${entry.kind}.`;
   }
   const finalNames = expectedKeys.map((key) => names[key]?.trim() ?? '');
-  if (finalNames.some((name) => !name)) return 'Name every output column.';
+  if (finalNames.some((name) => !name)) return 'Name every generated column.';
   if (new Set(finalNames.map((name) => name.toLowerCase())).size !== finalNames.length) {
-    return 'Output column names must be unique.';
+    return 'Generated column names must be unique.';
   }
   return null;
 }
@@ -1293,7 +1293,7 @@ function GeneratedActionFormContents({
                 ? ` · ${estimateRowCount.toLocaleString()} ${estimateRowCount === 1 ? 'row' : 'rows'}`
                 : null}
             {outputColumnCount > 0
-              ? ` · ${outputColumnCount} output ${outputColumnCount === 1 ? 'column' : 'columns'}`
+              ? ` · ${outputColumnCount} generated ${outputColumnCount === 1 ? 'column' : 'columns'}`
               : null}
             {venueLabel ? <> · <span data-testid="cost-venue-label">{venueLabel}</span></> : null}
             {billingLabel ? <> · <span data-testid="cost-billing-label">{billingLabel}</span></> : null}
@@ -1456,11 +1456,11 @@ function GeneratedActionFormContents({
             resizeTextareaToContent(event.currentTarget.querySelector('textarea'));
           }
         }}>
-        <summary>Rename output columns</summary>
+        <summary>Rename generated columns</summary>
         <p className="form-hint">Columns are discovered from the list. Optionally map their names to new names.</p>
         <TextArea className="form-textarea-autogrow"
           ref={resizeTextareaToContent} onInput={handleAutoResizeTextareaInput}
-          aria-label="Output column renames" value={renameText}
+          aria-label="Generated column renames" value={renameText}
           disabled={running} onChange={(event) => {
             setRenameText(event.target.value);
             try {

@@ -38,12 +38,12 @@ describe('the source definition shared by import and editing', () => {
   it('keeps caller cadence/name policy and refuses to serialize a redacted RSS edit', () => {
     expect(emptyForm().cadence).toBe('@hourly');
     expect(emptySourceDefinition('').cadence).toBe('');
-    expect(() => buildSourceInput({ ...emptyForm(), url: 'https://example.test/feed' })).toThrow('Source name is required');
+    expect(() => buildSourceInput({ ...emptyForm(), url: 'https://example.test/feed' })).toThrow('Feed name is required');
     const form = sourceToForm({ id: 7, name: 'Records', kind: 'rss', url: 'https://user:secret@example.test/feed?token=private',
       config: { token: 'masked-secret' }, schedule: null, enabled: true, sheetId: null, lastCheckedAt: null, lastStatus: null, newRowsTotal: 0 });
     expect(form.url).toBe('');
     expect(JSON.stringify(form)).not.toContain('secret');
-    expect(() => buildSourceInput(form)).toThrow('requires a source reference');
+    expect(() => buildSourceInput(form)).toThrow('requires a feed reference');
     expect(buildSourceInput({ ...form, url: 'https://example.test/feed' }).config).toEqual({ merge_strategy: 'append-new' });
   });
 });

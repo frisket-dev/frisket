@@ -45,7 +45,7 @@ export function usePaidMediaComparison<R, Input>(calls: ComparisonCalls<R, Input
         const input = calls.inputFor(doc, column);
         const estimate = await calls.estimate(doc.file, input);
         if (estimate.requires_confirmation && !estimate.promise_set_hash) {
-          throw new Error('The quote is missing its required confirmation token.');
+          throw new Error('The estimate is missing its required confirmation token.');
         }
         prepared.set(pairKey(doc, column), { input, estimate });
         quoted.push({ estimate, label: `${doc.filename}: ${column.engineId}` });
@@ -84,7 +84,7 @@ export function usePaidMediaComparison<R, Input>(calls: ComparisonCalls<R, Input
       };
       const cancel = () => finish(false);
       signal.addEventListener('abort', cancel, { once: true });
-      setConsent({ estimate, message: `Approve ${paid.length} paid or external preview${paid.length === 1 ? '' : 's'}: ${paid.map(({ label }) => label).join(', ')}. Results are temporary; usage is recorded.`, finish });
+      setConsent({ estimate, message: `Run ${paid.length} paid or external preview${paid.length === 1 ? '' : 's'}: ${paid.map(({ label }) => label).join(', ')}. Results are temporary; usage is recorded.`, finish });
     });
   };
 

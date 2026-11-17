@@ -36,10 +36,10 @@ export function SourceHealthMainView({
     <section className="content-stack" data-testid="source-health-mainView">
       <div className="control-row">
         <div className="panel-item-main">
-          <div className="panel-item-title">{health?.source.name ?? 'Source health'}</div>
+          <div className="panel-item-title">{health?.source.name ?? 'Feed health'}</div>
           {health && <div className="panel-item-meta">{sourceKindLabel(health.source.kind)}</div>}
         </div>
-        <WindowCloseButton size="compact" label="Close source health" onClick={onClose} />
+        <WindowCloseButton size="compact" label="Close feed health" onClick={onClose} />
       </div>
 
       {error && (

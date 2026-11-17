@@ -49,7 +49,7 @@ export const BUILTIN_ACTION_HELP: Partial<Record<string, { how: string; goodFor:
     goodFor: 'Preparing addresses for a map or comparing records by location.',
   },
   'map.translate': {
-    how: 'Translates each selected text value between the chosen languages with the selected local or hosted engine.',
+    how: 'Translates each selected text value between the chosen languages with the selected local or remote engine.',
     goodFor: 'Making multilingual records searchable and reviewable while preserving the original column.',
   },
   'research.web_search': {
@@ -173,7 +173,7 @@ export const BUILTIN_ACTION_HELP: Partial<Record<string, { how: string; goodFor:
     goodFor: 'Producing an overview, rollup, or synthesis across a collection rather than row by row.',
   },
   'map.judge': {
-    how: 'Evaluates an existing AI-generated column against the rubric you provide and records a review result.',
+    how: 'Evaluates an existing generated column against the rubric you provide and records a review result.',
     goodFor: 'Spotting weak classifications, summaries, or extractions that need human attention.',
   },
   'enrich.census_demographics': {

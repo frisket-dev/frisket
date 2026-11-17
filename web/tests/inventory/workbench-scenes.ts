@@ -153,7 +153,7 @@ export async function capturePanelScenes(page: Page, shot: Shot) {
   await expect(page.getByTestId('import-workspace-dialog')).toHaveCount(0);
 
   await openViews(page);
-  await expect(page.getByTestId('saved-views-list')).toContainText('No saved views yet.');
+  await expect(page.getByTestId('saved-views-list')).toContainText('No views yet.');
   await shot(page, 'Side panels', 'views-empty', 'src/workspace/ViewsPanel.tsx');
   await page.getByTestId('create-saved-view').click();
   await page.getByTestId('view-name-input').fill('Planning records');

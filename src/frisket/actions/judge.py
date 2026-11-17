@@ -120,12 +120,12 @@ JUDGE = action(
     name="judge",
     title="Judge results",
     description=(
-        "Grade an AI-generated column's values against your guidelines with a "
-        "second model, writing verdict and judge-note columns plus receipt evidence "
-        "for the guidelines, output roles, and model calls. The judged column is "
+        "Grade a generated column's values against your guidelines with a "
+        "second model, writing verdict and judge-note columns plus a receipt "
+        "of the guidelines, output roles, and model calls. The judged column is "
         "included automatically so the model sees the value under review; set "
-        "include_original_prompt to add the upstream instruction that produced an "
-        "AI-generated judged column."
+        "include_original_prompt to add the upstream instruction that produced a "
+        "generated judged column."
     ),
     category=ActionCategory.TEXT,
     run=model_rows(

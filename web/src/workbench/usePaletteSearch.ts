@@ -321,7 +321,7 @@ export function usePaletteSearch(
     }
     void projectApi.saveView({ name: lensName, selection, presentation: {} })
       .then(() => {
-        setSaveStatus('Saved view');
+        setSaveStatus('View saved');
         window.dispatchEvent(new Event('frisket:views-changed'));
       })
       .catch((error: Error) => setSaveStatus(error.message))

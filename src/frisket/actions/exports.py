@@ -176,8 +176,9 @@ COLUMN_TABLES = action(
     title="Export column tables",
     description=(
         "Export a JSON list-valued sheet column as one CSV per row and optional "
-        "group, packaged into a ZIP with a provenance manifest. Supports object, "
-        "list, and scalar items, local directories, and project-file downloads."
+        "group, packaged into a ZIP with a manifest of where each file came from. "
+        "Supports object, list, and scalar items, local directories, and "
+        "project-file downloads."
     ),
     category=ActionCategory.CONVERT,
     run=export_column_tables,

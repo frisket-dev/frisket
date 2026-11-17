@@ -79,8 +79,10 @@ _Avoid_: approve (it is confusable with consent), verified.
 
 ## Money and data leaving the machine
 
-**Consent** — a person's agreement to one specific estimate: what will run, what it will cost, and what will leave their machine. Consent is to those facts, not a yes in general.
+**Consent** — a person's agreement to one specific estimate: what will run, what it will cost, and what will leave their machine. Consent is to those facts, not a yes in general; an allowance is the one standing exception.
 _Avoid_: approval, preapproval; "confirmation" for anything but the click itself.
+
+**Allowance** — an amount a person sets in advance. A run whose estimate is at or under it starts without asking; a run over it, or with no price, still asks.
 
 **Estimate** — what a run is expected to do before it starts: rows, engine and provider, what leaves the machine, and the expected cost. It is what a person consents to.
 _Avoid_: quote.

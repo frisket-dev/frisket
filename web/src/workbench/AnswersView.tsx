@@ -454,7 +454,7 @@ export function AnswersView({
 
       <ResizeSeam
         className="answers-evidence-seam"
-        ariaLabel="Resize the Answers evidence pane"
+        ariaLabel="Resize the Answers citation pane"
         testId="answers-evidence-seam"
         width={evidenceResize.width}
         min={ANSWERS_EVIDENCE_MIN_WIDTH}
@@ -466,7 +466,7 @@ export function AnswersView({
       <section
         className="answers-evidence-pane"
         data-testid="answers-evidence-pane"
-        aria-label="Evidence"
+        aria-label="Citation"
       >
         {effectiveLinkId !== null ? (
           <>
@@ -486,7 +486,7 @@ export function AnswersView({
                 discrete SEGMENTS scoped to THIS row, cited segment highlighted
                 — the docked EvidenceViewer, scoped via scopeRowId so it renders
                 only the selected row's own source, never every video's. */}
-            <Suspense fallback={<PanelLoading className="grid-host" label="Loading evidence…" />}>
+            <Suspense fallback={<PanelLoading className="grid-host" label="Loading citation…" />}>
               <LazyEvidenceViewer
                 key={String(effectiveLinkId)}
                 evidenceLinkId={effectiveLinkId}

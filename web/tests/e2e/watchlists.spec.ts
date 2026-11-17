@@ -154,7 +154,7 @@ test('a Watch captures the current grid in a persistent Saved View', async ({ pa
   await openDiscoverTab(page, 'Watches');
   const panel = page.getByTestId('watches-panel');
   const launch = panel.getByTestId('new-watch-from-current-grid');
-  await expect(launch).toHaveText('Create new watch');
+  await expect(launch).toHaveText('Create new alert');
   await expect(launch.locator('svg')).toHaveCount(1);
   await launch.click();
   const name = page.getByTestId('watch-create-name');
@@ -260,7 +260,7 @@ test('editable Watch controls preserve failed state and describe delete conseque
   await renamed.getByTestId('pause-watch').click();
   expect(patches).toContainEqual({ enabled: false });
   await expect(renamed.getByTestId('watch-status')).toHaveText('Paused');
-  await expect(renamed.getByTestId('run-watch')).toHaveAccessibleName(/manual evaluation/i);
+  await expect(renamed.getByTestId('run-watch')).toHaveAccessibleName(/full fresh check/i);
   await expect(renamed.getByTestId('run-watch')).toBeEnabled();
   await renamed.getByTestId('resume-watch').click();
   expect(patches).toContainEqual({ enabled: true });
@@ -322,7 +322,7 @@ test('Watch lifecycle controls remain usable at Discover\'s constrained width', 
   await panel.getByTestId('new-watch-from-current-grid').click();
   const composer = panel.getByTestId('watch-create-composer');
   await expect(composer).toBeVisible();
-  await expect(composer.getByText('Choose what to watch for.', { exact: true })).toBeVisible();
+  await expect(composer.getByText('Choose what to alert on.', { exact: true })).toBeVisible();
   await expect(composer.getByText('You do not have Slack or email notifications set up. Visit settings to set them up.')).toBeVisible();
   expect(await composer.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
 

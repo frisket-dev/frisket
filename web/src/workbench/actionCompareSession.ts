@@ -681,7 +681,7 @@ export function createActionCompareRunner(
     catch (error) {
       if (signal.aborted) return { status: 'cancelled' };
       if (error instanceof ConfirmationRequiredError) return { status: 'failed', requiresRequote: true,
-        error: 'The comparison quote changed. Retry this variant to approve a fresh comparison quote.' };
+        error: 'The comparison estimate changed. Retry this variant to consent to a fresh estimate.' };
       return { status: 'failed', error: errorMessage(error) };
     }
 
@@ -759,7 +759,7 @@ export function createActionCompareRunner(
     if (!quoted[variant.id] && !await prepareSequence({ context, variants: [variant], signal })) return { status: 'cancelled' };
     const plan = quoted[variant.id];
     if (!plan || plan.revision !== variant.draftRevision || plan.context !== contextIdentity(context)) return {
-      status: 'failed', requiresRequote: true, error: 'Comparison settings changed. Retry this variant to approve a fresh comparison quote.',
+      status: 'failed', requiresRequote: true, error: 'Comparison settings changed. Retry this variant to consent to a fresh estimate.',
     };
     // Ordinary previews retain their 20-row boundary. A comparison owns the
     // sequence of admitted chunks and their result/consent identities.

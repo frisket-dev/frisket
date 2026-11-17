@@ -323,15 +323,15 @@ export function PaletteSearchSection({
             type="button"
             className="search-watch-btn"
             data-testid="watch-search-button"
-            aria-label={watchBusy ? 'Watching…' : 'Watch search'}
+            aria-label={watchBusy ? 'Creating alert…' : 'Create alert from search'}
             aria-busy={watchBusy}
             disabled={!canWatch}
             onClick={onCreateWatch}
             title={anchored && namedIndexId
-              ? 'Watch rows similar to this anchor'
+              ? 'Alert on rows similar to this anchor'
               : mode === 'lexical'
-                ? 'Watch this search'
-                : 'Watch a keyword search'}
+                ? 'Alert on this search'
+                : 'Alert on a keyword search'}
           >
             {watchBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bell size={12} aria-hidden />}
           </Button>
@@ -465,7 +465,7 @@ export function PaletteSearchSection({
               data-testid="search-preparation-view-jobs"
               onClick={onViewJobs}
             >
-              View Jobs
+              View runs
             </Button>
           ) : effectiveGapSheetKey && (
             <>

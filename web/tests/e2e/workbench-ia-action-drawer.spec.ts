@@ -123,7 +123,7 @@ test('legacy footer renders scope line, Preview, and a Run-all split with select
   await expect(backfill).toHaveAttribute('type', 'button');
   await expect(backfill).toHaveAttribute('role', 'menuitem');
   await expect(backfill).toBeDisabled();
-  await expect(backfill).toHaveAttribute('title', /Select an existing AI column/);
+  await expect(backfill).toHaveAttribute('title', /Select an existing generated column/);
 
   // With a selection, Run-selected enables and shows the count. Toggle the
   // menu closed (Escape would close the whole drawer), select a row, reopen.

@@ -315,7 +315,7 @@ def test_split_warns_when_a_typed_transcript_cannot_be_inherited(
     assert plan.sources[0].transcripts == ()
     assert plan.sources[0].warnings == (
         'Transcript "transcript" was not inherited because its current timestamp '
-        "evidence is missing, stale, or ambiguous.",
+        "citations are missing, stale, or ambiguous.",
     )
 
 

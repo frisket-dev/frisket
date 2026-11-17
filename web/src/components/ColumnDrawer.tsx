@@ -223,7 +223,7 @@ export function ColumnDrawer({
         <>
           {ai ? <Zap size={13} className="ai-bolt" /> : <Columns3 size={13} />}
           {column.name}
-          <span className="muted"> · {ai ? 'AI column' : 'column'}</span>
+          <span className="muted"> · {ai ? 'generated column' : 'column'}</span>
         </>
       }
       onClose={onClose}

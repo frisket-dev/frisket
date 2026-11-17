@@ -420,7 +420,7 @@ describe('search preparation notice projection', () => {
       'Indexing search content',
     );
     fireEvent.click(screen.getByTestId('search-preparation-details'));
-    expect(screen.getByText('Job 781')).toBeInTheDocument();
+    expect(screen.getByText('Indexing #781')).toBeInTheDocument();
   });
 
   it('shows active OCR ahead of indexing that is only queued behind it', () => {

@@ -32,7 +32,7 @@ export function EvidenceDocumentSource({ artifact, initialPage, scopeSpanId, emp
         id={pageAnchorId(artifact.stable_id, selectedPdfPage)}
         data-testid="evidence-pdf"
         role="document"
-        aria-label={`Evidence PDF: ${artifact.title || artifact.filename || artifact.media_type}`}
+        aria-label={`Cited PDF: ${artifact.title || artifact.filename || artifact.media_type}`}
       >
         <Suspense fallback={<PanelLoading label="Loading PDF…" />}>
           <PdfViewer

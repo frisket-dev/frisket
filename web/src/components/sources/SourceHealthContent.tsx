@@ -44,10 +44,10 @@ export function SourceHealthSummary({ health, sourceId }: { health: SourceHealth
 export function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; sourceId: number }) {
   return <>
 <div className="content-stack">
-            <h4 className="control-row panel-item-title"><ListChecks size={12} aria-hidden /> Recent runs</h4>
+            <h4 className="control-row panel-item-title"><ListChecks size={12} aria-hidden /> Recent checks</h4>
             <ul className="panel-list" data-testid={`source-health-runs-${sourceId}`}>
               {health.runs.length === 0 ? (
-                <li className="panel-empty">No runs yet.</li>
+                <li className="panel-empty">No checks yet.</li>
               ) : health.runs.map((run) => (
                 <li key={run.id} className="panel-card">
                   <div className="control-row panel-item-description">
@@ -66,10 +66,10 @@ export function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; s
           </div>
 
           <div className="content-stack">
-            <h4 className="control-row panel-item-title"><Activity size={12} aria-hidden /> Downstream jobs</h4>
+            <h4 className="control-row panel-item-title"><Activity size={12} aria-hidden /> Follow-up work</h4>
             {health.downstreamJobs.length === 0 ? (
               <PanelEmpty testId={`source-health-jobs-empty-${sourceId}`}>
-                No downstream jobs recorded for loaded runs.
+                No follow-up work recorded for loaded checks.
               </PanelEmpty>
             ) : (
               <ul className="panel-list" data-testid={`source-health-jobs-${sourceId}`}>

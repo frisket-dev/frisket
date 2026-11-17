@@ -14,7 +14,7 @@ test('import rail owns its desktop and narrow layout independently of the dialog
     for (const order of [sheets, [...sheets].reverse()]) {
       await page.setContent(`<style>${foundation}\n${order.join('\n')}</style>
         <div class="import-mode-list" style="width:600px">
-          ${['One file', 'Multiple files', 'Split a PDF', 'Feed or source'].map(label => `<button class="import-mode"><span>${label}</span><small>Import documents</small></button>`).join('')}
+          ${['One file', 'Multiple files', 'Split a PDF', 'Feed'].map(label => `<button class="import-mode"><span>${label}</span><small>Import documents</small></button>`).join('')}
         </div>`);
       const columns = await page.locator('.import-mode-list').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length);
       expect(columns).toBe(width > 760 ? 1 : 3);

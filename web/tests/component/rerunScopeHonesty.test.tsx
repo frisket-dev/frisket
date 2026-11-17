@@ -138,14 +138,14 @@ describe('Watches panel — re-run labels say what they buy (ruling 4)', () => {
 
     // The play button is icon-only: its accessible name is the pre-click copy.
     expect(screen.getByTestId('run-watch')).toHaveAccessibleName(
-      'Run Leads — manual evaluation; a full fresh check, not a resume',
+      'Check Leads now — a full fresh check, not a resume',
     );
     // The blocked-index remediation names BOTH purchases it makes.
     const refresh = screen.getByTestId('watch-refresh-index-5');
-    expect(refresh).toHaveTextContent('Refresh index & re-run');
+    expect(refresh).toHaveTextContent('Refresh index & check again');
     expect(refresh).toHaveAttribute(
       'title',
-      'Refresh the embedding index, then run the whole watch again',
+      'Refresh the embedding index, then check the whole alert again',
     );
   });
 

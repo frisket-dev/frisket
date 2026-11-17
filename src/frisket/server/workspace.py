@@ -928,7 +928,7 @@ class Workspace:
 
         if self._router is not None:
             raise ValueError(
-                "this deployment owns cost pre-approval outside the local UI"
+                "this deployment manages the allowance outside the local UI"
             )
         with self._runtime_settings_lock:
             self._local_cost_preapproval_usd = save_workspace_cost_preapproval_usd(

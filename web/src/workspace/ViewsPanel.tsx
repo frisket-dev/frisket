@@ -130,7 +130,7 @@ export function ViewsPanel({
   }, [confirmation, lastPublication]);
 
   return (
-    <section className="views-panel content-stack" data-testid="views-panel" aria-label="Saved views" aria-busy={isSaving}>
+    <section className="views-panel content-stack" data-testid="views-panel" aria-label="Views" aria-busy={isSaving}>
       <div
         key={lastPublication ? `publication-${lastPublication.token}` : `local-${statusEvent.token}`}
         className="sr-only"
@@ -221,7 +221,7 @@ export function ViewsPanel({
       )}
       <div className="saved-views-list" data-testid="saved-views-list" ref={listRef} tabIndex={-1}>
         {views.length === 0 ? (
-          <div className="views-empty">No saved views yet.</div>
+          <div className="views-empty">No views yet.</div>
         ) : (
           views.map((view) => (
             <div
@@ -308,12 +308,12 @@ export function ViewsPanel({
           confirmTestId={confirmation.kind === 'delete' ? 'confirm-delete-saved-view' : 'confirm-update-saved-view'}
           confirmLabel={isSaving
             ? confirmation.kind === 'delete' ? 'Deleting…' : 'Saving…'
-            : confirmation.kind === 'delete' ? 'Delete Saved View' : 'Save changes'}
+            : confirmation.kind === 'delete' ? 'Delete view' : 'Save changes'}
           onCancel={onCancelConfirmation}
           onConfirm={confirmation.kind === 'delete' ? onConfirmDelete : onConfirmDefinitionUpdate}>
           <p className="modal-body-text">
             {confirmation.kind === 'delete'
-              ? 'Deleting this Saved View cannot be undone.'
+              ? 'Deleting this view cannot be undone.'
               : 'Save the current selection and display. Alerts will use these saved criteria.'}
           </p>
           {confirmationError && <div className="panel-error" role="alert">{confirmationError}</div>}

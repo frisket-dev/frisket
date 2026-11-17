@@ -233,7 +233,7 @@ function jsonPointerError(value: string, field: string): string | null {
 
 export function sourceDefinitionError(form: SourceDefinitionDraft): string | null {
   if (form.kind !== 'api_list_dicts') return null;
-  if (form.url.trim() && !apiUrlIsHttps(form.url.trim())) return 'API list sources require HTTPS';
+  if (form.url.trim() && !apiUrlIsHttps(form.url.trim())) return 'API list feeds require HTTPS';
   return jsonPointerError(form.apiListPath, 'Response list path')
     ?? (form.apiItemIdPath.trim() ? jsonPointerError(form.apiItemIdPath, 'Item ID path') : null)
     ?? (form.apiUpdatedAtPath.trim() ? jsonPointerError(form.apiUpdatedAtPath, 'Updated-at path') : null);
@@ -242,8 +242,8 @@ export function sourceDefinitionError(form: SourceDefinitionDraft): string | nul
 export function buildSourceInput(form: SourceDefinitionDraft): SourceInput {
   const name = form.name.trim();
   const url = form.url.trim();
-  if (!name) throw new Error('Source name is required');
-  if (!url) throw new Error(`${sourceKindLabel(form.kind)} requires a source reference`);
+  if (!name) throw new Error('Feed name is required');
+  if (!url) throw new Error(`${sourceKindLabel(form.kind)} requires a feed reference`);
   const validationError = sourceDefinitionError(form);
   if (validationError) throw new Error(validationError);
 

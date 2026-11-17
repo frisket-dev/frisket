@@ -202,7 +202,7 @@ COLUMN_ADD = action(
     title="Add column",
     description=(
         "Insert a new empty source column into a visible sheet as an undoable "
-        "operation plus receipt evidence."
+        "operation with a receipt."
     ),
     category=ActionCategory.CLEANUP,
     run=create_column,
@@ -214,8 +214,8 @@ ROW_ADD = action(
     name="add",
     title="Add row",
     description=(
-        "Append a source row to a visible sheet as an undoable operation plus "
-        "receipt evidence."
+        "Append a source row to a visible sheet as an undoable operation with a "
+        "receipt."
     ),
     category=ActionCategory.CLEANUP,
     run=create_row,
@@ -226,9 +226,7 @@ ROW_DELETE = action(
     examples=(RowDeleteParams(sheet_id=1, row_ids=[1, 2]),),
     name="delete",
     title="Delete rows",
-    description=(
-        "Hide selected visible rows as an undoable operation plus receipt evidence."
-    ),
+    description="Hide selected visible rows as an undoable operation with a receipt.",
     category=ActionCategory.CLEANUP,
     run=delete_rows,
     form="row_delete",

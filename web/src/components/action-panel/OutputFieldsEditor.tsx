@@ -322,7 +322,7 @@ export function OutputFieldsEditor({
       </div>
       {outputFieldsReadOnly && (
         <p className="form-hint" data-testid="declared-outputs-hint">
-          This action defines its own output columns.
+          This action defines its own generated columns.
         </p>
       )}
       <div className="editor-list" data-testid="output-fields-editor">

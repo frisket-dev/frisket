@@ -195,7 +195,7 @@ test('Feed source creation is discoverable from the primary import/start surface
   await expect(page.getByTestId('source-kind')).toHaveValue('api_list_dicts');
   await expect(page.getByTestId('source-api-list-path')).toBeVisible();
   await expect(page.getByTestId('source-create')).toBeDisabled();
-  await expect(page.getByTestId('source-form')).toContainText('API list sources require HTTPS');
+  await expect(page.getByTestId('source-form')).toContainText('API list feeds require HTTPS');
 
   await page.getByTestId('source-url').fill('https://example.gov/api/items.json');
   await page.getByTestId('source-api-list-path').fill('results');

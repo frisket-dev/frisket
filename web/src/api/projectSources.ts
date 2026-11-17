@@ -369,7 +369,7 @@ export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesAp
       return v1ActionSession.withV1ActionResult(spec, (out) => {
         if (out.status === 'queued' && out.job_id != null) {
           const sheet = out.outputs?.find((output) => output.kind === 'sheet')?.sheet_id;
-          if (sheet == null) throw new ApiError(500, 'Queued source poll did not return its sheet');
+          if (sheet == null) throw new ApiError(500, 'Queued feed poll did not return its sheet');
           return { jobId: out.job_id, sheetId: sheet, runId: null,
             newRows: 0, revisions: 0, skippedRows: 0, changedRows: 0, warningCount: 0 };
         }

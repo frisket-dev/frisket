@@ -361,7 +361,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
               <PanelLoading
                 className="panel-loading-page"
                 testId="evidence-viewer-loading"
-                label="Loading evidence…"
+                label="Loading citation…"
               />
             }
           >

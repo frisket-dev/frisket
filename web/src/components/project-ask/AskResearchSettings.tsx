@@ -80,7 +80,7 @@ export function AskResearchSettings({
           aria-label="Write access"
           options={[
             { value: 'ask_each', label: 'Ask before each action' },
-            { value: 'ask_overwrite', label: 'Ask before overwriting' },
+            { value: 'ask_overwrite', label: 'Ask before replacing' },
             { value: 'full_access', label: 'Full access' },
           ]}
           onValueChange={(writeMode) => update({ write_mode: writeMode as AskResearchWriteMode })}
@@ -93,7 +93,7 @@ export function AskResearchSettings({
           type="text"
           inputMode="decimal"
           aria-label="Total budget (USD)"
-          placeholder="Current approval limit"
+          placeholder="Current allowance"
           value={value.budget_usd ?? ''}
           disabled={disabled}
           onChange={(event) => {
@@ -101,7 +101,7 @@ export function AskResearchSettings({
             if (!next || MONEY_PATTERN.test(next)) update({ budget_usd: next || null });
           }}
         />
-        <small>Uses your current action approval limit{defaultBudgetUsd ? ` (${`$${defaultBudgetUsd}`})` : ''} when blank.</small>
+        <small>Uses your current action allowance{defaultBudgetUsd ? ` (${`$${defaultBudgetUsd}`})` : ''} when blank.</small>
       </FormField>
 
       <FormField label="Max turns" className="ask-research-field">

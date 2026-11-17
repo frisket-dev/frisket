@@ -588,7 +588,7 @@ export function createSheetGridApi(dependencies: SheetGridDependencies, projectI
         'replay.accept', params, project.cacheId,
       );
       await dependencies.v1ActionSession.withV1ActionResult(spec, (out) => {
-        dependencies.v1ActionSession.assertCompletedV1ActionResult(out, 'Accept regenerated value failed');
+        dependencies.v1ActionSession.assertCompletedV1ActionResult(out, 'Accept newer value failed');
       });
     },
 
@@ -604,7 +604,7 @@ export function createSheetGridApi(dependencies: SheetGridDependencies, projectI
       );
       await dependencies.v1ActionSession.withV1ActionResult(spec, (out) => {
         dependencies.v1ActionSession.assertCompletedV1ActionResult(
-          out, 'Accept all regenerated values failed',
+          out, 'Accept all newer values failed',
         );
       });
     },

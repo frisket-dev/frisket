@@ -46,7 +46,7 @@ function toSavedView(wire: SavedViewRowWire): SavedView {
   const spec = wire.spec;
   if (!isRecord(spec.selection) || !isRecord(spec.presentation)) {
     if (wire.unavailable_reason) return { ...wire, spec: null };
-    throw new Error('Saved view is missing its selection or presentation.');
+    throw new Error('View is missing its selection or presentation.');
   }
   return { ...wire, spec: spec as unknown as SavedView['spec'] };
 }

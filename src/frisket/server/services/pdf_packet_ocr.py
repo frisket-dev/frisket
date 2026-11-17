@@ -364,10 +364,12 @@ class PdfPacketOcrCoordinator:
         if holder is None:
             if ocr_policy == "none":
                 return None
-            raise ValueError("review the exact source-page OCR quote before applying")
+            raise ValueError(
+                "review the exact source-page OCR estimate before applying"
+            )
         if holder.binding_hash != binding_hash:
             raise ValueError(
-                "PDF source scope, OCR policy or engine changed; review the quote"
+                "PDF source scope, OCR policy or engine changed; review the estimate"
             )
         adapter = PdfSplitPreparationAdapter(
             self.workspace,
@@ -388,12 +390,12 @@ class PdfPacketOcrCoordinator:
             )
 
             if current.binding_hash != binding_hash:
-                raise ValueError("PDF OCR source plan changed; review the quote")
+                raise ValueError("PDF OCR source plan changed; review the estimate")
             refreshed = current.quoted["authorization"]
             if refreshed is None:
                 return None  # Every formerly paid target is now cached.
             if authorization is None:
-                raise ValueError("PDF OCR work grew; review the current quote")
+                raise ValueError("PDF OCR work grew; review the current estimate")
             approved = PdfImportOcrGrant.from_mapping(authorization)
             reduced = PdfImportOcrGrant.from_mapping(refreshed)
             children = {
@@ -414,7 +416,7 @@ class PdfPacketOcrCoordinator:
                 )
             ):
                 raise ValueError(
-                    "PDF OCR work or route/price changed; review the current quote"
+                    "PDF OCR work or route/price changed; review the current estimate"
                 )
             if (
                 approved.allocation["requires_confirmation"]
@@ -436,7 +438,9 @@ class PdfPacketOcrCoordinator:
                     allow_nan=False,
                 )
                 if saved is None or saved[0] != encoded:
-                    raise ValueError("PDF OCR quote changed; review the current price")
+                    raise ValueError(
+                        "PDF OCR estimate changed; review the current price"
+                    )
                 authorization = reduced.as_mapping()
                 authorization["allocation"]["approval_parent_hash"] = (
                     approved.promise_set_hash

@@ -29,9 +29,9 @@ const EVIDENCE_RETENTION_LABELS: Record<string, string> = {
 };
 
 const EVIDENCE_RETENTION_DESCRIPTIONS: Record<string, string> = {
-  compactable: 'Save space. Manual compaction may remove supporting run evidence; sheet results stay.',
-  pinned: 'Keep supporting run evidence when this project is manually compacted.',
-  materialized: 'Keep output-linked evidence as part of the stored result.',
+  compactable: "Save space. Manual compaction may remove a run's supporting records; sheet results stay.",
+  pinned: "Keep a run's supporting records when this project is manually compacted.",
+  materialized: 'Keep result-linked supporting records as part of the stored result.',
 };
 
 function supportedEvidenceOptions(policy: ProjectRetentionPolicy | null): string[] {
@@ -176,25 +176,25 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
       {policy && (
         <section className="content-stack">
           <div className="settings-section-subhead">
-            <h2>Retention and evidence</h2>
+            <h2>Retention and supporting records</h2>
             <p>
-              Choose how much supporting evidence Frisket keeps for future review.
+              Choose how many supporting records Frisket keeps for future review.
               This affects manual compaction, not the values already visible in your sheets.
             </p>
           </div>
           <div className="settings-grid-two">
-          <FormField label="Evidence default" >
+          <FormField label="Supporting records default" >
 
             <PanelSelect
               testId="project-evidence-default"
-              ariaLabel="Evidence default"
+              ariaLabel="Supporting records default"
               value={policy.default_evidence}
               disabled={!canMutate}
               options={evidenceSelectOptions}
               onValueChange={(value) => void patch({ default_evidence: value })}
             />
             <small className="form-hint">
-              This is the usual default. Frisket may keep particular evidence when an action needs it
+              This is the usual default. Frisket may keep particular supporting records when an action needs them
               to preserve a result or its lineage.
             </small>
           </FormField>

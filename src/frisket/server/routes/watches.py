@@ -29,8 +29,8 @@ def register_watch_routes(
     *,
     service: WatchService,
 ) -> None:
-    register_typed_error(app, WatchNotFound, 404, "watch not found")
-    register_typed_error(app, WatchRunNotFound, 404, "watch run not found")
+    register_typed_error(app, WatchNotFound, 404, "alert not found")
+    register_typed_error(app, WatchRunNotFound, 404, "alert check not found")
     register_typed_error(app, WatchRequestError, detail=None)
 
     @app.get(

@@ -417,12 +417,12 @@ function ProjectMenuPopover({
         data-testid="project-sources-open"
         onClick={() => {
           onCloseMenu();
-          // The workspace owns the focused Sources & connections manager.
+          // The workspace owns the focused Feeds & connections manager.
           window.dispatchEvent(new Event('frisket:open-sources'));
         }}
       >
         <Database size={12} className="menu-item-icon" />
-        <span className="menu-item-name">Sources &amp; connections</span>
+        <span className="menu-item-name">Feeds &amp; connections</span>
       </button>
       {canShareProject && (
         <button

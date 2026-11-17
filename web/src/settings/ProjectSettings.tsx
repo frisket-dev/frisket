@@ -215,7 +215,7 @@ export function ProjectAccessSettings({ project, identityMode }: { project?: Pro
   }, [identityMode, projectId], { keepPreviousData: true, enabled: identityMode && projectId !== '' });
   const load = access.reload;
   if (!identityMode) {
-    return <div className="panel-empty">Project access is available on hosted workspaces.</div>;
+    return <div className="panel-empty">Project access is available on Team and Cloud servers.</div>;
   }
   const loading = access.data === null || access.loading;
   const members = access.data?.members ?? null;

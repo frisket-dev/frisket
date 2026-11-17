@@ -866,7 +866,7 @@ describe('located palette search', () => {
         },
       } }, presentation: {},
     }));
-    expect(await screen.findByTestId('save-search-lens-status')).toHaveTextContent('Saved view');
+    expect(await screen.findByTestId('save-search-lens-status')).toHaveTextContent('View saved');
   });
 
   it('saves hybrid search with bounded membership and fused relevance order', async () => {

@@ -39,7 +39,7 @@ describe('PDF packet split API', () => {
     await expect(applyPdfPacketSheetSplit('p', 's', { idempotency_key: 'key', destination: { kind: 'replace', sheet_id: 3 } }))
       .resolves.toEqual({ job_id: 7, import_ref: 'i', sheet_id: 3 });
     fetchMock.mockResolvedValueOnce(response({ job_id: 'preview' }));
-    await expect(applyPdfPacketSheetSplit('p', 's', { idempotency_key: 'key', destination: { kind: 'replace', sheet_id: 3 } })).rejects.toThrow(/durable import job/);
+    await expect(applyPdfPacketSheetSplit('p', 's', { idempotency_key: 'key', destination: { kind: 'replace', sheet_id: 3 } })).rejects.toThrow(/did not start a durable import/);
   });
 
   it('sends caller-owned labels and the frozen packet-wide candidate controls', async () => {

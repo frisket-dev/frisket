@@ -48,14 +48,14 @@ export function settingsItemAvailability(
   if (definition.visibility === 'hosted-only' && !context.identityMode) {
     return {
       disabled: true,
-      disabledReason: 'Hosted organization settings are unavailable in local mode.',
+      disabledReason: 'Organization settings are unavailable in local mode.',
       path: settingsRoutePatternForSection(definition),
     };
   }
   if (definition.visibility === 'local-only' && context.identityMode) {
     return {
       disabled: true,
-      disabledReason: 'Managed by your organization in hosted mode.',
+      disabledReason: 'Managed by your organization on this server.',
       path: settingsRoutePatternForSection(definition),
     };
   }

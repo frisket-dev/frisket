@@ -19,7 +19,7 @@ const TIER_TITLES: Record<EngineTier, string> = {
   local: 'Runs inside frisket itself — nothing leaves the frisket host.',
   sidecar:
     "Runs on the operator's configured sidecar service, which may be a different machine.",
-  hosted: 'Sent to an external hosted service outside your infrastructure.',
+  hosted: 'Sent to an external service outside your infrastructure.',
 };
 
 export function EngineTierBadge({ tier, testId }: { tier: EngineTier; testId?: string }) {

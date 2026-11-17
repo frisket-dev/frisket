@@ -28,9 +28,16 @@ function sourceRefLabel(ref: Record<string, unknown>): string {
     .join(' · ');
 }
 
+const OPEN_SOURCE_LABELS: Readonly<Record<string, string>> = { watch: 'Open alert', run: 'Open run', source: 'Open feed' };
+
+function openSourceLabel(item: NotificationItem): string {
+  return OPEN_SOURCE_LABELS[item.sourceKind] ?? 'Open';
+}
+
 function itemSourceLabel(item: NotificationItem): string {
-  if (item.sourceKind === 'watch') return 'Watch';
+  if (item.sourceKind === 'watch') return 'Alert';
   if (item.sourceKind === 'run') return 'Run';
+  if (item.sourceKind === 'source') return 'Feed';
   return item.sourceKind || 'Source';
 }
 
@@ -185,8 +192,8 @@ export function NotificationsPanel() {
                     {sourceRefLabel(item.sourceRef)}
                   </div>
                   <div className="control-row">
-                    <IconButton icon={pending.has(item.id) ? RefreshCw : ExternalLink} size="inline" label="Open source"
-                      title="Open source" data-testid="notification-open-source" aria-busy={pending.has(item.id)}
+                    <IconButton icon={pending.has(item.id) ? RefreshCw : ExternalLink} size="inline" label={openSourceLabel(item)}
+                      title={openSourceLabel(item)} data-testid="notification-open-source" aria-busy={pending.has(item.id)}
                       disabled={pending.has(item.id)} onClick={() => markRead(item, true)} />
                     {item.state === 'unseen' && (
                       <IconButton icon={Eye} size="inline" label="Mark seen" title="Mark seen"

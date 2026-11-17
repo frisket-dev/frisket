@@ -167,7 +167,7 @@ CATALOG: dict[str, ExternalPricingEntry] = {
     ),
     DATALAB_CONVERT_PAGE: ExternalPricingEntry(
         key=DATALAB_CONVERT_PAGE,
-        label="Datalab hosted Marker conversion (per page)",
+        label="Datalab Marker conversion (per page)",
         provider="Datalab",
         unit="page",
         # Recorded live (tests/fixtures/datalab/convert_complete.json): a
@@ -182,7 +182,7 @@ CATALOG: dict[str, ExternalPricingEntry] = {
         billable=True,
         external_api=True,
         description=(
-            "Per-page tariff for Datalab's hosted Marker document-to-"
+            "Per-page tariff for Datalab's Marker document-to-"
             "markdown API (mode=fast); balanced/accurate modes likely cost "
             "more per Datalab's rate card — override via the env var if on "
             "a different mode/plan."
@@ -232,7 +232,7 @@ CATALOG: dict[str, ExternalPricingEntry] = {
     ),
     DATALAB_OCR_PAGE: ExternalPricingEntry(
         key=DATALAB_OCR_PAGE,
-        label="Datalab hosted OCR (per page)",
+        label="Datalab OCR (per page)",
         provider="Datalab",
         unit="page",
         # Recorded live (tests/fixtures/datalab/ocr_complete.json): a
@@ -244,7 +244,7 @@ CATALOG: dict[str, ExternalPricingEntry] = {
         billable=True,
         external_api=True,
         description=(
-            "Per-page tariff for Datalab's hosted OCR (datalab.to). Served "
+            "Per-page tariff for Datalab's OCR API (datalab.to). Served "
             "via /convert(output_format=json) — the documented replacement "
             "for the deprecated /ocr endpoint (Datalab's migration guide) — "
             "see integrations/datalab.py."

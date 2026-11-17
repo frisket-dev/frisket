@@ -23,7 +23,7 @@ async function openCommandPalette(page: Page) {
 // see workbench-plugin-runtime-index.spec.ts for the Settings-route coverage
 // and workbench-plugin-failure-errors.spec.ts for the Errors-routing coverage.
 const EXPECTED_TAB_ORDER = [
-  { placementId: 'jobs', contributionId: 'frisket.core.panel.jobs', label: 'Jobs' },
+  { placementId: 'jobs', contributionId: 'frisket.core.panel.jobs', label: 'Runs' },
   { placementId: 'errors', contributionId: 'frisket.core.panel.errors', label: 'Errors' },
   { placementId: 'history', contributionId: 'frisket.core.panel.history', label: 'History' },
   { placementId: 'lineage', contributionId: 'frisket.core.panel.lineage', label: 'Lineage' },

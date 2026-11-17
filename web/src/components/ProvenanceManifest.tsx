@@ -570,7 +570,7 @@ export function ProvenanceManifest({ projectName, onClose, onCreateEntityTable }
       title={
         <>
           <ShieldCheck size={14} />
-          Provenance
+          Receipts
           <span className="muted"> · {projectName}</span>
         </>
       }

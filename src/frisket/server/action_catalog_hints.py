@@ -1582,7 +1582,7 @@ def _recipe_engines(
                 error=(
                     None
                     if datalab_key
-                    else "Add DATALAB_API_KEY in Settings → Secrets to enable Datalab hosted OCR."
+                    else "Add DATALAB_API_KEY in Settings → Secrets to enable Datalab OCR."
                 ),
                 pricing=external_pricing_entry(DATALAB_OCR_PAGE),
             ),

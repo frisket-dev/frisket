@@ -504,7 +504,7 @@ def resolve_compatible_transcripts_for_anchor(
         if transcript is None:
             warnings.append(
                 f'Transcript "{str(column["name"])}" was not inherited because '
-                "its current timestamp evidence is missing, stale, or ambiguous."
+                "its current timestamp citations are missing, stale, or ambiguous."
             )
             continue
         try:

@@ -345,7 +345,7 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
   await expect(sourceViewer.getByTestId('evidence-export-ref')).toContainText(
     seeded.sourceLinkStableId,
   );
-  await page.getByLabel('Close evidence viewer').click();
+  await page.getByLabel('Close citation viewer').click();
 
   const generatedEvidenceSection = rowDrawer
     .getByTestId('workbench-contribution-frisket-core-row-inspector-section-evidence')
@@ -382,7 +382,7 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
   });
   expect(imageLoaded).toBeTruthy();
 
-  await page.getByLabel('Open evidence beside grid').click();
+  await page.getByLabel('Open citation beside grid').click();
   const split = page.getByTestId('workbench-mainView-split');
   await expect(split).toBeVisible();
   await expect(page.getByTestId('workbench-contribution-frisket-core-view-grid')).toBeVisible();
@@ -395,7 +395,7 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
     seeded.activeLinkStableId,
   );
 
-  await page.getByLabel('Close evidence viewer').click();
+  await page.getByLabel('Close citation viewer').click();
   await expect(viewer).toBeHidden();
 
   await editCells(request, pid, [

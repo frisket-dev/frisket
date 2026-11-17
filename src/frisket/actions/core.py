@@ -373,8 +373,8 @@ _MAP_ROWS_ERRORS = (
     _error("invalid_action_request"),
     ("invalid_params", "The action parameters are invalid."),
     ("invalid_input_ref", "A source sheet, row, or column reference is invalid."),
-    ("output_column_exists", "A requested output column already exists."),
-    ("output_column_busy", "A requested output column is claimed by another run."),
+    ("output_column_exists", "A requested column already exists."),
+    ("output_column_busy", "A requested column is claimed by another run."),
     ("network_disabled", "The action attempted an unadmitted network request."),
     ("map_rows_failed", "The row program failed to produce usable output."),
     ("project_write_failed", "The project write or receipt update failed."),
@@ -904,12 +904,12 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         SourcePollOutput,
         _project_errors(
             ("invalid_input_ref", "The source does not exist."),
-            ("unsupported_source_kind", "No registered poller supports this source."),
+            ("unsupported_source_kind", "Frisket cannot poll this feed type."),
             (
                 "unsupported_source_config",
                 "The poller rejected the source configuration.",
             ),
-            ("source_poll_failed", "The poll failed and recorded an error source run."),
+            ("source_poll_failed", "The poll failed and recorded a failed feed check."),
             write_failure="Source poll publication and receipt could not be written.",
         ),
         (
@@ -1148,7 +1148,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("invalid_replay_target", "The replay target does not exist."),
             ("mixed_origin_column_unsupported", "Replay requires one current origin."),
-            ("stale_replay", "The regenerated run or value identity changed."),
+            ("stale_replay", "The newer run or value identity changed."),
             (
                 "output_column_busy",
                 "The generated column is claimed by a running action.",
@@ -1179,7 +1179,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
         _project_errors(
             ("invalid_replay_target", "The replay target does not exist."),
             ("mixed_origin_column_unsupported", "Replay requires one current origin."),
-            ("stale_replay", "The regenerated run or value identity changed."),
+            ("stale_replay", "The newer run or value identity changed."),
             write_failure="The replay dismissal and receipt could not be written.",
         ),
         ("read_pending_value", "write_replay_dismissal"),

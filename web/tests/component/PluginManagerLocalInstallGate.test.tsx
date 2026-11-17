@@ -78,7 +78,7 @@ describe('PluginManager local-install gate', () => {
   it('hosted settings (allowLocalInstall=false) shows the disabled notice and no install form', () => {
     renderManager({ mode: 'settings', allowLocalInstall: false, canMutate: true });
     expect(screen.getByTestId('plugin-manager-local-install-disabled')).toHaveTextContent(
-      'Local plugin install is unavailable in hosted workspaces',
+      'Local plugin install is unavailable on Team and Cloud servers',
     );
     expect(screen.queryByTestId('plugin-manager-install-local')).not.toBeInTheDocument();
     expect(screen.queryByTestId('plugin-manager-reload')).not.toBeInTheDocument();

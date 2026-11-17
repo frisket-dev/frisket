@@ -83,7 +83,7 @@ export function RowSourceDocuments({
             <CitationChip
               key={link.stable_id}
               linkId={link.stable_id}
-              label="Open evidence"
+              label="Open citation"
               snippet={link.snippet}
               testId="row-source-evidence-open"
             />

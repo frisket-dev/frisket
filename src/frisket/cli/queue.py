@@ -1,4 +1,4 @@
-"""`frisket queue ...` — provision and migrate the hosted run queue."""
+"""`frisket queue ...` — provision and migrate the Postgres run queue."""
 
 import argparse
 import os

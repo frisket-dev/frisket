@@ -81,7 +81,7 @@
       "id": "frisket.core.panel.sources",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Sources",
+      "title": "Feeds",
       "icon": "Database",
       "placements": [
         {
@@ -167,7 +167,7 @@
       "id": "frisket.core.panel.saved_views",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Saved views",
+      "title": "Views",
       "icon": "BookOpen",
       "placements": [
         {
@@ -198,7 +198,7 @@
       "id": "frisket.core.panel.watches",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Watches",
+      "title": "Alerts",
       "icon": "Bell",
       "placements": [
         {
@@ -295,7 +295,7 @@
       "id": "frisket.core.source_kind_form.rss",
       "kind": "provider",
       "ownerPluginId": "frisket.core",
-      "title": "RSS source",
+      "title": "RSS feed",
       "icon": "Rss",
       "placements": [
         {
@@ -324,7 +324,7 @@
       "id": "frisket.core.source_kind_form.api_list_dicts",
       "kind": "provider",
       "ownerPluginId": "frisket.core",
-      "title": "API list source",
+      "title": "API list feed",
       "icon": "Globe",
       "placements": [
         {
@@ -418,7 +418,7 @@
       "id": "frisket.core.panel.jobs",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Jobs",
+      "title": "Runs",
       "icon": "ListChecks",
       "placements": [
         {
@@ -463,7 +463,7 @@
       "id": "frisket.core.command.open_sources",
       "kind": "command",
       "ownerPluginId": "frisket.core",
-      "title": "Open Sources",
+      "title": "Open Feeds",
       "icon": "Database",
       "placements": [
         {
@@ -628,7 +628,7 @@
       "id": "frisket.core.view.evidence",
       "kind": "view",
       "ownerPluginId": "frisket.core",
-      "title": "Evidence",
+      "title": "Citation",
       "icon": "FileText",
       "placements": [
         {
@@ -708,7 +708,7 @@
       "id": "frisket.core.panel.provenance",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Provenance",
+      "title": "Receipts",
       "icon": "ShieldCheck",
       "placements": [
         {
@@ -791,7 +791,7 @@
       "id": "frisket.core.view.output_column_collision",
       "kind": "view",
       "ownerPluginId": "frisket.core",
-      "title": "Overwrite existing column",
+      "title": "Replace existing column",
       "icon": "AlertTriangle",
       "placements": [
         {
@@ -850,7 +850,7 @@
       "id": "frisket.core.row_inspector.section.evidence",
       "kind": "inspectorSection",
       "ownerPluginId": "frisket.core",
-      "title": "Evidence",
+      "title": "Citations",
       "icon": "FileText",
       "placements": [
         {
@@ -973,7 +973,7 @@
       "id": "frisket.investigative.view.entity_evidence",
       "kind": "view",
       "ownerPluginId": "frisket.investigative",
-      "title": "Evidence",
+      "title": "Citations",
       "icon": "FileText",
       "placements": [
         {
@@ -1076,7 +1076,7 @@
       "id": "frisket.core.view.source_runs",
       "kind": "view",
       "ownerPluginId": "frisket.core",
-      "title": "Runs",
+      "title": "Checks",
       "icon": "ListChecks",
       "placements": [
         {

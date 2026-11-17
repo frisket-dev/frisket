@@ -128,7 +128,7 @@ def output_column_result_value_hash(
         "SELECT type FROM columns WHERE id=? AND sheet_id=?", (column_id, sheet_id)
     ).fetchone()
     if column is None:
-        raise ValueError("saved output column is missing")
+        raise ValueError("saved generated column is missing")
     store = RunResultStore(project)
 
     def read_page(page):
@@ -186,7 +186,7 @@ def replay_output_column_identity(
             allow_hidden=allow_hidden,
         )
         if row is None:
-            problem = "output column is missing"
+            problem = "generated column is missing"
             extra = {"column_id": column_id, "sheet_id": sheet_id}
         else:
             labels = {"name": "was renamed", "type": "type changed"}
@@ -195,7 +195,7 @@ def replay_output_column_identity(
             )
             if changed is None:
                 return row
-            problem = f"output column {labels[changed]}"
+            problem = f"generated column {labels[changed]}"
             extra = {
                 "column_id": column_id,
                 f"expected_{changed}": ref.get(changed),
@@ -283,7 +283,7 @@ def output_columns_replay_error(
         ):
             return ActionError(
                 code=error_code,
-                message=f"{action_kind} replay output column format changed",
+                message=f"{action_kind} replay generated column format changed",
                 action_kind=receipt.action_kind,
                 details={
                     "receipt_id": receipt.receipt_id,
@@ -297,7 +297,7 @@ def output_columns_replay_error(
         if not isinstance(run_id, int):
             return ActionError(
                 code=error_code,
-                message=f"{action_kind} replay output column changed runs",
+                message=f"{action_kind} replay generated column changed runs",
                 action_kind=receipt.action_kind,
                 details={
                     "receipt_id": receipt.receipt_id,
@@ -316,7 +316,7 @@ def output_columns_replay_error(
             if binding is None or binding.state != "sealed":
                 return ActionError(
                     code=error_code,
-                    message=f"{action_kind} replay output column changed runs",
+                    message=f"{action_kind} replay generated column changed runs",
                     action_kind=receipt.action_kind,
                     details={
                         "receipt_id": receipt.receipt_id,
@@ -332,7 +332,7 @@ def output_columns_replay_error(
         elif row["current_run_id"] != run_id:
             return ActionError(
                 code=error_code,
-                message=f"{action_kind} replay output column changed runs",
+                message=f"{action_kind} replay generated column changed runs",
                 action_kind=receipt.action_kind,
                 details={
                     "receipt_id": receipt.receipt_id,
@@ -404,7 +404,7 @@ def output_columns_replay_error(
             if missing_head_row_ids:
                 return ActionError(
                     code=error_code,
-                    message=f"{action_kind} replay output column changed runs",
+                    message=f"{action_kind} replay generated column changed runs",
                     action_kind=receipt.action_kind,
                     details={
                         "receipt_id": receipt.receipt_id,
@@ -480,7 +480,7 @@ def output_columns_replay_error(
     if not seen_output:
         return ActionError(
             code=error_code,
-            message=f"{action_kind} replay receipt has no output column ref",
+            message=f"{action_kind} replay receipt has no generated column ref",
             action_kind=receipt.action_kind,
             details={"receipt_id": receipt.receipt_id},
         )

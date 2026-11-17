@@ -260,7 +260,7 @@ def resolve_transcript_segments_plan(
             if transcript is None:
                 return _error(
                     "invalid_input_ref",
-                    "source transcript lacks exact current timestamp evidence",
+                    "source transcript lacks exact current timestamp citations",
                     field="params",
                     details={"row_id": row_id},
                 )

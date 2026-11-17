@@ -121,8 +121,8 @@ describe('StatusBar search activity', () => {
       reviewBatchId: 'prep-42',
       stage: 'approval',
       tone: 'warning',
-      title: 'Search preparation needs approval',
-      detail: '1 file is waiting for approval',
+      title: 'Search preparation needs your consent',
+      detail: '1 file is waiting for consent',
       progress: null,
       details: [],
     });

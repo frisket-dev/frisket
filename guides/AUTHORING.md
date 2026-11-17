@@ -23,7 +23,7 @@ and setting IDs. Do not repeat step order or recommended values in site prose.
    writes the PNG and measured annotation rectangles together. Do not hand-edit
    image coordinates or reuse a picture from another sample.
 6. Review the real result against an independent answer key. Fill engine choices
-   and quality examples from recorded evidence. Mark unrun examples as pending;
+   and quality examples from recorded runs. Mark unrun examples as pending;
    an empty result is not proof of quality. `testedIn` lists completed platform
    verification only, so new plans start with an empty list.
 7. Promote a complete pinned bundle, build the site and run its docs acceptance
@@ -46,7 +46,7 @@ Current checkpoint IDs:
   `council-transcribe-settings`, `council-transcribe-outputs`,
   `council-timed-transcript`, `council-results`
 
-The court comparison needs a real persisted action with output columns. Select
+The court comparison needs a real persisted action with generated columns. Select
 the three named sample filings, optionally Preview, then Run on selected before
 joining Expected. A temporary Preview cannot be selected as the action to check.
 Only after comparing this small sample should you run all six filings.
@@ -60,8 +60,8 @@ The council comparison uses `faster_whisper` with `base` and
 `openrouter/microsoft/mai-transcribe-2`; full-sheet transcription uses the local
 `faster_whisper` base model. Preserve actual results during capture.
 
-Plans describe supported steps; they do not execute jobs, authorize payment,
-or bypass the app's normal model/download and cost confirmation paths.
+Plans describe supported steps; they do not start runs, authorize payment,
+or bypass the app's normal model-download and cost consent steps.
 
 PDF import choices use accessible radio targets: `{kind: "radio", group, value}`.
 For these controls, capture resolves the radio group/name and value, checks its

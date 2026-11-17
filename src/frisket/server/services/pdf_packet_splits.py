@@ -1366,7 +1366,7 @@ class PdfPacketSplitService:
                 )
 
                 if session.ocr_quote is None or body.ocr_selection is None:
-                    raise PdfPacketSplitRouteError(409, "quote OCR before import")
+                    raise PdfPacketSplitRouteError(409, "estimate OCR before import")
                 coordinator = PdfPacketOcrCoordinator(
                     self._workspace,
                     preview_runs=self._preview_runs,

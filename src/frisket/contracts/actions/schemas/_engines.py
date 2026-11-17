@@ -333,7 +333,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="datalab",
-        label="Datalab hosted OCR (hosted, pay-per-call)",
+        label="Datalab OCR (remote, pay-per-call)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="hosted",
@@ -661,14 +661,14 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 TRANSLATE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="deepl",
-        label="DeepL API translation (hosted, pay-per-character)",
+        label="DeepL API translation (remote, pay-per-character)",
         tier="hosted",
         provider="deepl",
         billable=True,
     ),
     EngineDeclaration(
         id="google_translate",
-        label="Google Cloud Translation v2 (hosted, pay-per-character)",
+        label="Google Cloud Translation v2 (remote, pay-per-character)",
         tier="hosted",
         provider="google",
         billable=True,
@@ -698,14 +698,14 @@ TRANSLATE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 GEOCODE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="opencage",
-        label="OpenCage geocoder (hosted, pay-per-row)",
+        label="OpenCage geocoder (remote, pay-per-row)",
         tier="hosted",
         provider="opencage",
         billable=True,
     ),
     EngineDeclaration(
         id="nominatim",
-        label="Nominatim geocoder (hosted, rate-limited)",
+        label="Nominatim geocoder (remote, rate-limited)",
         tier="hosted",
         provider="nominatim",
         # This request leaves the box, but Nominatim's public API is not a
@@ -723,7 +723,7 @@ GEOCODE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 CENSUS_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="us_census_acs",
-        label="US Census ACS 5-year enrichment (hosted)",
+        label="US Census ACS 5-year enrichment (remote)",
         tier="hosted",
         provider="us_census_acs",
         billable=False,

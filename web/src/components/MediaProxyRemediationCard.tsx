@@ -88,7 +88,7 @@ export function MediaProxyRemediationCard({
       </div>
       <p className="media-proxy-remediation-copy">
         Proxy setup requires a linked server with an operator token and SSH access.
-        A hosted workspace PAT alone does not provide this access.
+        A personal access token alone does not provide this access.
       </p>
       {canConfigure ? (
         <ol className="media-proxy-remediation-steps">

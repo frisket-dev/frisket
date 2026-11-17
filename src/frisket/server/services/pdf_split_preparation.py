@@ -486,7 +486,9 @@ class PdfSplitPreparationStore:
             (grant.scope["plan_token"],),
         ).fetchone()
         if expected is None or str(expected[0]) != _json(grant.as_mapping()):
-            raise ValueError("source-page OCR quote changed; review its exact claims")
+            raise ValueError(
+                "source-page OCR estimate changed; review its exact claims"
+            )
         if (
             grant.allocation["requires_confirmation"]
             and confirmation != grant.promise_set_hash
@@ -671,7 +673,7 @@ class PdfSplitPreparationAdapter:
         )
 
         if not plan_token or not targets:
-            raise ValueError("OCR quote requires its admitted source plan")
+            raise ValueError("OCR estimate requires its admitted source plan")
         project = self.workspace.get(self.project_id)
         children: list[dict[str, Any]] = []
         roster: list[dict[str, Any]] = []

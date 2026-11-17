@@ -71,7 +71,7 @@ export function OutputNameCombobox({
     [allowExistingTargets, columns, filterQuery],
   );
   const warningText = overwriteColumn
-    ? `This will overwrite the existing "${overwriteColumn.name}" column.`
+    ? `This will replace the existing "${overwriteColumn.name}" column.`
     : '';
   const warningOpen = Boolean(overwriteColumn && warningColumnName === overwriteColumn.name);
   const effectiveActiveOptionId = open
