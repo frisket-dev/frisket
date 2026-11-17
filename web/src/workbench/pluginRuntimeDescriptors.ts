@@ -294,107 +294,94 @@ function parseDataRequirements(value: unknown): WorkbenchDataRequirement[] | nul
   return requirements;
 }
 
-function runtimePluginIsEnabled(plugin: WorkbenchPluginRuntimePlugin): boolean {
-  return plugin.installState === 'enabled';
+const COMMAND_SCHEMA_VERSION = 'frisket.command.v1';
+
+interface DescriptorShape {
+  schemaVersion: string;
+  kind: WorkbenchPluginDescriptorManifest['kind'];
+  // Plugin trust checks placements against this kind's curated table; kinds
+  // without one are first-party only.
+  placementKind?: keyof typeof PLUGIN_LEGAL_PLACEMENTS;
+}
+
+// The fields and checks every descriptor kind shares: schema/kind dispatch,
+// id/owner/title presence, owner fencing, binding, placements, requirements.
+function parseDescriptorBase(
+  source: ManifestBindingSource,
+  manifest: WorkbenchPluginDescriptorManifest,
+  { schemaVersion, kind, placementKind }: DescriptorShape,
+) {
+  if (manifest.schemaVersion !== schemaVersion || manifest.kind !== kind) return null;
+  const id = stringValue(manifest.id);
+  const ownerPluginId = stringValue(manifest.ownerPluginId);
+  const title = stringValue(manifest.title);
+  if (!id || !ownerPluginId || !title) return null;
+  if (source.ownerPluginId !== null && ownerPluginId !== source.ownerPluginId) return null;
+  const binding = source.resolveBinding(id);
+  if (!binding) return null;
+  const placements = parsePlacements(manifest.placements, source.trust, placementKind);
+  if (placements === null) return null;
+  const dataRequirements = parseDataRequirements(manifest.dataRequirements);
+  if (dataRequirements === null) return null;
+  return {
+    binding,
+    descriptor: {
+      id,
+      ownerPluginId,
+      title,
+      shortTitle: stringValue(manifest.shortTitle) ?? undefined,
+      icon: stringValue(manifest.icon) ?? undefined,
+      componentKey: binding.componentKey,
+      runtimeComponent: binding.runtimeComponent,
+      placements,
+      requires: parseRequirements(manifest.requires),
+      dataRequirements,
+    },
+  };
 }
 
 function panelDescriptorFromManifest(
   source: ManifestBindingSource,
   manifest: WorkbenchPluginDescriptorManifest,
 ): WorkbenchPanelDescriptor | null {
-  if (manifest.schemaVersion !== PANEL_SCHEMA_VERSION || manifest.kind !== 'panel') return null;
-  const id = stringValue(manifest.id);
-  const ownerPluginId = stringValue(manifest.ownerPluginId);
-  const title = stringValue(manifest.title);
-  if (!id || !ownerPluginId || !title) return null;
-  if (source.ownerPluginId !== null && ownerPluginId !== source.ownerPluginId) return null;
-  const binding = source.resolveBinding(id);
-  if (!binding) return null;
-  const placements = parsePlacements(manifest.placements, source.trust, 'panel');
-  if (placements === null) return null;
-  const dataRequirements = parseDataRequirements(manifest.dataRequirements);
-  if (dataRequirements === null) return null;
-  return {
-    schemaVersion: PANEL_SCHEMA_VERSION,
-    id,
-    kind: 'panel',
-    ownerPluginId,
-    title,
-    shortTitle: stringValue(manifest.shortTitle) ?? undefined,
-    icon: stringValue(manifest.icon) ?? undefined,
-    componentKey: binding.componentKey,
-    runtimeComponent: binding.runtimeComponent,
-    placements,
-    requires: parseRequirements(manifest.requires),
-    dataRequirements,
-  };
+  const base = parseDescriptorBase(source, manifest, { schemaVersion: PANEL_SCHEMA_VERSION, kind: 'panel', placementKind: 'panel' });
+  return base && { ...base.descriptor, schemaVersion: PANEL_SCHEMA_VERSION, kind: 'panel' };
 }
 
 function viewDescriptorFromManifest(
   source: ManifestBindingSource,
   manifest: WorkbenchPluginDescriptorManifest,
 ): WorkbenchViewDescriptor | null {
-  if (manifest.schemaVersion !== VIEW_SCHEMA_VERSION || manifest.kind !== 'view') return null;
-  const id = stringValue(manifest.id);
-  const ownerPluginId = stringValue(manifest.ownerPluginId);
-  const title = stringValue(manifest.title);
-  if (!id || !ownerPluginId || !title) return null;
-  if (source.ownerPluginId !== null && ownerPluginId !== source.ownerPluginId) return null;
-  const binding = source.resolveBinding(id);
-  if (!binding) return null;
-  const placements = parsePlacements(manifest.placements, source.trust, 'view');
-  if (placements === null) return null;
+  const base = parseDescriptorBase(source, manifest, { schemaVersion: VIEW_SCHEMA_VERSION, kind: 'view', placementKind: 'view' });
+  if (!base) return null;
   const projectionKind = stringValue(manifest.projectionKind) ?? undefined;
-  const projectionParams = isRecord(manifest.projectionParams)
-    ? { ...manifest.projectionParams }
-    : undefined;
-  const requires = parseRequirements(manifest.requires);
   // Consistency: projectionKind is the projection-view signal; a projection view
   // must also declare the projection.status host capability it will consume.
   // Fail closed (drop the descriptor) rather than mount a half-declared view.
   if (
     projectionKind &&
-    !requires.some(
+    !base.descriptor.requires.some(
       (requirement) =>
         requirement.kind === 'hostCapability' && requirement.id === 'projection.status',
     )
   ) {
     return null;
   }
-  const dataRequirements = parseDataRequirements(manifest.dataRequirements);
-  if (dataRequirements === null) return null;
   return {
+    ...base.descriptor,
     schemaVersion: VIEW_SCHEMA_VERSION,
-    id,
     kind: 'view',
-    ownerPluginId,
-    title,
-    shortTitle: stringValue(manifest.shortTitle) ?? undefined,
-    icon: stringValue(manifest.icon) ?? undefined,
-    componentKey: binding.componentKey,
-    runtimeComponent: binding.runtimeComponent,
-    placements,
-    requires,
-    dataRequirements,
     projectionKind,
-    projectionParams,
+    projectionParams: isRecord(manifest.projectionParams) ? { ...manifest.projectionParams } : undefined,
   };
 }
-
-const COMMAND_SCHEMA_VERSION = 'frisket.command.v1';
 
 function commandDescriptorFromManifest(
   source: ManifestBindingSource,
   manifest: WorkbenchPluginDescriptorManifest,
 ): WorkbenchCommandDescriptor | null {
-  if (manifest.schemaVersion !== COMMAND_SCHEMA_VERSION || manifest.kind !== 'command') {
-    return null;
-  }
-  const id = stringValue(manifest.id);
-  const ownerPluginId = stringValue(manifest.ownerPluginId);
-  const title = stringValue(manifest.title);
-  if (!id || !ownerPluginId || !title) return null;
-  if (source.ownerPluginId !== null && ownerPluginId !== source.ownerPluginId) return null;
+  const base = parseDescriptorBase(source, manifest, { schemaVersion: COMMAND_SCHEMA_VERSION, kind: 'command', placementKind: 'command' });
+  if (!base) return null;
   const commandId = stringValue(manifest.commandId);
   // Command ids are namespaced so they can never shadow core (or other
   // plugins') commands; the prefix requirement itself is a plugin-trust-only
@@ -403,38 +390,24 @@ function commandDescriptorFromManifest(
   if (source.commandNamespacePrefix !== null && !commandId.startsWith(source.commandNamespacePrefix)) {
     return null;
   }
-  const binding = source.resolveBinding(id);
-  if (!binding) return null;
+  const { binding } = base;
   // Handlers are functions: plugin trust loads them from the served
   // frontend module (there is no host-component fallback for command
   // handlers); first-party trust resolves them from the in-bundle registry.
   if (source.trust === 'plugin' && !binding.runtimeComponent) return null;
   if (source.trust === 'firstParty' && !binding.handlerKey) return null;
-  const placements = parsePlacements(manifest.placements, source.trust, 'command');
-  if (placements === null) return null;
-  const dataRequirements = parseDataRequirements(manifest.dataRequirements);
-  if (dataRequirements === null) return null;
   return {
+    ...base.descriptor,
     schemaVersion: COMMAND_SCHEMA_VERSION,
-    id,
     kind: 'command',
-    ownerPluginId,
-    title,
-    shortTitle: stringValue(manifest.shortTitle) ?? undefined,
-    icon: stringValue(manifest.icon) ?? undefined,
-    componentKey: binding.componentKey,
     commandId,
     handlerKey: binding.handlerKey ?? binding.componentKey,
-    runtimeComponent: binding.runtimeComponent,
-    placements,
-    requires: parseRequirements(manifest.requires),
-    dataRequirements,
   };
 }
 
 // The two inspectorSection schema versions (row/column) share every field
 // except schemaVersion; first-party trust only (no plugin inspectorSection
-// contributions exist yet — nothing to unify against).
+// contributions exist yet).
 function inspectorSectionDescriptorFromManifest(
   source: ManifestBindingSource,
   manifest: WorkbenchPluginDescriptorManifest,
@@ -442,35 +415,12 @@ function inspectorSectionDescriptorFromManifest(
     | typeof ROW_INSPECTOR_SECTION_SCHEMA_VERSION
     | typeof COLUMN_INSPECTOR_SECTION_SCHEMA_VERSION,
 ): RowInspectorSectionDescriptor | ColumnInspectorSectionDescriptor | null {
-  if (manifest.schemaVersion !== schemaVersion || manifest.kind !== 'inspectorSection') return null;
-  const id = stringValue(manifest.id);
-  const ownerPluginId = stringValue(manifest.ownerPluginId);
-  const title = stringValue(manifest.title);
-  if (!id || !ownerPluginId || !title) return null;
-  if (source.ownerPluginId !== null && ownerPluginId !== source.ownerPluginId) return null;
-  const binding = source.resolveBinding(id);
-  if (!binding) return null;
-  const placements = parsePlacements(manifest.placements, source.trust);
-  if (placements === null) return null;
-  const dataRequirements = parseDataRequirements(manifest.dataRequirements);
-  if (dataRequirements === null) return null;
-  const base = {
-    schemaVersion,
-    id,
-    kind: 'inspectorSection' as const,
-    ownerPluginId,
-    title,
-    shortTitle: stringValue(manifest.shortTitle) ?? undefined,
-    icon: stringValue(manifest.icon) ?? undefined,
-    componentKey: binding.componentKey,
-    runtimeComponent: binding.runtimeComponent,
-    placements,
-    requires: parseRequirements(manifest.requires),
-    dataRequirements,
-  };
+  const base = parseDescriptorBase(source, manifest, { schemaVersion, kind: 'inspectorSection' });
+  if (!base) return null;
+  const descriptor = { ...base.descriptor, schemaVersion, kind: 'inspectorSection' as const };
   return schemaVersion === ROW_INSPECTOR_SECTION_SCHEMA_VERSION
-    ? (base as RowInspectorSectionDescriptor)
-    : (base as ColumnInspectorSectionDescriptor);
+    ? (descriptor as RowInspectorSectionDescriptor)
+    : (descriptor as ColumnInspectorSectionDescriptor);
 }
 
 // Source-kind forms are first-party only (no plugin source-provider
@@ -479,99 +429,52 @@ function sourceKindFormDescriptorFromManifest(
   source: ManifestBindingSource,
   manifest: WorkbenchPluginDescriptorManifest,
 ): SourceKindFormDescriptor | null {
-  if (manifest.schemaVersion !== SOURCE_KIND_FORM_SCHEMA_VERSION || manifest.kind !== 'provider') {
-    return null;
-  }
-  const id = stringValue(manifest.id);
-  const ownerPluginId = stringValue(manifest.ownerPluginId);
-  const title = stringValue(manifest.title);
-  if (!id || !ownerPluginId || !title) return null;
-  if (source.ownerPluginId !== null && ownerPluginId !== source.ownerPluginId) return null;
-  const binding = source.resolveBinding(id);
-  if (!binding) return null;
-  const placements = parsePlacements(manifest.placements, source.trust);
-  if (placements === null) return null;
+  const base = parseDescriptorBase(source, manifest, { schemaVersion: SOURCE_KIND_FORM_SCHEMA_VERSION, kind: 'provider' });
+  if (!base) return null;
   const accepts = Array.isArray(manifest.accepts)
     ? manifest.accepts.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '')
     : [];
   if (accepts.length === 0) return null;
-  const dataRequirements = parseDataRequirements(manifest.dataRequirements);
-  if (dataRequirements === null) return null;
-  return {
-    schemaVersion: SOURCE_KIND_FORM_SCHEMA_VERSION,
-    id,
-    kind: 'provider',
-    ownerPluginId,
-    title,
-    shortTitle: stringValue(manifest.shortTitle) ?? undefined,
-    icon: stringValue(manifest.icon) ?? undefined,
-    componentKey: binding.componentKey,
-    runtimeComponent: binding.runtimeComponent,
-    accepts,
-    placements,
-    requires: parseRequirements(manifest.requires),
-    dataRequirements,
-  };
+  return { ...base.descriptor, schemaVersion: SOURCE_KIND_FORM_SCHEMA_VERSION, kind: 'provider', accepts };
+}
+
+function collectFromRuntimeIndex<Descriptor extends { id: string; placements: WorkbenchPlacement[] }>(
+  runtimeIndex: WorkbenchPluginRuntimeIndex | null,
+  parse: (source: ManifestBindingSource, manifest: WorkbenchPluginDescriptorManifest) => Descriptor | null,
+): Descriptor[] {
+  if (!runtimeIndex || runtimeIndex.arbitraryPackageLoadAllowed) return [];
+  const descriptors: Descriptor[] = [];
+  for (const plugin of runtimeIndex.plugins) {
+    if (plugin.installState !== 'enabled' || plugin.arbitraryPackageLoadAllowed) continue;
+    const source = pluginManifestSource(plugin);
+    for (const manifest of plugin.workbenchDescriptorManifests ?? []) {
+      const descriptor = parse(source, manifest);
+      if (descriptor) descriptors.push(descriptor);
+    }
+  }
+  return descriptors.sort((left, right) => {
+    const leftOrder = left.placements[0]?.order ?? 0;
+    const rightOrder = right.placements[0]?.order ?? 0;
+    return leftOrder - rightOrder || left.id.localeCompare(right.id);
+  });
 }
 
 export function pluginCommandDescriptorsFromRuntimeIndex(
   runtimeIndex: WorkbenchPluginRuntimeIndex | null,
 ): WorkbenchCommandDescriptor[] {
-  if (!runtimeIndex || runtimeIndex.arbitraryPackageLoadAllowed) return [];
-  const descriptors: WorkbenchCommandDescriptor[] = [];
-  for (const plugin of runtimeIndex.plugins) {
-    if (!runtimePluginIsEnabled(plugin) || plugin.arbitraryPackageLoadAllowed) continue;
-    const source = pluginManifestSource(plugin);
-    for (const manifest of plugin.workbenchDescriptorManifests ?? []) {
-      const descriptor = commandDescriptorFromManifest(source, manifest);
-      if (descriptor) descriptors.push(descriptor);
-    }
-  }
-  return descriptors.sort((left, right) => {
-    const leftOrder = left.placements[0]?.order ?? 0;
-    const rightOrder = right.placements[0]?.order ?? 0;
-    return leftOrder - rightOrder || left.id.localeCompare(right.id);
-  });
+  return collectFromRuntimeIndex(runtimeIndex, commandDescriptorFromManifest);
 }
 
 export function pluginPanelDescriptorsFromRuntimeIndex(
   runtimeIndex: WorkbenchPluginRuntimeIndex | null,
 ): WorkbenchPanelDescriptor[] {
-  if (!runtimeIndex || runtimeIndex.arbitraryPackageLoadAllowed) return [];
-  const descriptors: WorkbenchPanelDescriptor[] = [];
-  for (const plugin of runtimeIndex.plugins) {
-    if (!runtimePluginIsEnabled(plugin) || plugin.arbitraryPackageLoadAllowed) continue;
-    const source = pluginManifestSource(plugin);
-    for (const manifest of plugin.workbenchDescriptorManifests ?? []) {
-      const descriptor = panelDescriptorFromManifest(source, manifest);
-      if (descriptor) descriptors.push(descriptor);
-    }
-  }
-  return descriptors.sort((left, right) => {
-    const leftOrder = left.placements[0]?.order ?? 0;
-    const rightOrder = right.placements[0]?.order ?? 0;
-    return leftOrder - rightOrder || left.id.localeCompare(right.id);
-  });
+  return collectFromRuntimeIndex(runtimeIndex, panelDescriptorFromManifest);
 }
 
 export function pluginViewDescriptorsFromRuntimeIndex(
   runtimeIndex: WorkbenchPluginRuntimeIndex | null,
 ): WorkbenchViewDescriptor[] {
-  if (!runtimeIndex || runtimeIndex.arbitraryPackageLoadAllowed) return [];
-  const descriptors: WorkbenchViewDescriptor[] = [];
-  for (const plugin of runtimeIndex.plugins) {
-    if (!runtimePluginIsEnabled(plugin) || plugin.arbitraryPackageLoadAllowed) continue;
-    const source = pluginManifestSource(plugin);
-    for (const manifest of plugin.workbenchDescriptorManifests ?? []) {
-      const descriptor = viewDescriptorFromManifest(source, manifest);
-      if (descriptor) descriptors.push(descriptor);
-    }
-  }
-  return descriptors.sort((left, right) => {
-    const leftOrder = left.placements[0]?.order ?? 0;
-    const rightOrder = right.placements[0]?.order ?? 0;
-    return leftOrder - rightOrder || left.id.localeCompare(right.id);
-  });
+  return collectFromRuntimeIndex(runtimeIndex, viewDescriptorFromManifest);
 }
 
 // The checked-in artifact (src/frisket/data/first_party_workbench_descriptors.json)

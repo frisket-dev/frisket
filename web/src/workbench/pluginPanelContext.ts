@@ -1,8 +1,9 @@
 import type { ColumnDef, SheetMeta } from '../api/types';
 import {
-  dataRequirementReason,
-  firstMissingDataRequirement,
+  resolveRequirementAvailability,
   sheetDataRequirementContext,
+  withoutDisabledCapabilities,
+  type RequirementAvailability,
   type WorkbenchDataRequirementContext,
 } from './dataRequirements';
 import type { WorkbenchPanelDescriptor, WorkbenchPlacementMode } from './descriptors';
@@ -61,18 +62,6 @@ export interface PluginPanelContext {
   actions?: ActionLaunchFragment;
 }
 
-interface PluginPanelUnavailable {
-  available: false;
-  reason: string;
-}
-
-interface PluginPanelAvailable {
-  available: true;
-  reason?: undefined;
-}
-
-type PluginPanelAvailability = PluginPanelAvailable | PluginPanelUnavailable;
-
 // Contract-pinned export: tests/authoring/test_plugin_sdk_contract_parity.py scrapes
 // this by its exported form — do not demote to module-private.
 export const DEFAULT_PLUGIN_PANEL_CAPABILITIES: PluginPanelCapability[] = [
@@ -95,20 +84,12 @@ declare global {
 function availablePluginPanelCapabilities(
   hostContext: WorkbenchHostContext,
 ): Set<string> {
-  const disabled =
-    typeof window === 'undefined'
-      ? []
-      : window.__FRISKET_DISABLED_PLUGIN_PANEL_CAPABILITIES__ ?? [];
-  const disabledSet = new Set(disabled);
   const hostCapabilities = hostContextCapabilityAttribute(hostContext)
     .split(' ')
-    .filter(Boolean);
-  return new Set(
-    hostCapabilities.filter(
-      (capability) =>
-        DEFAULT_PLUGIN_PANEL_CAPABILITIES.includes(capability as PluginPanelCapability) &&
-        !disabledSet.has(capability),
-    ),
+    .filter((capability) => DEFAULT_PLUGIN_PANEL_CAPABILITIES.includes(capability as PluginPanelCapability));
+  return withoutDisabledCapabilities(
+    hostCapabilities,
+    (host) => host.__FRISKET_DISABLED_PLUGIN_PANEL_CAPABILITIES__,
   );
 }
 
@@ -135,22 +116,12 @@ export function resolvePluginPanelAvailability(
   sheet: SheetMeta | null,
   hostContext: WorkbenchHostContext,
   capabilities: Set<string> = availablePluginPanelCapabilities(hostContext),
-): PluginPanelAvailability {
-  for (const requirement of descriptor.requires) {
-    if (requirement.kind !== 'hostCapability' || requirement.optional) continue;
-    const capabilityId = requirement.id ?? '';
-    if (!capabilities.has(capabilityId)) {
-      return { available: false, reason: `missing_capability:${capabilityId}` };
-    }
-  }
-  const unmet = firstMissingDataRequirement(
-    descriptor.dataRequirements,
+): RequirementAvailability {
+  return resolveRequirementAvailability(
+    descriptor,
+    capabilities,
     pluginPanelDataRequirementContext(sheet, hostContext),
   );
-  if (unmet) {
-    return { available: false, reason: dataRequirementReason(unmet) };
-  }
-  return { available: true };
 }
 
 export function buildPluginPanelContext({
