@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -25,19 +25,26 @@ from frisket.actions.types import (
     TableResult,
     TableRow,
 )
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class IndexCreateParams(ActionParams):
     source_columns: list[str] = Field(min_length=1, max_length=64)
     sheet_id: int | None = Field(default=None, strict=True, ge=1)
     modality: EmbeddingModality = "text"
-    provider: str | None = None
-    model: str | None = None
+    provider: Annotated[
+        str | None, nonblank("value must be a non-empty string or null", strip=False)
+    ] = None
+    model: Annotated[
+        str | None, nonblank("value must be a non-empty string or null", strip=False)
+    ] = None
     source_query: dict[str, Any] = Field(default_factory=dict)
     source_policy: dict[str, Any] = Field(default_factory=dict)
     maintenance_policy: dict[str, Any] = Field(default_factory=dict)
     provider_policy: dict[str, Any] = Field(default_factory=dict)
-    name: str | None = None
+    name: Annotated[
+        str | None, nonblank("value must be a non-empty string or null", strip=False)
+    ] = None
 
     @field_validator("source_columns")
     @classmethod
@@ -46,26 +53,14 @@ class IndexCreateParams(ActionParams):
             raise ValueError("source columns must be non-empty strings")
         return value
 
-    @field_validator("provider", "model", "name")
-    @classmethod
-    def _nonblank_optional(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("value must be a non-empty string or null")
-        return value
-
 
 class IndexRefreshParams(ActionParams):
-    index_id: str = Field(min_length=1)
+    index_id: Annotated[str, nonblank("index_id must be non-empty", strip=False)] = (
+        Field(min_length=1)
+    )
     mode: Literal["incremental", "full"] = "incremental"
     trigger_ref: dict[str, Any] | None = None
     row_scope: dict[str, Any] | None = None
-
-    @field_validator("index_id")
-    @classmethod
-    def _nonblank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("index_id must be non-empty")
-        return value
 
 
 def create_index(
@@ -124,14 +119,9 @@ INDEX_REFRESH = action(
 
 
 class IndexDeleteParams(ActionParams):
-    index_id: str = Field(min_length=1)
-
-    @field_validator("index_id")
-    @classmethod
-    def _nonblank_index(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("index_id must be non-empty")
-        return value
+    index_id: Annotated[str, nonblank("index_id must be non-empty", strip=False)] = (
+        Field(min_length=1)
+    )
 
 
 def delete_index(
@@ -162,17 +152,12 @@ class IndexExportDestination(ActionParams):
 
 
 class IndexExportParams(ActionParams):
-    index_id: str = Field(min_length=1)
+    index_id: Annotated[str, nonblank("index_id must be non-empty", strip=False)] = (
+        Field(min_length=1)
+    )
     destination: IndexExportDestination
     formats: list[IndexExportFormat] = Field(default_factory=lambda: ["jsonl"])
     include_vectors: bool = Field(default=True, strict=True)
-
-    @field_validator("index_id")
-    @classmethod
-    def _nonblank_index(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("index_id must be non-empty")
-        return value
 
     @field_validator("formats")
     @classmethod
@@ -214,7 +199,9 @@ INDEX_EXPORT = action(
 
 
 class IndexUpdatePolicyParams(ActionParams):
-    index_id: str = Field(min_length=1)
+    index_id: Annotated[str, nonblank("index_id must be non-empty", strip=False)] = (
+        Field(min_length=1)
+    )
     maintenance_policy: dict[str, Any] | None = Field(
         default=None,
         description="Replace the whole maintenance policy; omit to keep it.",
@@ -222,13 +209,6 @@ class IndexUpdatePolicyParams(ActionParams):
     provider_policy: dict[str, Any] | None = Field(
         default=None, description="Replace the whole provider policy; omit to keep it."
     )
-
-    @field_validator("index_id")
-    @classmethod
-    def _index_id(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("index_id must be non-empty")
-        return value
 
     @model_validator(mode="after")
     def _at_least_one(self) -> IndexUpdatePolicyParams:

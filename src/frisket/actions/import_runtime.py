@@ -14,7 +14,7 @@ from frisket.actions.types import (
     RuntimeImporter,
     RuntimeImportSource,
 )
-from frisket.contracts.actions.schemas._base import _is_json_value
+from frisket.contracts.actions.schemas._base import is_json_value
 
 
 class RuntimeImportParams(ActionParams):
@@ -25,7 +25,7 @@ class RuntimeImportParams(ActionParams):
     @field_validator("handler_params")
     @classmethod
     def _bounded_handler_params(cls, value: dict[str, Any]) -> dict[str, Any]:
-        if not _is_json_value(value):
+        if not is_json_value(value):
             raise ValueError("handler_params must contain finite JSON values")
         if (
             len(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())

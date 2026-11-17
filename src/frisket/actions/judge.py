@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, StrictStr, field_validator
+from pydantic import BaseModel, Field, StrictStr
 
 from frisket.actions.core import (
     ActionCategory,
@@ -22,13 +22,14 @@ from frisket.actions.types import (
     Row,
 )
 from frisket.ai.message_content import render_input_block
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class JudgeParams(ActionParams):
     source: RichSource = Field(title="Source columns")
     judged_column: GeneratedColumnRef[Any] = Field(title="Answer to grade")
     model: ModelRef
-    guidelines: StrictStr = Field(
+    guidelines: Annotated[StrictStr, nonblank("guidelines must not be blank")] = Field(
         title="Guidelines",
         description="Describe what a correct answer must satisfy.",
         json_schema_extra={"x-frisket-input": "textarea"},
@@ -38,14 +39,6 @@ class JudgeParams(ActionParams):
         title="Include the original prompt",
         description="Give the judge the instruction that produced the answer.",
     )
-
-    @field_validator("guidelines")
-    @classmethod
-    def _nonblank_guidelines(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("guidelines must not be blank")
-        return stripped
 
 
 class JudgeOutput(BaseModel):

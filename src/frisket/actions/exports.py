@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -27,13 +27,14 @@ from frisket.actions.types import (
     SheetParquetExporter,
     WorkLogExporter,
 )
+from frisket.contracts.actions.schemas._validators import nonblank, trimmed
 
 
 class LocalFileDestination(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: Literal["local_file"]
-    path: str = Field(
+    path: Annotated[str, trimmed("path must be non-empty and trimmed")] = Field(
         min_length=1,
         description=(
             "Path on the filesystem where Frisket runs; the parent directory "
@@ -41,13 +42,6 @@ class LocalFileDestination(BaseModel):
             "with GET /api/projects/{pid}/actions/export."
         ),
     )
-
-    @field_validator("path")
-    @classmethod
-    def _nonblank_path(cls, value: str) -> str:
-        if not value.strip() or value != value.strip():
-            raise ValueError("path must be non-empty and trimmed")
-        return value
 
 
 class ExportWorkLogParams(ActionParams):
@@ -58,18 +52,15 @@ class ExportWorkLogParams(ActionParams):
 class ExportColumnTablesParams(ActionParams):
     sheet_id: int = Field(ge=1, strict=True)
     column_id: int = Field(ge=1, strict=True)
-    group_by: str | None = Field(default=None, min_length=1)
+    group_by: Annotated[str | None, nonblank("name must be non-empty", strip=False)] = (
+        Field(default=None, min_length=1)
+    )
     exclude_columns: list[str] | None = Field(default=None, min_length=1)
-    name_template: str = "{row:03d}_{table:03d}.csv"
+    name_template: Annotated[str, nonblank("name must be non-empty", strip=False)] = (
+        "{row:03d}_{table:03d}.csv"
+    )
     first_row_header: bool = Field(default=False, strict=True)
     destination: ColumnTablesDestination
-
-    @field_validator("group_by", "name_template")
-    @classmethod
-    def _nonblank_name(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("name must be non-empty")
-        return value
 
     @field_validator("exclude_columns")
     @classmethod

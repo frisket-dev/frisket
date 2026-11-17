@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from frisket.actions.core import ActionCategory, RowScope, action, create_sheet
-from frisket.actions.imports import FileSource, StagedImportInput
+from frisket.actions.imports import FileSource, UpdateMappingParams
 from frisket.actions.types import (
     ActionParams,
     DynamicOutput,
@@ -35,23 +35,8 @@ class ImportXlsxParams(ActionParams):
     worksheet: str | None = None
 
 
-class UpdateXlsxParams(ImportXlsxParams):
-    staged_input: StagedImportInput | None = None
-    key_columns: list[str] = Field(min_length=1)
-    keep_existing_on_blank: bool = False
-    update_policy: Literal["keep_changes", "incoming_wins"] = "keep_changes"
-    relationship_id: str | None = Field(default=None, min_length=1, max_length=200)
-
-    @model_validator(mode="after")
-    def _validate_update_mapping(self) -> UpdateXlsxParams:
-        names = {column.name for column in self.columns}
-        if len(self.key_columns) != len(set(self.key_columns)) or not set(
-            self.key_columns
-        ).issubset(names):
-            raise ValueError("key_columns must uniquely name imported columns")
-        if names == set(self.key_columns):
-            raise ValueError("choose at least one non-key update column")
-        return self
+class UpdateXlsxParams(UpdateMappingParams, ImportXlsxParams):
+    pass
 
 
 def _columns(params: ImportXlsxParams) -> tuple[TableColumn, ...]:

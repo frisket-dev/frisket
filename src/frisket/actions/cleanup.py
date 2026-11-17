@@ -6,9 +6,8 @@ import re
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
-from pydantic import field_validator
 
 from frisket.actions.core import ActionCategory, action, map_batch
 from frisket.actions.types import (
@@ -20,6 +19,7 @@ from frisket.actions.types import (
     Rows,
 )
 from frisket.ops.cluster_fingerprint import fingerprint
+from frisket.contracts.actions.schemas._validators import nonblank
 
 _WS = re.compile(r"\s+")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -89,7 +89,9 @@ class CleanableColumn(ColumnRef[str]):
 class CleanColumnParams(ActionParams):
     source: CleanableColumn
     case: Literal["keep", "smart_title", "title", "upper", "lower"] = "smart_title"
-    null_tokens: str = _DEFAULT_NULL_TOKENS
+    null_tokens: Annotated[str, nonblank("null tokens must be non-empty")] = (
+        _DEFAULT_NULL_TOKENS
+    )
     blank_null_tokens: bool = True
     lowercase_emails: bool = True
     normalize_us_phone: bool = True
@@ -101,14 +103,6 @@ class CleanColumnParams(ActionParams):
     remove_thousands_separators: bool = False
     remove_all_commas: bool = False
     make_numeric: bool = False
-
-    @field_validator("null_tokens")
-    @classmethod
-    def _nonblank_null_tokens(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("null tokens must be non-empty")
-        return value
 
 
 def _parse_null_tokens(raw: str) -> frozenset[str]:

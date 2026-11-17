@@ -1,23 +1,19 @@
 """Typed cluster-receipt inputs and admitted entity groups."""
 
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol
 
-from pydantic import Field, StrictInt, StrictStr, field_validator
+from pydantic import Field, StrictInt, StrictStr
 
 from frisket.actions.types import ActionParams, RowSource
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class ClusterReceiptSource(ActionParams):
     kind: Literal["cluster_values"]
-    receipt_id: StrictStr = Field(min_length=1)
-
-    @field_validator("receipt_id")
-    @classmethod
-    def _receipt_id(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("receipt_id must not be blank")
-        return value.strip()
+    receipt_id: Annotated[StrictStr, nonblank("receipt_id must not be blank")] = Field(
+        min_length=1
+    )
 
 
 class EntityVariant(ActionParams):

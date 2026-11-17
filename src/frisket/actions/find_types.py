@@ -1,12 +1,13 @@
 """Exhaustive grounded finding options and invocation-owned preparation."""
 
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal, Protocol
+from typing import Annotated, Any, ClassVar, Literal, Protocol
 
-from pydantic import Field, StrictStr, field_validator, model_validator
+from pydantic import Field, StrictStr, model_validator
 
 from frisket.actions.types import ActionParams, ColumnRef, ModelRef
 from frisket.actions.extraction_types import ExtractField
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class FindSourceColumn(ColumnRef[Any]):
@@ -21,21 +22,15 @@ class FindSourceColumn(ColumnRef[Any]):
 
 
 class FindOptions(ActionParams):
-    instruction: StrictStr = Field(
-        title="Describe what to look for",
-        min_length=1,
-        json_schema_extra={"x-frisket-input": "textarea"},
+    instruction: Annotated[StrictStr, nonblank("instruction must not be blank")] = (
+        Field(
+            title="Describe what to look for",
+            min_length=1,
+            json_schema_extra={"x-frisket-input": "textarea"},
+        )
     )
     model: ModelRef
     fields: list[ExtractField] = Field(default_factory=list, max_length=63)
-
-    @field_validator("instruction")
-    @classmethod
-    def nonblank_instruction(cls, value):
-        value = value.strip()
-        if not value:
-            raise ValueError("instruction must not be blank")
-        return value
 
     @model_validator(mode="after")
     def valid_fields(self):

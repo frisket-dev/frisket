@@ -1,11 +1,12 @@
 """Actual grouped-summary arguments and invocation-owned preparation."""
 
 from dataclasses import dataclass
-from typing import Any, ClassVar, Protocol
+from typing import Annotated, Any, ClassVar, Protocol
 
-from pydantic import Field, StrictStr, field_validator
+from pydantic import Field, StrictStr
 
 from frisket.actions.types import ActionParams, ColumnRef, ModelRef, TableColumn
+from frisket.contracts.actions.schemas._validators import nonblank
 
 
 GROUP_SUMMARY_COLUMNS = (
@@ -21,19 +22,13 @@ class GroupSummaryColumn(ColumnRef[Any]):
 
 class GroupSummaryOptions(ActionParams):
     model: ModelRef
-    instruction: StrictStr = Field(
-        min_length=1,
-        json_schema_extra={"x-frisket-input": "textarea"},
+    instruction: Annotated[StrictStr, nonblank("instruction must not be blank")] = (
+        Field(
+            min_length=1,
+            json_schema_extra={"x-frisket-input": "textarea"},
+        )
     )
     group_by: ColumnRef[Any] | None = None
-
-    @field_validator("instruction")
-    @classmethod
-    def nonblank_instruction(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("instruction must not be blank")
-        return value
 
 
 @dataclass(frozen=True, eq=False)

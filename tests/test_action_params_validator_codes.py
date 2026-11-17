@@ -1,7 +1,6 @@
 """Canonical params error codes (C5 D2) at the real validation boundary.
 
-The standard validators (`contracts/actions/schemas/_validators.py`) normalize
-the audited drift: ONE row-scope acceptance set under `invalid_input_ref`, ONE
+Params refusals use one code per rule: ONE
 code for output-name-non-blank (`invalid_params`), `duplicate_output_column`
 for duplicate EMITTED output columns, and `invalid_model` for the
 `provider/model` id shape including ner's llm engine. These tests drive the
@@ -26,12 +25,6 @@ from frisket.actions.types import ActionRequest
 from frisket.contracts.action_validation import validate_action_spec
 from frisket.contracts.actions.validation_helpers import (
     VALIDATION_ERROR_CODES,
-)
-from frisket.contracts.actions.schemas._validators import (
-    before_rule,
-    cross_rule,
-    rule,
-    validate_optional_row_ids,
 )
 
 
@@ -430,53 +423,6 @@ def test_ner_llm_model_shape_refuses_at_typed_binder(model, reason) -> None:
         row_scope={"sheet_id": 1, "selector": {"kind": "all_rows"}},
     )
     assert _code(retired) == "unsupported_action_kind"
-
-
-def test_validate_optional_row_ids_contract() -> None:
-    assert validate_optional_row_ids(None) is None
-    assert validate_optional_row_ids([3, 1]) == [3, 1]
-    for bad in ([], [0], [True], [1, 1]):
-        with pytest.raises(ValueError, match="invalid_input_ref"):
-            validate_optional_row_ids(bad)
-
-
-def test_rule_helpers_recode_with_required_code() -> None:
-    from typing import Annotated
-
-    from pydantic import BaseModel, ValidationError, model_validator
-
-    def non_blank(value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
-            raise ValueError("blank")
-        return stripped
-
-    def coerce_int(value: Any) -> Any:
-        if isinstance(value, bool):
-            raise ValueError("bool")
-        return value
-
-    def _conflict(model: Any) -> None:
-        if model.a == str(model.b):
-            raise ValueError("same")
-
-    check = cross_rule("fields_conflict", _conflict)
-
-    class Model(BaseModel):
-        a: Annotated[str, rule("invalid_demo_field", non_blank)]
-        b: Annotated[int, before_rule("invalid_demo_int", coerce_int)] = 1
-
-        @model_validator(mode="after")
-        def _cross(self) -> "Model":
-            return check(self)
-
-    assert Model(a="  x ", b=2).a == "x"
-    with pytest.raises(ValidationError, match="invalid_demo_field"):
-        Model(a="   ", b=2)
-    with pytest.raises(ValidationError, match="invalid_demo_int"):
-        Model(a="x", b=True)
-    with pytest.raises(ValidationError, match="fields_conflict"):
-        Model(a="1", b=1)
 
 
 @pytest.mark.parametrize(

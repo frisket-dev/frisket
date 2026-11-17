@@ -13,6 +13,7 @@ from frisket.contracts.action import (
     canonical_column_type,
 )
 from frisket.contracts import plugin_rpc
+from frisket.contracts.actions.schemas._base import is_json_value
 from frisket.engine.store import Project
 from frisket.actions.types import TableError
 from frisket.engine.store.artifact_timeline import TimelineError
@@ -361,6 +362,39 @@ def _parse_importer_columns(
     return columns
 
 
+def _row_value_error(
+    message: str,
+    *,
+    name: str,
+    row_number: int,
+    diagnostic_code: str,
+    diagnostic_message: str,
+    **attach: Any,
+) -> dict[str, Any]:
+    return {
+        "_error": _failed(
+            "plugin_importer_row_invalid",
+            message,
+            field=f"response.row.{name}",
+            details={
+                "diagnostics": [
+                    {
+                        "level": "error",
+                        "code": diagnostic_code,
+                        "message": diagnostic_message,
+                        "attach": {
+                            "kind": "imported_row",
+                            "row": row_number,
+                            "field": name,
+                            **attach,
+                        },
+                    }
+                ]
+            },
+        )
+    }
+
+
 def _parse_importer_row(
     raw_row: Any,
     *,
@@ -382,55 +416,21 @@ def _parse_importer_row(
         try:
             value = column_types.parse_value(type_name, raw_row[name])
         except Exception:
-            return {
-                "_error": _failed(
-                    "plugin_importer_row_invalid",
-                    "Plugin importer row value could not be parsed",
-                    field=f"response.row.{name}",
-                    details={
-                        "diagnostics": [
-                            {
-                                "level": "error",
-                                "code": "plugin_importer_row_value_invalid",
-                                "message": "Imported row value could not be parsed",
-                                "attach": {
-                                    "kind": "imported_row",
-                                    "row": row_number,
-                                    "field": name,
-                                },
-                            }
-                        ]
-                    },
-                )
-            }
-        try:
-            json.dumps(value, allow_nan=False)
-        except (TypeError, ValueError):
-            valid = False
-        else:
-            valid = column_types.validate_value(type_name, value)
-        if not valid:
-            return {
-                "_error": _failed(
-                    "plugin_importer_row_invalid",
-                    "Plugin importer row value failed validation",
-                    field=f"response.row.{name}",
-                    details={
-                        "diagnostics": [
-                            {
-                                "level": "error",
-                                "code": "plugin_importer_row_value_invalid",
-                                "message": "Imported row value failed validation",
-                                "attach": {
-                                    "kind": "imported_row",
-                                    "row": row_number,
-                                    "field": name,
-                                },
-                            }
-                        ]
-                    },
-                )
-            }
+            return _row_value_error(
+                "Plugin importer row value could not be parsed",
+                name=name,
+                row_number=row_number,
+                diagnostic_code="plugin_importer_row_value_invalid",
+                diagnostic_message="Imported row value could not be parsed",
+            )
+        if not (is_json_value(value) and column_types.validate_value(type_name, value)):
+            return _row_value_error(
+                "Plugin importer row value failed validation",
+                name=name,
+                row_number=row_number,
+                diagnostic_code="plugin_importer_row_value_invalid",
+                diagnostic_message="Imported row value failed validation",
+            )
         try:
             value = validate_project_contextual_value(
                 project,
@@ -438,31 +438,17 @@ def _parse_importer_row(
                 value=value,
             )
         except TimelineError as exc:
-            return {
-                "_error": _failed(
-                    "plugin_importer_row_invalid",
-                    "Plugin importer row temporal anchor failed validation",
-                    field=f"response.row.{name}",
-                    details={
-                        "diagnostics": [
-                            {
-                                "level": "error",
-                                "code": "plugin_importer_row_temporal_anchor_invalid",
-                                "message": (
-                                    "Imported row temporal anchor could not be "
-                                    "resolved in the target project"
-                                ),
-                                "attach": {
-                                    "kind": "imported_row",
-                                    "row": row_number,
-                                    "field": name,
-                                    "reason": exc.code,
-                                },
-                            }
-                        ]
-                    },
-                )
-            }
+            return _row_value_error(
+                "Plugin importer row temporal anchor failed validation",
+                name=name,
+                row_number=row_number,
+                diagnostic_code="plugin_importer_row_temporal_anchor_invalid",
+                diagnostic_message=(
+                    "Imported row temporal anchor could not be "
+                    "resolved in the target project"
+                ),
+                reason=exc.code,
+            )
         parsed[name] = value
     return parsed
 

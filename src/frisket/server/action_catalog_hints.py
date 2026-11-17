@@ -109,18 +109,30 @@ def _sidecar_engine(
     )
 
 
+def _sidecar_declared_engine(
+    capabilities: dict[str, Any],
+    declaration: EngineDeclaration,
+    *,
+    route: str | None = None,
+    **hints: Any,
+) -> dict[str, Any]:
+    """A sidecar engine whose availability is its advertised route entry."""
+    sidecar_route = route or declaration.sidecar_route
+    if sidecar_route is None:
+        raise ValueError(f"{declaration.id} declares no sidecar route")
+    available, error, models = _sidecar_engine(
+        capabilities, route=sidecar_route, name=declaration.id
+    )
+    return _declared_engine(
+        declaration, available=available, error=error, models=models, **hints
+    )
+
+
 def _lightonocr_choices(capabilities: dict[str, Any], *, route: str) -> list[dict]:
-    choices = []
-    for declaration in LIGHTONOCR_ENGINES:
-        available, error, models = _sidecar_engine(
-            capabilities, route=route, name=declaration.id
-        )
-        choices.append(
-            _declared_engine(
-                declaration, available=available, error=error, models=models
-            )
-        )
-    return choices
+    return [
+        _sidecar_declared_engine(capabilities, declaration, route=route)
+        for declaration in LIGHTONOCR_ENGINES
+    ]
 
 
 def _sidecar_v1_engine(
@@ -480,6 +492,29 @@ def _bind_static_transcription_targets(
     else:
         engine.pop("error", None)
     return engine
+
+
+def _declared_transcription_engine(
+    declaration: EngineDeclaration,
+    *,
+    available: bool,
+    error: str | None,
+    models: list[str] | None = None,
+    per_target: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """A declared transcription engine bound to its static target rows."""
+    return _bind_static_transcription_targets(
+        _declared_engine(
+            declaration,
+            available=available,
+            error=error,
+            models=models,
+            language=_transcribe_language_hint(declaration.id),
+            diarization=_transcribe_diarization_hint(declaration.id),
+            transcription_options=_transcribe_options_hint(declaration.id),
+        ),
+        per_target=per_target,
+    )
 
 
 def _commercial_pricing_hint(
@@ -919,6 +954,7 @@ def _recipe_engines(
         )
         from frisket.server.provider_config import ENV_VAR as PROVIDER_ENV_VAR
 
+        classify_declarations = _table_decls(CLASSIFY_ENGINE_TABLE)
         llm_providers = _configured_llm_providers(
             project,
             org_provider_keys,
@@ -956,10 +992,8 @@ def _recipe_engines(
             except ValueError as exc:
                 local_ok = False
                 local_error = str(exc)
-            local_semantic = _engine(
-                "local_semantic",
-                "Local semantic",
-                tier="local",
+            local_semantic = _declared_engine(
+                classify_declarations["local_semantic"],
                 available=local_ok,
                 error=(
                     None
@@ -975,10 +1009,6 @@ def _recipe_engines(
         runtime_present = (
             classifier_runtime_present() if action_kind == "map.classify" else False
         )
-        labels = {
-            GLICLASS_ENGINE_ID: "GLiClass Base",
-            JEFF_ENGINE_ID: "Jeff 0.8B",
-        }
         descriptions = {
             GLICLASS_ENGINE_ID: "Fast local zero-shot classification.",
             JEFF_ENGINE_ID: "Higher-quality local classification.",
@@ -995,17 +1025,16 @@ def _recipe_engines(
             snapshot = artifact.hf_snapshot
             if snapshot is None:
                 raise RuntimeError(f"{engine_id} must use a pinned HF snapshot")
-            row = _engine(
-                engine_id,
-                labels[engine_id],
-                tier="local",
+            declaration = classify_declarations[engine_id]
+            row = _declared_engine(
+                declaration,
                 available=ready,
                 error=(
                     None
                     if ready
                     else "Install the local classifier runtime and model."
                     if not runtime_present
-                    else f"Install the pinned {labels[engine_id]} model."
+                    else f"Install the pinned {declaration.label} model."
                 ),
                 models=[spec.model_identity] if ready else None,
             )
@@ -1027,12 +1056,14 @@ def _recipe_engines(
                 }
             )
             local_classifiers.append(row)
+        clef_flash_declaration = classify_declarations["clef-flash"]
         clef_flash_ok, clef_flash_error, _ = _sidecar_engine(
-            sidecar_capabilities, route="/classify", name="clef-flash"
+            sidecar_capabilities,
+            route=clef_flash_declaration.sidecar_route,
+            name=clef_flash_declaration.id,
         )
-        classify_declarations = _table_decls(CLASSIFY_ENGINE_TABLE)
         clef_flash = _declared_engine(
-            classify_declarations["clef-flash"],
+            clef_flash_declaration,
             available=clef_flash_ok,
             error=clef_flash_error,
         )
@@ -1266,7 +1297,7 @@ def _recipe_engines(
                 "running local Parakeet transcription."
             )
         )
-        parakeet_engine = _declared_engine(
+        parakeet_engine = _declared_transcription_engine(
             decl["parakeet-tdt"],
             # Top-level availability follows the same local preferred target
             # advertised below. The gateway row remains an explicit target
@@ -1274,12 +1305,6 @@ def _recipe_engines(
             # runnable.
             available=parakeet_local_ok,
             error=parakeet_local_err,
-            language=_transcribe_language_hint("parakeet-tdt"),
-            diarization=_transcribe_diarization_hint("parakeet-tdt"),
-            transcription_options=_transcribe_options_hint("parakeet-tdt"),
-        )
-        _bind_static_transcription_targets(
-            parakeet_engine,
             per_target={
                 LOCAL_ONNX_TARGET_ID: {
                     "available": parakeet_local_ok,
@@ -1298,26 +1323,16 @@ def _recipe_engines(
             if faster_whisper_ok
             else "Download and set up the local Whisper runtime and base model."
         )
-        faster_whisper_engine = _declared_engine(
+        faster_whisper_engine = _declared_transcription_engine(
             decl["faster_whisper"],
             available=faster_whisper_ok,
             error=faster_whisper_err,
-            language=_transcribe_language_hint("faster_whisper"),
-            diarization=_transcribe_diarization_hint("faster_whisper"),
-            transcription_options=_transcribe_options_hint("faster_whisper"),
         )
-        _bind_static_transcription_targets(faster_whisper_engine)
-        whisper_turbo_engine = _declared_engine(
+        whisper_turbo_engine = _declared_transcription_engine(
             decl["whisper-turbo"],
             available=turbo_ok,
             error=turbo_err,
             models=turbo_models,
-            language=_transcribe_language_hint("whisper-turbo"),
-            diarization=_transcribe_diarization_hint("whisper-turbo"),
-            transcription_options=_transcribe_options_hint("whisper-turbo"),
-        )
-        _bind_static_transcription_targets(
-            whisper_turbo_engine,
             per_target={MODELS_GATEWAY_TARGET_ID: {"models": turbo_models}},
         )
         from frisket.ai.models import artifact_manifest as _artifact_manifest
@@ -1373,26 +1388,15 @@ def _recipe_engines(
             name="vibevoice-asr",
             contract_version="frisket.transcription.v1",
         )
-        moss_engine = _declared_engine(
-            decl["moss"],
-            available=moss_ok,
-            error=moss_err,
-            models=moss_models,
-            language=_transcribe_language_hint("moss"),
-            diarization=_transcribe_diarization_hint("moss"),
-            transcription_options=_transcribe_options_hint("moss"),
+        moss_engine = _declared_transcription_engine(
+            decl["moss"], available=moss_ok, error=moss_err, models=moss_models
         )
-        _bind_static_transcription_targets(moss_engine)
-        vibevoice_engine = _declared_engine(
+        vibevoice_engine = _declared_transcription_engine(
             decl["vibevoice-asr"],
             available=vibevoice_ok,
             error=vibevoice_err,
             models=vibevoice_models,
-            language=_transcribe_language_hint("vibevoice-asr"),
-            diarization=_transcribe_diarization_hint("vibevoice-asr"),
-            transcription_options=_transcribe_options_hint("vibevoice-asr"),
         )
-        _bind_static_transcription_targets(vibevoice_engine)
         openai_engine = _engine(
             "openai/whisper-1",
             "OpenAI Whisper (remote provider API)",
@@ -1407,17 +1411,13 @@ def _recipe_engines(
             transcription_options=_transcribe_options_hint("openai/whisper-1"),
         )
         _bind_static_transcription_targets(openai_engine)
-        mai_engine = _declared_engine(
+        mai_engine = _declared_transcription_engine(
             mai,
             available=openrouter_available,
             error=None
             if openrouter_available
             else "Configure an OpenRouter API key to enable Microsoft MAI-Transcribe 2.",
-            language=_transcribe_language_hint(mai.id),
-            diarization=_transcribe_diarization_hint(mai.id),
-            transcription_options=_transcribe_options_hint(mai.id),
         )
-        _bind_static_transcription_targets(mai_engine)
         return [
             faster_whisper_engine,
             whisper_turbo_engine,
@@ -1445,21 +1445,6 @@ def _recipe_engines(
         from frisket.engine.jobs.engine_setup import RAPIDOCR_SETUP_REF
         from frisket.ai.models.artifact_manifest import rapidocr_default_model_artifact
 
-        dots_ok, dots_err, dots_models = _sidecar_engine(
-            sidecar_capabilities, route="/ocr", name="dots.mocr"
-        )
-        glm_ok, glm_err, glm_models = _sidecar_engine(
-            sidecar_capabilities, route="/ocr", name="glm-ocr"
-        )
-        surya_ok, surya_err, surya_models = _sidecar_engine(
-            sidecar_capabilities, route="/ocr", name="surya2"
-        )
-        paddle_ok, paddle_err, paddle_models = _sidecar_engine(
-            sidecar_capabilities, route="/ocr", name="paddleocr-vl"
-        )
-        pp_ocr_ok, pp_ocr_err, pp_ocr_models = _sidecar_engine(
-            sidecar_capabilities, route="/ocr", name="pp-ocrv6"
-        )
         tess_ok, tess_err = tesseract_available()
         rapid_runtime_ok, rapid_runtime_err = rapidocr_available()
         rapid_ok = rapid_runtime_ok and rapidocr_setup_ready()
@@ -1581,35 +1566,10 @@ def _recipe_engines(
                 },
             ),
             indra_engine,
-            _declared_engine(
-                decl["paddleocr-vl"],
-                available=paddle_ok,
-                error=paddle_err,
-                models=paddle_models,
-            ),
-            _declared_engine(
-                decl["dots.mocr"],
-                available=dots_ok,
-                error=dots_err,
-                models=dots_models,
-            ),
-            _declared_engine(
-                decl["pp-ocrv6"],
-                available=pp_ocr_ok,
-                error=pp_ocr_err,
-                models=pp_ocr_models,
-            ),
-            _declared_engine(
-                decl["glm-ocr"],
-                available=glm_ok,
-                error=glm_err,
-                models=glm_models,
-            ),
-            _declared_engine(
-                decl["surya2"],
-                available=surya_ok,
-                error=surya_err,
-                models=surya_models,
+            *(
+                _sidecar_declared_engine(sidecar_capabilities, declaration)
+                for declaration in OCR_ENGINE_TABLE
+                if declaration.sidecar_route is not None
             ),
             *vision_engines,
             # Datalab hosted OCR: the vendor's own hosted product
@@ -1632,17 +1592,6 @@ def _recipe_engines(
     if action_kind == "media.to_markdown":
         from frisket.credentials import resolve_credential_for_use
 
-        ok, err, models = _sidecar_engine(
-            sidecar_capabilities, route="/to-markdown", name="docling"
-        )
-        # Chandra 2 (Datalab, github.com/datalab-to/chandra) — a second,
-        # experimental engine on the same /to-markdown sidecar route as
-        # docling. Unavailable plus
-        # remediation when the sidecar lacks it, using the same
-        # _sidecar_engine fallback as the other sidecar engines.
-        chandra_ok, chandra_err, chandra_models = _sidecar_engine(
-            sidecar_capabilities, route="/to-markdown", name="chandra"
-        )
         # Use the same project/organization credential context as dispatch.
         datalab_key = resolve_credential_for_use(
             project, "DATALAB_API_KEY", context=credential_context
@@ -1651,17 +1600,10 @@ def _recipe_engines(
         return [
             _declared_engine(decl["markitdown"]),
             _declared_engine(decl["trafilatura_html"]),
-            _declared_engine(
-                decl["docling"],
-                available=ok,
-                error=err,
-                models=models,
-            ),
-            _declared_engine(
+            _sidecar_declared_engine(sidecar_capabilities, decl["docling"]),
+            _sidecar_declared_engine(
+                sidecar_capabilities,
                 decl["chandra"],
-                available=chandra_ok,
-                error=chandra_err,
-                models=chandra_models,
                 # Chandra's weights ship under
                 # Datalab's Modified OpenRAIL-M, not the repo's Apache-2.0
                 # code license — restricted (revenue/funding threshold +
