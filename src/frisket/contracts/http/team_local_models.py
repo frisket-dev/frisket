@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import JsonValue
 
@@ -157,7 +157,7 @@ class TeamModelHttpError(WireModel):
 
 def team_model_http_error_responses(
     *statuses: int,
-) -> dict[int, dict[str, type[TeamModelHttpError]]]:
+) -> dict[int | str, dict[str, Any]]:
     """Declare the team-local-model error envelope on an owning route."""
 
     return {status: {"model": TeamModelHttpError} for status in statuses}

@@ -34,8 +34,11 @@ LOG = logging.getLogger("frisket.server")
 
 def http_error_responses(
     *statuses: int,
-) -> dict[int, dict[str, type[HttpError]]]:
-    """Declare generic JSON error responses on their owning FastAPI route."""
+) -> dict[int | str, dict[str, Any]]:
+    """Declare generic JSON error responses on their owning FastAPI route.
+
+    The return type is FastAPI's ``responses=`` parameter type.
+    """
 
     return {status: {"model": HttpError} for status in statuses}
 
