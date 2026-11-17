@@ -88,8 +88,6 @@ src/frisket/engine/executor/temporal_transcripts.py::transcript_snapshot_by_iden
 src/frisket/engine/jobs/projection.py::diagnostic_job_event  frisket-cloud
 src/frisket/engine/jobs/queue.py::JobQueue.abandon_stopped_worker_handler_authorities  frisket-cloud
 src/frisket/engine/jobs/queue.py::JobQueue.get_scoped  test-only
-src/frisket/engine/jobs/queue.py::SqlAlchemyJobQueue.abandon_stopped_worker_handler_authorities  frisket-cloud
-src/frisket/engine/jobs/queue.py::SqlAlchemyJobQueue.get_scoped  test-only
 src/frisket/engine/jobs/queue_health.py::evaluate_run_queue_deploy_readiness  test-only
 src/frisket/engine/jobs/queue_runtime_monitor.py::<module>  frisket-cloud
 src/frisket/engine/jobs/queue_runtime_monitor.py::evaluate_run_queue_runtime_monitor  frisket-cloud

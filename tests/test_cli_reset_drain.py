@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from frisket.engine.jobs.queue import (
     QUEUE_DB_NAME,
-    SqlAlchemyJobQueue,
+    JobQueue,
     jobs_table,
     open_queue,
 )
@@ -83,7 +83,7 @@ def test_base_reset_drain_reports_every_hit_and_authority_independent_of_status(
 
     queue_workspace = tmp_path / "queue"
     queue = open_queue(workspace=queue_workspace)
-    assert isinstance(queue, SqlAlchemyJobQueue)
+    assert isinstance(queue, JobQueue)
     job_id = queue.enqueue("echo", {"value": "queued work"})
     claimed = queue.claim("reset-drain-test-worker")
     assert claimed is not None and claimed.id == job_id
