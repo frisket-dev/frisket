@@ -402,7 +402,7 @@ function cellOriginLabel(kind: CellProvenance['currentValueRef']['kind']): strin
     case 'source_cell':
       return 'source cell';
     case 'compacted':
-      return 'compacted evidence';
+      return 'compacted supporting records';
     case 'missing':
       return 'missing';
     default:

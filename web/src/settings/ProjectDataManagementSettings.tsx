@@ -29,9 +29,9 @@ const EVIDENCE_RETENTION_LABELS: Record<string, string> = {
 };
 
 const EVIDENCE_RETENTION_DESCRIPTIONS: Record<string, string> = {
-  compactable: 'Save space. Manual compaction may remove run citations; sheet results stay.',
-  pinned: 'Keep run citations when this project is manually compacted.',
-  materialized: 'Keep result citations as part of the stored result.',
+  compactable: "Save space. Manual compaction may remove a run's supporting records; sheet results stay.",
+  pinned: "Keep a run's supporting records when this project is manually compacted.",
+  materialized: 'Keep result-linked supporting records as part of the stored result.',
 };
 
 function supportedEvidenceOptions(policy: ProjectRetentionPolicy | null): string[] {
@@ -176,25 +176,25 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
       {policy && (
         <section className="content-stack">
           <div className="settings-section-subhead">
-            <h2>Retention and citations</h2>
+            <h2>Retention and supporting records</h2>
             <p>
-              Choose how many citations Frisket keeps for future review.
+              Choose how many supporting records Frisket keeps for future review.
               This affects manual compaction, not the values already visible in your sheets.
             </p>
           </div>
           <div className="settings-grid-two">
-          <FormField label="Citation default" >
+          <FormField label="Supporting records default" >
 
             <PanelSelect
               testId="project-evidence-default"
-              ariaLabel="Citation default"
+              ariaLabel="Supporting records default"
               value={policy.default_evidence}
               disabled={!canMutate}
               options={evidenceSelectOptions}
               onValueChange={(value) => void patch({ default_evidence: value })}
             />
             <small className="form-hint">
-              This is the usual default. Frisket may keep particular citations when an action needs them
+              This is the usual default. Frisket may keep particular supporting records when an action needs them
               to preserve a result or its lineage.
             </small>
           </FormField>
