@@ -69,3 +69,18 @@ def test_duplicate_groups_may_shrink_but_not_grow_or_appear():
     assert dup.regressions(baseline, shrunk) == []
     assert "not in baseline: d::f" in dup.regressions(baseline, grown)[0]
     assert "not in baseline: x::_h, y::_h, z::_h" in dup.regressions(baseline, fresh)[0]
+
+
+def test_class_body_binding_defines_a_method_and_is_not_a_use():
+    tree = ast.parse(
+        "class Facade:\n    read = leaf.read\n    renamed = leaf.other\n    limit = 3\n"
+    )
+    refs = dead.References()
+    refs.scan(tree, "pkg.facade", False)
+    assert refs.names["read"] == 0
+    assert refs.names["other"] == 1
+    assert refs.names["renamed"] == 0
+    found = dict(dead.candidates(tree, "facade.py"))
+    assert found["facade.py::Facade.read"] == "read"
+    assert found["facade.py::Facade.renamed"] == "renamed"
+    assert "facade.py::Facade.limit" not in found

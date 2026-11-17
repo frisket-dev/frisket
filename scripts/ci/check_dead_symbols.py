@@ -164,6 +164,22 @@ def is_registered(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -
     )
 
 
+def method_binding(node: ast.AST) -> tuple[str, str] | None:
+    """Return (name, target) for a class-body ``name = module.target`` binding.
+
+    Such a binding defines a method exactly as ``def name`` would, so it is a
+    candidate, not a use of the function it binds.
+    """
+    if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+        return None
+    target = node.targets[0]
+    if not (isinstance(target, ast.Name) and isinstance(node.value, ast.Attribute)):
+        return None
+    if not isinstance(node.value.value, ast.Name):
+        return None
+    return target.id, node.value.attr
+
+
 class References(ast.NodeVisitor):
     """Count name references, excluding a definition's references to itself."""
 
@@ -193,7 +209,16 @@ class References(ast.NodeVisitor):
         self._definition(node, node.name)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self._definition(node, node.name)
+        self._scope.append(node.name)
+        for child in ast.iter_child_nodes(node):
+            bound = method_binding(child)
+            if bound is None:
+                self.visit(child)
+            elif bound[1] != bound[0]:
+                # `name = module.other` keeps `other` alive; the binding itself
+                # is a definition of `name`, never a reference to it.
+                self._add(bound[1])
+        self._scope.pop()
 
     def visit_Name(self, node: ast.Name) -> None:
         self._add(node.id)
@@ -276,6 +301,11 @@ def candidates(tree: ast.Module, rel: str) -> Iterator[tuple[str, str]]:
         body: list[ast.stmt], prefix: str, in_class: bool
     ) -> Iterator[tuple[str, str]]:
         for node in body:
+            bound = method_binding(node) if in_class else None
+            if bound is not None:
+                if not bound[0].startswith("__"):
+                    yield f"{rel}::{prefix}{bound[0]}", bound[0]
+                continue
             if not isinstance(
                 node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
             ):
