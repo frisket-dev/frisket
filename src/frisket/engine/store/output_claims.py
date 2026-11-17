@@ -9,6 +9,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from frisket.engine.store.transactions import write_transaction
 
 
 # A claim's owning run can reach a terminal status (project-local
@@ -73,73 +74,67 @@ class OutputColumnClaimStore:
         expiry = self.claim_expiry(lease_seconds, now=now)
         details_json = json.dumps(details or {}, sort_keys=True)
         try:
-            if commit:
-                self.db.execute("BEGIN IMMEDIATE")
-            elif not self.db.in_transaction:
-                raise RuntimeError(
-                    "OutputColumnClaimStore.acquire(commit=False) requires "
-                    "a caller-owned transaction"
-                )
-            for name in names:
-                existing = self.db.execute(
-                    "SELECT * FROM output_column_claims "
-                    "WHERE sheet_id=? AND output_name=? AND status='active'",
-                    (sheet_id, name),
-                ).fetchone()
-                if existing is not None:
-                    if commit:
-                        self.db.rollback()
-                    return [], existing
-            created: list[sqlite3.Row] = []
-            for name in names:
-                column = self.db.execute(
-                    "SELECT column.id, "
-                    "(SELECT MAX(head.run_id) FROM published_result_bases head "
-                    " WHERE head.column_id=column.id) AS current_head_run_id "
-                    "FROM columns column WHERE column.sheet_id=? AND column.name=? "
-                    "AND column.active=1",
-                    (sheet_id, name),
-                ).fetchone()
-                claim_id = f"claim:{uuid.uuid4()}"
-                self.db.execute(
-                    "INSERT INTO output_column_claims ("
-                    "id, sheet_id, column_id, output_name, run_id, op_id, "
-                    "receipt_id, job_id, action_kind, mode, expected_current_run_id, "
-                    "claim_token, lease_expires_at, details"
-                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        claim_id,
-                        sheet_id,
-                        int(column["id"]) if column is not None else None,
-                        name,
-                        run_id,
-                        op_id,
-                        receipt_id,
-                        job_id,
-                        action_kind,
-                        mode,
-                        (
-                            int(column["current_head_run_id"])
-                            if column is not None
-                            and column["current_head_run_id"] is not None
-                            else None
-                        ),
-                        token,
-                        expiry,
-                        details_json,
-                    ),
-                )
-                created.append(
-                    self.db.execute(
-                        "SELECT * FROM output_column_claims WHERE id=?", (claim_id,)
+            with write_transaction(
+                self.db,
+                commit=commit,
+                what="OutputColumnClaimStore.acquire(commit=False)",
+            ):
+                for name in names:
+                    existing = self.db.execute(
+                        "SELECT * FROM output_column_claims "
+                        "WHERE sheet_id=? AND output_name=? AND status='active'",
+                        (sheet_id, name),
                     ).fetchone()
-                )
-            if commit:
-                self.db.commit()
-            return created, None
+                    if existing is not None:
+                        if commit:
+                            self.db.rollback()
+                        return [], existing
+                created: list[sqlite3.Row] = []
+                for name in names:
+                    column = self.db.execute(
+                        "SELECT column.id, "
+                        "(SELECT MAX(head.run_id) FROM published_result_bases head "
+                        " WHERE head.column_id=column.id) AS current_head_run_id "
+                        "FROM columns column WHERE column.sheet_id=? AND column.name=? "
+                        "AND column.active=1",
+                        (sheet_id, name),
+                    ).fetchone()
+                    claim_id = f"claim:{uuid.uuid4()}"
+                    self.db.execute(
+                        "INSERT INTO output_column_claims ("
+                        "id, sheet_id, column_id, output_name, run_id, op_id, "
+                        "receipt_id, job_id, action_kind, mode, expected_current_run_id, "
+                        "claim_token, lease_expires_at, details"
+                        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            claim_id,
+                            sheet_id,
+                            int(column["id"]) if column is not None else None,
+                            name,
+                            run_id,
+                            op_id,
+                            receipt_id,
+                            job_id,
+                            action_kind,
+                            mode,
+                            (
+                                int(column["current_head_run_id"])
+                                if column is not None
+                                and column["current_head_run_id"] is not None
+                                else None
+                            ),
+                            token,
+                            expiry,
+                            details_json,
+                        ),
+                    )
+                    created.append(
+                        self.db.execute(
+                            "SELECT * FROM output_column_claims WHERE id=?", (claim_id,)
+                        ).fetchone()
+                    )
+                return created, None
         except sqlite3.IntegrityError:
-            if commit:
-                self.db.rollback()
             placeholders = ",".join("?" for _ in names)
             conflict = self.db.execute(
                 "SELECT * FROM output_column_claims "
@@ -148,10 +143,6 @@ class OutputColumnClaimStore:
                 (sheet_id, *names),
             ).fetchone()
             return [], conflict
-        except Exception:
-            if commit:
-                self.db.rollback()
-            raise
 
     def bind_to_run(
         self,
@@ -512,14 +503,9 @@ class OutputColumnClaimStore:
     ) -> int:
         """Close attempts whose existing output claim lease has gone silent."""
 
-        if commit:
-            self.db.execute("BEGIN IMMEDIATE")
-        elif not self.db.in_transaction:
-            raise RuntimeError(
-                "stale-attempt sweep with commit=False requires "
-                "a caller-owned transaction"
-            )
-        try:
+        with write_transaction(
+            self.db, commit=commit, what="stale-attempt sweep with commit=False"
+        ):
             has_claim = (
                 self.db.execute(
                     "SELECT 1 FROM output_column_claims WHERE run_id=? "
@@ -550,13 +536,7 @@ class OutputColumnClaimStore:
                     "WHERE run_id=? AND state='abandoned')",
                     (run_id, run_id),
                 )
-            if commit:
-                self.db.commit()
             return int(cursor.rowcount or 0)
-        except BaseException:
-            if commit:
-                self.db.rollback()
-            raise
 
     def release(
         self,
@@ -594,8 +574,7 @@ class OutputColumnClaimStore:
 
         from frisket.execution.attempt import set_attempt_state
 
-        try:
-            self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(self.db):
             self.require_current_writer(
                 self.db,
                 run_id=run_id,
@@ -618,11 +597,7 @@ class OutputColumnClaimStore:
                     commit=False,
                 )
             )
-            self.db.commit()
             return int(released)
-        except BaseException:
-            self.db.rollback()
-            raise
 
     def active_column_ids(
         self,

@@ -8,6 +8,7 @@ import sqlite3
 from frisket.review_predicate import authored_output_roles, is_support_column
 
 from .runs import REVIEWABLE_OUTCOMES
+from .transactions import write_transaction
 
 
 _SQL_ALIAS = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -206,19 +207,14 @@ def ensure_run_review_stats(db: sqlite3.Connection, run_id: int) -> None:
         rebuild_run_review_stats(db, run_id)
         return
 
-    try:
-        # Serialize dirty rebuilds on other connections, then recheck: a
-        # waiter may find that the preceding writer completed the rebuild.
-        db.execute("BEGIN IMMEDIATE")
+    # Serialize dirty rebuilds on other connections, then recheck: a
+    # waiter may find that the preceding writer completed the rebuild.
+    with write_transaction(db):
         row = db.execute(
             "SELECT status,review_stats_ready FROM runs WHERE id=?", (run_id,)
         ).fetchone()
         if row is not None and not bool(row["review_stats_ready"]):
             rebuild_run_review_stats(db, run_id)
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
 
 
 def adjust_review_stats_for_result_transition(

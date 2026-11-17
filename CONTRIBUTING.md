@@ -76,6 +76,18 @@ file or function means renaming its baseline key by hand. Locally,
 checkout as a consumer. From `web/`, `npm run knip` reports unused files,
 exports and dependencies (not yet a CI gate).
 
+### Store transactions
+
+Write transactions in `src/frisket/engine/store` and `src/frisket/engine/jobs`
+go through `frisket.engine.store.transactions`. `write_transaction(db)` owns
+one `BEGIN IMMEDIATE`: it commits on clean exit and rolls back on any
+exception, interrupts included, and refuses to nest inside an open
+transaction. `write_transaction(db, commit=False, what=...)` joins the
+caller's open transaction and never ends it; `require_transaction(db, what)`
+guards a write that must land inside its caller's transaction.
+`scripts/ci/check_cell_write_ownership.py` refuses a new `"BEGIN IMMEDIATE"`
+literal there; its `HAND_WRITTEN_TRANSACTIONS` list only shrinks.
+
 ### Shared UI controls
 
 Use shared controls for ordinary inputs, segmented choices, icon buttons,

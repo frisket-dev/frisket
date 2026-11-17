@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import math
 import shutil
 import tempfile
@@ -21,12 +20,8 @@ from frisket.engine._workers.local_engine_lease import (
     LocalEngineLeaseBusy,
     acquire_local_engine_lease,
 )
-from frisket.engine._workers.session_base import (
-    encode_frame,
-    never_cancel,
-    reject_constant,
-)
-from frisket.engine.sandbox import fence, shim
+from frisket.engine._workers.session_base import FramedSession
+from frisket.engine.sandbox import shim
 from frisket.retrieval.encoding import (
     AudioEncodingInput,
     EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID,
@@ -63,8 +58,16 @@ def _snapshot_read_paths(snapshot: Path) -> tuple[str, ...]:
     return tuple(dict.fromkeys(str(path) for path in resolved))
 
 
-class EmbeddingGemma2Session:
+class EmbeddingGemma2Session(FramedSession):
     """One cancellation-aware worker process shared across bounded batches."""
+
+    _request_limit = MAX_REQUEST_BYTES
+    _response_limit = MAX_RESPONSE_BYTES
+    _wall_seconds = 600
+    _memory_mb = 8192
+    _op = "local multimodal embedding"
+    _invalid_response = "invalid EmbeddingGemma response"
+    _close_frame = {"schema_version": SCHEMA_VERSION, "type": "close"}
 
     def __init__(
         self,
@@ -75,11 +78,8 @@ class EmbeddingGemma2Session:
     ) -> None:
         self._snapshot = Path(snapshot).absolute()
         self._runtime = runtime
-        self._cancelled = cancelled or never_cancel
-        self._lock = asyncio.Lock()
-        self._handle = None
+        super().__init__(cancelled=cancelled)
         self._lease = None
-        self._closed = False
         self._staging = Path(tempfile.mkdtemp(prefix="frisket-embeddinggemma-"))
         self._staging_cleanup = weakref.finalize(
             self, shutil.rmtree, self._staging, True
@@ -110,33 +110,19 @@ class EmbeddingGemma2Session:
         runtime = PythonRuntime(runtime_python(), PythonRuntime.current().app_code_root)
         return cls(snapshot, runtime, cancelled=cancelled)
 
-    async def _exchange(self, request: dict[str, Any]) -> dict[str, Any]:
-        payload = encode_frame(request)
-        if len(payload) > MAX_REQUEST_BYTES:
-            raise EncodingError(
-                "encoding_input_too_large",
-                "This embedding batch is too large. Prepare a smaller batch.",
-            )
-        assert self._handle is not None
-        raw = await self._handle.exchange_frame(
-            payload,
-            wall_seconds=600,
-            response_limit=MAX_RESPONSE_BYTES,
-            request_limit=MAX_REQUEST_BYTES,
+    def _request_too_large(self) -> Exception:
+        return EncodingError(
+            "encoding_input_too_large",
+            "This embedding batch is too large. Prepare a smaller batch.",
         )
-        response = json.loads(raw, parse_constant=reject_constant)
-        if not isinstance(response, dict):
-            raise ValueError("invalid EmbeddingGemma response")
-        if response.get("type") == "error":
-            raise EncodingError(
-                str(response.get("code", "encoding_failed")),
-                str(
-                    response.get(
-                        "message", "The local embedding model stopped unexpectedly."
-                    )
-                ),
-            )
-        return response
+
+    def _worker_error(self, frame: dict[str, Any]) -> Exception:
+        return EncodingError(
+            str(frame.get("code", "encoding_failed")),
+            str(
+                frame.get("message", "The local embedding model stopped unexpectedly.")
+            ),
+        )
 
     async def _start(self) -> None:
         if self._handle is not None:
@@ -157,49 +143,30 @@ class EmbeddingGemma2Session:
             self._lease = acquire_local_engine_lease("embeddinggemma-2")
         except LocalEngineLeaseBusy as exc:
             raise EncodingError("engine_busy", str(exc)) from exc
-        environment = {
-            "HF_HUB_OFFLINE": "1",
-            "TRANSFORMERS_OFFLINE": "1",
-            "HF_HUB_DISABLE_TELEMETRY": "1",
-            "TOKENIZERS_PARALLELISM": "false",
-            "OMP_NUM_THREADS": "2",
-            "OPENBLAS_NUM_THREADS": "2",
-            "MKL_NUM_THREADS": "2",
-        }
         # Snapshot entries may cross more than one content-addressed symlink.
         # Landlock checks the final inode, so grant each pinned file's resolved
         # target instead of assuming that every cache keeps blobs under the
         # model repository directory.
         snapshot_reads = _snapshot_read_paths(self._snapshot)
-        self._handle = await shim.open_sandboxed_process(
+        ready = await self._launch(
             argv,
-            policy=shim.SandboxPolicy(
-                cpu_seconds=86400,
-                memory_mb=8192,
-                wall_seconds=600,
-                trusted_python_netwall=True,
-                allowed_extra_env=list(environment),
-                confine=fence.Confinement(
-                    op="local multimodal embedding",
-                    read=(
-                        *snapshot_reads,
-                        str(self._staging),
-                        "/proc/cpuinfo",
-                        "/sys/devices/system/cpu",
-                    ),
-                ),
-            ),
-            extra_env=environment,
-            should_cancel=self._cancelled,
-        )
-        ready = await self._exchange(
             {
                 "schema_version": SCHEMA_VERSION,
                 "type": "init",
                 "model_revision": MODEL_REVISION,
                 "snapshot": str(self._snapshot),
                 "staging_root": str(self._staging),
-            }
+            },
+            reads=(*snapshot_reads, str(self._staging)),
+            environment={
+                "HF_HUB_OFFLINE": "1",
+                "TRANSFORMERS_OFFLINE": "1",
+                "HF_HUB_DISABLE_TELEMETRY": "1",
+                "TOKENIZERS_PARALLELISM": "false",
+                "OMP_NUM_THREADS": "2",
+                "OPENBLAS_NUM_THREADS": "2",
+                "MKL_NUM_THREADS": "2",
+            },
         )
         expected = {
             "schema_version": SCHEMA_VERSION,
@@ -337,6 +304,7 @@ class EmbeddingGemma2Session:
                 raise EncodingError(
                     "encoding_failed", "The local embedding session is closed."
                 )
+            # A staging failure propagates as-is and leaves the worker running.
             request_dir = Path(tempfile.mkdtemp(dir=self._staging, prefix="batch-"))
             try:
                 if self._cancelled():
@@ -391,18 +359,8 @@ class EmbeddingGemma2Session:
                 shutil.rmtree(request_dir, ignore_errors=True)
 
     async def _close(self, *, abort: bool) -> None:
-        self._closed = True
         try:
-            if self._handle is not None:
-                if abort:
-                    await self._handle.abort()
-                else:
-                    await self._handle.close(
-                        encode_frame(
-                            {"schema_version": SCHEMA_VERSION, "type": "close"}
-                        ),
-                        wall_seconds=10,
-                    )
+            await super()._close(abort=abort)
         except shim.SandboxTeardownError:
             if self._lease is not None:
                 self._lease.poison()
@@ -411,11 +369,6 @@ class EmbeddingGemma2Session:
             if self._lease is not None:
                 self._lease.release()
             self._staging_cleanup()
-
-    async def aclose(self) -> None:
-        async with self._lock:
-            if not self._closed:
-                await self._close(abort=False)
 
 
 __all__ = ["EmbeddingGemma2Session", "MAX_STAGED_BATCH_BYTES"]

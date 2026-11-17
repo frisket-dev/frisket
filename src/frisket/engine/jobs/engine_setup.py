@@ -216,12 +216,21 @@ def run_engine_setup(
         )
     for engine_id, spec in LOCAL_CLASSIFIERS.items():
         if row.model_ref == spec.setup_ref:
-            return _run_classifier_setup(
-                engine_id=engine_id,
+            from frisket.engine._workers.classifier_artifacts import (
+                cached_classifier_path,
+                classifier_artifact,
+            )
+            from frisket.runtime.classifier_install import install_classifiers
+
+            return _run_pinned_setup(
                 engine=engine,
                 pull_id=pull_id,
                 should_cancel=should_cancel,
                 is_final_attempt=is_final_attempt,
+                label="local classifier",
+                install=install_classifiers,
+                artifact=lambda: classifier_artifact(engine_id),
+                cached_path=lambda: cached_classifier_path(engine_id),
             )
     if row.model_ref == DOCLING_SETUP_REF:
         return _run_docling_setup(
@@ -231,18 +240,38 @@ def run_engine_setup(
             is_final_attempt=is_final_attempt,
         )
     if row.model_ref == EMBEDDINGGEMMA_SETUP_REF:
-        return _run_embeddinggemma_setup(
+        from frisket.engine._workers.embeddinggemma_artifacts import (
+            cached_embeddinggemma_path,
+            embeddinggemma_artifact,
+        )
+        from frisket.runtime.embeddinggemma_install import install_embeddinggemma
+
+        return _run_pinned_setup(
             engine=engine,
             pull_id=pull_id,
             should_cancel=should_cancel,
             is_final_attempt=is_final_attempt,
+            label="multimodal search",
+            install=install_embeddinggemma,
+            artifact=embeddinggemma_artifact,
+            cached_path=cached_embeddinggemma_path,
         )
     if row.model_ref == INDRA_OCR_SETUP_REF:
-        return _run_indra_ocr_setup(
+        from frisket.engine._workers.indra_ocr_artifacts import (
+            cached_indra_ocr_path,
+            indra_ocr_artifact,
+        )
+        from frisket.runtime.indra_ocr_install import install_indra_ocr
+
+        return _run_pinned_setup(
             engine=engine,
             pull_id=pull_id,
             should_cancel=should_cancel,
             is_final_attempt=is_final_attempt,
+            label="Indra OCR",
+            install=install_indra_ocr,
+            artifact=indra_ocr_artifact,
+            cached_path=cached_indra_ocr_path,
         )
     if row.model_ref == RAPIDOCR_SETUP_REF:
         return _run_rapidocr_setup(
@@ -423,74 +452,6 @@ def _run_rapidocr_setup(
         engine, pull_id, resolved_digest=artifact.composite_digest
     )
     return {"status": "done"}
-
-
-def _run_classifier_setup(
-    *,
-    engine_id: str,
-    engine,
-    pull_id: int,
-    should_cancel: Callable[[], bool],
-    is_final_attempt: bool,
-) -> dict[str, object]:
-    from frisket.engine._workers.classifier_artifacts import (
-        cached_classifier_path,
-        classifier_artifact,
-    )
-    from frisket.runtime.classifier_install import install_classifiers
-
-    return _run_pinned_setup(
-        engine=engine,
-        pull_id=pull_id,
-        should_cancel=should_cancel,
-        is_final_attempt=is_final_attempt,
-        label="local classifier",
-        install=install_classifiers,
-        artifact=lambda: classifier_artifact(engine_id),
-        cached_path=lambda: cached_classifier_path(engine_id),
-    )
-
-
-def _run_indra_ocr_setup(
-    *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
-) -> dict[str, object]:
-    from frisket.engine._workers.indra_ocr_artifacts import (
-        cached_indra_ocr_path,
-        indra_ocr_artifact,
-    )
-    from frisket.runtime.indra_ocr_install import install_indra_ocr
-
-    return _run_pinned_setup(
-        engine=engine,
-        pull_id=pull_id,
-        should_cancel=should_cancel,
-        is_final_attempt=is_final_attempt,
-        label="Indra OCR",
-        install=install_indra_ocr,
-        artifact=indra_ocr_artifact,
-        cached_path=cached_indra_ocr_path,
-    )
-
-
-def _run_embeddinggemma_setup(
-    *, engine, pull_id: int, should_cancel: Callable[[], bool], is_final_attempt: bool
-) -> dict[str, object]:
-    from frisket.engine._workers.embeddinggemma_artifacts import (
-        cached_embeddinggemma_path,
-        embeddinggemma_artifact,
-    )
-    from frisket.runtime.embeddinggemma_install import install_embeddinggemma
-
-    return _run_pinned_setup(
-        engine=engine,
-        pull_id=pull_id,
-        should_cancel=should_cancel,
-        is_final_attempt=is_final_attempt,
-        label="multimodal search",
-        install=install_embeddinggemma,
-        artifact=embeddinggemma_artifact,
-        cached_path=cached_embeddinggemma_path,
-    )
 
 
 def _run_pinned_setup(

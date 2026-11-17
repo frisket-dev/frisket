@@ -7,9 +7,7 @@ inside the optional worker environment.
 
 from __future__ import annotations
 
-import contextlib
 import math
-import sys
 import warnings
 from pathlib import Path
 from typing import Any
@@ -22,7 +20,7 @@ from frisket.engine._workers.embeddinggemma_model import (
     TORCHVISION_VERSION,
     TRANSFORMERS_VERSION,
 )
-from frisket.engine._workers.framing import FrameCodec
+from frisket.engine._workers.framing import FrameCodec, WorkerExit, serve
 from frisket.retrieval.encoding import (
     EMBEDDINGGEMMA2_AUDIO_SAMPLE_RATE,
     EMBEDDINGGEMMA2_CONTEXT_TOKENS,
@@ -372,86 +370,78 @@ def _encode_request(frame: dict[str, Any]) -> dict[str, Any]:
     return frame
 
 
-def framed_main() -> int:
-    source, sink = sys.stdin.buffer, sys.stdout.buffer
-    with contextlib.redirect_stdout(sys.stderr):
-        try:
-            first = CODEC.read_frame(source)
-            if first is None:
-                return 1
-            snapshot, staging_root = _init(first)
-            runtime = EmbeddingGemma2Runtime(snapshot)
-        except Exception:
-            CODEC.write_frame(
-                sink,
-                {
-                    "schema_version": SCHEMA_VERSION,
-                    "type": "error",
-                    "code": "model_unavailable",
-                    "message": (
-                        "EmbeddingGemma 2 could not load. Prepare the pinned local "
-                        "model and runtime, then retry."
-                    ),
-                },
-            )
-            return 1
-        CODEC.write_frame(
-            sink,
+def _load(frame: dict[str, Any]) -> tuple[EmbeddingGemma2Runtime, Path]:
+    try:
+        snapshot, staging_root = _init(frame)
+        return EmbeddingGemma2Runtime(snapshot), staging_root
+    except Exception:
+        raise WorkerExit(
             {
                 "schema_version": SCHEMA_VERSION,
-                "type": "ready",
-                "model_revision": MODEL_REVISION,
-                "preprocessing_base_id": EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID,
-            },
+                "type": "error",
+                "code": "model_unavailable",
+                "message": (
+                    "EmbeddingGemma 2 could not load. Prepare the pinned local "
+                    "model and runtime, then retry."
+                ),
+            }
+        ) from None
+
+
+def _encode(
+    state: tuple[EmbeddingGemma2Runtime, Path], frame: dict[str, Any]
+) -> dict[str, Any]:
+    runtime, staging_root = state
+    try:
+        request = _encode_request(frame)
+        vectors = runtime.encode(
+            request["items"],
+            purpose=request["purpose"],
+            dimensions=request["dimensions"],
+            staging_root=staging_root,
+            image_soft_tokens=request["image_soft_tokens"],
+            video_soft_tokens_per_frame=request["video_soft_tokens_per_frame"],
         )
-        while (frame := CODEC.read_frame(source)) is not None:
-            if frame == {"schema_version": SCHEMA_VERSION, "type": "close"}:
-                return 0
-            try:
-                request = _encode_request(frame)
-                vectors = runtime.encode(
-                    request["items"],
-                    purpose=request["purpose"],
-                    dimensions=request["dimensions"],
-                    staging_root=staging_root,
-                    image_soft_tokens=request["image_soft_tokens"],
-                    video_soft_tokens_per_frame=request["video_soft_tokens_per_frame"],
-                )
-            except WorkerProtocolError:
-                CODEC.write_frame(
-                    sink,
-                    {
-                        "schema_version": SCHEMA_VERSION,
-                        "type": "error",
-                        "code": "invalid_input",
-                        "message": "The local embedding input is invalid.",
-                    },
-                )
-            except Exception:
-                CODEC.write_frame(
-                    sink,
-                    {
-                        "schema_version": SCHEMA_VERSION,
-                        "type": "error",
-                        "code": "encoding_failed",
-                        "message": (
-                            "EmbeddingGemma 2 could not encode this batch. Retry or "
-                            "check available memory."
-                        ),
-                    },
-                )
-                return 1
-            else:
-                CODEC.write_frame(
-                    sink,
-                    {
-                        "schema_version": SCHEMA_VERSION,
-                        "type": "result",
-                        "model_revision": MODEL_REVISION,
-                        "vectors": vectors,
-                    },
-                )
-    return 0
+    except WorkerProtocolError:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "type": "error",
+            "code": "invalid_input",
+            "message": "The local embedding input is invalid.",
+        }
+    except Exception:
+        raise WorkerExit(
+            {
+                "schema_version": SCHEMA_VERSION,
+                "type": "error",
+                "code": "encoding_failed",
+                "message": (
+                    "EmbeddingGemma 2 could not encode this batch. Retry or "
+                    "check available memory."
+                ),
+            }
+        ) from None
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "type": "result",
+        "model_revision": MODEL_REVISION,
+        "vectors": vectors,
+    }
+
+
+def framed_main() -> int:
+    return serve(
+        CODEC,
+        load=_load,
+        handle=_encode,
+        ready={
+            "schema_version": SCHEMA_VERSION,
+            "type": "ready",
+            "model_revision": MODEL_REVISION,
+            "preprocessing_base_id": EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID,
+        },
+        close={"schema_version": SCHEMA_VERSION, "type": "close"},
+    )
 
 
 __all__ = [

@@ -15,6 +15,7 @@ import sqlite3
 from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
+from frisket.engine.store.transactions import write_transaction
 
 
 class ImportInventory:
@@ -116,8 +117,7 @@ class ImportInventory:
 
         first = last = 0
         count = total_bytes = 0
-        self._db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(self._db):
             if self.sealed:
                 raise RuntimeError("import inventory is sealed")
             for item in items:
@@ -146,11 +146,6 @@ class ImportInventory:
                     """,
                     (count, total_bytes, last),
                 )
-        except BaseException:
-            self._db.rollback()
-            raise
-        else:
-            self._db.commit()
         return first, last
 
     def seal(self) -> None:
@@ -168,8 +163,7 @@ class ImportInventory:
         Exact batch markers live in ``inventory_batches`` and are untouched.
         """
 
-        self._db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(self._db):
             if not self.sealed:
                 raise RuntimeError("only a sealed import inventory can be compacted")
             self._db.execute("DROP TABLE inventory_items")
@@ -190,10 +184,6 @@ class ImportInventory:
                 "BEFORE DELETE ON inventory_items BEGIN "
                 "SELECT RAISE(ABORT, 'inventory records are immutable'); END"
             )
-            self._db.commit()
-        except BaseException:
-            self._db.rollback()
-            raise
         self._db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         self._db.execute("VACUUM")
 

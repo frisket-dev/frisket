@@ -6,6 +6,7 @@ import json
 import sqlite3
 from collections.abc import Mapping
 from typing import Any
+from .transactions import require_transaction
 
 
 DESCRIPTOR_FIELDS = {
@@ -29,8 +30,7 @@ def record_descriptor_changes(
     db: sqlite3.Connection, op_id: int, info: Mapping[str, Any]
 ) -> None:
     """Index existing before/after facts inside the mutation transaction."""
-    if not db.in_transaction:
-        raise RuntimeError("descriptor changes require a caller-owned transaction")
+    require_transaction(db, "descriptor change")
     for property_name, field in DESCRIPTOR_FIELDS.items():
         before = info.get(field, {})
         for column_id in info.get(f"{field}_after", {}):
@@ -88,8 +88,7 @@ def descriptor_identity(db_or_project: Any, column_id: int) -> dict[str, Any] | 
 
 def project_column_descriptors(db: sqlite3.Connection, column_ids) -> None:
     """Project effective descriptor fields without overwriting later Changes."""
-    if not db.in_transaction:
-        raise RuntimeError("descriptor projection requires a caller-owned transaction")
+    require_transaction(db, "descriptor projection")
     for column_id in set(column_ids):
         for field, value, _owner in _effective_properties(db, int(column_id)):
             # Field names come exclusively from DESCRIPTOR_FIELDS.

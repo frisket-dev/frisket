@@ -16,6 +16,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
+from frisket.engine.store.transactions import write_transaction
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance for annotations
     from frisket.engine.store.project import Project
@@ -411,11 +412,7 @@ def ensure_media_timeline(
     # then serialize two valid INSERTs because timeline equivalence is broader
     # than any existing SQL uniqueness constraint.  Callers that already own a
     # transaction retain ownership: this helper never commits or rolls it back.
-    owns_transaction = not project.db.in_transaction
-    try:
-        if owns_transaction:
-            project.db.execute("BEGIN IMMEDIATE")
-
+    with write_transaction(project.db, commit=not project.db.in_transaction):
         blob = project.db.execute(
             "SELECT hash, filename, mime FROM blobs WHERE hash=?", (blob_hash,)
         ).fetchone()
@@ -453,13 +450,7 @@ def ensure_media_timeline(
             )
             anchor = resolve_artifact_timeline(project, int(created["id"]))
 
-        if owns_transaction:
-            project.db.commit()
         return anchor
-    except BaseException:
-        if owns_transaction:
-            project.db.rollback()
-        raise
 
 
 def ensure_transcript_timeline(
@@ -711,10 +702,7 @@ def write_rate1_timeline_segment(
     ):
         raise TimelineError("invalid_temporal_value", "receipt_id must be nonempty")
 
-    owns_transaction = not project.db.in_transaction
-    try:
-        if owns_transaction:
-            project.db.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db, commit=not project.db.in_transaction):
         derived = _artifact(project, derived_id)
         source = _artifact(project, source_id)
         derived_duration = _artifact_duration(derived)
@@ -774,13 +762,7 @@ def write_rate1_timeline_segment(
         )
         _validate_v1_segment(project, segment)
         resolve_artifact_timeline(project, derived_id)
-        if owns_transaction:
-            project.db.commit()
         return segment
-    except BaseException:
-        if owns_transaction:
-            project.db.rollback()
-        raise
 
 
 def timeline_path_to_root(

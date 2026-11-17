@@ -12,6 +12,7 @@ from collections.abc import Iterable
 from contextlib import contextmanager
 from itertools import islice
 from typing import Any
+from frisket.engine.store.transactions import write_transaction
 
 PURGE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS project_purges (
@@ -133,8 +134,7 @@ def begin_purge(
     }
     if not any(choices.values()):
         raise ValueError("Select at least one sheet, column or row")
-    db.execute("BEGIN IMMEDIATE")
-    try:
+    with write_transaction(db):
         require_no_pending_purge(db)
         purge = int(db.execute("INSERT INTO project_purges DEFAULT VALUES").lastrowid)
         p = {"purge": purge}
@@ -287,11 +287,7 @@ def begin_purge(
             p,
         )
         db.execute(f"UPDATE sheets SET hidden=1 WHERE id IN ({_targets('sheet')})", p)
-        db.commit()
         return purge
-    except BaseException:
-        db.rollback()
-        raise
 
 
 def _effect_scope():
@@ -307,8 +303,7 @@ def _delete_batches(db, table, predicate, parameters, *, batch_size, project=Non
     ]
     key = "(" + ",".join(keys) + ")" if len(keys) > 1 else keys[0] if keys else "rowid"
     while True:
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             trigger = None
             if table == "run_output_generations":
                 _require_maintenance(project)
@@ -346,10 +341,6 @@ def _delete_batches(db, table, predicate, parameters, *, batch_size, project=Non
                 ).rowcount
             if trigger:
                 db.execute(trigger[0])
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         if changed < batch_size:
             break
 
@@ -415,13 +406,8 @@ def _scrub_content(project, p, batch_size):
     from .project_qa_retention import purge_qa_content
 
     while True:
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             changed = purge_qa_content(db, p["purge"], limit=batch_size)
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         if not changed:
             break
     cell = _scope(column="column_id", row="row_id")
@@ -505,8 +491,7 @@ def _scrub_content(project, p, batch_size):
         ]
         if not ids:
             break
-        with db:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             purge_baseline_columns(db, ids)
         cursor = ids[-1]
     _purge_captures(db, p, batch_size)
@@ -818,8 +803,7 @@ def _purge_retrieval(project, p):
             if not keys:
                 break
             placeholders = ",".join("?" for _ in keys)
-            db.execute("BEGIN IMMEDIATE")
-            try:
+            with write_transaction(db):
                 db.execute(
                     f"DELETE FROM lexical_fts WHERE rowid IN (SELECT rowid FROM lexical_sources WHERE source_key IN ({placeholders}))",
                     keys,
@@ -831,10 +815,6 @@ def _purge_retrieval(project, p):
                 db.execute(
                     f"DELETE FROM sources WHERE source_key IN ({placeholders})", keys
                 )
-                db.commit()
-            except BaseException:
-                db.rollback()
-                raise
         _delete_batches(
             db,
             "representations",
@@ -871,8 +851,7 @@ def _purge_citation_snapshots(db, p, batch_size):
         f"SELECT json_extract(metadata,'$.captured_text_hash') FROM source_artifacts WHERE id IN ({_targets('artifact')})) LIMIT :batch",
         {**p, "batch": batch_size},
     ).fetchall():
-        with db:
-            db.execute("BEGIN IMMEDIATE")
+        with write_transaction(db):
             trigger = db.execute(
                 "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='trg_citation_texts_no_delete'"
             ).fetchone()
@@ -896,8 +875,7 @@ def _purge_text_surface_payloads(db, p, batch_size):
         ]
         if not ids:
             return
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             trigger = db.execute(
                 "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='trg_text_surfaces_no_update'"
             ).fetchone()
@@ -909,10 +887,6 @@ def _purge_text_surface_payloads(db, p, batch_size):
             )
             if trigger:
                 db.execute(trigger[0])
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         cursor = ids[-1]
 
 
@@ -928,8 +902,7 @@ def _delete_copied_results(db, p, *, project, batch_size):
         ).fetchall()
         if not rows:
             return
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db):
             for row in rows:
                 db.execute(
                     "DELETE FROM copied_result_outcomes WHERE op_id=? AND row_id=? AND column_id=?",
@@ -954,10 +927,6 @@ def _delete_copied_results(db, p, *, project, batch_size):
                             "WHERE target.kind='column' AND target.object_id=results.column_id))",
                             source_key,
                         )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
 
 
 def _purge_captures(db, p, batch_size):
@@ -980,8 +949,7 @@ def _purge_captures(db, p, batch_size):
             if not ids:
                 break
             while True:
-                db.execute("BEGIN IMMEDIATE")
-                try:
+                with write_transaction(db):
                     runs, changed = purge_consumed_sources(
                         db, **{argument: ids}, limit=min(batch_size, 500)
                     )
@@ -989,10 +957,6 @@ def _purge_captures(db, p, batch_size):
                         "INSERT OR IGNORE INTO project_purge_targets(kind,object_id,purge_id) VALUES ('run',?,?)",
                         ((run, p["purge"]) for run in runs),
                     )
-                    db.commit()
-                except BaseException:
-                    db.rollback()
-                    raise
                 if changed == 0:
                     break
             cursor = ids[-1]

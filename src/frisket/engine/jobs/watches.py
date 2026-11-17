@@ -79,25 +79,6 @@ def _watch_eval_dedupe_key(watch_id: int, trigger_ref: dict[str, Any] | None) ->
     return f"watch:{watch_id}:eval:{tag}"
 
 
-def _eval_already_pending(
-    queue: JobQueue,
-    project_id: str,
-    dedupe_key: str,
-    *,
-    storage_org_id: int | None,
-) -> bool:
-    return (
-        queue.find_job_by_refs(
-            WATCH_EVALUATE_KIND,
-            statuses=("queued", "running"),
-            project_id=project_id,
-            storage_org_id=storage_org_id,
-            dedupe_key=dedupe_key,
-        )
-        is not None
-    )
-
-
 def enqueue_due_watch_evaluations(
     *,
     workspace_root: str | Path,
@@ -214,11 +195,14 @@ def enqueue_index_watch_evaluations(
     for watch in find_embedding_similarity_watches(project, index_id):
         watch_id = int(watch["id"])
         dedupe_key = _watch_eval_dedupe_key(watch_id, trigger_ref)
-        if _eval_already_pending(
-            queue,
-            project_id,
-            dedupe_key,
-            storage_org_id=storage_org_id,
+        if (
+            queue.find_job_by_refs(
+                WATCH_EVALUATE_KIND,
+                project_id=project_id,
+                storage_org_id=storage_org_id,
+                dedupe_key=dedupe_key,
+            )
+            is not None
         ):
             continue
         job_ids.append(
@@ -257,8 +241,14 @@ def enqueue_keyword_watch_evaluations(
     for watch in watches:
         watch_id = int(watch["id"])
         dedupe_key = _watch_eval_dedupe_key(watch_id, trigger_ref)
-        if _eval_already_pending(
-            queue, project_id, dedupe_key, storage_org_id=storage_org_id
+        if (
+            queue.find_job_by_refs(
+                WATCH_EVALUATE_KIND,
+                project_id=project_id,
+                storage_org_id=storage_org_id,
+                dedupe_key=dedupe_key,
+            )
+            is not None
         ):
             continue
         job_ids.append(

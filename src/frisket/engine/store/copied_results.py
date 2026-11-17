@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 import sqlite3
+from .transactions import require_transaction
 
 COPIED_RESULTS_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS copied_result_outcomes (
@@ -63,8 +64,7 @@ def combined_execution_outcomes(
     from .execution_groups import execution_runs
 
     db = project.db
-    if not db.in_transaction:
-        raise RuntimeError("saved-result copying requires a caller transaction")
+    require_transaction(db, "saved-result copying")
     root, group = execution_runs(project, source_run_id)
     source = db.execute(
         "SELECT runs.sheet_id FROM runs JOIN sheets ON sheets.id=runs.sheet_id "
@@ -152,8 +152,7 @@ def copy_staged_outcomes(
     from .current_cells import refresh_current_cells
     from .purge import require_publication_targets
 
-    if not db.in_transaction:
-        raise RuntimeError("saved-result publication requires a caller transaction")
+    require_transaction(db, "saved-result publication")
     ChangeStore(SimpleNamespace(db=db)).require_publication(op_id)
     require_publication_targets(
         db,

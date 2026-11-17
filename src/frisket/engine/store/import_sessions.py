@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from statemachine import State, StateMachine
 from statemachine.exceptions import TransitionNotAllowed
+from .transactions import require_transaction, write_transaction
 
 
 class ImportLifecycle(StateMachine):
@@ -117,8 +118,7 @@ class ImportSessionStore:
     ) -> ImportSession:
         if not authority:
             raise ValueError("writer authority must be non-empty")
-        self.db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(self.db):
             session = self.get(session_id)
             if session is None or session.cursor != int(expected_cursor):
                 raise ImportSessionConflict("import session cannot be resumed")
@@ -131,10 +131,6 @@ class ImportSessionStore:
             )
             if updated.rowcount != 1:
                 raise ImportSessionConflict("import session cannot be resumed")
-            self.db.commit()
-        except BaseException:
-            self.db.rollback()
-            raise
         session = self.get(session_id)
         if session is None:  # pragma: no cover - protected by the update above
             raise ImportSessionConflict("import session disappeared")
@@ -173,8 +169,7 @@ class ImportSessionStore:
 
     def _transition(self, session: ImportSession, event: str) -> ImportSession:
         """Named graph plus SQL fencing inside the owner's effects transaction."""
-        if not self.db.in_transaction:
-            raise RuntimeError("Import transitions require a caller-owned transaction")
+        require_transaction(self.db, "Import transition")
         machine = ImportLifecycle(start_value=session.state)
         try:
             machine.send(event)
@@ -238,16 +233,11 @@ class ImportSessionStore:
         expected_cursor: int,
         event: Literal["pause", "cancel"],
     ) -> ImportSession:
-        self.db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(self.db):
             session = self.require_writer(
                 session_id, authority, expected_cursor, states=("active", "paused")
             )
             self._transition(session, event)
-            self.db.commit()
-        except BaseException:
-            self.db.rollback()
-            raise
         session = self.get(session_id)
         if session is None:  # pragma: no cover
             raise ImportSessionConflict("import session disappeared")

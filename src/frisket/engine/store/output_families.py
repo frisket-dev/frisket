@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from frisket.authoring import column_types
+from frisket.engine.store.transactions import write_transaction
 
 
 class OutputFamilyStore:
@@ -48,11 +49,7 @@ class OutputFamilyStore:
             if not column_types.is_registered(column_type):
                 raise ValueError(f"unknown column type: {column_type}")
 
-        owns_transaction = not self.db.in_transaction
-        try:
-            if owns_transaction:
-                self.db.execute("BEGIN IMMEDIATE")
-
+        with write_transaction(self.db, commit=not self.db.in_transaction):
             placeholders = ",".join("?" for _ in names)
             existing_rows = (
                 self.db.execute(
@@ -84,8 +81,6 @@ class OutputFamilyStore:
                             "output columns are not an exact reusable generated family"
                         )
                     output_ids[name] = int(row["id"])
-                if owns_transaction:
-                    self.db.commit()
                 return output_ids, []
 
             position_row = self.db.execute(
@@ -123,10 +118,4 @@ class OutputFamilyStore:
                 output_ids[name] = column_id
                 created.append(column_id)
 
-            if owns_transaction:
-                self.db.commit()
             return output_ids, created
-        except BaseException:
-            if owns_transaction and self.db.in_transaction:
-                self.db.rollback()
-            raise

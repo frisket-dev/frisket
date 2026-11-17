@@ -11,6 +11,7 @@ import sqlite3
 from typing import Any
 
 from statemachine import State, StateMachine
+from .transactions import require_transaction
 
 
 class ChangePublicationClosed(ValueError):
@@ -29,8 +30,7 @@ class ChangeLifecycle(StateMachine):
 
 def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -> int:
     """Allocate the order at the first actual mutation, never at admission."""
-    if not db.in_transaction:
-        raise RuntimeError("Change commands require a caller-owned transaction")
+    require_transaction(db, "Change command")
     floor = db.execute(
         "SELECT value FROM meta WHERE key='domain_history_floor'"
     ).fetchone()
@@ -77,8 +77,7 @@ def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -
 
 def close_change(db: sqlite3.Connection, op_id: int) -> None:
     """Close one Change inside the caller's transaction."""
-    if not db.in_transaction:
-        raise RuntimeError("Change commands require a caller-owned transaction")
+    require_transaction(db, "Change command")
     row = db.execute(
         "SELECT status,publication_closed FROM ops WHERE id=?", (op_id,)
     ).fetchone()
@@ -118,8 +117,7 @@ class ChangeStore:
             raise ChangePublicationClosed(f"Change {op_id} publication is closed")
 
     def _transition(self, op_id: int, event: str) -> None:
-        if not self.db.in_transaction:
-            raise RuntimeError("Change commands require a caller-owned transaction")
+        require_transaction(self.db, "Change command")
         row = self.db.execute(
             "SELECT status,publication_closed FROM ops WHERE id=?", (op_id,)
         ).fetchone()

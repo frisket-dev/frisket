@@ -7,6 +7,7 @@ from collections.abc import Collection
 
 from .current_cells import stamp_retrieval_revision
 from .search_index_work import enqueue_dirty_scope, latest_revision
+from .transactions import require_transaction
 
 RETRIEVAL_EVIDENCE_LINK_ROLES = frozenset(
     {
@@ -107,8 +108,7 @@ def touch_binding_revisions(
     writers receive the same treatment as part of current-cell refresh.
     """
 
-    if not db.in_transaction:
-        raise RuntimeError("binding revision writes require a caller transaction")
+    require_transaction(db, "binding revision write")
     requested = _pairs(pairs)
     if not requested:
         return 0

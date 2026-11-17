@@ -841,14 +841,18 @@ class TestUndoIntegration:
 
 
 class TestCodexFinalReviewRegressions:
+    @pytest.mark.parametrize("overwrite", [False, True])
     def test_output_name_collision_with_source_column_rejected(
-        self, project, tmp_path, monkeypatch
+        self, project, tmp_path, monkeypatch, overwrite
     ):
-        """A regression: AI output must not silently shadow source data."""
+        """AI output must never take over a source column, even when the
+        caller declares an overwrite intent."""
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
         sheet, _ = seed_sheet(project, ["a"])
         spec = classify_spec(sheet)
         spec["params"]["fields"] = [{"name": "text", "type": "score"}]  # collides!
+        if overwrite:
+            spec["overwrite"] = True
         router = ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
         )
@@ -867,6 +871,17 @@ class TestCodexFinalReviewRegressions:
                     confirmed=True,
                 )
             )
+        column = project.db.execute(
+            "SELECT id, ai_generated FROM columns WHERE sheet_id=? AND name='text'",
+            (sheet,),
+        ).fetchone()
+        assert not column["ai_generated"]
+        assert [
+            row[0]
+            for row in project.db.execute(
+                "SELECT value FROM cells WHERE column_id=?", (column["id"],)
+            )
+        ] == ["a"]
 
     def test_cached_responses_not_billed(self, project, tmp_path):
         """A regression: cache hits cost the provider nothing; bill zero."""

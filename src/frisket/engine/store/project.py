@@ -63,6 +63,7 @@ from .blob_backend import (
     FilesystemProjectBlobStore,
     ProjectBlobStore,
 )
+from .transactions import write_transaction
 
 
 class _ThreadConnection:
@@ -395,18 +396,8 @@ class Project:
         """
 
         db = self.db
-        owns_transaction = not db.in_transaction
-        if owns_transaction:
-            db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db, commit=not db.in_transaction):
             yield
-        except Exception:
-            if owns_transaction and db.in_transaction:
-                db.rollback()
-            raise
-        else:
-            if owns_transaction:
-                db.commit()
 
     @property
     def storage_identity(self) -> str:

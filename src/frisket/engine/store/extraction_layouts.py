@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from frisket.engine.store.transactions import write_transaction
 
 EXTRACTION_LAYOUTS_SCHEMA_SQL = """
 -- EXTRACTION_LAYOUTS_BEGIN
@@ -153,8 +154,7 @@ def save_layout(
         raise ValueError("Reference document is not in the source sheet")
     db = project.db
     creating = layout_id is None
-    db.execute("BEGIN IMMEDIATE")
-    try:
+    with write_transaction(db):
         if imported_recipe_id is not None:
             existing = db.execute(
                 "SELECT id FROM extraction_layouts WHERE imported_recipe_id=?",
@@ -203,10 +203,6 @@ def save_layout(
                 layout_id=layout_id,
                 commit=False,
             )
-        db.commit()
-    except BaseException:
-        db.rollback()
-        raise
     return get_layout(project, layout_id)
 
 

@@ -14,6 +14,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+from .transactions import require_transaction
 
 UpdatePolicy = Literal["keep_changes", "incoming_wins"]
 
@@ -198,8 +199,7 @@ class ValidatedKeyedInput:
 def require_relationship(
     db: sqlite3.Connection, *, relationship_id: str, sheet_id: int, key_definition: Any
 ) -> None:
-    if not db.in_transaction:
-        raise RuntimeError("keyed update requires a caller transaction")
+    require_transaction(db, "keyed update")
     definition = canonical(key_definition)
     db.execute(
         "INSERT INTO keyed_relationships(id,sheet_id,key_definition) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING",
@@ -344,8 +344,7 @@ def observe(
 
 def purge_baseline_columns(db: sqlite3.Connection, column_ids: Sequence[int]) -> None:
     """Remove only purged baseline fields; a purged key retires its relationship."""
-    if not db.in_transaction:
-        raise RuntimeError("baseline purge requires a caller transaction")
+    require_transaction(db, "baseline purge")
     columns = sorted(set(int(column) for column in column_ids))
     for start in range(0, len(columns), 100):
         batch = columns[start : start + 100]

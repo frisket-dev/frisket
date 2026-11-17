@@ -24,15 +24,15 @@ from .parakeet_artifacts import (
     ParakeetArtifacts,
     resolve_parakeet_artifacts,
 )
+from .framing import encode_frame as _encode_frame
+from .framing import reject_constant as _reject_constant
 from .session_base import duration_ms as _duration_ms
-from .session_base import encode_frame as _encode_frame
 from .session_base import finite_number as _finite_number
 from .session_base import never_cancel as _never_cancel
 from .session_base import (  # noqa: F401  (re-exported for the session tests)
     parse_proc_status_memory as _parse_proc_status_memory,
 )
 from .session_base import read_linux_peak_memory as _read_linux_peak_memory
-from .session_base import reject_constant as _reject_constant
 
 logger = logging.getLogger(__name__)
 

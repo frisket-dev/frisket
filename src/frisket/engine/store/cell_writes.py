@@ -27,6 +27,7 @@ from .import_sessions import (
     require_import_sheet_write,
 )
 from .value_codec import SQLiteValue, encode_stored_value
+from .transactions import require_transaction
 
 
 @dataclass(frozen=True)
@@ -41,11 +42,6 @@ class EditCellWrite:
     row_id: int
     column_id: int
     value: Any
-
-
-def _require_transaction(db: sqlite3.Connection) -> None:
-    if not db.in_transaction:
-        raise RuntimeError("cell writes require a caller transaction")
 
 
 def _require_applied_op(db: sqlite3.Connection, op_id: int) -> None:
@@ -90,7 +86,7 @@ def create_base_cell_producer(
     publication.
     """
 
-    _require_transaction(db)
+    require_transaction(db, "cell write")
     if not isinstance(stage_id, str) or not stage_id.strip():
         raise ValueError("base-cell producer stage_id must be non-empty")
     if op_id is not None:
@@ -140,7 +136,7 @@ def bind_base_cell_producer(
 ) -> None:
     """Bind a pending producer once; same-operation replay is idempotent."""
 
-    _require_transaction(db)
+    require_transaction(db, "cell write")
     producer_id = int(producer_id)
     op_id = int(op_id)
     _require_applied_op(db, op_id)
@@ -179,7 +175,7 @@ def discard_pending_base_cell_producer(
 ) -> None:
     """Remove an unbound, now-unreferenced producer during staging abort."""
 
-    _require_transaction(db)
+    require_transaction(db, "cell write")
     producer_id = int(producer_id)
     row = db.execute(
         "SELECT op_id FROM base_cell_producers WHERE id=?", (producer_id,)
@@ -326,7 +322,7 @@ def initialize_base_cells(
 ) -> int:
     """Initialize absent base cells, refusing accidental overwrite."""
 
-    _require_transaction(db)
+    require_transaction(db, "cell write")
     producer_id = int(producer_id)
     producing_op_id = _require_base_producer(db, producer_id, allow_pending=True)
     encoded = _encode_base_cells(cells)
@@ -379,7 +375,7 @@ def remove_base_cells(
 ) -> int:
     """Remove a deliberate base-cell region and refresh its visible winners."""
 
-    _require_transaction(db)
+    require_transaction(db, "cell write")
     producing_op_id = _require_base_producer(db, int(producer_id))
     columns = sorted({int(column_id) for column_id in column_ids})
     rows = None if row_ids is None else sorted({int(row_id) for row_id in row_ids})
@@ -427,7 +423,7 @@ def replace_base_cells(
 ) -> int:
     """Version a declared cell region; explicit updates can retain omitted cells."""
 
-    _require_transaction(db)
+    require_transaction(db, "cell write")
     producer_id = int(producer_id)
     producing_op_id = _require_base_producer(db, producer_id)
     columns = sorted({int(column_id) for column_id in column_ids})
@@ -510,7 +506,7 @@ def insert_edits(
     the Change after its final related write.
     """
 
-    _require_transaction(db)
+    require_transaction(db, "cell write")
     op_id = int(op_id)
     _require_applied_op(db, op_id)
     encoded = []

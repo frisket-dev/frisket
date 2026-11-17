@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from .transactions import require_transaction
 
 
 def close_run_change(project: Any, run_id: int) -> None:
@@ -14,8 +15,7 @@ def close_run_change(project: Any, run_id: int) -> None:
     """
 
     db = project.db
-    if not db.in_transaction:
-        raise RuntimeError("run Change closure requires a caller-owned transaction")
+    require_transaction(db, "run Change closure")
     run = db.execute("SELECT op_id FROM runs WHERE id=?", (int(run_id),)).fetchone()
     if run is None:
         raise ValueError(f"unknown run {int(run_id)}")
