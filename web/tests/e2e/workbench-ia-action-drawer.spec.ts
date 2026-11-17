@@ -183,8 +183,10 @@ test('Run auto-closes the drawer once the run starts; the job appears in the Mon
   await sourcePicker.click();
   await expect(page.getByTestId('text-source-columns-menu')
     .getByRole('option', { name: /rendered/ })).toBeVisible();
-  // Default stays the first non-AI column rather than silently selecting the
-  // newly generated result.
+  // A new multi-column request starts with no source chosen; offering the
+  // generated column never selects it.
+  await expect(sourcePicker.getByRole('button', { name: /^Remove / })).toHaveCount(0);
+  await page.getByTestId('text-source-columns-menu').getByRole('option', { name: /story/ }).click();
   await expect(sourcePicker.getByRole('button', { name: 'Remove story' })).toBeVisible();
   await expect(sourcePicker.getByRole('button', { name: 'Remove rendered' })).toHaveCount(0);
 });
