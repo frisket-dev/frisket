@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from collections.abc import Callable
@@ -16,7 +15,12 @@ from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
     SourcePollResult,
+    config_positive_int,
+    free_listing_result,
+    hash_json,
+    iso_timestamp,
     register_source_poller,
+    text_hash,
 )
 
 API_LIST_DICTS_KIND = "api_list_dicts"
@@ -121,7 +125,7 @@ class ApiListDictsPoller:
             raise ValueError(error)
         assert config is not None
 
-        fetched_at = _iso_timestamp(self._now())
+        fetched_at = iso_timestamp(self._now())
         try:
             response = self._http_get(config.url, max_bytes=config.max_bytes)
         except Exception as exc:  # noqa: BLE001 - source.poll records provider errors
@@ -181,10 +185,10 @@ class ApiListDictsPoller:
             items.append(item)
             source_item_ids.append(item.stable_item_id())
 
-        cursor_after = {
+        shared = {
             "schema_version": API_LIST_DICTS_CURSOR_SCHEMA,
             "source_kind": API_LIST_DICTS_KIND,
-            "url_hash": _text_hash(config.url),
+            "url_hash": text_hash(config.url),
             "url_host": _url_host(config.url),
             "list_path": config.list_path,
             "item_id_path": config.item_id_path,
@@ -193,54 +197,37 @@ class ApiListDictsPoller:
             "items_seen": len(records),
             "items_materialized": len(items),
             "record_keys": record_keys,
-            "source_item_ids_hash": _hash_json(sorted(source_item_ids)),
             "max_bytes": config.max_bytes,
             "max_items": config.max_items,
             "truncated": truncated,
-            "warning_count": len(warnings),
             "pages_fetched": 1,
         }
-        provider_use = [
-            {
+        return free_listing_result(
+            items,
+            warnings,
+            cursor={
+                **shared,
+                "source_item_ids_hash": hash_json(sorted(source_item_ids)),
+            },
+            summary=shared,
+            provider_use={
                 "provider": "http",
                 "service": "https_get",
-                "source_kind": API_LIST_DICTS_KIND,
-                "url_hash": _text_hash(config.url),
-                "url_host": _url_host(config.url),
                 "status_code": response.status_code,
-                "response_bytes": response_bytes,
-                "items_seen": len(records),
-                "items_materialized": len(items),
-                "max_bytes": config.max_bytes,
-                "max_items": config.max_items,
-                "pages_fetched": 1,
-                "external_api": True,
-                "cost_actual": 0.0,
-            }
-        ]
-        return SourcePollResult(
-            items=items,
-            cursor_after=cursor_after,
-            warnings=warnings,
-            provider_use=provider_use,
-            cost={"cost_micro": 0},
-            summary={
-                "schema_version": API_LIST_DICTS_CURSOR_SCHEMA,
-                "source_kind": API_LIST_DICTS_KIND,
-                "url_hash": _text_hash(config.url),
-                "url_host": _url_host(config.url),
-                "list_path": config.list_path,
-                "item_id_path": config.item_id_path,
-                "updated_at_path": config.updated_at_path,
-                "items_seen": len(records),
-                "items_materialized": len(items),
-                "record_keys": record_keys,
-                "response_bytes": response_bytes,
-                "max_bytes": config.max_bytes,
-                "max_items": config.max_items,
-                "truncated": truncated,
-                "warnings": len(warnings),
-                "pages_fetched": 1,
+                **{
+                    key: shared[key]
+                    for key in (
+                        "source_kind",
+                        "url_hash",
+                        "url_host",
+                        "response_bytes",
+                        "items_seen",
+                        "items_materialized",
+                        "max_bytes",
+                        "max_items",
+                        "pages_fetched",
+                    )
+                },
             },
         )
 
@@ -352,17 +339,19 @@ def _resolve_config(
     if updated_path_error:
         return None, updated_path_error
 
-    max_bytes, bytes_error = _config_positive_int(
+    max_bytes, bytes_error = config_positive_int(
         raw_config,
         "max_bytes",
+        source_kind=API_LIST_DICTS_KIND,
         default=DEFAULT_MAX_BYTES,
         maximum=None,
     )
     if bytes_error:
         return None, bytes_error
-    max_items, items_error = _config_positive_int(
+    max_items, items_error = config_positive_int(
         raw_config,
         "max_items",
+        source_kind=API_LIST_DICTS_KIND,
         default=DEFAULT_MAX_ITEMS,
         maximum=DEFAULT_MAX_ITEMS,
     )
@@ -436,23 +425,6 @@ def _validated_pointer(
     return text, None
 
 
-def _config_positive_int(
-    config: dict[str, Any],
-    field_name: str,
-    *,
-    default: int | None,
-    maximum: int | None,
-) -> tuple[int | None, str | None]:
-    value = config.get(field_name, default)
-    if value is None and default is None:
-        return None, None
-    if type(value) is not int or value <= 0:
-        return None, f"api_list_dicts {field_name} must be a positive integer"
-    if maximum is not None and value > maximum:
-        return None, f"api_list_dicts {field_name} must be <= {maximum}"
-    return int(value), None
-
-
 def _poll_item_from_record(
     raw: dict[str, Any],
     *,
@@ -464,7 +436,7 @@ def _poll_item_from_record(
     warnings: list[str] = []
     source_item_id = _record_source_item_id(raw, config.item_id_path)
     if source_item_id is None:
-        source_item_id = _hash_json(raw)
+        source_item_id = hash_json(raw)
         if config.item_id_path is not None:
             warnings.append(
                 "api_list_dicts item_id_path did not resolve to a scalar at "
@@ -480,7 +452,7 @@ def _poll_item_from_record(
         SourcePollItem(
             source_item_id=source_item_id,
             dedupe_key=source_item_id,
-            item_hash=_hash_json(raw),
+            item_hash=hash_json(raw),
             url=source_url,
             row=row,
             raw=raw,
@@ -532,20 +504,6 @@ def _resolve_pointer(value: Any, pointer: str | None) -> Any:
             continue
         return _MISSING
     return current
-
-
-def _iso_timestamp(value: datetime) -> str:
-    dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    return dt.astimezone(UTC).isoformat().replace("+00:00", "Z")
-
-
-def _hash_json(value: Any) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _text_hash(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _url_host(url: str) -> str | None:

@@ -6,9 +6,7 @@ thumbnail bytes; downstream media actions remain explicit user work.
 
 from __future__ import annotations
 
-import hashlib
 import importlib
-import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -27,7 +25,11 @@ from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
     SourcePollResult,
+    config_positive_int,
+    free_listing_result,
+    hash_json,
     register_source_poller,
+    text_hash,
 )
 from frisket.features.url_classification.matchers import host_matches_domain
 
@@ -188,61 +190,48 @@ class YouTubeCollectionPoller:
             maximum=config.max_pages_per_poll,
         )
         truncated = bool(truncated or listing.provider_facts.get("truncated"))
-        cursor_after = {
+        shared = {
             "schema_version": YOUTUBE_CURSOR_SCHEMA,
-            "provider": "youtube",
-            "source_kind": spec.kind,
             **identity,
             "items_seen": len(seen_video_ids),
-            "seen_video_ids_hash": _hash_json(sorted(seen_video_ids)),
             "newest_published_at": newest_published_at,
             "pages_fetched": pages_fetched,
             "max_pages_per_poll": config.max_pages_per_poll,
             "item_cap": config.item_cap,
             "truncated": truncated,
-            "warning_count": len(warnings),
         }
-        provider_use = [
-            {
+        return free_listing_result(
+            items,
+            warnings,
+            cursor={
+                **shared,
+                "provider": "youtube",
+                "source_kind": spec.kind,
+                "seen_video_ids_hash": hash_json(sorted(seen_video_ids)),
+            },
+            summary={
+                **shared,
+                spec.title_field: getattr(listing, spec.title_field),
+                "channel_title": listing.channel_title,
+                "items_materialized": len(items),
+            },
+            provider_use={
                 "provider": "youtube",
                 "service": str(listing.provider_facts.get("service") or "yt-dlp"),
                 "source_kind": spec.kind,
                 **identity,
-                f"{spec.noun}_url_hash": _text_hash(config.url),
+                f"{spec.noun}_url_hash": text_hash(config.url),
                 "items_returned": len(entries),
                 "items_materialized": len(items),
                 "pages_fetched": pages_fetched,
                 "max_pages_per_poll": config.max_pages_per_poll,
                 "item_cap": config.item_cap,
                 "download": False,
-                "external_api": True,
-                "cost_actual": 0.0,
                 **{
                     str(k): v
                     for k, v in listing.provider_facts.items()
                     if k not in {"service", "pages_fetched"}
                 },
-            }
-        ]
-        return SourcePollResult(
-            items=items,
-            cursor_after=cursor_after,
-            warnings=warnings,
-            provider_use=provider_use,
-            cost={"cost_micro": 0},
-            summary={
-                "schema_version": YOUTUBE_CURSOR_SCHEMA,
-                **identity,
-                spec.title_field: getattr(listing, spec.title_field),
-                "channel_title": listing.channel_title,
-                "items_seen": len(seen_video_ids),
-                "items_materialized": len(items),
-                "warnings": len(warnings),
-                "pages_fetched": pages_fetched,
-                "max_pages_per_poll": config.max_pages_per_poll,
-                "item_cap": config.item_cap,
-                "truncated": truncated,
-                "newest_published_at": newest_published_at,
             },
         )
 
@@ -516,7 +505,7 @@ def _resolve_config(
         return None, id_error
 
     assert identity is not None
-    max_pages, pages_error = _config_positive_int(
+    max_pages, pages_error = config_positive_int(
         config,
         "max_pages_per_poll",
         default=None,
@@ -525,7 +514,7 @@ def _resolve_config(
     )
     if pages_error:
         return None, pages_error
-    item_cap, cap_error = _config_positive_int(
+    item_cap, cap_error = config_positive_int(
         config,
         "max_items_per_poll",
         default=(None if max_pages is None else max_pages * DEFAULT_PAGE_SIZE),
@@ -608,24 +597,6 @@ def _channel_identity_from_value(value: Any) -> tuple[_Identity | None, str | No
     if _CHANNEL_ID_RE.fullmatch(text):
         return {"channel_id": text, "channel_handle": None}, None
     return None, "youtube_channel channel_id or @handle is invalid"
-
-
-def _config_positive_int(
-    config: dict[str, Any],
-    field_name: str,
-    *,
-    default: int | None,
-    maximum: int | None,
-    source_kind: str,
-) -> tuple[int | None, str | None]:
-    value = config.get(field_name, default)
-    if value is None and default is None:
-        return None, None
-    if type(value) is not int or value <= 0:
-        return None, f"{source_kind} {field_name} must be a positive integer"
-    if maximum is not None and value > maximum:
-        return None, f"{source_kind} {field_name} must be <= {maximum}"
-    return int(value), None
 
 
 def _poll_item_from_entry(
@@ -769,16 +740,7 @@ def _normalized_item_hash(row: dict[str, Any], media: list[dict[str, Any]]) -> s
         },
         "media": media,
     }
-    return _hash_json(payload)
-
-
-def _hash_json(value: Any) -> str:
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _text_hash(value: str) -> str:
-    return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return hash_json(payload)
 
 
 YOUTUBE_PLAYLIST = YouTubeCollectionKind(
