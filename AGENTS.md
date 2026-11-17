@@ -14,6 +14,10 @@ paid or external runs.
 - Worktrees: `scripts/dev/worktree.py create <name>` (then follow the
   commands it prints); land a PR with `scripts/dev/land.py <pr>`, never a
   chained `gh pr merge && git branch -D ...`.
+- Smells outside your task: record a likely code smell with
+  `python scripts/dev/smell.py add --file <path> [--symbol <name>] --kind <kind>
+  --note "<one sentence>"` instead of fixing it or writing it into a report;
+  one command per smell, no obligation to act (`--help` lists the kinds).
 - Web (from `web/`): `npx vitest run`; types: `npx tsc -b` (the root
   tsconfig uses project references; `tsc --noEmit` alone checks no files).
 - Lint: `ruff check src tests` and `ruff format --check src tests`,

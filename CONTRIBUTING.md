@@ -372,6 +372,21 @@ Parallel work happens in git worktrees that share the main checkout's
   squash-merge, confirmed MERGED, main checkout fast-forwarded, then the lane
   worktree and branches removed. `--dry-run` prints the plan.
 
+#### Smell reservoir
+
+`scripts/dev/smell.py add` is a cheap, append-only place to record a code smell
+noticed outside the task at hand, so it is neither fixed as a drive-by nor lost
+in a report: `--file`, optional `--symbol` and `--line`, `--kind`, and a
+one-line `--note` (240 characters at most). Kinds: `duplicate`, `dead`,
+`forwarder`, `loose-type`, `missing-guard`, `suspicious-behaviour`,
+`misleading-name`, `stale-comment`, `test-smell`, `other`. Recording the same
+file, symbol and kind again raises the entry's `seen` count rather than adding
+a second entry. `list`, `prune` and `resolve` (as `promoted`, `fixed` or
+`dismissed`) serve the periodic audit that triages the reservoir. The store is
+outside the repository and shared by all worktrees: `--store`, else
+`$FRISKET_SMELL_STORE`, else `~/.cache/frisket/smells/`; it holds one JSON file
+per entry, so pointing it at a private notes repository merges cleanly.
+
 ### Reviewing model and pricing updates
 
 Pricing refresh and model discovery are separate workflows. Both run on a
