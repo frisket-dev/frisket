@@ -154,8 +154,7 @@ export function useDocumentView(args: UseDocumentViewArgs) {
             }
           } catch (restartError) {
             if (restartGeneration === listGeneration.current) setList((prev) => prev.key === requestKey
-              ? { ...prev, loading: false, error: restartError instanceof Error
-                ? restartError.message : 'Could not load documents.' } : prev);
+              ? { ...prev, loading: false, error: errorMessage(restartError, 'Could not load documents.') } : prev);
           }
         } else {
           setList((prev) => prev.key === requestKey ? ({ ...prev, loading: false,

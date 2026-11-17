@@ -398,9 +398,7 @@ export function usePaletteSearch(
             return;
           } catch (recoveryError) {
             if (generation !== setupGeneration.current) return;
-            setSetupError(recoveryError instanceof Error
-              ? recoveryError.message
-              : String(recoveryError));
+            setSetupError(errorMessage(recoveryError));
             return;
           }
         }

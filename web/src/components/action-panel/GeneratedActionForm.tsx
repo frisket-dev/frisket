@@ -865,11 +865,9 @@ function GeneratedActionFormContents({
           if (!current) return;
           setResolvedIdentity(resolutionIdentity);
           setResolved(dynamicOutputs
-            ? { outputs: [], diagnostics: {}, problem: error instanceof Error
-                ? error.message : 'Could not resolve action outputs.' }
+            ? { outputs: [], diagnostics: {}, problem: errorMessage(error, 'Could not resolve action outputs.') }
             : { outputs: catalogEntry.ui_hints.logical_outputs, diagnostics: {},
-                problem: error instanceof Error
-                  ? error.message : 'Could not validate action parameters.' });
+                problem: errorMessage(error, 'Could not validate action parameters.') });
         });
     }, 150);
     return () => {
