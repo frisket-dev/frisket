@@ -23,7 +23,7 @@ export interface ChromeHandle {
   ): void;
 }
 
-export interface RouteProps {
+interface RouteProps {
   projectId: string;
   routeSheetId: string | null;
   routeActionKind: string | null;

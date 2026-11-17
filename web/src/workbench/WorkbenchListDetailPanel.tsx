@@ -33,7 +33,7 @@ export interface ListDetailColumn<T> {
   cellClassName?(item: T): string | undefined;
 }
 
-export interface WorkbenchListDetailPanelProps<T> {
+interface WorkbenchListDetailPanelProps<T> {
   items: T[];
   getRowId(item: T): string;
   columns: ListDetailColumn<T>[];

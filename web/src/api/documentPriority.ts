@@ -1,12 +1,12 @@
 import { httpContract } from './httpContract';
 
-export interface DocumentPriorityTarget {
+interface DocumentPriorityTarget {
   sheetId: number;
   rowId: number;
   columnId: number;
 }
 
-export interface DocumentPriorityResult {
+interface DocumentPriorityResult {
   promoted: boolean;
   runId: string | null;
 }

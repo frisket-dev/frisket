@@ -4,7 +4,7 @@ import { Loader2, Play, Square } from 'lucide-react';
 import { Button } from '../components/Button';
 import './MediaCompareShell.css';
 
-export interface CompareRunControlProps {
+interface CompareRunControlProps {
   testIdPrefix: string;
   /** Presentation only: the caller retains ownership of its job lifecycle. */
   busy: boolean;

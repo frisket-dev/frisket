@@ -2,9 +2,9 @@ import { useState } from 'react';
 
 /** Which edge of the panel carries the drag handle. left/right resize width;
  *  top/bottom resize height. Dragging away from the fixed opposite edge grows. */
-export type ResizableEdge = 'left' | 'right' | 'top' | 'bottom';
+type ResizableEdge = 'left' | 'right' | 'top' | 'bottom';
 
-export interface ResizableOptions {
+interface ResizableOptions {
   /** localStorage key the size persists under. */
   storageKey: string;
   minWidth: number;

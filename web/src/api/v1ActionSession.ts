@@ -79,34 +79,6 @@ export function throwIfActionAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw actionAbortReason(signal);
 }
 
-/** Observe a shared producer through one caller's cancellation without ever
- * binding that producer (or its cache entry) to the caller's signal. */
-export function observeWithActionSignal<T>(
-  promise: Promise<T>,
-  signal?: AbortSignal,
-): Promise<T> {
-  if (!signal) return promise;
-  throwIfActionAborted(signal);
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      cleanup();
-      reject(actionAbortReason(signal));
-    };
-    const cleanup = (): void => signal.removeEventListener('abort', onAbort);
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      (value) => {
-        cleanup();
-        resolve(value);
-      },
-      (error: unknown) => {
-        cleanup();
-        reject(error);
-      },
-    );
-  });
-}
-
 function canonicalSheetRowScope(rowScope: SheetRowScope): SheetRowScope {
   if (rowScope.selector.kind === 'all_rows') return rowScope;
   return {
@@ -121,7 +93,7 @@ function canonicalSheetRowScope(rowScope: SheetRowScope): SheetRowScope {
   };
 }
 
-export function v1ActionSpecEnvelope({
+function v1ActionSpecEnvelope({
   kind,
   capabilities,
   params,

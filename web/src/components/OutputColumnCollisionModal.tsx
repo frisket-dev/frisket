@@ -1,6 +1,6 @@
 import { ConfirmDialog } from './Modal';
 
-export interface OutputColumnCollisionModalProps {
+interface OutputColumnCollisionModalProps {
   columns: string[];
   message: string;
   onConfirm(): void;

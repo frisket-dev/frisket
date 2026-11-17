@@ -52,7 +52,7 @@ export function installActionSelectorFixture(
   });
 }
 
-export function actionSelectorResponse(
+function actionSelectorResponse(
   projectId: string, query: HttpSelectorChoicesQuery, entry: GeneratedActionCatalogEntry,
   catalog: LocalProviderCatalog,
   facts: SelectorFixtureFacts = {},

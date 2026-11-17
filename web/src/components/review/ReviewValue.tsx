@@ -3,7 +3,7 @@ import { FieldValue } from '../rowInspection/FieldValue';
 import { ReviewExcerpt } from './ReviewExcerpt';
 import styles from './ReviewValue.module.css';
 
-export interface ReviewValueProps {
+interface ReviewValueProps {
   field: ReviewBundleField;
   onSelectItem?(index: number): void;
   selectableItemIndices?: ReadonlySet<number>;

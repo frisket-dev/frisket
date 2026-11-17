@@ -38,7 +38,6 @@ import {
 } from './extractionLayoutStore';
 import {
   createWorkspaceSessionLease,
-  type WorkspaceSessionGeneration,
   type WorkspaceSessionLease,
 } from './workspaceSessionLease';
 import { createProjectApi } from '../api/real';
@@ -288,4 +287,4 @@ export function createWorkspaceStores(
   };
 }
 
-export type { WorkspaceSessionGeneration, WorkspaceSessionLease };
+export type { WorkspaceSessionLease };

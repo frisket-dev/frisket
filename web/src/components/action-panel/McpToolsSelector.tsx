@@ -7,7 +7,7 @@ export interface McpToolsSelectorServer {
   lastDiscoveredToolCount?: number;
 }
 
-export interface McpToolsSelectorProps {
+interface McpToolsSelectorProps {
   servers: readonly McpToolsSelectorServer[];
   /** Stable server references saved on Tool-assisted Extract, never tool IDs. */
   mcpServerIds: readonly string[];

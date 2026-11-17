@@ -15,7 +15,7 @@
 
 import type { TranscribeCompareSegment } from '../api/types';
 
-export interface AlignedTranscriptUnit {
+interface AlignedTranscriptUnit {
   key: string;
   /** Marker label for the unit ("0:12"); null when timestamps are absent. */
   marker: string | null;

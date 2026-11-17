@@ -21,7 +21,7 @@
 import type { ColumnDef, Row, SheetMeta } from '../api/types';
 import type { ResolvedMediaValue } from '../media/resolveMediaValue';
 
-export interface ResolveTitleColumnOptions {
+interface ResolveTitleColumnOptions {
   /** A per-view override (e.g. DocumentView's own Title select). Wins over
    *  the sheet-level default when it names a column that still exists. */
   overrideColumnId?: string | null;
@@ -54,7 +54,7 @@ export function resolveTitleColumn(
   return sheet.columns[0] ?? null;
 }
 
-export interface RowTitleOptions extends ResolveTitleColumnOptions {
+interface RowTitleOptions extends ResolveTitleColumnOptions {
   /** Resolved media for this row (document/gallery surfaces) — used as the
    *  fallback label when the title column's value is blank/JSON/missing. */
   media?: ResolvedMediaValue | null;

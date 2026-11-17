@@ -6,11 +6,9 @@ import { MenuPop } from '../MenuPop';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { DropdownIndicator } from '../DropdownIndicator';
-import type { ColumnDef, SheetMeta } from '../../api/open';
-import { existingColumnByName, NEW_COLUMN } from './formControlHelpers';
+import type { ColumnDef } from '../../api/open';
+import { existingColumnByName } from './formControlHelpers';
 import styles from './TargetSaveToControl.module.css';
-
-export { NEW_COLUMN };
 
 function outputNameOptionId(testid: string): string {
   return `${testid}-options`;
@@ -291,60 +289,3 @@ export function OutputNameCombobox({
   );
 }
 
-function targetColumnName(sheet: SheetMeta, targetCol: string, newColName: string): string {
-  if (targetCol === NEW_COLUMN) return newColName;
-  return sheet.columns.find((column) => String(column.id) === targetCol)?.name ?? newColName;
-}
-
-export function TargetSaveToControl({
-  sheet,
-  targetCol,
-  newColName,
-  label = 'Save to',
-  error = null,
-  defaultColumnNameCollision = null,
-  allowExistingTargets = true,
-  onTargetColChange,
-  onNewColNameChange,
-}: {
-  sheet: SheetMeta;
-  targetCol: string;
-  newColName: string;
-  label?: string;
-  error?: string | null;
-  defaultColumnNameCollision?: { original: string; renamed: string } | null;
-  allowExistingTargets?: boolean;
-  onTargetColChange(value: string): void;
-  onNewColNameChange(value: string): void;
-}) {
-  const value = targetColumnName(sheet, targetCol, newColName);
-  return (
-    <>
-      <OutputNameCombobox
-        columns={sheet.columns}
-        value={value}
-        label={label}
-        allowExistingTargets={allowExistingTargets}
-        onChange={(next) => {
-          const existing = existingColumnByName(sheet.columns, next);
-          if (allowExistingTargets && existing) {
-            onTargetColChange(String(existing.id));
-            onNewColNameChange(existing.name);
-          } else {
-            onTargetColChange(NEW_COLUMN);
-            onNewColNameChange(next);
-          }
-        }}
-      />
-      {error && <p className="panel-error" data-testid="new-column-error">{error}</p>}
-      {defaultColumnNameCollision &&
-        targetCol === NEW_COLUMN &&
-        newColName === defaultColumnNameCollision.renamed && (
-          <p className="form-hint" data-testid="default-column-name-collision-note">
-            A "{defaultColumnNameCollision.original}" column already exists — saving to "
-            {defaultColumnNameCollision.renamed}".
-          </p>
-        )}
-    </>
-  );
-}

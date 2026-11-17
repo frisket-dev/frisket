@@ -1,12 +1,12 @@
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import type { MediaProxyStatus, OrgEnvInfo } from './types';
 
-export interface OrganizationOperationsOptions {
+interface OrganizationOperationsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface OrganizationOperationsApi {
+interface OrganizationOperationsApi {
   listOrgEnvVars(options?: OrganizationOperationsOptions): Promise<OrgEnvInfo[]>;
   setOrgEnvVar(
     name: string,

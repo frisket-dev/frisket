@@ -16,7 +16,7 @@ export type PluginDetailSubject =
   | { kind: 'entity'; entityId: string; label: string }
   | { kind: 'source'; sourceId: string };
 
-export interface PluginDetailContext extends PanelShapedSections {
+interface PluginDetailContext extends PanelShapedSections {
   schemaVersion: 'frisket.plugin_detail_context.v1';
   detail: {
     subject: PluginDetailSubject;

@@ -6,12 +6,12 @@ import { createProject, importCsv, runAndWait, sheetColumns, sheetData, setProje
 import { exposeReplayModel, prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
 import { actionSelectorResponse, stubActionSelectorChoices } from './selectorChoicesFixture';
 
-export const ALTERNATE_REPLAY_MODEL = 'anthropic/claude-haiku-4-5';
+const ALTERNATE_REPLAY_MODEL = 'anthropic/claude-haiku-4-5';
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
 export const EVALUATION_ROW_COUNT = 38;
-export const EVALUATION_FIELDS = [
+const EVALUATION_FIELDS = [
   { name: 'plaintiff', type: 'text', description: 'Name of the plaintiff in the public notice.' },
   { name: 'amount', type: 'text', description: 'Amount awarded in the operative public order.' },
   { name: 'parties', type: 'list', description: 'List of parties named in the public notice.' },
@@ -41,10 +41,10 @@ export const EVALUATION_VARIANTS = ['A', 'B', 'C', 'D', 'E'].map((key, variantIn
 function csv(headers: string[], rows: unknown[][]): string {
   return [headers, ...rows].map(row => row.map(value => `"${String(value ?? '').replaceAll('"', '""')}"`).join(',')).join('\n') + '\n';
 }
-export const EVALUATION_TARGET_CSV = csv(['county', 'case_id', 'case_text'], EVALUATION_EXPECTED.map((row, index) => [
+const EVALUATION_TARGET_CSV = csv(['county', 'case_id', 'case_text'], EVALUATION_EXPECTED.map((row, index) => [
   row.county, row.case_id, `Public notice ${index + 1}: ${row.plaintiff} v Agency ${index + 1}. Operative award ${9000 + index}.`,
 ]));
-export const EVALUATION_EXPECTED_CSV = csv(['county', 'case_id', ...EVALUATION_FIELDS.map(field => field.name)], [
+const EVALUATION_EXPECTED_CSV = csv(['county', 'case_id', ...EVALUATION_FIELDS.map(field => field.name)], [
   ...EVALUATION_EXPECTED.map(row => [row.county, row.case_id, row.plaintiff, row.amount, JSON.stringify(row.parties), row.summary]),
   ['West', 'UNMATCHED-1', 'Unmatched answer 1', '100.00', '[]', 'Retained in expected sheet.'],
   ['West', 'UNMATCHED-2', 'Unmatched answer 2', '200.00', '[]', 'Retained in expected sheet.'],

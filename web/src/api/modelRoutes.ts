@@ -3,9 +3,9 @@ import { httpContract } from './httpContract';
 
 type SetModelRouteRequest = HttpContractOperationMap['tenant.set_project_model_route.patch']['request'];
 type SetModelRouteResponse = HttpContractOperationMap['tenant.set_project_model_route.patch']['responses']['200'];
-export type ProjectModelRoute = SetModelRouteRequest['route'];
+type ProjectModelRoute = SetModelRouteRequest['route'];
 
-export interface ProjectModelRoutesApi {
+interface ProjectModelRoutesApi {
   setProjectModelRoute(
     projectId: string,
     modelId: string,

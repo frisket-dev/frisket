@@ -1,16 +1,16 @@
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import type { ColumnTypeInfo } from './types';
 
-export interface ColumnTypesOptions {
+interface ColumnTypesOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type ColumnTypesWire = HttpContractSuccessResponse<'tenant.list_column_types.get'>;
-export type ProjectColumnTypesWire =
+type ColumnTypesWire = HttpContractSuccessResponse<'tenant.list_column_types.get'>;
+type ProjectColumnTypesWire =
   HttpContractSuccessResponse<'tenant.list_project_column_types.get'>;
 
-export interface ColumnTypesApi {
+interface ColumnTypesApi {
   listColumnTypes(options?: ColumnTypesOptions): Promise<ColumnTypesWire>;
   listProjectColumnTypes(
     projectId: string,
@@ -18,7 +18,7 @@ export interface ColumnTypesApi {
   ): Promise<ProjectColumnTypesWire>;
 }
 
-export interface ColumnTypesDomainApi {
+interface ColumnTypesDomainApi {
   listColumnTypes(): Promise<ColumnTypeInfo[]>;
 }
 

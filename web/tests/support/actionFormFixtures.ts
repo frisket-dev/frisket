@@ -184,25 +184,6 @@ export function actionTemplateFor(
   return { ...base, ...overrides };
 }
 
-/** A template resolved through the complete served presentation fixture.
- * Unlike actionTemplateFor(), this includes the catalog's canonical action
- * kind and therefore exercises boundaries that require the real
- * launcher/canonical identity pair. */
-export function catalogResolvedActionTemplateFor(
-  canonicalKind: string,
-  overrides: Partial<ActionTemplate> = {},
-): ActionTemplate {
-  const matches = COMPLETE_RESOLVED_ACTION_TEMPLATES.filter(
-    (template) => template.actionKind === canonicalKind,
-  );
-  if (matches.length !== 1) {
-    throw new Error(
-      `Expected exactly one resolved ActionTemplate for canonical kind "${canonicalKind}"; found ${matches.length}`,
-    );
-  }
-  return { ...matches[0], ...overrides };
-}
-
 export function sheetMeta(
   columns: ColumnDef[],
   overrides: Partial<SheetMeta> = {},

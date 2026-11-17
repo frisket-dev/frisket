@@ -49,28 +49,7 @@ export type TimelineValue =
       items: TimelineRangeItem[];
     };
 
-export type TimelinePointsValue = Extract<
-  TimelineValue,
-  { schema_version: 'frisket.timeline_points.v1' }
->;
-
-export type DraftTemporalSelection =
-  | { kind: 'draft_range'; start_ms: number; end_ms: number; label?: string }
-  | { kind: 'draft_points'; items: Array<{ at_ms: number; label?: string }> }
-  | {
-      kind: 'draft_ranges';
-      items: Array<{ start_ms: number; end_ms: number; label?: string }>;
-    }
-  | { kind: 'column'; column: string }
-  | {
-    kind: 'typed_value';
-    value: TimelineValue;
-    origin_receipt_id?: string;
-    draft_revision?: number;
-    draft_hash?: string;
-  };
-
-export type TimeParseResult =
+type TimeParseResult =
   | { ok: true; ms: number }
   | { ok: false; error: string };
 
@@ -260,7 +239,7 @@ export function parseTimelineValue(
   return parsed as unknown as TimelineValue;
 }
 
-export interface TemporalCellSummary {
+interface TemporalCellSummary {
   label: string;
   copyText: string;
   invalid: boolean;

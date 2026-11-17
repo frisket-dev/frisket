@@ -3,7 +3,7 @@ import type { WorkbenchResolvedLayoutContribution } from './layout';
 
 const GRID_CONTRIBUTION_ID = 'frisket.core.view.grid';
 
-export interface WorkbenchVisibilityHostPolicy {
+interface WorkbenchVisibilityHostPolicy {
   host: WorkbenchHostId;
   mode: WorkbenchPlacementMode;
   locationId: string;

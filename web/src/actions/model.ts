@@ -75,12 +75,6 @@ const localProviderIdentity = (
   provider: LocalProviderCatalog['providers'][number],
 ): string => provider.kind === 'local_http' ? provider.endpoint_id : provider.id;
 
-export function modelOptionsForTier(hosted: boolean): ModelOption[] {
-  return hosted
-    ? MODEL_OPTIONS.filter((option) => modelProviderId(option.id) !== 'ollama')
-    : MODEL_OPTIONS;
-}
-
 export function providerIsUsable(provider: LocalProviderCatalog['providers'][number]): boolean {
   return provider.kind === 'local_http'
     ? Boolean(provider.reachable) && provider.models.length > 0
@@ -109,7 +103,7 @@ export function defaultActionModel(catalog: LocalProviderCatalog | null): string
 export const UNKNOWN_COST_GATE_MESSAGE =
   'Estimated cost is unknown (this run has no published price) — confirm to run it anyway.';
 
-export const PROVIDER_LABELS: Record<string, string> = {
+const PROVIDER_LABELS: Record<string, string> = {
   anthropic: 'Anthropic',
   openai: 'OpenAI',
   gemini: 'Gemini',
@@ -128,13 +122,6 @@ export const actionFieldTypes: ColumnType[] = [
 ];
 
 export const actionListItemFieldTypes = actionFieldTypes.filter((type) => type !== 'list');
-
-export function singleInputRequirement(actionTemplate: ActionTemplate): ActionSourceRequirement | null {
-  return actionTemplate.sourceRequirements?.find(
-    (req) => req.mode === 'column' || req.mode === 'column_or_template'
-      || (req.mode === 'columns' && req.max === 1),
-  ) ?? null;
-}
 
 export function sourceRequirementForParam(
   actionTemplate: ActionTemplate,

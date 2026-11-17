@@ -1,6 +1,6 @@
 import type { ActionCatalogPayload } from './types';
 
-export interface ActionCatalogLoaders {
+interface ActionCatalogLoaders {
   loadGlobal: () => Promise<ActionCatalogPayload>;
   loadProject: (projectId: string) => Promise<ActionCatalogPayload>;
   emitInvalidated: () => void;

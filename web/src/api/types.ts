@@ -247,7 +247,6 @@ export interface ProjectNetworkPolicy {
 }
 
 export type ProjectRetrievalSettings = HttpProjectSettingsResponse['retrieval'];
-export type ProjectRetrievalSettingsPatch = NonNullable<HttpProjectSettingsRequest['retrieval']>;
 export type ProjectSettingsPatch = HttpProjectSettingsRequest & Record<string, unknown>;
 
 export interface ProjectSettings extends HttpProjectSettingsResponse {
@@ -292,7 +291,7 @@ export interface ProjectProviderKeys {
   providers: ProjectProviderKeyInfo[];
 }
 
-export interface ProjectSecretConsumer {
+interface ProjectSecretConsumer {
   kind: string;
   id: string;
 }
@@ -347,19 +346,16 @@ export interface HealthStatus {
 // Compatibility-only aliases. The browser-admin wire contract is derived from
 // the generated OpenAPI artifact in adminBrowser.ts, not handwritten here.
 export type {
-  AdminAuditCategory,
   AdminAuditEvent,
   AdminAuditFilters,
   AdminAuditLog,
   AdminErrorEvent,
   AdminErrors,
   AdminHealth,
-  AdminInvite,
   AdminJob,
   AdminJobActionResult,
   AdminJobs,
   AdminOrgRole,
-  AdminUser,
   AdminUsers,
   AdminUsersOrg,
 } from './adminBrowser';
@@ -489,7 +485,7 @@ export interface ColumnStatsTopValue {
   count: number;
 }
 
-export interface ColumnStatsHistogramBin {
+interface ColumnStatsHistogramBin {
   min: number;
   max: number;
   count: number;
@@ -1492,12 +1488,12 @@ export interface SheetRowScope {
     | { kind: 'exact_membership'; membership: { row_ids: number[] } };
 }
 
-export interface SheetRowScopePolicy {
+interface SheetRowScopePolicy {
   kind: 'sheet_rows';
   selectors: Array<'all_rows' | 'exact_membership'>;
 }
 
-export interface ProjectScopePolicy {
+interface ProjectScopePolicy {
   kind: 'project';
 }
 
@@ -1844,14 +1840,14 @@ export function isDeriveCompositeRequest(
 /** The methods supported by the generated clustering form. */
 export type ClusterValuesMethod = 'fingerprint' | 'ngram_fingerprint' | 'semantic';
 
-export type RegisteredSheetRowsScope = Record<string, JsonValue> & {
+type RegisteredSheetRowsScope = Record<string, JsonValue> & {
   kind: 'sheet_rows';
   sheet_id: number;
   row_ids?: number[];
   selection?: ViewSelection;
 };
 
-export type RegisteredProjectScope = Record<string, JsonValue> & {
+type RegisteredProjectScope = Record<string, JsonValue> & {
   kind: 'project';
 };
 
@@ -1919,11 +1915,6 @@ export function actionExecutionSheetId(request: ActionExecutionRequest): string 
 export function actionExecutionRowIds(request: ActionExecutionRequest): string[] | undefined {
   if (isDeriveCompositeRequest(request)) return actionExecutionRowIds(request.extraction);
   return request.scope.kind === 'sheet_rows' ? request.scope.row_ids?.map(String) : undefined;
-}
-
-export function actionExecutionPrimaryOutput(request: ActionExecutionRequest): string {
-  if (isDeriveCompositeRequest(request)) return request.extraction.output_names[request.itemField] ?? request.itemField;
-  return Object.values(request.output_names)[0] ?? '';
 }
 
 export function actionExecutionName(request: ActionExecutionRequest): string {
@@ -2289,23 +2280,6 @@ export interface MapPointsOptions {
   /** Column ids whose live values ride along as `attr:<id>` columns for
    *  color/size-by-column. Resolved read-only at query time. */
   attrs?: string[];
-}
-
-/** Decoded map-points payload. `positions` is interleaved lon,lat float32 fed
- *  straight into deck.gl binary attributes; `rowIds[i]` is the stable row id for
- *  point i (used to open the row drawer on pick). */
-export interface MapPointsResult {
-  count: number;
-  positions: Float32Array;
-  rowIds: string[];
-  /** Extra column values for color/size-by-column, keyed by column id; each
-   *  array is index-aligned with the points. */
-  attributes: Record<string, Array<number | string | null>>;
-  generation: string;
-  transient: boolean;
-  validPoints: number;
-  schema: string;
-  backend: string;
 }
 
 export type RuntimeProjectionBuildMode = 'refresh' | 'rebuild';
@@ -3485,7 +3459,7 @@ export interface ReplaceRulesPreview {
 }
 
 
-export interface RunInspectorCell {
+interface RunInspectorCell {
   columnId: string;
   columnName: string;
   value: unknown;
@@ -3511,7 +3485,7 @@ export interface RunInspectorRow {
   cells: RunInspectorCell[];
 }
 
-export interface PageMeta {
+interface PageMeta {
   offset: number;
   limit: number;
   total: number;
@@ -3820,7 +3794,7 @@ export interface HistoryOp {
   run?: HistoryOpRun;
 }
 
-export interface HistoryStepTarget {
+interface HistoryStepTarget {
   id: string;
   index: number;
   barrier: boolean;
@@ -4095,7 +4069,7 @@ export interface SourceFetchResult {
   sheetId: number | null;
 }
 
-export type SourceHealthStatus =
+type SourceHealthStatus =
   | 'healthy'
   | 'failing'
   | 'stale'
@@ -4721,9 +4695,8 @@ export interface FrisketApi {
     offset?: number;
     limit?: number;
   }): Promise<NotificationDeliveryRequestsPage>;
-  getMapPoints(sheetId: string, columnId: string, options?: MapPointsOptions | null): Promise<MapPointsResult>;
-  /** Raw Arrow IPC bytes from the SAME map-points route `getMapPoints` decodes
-   *  (`/api/projects/:pid/sheets/:sheetId/map/points`), undecoded — the
+  /** Raw Arrow IPC bytes from the map-points route
+   *  (`/api/projects/:pid/sheets/:sheetId/map/points`) — the
    *  transport behind `ctx.projection.fetchData` (capability
    *  `projection.data.read`). Plugin code never sees the route; this is the
    *  one api-client seam it goes through. */

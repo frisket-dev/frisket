@@ -13,7 +13,7 @@ import { SelectorSetup } from './SelectorSetup';
 import { useSelectorChoices, type SelectorChoicesLoader, type SelectorChoicesState } from './useSelectorChoices';
 import { currentSelectorChoice, selectorQueryKey } from './selectorProjection';
 
-export interface SelectorFieldProps {
+interface SelectorFieldProps {
   projectId: string | null | undefined;
   label: string;
   query: HttpSelectorChoicesQuery;

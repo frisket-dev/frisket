@@ -1,7 +1,6 @@
 import type {
   PdfImportCategory,
   PdfImportDestination,
-  PdfImportFileSummary,
   PdfImportOcrPolicy,
   PdfImportSnapshot,
 } from '../../../api/pdfImports';
@@ -12,7 +11,7 @@ function isPdf(file: File): boolean {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 }
 
-export function isJunkImportPath(path: string): boolean {
+function isJunkImportPath(path: string): boolean {
   const parts = path.replaceAll('\\', '/').split('/').filter(Boolean);
   if (parts.some((part) => part.toLowerCase() === '__macosx')) return true;
   const basename = (parts.at(-1) ?? '').toLowerCase();
@@ -70,32 +69,6 @@ export const PDF_CATEGORY_TONE: Record<PdfImportCategory, string> = {
 
 export function visibleCategories(snapshot: PdfImportSnapshot): PdfImportCategory[] {
   return PDF_CATEGORY_ORDER.filter((category) => (snapshot.category_counts[category] ?? 0) > 0);
-}
-
-export function representativeFiles(
-  files: readonly PdfImportFileSummary[],
-  category: PdfImportCategory,
-  offset = 0,
-): PdfImportFileSummary[] {
-  const candidates = files.filter((file) => file.category === category);
-  if (candidates.length <= 6) return candidates;
-  const byFolder = new Map<string, PdfImportFileSummary[]>();
-  for (const file of candidates) {
-    const slash = file.logical_path.lastIndexOf('/');
-    const folder = slash < 0 ? '' : file.logical_path.slice(0, slash);
-    const group = byFolder.get(folder) ?? [];
-    group.push(file);
-    byFolder.set(folder, group);
-  }
-  const interleaved: PdfImportFileSummary[] = [];
-  const groups = [...byFolder.values()];
-  for (let row = 0; interleaved.length < candidates.length; row += 1) {
-    for (const group of groups) {
-      const item = group[row];
-      if (item) interleaved.push(item);
-    }
-  }
-  return Array.from({ length: 6 }, (_, index) => interleaved[(offset + index) % interleaved.length]);
 }
 
 export function ocrPolicyCount(snapshot: PdfImportSnapshot, policy: PdfImportOcrPolicy): number {

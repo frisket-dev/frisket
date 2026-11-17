@@ -18,9 +18,9 @@
 
 import type { ColumnDef, GridFilterSpec, GridSortSpec, Row, SheetDataOptions } from '../api/open';
 
-export type CachedPage = Row[] | 'loading';
+type CachedPage = Row[] | 'loading';
 
-export interface RowCacheSnapshot {
+interface RowCacheSnapshot {
   key: string;
   scopeKey: string;
   version: number;
@@ -28,7 +28,7 @@ export interface RowCacheSnapshot {
   columns?: ColumnDef[];
 }
 
-export interface RowCacheSlot {
+interface RowCacheSlot {
   activate(key: string, scopeKey?: string): void;
   beginEpoch(key: string): number;
   beginRequest(key: string, epoch: number, page: number): boolean;

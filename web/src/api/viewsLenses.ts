@@ -1,10 +1,10 @@
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import type { SavedView, SavedViewCreateInput, SavedViewDefinitionReplaceInput, SavedViewRenameInput, ViewResolved } from './types';
-export interface ViewsLensesOptions { signal?: AbortSignal; headers?: HeadersInit; }
+interface ViewsLensesOptions { signal?: AbortSignal; headers?: HeadersInit; }
 /** Structural twin of the generated contract's recursive JSON leaf. The
  *  generated module keeps its `JsonValue` private, so callers building a
  *  request body name the same shape here rather than casting into it. */
-export type WireJson =
+type WireJson =
   | null
   | boolean
   | number
@@ -18,7 +18,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Carries the same JSON.stringify-compatible values as the legacy
  *  transport: object undefined keys drop, while array undefined becomes null. */
-export function toWireJson(value: unknown): WireJson {
+function toWireJson(value: unknown): WireJson {
   if (
     value === null
     || typeof value === "boolean"
@@ -41,12 +41,12 @@ export function toWireJsonObject(value: Record<string, unknown>): { [key: string
 }
 
 
-export type SavedViewListWire = HttpContractSuccessResponse<'tenant.list_views.get'>;
-export type SavedViewRowWire = SavedViewListWire[number];
-export type SavedViewCreateBody = SavedViewCreateInput;
-export type SavedViewPatchBody = SavedViewRenameInput;
-export type SavedViewDefinitionReplaceBody = SavedViewDefinitionReplaceInput;
-export interface ViewsLensesApi {
+type SavedViewListWire = HttpContractSuccessResponse<'tenant.list_views.get'>;
+type SavedViewRowWire = SavedViewListWire[number];
+type SavedViewCreateBody = SavedViewCreateInput;
+type SavedViewPatchBody = SavedViewRenameInput;
+type SavedViewDefinitionReplaceBody = SavedViewDefinitionReplaceInput;
+interface ViewsLensesApi {
   listViews(sheetId?: number | null, options?: ViewsLensesOptions): Promise<SavedViewListWire>;
   createView(body: SavedViewCreateBody, options?: ViewsLensesOptions): Promise<SavedViewRowWire>;
   renameView(viewId: number, body: SavedViewPatchBody, options?: ViewsLensesOptions): Promise<SavedViewRowWire>;
@@ -54,7 +54,7 @@ export interface ViewsLensesApi {
   deleteView(viewId: number, options?: ViewsLensesOptions): Promise<unknown>;
   resolveView(viewId: number, limit?: number, offset?: number, options?: ViewsLensesOptions): Promise<ViewResolved>;
 }
-export interface ViewsLensesDomainApi {
+interface ViewsLensesDomainApi {
   listViews(sheetId?: string): Promise<SavedView[]>;
   saveView(input: SavedViewCreateInput): Promise<SavedView>;
   renameView(viewId: number, input: SavedViewRenameInput): Promise<SavedView>;

@@ -61,7 +61,7 @@ export function documentMediaColumns(sheet: { columns: readonly ColumnDef[] }): 
  *  model (`resolveMediaValue`, `documentMediaKind`), and `null` there means
  *  "render nothing", which is how a text-only sheet ended up with no reader at
  *  all. */
-export type DocumentSource =
+type DocumentSource =
   | { kind: 'media'; column: ColumnDef }
   | { kind: 'text'; column: ColumnDef };
 

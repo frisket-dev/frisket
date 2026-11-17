@@ -30,7 +30,7 @@ const SOURCE_KIND_FORM_SCHEMA_VERSION = 'frisket.source.kind.form.v1';
 // The single change point for plugin placement parity: each cohort that opens a
 // host/mode pair to plugins adds a row here (parity-tested against the backend
 // LEGAL_HOSTS/LEGAL_MODES sets in src/frisket/authoring/workbench/contracts.py).
-export const PLUGIN_LEGAL_PLACEMENTS: Record<
+const PLUGIN_LEGAL_PLACEMENTS: Record<
   'panel' | 'view' | 'command',
   ReadonlyArray<{ host: WorkbenchPlacement['host']; mode: WorkbenchPlacement['mode'] }>
 > = {
@@ -121,7 +121,7 @@ function optionalBoolean(value: unknown): boolean | undefined {
 // lifecycle gates (there is no plugin object to gate on). Everything else —
 // schema version dispatch, id/title/ownerPluginId presence, requirement-kind
 // validation, dataRequirements validation — is one shared code path.
-export type WorkbenchDescriptorTrust = 'plugin' | 'firstParty';
+type WorkbenchDescriptorTrust = 'plugin' | 'firstParty';
 
 interface ResolvedBinding {
   componentKey: string;

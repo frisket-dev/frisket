@@ -15,11 +15,6 @@ import type { PanelSelectOption } from '../PanelSelect';
  *  .tsx views (decomposition ledger). */
 export type SourceMode = 'column' | 'template';
 
-/** Sentinel for "create a new column" in save-to targets. Single-sourced for
- *  the same reason: TargetSaveToControl renders it, actionFormState defaults
- *  to it, and ActionForm's collision logic compares against it. */
-export const NEW_COLUMN = '__new__';
-
 /** Case-insensitive/trimmed existing-column lookup by name. Single-sourced
  *  here (not TargetSaveToControl.tsx) for the same .tsx-import restriction:
  *  TargetSaveToControl's OutputNameCombobox (overwrite warning, the "New
@@ -133,46 +128,6 @@ export function parseCommaLabels(value: string): string[] {
     const trimmed = label.trim();
     return trimmed ? [trimmed] : [];
   });
-}
-
-/** ActionForm.tsx re-derived a "raw string param → Number() → range-validate
- *  → boolean" gate three times (`semanticThresholdsOk`, `frameSamplingOk`,
- *  `maxDimensionOk`), each with a subtly different validation rule — only
- *  one of the three (`maxDimensionOk`) had an explicit empty-string guard
- *  and used `Number.isInteger` instead of `Number.isFinite`. This is the
- *  single shared gate: an explicit empty-string guard (never rely on
- *  `Number('') === 0` coincidentally clearing a bound) plus the
- *  integer-vs-finite choice and the min/max/lessThan/greaterThan bounds as
- *  parameters, so a new numeric gate can't independently drift on any of
- *  those axes again.
- *
- *  Defaults match `maxDimensionOk`'s prior behavior (the strictest of the
- *  three) — migrating the other two onto this makes them strictly SAFER for
- *  the (until now theoretical) case of a cleared/whitespace-only field, not
- *  more permissive: `frameSamplingOk`'s raw value is always non-empty by the
- *  time it reaches the gate (its caller falls back to a default string
- *  first), and `semanticThresholdsOk`'s empty case now correctly reads as
- *  invalid instead of silently satisfying its `>= 0` bound via `Number('')
- *  === 0`. */
-export function numericParamOk(
-  raw: string | null | undefined,
-  {
-    integer = false,
-    min,
-    max,
-    lessThan,
-    greaterThan,
-  }: { integer?: boolean; min?: number; max?: number; lessThan?: number; greaterThan?: number } = {},
-): boolean {
-  const trimmed = (raw ?? '').trim();
-  if (trimmed === '') return false;
-  const value = Number(trimmed);
-  if (!(integer ? Number.isInteger(value) : Number.isFinite(value))) return false;
-  if (min !== undefined && value < min) return false;
-  if (max !== undefined && value > max) return false;
-  if (lessThan !== undefined && !(value < lessThan)) return false;
-  if (greaterThan !== undefined && !(value > greaterThan)) return false;
-  return true;
 }
 
 export function resizeTextareaToContent(textarea: HTMLTextAreaElement | null) {

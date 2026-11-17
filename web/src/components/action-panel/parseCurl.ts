@@ -1,4 +1,4 @@
-export interface CurlImport {
+interface CurlImport {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   url: string;
   headers: { name: string; value: string }[];

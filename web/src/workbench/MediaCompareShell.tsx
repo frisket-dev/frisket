@@ -54,7 +54,7 @@ import {
 // mediaCompareSession.ts; shared engine chips and result geometry live in
 // CompareLayout.tsx.
 
-export interface ConfigureVariantPopoverProps {
+interface ConfigureVariantPopoverProps {
   /** testid namespace ('ocr-compare' | 'transcribe-compare'); the popover's
    *  own testids are `${testidPrefix}-configure*` etc. */
   testidPrefix: string;
@@ -296,7 +296,7 @@ function sourcePeekPanePropsEqual<R>(
   );
 }
 
-export interface MediaCompareBodyProps<R> {
+interface MediaCompareBodyProps<R> {
   session: MediaCompareSession<R>;
   config: MediaCompareConfig<R>;
   testidPrefix: string;

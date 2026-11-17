@@ -5,10 +5,10 @@ import type {
 } from '../types';
 
 /** Identifiers accepted by the named browser-navigation resource builders. */
-export type ProjectId = string;
-export type BlobDigest = string;
-export type EmbeddingIndexId = string;
-export type EmbeddingArtifactFormat = string;
+type ProjectId = string;
+type BlobDigest = string;
+type EmbeddingIndexId = string;
+type EmbeddingArtifactFormat = string;
 
 /**
  * URL builders for browser-native project resources. These deliberately only

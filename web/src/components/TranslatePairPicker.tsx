@@ -7,7 +7,7 @@ import type { DownloadablePair } from '../api/types';
 import { PanelSelect } from './PanelSelect';
 import { formatBytes } from '../format';
 
-export interface TranslatePairPickerProps {
+interface TranslatePairPickerProps {
   /** Pair ids present in the current catalog. */
   installedPairs: string[];
   /** Downloadable pair roster from the pinned manifest. */

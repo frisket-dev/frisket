@@ -26,7 +26,7 @@ export function useJoinSheets(primary: SheetMeta) {
     refresh: () => refresh((value) => value + 1) };
 }
 
-export interface JoinColumnReference { slot: string; sheetId: number; name: string }
+interface JoinColumnReference { slot: string; sheetId: number; name: string }
 interface Pin { sheetId: number; columnId: string | null; emitted: string; label: string }
 
 /** Session-local editor identity, not saved authority. A removed source clears

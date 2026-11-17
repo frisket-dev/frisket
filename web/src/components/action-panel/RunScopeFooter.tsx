@@ -6,7 +6,7 @@ import { Eye, Play } from 'lucide-react';
 import { DropdownIndicator } from '../DropdownIndicator';
 import { AnchoredMenu } from '../MenuPop';
 
-export interface RunScopeFooterProps {
+interface RunScopeFooterProps {
   children?: ReactNode;
   primaryLabel: string;
   previewLabel?: string;

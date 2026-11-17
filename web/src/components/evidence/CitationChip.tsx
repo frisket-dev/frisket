@@ -11,7 +11,7 @@ import { openEvidenceViewerViaGlobalEvent } from './openEvidenceViewerViaGlobalE
 // event -- a hardcoded global dispatch would make this component
 // non-reusable there.
 
-export interface CitationChipProps {
+interface CitationChipProps {
   /** The evidence_link stable_id this chip opens the viewer at. */
   linkId: string;
   /** Leading label text, e.g. "Evidence", "Stale evidence", "Citation c1". */

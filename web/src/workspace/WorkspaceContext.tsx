@@ -152,9 +152,9 @@ export function useWorkspaceAct(): WorkspaceActHandle {
   return act;
 }
 
-export type WorkspacePluginDetailRender = WorkspaceViewModel['renderPluginDetailTab'];
+type WorkspacePluginDetailRender = WorkspaceViewModel['renderPluginDetailTab'];
 
-export type WorkspaceRowWalk = WorkspaceViewModel['walkDetailRow'];
+type WorkspaceRowWalk = WorkspaceViewModel['walkDetailRow'];
 
 export const WorkspacePluginDetailRenderContext = createContext<WorkspacePluginDetailRender | null>(null);
 

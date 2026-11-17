@@ -18,7 +18,7 @@ import {
   type GridReadFragment,
 } from './pluginContextFragments';
 
-export type PluginPanelCapability =
+type PluginPanelCapability =
   | 'sheet.active'
   | 'selection.rows'
   | 'host.navigation.openRow'
@@ -61,17 +61,17 @@ export interface PluginPanelContext {
   actions?: ActionLaunchFragment;
 }
 
-export interface PluginPanelUnavailable {
+interface PluginPanelUnavailable {
   available: false;
   reason: string;
 }
 
-export interface PluginPanelAvailable {
+interface PluginPanelAvailable {
   available: true;
   reason?: undefined;
 }
 
-export type PluginPanelAvailability = PluginPanelAvailable | PluginPanelUnavailable;
+type PluginPanelAvailability = PluginPanelAvailable | PluginPanelUnavailable;
 
 // Contract-pinned export: tests/authoring/test_plugin_sdk_contract_parity.py scrapes
 // this by its exported form — do not demote to module-private.

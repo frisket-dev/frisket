@@ -22,7 +22,7 @@ import { UnavailableExpectedLinks } from '../../workspace/UnavailableExpectedLin
 import { isExpectedLinkAvailable } from '../../workspace/expectedLinkAvailability';
 import './evaluation.css';
 
-export interface ComparisonEvaluationWorkspaceProps {
+interface ComparisonEvaluationWorkspaceProps {
   variantMenuHost?: HTMLElement | null;
   api: EvaluationApi; state: ActionCompareSessionSnapshot; session: ActionCompareSession;
   initialLens?: 'each_other' | 'expected'; onJoinExpected?(): void; onExpectedAnswersChanged?(): void; onShelved?(): void;

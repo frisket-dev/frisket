@@ -14,8 +14,6 @@ import type { Page } from '@playwright/test';
 // majority (11 specs); SHOT_VIEWPORT_NARROW is the OCR/transcribe-compare +
 // chips-segmented family.
 export const SHOT_VIEWPORT = { width: 1680, height: 960 };
-export const SHOT_VIEWPORT_NARROW = { width: 1440, height: 900 };
-
 /** Playwright runs with cwd = web/, so this resolves into web/screenshots/<sub>/. */
 export function shotsDir(...segments: string[]): string {
   return path.resolve(process.cwd(), 'screenshots', ...segments);
@@ -78,8 +76,3 @@ export async function shootElement(
   await page.getByTestId(testId).screenshot({ path: path.join(outDir, name), animations: 'disabled' });
 }
 
-/** Bind a fixed-testid `shoot(page, name)` to one output directory (the
- *  action-drawer capture shape reused verbatim by two galleries). */
-export function makeElementShoot(outDir: string, testId: string) {
-  return (page: Page, name: string): Promise<void> => shootElement(page, outDir, testId, name);
-}

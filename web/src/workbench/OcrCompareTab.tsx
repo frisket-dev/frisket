@@ -31,7 +31,6 @@ import {
   type ScratchDoc,
 } from './mediaCompareSession';
 
-export type { OcrCompareTarget } from '../actions/ocrCompare';
 
 // Upload-first OCR comparison: each column is an engine/options variant over
 // disposable dropped media. Adding or editing stages work until Run.

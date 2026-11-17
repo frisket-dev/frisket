@@ -27,7 +27,7 @@ export interface DiscoverTabDescriptor {
   Icon: LucideIcon;
 }
 
-export interface DiscoverPanelProps {
+interface DiscoverPanelProps {
   projectId: string;
   open: boolean;
   /** First-party tabs first, then plugin panel tabs (already in order). */

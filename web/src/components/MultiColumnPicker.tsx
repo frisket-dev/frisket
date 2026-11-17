@@ -16,7 +16,7 @@ import { useAnchoredPosition } from '../hooks/useAnchoredPosition';
 import { overlayPortalRoot } from '../hooks/overlayPortalRoot';
 import { useNativePopover } from '../hooks/useNativePopover';
 
-export interface MultiColumnOption {
+interface MultiColumnOption {
   name: string;
   type: string;
   ai?: boolean;

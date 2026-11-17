@@ -420,7 +420,7 @@ export const LAWSUIT_DOCUMENT_WALKTHROUGH: WalkthroughDefinition = {
   ],
 };
 
-export const COUNCIL_AUDIO_WALKTHROUGH: WalkthroughDefinition = {
+const COUNCIL_AUDIO_WALKTHROUGH: WalkthroughDefinition = {
   id: 'council-audio',
   title: 'Listen through council meetings',
   description: 'Play rights-cleared meeting excerpts, transcribe them, and review time-aligned text.',
@@ -585,7 +585,7 @@ export const COUNCIL_AUDIO_WALKTHROUGH: WalkthroughDefinition = {
   ],
 };
 
-export const CIVIC_AI_TRIAGE_WALKTHROUGH: WalkthroughDefinition = {
+const CIVIC_AI_TRIAGE_WALKTHROUGH: WalkthroughDefinition = {
   id: 'civic-ai-triage',
   title: 'Triage civic stories with AI',
   description: 'Find entities, summarize each story, categorize it, and identify the next fact to verify.',
@@ -813,7 +813,7 @@ export const CIVIC_AI_TRIAGE_WALKTHROUGH: WalkthroughDefinition = {
   ],
 };
 
-export const RSS_IMPORT_WALKTHROUGH: WalkthroughDefinition = {
+const RSS_IMPORT_WALKTHROUGH: WalkthroughDefinition = {
   id: 'rss-import',
   title: 'Import a live civic RSS feed',
   description: 'Connect the public Riverton demo feed, populate a sheet, and categorize its current items.',

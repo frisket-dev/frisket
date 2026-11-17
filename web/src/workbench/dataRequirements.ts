@@ -15,7 +15,7 @@ export const DATA_REQUIREMENT_CONTEXT_KINDS = [
   'activeProjection',
 ] as const;
 
-export type DataRequirementContextKind = (typeof DATA_REQUIREMENT_CONTEXT_KINDS)[number];
+type DataRequirementContextKind = (typeof DATA_REQUIREMENT_CONTEXT_KINDS)[number];
 
 export interface WorkbenchDataRequirementContext {
   activeProject: boolean;
@@ -45,7 +45,7 @@ const EMPTY_DATA_REQUIREMENT_CONTEXT: WorkbenchDataRequirementContext = {
   columnTypes: [],
 };
 
-export interface UnmetDataRequirement {
+interface UnmetDataRequirement {
   kind: WorkbenchDataRequirement['kind'];
   columnType?: string;
 }

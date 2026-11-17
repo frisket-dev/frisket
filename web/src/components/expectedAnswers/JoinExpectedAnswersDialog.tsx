@@ -7,16 +7,16 @@ import { PanelSelect } from '../PanelSelect';
 import { StageStepper } from '../StageStepper';
 
 export type ExpectedRule = 'exact' | 'ignore_case' | 'number' | 'date' | 'set' | 'hand';
-export interface JoinColumn { id: number; name: string }
-export interface JoinSheet { id: number; name: string; columns: JoinColumn[] }
-export interface JoinAction { id: string; actionId: string; label: string; targetSheetId: number; outputs: Array<JoinColumn & { logicalKey: string }> }
+interface JoinColumn { id: number; name: string }
+interface JoinSheet { id: number; name: string; columns: JoinColumn[] }
+interface JoinAction { id: string; actionId: string; label: string; targetSheetId: number; outputs: Array<JoinColumn & { logicalKey: string }> }
 export interface ExpectedLinkDraft {
   target_sheet_id: number; expected_sheet_id: number; action_id: string;
   keys: Array<{ expected_column_id: number; target_column_id: number | null }>;
   fields: Array<{ expected_column_id: number; output_column_id: number; logical_key: string; rule: ExpectedRule; hidden: boolean; source: 'import' | 'disagreements' }>;
   hidden: boolean;
 }
-export interface JoinPreview {
+interface JoinPreview {
   matched: number; not_found: number; ambiguous_expected: number; ambiguous_target: number;
   unmatched_expected_row_ids: number[];
 }

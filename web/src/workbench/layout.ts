@@ -65,7 +65,7 @@ const WORKBENCH_HOST_IDS: WorkbenchHostId[] = [
 // Mode reported for runtime-index placeholders (contributions known to the
 // runtime index but lacking a resolved descriptor). One entry per host — the
 // mode a placement in that host would use.
-export const WORKBENCH_PLACEHOLDER_MODE_BY_HOST: Record<
+const WORKBENCH_PLACEHOLDER_MODE_BY_HOST: Record<
   WorkbenchHostId,
   WorkbenchPlacementMode
 > = {

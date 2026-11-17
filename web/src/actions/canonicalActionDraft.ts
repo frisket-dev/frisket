@@ -98,34 +98,3 @@ export function serializeCanonicalActionDraft(
   ]));
 }
 
-export function canonicalFormValue(
-  raw: string,
-  declaration: NonNullable<ActionCatalogEntry['ui_hints']['form_params']>[number] | undefined,
-  columnNames: string[] | undefined,
-  schemaType: unknown,
-  controlInput: string | undefined,
-): string | number | boolean | string[] {
-  if (declaration?.type === 'columns' || controlInput === 'columns') {
-    if (columnNames === undefined) {
-      throw new Error('Canonical columns must come from the typed column picker');
-    }
-    return [...columnNames];
-  }
-  const trimmed = raw.trim();
-  if (declaration?.type === 'boolean' || schemaType === 'boolean' || controlInput === 'checkbox') {
-    return trimmed === 'true';
-  }
-  if (declaration?.type === 'integer' || schemaType === 'integer') {
-    const value = Number(trimmed);
-    return Number.isInteger(value) ? value : raw;
-  }
-  if (declaration?.type === 'number' || schemaType === 'number') {
-    const value = Number(trimmed);
-    return Number.isFinite(value) ? value : raw;
-  }
-  if (declaration?.type === 'integer_or_text') {
-    const value = Number(trimmed);
-    return Number.isInteger(value) && value >= 0 ? value : raw;
-  }
-  return raw;
-}

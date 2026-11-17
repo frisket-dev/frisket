@@ -1,7 +1,7 @@
 import { validPoint, validRange, type TemporalColumnType, type TimelinePointItem, type TimelineRangeItem } from './model';
 
 /** Display-only envelope. Never accepted by parseTimelineValue or draft binding. */
-export interface PreviewTemporalValue {
+interface PreviewTemporalValue {
   schema_version: 'frisket.preview_temporal.v1';
   column_type: TemporalColumnType;
   timeline: { preview_clock_id?: string; artifact_stable_id?: string; fingerprint: string; duration_ms: number };

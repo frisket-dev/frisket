@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createReviewSources, displayStarts, pageAddress, reviewedStarts, reviewQueues } from '../../src/components/importWorkspace/pdfPacket/reviewSources';
+import { createReviewSources, displayStarts, pageAddress, reviewedStarts } from '../../src/components/importWorkspace/pdfPacket/reviewSources';
 
 const sources = [
   { key: 'first', filename: 'first.pdf', page_start: 1, page_end: 3, display_start: 1 },
@@ -21,9 +21,5 @@ describe('combined PDF review', () => {
     expect(reviewedStarts(map, [1, 4, 4])).toEqual({ first: [1], second: [4] });
     expect(displayStarts(map, { first: [1, 2], second: [4, 6] })).toEqual([1, 2, 4, 6]);
     expect(() => displayStarts(map, { second: [3] })).toThrow(/outside/);
-  });
-
-  it('never queues fixed boundaries or already answered pages', () => {
-    expect(reviewQueues({ suggested_pages: [1, 4, 5, 6], unsure_pages: [4, 6, 7] }, [1, 4], [5], [7])).toEqual({ suggested: [6], unsure: [6] });
   });
 });

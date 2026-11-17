@@ -11,12 +11,12 @@ import type {
   ResolveReplaceRuleDraft,
 } from './types';
 
-export interface ResolvePreviewOptions {
+interface ResolvePreviewOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface ClusterPreviewInput {
+interface ClusterPreviewInput {
   sheetId: string;
   inputColumn: string;
   method: string;
@@ -26,7 +26,7 @@ export interface ClusterPreviewInput {
   keyTemplate?: string;
 }
 
-export interface ColumnValuesPreviewInput {
+interface ColumnValuesPreviewInput {
   sheetId: string;
   inputColumn: string;
   search?: string;
@@ -35,7 +35,7 @@ export interface ColumnValuesPreviewInput {
   valueMode?: 'exact' | 'bounded';
 }
 
-export interface ReplaceRulesPreviewInput {
+interface ReplaceRulesPreviewInput {
   sheetId: string;
   inputColumn: string;
   rules: ResolveReplaceRuleDraft[];
@@ -43,13 +43,13 @@ export interface ReplaceRulesPreviewInput {
   testValue?: string;
 }
 
-export type ClusterPreviewWire = HttpContractSuccessResponse<'tenant.cluster_preview.post'>;
-export type ColumnValuesPreviewWire =
+type ClusterPreviewWire = HttpContractSuccessResponse<'tenant.cluster_preview.post'>;
+type ColumnValuesPreviewWire =
   HttpContractSuccessResponse<'tenant.column_values_preview.post'>;
-export type ReplaceRulesPreviewWire =
+type ReplaceRulesPreviewWire =
   HttpContractSuccessResponse<'tenant.replace_rules_preview.post'>;
 
-export interface ResolvePreviewsApi {
+interface ResolvePreviewsApi {
   cluster(
     projectId: string,
     input: ClusterPreviewInput,

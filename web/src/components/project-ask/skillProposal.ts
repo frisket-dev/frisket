@@ -60,7 +60,7 @@ export function askSkillProposal(event: AskEvent): AskSkillProposal | null {
   };
 }
 
-export function askSkillSaved(event: AskEvent): AskSkillSaved | null {
+function askSkillSaved(event: AskEvent): AskSkillSaved | null {
   if (event.kind !== 'skill_saved') return null;
   const value = event.payload;
   if (typeof value.attempt_id !== 'string' || typeof value.proposal_id !== 'string'
@@ -82,7 +82,7 @@ export function askSkillSaved(event: AskEvent): AskSkillSaved | null {
   };
 }
 
-export function askSkillSaveAttempt(event: AskEvent): AskSkillSaveAttempt | null {
+function askSkillSaveAttempt(event: AskEvent): AskSkillSaveAttempt | null {
   if (event.kind !== 'skill_save_attempt') return null;
   const value = event.payload;
   if (typeof value.attempt_id !== 'string' || typeof value.proposal_id !== 'string'
@@ -102,7 +102,7 @@ export function askSkillSaveAttempt(event: AskEvent): AskSkillSaveAttempt | null
   };
 }
 
-export interface ResolvedAskSkillProposal {
+interface ResolvedAskSkillProposal {
   proposal: AskSkillProposal;
   saved: AskSkillSaved | null;
   pendingAttempt: AskSkillSaveAttempt | null;

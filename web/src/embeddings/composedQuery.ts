@@ -12,17 +12,17 @@
 //   "crop spraying" / (crop spraying) -> group a multi-word term (quotes/parens)
 // `-term` STEERS away (a lean); `!term` EXCLUDES (a gate). Empty tokens are skipped.
 
-export interface ComposedTerm {
+interface ComposedTerm {
   text: string;
   weight: number;
 }
 
-export interface ExcludeTerm {
+interface ExcludeTerm {
   text: string;
   threshold?: number;
 }
 
-export interface ComposedQuery {
+interface ComposedQuery {
   terms: ComposedTerm[];
   exclude: ExcludeTerm[];
 }
@@ -121,14 +121,3 @@ export function parseComposedQuery(raw: string): ComposedQuery {
   return { terms, exclude };
 }
 
-/** True when the input is a single plain phrase (no operators, no exclude) — i.e. one
- *  unit-weight term whose text is the raw input verbatim. Such queries take the legacy
- *  single-`text` wire; anything composed sends structured terms/exclude. */
-export function isPlainPhrase(raw: string, q: ComposedQuery): boolean {
-  return (
-    q.exclude.length === 0 &&
-    q.terms.length === 1 &&
-    q.terms[0].weight === 1 &&
-    q.terms[0].text === raw.trim()
-  );
-}

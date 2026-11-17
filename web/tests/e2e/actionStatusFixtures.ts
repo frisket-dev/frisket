@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 
-export interface V1ActionResultFixture {
+interface V1ActionResultFixture {
   actionId?: string;
   actionKind?: string;
   errors?: Array<Record<string, unknown>>;
@@ -13,7 +13,7 @@ export interface V1ActionResultFixture {
   warnings?: Array<Record<string, unknown>>;
 }
 
-export interface V1ActionStatusFixture {
+interface V1ActionStatusFixture {
   actionKind: string;
   actionName: string;
   completed?: number;
@@ -32,16 +32,12 @@ export interface V1ActionStatusFixture {
   total?: number;
 }
 
-export interface V1ActionRunRecorder {
+interface V1ActionRunRecorder {
   v1Posts: Array<Record<string, unknown>>;
 }
 
-export interface V1ActionStatusRecorder {
+interface V1ActionStatusRecorder {
   statusPolls: string[];
-}
-
-export interface StubbedV1ActionRecorder extends V1ActionRunRecorder, V1ActionStatusRecorder {
-  legacyPosts: Array<Record<string, unknown>>;
 }
 
 type StatusFactory =
@@ -49,7 +45,7 @@ type StatusFactory =
   | null
   | ((runId: number) => V1ActionStatusFixture | null);
 
-export function v1ActionResultPayload(
+function v1ActionResultPayload(
   fixture: V1ActionResultFixture,
   posted?: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -72,7 +68,7 @@ export function v1ActionResultPayload(
   };
 }
 
-export function v1ActionStatusPayload(
+function v1ActionStatusPayload(
   fixture: V1ActionStatusFixture,
 ): Record<string, unknown> {
   const status = fixture.status ?? 'queued';
@@ -197,42 +193,3 @@ export async function routeV1ActionStatus(
   return { statusPolls };
 }
 
-export async function stubV1QueuedAction(
-  page: Page,
-  projectId: string,
-  options: {
-    actionKind: string;
-    actionName: string;
-    actionId?: string;
-    jobId?: number | null;
-    legacyError: string;
-    receiptId: string;
-    runId: number;
-    status?: string;
-    total?: number;
-  },
-): Promise<StubbedV1ActionRecorder> {
-  const legacy = await blockLegacyProjectRun(page, projectId, options.legacyError);
-  const actionResult: Omit<V1ActionResultFixture, 'projectId'> = {
-    actionKind: options.actionKind,
-    receiptId: options.receiptId,
-    runId: options.runId,
-    status: options.status ?? 'queued',
-  };
-  if (options.actionId !== undefined) actionResult.actionId = options.actionId;
-  if (options.jobId !== undefined) actionResult.jobId = options.jobId;
-  const run = await routeV1ActionRun(page, projectId, actionResult);
-  const status = await routeV1ActionStatus(page, projectId, {
-    actionKind: options.actionKind,
-    actionName: options.actionName,
-    projectId,
-    runId: options.runId,
-    status: options.status ?? 'queued',
-    total: options.total,
-  });
-  return {
-    legacyPosts: legacy.legacyPosts,
-    statusPolls: status.statusPolls,
-    v1Posts: run.v1Posts,
-  };
-}

@@ -5,7 +5,7 @@ import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { PanelHeader } from './PanelPrimitives';
 import { PanelFrame, PanelBody } from './PanelLayout';
 
-export interface DrawerProps {
+interface DrawerProps {
   title: ReactNode;
   side?: 'left' | 'right';
   onClose(): void;

@@ -5,7 +5,7 @@ import { formatUsd } from '../actions/model';
 import { quotedUsd } from '../actions/quotedCost';
 import { countLabel, formatDuration } from '../format';
 
-export interface CostGateModalProps {
+interface CostGateModalProps {
   estimate: RunEstimate;
   message: string;
   onConfirm(): void;

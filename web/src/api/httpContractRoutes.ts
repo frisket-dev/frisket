@@ -2,17 +2,12 @@ export {
   getGlobalActionCatalog,
   getProjectActionCatalog,
 } from './httpContractRoutes/catalog';
-export type { ActionCatalogContractOptions } from './httpContractRoutes/catalog';
 export {
   createProjectContract,
   deleteProjectContract,
   getProjectContract,
   listProjectsContract,
   updateProjectContract,
-} from './httpContractRoutes/projects';
-export type {
-  ProjectCrudContractOptions,
-  ProjectUpdateInput,
 } from './httpContractRoutes/projects';
 export {
   getColumnStatsContract,
@@ -26,7 +21,6 @@ export {
 export type {
   LocateSheetRowContractQuery,
   SheetDataContractQuery,
-  SheetGridContractOptions,
 } from './httpContractRoutes/sheets';
 export {
   cancelRunContract,
@@ -36,14 +30,5 @@ export {
   getRunRowsContract,
   listActionJobsContract,
 } from './httpContractRoutes/actionRuns';
-export type {
-  ActionJobsContractQuery,
-  ContractErrorFactory,
-  RunReceiptContractOptions,
-  RunRowsContractQuery,
-} from './httpContractRoutes/actionRuns';
 export { getWorkbenchPluginRuntimeIndexContract } from './httpContractRoutes/workbench';
-export type { WorkbenchContractOptions } from './httpContractRoutes/workbench';
 
-export { getCellTextWindowContract } from './httpContractRoutes/cells';
-export type { CellTextWindow } from './httpContractRoutes/cells';

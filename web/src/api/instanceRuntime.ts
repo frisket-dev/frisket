@@ -2,12 +2,12 @@ import type { HttpContractSuccessResponse } from "./httpContract";
 import { httpContract } from "./httpContract";
 import type { HealthStatus, InstanceIdentity, RuntimeConfig } from "./types";
 
-export interface InstanceRuntimeOptions {
+interface InstanceRuntimeOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface InstanceRuntimeApi {
+interface InstanceRuntimeApi {
   getRuntimeConfig(options?: InstanceRuntimeOptions): Promise<RuntimeConfig>;
   updateRuntimeConfig(
     cacheMode: RuntimeConfig['cache_mode'] | undefined,

@@ -1,7 +1,7 @@
 import { ConfirmDialog } from './Modal';
 import { Trash2 } from 'lucide-react';
 
-export interface ConfirmDeleteRowsModalProps {
+interface ConfirmDeleteRowsModalProps {
   count: number;
   onConfirm(): void;
   onCancel(): void;

@@ -29,7 +29,7 @@ type AtLeastOne<T, Keys extends keyof T = keyof T> = Keys extends keyof T
 
 export type LocalEndpointPatch = AtLeastOne<Omit<LocalEndpointInput, "origin">>;
 
-export interface LocalProvidersApi {
+interface LocalProvidersApi {
   listProviders(
     projectId?: string,
     options?: LocalProvidersOptions,

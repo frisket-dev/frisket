@@ -40,7 +40,7 @@ export interface ActionCompareVariantEditorRenderProps {
 
 export interface ActionCompareSettingChange { label: string; before: string; after: string }
 
-export interface ActionCompareTabProps {
+interface ActionCompareTabProps {
   projectId: string;
   session: ActionCompareSession;
   rowHeight: number;

@@ -10,7 +10,7 @@ export interface ProjectProviderKeysOptions {
   headers?: HeadersInit;
 }
 
-export interface ProjectProviderKeysApi {
+interface ProjectProviderKeysApi {
   getProjectProviderKeys(
     projectId: string,
     options?: ProjectProviderKeysOptions,

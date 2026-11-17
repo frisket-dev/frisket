@@ -47,7 +47,7 @@ export function servedTypedEntry(
   return entry;
 }
 
-export interface MountTypedFormOptions {
+interface MountTypedFormOptions {
   entry: GeneratedActionCatalogEntry;
   sheet: SheetMeta;
   resolveParams: TypedResolveParams;

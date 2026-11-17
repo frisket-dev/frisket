@@ -31,7 +31,7 @@ import {
 } from './useColumnValuesPreview';
 import './substitute-form.css';
 
-export type SubstituteFormProps = GeneratedActionParamsBodyProps<'resolve.substitute'>;
+type SubstituteFormProps = GeneratedActionParamsBodyProps<'resolve.substitute'>;
 
 /** Don't-enumerate threshold (contract: 150). Above this the row-per-value
  *  table would be a wall — the drawer nudges to a pasted map or another

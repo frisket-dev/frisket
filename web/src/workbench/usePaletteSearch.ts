@@ -29,7 +29,7 @@ export interface PaletteSearchSeed {
   label?: string;
 }
 
-export interface PaletteSearch {
+interface PaletteSearch {
   mode: 'lexical' | 'semantic' | 'hybrid';
   setMode(mode: 'lexical' | 'semantic' | 'hybrid'): void;
   rerank: boolean;

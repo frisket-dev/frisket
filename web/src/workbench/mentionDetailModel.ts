@@ -54,7 +54,7 @@ export function mentionTargetForMark(
 
 /** A snippet split into the three runs a result line draws: the context before
  *  the mention, the mention itself, and the context after. */
-export interface SnippetParts {
+interface SnippetParts {
   before: string;
   mark: string;
   after: string;

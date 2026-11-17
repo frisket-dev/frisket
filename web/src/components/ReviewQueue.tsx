@@ -12,7 +12,7 @@ import { ReviewSession } from './review/ReviewSession';
 import { ReviewHeader, ReviewShell } from './review/ReviewPresentation';
 import { useReviewRuns } from './review/useReviewRuns';
 
-export interface ReviewQueueProps {
+interface ReviewQueueProps {
   runId?: string;
   reviewExportUrl?(runId: string): string;
   onClose(): void;

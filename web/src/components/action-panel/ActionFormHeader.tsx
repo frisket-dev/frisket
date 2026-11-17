@@ -59,7 +59,7 @@ const CATEGORY_ICONS: Record<string, LucideIcon> = {
   text: Braces,
 };
 
-export interface ActionFormHeaderProps {
+interface ActionFormHeaderProps {
   actionTemplate: ActionTemplate;
   title?: string;
   sheetName?: string;

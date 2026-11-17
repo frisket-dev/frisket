@@ -15,7 +15,7 @@
 // Framework-free (core/ boundary): no react/react-dom, no state/bind/app-layer
 // imports.
 
-export interface EagerModules<T> {
+interface EagerModules<T> {
   readonly [path: string]: { readonly default: T };
 }
 

@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 
-export type PluginHostAvailability =
+type PluginHostAvailability =
   | { available: true; reason?: undefined }
   | { available: false; reason: string };
 
-export interface PluginHostShellProps<Descriptor, Sheet> {
+interface PluginHostShellProps<Descriptor, Sheet> {
   descriptor: Descriptor;
   sheet: Sheet | null;
   resolveAvailability(descriptor: Descriptor, sheet: Sheet | null): PluginHostAvailability;

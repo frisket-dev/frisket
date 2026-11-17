@@ -6,9 +6,9 @@ import { SegmentedToggle, type SegmentedOption } from '../components/PanelPrimit
 import { useSetupEditing, useSetupRequests } from './setupLifetime';
 
 export type ModelRouteSelection = NonNullable<SelectorChoice['route_selection']>;
-export type ModelRouteId = ModelRouteSelection['selected'];
+type ModelRouteId = ModelRouteSelection['selected'];
 
-export interface ModelRouteControlProps {
+interface ModelRouteControlProps {
   projectId: string;
   selection: ModelRouteSelection;
   setRoute(

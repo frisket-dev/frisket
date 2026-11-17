@@ -8,7 +8,7 @@ const MICROS_PER_USD = 1_000_000;
  *  estimate did not carry a complete priced verdict. That includes both an
  *  explicit Unpriceable rating and an old/malformed unrated envelope; neither
  *  may be smoothed into a provider figure or a local zero. */
-export interface QuotedCost {
+interface QuotedCost {
   usd: number | null;
   refused: boolean;
 }

@@ -1,5 +1,3 @@
-export const OPEN_EDITION_POSTURES = ['local', 'team'] as const;
-
 /** Opaque browser-composition identity owned by the mounted edition. */
 export type EditionPosture = string;
 

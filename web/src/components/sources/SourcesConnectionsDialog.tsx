@@ -4,7 +4,7 @@ import { WindowCloseButton } from '../WindowCloseButton';
 import { SourcesPanel, type SourcesPanelProps } from '../SourcesPanel';
 import './SourcesConnectionsDialog.css';
 
-export interface SourcesConnectionsDialogProps extends SourcesPanelProps {
+interface SourcesConnectionsDialogProps extends SourcesPanelProps {
   open: boolean;
   onClose(): void;
 }

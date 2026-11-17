@@ -3,12 +3,12 @@ import { GitCompareArrows } from 'lucide-react';
 import { AnchoredMenu } from '../components/MenuPop';
 import type { ActionRunAnchor } from '../grid/actionRunEntry';
 
-export interface CompareRunChoice {
+interface CompareRunChoice {
   anchor: ActionRunAnchor; label: string; summary?: string; group?: 'rows' | 'media';
   expected?: { sheetName: string; rowCount: number };
 }
-export interface CompareActionChoice { kind: string; label: string; group: 'rows' | 'media'; disabledReason?: string }
-export interface CompareMenuProps {
+interface CompareActionChoice { kind: string; label: string; group: 'rows' | 'media'; disabledReason?: string }
+interface CompareMenuProps {
   media?: boolean; inline?: boolean; onDismiss?(): void; runs: CompareRunChoice[]; actions: CompareActionChoice[];
   onCompareRun(anchor: ActionRunAnchor, expected: boolean): void;
   onCompareAction(kind: string): void; onJoinExpected(): void;

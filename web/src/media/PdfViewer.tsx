@@ -18,7 +18,7 @@ export interface DocumentPageImage {
   url: string;
 }
 
-export interface PdfViewerProps {
+interface PdfViewerProps {
   url: string;
   layout: 'single' | 'two-up' | 'continuous';
   fit: 'width' | 'page';

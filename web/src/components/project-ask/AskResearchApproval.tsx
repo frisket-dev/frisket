@@ -39,9 +39,9 @@ export type AskResearchPendingApproval =
     message: string;
   };
 
-export type AskResearchApprovalUpdate = { budget_usd: string } | { max_turns: number | null };
+type AskResearchApprovalUpdate = { budget_usd: string } | { max_turns: number | null };
 
-export interface AskResearchApprovalProps {
+interface AskResearchApprovalProps {
   approval: AskResearchPendingApproval;
   onContinue(update?: AskResearchApprovalUpdate): void;
   onSkip?: () => void;

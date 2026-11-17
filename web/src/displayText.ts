@@ -1,6 +1,6 @@
 const ESCAPED_UNICODE_RE = /\\u([0-9a-fA-F]{4})/g;
 
-export interface TextDisplayOptions {
+interface TextDisplayOptions {
   decodeEscapes?: boolean;
 }
 

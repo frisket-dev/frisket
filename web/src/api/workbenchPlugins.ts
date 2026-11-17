@@ -10,12 +10,12 @@ import type {
   WorkbenchPluginSettings,
 } from './types';
 
-export interface WorkbenchPluginsOptions {
+interface WorkbenchPluginsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface WorkbenchPluginsApi {
+interface WorkbenchPluginsApi {
   getSettings(
     projectId: string,
     pluginId: string,

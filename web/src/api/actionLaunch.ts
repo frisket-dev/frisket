@@ -4,7 +4,7 @@ import type {
 } from '../generated/openHttpContracts';
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 
-export interface ActionLaunchOptions {
+interface ActionLaunchOptions {
   projectId?: string;
   signal?: AbortSignal;
   headers?: HeadersInit;
@@ -14,7 +14,7 @@ export type ActionLaunchRequest = HttpActionRunRequest;
 export type ActionLaunchWire =
   HttpContractSuccessResponse<'tenant.v1_action_run.post'>;
 
-export interface ActionLaunchResponse {
+interface ActionLaunchResponse {
   status: number;
   result: ActionLaunchWire;
 }

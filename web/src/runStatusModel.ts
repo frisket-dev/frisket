@@ -1,6 +1,6 @@
 import type { RunProgress } from './api/types';
 
-export type RunProgressStatus = RunProgress['status'];
+type RunProgressStatus = RunProgress['status'];
 
 // ONE compatibility rule for legacy servers that reported a terminal run as
 // `complete` even when it left failed rows behind. New servers publish
@@ -34,12 +34,12 @@ export function isTerminalActionJobStatus(status: string | null | undefined): bo
   return TERMINAL_ACTION_JOB_STATUSES.includes(status ?? '');
 }
 
-export type ActiveRunStatus = Extract<
+type ActiveRunStatus = Extract<
   RunProgressStatus,
   'queued' | 'running' | 'stalled' | 'orphaned'
 >;
 
-export interface WireRunStatusLike {
+interface WireRunStatusLike {
   status?: string | null;
   live?: boolean | null;
 }

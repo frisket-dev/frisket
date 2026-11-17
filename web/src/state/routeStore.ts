@@ -22,7 +22,7 @@ export type RouteHistoryCommand =
       next: RouteState;
     };
 
-export interface RouteStoreDependencies {
+interface RouteStoreDependencies {
   /** Fixed six-class sheet-change matrix. Called only when sheetId changes. */
   resetForSheetChange(nextSheetId: string): void;
 }

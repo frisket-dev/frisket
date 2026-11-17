@@ -2,7 +2,7 @@ import type { HttpAskSkillSaveRequest, HttpAskSkillSaveResult } from '../generat
 
 export type SkillProposalSaveRequest = HttpAskSkillSaveRequest & { expected_revision: number | null };
 
-export interface SavedInstructionSkill {
+interface SavedInstructionSkill {
   id: string;
   name: string;
   description: string;
@@ -36,7 +36,7 @@ export interface DeletedSkillProposalResult {
 
 export type SkillProposalSaveResult = SavedSkillProposalResult | ChangedSkillProposalResult | DeletedSkillProposalResult;
 
-export type SkillProposalSaveErrorCode =
+type SkillProposalSaveErrorCode =
   | 'revision_conflict'
   | 'name_conflict'
   | 'request_conflict'

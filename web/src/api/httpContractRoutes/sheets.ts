@@ -24,7 +24,7 @@ type SheetRowLocationWire = HttpContractSuccessResponse<'tenant.locate_sheet_row
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface SheetGridContractOptions {
+interface SheetGridContractOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }

@@ -3,8 +3,7 @@ import { ApiError } from '../api/open';
 /**
  * Plain (non-component) helpers shared across panel components. Split out of
  * PanelPrimitives.tsx because that file's exports must stay component-only
- * (react-refresh/only-export-components) — pairs with it the way
- * friendlyFiltersPanelModel.ts pairs with FriendlyFiltersPanel.tsx.
+ * (react-refresh/only-export-components).
  */
 
 /**

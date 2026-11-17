@@ -14,7 +14,7 @@ import { MenuPop } from './MenuPop';
 import styles from './OverflowRow.module.css';
 import { useOverflowItems } from './useOverflowItems';
 
-export interface OverflowRowProps<T> {
+interface OverflowRowProps<T> {
   items: readonly T[];
   getKey(item: T): string;
   keepVisibleKey?: string;

@@ -24,7 +24,7 @@ interface ReselectionOptions {
   refresh(): Promise<void>;
 }
 
-export interface ActivePdfBatchIntake {
+interface ActivePdfBatchIntake {
   abort(): void;
   done: Promise<void>;
 }

@@ -1,6 +1,6 @@
 import { httpContract, type HttpContractSuccessResponse } from '../httpContract';
 
-export type CellTextWindow = HttpContractSuccessResponse<'tenant.cell_text_window.get'>;
+type CellTextWindow = HttpContractSuccessResponse<'tenant.cell_text_window.get'>;
 
 /** Offsets are Unicode codepoints, and each continuation pins its revision. */
 export function getCellTextWindowContract(

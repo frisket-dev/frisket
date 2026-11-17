@@ -7,7 +7,7 @@
 // mirrors every map-points response's header metadata here, at the API layer
 // where the headers exist, regardless of which surface initiated the fetch.
 
-export interface MapPointsResponseMeta {
+interface MapPointsResponseMeta {
   sheetId: string;
   columnId: string;
   validPoints: number;

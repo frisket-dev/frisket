@@ -12,8 +12,6 @@ export interface OnboardingImportOptions {
   headers?: HeadersInit;
 }
 
-export type ImportSessionState = HttpImportSessionStatus['state'];
-
 export interface ImportPreparationChild {
   action_id: 'media.read_pdf_text' | 'media.ocr';
   row_count: number;
@@ -39,7 +37,7 @@ export type ImportSessionStatus = HttpImportSessionStatus & {
   preparation_children: ImportPreparationChild[];
 };
 
-export type ImportSessionList = Omit<HttpImportSessionList, 'sessions'> & {
+type ImportSessionList = Omit<HttpImportSessionList, 'sessions'> & {
   sessions: ImportSessionStatus[];
 };
 
@@ -75,23 +73,23 @@ function normalizeImportSession(status: HttpImportSessionStatus): ImportSessionS
   };
 }
 
-export interface ImportSessionCreateOptions extends OnboardingImportOptions {
+interface ImportSessionCreateOptions extends OnboardingImportOptions {
   sheetName?: string;
 }
 
-export interface ImportSessionUploadOptions extends OnboardingImportOptions {
+interface ImportSessionUploadOptions extends OnboardingImportOptions {
   logicalPaths: string[];
   batchId: string;
 }
 
-export interface ImportSessionUploadSequenceOptions extends OnboardingImportOptions {
+interface ImportSessionUploadSequenceOptions extends OnboardingImportOptions {
   onStatus?(status: ImportSessionStatus): void;
 }
 
-export const IMPORT_SESSION_CHUNK_FILES = 256;
-export const IMPORT_SESSION_CHUNK_BYTES = 64 * 1024 * 1024;
+const IMPORT_SESSION_CHUNK_FILES = 256;
+const IMPORT_SESSION_CHUNK_BYTES = 64 * 1024 * 1024;
 
-export interface ImportFileChunk {
+interface ImportFileChunk {
   files: File[];
   logicalPaths: string[];
   start: number;
@@ -140,20 +138,20 @@ export function* chunkImportFiles(
   }
 }
 
-export interface CsvImportOptions extends OnboardingImportOptions {
+interface CsvImportOptions extends OnboardingImportOptions {
   encoding?: string;
   destinationSheetId?: number;
   appendRequestKey?: string;
   columnMapping?: Record<string, string | null>;
 }
 
-export type SampleProjectSeedWire =
+type SampleProjectSeedWire =
   HttpContractSuccessResponse<'tenant.seed_sample_project.post'>;
-export type PreparedImportUrls = HttpContractSuccessResponse<'tenant.prepare_import_urls.post'>;
-export type ImportCsvWire = HttpContractSuccessResponse<'tenant.import_csv.post'>;
-export type ImportXlsxWire = HttpContractSuccessResponse<'tenant.import_xlsx.post'>;
-export type ImportFilesWire = HttpContractSuccessResponse<'tenant.import_files.post'>;
-export type ImportFollowTheMoneyWire =
+type PreparedImportUrls = HttpContractSuccessResponse<'tenant.prepare_import_urls.post'>;
+type ImportCsvWire = HttpContractSuccessResponse<'tenant.import_csv.post'>;
+type ImportXlsxWire = HttpContractSuccessResponse<'tenant.import_xlsx.post'>;
+type ImportFilesWire = HttpContractSuccessResponse<'tenant.import_files.post'>;
+type ImportFollowTheMoneyWire =
   HttpContractSuccessResponse<'tenant.import_followthemoney.post'>;
 
 type FollowTheMoneyRequest =
@@ -186,7 +184,7 @@ export interface BulkImportPlan {
 
 export type PreparedImportFiles = HttpContractSuccessResponse<'tenant.prepare_import_files.post'>;
 
-export interface BulkImportCreatedOutput {
+interface BulkImportCreatedOutput {
   rows?: number;
   search_preparation_batch_id?: string | null;
   id: string;
@@ -202,7 +200,7 @@ export interface BulkImportFailedOutput {
   error: string;
 }
 
-export interface BulkImportExecution {
+interface BulkImportExecution {
   created: BulkImportCreatedOutput[];
   /** The server already bounds this deterministic first page of failures. */
   failed: BulkImportFailedOutput[];
@@ -214,7 +212,7 @@ export interface BulkImportExecution {
   warnings: string[];
 }
 
-export interface SampleProjectSeedResult {
+interface SampleProjectSeedResult {
   ok: boolean;
   project_id: string;
   sheet_id: number;
@@ -223,7 +221,7 @@ export interface SampleProjectSeedResult {
   rows: number;
 }
 
-export interface OnboardingImportsApi {
+interface OnboardingImportsApi {
   seedSampleProject(
     projectId: string,
     options?: OnboardingImportOptions,
@@ -565,17 +563,6 @@ export function importFollowTheMoney(
 ): Promise<ImportFollowTheMoneyWire> {
   return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
     .importFollowTheMoney(file, datasetName);
-}
-
-export function planBulkImport(
-  projectId: string,
-  files: File[],
-  logicalPaths: string[],
-  expandArchive: boolean,
-  options: OnboardingImportOptions = {},
-): Promise<BulkImportPlan> {
-  return createOnboardingImportsApi(actionLaunchErrorFromContract, projectId)
-    .planBulkImport(files, logicalPaths, expandArchive, options);
 }
 
 export function prepareImportFiles(

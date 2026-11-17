@@ -7,12 +7,12 @@ import type {
   ProjectSettingsPatch,
 } from './types';
 
-export interface ProjectDataManagementOptions {
+interface ProjectDataManagementOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface ProjectDataManagementApi {
+interface ProjectDataManagementApi {
   getProjectRetention(options?: ProjectDataManagementOptions): Promise<ProjectRetentionPolicy>;
   updateProjectRetention(
     input: Partial<ProjectRetentionPolicy>,

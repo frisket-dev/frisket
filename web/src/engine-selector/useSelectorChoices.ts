@@ -24,7 +24,7 @@ export type SelectorPullLoader = (
   options: { signal: AbortSignal },
 ) => Promise<ModelPullDto>;
 
-export interface UseSelectorChoicesOptions {
+interface UseSelectorChoicesOptions {
   projectId: string | null | undefined;
   query: HttpSelectorChoicesQuery;
   /** A caller-provided identity for the capability-affecting draft fields. */

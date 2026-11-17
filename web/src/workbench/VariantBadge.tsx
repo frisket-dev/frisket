@@ -3,7 +3,7 @@ import type { CSSProperties, HTMLAttributes } from 'react';
 import './VariantBadge.css';
 import { VARIANT_BADGE_PRESENTATION } from './variantBadgePresentation';
 
-export interface VariantBadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, 'children'> {
+interface VariantBadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, 'children'> {
   label: string;
 }
 

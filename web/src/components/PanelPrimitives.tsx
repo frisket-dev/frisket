@@ -366,7 +366,7 @@ export function PanelHeader({
   );
 }
 
-export interface ConfirmTypeInputProps
+interface ConfirmTypeInputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'autoComplete' | 'type'> {
   value: string;
   onChange(value: string): void;

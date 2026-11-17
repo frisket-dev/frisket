@@ -56,17 +56,6 @@ export type OpenSettingsSectionDefinition = Omit<
   readonly component: SettingsSectionComponentKey;
 };
 
-export interface SettingDefinition<TValue = unknown> {
-  id: string;
-  scope: SettingsScope;
-  schema: Record<string, unknown>;
-  defaultValue: TValue;
-  sourceOrder: string[];
-  storageOwner: 'personal' | 'project-local' | 'project' | 'app';
-  permission: SettingsPermission;
-  renderer: string;
-}
-
 export const SETTINGS_DEFAULT_SECTIONS: Record<SettingsScope, string> = {
   personal: 'profile',
   project: 'general',

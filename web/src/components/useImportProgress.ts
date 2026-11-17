@@ -425,7 +425,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
   }), [activities, message, busyRef, preparingRef, command, requestReselect, projectId, refresh]);
 }
 
-export interface ImportSearchActivityLine {
+interface ImportSearchActivityLine {
   key: string;
   label: string;
   completed: number | null;

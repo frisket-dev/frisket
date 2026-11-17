@@ -19,7 +19,7 @@ export function failureOutcomeLabel(outcome: string | null): string {
   return FAILURE_OUTCOME_LABELS[outcome] ?? outcome.replaceAll('_', ' ');
 }
 
-export interface FailureBucket {
+interface FailureBucket {
   /** Taxonomy outcome, or null when the backend sent no classification. */
   outcome: string | null;
   label: string;

@@ -34,7 +34,7 @@ function DetailContributionSlot({
   return <>{render(contribution)}</>;
 }
 
-export interface RowDrawerBodyProps {
+interface RowDrawerBodyProps {
   /** Scopes ephemeral disclosure state when sheet and column IDs repeat across projects. */
   projectId: string;
   sheet: SheetMeta;

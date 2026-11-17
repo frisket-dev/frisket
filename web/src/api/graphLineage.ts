@@ -1,14 +1,14 @@
 import { httpContract } from './httpContract';
 import type { LineageDag, SheetGraphOptions, SheetGraphResult } from './types';
 
-export interface GraphLineageOptions {
+interface GraphLineageOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface GraphLineageApi {
+interface GraphLineageApi {
   getLineage(projectId: string, options?: GraphLineageOptions): Promise<LineageDag>;
   getSheetGraph(
     projectId: string,

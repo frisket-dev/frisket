@@ -13,19 +13,11 @@ export {
 
 export {
   DISCOVER_TABS,
-  type DeleteRowsConfirmState,
   type DiscoverTab,
   type DocumentViewFit,
-  type DocumentAlongsidePreference,
-  type DocumentAlongsidePreferences,
   type DocumentViewLayout,
   type DocumentViewState,
   type DocumentViewVideoFit,
-  type EvidenceViewerHost,
-  type EvidenceViewerState,
-  type OpenSplitState,
   type PromotedView,
-  type RibbonMode,
-  type WorkspaceToastError,
   type WorkViewKind,
 } from '../state/chromeStore';

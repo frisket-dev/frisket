@@ -60,7 +60,7 @@ export function installDialogPolyfill(): void {
   }
 }
 
-export interface MatchMediaController {
+interface MatchMediaController {
   /** Flip the emulated OS color scheme and notify every live listener, mirroring
    *  Playwright's `page.emulateMedia({ colorScheme })` used by the original e2e specs. */
   setColorScheme(scheme: 'light' | 'dark'): void;

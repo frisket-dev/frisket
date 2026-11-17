@@ -148,7 +148,7 @@ function SettingsSectionRenderer({
   return <SectionFrame definition={definition}>{body}</SectionFrame>;
 }
 
-export interface SettingsWorkspaceProps {
+interface SettingsWorkspaceProps {
   route: SettingsRoute;
   project?: ProjectInfo | null;
   identityMode: boolean;

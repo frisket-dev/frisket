@@ -6,12 +6,12 @@ import type {
   LocalEndpointCatalog,
 } from './types';
 
-export interface TeamLocalModelsOptions {
+interface TeamLocalModelsOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface TeamLocalModelsApi {
+interface TeamLocalModelsApi {
   listOrgLocalEndpoints(options?: TeamLocalModelsOptions): Promise<LocalEndpointCatalog>;
   orgStartArtifactPull(
     ref: string,

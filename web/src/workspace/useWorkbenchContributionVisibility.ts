@@ -114,7 +114,7 @@ function workbenchContributionVisibilityReducer(
   }
 }
 
-export interface WorkbenchContributionVisibilityController {
+interface WorkbenchContributionVisibilityController {
   hiddenContributionIds: string[];
   /** Memoized Set view of `hiddenContributionIds` — pure selectors take DATA,
    *  not the `isContributionHidden` closure; this is the stable, comparable

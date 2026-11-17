@@ -11,7 +11,7 @@ import {
 import { resolvePluginPanelAvailability } from './pluginPanelContext';
 import { PluginRuntimeContribution } from './PluginRuntimeContribution';
 
-export interface PluginDetailHostProps {
+interface PluginDetailHostProps {
   descriptor: WorkbenchPanelDescriptor;
   sheet: SheetMeta | null;
   hostContext: WorkbenchHostContext;

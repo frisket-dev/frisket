@@ -1,6 +1,6 @@
 import { httpContract } from './httpContract';
 
-export type McpEnvBinding = { project_secret: string } | { value: string };
+type McpEnvBinding = { project_secret: string } | { value: string };
 export interface McpServer { id: string; name: string; command: string; args: string[]; cwd: string | null; env: Record<string, McpEnvBinding>; enabled: boolean; revision: number; last_discovered_tool_count?: number | null; lastTest?: { status: 'succeeded' | 'failed'; tested_at?: string | null; diagnostic?: string | null } | null; }
 export type McpServerDraft = Pick<McpServer, 'name' | 'command' | 'args' | 'cwd' | 'env' | 'enabled'>;
 

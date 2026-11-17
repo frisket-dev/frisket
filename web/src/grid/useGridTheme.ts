@@ -10,7 +10,7 @@ import {
   type GridCellPalette,
 } from './gridTheme';
 
-export interface GridThemeSnapshot {
+interface GridThemeSnapshot {
   gridTheme: Partial<Theme>;
   aiColumnTheme: Partial<Theme>;
   expectedColumnTheme: Partial<Theme>;

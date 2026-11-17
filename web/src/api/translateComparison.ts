@@ -1,20 +1,17 @@
-import { httpContract, type HttpContractSuccessResponse } from './httpContract';
+import { httpContract } from './httpContract';
 import type {
   TranslateCompareScratchInput,
   TranslateCompareScratchResult,
 } from './types';
 
-export interface TranslateComparisonOptions {
+interface TranslateComparisonOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type TranslateComparisonWire =
-  HttpContractSuccessResponse<'tenant.translate_compare_scratch.post'>;
-
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface TranslateComparisonApi {
+interface TranslateComparisonApi {
   compareTranslateScratch(
     projectId: string,
     input: TranslateCompareScratchInput,

@@ -1,6 +1,6 @@
 import { httpContract } from './httpContract';
 
-export interface DiagnosticsOptions {
+interface DiagnosticsOptions {
   fetch?: typeof globalThis.fetch;
   signal?: AbortSignal;
   headers?: HeadersInit;

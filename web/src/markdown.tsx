@@ -134,7 +134,7 @@ function camelCaseCssName(name: string): string {
   return name.replace(/-([a-z])/g, (_, char: string) => char.toUpperCase());
 }
 
-export interface MarkdownViewProps {
+interface MarkdownViewProps {
   source: string;
   className?: string;
   testId?: string;

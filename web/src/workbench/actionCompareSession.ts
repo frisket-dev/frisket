@@ -56,7 +56,7 @@ export interface ActionCompareCapturedSelection {
   totalCount: number;
 }
 
-export interface ActionCompareSessionInit {
+interface ActionCompareSessionInit {
   context: ActionComparisonContext;
   capturedSelection?: ActionCompareCapturedSelection | null;
 }
@@ -90,7 +90,7 @@ export type ActionCompareVariantRun = ((args: {
   prepareSequence?(args: { context: ActionComparisonContext; variants: readonly ActionCompareVariant[]; signal: AbortSignal }): Promise<boolean>;
 };
 
-export interface ActionCompareSessionDependencies {
+interface ActionCompareSessionDependencies {
   runVariant: ActionCompareVariantRun;
   cancelPreview?(previewId: string): Promise<void>;
   discardPreview?(previewId: string): Promise<void>;
@@ -213,7 +213,7 @@ function aborted(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-export type ActionCompareCellEquality = 'same' | 'different' | 'not_comparable';
+type ActionCompareCellEquality = 'same' | 'different' | 'not_comparable';
 
 export function actionCompareCellEquality(
   left: ActionCompareResultCell | undefined,

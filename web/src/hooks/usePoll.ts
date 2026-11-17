@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-export interface UsePollOptions {
+interface UsePollOptions {
   /** Delay between invocations, in milliseconds. */
   intervalMs: number;
   /** Poll only while true; flipping to false tears the loop down. */

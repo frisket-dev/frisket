@@ -14,7 +14,7 @@ import type {
   SelectionFragment,
 } from './pluginContextFragments';
 
-export type PluginViewCapability =
+type PluginViewCapability =
   | 'sheet.rows.read'
   | 'media.blob.resolve'
   | 'host.navigation.openRow'
@@ -77,17 +77,17 @@ export interface PluginViewContext {
   libs?: HostLibraryDeckglFragment;
 }
 
-export interface PluginViewUnavailable {
+interface PluginViewUnavailable {
   available: false;
   reason: string;
 }
 
-export interface PluginViewAvailable {
+interface PluginViewAvailable {
   available: true;
   reason?: undefined;
 }
 
-export type PluginViewAvailability = PluginViewAvailable | PluginViewUnavailable;
+type PluginViewAvailability = PluginViewAvailable | PluginViewUnavailable;
 
 // Contract-pinned export: tests/authoring/test_plugin_sdk_contract_parity.py scrapes
 // this by its exported form — do not demote to module-private. This is the

@@ -403,7 +403,7 @@ export function PythonCodeField({
 
 /** One op-specific parameter (ActionTemplate.params): a text input, textarea,
  *  or column picker, exposed to tests as `field-<param name>`. */
-export function ParamInput({
+function ParamInput({
   param,
   value,
   columnValue,

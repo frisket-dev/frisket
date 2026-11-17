@@ -5,7 +5,7 @@ import { walkthroughTargetCandidates } from '../../../src/walkthrough/targets';
 import type { WalkthroughTarget } from '../../../src/walkthrough/walkthroughs';
 import { setTheme } from '../screenshotHelpers';
 
-export interface CaptureAnnotation {
+interface CaptureAnnotation {
   id: string;
   /** 1-based position among the step's visible, annotated controls. */
   number?: number;
@@ -15,7 +15,7 @@ export interface CaptureAnnotation {
   labelTarget?: Locator;
   expected: { kind: 'value' | 'text' | 'checked'; value: string | boolean };
 }
-export interface CaptureDescription {
+interface CaptureDescription {
   id: string;
   /** The root is also the element crop; omit for the viewport. */
   root?: Locator;
@@ -38,12 +38,12 @@ export interface CaptureRecord {
   annotations: Array<{ id: string; number: number; label: string; value: string | boolean;
     rect: { x: number; y: number; width: number; height: number } }>;
 }
-export type CaptureMetadata = {
+type CaptureMetadata = {
   appRevision: string;
   replay?: string;
 } & ({ sample: { id: string; revision: number }; fixture?: never }
   | { fixture: { id: string; revision: number }; sample?: never });
-export type CaptureBundle = CaptureMetadata & { version: 1; captures: CaptureRecord[] };
+type CaptureBundle = CaptureMetadata & { version: 1; captures: CaptureRecord[] };
 
 /** Full ribbon context with measured active tab and command. */
 export async function captureRibbon(page: Page, id: string, tab: Locator, action: Locator, directory: string): Promise<CaptureRecord> {

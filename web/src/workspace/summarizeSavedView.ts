@@ -1,5 +1,5 @@
 import type { SavedView } from '../api/open';
-export interface SavedViewSummary { filterSummary: string; sortSummary: string | null; columnCount: number | null; hasNoEffectiveFilter: boolean; summary: string; }
+interface SavedViewSummary { filterSummary: string; sortSummary: string | null; columnCount: number | null; hasNoEffectiveFilter: boolean; summary: string; }
 export function summarizeSavedView(view: SavedView): SavedViewSummary {
   if (!view.spec) return { filterSummary: 'Unavailable', sortSummary: null, columnCount: null, hasNoEffectiveFilter: false, summary: view.unavailable_reason ?? 'Unavailable view' };
   const { selection, presentation } = view.spec;

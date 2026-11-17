@@ -14,19 +14,19 @@ import type {
 } from './types';
 import type { V1ActionSession } from './v1ActionSession';
 
-export interface ProjectSourcesOptions {
+interface ProjectSourcesOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type ProjectSourceListWire =
+type ProjectSourceListWire =
   HttpContractSuccessResponse<'tenant.list_sources.get'>;
-export type ProjectSourceDetailWire =
+type ProjectSourceDetailWire =
   HttpContractSuccessResponse<'tenant.get_source_ep.get'>;
-export type ProjectSourceHealthWire =
+type ProjectSourceHealthWire =
   HttpContractSuccessResponse<'tenant.get_source_health_ep.get'>;
 
-export interface ProjectSourcesApi {
+interface ProjectSourcesApi {
   listSources(options?: ProjectSourcesOptions): Promise<SourceInfo[]>;
   getSource(
     sourceId: number,
@@ -46,7 +46,7 @@ export interface ProjectSourcesApi {
   fetchSource(sourceId: number): Promise<SourceFetchResult>;
 }
 
-export interface ProjectSourcesApiDependencies {
+interface ProjectSourcesApiDependencies {
   errorFactory: ContractErrorFactory;
   v1ActionSession: V1ActionSession;
 }

@@ -2,7 +2,7 @@ import { httpContract } from './httpContract';
 import type { AdminOverview } from './types';
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
-export interface AdminOverviewApi {
+interface AdminOverviewApi {
   getAdminOverview(): Promise<AdminOverview>;
 }
 

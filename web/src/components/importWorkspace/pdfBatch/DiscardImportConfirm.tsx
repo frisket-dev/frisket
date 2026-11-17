@@ -1,6 +1,6 @@
 import { ConfirmDialog } from '../../Modal';
 
-export interface DiscardImportConfirmProps {
+interface DiscardImportConfirmProps {
   title: string;
   message: string;
   confirmLabel: string;

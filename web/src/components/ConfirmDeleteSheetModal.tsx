@@ -2,7 +2,7 @@ import { ConfirmDialog } from './Modal';
 import { Trash2 } from 'lucide-react';
 import { PanelError } from './PanelPrimitives';
 
-export interface ConfirmDeleteSheetModalProps {
+interface ConfirmDeleteSheetModalProps {
   sheetName: string;
   busy: boolean;
   error: string | null;

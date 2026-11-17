@@ -1,7 +1,7 @@
 import type { HttpContractSuccessResponse } from '../../src/api/httpContract';
 
 type EmbeddingIndexListFixture = HttpContractSuccessResponse<'tenant.embedding_indexes.get'>;
-export type EmbeddingIndexFixture = EmbeddingIndexListFixture['indexes'][number];
+type EmbeddingIndexFixture = EmbeddingIndexListFixture['indexes'][number];
 
 type Identity = Pick<EmbeddingIndexFixture, 'index_id' | 'name' | 'sheet_id' | 'space_id'>;
 type EmbeddingIndexFixtureInput = Identity & Partial<Omit<EmbeddingIndexFixture, keyof Identity>>;

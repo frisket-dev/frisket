@@ -8,13 +8,13 @@ const REPO_ROOT =
     ? path.resolve(process.cwd(), '..')
     : process.cwd();
 
-export interface SeededEvidenceCell {
+interface SeededEvidenceCell {
   rowId: number;
   columnId: number;
   stableId: string;
 }
 
-export interface StubbedV1ActionRun {
+interface StubbedV1ActionRun {
   legacyPosts: Array<Record<string, unknown>>;
   v1Posts: Array<Record<string, unknown>>;
   statusPolls: string[];

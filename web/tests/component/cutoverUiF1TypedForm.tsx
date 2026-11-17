@@ -30,7 +30,7 @@ import { chooseActionSelector, installActionSelectorFixture } from '../support/s
 /** The served catalog entry for `kind`, cloned, with every engine selectable.
  *  Engine availability is a runtime fact the fixture script cannot observe;
  *  the form's own unavailable-engine handling is covered elsewhere. */
-export function typedCatalogEntry(kind: string): GeneratedActionCatalogEntry {
+function typedCatalogEntry(kind: string): GeneratedActionCatalogEntry {
   const entry = structuredClone(servedActionCatalog().actions.find((candidate) => candidate.kind === kind));
   if (!entry || !isGeneratedActionCatalogEntry(entry)) {
     throw new Error(`${kind} is not a served generated action`);
@@ -46,7 +46,7 @@ type ResolveRequest = Pick<GeneratedActionRequest, 'action_id' | 'scope' | 'para
 /** The server owns logical-output resolution for dynamic-output kinds. This
  *  mirrors its declared rule for the kinds in this lane so the form has real
  *  outputs to name; the resolution itself is exercised by backend tests. */
-export function servedLogicalOutputs(
+function servedLogicalOutputs(
   kind: string,
   params: Record<string, unknown>,
 ): ActionParamResolution['logical_outputs'] {

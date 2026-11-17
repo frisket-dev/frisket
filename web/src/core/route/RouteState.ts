@@ -24,7 +24,7 @@ export interface RouteState {
     | null;
 }
 
-export type RouteStatePanel = RouteState['panel'];
+type RouteStatePanel = RouteState['panel'];
 
 /** Narrow routes.ts's RoutePanel (which still carries 'map'/'graph' for the URL
  *  codec) into RouteState.panel. map/graph are ENTRY points hydrated by

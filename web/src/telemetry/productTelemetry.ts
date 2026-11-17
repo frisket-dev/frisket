@@ -1,7 +1,7 @@
 import { ACTION_PLACEMENTS } from '../actions/model';
 import { httpContract } from '../api/httpContract';
 
-export type TelemetryPreference = 'unanswered' | 'enabled' | 'disabled';
+type TelemetryPreference = 'unanswered' | 'enabled' | 'disabled';
 
 export type DurationBucket = 'lt_1s' | '1_10s' | '10_60s' | '1_10m' | 'gte_10m' | 'unknown';
 export type ByteBucket = 'zero' | 'lt_1mb' | '1_100mb' | '100mb_1gb' | 'gte_1gb' | 'unknown';
@@ -178,7 +178,7 @@ function platform(): 'linux' | 'macos' | 'windows' | 'ios' | 'android' | 'other'
   return 'other';
 }
 
-export function telemetryClient() {
+function telemetryClient() {
   // Parse only coarse facts; never transmit the raw user-agent or probe high-
   // entropy browser hints. Browsers often conceal OS versions, so omit them.
   const ua = navigator.userAgent;

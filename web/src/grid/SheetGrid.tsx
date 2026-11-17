@@ -280,13 +280,13 @@ function useColumnGroupChangeSink(
 }
 
 /** The sheet derived FROM this sheet, if any — drives the child-count chip. */
-export interface ChildSheetRef {
+interface ChildSheetRef {
   id: string;
   name: string;
 }
 
 /** Show only the rows derived from one parent row (chip click-through). */
-export interface ParentRowFilter {
+interface ParentRowFilter {
   parentRowId: string;
   /** The parent row's childCount — the filtered sheet's row total. */
   count: number;
@@ -296,7 +296,7 @@ export type ExpectedGridColumn = ExpectedProjection['columns'][number] & { type?
 const EMPTY_EXPECTED_COLUMNS: ExpectedGridColumn[] = [];
 const EMPTY_EXPECTED_ROWS: ExpectedProjection['rows'] = {};
 
-export interface SheetGridProps {
+interface SheetGridProps {
   scopeRowIds?: number[] | null;
   viewSelection?: ViewSelection | null;
   citationColumnId?: string | null;

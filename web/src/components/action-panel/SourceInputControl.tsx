@@ -24,7 +24,7 @@ export type SourceInputMode = SourceMode | 'columns' | 'all';
 
 /** The multi-column extension. Present = three modes (All / Column(s) /
  *  Template); absent = today's exact two-mode control. */
-export interface SourceInputMultiColumn {
+interface SourceInputMultiColumn {
   /** Column NAMES, in the order they will be read and serialized. */
   selectedColumns: string[];
   onSelectedColumnsChange(names: string[]): void;

@@ -22,11 +22,11 @@ export interface ParsedRangeDraft {
   label?: string;
 }
 
-export type PointDraftResult =
+type PointDraftResult =
   | { ok: true; items: ParsedPointDraft[] }
   | { ok: false; error: string };
 
-export type RangeDraftResult =
+type RangeDraftResult =
   | { ok: true; items: ParsedRangeDraft[] }
   | { ok: false; error: string };
 
@@ -212,7 +212,7 @@ export function timelineItemsDraftText(
   return null;
 }
 
-export type ReplaceTimelineItemsResult =
+type ReplaceTimelineItemsResult =
   | { ok: true; value: TimelineValue }
   | { ok: false; error: string };
 

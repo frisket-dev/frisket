@@ -10,20 +10,20 @@ import type {
 import { isDeriveCompositeRequest } from './types';
 import { resolveRunActionInvocation } from './v1ActionSession';
 
-export interface ActionEstimateValidationOptions {
+interface ActionEstimateValidationOptions {
   projectId?: string;
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type ActionEstimateValidationAction =
+type ActionEstimateValidationAction =
   HttpActionEstimateValidationRequest['action'];
-export type ActionEstimateWire =
+type ActionEstimateWire =
   HttpContractSuccessResponse<'tenant.action_v1_estimate.post'>;
-export type ActionParamValidationWire =
+type ActionParamValidationWire =
   HttpContractSuccessResponse<'tenant.action_v1_validate_params.post'>;
 
-export interface ActionEstimateValidationApi {
+interface ActionEstimateValidationApi {
   estimate(
     action: ActionEstimateValidationAction,
     options?: ActionEstimateValidationOptions,
@@ -34,12 +34,12 @@ export interface ActionEstimateValidationApi {
   ): Promise<ActionParamValidationWire>;
 }
 
-export interface ActionEstimateValidationDomainDependencies {
+interface ActionEstimateValidationDomainDependencies {
   errorFactory: ContractErrorFactory;
   projectId: string;
 }
 
-export interface ActionEstimateValidationDomainApi {
+interface ActionEstimateValidationDomainApi {
   estimate(request: ActionExecutionRequest): Promise<RunEstimate>;
   resolveParams(
     request: Pick<RegisteredActionRequest, 'action_id' | 'scope' | 'params'>,
@@ -48,7 +48,7 @@ export interface ActionEstimateValidationDomainApi {
 
 type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export function paramValidationFromV1Wire(
+function paramValidationFromV1Wire(
   diagnostics: ActionParamValidationWire['diagnostics'],
 ): ParamValidationResult {
   return Object.fromEntries(

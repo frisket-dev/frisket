@@ -20,12 +20,12 @@ class ProjectDeletionLifetimeChallenge extends Error {
   }
 }
 
-export interface ProjectCrudContractOptions {
+interface ProjectCrudContractOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface ProjectUpdateInput {
+interface ProjectUpdateInput {
   name?: string | null;
   description?: string | null;
   starred?: boolean | null;

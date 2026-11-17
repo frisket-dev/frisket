@@ -1,4 +1,3 @@
-import { packetFindQueues } from './packetFindQueues';
 
 export interface ReviewSource {
   key: string;
@@ -31,12 +30,6 @@ export function reviewedStarts(sources: readonly ReviewSource[], confirmed: read
     }
     return [source.key, [...pages].sort((a, b) => a - b)];
   }));
-}
-
-export function reviewQueues(
-  matches: Parameters<typeof packetFindQueues>[0], fixed: readonly number[], confirmed: readonly number[], rejected: readonly number[],
-) {
-  return packetFindQueues(matches, [...fixed, ...confirmed], rejected);
 }
 
 /** Convert reviewed original-local starts back to the packet's display coordinates. */

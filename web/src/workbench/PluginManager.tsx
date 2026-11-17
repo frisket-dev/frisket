@@ -12,7 +12,7 @@ import { StatusChip, type StatusTone } from '../components/PanelPrimitives';
 import { Button } from '../components/Button';
 import { FormField, TextInput } from '../components/FormControls';
 
-export interface PluginManagerProps {
+interface PluginManagerProps {
   runtimeIndex: WorkbenchPluginRuntimeIndex | null;
   installLocalWorkbenchPlugin: WorkbenchApiPort['installLocalWorkbenchPlugin'];
   activateWorkbenchPlugin: WorkbenchApiPort['activateWorkbenchPlugin'];

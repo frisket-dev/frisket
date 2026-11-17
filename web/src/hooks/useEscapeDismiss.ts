@@ -60,7 +60,7 @@ function isPerceivableTypingTarget(el: Element): boolean {
   return true;
 }
 
-export interface EscapeDismissOptions {
+interface EscapeDismissOptions {
   /** Attach the listener only while true (default true). Gate on the open state. */
   enabled?: boolean;
   /** Ignore Escape whose target is a real text-entry surface (default false). */

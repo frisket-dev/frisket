@@ -61,7 +61,7 @@ export interface WorkViewEntry {
   /** Machine reason; UI copy is mapped in the region, not here. */
   reason: 'available' | 'missing_contribution' | 'hidden_by_profile' | 'data_requirements_unmet';
 }
-export type WorkViewAvailability = Record<WorkViewKind, WorkViewEntry>;
+type WorkViewAvailability = Record<WorkViewKind, WorkViewEntry>;
 
 function computeWorkViewAvailability(
   sheet: SheetMeta | null,

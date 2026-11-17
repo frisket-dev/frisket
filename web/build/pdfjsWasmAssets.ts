@@ -3,7 +3,7 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
-export const PDFJS_WASM_PUBLIC_PATH = '/pdfjs/wasm/';
+const PDFJS_WASM_PUBLIC_PATH = '/pdfjs/wasm/';
 
 const REQUIRED_RUNTIME_FILES = new Set([
   'jbig2.wasm',
@@ -13,12 +13,12 @@ const REQUIRED_RUNTIME_FILES = new Set([
   'qcms_bg.wasm',
 ]);
 
-export interface PdfjsWasmAsset {
+interface PdfjsWasmAsset {
   filename: string;
   sourcePath: string;
 }
 
-export function pdfjsWasmAssetsFrom(sourceDirectory: string): PdfjsWasmAsset[] {
+function pdfjsWasmAssetsFrom(sourceDirectory: string): PdfjsWasmAsset[] {
   const assets = readdirSync(sourceDirectory, { withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => ({

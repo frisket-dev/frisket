@@ -23,12 +23,12 @@ import {
   WRAP_ROW_HEIGHT,
 } from '../workspace/workspaceState';
 
-export interface GridViewDraftState {
+interface GridViewDraftState {
   sortColumn: string;
   sortDirection: GridSortDirection;
 }
 
-export interface GridViewAppliedState {
+interface GridViewAppliedState {
   scopeRowIds?: number[] | null;
   selection?: ViewSelection | null;
   filter: GridFilterSpec | null;
@@ -49,13 +49,13 @@ export interface GridViewAppliedState {
   filterValueLabel: string | null;
 }
 
-export interface InlineFilterState {
+interface InlineFilterState {
   sheetId: string;
   open: boolean;
   column: string;
 }
 
-export interface GridViewState {
+interface GridViewState {
   draft: GridViewDraftState;
   applied: GridViewAppliedState;
   sortPanelOpen: boolean;

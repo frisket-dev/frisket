@@ -1,12 +1,12 @@
 import { httpContract } from './httpContract';
 import type { SpendReport } from './types';
 
-export interface SpendOptions {
+interface SpendOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface SpendApi {
+interface SpendApi {
   getSpend(options?: SpendOptions): Promise<SpendReport>;
 }
 

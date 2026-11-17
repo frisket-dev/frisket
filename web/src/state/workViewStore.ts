@@ -17,7 +17,7 @@ import type { Store } from '../core/store/types';
 // DocumentViewState, which is chrome state, this view's activation itself is
 // ALSO work-view-only -- see answersViewSheetId below and chromeStore.ts's
 // WorkViewKind comment).
-export interface AnswersViewState {
+interface AnswersViewState {
   /** null = default (first cited column in sheet column order). */
   chosenColumnId: string | null;
   /** The docked pane's current source; null = no citation opened yet. */
@@ -28,7 +28,7 @@ function createAnswersViewState(): AnswersViewState {
   return { chosenColumnId: null, activeLinkId: null };
 }
 
-export interface WorkViewState {
+interface WorkViewState {
   /** Suppresses the ambient gallery pane for this sheet when the user picks
    *  Grid explicitly. */
   gridOnlySheetId: string | null;

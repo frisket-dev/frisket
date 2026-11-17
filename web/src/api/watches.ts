@@ -14,7 +14,7 @@ import type {
   WatchRunsPage,
 } from "./types";
 
-export interface WatchesOptions {
+interface WatchesOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
@@ -24,30 +24,30 @@ type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
   undefined
 >;
 
-export type WatchListWire =
+type WatchListWire =
   HttpContractSuccessResponse<"tenant.list_watches.get">;
-export type WatchRowWire = WatchListWire[number];
-export type WatchCreatedWire =
+type WatchRowWire = WatchListWire[number];
+type WatchCreatedWire =
   HttpContractSuccessResponse<"tenant.create_watch.post">;
-export type WatchPatchedWire =
+type WatchPatchedWire =
   HttpContractSuccessResponse<"tenant.patch_watch.patch">;
-export type WatchDeletedWire =
+type WatchDeletedWire =
   HttpContractSuccessResponse<"tenant.delete_watch.delete">;
-export type WatchRunResultWire =
+type WatchRunResultWire =
   HttpContractSuccessResponse<"tenant.run_watch.post">;
-export type WatchRunsPageWire =
+type WatchRunsPageWire =
   HttpContractSuccessResponse<"tenant.list_watch_runs.get">;
-export type WatchRunEventsPageWire =
+type WatchRunEventsPageWire =
   HttpContractSuccessResponse<"tenant.list_watch_run_events.get">;
 
-export type WatchRunWire = WatchRunResultWire["run"];
-export type WatchHitWire = WatchRunResultWire["hits"][number];
-export type WatchRunEventWire = WatchRunEventsPageWire["events"][number];
+type WatchRunWire = WatchRunResultWire["run"];
+type WatchHitWire = WatchRunResultWire["hits"][number];
+type WatchRunEventWire = WatchRunEventsPageWire["events"][number];
 
-export type WatchCreateBody = ContractRequestBody<"tenant.create_watch.post">;
-export type WatchPatchBody = ContractRequestBody<"tenant.patch_watch.patch">;
+type WatchCreateBody = ContractRequestBody<"tenant.create_watch.post">;
+type WatchPatchBody = ContractRequestBody<"tenant.patch_watch.patch">;
 
-export interface WatchesApi {
+interface WatchesApi {
   listWatches(options?: WatchesOptions): Promise<WatchListWire>;
   createWatch(
     body: WatchCreateBody,
@@ -88,7 +88,7 @@ export interface WatchesApi {
 
 /** The feature-facing port. The generated transport stays private to this
  * module so real.ts only composes the domain API and delegates to it. */
-export interface WatchesDomainApi {
+interface WatchesDomainApi {
   listWatches(): Promise<WatchInfo[]>;
   createWatch(input: WatchInput): Promise<WatchInfo>;
   updateWatch(watchId: number, input: WatchPatchInput): Promise<WatchInfo>;

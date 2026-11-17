@@ -50,14 +50,6 @@ function annotationProgressPct(progress: ColumnAnnotationProgress | null | undef
 // non-component export in this component file, so react-refresh is scoped-off
 // for just this block.
 /* eslint-disable react-refresh/only-export-components */
-export {
-  advanceAfterAction,
-  buildReplayPendingAnnotation,
-  firstPendingRowId,
-  nextPendingRowId,
-  replayPendingAnnotationKey,
-  replayPendingChipLabel,
-} from './replayPending';
 /* eslint-enable react-refresh/only-export-components */
 
 /** Presentational chip. `left`/`minWidth` are already scroll-translated pixel

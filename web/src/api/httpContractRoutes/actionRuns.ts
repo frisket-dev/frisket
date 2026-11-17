@@ -198,20 +198,20 @@ function mapActionJobs(wire: ActionJobsWire): ActionJobsPage {
   };
 }
 
-export type ContractErrorFactory = (status: number, payload: unknown) => Error;
+type ContractErrorFactory = (status: number, payload: unknown) => Error;
 
-export interface RunReceiptContractOptions {
+interface RunReceiptContractOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export interface RunRowsContractQuery {
+interface RunRowsContractQuery {
   offset?: number;
   limit?: number;
   status?: string;
 }
 
-export interface ActionJobsContractQuery {
+interface ActionJobsContractQuery {
   status?: string | null;
   limit?: number;
 }

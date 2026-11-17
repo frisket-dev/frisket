@@ -96,30 +96,6 @@ export function engineTierLabel(tier: EngineTier): string {
   return ENGINE_TIER_LABELS[tier] ?? tier;
 }
 
-/** Engines grouped by tier with availability counts — the action form's tier
- *  chips and any other tier-aware selector render from this one grouping. */
-export function engineTierOptions(engines: EngineOption[] | undefined): Array<{
-  tier: EngineTier;
-  engines: EngineOption[];
-  availableCount: number;
-}> {
-  const byTier = new Map<EngineTier, EngineOption[]>();
-  for (const engine of engines ?? []) {
-    const tier = tierForEngine(engine);
-    const existing = byTier.get(tier);
-    if (existing) {
-      existing.push(engine);
-    } else {
-      byTier.set(tier, [engine]);
-    }
-  }
-  return [...byTier.entries()].map(([tier, tierEngines]) => ({
-    tier,
-    engines: tierEngines,
-    availableCount: tierEngines.filter((engine) => engine.available !== false).length,
-  }));
-}
-
 /** The reason an unavailable engine can't run, for display next to its
  *  disabled state (never a bare disabled control). The catalog's `error`
  *  string is the backend's own reason —
@@ -141,6 +117,3 @@ export function engineIsRemote(engine: EngineOption | undefined): boolean {
   return tierForEngine(engine) === 'hosted';
 }
 
-export function engineModelsSummary(engine: EngineOption | undefined): string {
-  return engine?.models?.length ? `Models: ${engine.models.join(', ')}` : '';
-}

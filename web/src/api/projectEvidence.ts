@@ -8,25 +8,25 @@ import type {
   TextAnnotationUnpositionedReason,
 } from './types';
 
-export interface ProjectEvidenceOptions {
+interface ProjectEvidenceOptions {
   signal?: AbortSignal;
   headers?: HeadersInit;
 }
 
-export type EvidenceViewerOptions = EvidenceViewerReadOptions;
+type EvidenceViewerOptions = EvidenceViewerReadOptions;
 
-export type CellEvidenceWire =
+type CellEvidenceWire =
   HttpContractSuccessResponse<'tenant.cell_evidence.get'>;
-export type CellTextAnnotationsWire =
+type CellTextAnnotationsWire =
   HttpContractSuccessResponse<'tenant.cell_text_annotations.get'>;
-export type ColumnEvidenceWire =
+type ColumnEvidenceWire =
   HttpContractSuccessResponse<'tenant.column_evidence.get'>;
-export type EvidenceViewerWire =
+type EvidenceViewerWire =
   HttpContractSuccessResponse<'tenant.evidence_viewer.get'>;
-export type RowSourceDocumentsWire =
+type RowSourceDocumentsWire =
   HttpContractSuccessResponse<'tenant.row_source_documents.get'>;
 
-export interface ProjectEvidenceApi {
+interface ProjectEvidenceApi {
   getRowSourceDocuments(
     rowId: string,
     options?: ProjectEvidenceOptions,
@@ -57,7 +57,7 @@ export interface ProjectEvidenceApi {
 /** Product-facing evidence reads. The three open JSON payloads stay exactly
  * as the generated transport returned them; annotations alone have a client
  * domain model because their geometry is rendered directly. */
-export interface ProjectEvidenceDomainApi {
+interface ProjectEvidenceDomainApi {
   getRowSourceDocuments(
     rowId: string,
     options?: ProjectEvidenceOptions,

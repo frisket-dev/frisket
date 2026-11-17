@@ -12,7 +12,7 @@ import type { RecoveryState } from './evidence/EvidenceTextSource';
 import { selectorNumber } from './evidence/evidenceSourceModel';
 import { pdfPacketSourceCardData } from './evidence/pdfPacketSourceCardModel';
 
-export interface EvidenceViewerProps {
+interface EvidenceViewerProps {
   evidenceLinkId: string | number;
   initialPayload?: EvidenceViewerPayload;
   initialPage?: number;

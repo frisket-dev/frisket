@@ -3,7 +3,7 @@ import type { ProjectApiPort } from '../../api/ports';
 import { resolveMediaValue } from '../../media/resolveMediaValue';
 import { jsonRecord, selectorNumber } from './evidenceSourceModel';
 
-export interface SourceLink {
+interface SourceLink {
   projectId: string;
   evidenceLinkId: string;
   page?: number;
@@ -40,7 +40,7 @@ export function activateSourceLink(value: string, projectId: string): boolean {
 }
 
 /** Use the pinned source artifact, not the child row identified by the link. */
-export function sourceLinkArtifact(payload: EvidenceViewerPayload, page?: number) {
+function sourceLinkArtifact(payload: EvidenceViewerPayload, page?: number) {
   if (payload.link.role !== 'source_provenance') return null;
   return payload.artifacts.find((artifact) => artifact.media_type === 'application/pdf'
     && artifact.artifact_ref.blob && (page === undefined || artifact.page_count === null || page <= artifact.page_count)) ?? null;

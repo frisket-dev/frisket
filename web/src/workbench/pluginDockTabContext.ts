@@ -11,7 +11,7 @@ import {
 // The dock-tab host context: the panel-shaped sections plus the dock section.
 // Availability (capabilities + dataRequirements) intentionally reuses
 // resolvePluginPanelAvailability — dock tabs are panel-shaped surfaces.
-export interface PluginDockTabContext
+interface PluginDockTabContext
   extends Omit<PluginPanelContext, 'schemaVersion' | 'placement'> {
   schemaVersion: 'frisket.plugin_dock_tab_context.v1';
   placement: {
