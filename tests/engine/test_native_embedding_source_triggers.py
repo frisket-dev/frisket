@@ -464,8 +464,9 @@ def test_alert_evaluate_handler_requires_delivery_queue(tmp_path):
 
 
 def _notification_count(env):
+    # Index refresh runs notify as runs; these tests count alert notifications.
     return env.project.db.execute(
-        "SELECT COUNT(*) AS n FROM notification_items"
+        "SELECT COUNT(*) AS n FROM notification_items WHERE source_kind='watch'"
     ).fetchone()["n"]
 
 
