@@ -67,7 +67,7 @@ jobs:
           QUEUE_TESTED: ${{ needs.queue-tested.outputs.tested }}
         run: |
           set -euo pipefail
-          if [ "$QUEUE_TESTED" = "true" ]; then
+          if [ "${QUEUE_TESTED:-}" = "true" ]; then
             printf '%s=false\n' backend sidecar models_gpu frontend infra >> "$GITHUB_OUTPUT"
             echo "pytest_target=tests" >> "$GITHUB_OUTPUT"
             exit 0
@@ -542,7 +542,7 @@ jobs:
   ci-pass:
     name: ci-pass
     if: ${{ always() }}
-    needs: [changes, models-gpu-topology, sidecar-contract, python-quality, test-engine, test, deploy-smoke, e2e-cassette-core, postgres, web]
+    needs: [queue-tested, changes, models-gpu-topology, sidecar-contract, python-quality, test-engine, test, deploy-smoke, e2e-cassette-core, postgres, web]
     runs-on: ubuntu-latest
     steps:
       - env:
