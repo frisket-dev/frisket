@@ -66,7 +66,7 @@ def validate_target(project, params):
         ):
             return ActionError(
                 code="invalid_input_ref",
-                message="Restore the grouped output columns before refreshing",
+                message="Restore the grouped generated columns before refreshing",
                 action_kind=params.action_kind,
             )
     return None

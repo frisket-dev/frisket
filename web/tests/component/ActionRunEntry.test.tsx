@@ -129,7 +129,7 @@ describe('generated column menu entry', () => {
     const callbacks = renderColumnMenu(menuEntry);
     expect(screen.getByText('Extract structured fields')).toBeInTheDocument();
     expect(screen.queryByText('map.extract')).not.toBeInTheDocument();
-    expect(screen.queryByText(/output columns?/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/generated columns?/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('header-menu-compare-action-run'));
     expect(callbacks.compare).toHaveBeenCalledWith(anchor);
     expect(screen.queryByText('Edit settings…')).not.toBeInTheDocument();

@@ -362,7 +362,7 @@ function resolveOutputShapeFromCatalogEntry(entry: ActionCatalogEntry): Resolved
 
   return {
     status: 'unresolved',
-    missing: 'the catalog action declares no default output columns',
+    missing: 'the catalog action declares no default generated columns',
   };
 }
 

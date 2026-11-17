@@ -48,7 +48,7 @@ def save_expected_answer(service, pid, raw):
     if output is None or output["column_id"] is None:
         raise RouteError(
             422,
-            "Run the action to create its output columns before joining expected answers",
+            "Run the action to create its generated columns before joining expected answers",
         )
     current_outputs = {
         column["logical_key"]: column["column_id"]
@@ -86,7 +86,7 @@ def save_expected_answer(service, pid, raw):
         for field in link["fields"]
     ):
         raise RouteError(
-            409, "Expected answer link belongs to another output column family"
+            409, "Expected answer link belongs to another generated column family"
         )
     if link is None and body["value"] in (None, ""):
         raise RouteError(422, "Save a nonblank expected answer first")

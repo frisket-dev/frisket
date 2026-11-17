@@ -193,7 +193,7 @@ def prepare(service, pid, request):
             output_ids.get(field["logical_key"]) != field["output_column_id"]
             for field in link["fields"]
         ):
-            raise RouteError(409, "Expected link output columns changed")
+            raise RouteError(409, "Expected link generated columns changed")
     expected_cells = (
         links.resolve(
             project,

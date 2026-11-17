@@ -457,11 +457,11 @@ def test_media_ocr_replay_preserves_identity_rejections_and_dual_defect_priority
 
     expected_messages = {
         "invalid_ref": "media.ocr replay receipt has invalid output refs",
-        "missing": "media.ocr replay output column is missing",
-        "renamed": "media.ocr replay output column was renamed",
-        "type_changed": "media.ocr replay output column type changed",
-        "run_changed": "media.ocr replay output column changed runs",
-        "no_output": "media.ocr replay receipt has no output column ref",
+        "missing": "media.ocr replay generated column is missing",
+        "renamed": "media.ocr replay generated column was renamed",
+        "type_changed": "media.ocr replay generated column type changed",
+        "run_changed": "media.ocr replay generated column changed runs",
+        "no_output": "media.ocr replay receipt has no generated column ref",
     }
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         first = env.run_primary()

@@ -47,11 +47,11 @@
             },
             {
               "code": "output_column_exists",
-              "message": "A requested output column already exists."
+              "message": "A requested column already exists."
             },
             {
               "code": "output_column_busy",
-              "message": "A requested output column is claimed by another run."
+              "message": "A requested column is claimed by another run."
             },
             {
               "code": "network_disabled",

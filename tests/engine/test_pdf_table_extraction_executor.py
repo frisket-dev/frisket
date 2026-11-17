@@ -346,11 +346,11 @@ def test_pdf_table_replay_preserves_identity_rejections_and_named_result_toleran
 
     expected_messages = {
         "invalid_ref": "media.extract_pdf_tables replay receipt has invalid output refs",
-        "missing": "media.extract_pdf_tables replay output column is missing",
-        "renamed": "media.extract_pdf_tables replay output column was renamed",
-        "type_changed": "media.extract_pdf_tables replay output column type changed",
-        "run_changed": "media.extract_pdf_tables replay output column changed runs",
-        "no_output": "media.extract_pdf_tables replay receipt has no output column ref",
+        "missing": "media.extract_pdf_tables replay generated column is missing",
+        "renamed": "media.extract_pdf_tables replay generated column was renamed",
+        "type_changed": "media.extract_pdf_tables replay generated column type changed",
+        "run_changed": "media.extract_pdf_tables replay generated column changed runs",
+        "no_output": "media.extract_pdf_tables replay receipt has no generated column ref",
     }
     calls: list[dict[str, Any]] = []
     _install_matching_adapter(monkeypatch, calls)

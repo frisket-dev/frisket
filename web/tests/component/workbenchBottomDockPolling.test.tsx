@@ -250,7 +250,7 @@ it('shows the job sheet and output columns, with navigation to that sheet', () =
     },
   };
   const view = render(<WorkbenchJobSplitPanel jobs={[job]} loading={false} error={null} mode="errors" />);
-  expect(screen.getByText('Output columns').parentElement).toHaveTextContent('case_number, plaintiff');
+  expect(screen.getByText('Generated columns').parentElement).toHaveTextContent('case_number, plaintiff');
   fireEvent.click(screen.getByRole('button', { name: 'Court filings' }));
   expect(window.location.pathname).toBe('/p/project-a/s/42');
 
@@ -259,7 +259,7 @@ it('shows the job sheet and output columns, with navigation to that sheet', () =
   }]} loading={false} error={null} mode="errors" />);
   expect(screen.getByText('Sheet 42')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Court filings' })).not.toBeInTheDocument();
-  expect(screen.queryByText('Output columns')).not.toBeInTheDocument();
+  expect(screen.queryByText('Generated columns')).not.toBeInTheDocument();
 });
 
 it('updates partial → success → success without replacing deliberately selected older run details', () => {

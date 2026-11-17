@@ -235,7 +235,7 @@ test('the Monitor Lineage tab renders the three-tier DAG with the stale node amb
   const panel = page.getByTestId('lineage-panel');
   await expect(panel).toBeVisible();
 
-  // Three tiers: sources → sheets → AI columns.
+  // Three tiers: sources → sheets → generated columns.
   await expect(page.getByTestId('lineage-tier-sources')).toBeVisible();
   await expect(page.getByTestId('lineage-tier-sheets')).toBeVisible();
   await expect(page.getByTestId('lineage-tier-ai-columns')).toBeVisible();

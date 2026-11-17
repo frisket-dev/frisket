@@ -83,7 +83,7 @@ def _output_column_busy_error(
 ) -> ActionError:
     return ActionError(
         code="output_column_busy",
-        message="The target output column is claimed by a running action.",
+        message="The target generated column is claimed by a running action.",
         action_kind=action_kind,
         field=field,
         details={

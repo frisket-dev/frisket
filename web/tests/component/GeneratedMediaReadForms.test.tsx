@@ -540,7 +540,7 @@ describe('media cost presentation', () => {
     const outputCount = entry.ui_hints.logical_outputs.filter(({ key }) => (
       key !== 'pdf' && (key !== 'detected_language' || engine?.language?.detects === true)
     )).length;
-    expect(line).toHaveTextContent(new RegExp(`\\b${outputCount} output ${outputCount === 1 ? 'column' : 'columns'}\\b`));
+    expect(line).toHaveTextContent(new RegExp(`\\b${outputCount} generated ${outputCount === 1 ? 'column' : 'columns'}\\b`));
     expect(line.parentElement).toHaveClass('action-run-actions');
     expect(line.parentElement).toContainElement(screen.getByTestId('generated-action-run'));
   });

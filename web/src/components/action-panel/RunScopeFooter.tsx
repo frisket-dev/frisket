@@ -118,7 +118,7 @@ export function RunScopeFooter({
   const hasScopeMenu = hasVisibleScopeChoice || Boolean(onBackfill) || menuItems.length > 0;
   const canBackfill = Boolean(onBackfill && backfillTargetName && backfillHasGaps);
   const backfillTitle = !backfillTargetName
-    ? 'Select an existing AI column to re-run its failed or missing rows'
+    ? 'Select an existing generated column to re-run its failed or missing rows'
     : !backfillHasGaps
       ? 'No failed or missing rows in this column'
       : `Re-run missing cells in ${backfillTargetName}`;
@@ -261,7 +261,7 @@ export function RunScopeFooter({
                       ? backfillHasGaps
                         ? `Missing cells in ${backfillTargetName}`
                         : 'No failed or missing rows'
-                      : 'Target an existing AI column'}
+                      : 'Target an existing generated column'}
                   </span>
                 </button>
               )}

@@ -173,7 +173,7 @@ export const BUILTIN_ACTION_HELP: Partial<Record<string, { how: string; goodFor:
     goodFor: 'Producing an overview, rollup, or synthesis across a collection rather than row by row.',
   },
   'map.judge': {
-    how: 'Evaluates an existing AI-generated column against the rubric you provide and records a review result.',
+    how: 'Evaluates an existing generated column against the rubric you provide and records a review result.',
     goodFor: 'Spotting weak classifications, summaries, or extractions that need human attention.',
   },
   'enrich.census_demographics': {
