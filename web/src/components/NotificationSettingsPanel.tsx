@@ -511,7 +511,7 @@ function RouteSection({
             ))}
           </PanelSelect>
         </FormField>
-        <FormField layout="inline" label="Source">
+        <FormField layout="inline" label="Triggered by">
           <PanelSelect data-testid="notification-route-source-kind" value={draft.sourceKind} onChange={(event) => onDraftChange({ sourceKind: event.target.value as RouteDraft['sourceKind'] })}>
             <option value="watch">Alert</option>
             <option value="run">Run</option>
