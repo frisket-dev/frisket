@@ -27,7 +27,8 @@ paid or external runs.
   ratchets `scripts/ci/ruff_ratchet.py`,
   `scripts/ci/check_dead_symbols.py`,
   `scripts/ci/check_duplicate_functions.py`,
-  `scripts/ci/check_suppressions.py`, `scripts/ci/type_ratchet.py`
+  `scripts/ci/check_suppressions.py`, `scripts/ci/lint_glossary_avoid.py`,
+  `scripts/ci/type_ratchet.py`
   (pyright) and `scripts/ci/web_tests_type_ratchet.py`, and
   `scripts/ci/check_test_collection.py --python|--sidecar|--web`.
   Web: `npm run knip`.
@@ -44,6 +45,9 @@ paid or external runs.
   type_ratchet.py, web_tests_type_ratchet.py).
 - Comments state constraints, never history: no dates, ticket slugs,
   review provenance or for-now markers (gate: lint_comment_history.py).
+- Use `GLOSSARY.md`'s terms in names and user-facing text; never add or
+  change a glossary entry, the maintainer decides them. (gate:
+  lint_glossary_avoid.py)
 - No live network in tests; provider calls replay recorded transports.
 - Secrets never appear in reprs, errors, or logs. Malformed config
   refuses and names the offending knob.
