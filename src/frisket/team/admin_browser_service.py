@@ -8,6 +8,7 @@ from typing import Any
 import sqlalchemy as sa
 
 from frisket.team.db import locked_transaction
+from frisket.team.http_helpers import iso_z
 from frisket.team.schema import (
     api_tokens,
     memberships,
@@ -38,13 +39,6 @@ class AdminMembershipNotFound(AdminMembershipError):
 
 class AdminMembershipConflict(AdminMembershipError):
     """The transition would violate a membership invariant."""
-
-
-def _iso(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = value.isoformat() if hasattr(value, "isoformat") else str(value)
-    return text.replace("+00:00", "Z")
 
 
 class AdminMembershipService:
@@ -123,7 +117,7 @@ class AdminMembershipService:
                             "email": str(row.email),
                             "name": row.name,
                             "role": str(row.role),
-                            "created_at": _iso(row.created_at),
+                            "created_at": iso_z(row.created_at),
                         }
                         for row in rows
                     ],
@@ -132,7 +126,7 @@ class AdminMembershipService:
                             "email": str(row.email),
                             "org_id": int(row.org_id),
                             "role": str(row.role),
-                            "expires_at": _iso(row.expires_at),
+                            "expires_at": iso_z(row.expires_at),
                         }
                         for row in invited
                         if str(row.email) not in members

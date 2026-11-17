@@ -40,6 +40,7 @@ from frisket.team.admin_browser_service import (
     AdminMembershipNotFound,
     AdminMembershipService,
 )
+from frisket.team.http_helpers import invite_http_error, iso_z
 from frisket.team.identity_service import IdentityAuthService
 from frisket.team.invite_service import (
     InviteConflict,
@@ -76,13 +77,6 @@ _PROJECT_AUDIT_ACTIONS = frozenset(
 )
 
 
-def _iso(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = value.isoformat() if hasattr(value, "isoformat") else str(value)
-    return text.replace("+00:00", "Z")
-
-
 def _membership_http_error(exc: AdminMembershipError) -> HTTPException:
     status_code = 400
     if isinstance(exc, AdminMembershipForbidden):
@@ -94,16 +88,6 @@ def _membership_http_error(exc: AdminMembershipError) -> HTTPException:
     elif not isinstance(exc, AdminMembershipInvalid):
         raise TypeError(f"unmapped membership error: {type(exc).__name__}") from exc
     return HTTPException(status_code, str(exc))
-
-
-def _invite_http_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, InviteNotFound):
-        return HTTPException(404, str(exc))
-    if isinstance(exc, InviteForbidden):
-        return HTTPException(403, str(exc))
-    if isinstance(exc, InviteConflict):
-        return HTTPException(exc.status_code, str(exc))
-    return HTTPException(400, str(exc))
 
 
 def _audit_category(action: str) -> str:
@@ -303,7 +287,7 @@ def register_admin_browser_routes(
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
         except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _invite_http_error(exc) from exc
+            raise invite_http_error(exc) from exc
         token = auth.create_magic_link(invited["email"], ttl_minutes=30)
         sent = bool(
             await send_mail(invited["email"], f"{base_url}/auth/callback?token={token}")
@@ -321,7 +305,7 @@ def register_admin_browser_routes(
             "org_id": org_id,
             "email": invited["email"],
             "role": invited["role"],
-            "expires_at": _iso(expires_at),
+            "expires_at": iso_z(expires_at),
         }
 
     @app.patch(
@@ -370,7 +354,7 @@ def register_admin_browser_routes(
                 operator_actor=actor.get("auth") == "operator",
             )
         except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _invite_http_error(exc) from exc
+            raise invite_http_error(exc) from exc
         if not revoked:
             raise HTTPException(404, "pending invite not found")
         return {
@@ -597,7 +581,7 @@ def register_admin_browser_routes(
                     "id": f"audit:{row.id}",
                     "source": "audit_log",
                     "category": _audit_category(str(row.action)),
-                    "created_at": _iso(row.created_at),
+                    "created_at": iso_z(row.created_at),
                     "actor_user_id": int(row.user_id)
                     if row.user_id is not None
                     else None,
@@ -683,7 +667,7 @@ def register_admin_browser_routes(
                     "trace_id": str(row.trace_id) if row.trace_id is not None else None,
                     "context": _json_object(row.context_json) or {},
                     "bundle": _json_object(row.bundle_json),
-                    "at": _iso(row.created_at),
+                    "at": iso_z(row.created_at),
                 }
                 for row in rows
             ],

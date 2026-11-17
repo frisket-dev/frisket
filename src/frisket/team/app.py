@@ -66,6 +66,7 @@ from frisket.team.auth_runtime import (
     validate_provider_credential,
 )
 from frisket.team.browser_auth_routes import register_browser_auth_routes
+from frisket.team.http_helpers import set_session_cookie
 from frisket.team.admin_browser_routes import register_admin_browser_routes
 from frisket.team.admin_browser_service import AdminMembershipService
 from frisket.team.config import TeamConfig, team_config_from_env
@@ -720,17 +721,6 @@ class TeamProjectAccess:
         return role in self.ROLES and self.ROLES.index(role) >= self.ROLES.index(need)
 
 
-def _set_cookie(response: Response, token: str, *, secure: bool) -> None:
-    response.set_cookie(
-        SESSION_COOKIE,
-        token,
-        httponly=True,
-        secure=secure,
-        samesite="lax",
-        max_age=30 * 86400,
-    )
-
-
 def create_team_app(
     config: TeamConfig,
     *,
@@ -1369,7 +1359,12 @@ def create_team_app(
         app.state.setup_claim_token = None
         setup_attempts.reset(attempt_key)
         response = RedirectResponse("/", status_code=303)
-        _set_cookie(response, result["session"], secure=config.secure_cookies)
+        set_session_cookie(
+            response,
+            name=SESSION_COOKIE,
+            value=result["session"],
+            secure=config.secure_cookies,
+        )
         return _no_store(response)
 
     register_browser_auth_routes(

@@ -25,6 +25,7 @@ from frisket.ops import media_proxy as media_proxy_config
 from frisket.server.provider_config import ENV_VAR
 from frisket.team.control_plane import ORG_KEY_PROVIDERS
 from frisket.team.db import atomic_upsert, locked_transaction
+from frisket.team.http_helpers import invite_http_error
 from frisket.team.identity_service import IdentityAuthService
 from frisket.team.invite_service import (
     InviteConflict,
@@ -68,16 +69,6 @@ class SecretBody(BaseModel):
 
 class MediaProxyBody(BaseModel):
     url: str = Field(default="", max_length=512)
-
-
-def _invite_error(exc: Exception) -> HTTPException:
-    if isinstance(exc, InviteNotFound):
-        return HTTPException(404, str(exc))
-    if isinstance(exc, InviteForbidden):
-        return HTTPException(403, str(exc))
-    if isinstance(exc, InviteConflict):
-        return HTTPException(exc.status_code, str(exc))
-    return HTTPException(400, str(exc))
 
 
 def register_admin_api_routes(
@@ -149,7 +140,7 @@ def register_admin_api_routes(
                 operator_actor=actor.get("auth") == "operator",
             )
         except (InviteConflict, InviteForbidden, InviteNotFound, ValueError) as exc:
-            raise _invite_error(exc) from exc
+            raise invite_http_error(exc) from exc
         token = auth.create_magic_link(
             invited["email"], ttl_minutes=INVITE_LINK_TTL_MINUTES
         )
