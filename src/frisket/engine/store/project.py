@@ -111,10 +111,14 @@ class ProjectReadSnapshot:
         self._connection: sqlite3.Connection | None = None
         self._read_resources = ExitStack()
 
+        # uri=True lets later ATTACH statements use file: URIs (the retrieval
+        # reader attaches its index with ?mode=ro); SQLite builds without
+        # SQLITE_USE_URI otherwise treat the URI as a literal filename.
         connection = sqlite3.connect(
             self.db_path,
             check_same_thread=False,
             isolation_level=None,
+            uri=True,
         )
         try:
             connection.row_factory = sqlite3.Row
