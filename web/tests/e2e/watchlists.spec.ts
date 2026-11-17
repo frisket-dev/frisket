@@ -276,7 +276,7 @@ test('editable Watch controls preserve failed state and describe delete conseque
 
   await renamed.getByTestId('delete-watch').click();
   const confirmation = page.getByTestId('delete-watch-confirmation');
-  await expect(confirmation).toContainText('run history and in-app notifications will be deleted');
+  await expect(confirmation).toContainText('check history and in-app notifications will be deleted');
   await expect(confirmation).toContainText('already-sent email or external notifications cannot be recalled');
   const cancelDelete = confirmation.getByRole('button', { name: 'Cancel' });
   await expect(cancelDelete).toBeFocused();
