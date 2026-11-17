@@ -184,7 +184,7 @@ export async function applyPdfPacketSheetSplit(
 ): Promise<{ sheet_id: number; import_ref: string; job_id: number }> {
   const result = await commitPdfPacketSplit(projectId, splitId, input, options);
   if (typeof result.sheet_id !== 'number' || typeof result.import_ref !== 'string' || typeof result.job_id !== 'number') {
-    throw new Error('The split did not return a durable import job.');
+    throw new Error('The split did not start a durable import.');
   }
   return { sheet_id: result.sheet_id, import_ref: result.import_ref, job_id: result.job_id };
 }

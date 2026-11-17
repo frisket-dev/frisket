@@ -196,7 +196,7 @@ test('source health drawer shows redacted status, deltas, costs, warnings, and r
   await expect(page.getByTestId(`source-health-runs-${seeded.failingId}`)).toContainText('provider failed');
   await expect(page.getByTestId(`source-health-runs-${seeded.failingId}`)).not.toContainText('SECRET');
   await expect(page.getByTestId(`source-health-warnings-${seeded.failingId}`)).toContainText('lack v1 runtime metadata');
-  await expect(page.getByTestId(`source-health-jobs-empty-${seeded.failingId}`)).toContainText('No downstream jobs');
+  await expect(page.getByTestId(`source-health-jobs-empty-${seeded.failingId}`)).toContainText('No follow-up work');
   await expect(page.getByTestId(`source-health-redactions-${seeded.failingId}`)).toContainText('config');
   await expect(page.getByTestId(`source-health-redactions-${seeded.failingId}`)).toContainText('cursor');
 

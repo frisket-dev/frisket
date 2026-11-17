@@ -66,10 +66,10 @@ export function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; s
           </div>
 
           <div className="content-stack">
-            <h4 className="control-row panel-item-title"><Activity size={12} aria-hidden /> Downstream jobs</h4>
+            <h4 className="control-row panel-item-title"><Activity size={12} aria-hidden /> Follow-up work</h4>
             {health.downstreamJobs.length === 0 ? (
               <PanelEmpty testId={`source-health-jobs-empty-${sourceId}`}>
-                No downstream jobs recorded for loaded runs.
+                No follow-up work recorded for loaded runs.
               </PanelEmpty>
             ) : (
               <ul className="panel-list" data-testid={`source-health-jobs-${sourceId}`}>

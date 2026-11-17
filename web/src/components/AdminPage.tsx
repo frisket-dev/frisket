@@ -47,7 +47,7 @@ import { useLoader } from '../hooks/useLoader';
 const ADMIN_LINKS = [
   { path: '/admin', label: 'Overview' },
   { path: '/admin/users', label: 'Users' },
-  { path: '/admin/jobs', label: 'Jobs' },
+  { path: '/admin/jobs', label: 'Queue' },
   { path: '/admin/audit', label: 'Audit' },
   { path: '/admin/errors', label: 'Errors' },
   { path: '/admin/diagnostics', label: 'Diagnostics' },
@@ -119,7 +119,7 @@ function adminErrorContextLabel(event: AdminErrorEvent): string {
   if (event.project_id != null) bits.push(`project ${String(event.project_id)}`);
   if (event.sheet_id != null) bits.push(`sheet ${String(event.sheet_id)}`);
   if (event.run_id != null) bits.push(`run ${String(event.run_id)}`);
-  if (event.job_id != null) bits.push(`job ${String(event.job_id)}`);
+  if (event.job_id != null) bits.push(`queue item ${String(event.job_id)}`);
   return bits.join(' · ') || '—';
 }
 
@@ -169,7 +169,7 @@ function adminJobActionMetadata(job: AdminJob): {
 }
 
 function adminJobIdentity(job: AdminJob): string {
-  const bits = [`job ${job.id}`];
+  const bits = [`queue item ${job.id}`];
   const refs = job.refs ?? {};
   const orgId = refString(refs, 'org_id');
   const projectId = refString(refs, 'project_id');
@@ -1083,7 +1083,7 @@ function AdminJobsPanel({
         onRefresh();
       } catch (e) {
         setActionError(
-          `Could not ${action} job ${jobId}: ${errorMessage(e)}`,
+          `Could not ${action} queue item ${jobId}: ${errorMessage(e)}`,
         );
       } finally {
         setPending(null);
@@ -1095,7 +1095,7 @@ function AdminJobsPanel({
   return (
     <section className="admin-jobs" data-testid="admin-jobs-panel">
       <div className="admin-jobs-head">
-        <strong>Jobs</strong>
+        <strong>Queue</strong>
         {(['queued', 'running', 'stalled', 'failed'] as const).map((key) => (
           <span key={key} className={`job-count job-${key}`} data-testid={`admin-job-count-${key}`}>
             {key} {count(key)}
@@ -1134,11 +1134,11 @@ function AdminJobsPanel({
           {jobs === null ? (
             <tr>
               <td colSpan={9} className={error ? 'picker-error' : 'picker-empty'}>
-                {error ? `Could not load jobs: ${error}` : 'Loading jobs…'}
+                {error ? `Could not load the queue: ${error}` : 'Loading queue…'}
               </td>
             </tr>
           ) : jobs.jobs.length === 0 ? (
-            <tr><td colSpan={9} className="picker-empty">No jobs yet.</td></tr>
+            <tr><td colSpan={9} className="picker-empty">The queue is empty.</td></tr>
           ) : jobs.jobs.map((job) => {
             const projectHref = adminJobProjectHref(job);
             const actionMetadata = adminJobActionMetadata(job);

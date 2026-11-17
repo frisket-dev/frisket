@@ -418,7 +418,7 @@
       "id": "frisket.core.panel.jobs",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Jobs",
+      "title": "Runs",
       "icon": "ListChecks",
       "placements": [
         {

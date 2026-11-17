@@ -350,7 +350,7 @@ def action_job_exhausted_lease_result(
         action_kind=action_kind,
         error=ActionError(
             code="action_job_lease_exhausted",
-            message=f"{action_kind} action.run job exhausted its lease/retries",
+            message=f"{action_kind} run exhausted its lease and retries",
             action_kind=action_kind,
         ),
         job_id=job_id,
@@ -430,7 +430,7 @@ def action_job_retry_exhausted_result(
         action_kind=action_kind,
         error=ActionError(
             code="action_job_retry_exhausted",
-            message=f"{action_kind} action.run job exhausted its queue attempts",
+            message=f"{action_kind} run exhausted its queue attempts",
             action_kind=action_kind,
         ),
         job_id=job_id,
@@ -1236,7 +1236,7 @@ def run_action_run_job(
                 job_id=job_id if isinstance(job_id, int) else None,
                 error=ActionError(
                     code="action_job_failed",
-                    message="map.formula action.run job failed",
+                    message="map.formula run failed",
                     action_kind=action_kind,
                 ),
             )
@@ -1249,7 +1249,7 @@ def run_action_run_job(
             action_kind=action_kind,
             error=ActionError(
                 code="action_job_failed",
-                message=f"{action_kind} action.run job failed",
+                message=f"{action_kind} run failed",
                 action_kind=action_kind,
             ),
             job_id=job_id,
@@ -1282,7 +1282,7 @@ def run_action_run_job(
                 if result.errors
                 else ActionError(
                     code="action_job_failed",
-                    message=f"{action_kind} action.run job failed",
+                    message=f"{action_kind} run failed",
                     action_kind=action_kind,
                 )
             )
@@ -1395,7 +1395,7 @@ def reconcile_exhausted_action_run_jobs(
                 continue
             error = ActionError(
                 code="action_job_lease_exhausted",
-                message=f"{envelope.action_kind} action.run job exhausted its lease/retries",
+                message=f"{envelope.action_kind} run exhausted its lease and retries",
                 action_kind=envelope.action_kind,
             )
             attached = (

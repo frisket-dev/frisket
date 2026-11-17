@@ -270,7 +270,7 @@ function deriveSearchPreparationStageNotice(
       progress: null,
       details: snapshot.indexing.job_id == null
         ? []
-        : [`Index job ${snapshot.indexing.job_id.toLocaleString()}`],
+        : [`Indexing #${snapshot.indexing.job_id.toLocaleString()}`],
     };
   }
 
@@ -313,7 +313,7 @@ function deriveSearchPreparationStageNotice(
       progress: null,
       details: [
         ...preparationPageDetails(activePreparationBatch),
-        ...activePreparationBatch.jobs.map((job) => `Job ${job.job_id.toLocaleString()} · ${job.status}`),
+        ...activePreparationBatch.jobs.map((job) => `Preparation #${job.job_id.toLocaleString()} · ${job.status}`),
       ],
     };
   }
@@ -331,7 +331,7 @@ function deriveSearchPreparationStageNotice(
       progress: null,
       details: snapshot.indexing.job_id == null
         ? []
-        : [`Job ${snapshot.indexing.job_id.toLocaleString()}`],
+        : [`Indexing #${snapshot.indexing.job_id.toLocaleString()}`],
     };
   }
 

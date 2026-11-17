@@ -465,7 +465,7 @@ export function PaletteSearchSection({
               data-testid="search-preparation-view-jobs"
               onClick={onViewJobs}
             >
-              View Jobs
+              View runs
             </Button>
           ) : effectiveGapSheetKey && (
             <>
