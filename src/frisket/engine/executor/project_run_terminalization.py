@@ -926,7 +926,7 @@ def terminalize_project_run(
             from frisket.engine.store.runs import RunResultStore
 
             RunResultStore(project).set_run_halt(
-                run_id, "source_changed", str(publication_refusal), commit=False
+                run_id, "source_changed", str(publication_refusal)
             )
         generation_store = ResultGenerationStore(project)
         declared_bindings = generation_store.bindings_for_run(run_id)

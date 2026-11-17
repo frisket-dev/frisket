@@ -105,22 +105,25 @@ RUN_FIELD_OWNERS: Mapping[str, tuple[str, ...]] = {
 
 TRANSACTION_SCOPE = ("src/frisket/engine/store", "src/frisket/engine/jobs")
 TRANSACTION_OWNER = "src/frisket/engine/store/transactions.py"
-# Boundaries that do not fit ``write_transaction``: savepoint scopes, busy
-# retries, commit flags that also commit a caller's transaction, deferred
-# read-or-write scopes, separate databases, and the job queue's dialect seam.
+# Boundaries that do not fit ``write_transaction``, each for the reason given.
 # Shrink-only: an entry that no longer spells the literal fails the check.
 HAND_WRITTEN_TRANSACTIONS = frozenset(
     {
+        # SQLAlchemy dialect seam: IMMEDIATE on SQLite, plain on Postgres.
         "src/frisket/engine/jobs/queue.py",
+        # Its own database and connection, outside the project store.
         "src/frisket/engine/jobs/rate_limiter.py",
-        "src/frisket/engine/store/blob_metadata.py",
+        # Savepoint scopes, and add_sheet owning only under a parent Change.
         "src/frisket/engine/store/cells.py",
-        "src/frisket/engine/store/column_descriptors.py",
-        "src/frisket/engine/store/effect_checkpoints.py",
+        # An editor write that nests as a savepoint inside a caller's transaction.
         "src/frisket/engine/store/evaluation.py",
+        # Busy-timeout retry around the route chain write.
         "src/frisket/engine/store/execution_routes.py",
+        # Deferred read-or-write scopes and staged garbage-collection commits.
         "src/frisket/engine/store/project_blobs.py",
+        # Savepoint scope that begins first when it is the outermost write.
         "src/frisket/engine/store/result_generations.py",
+        # Savepoint scopes around result and provider-fact batches.
         "src/frisket/engine/store/runs.py",
     }
 )

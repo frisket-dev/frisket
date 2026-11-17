@@ -3256,6 +3256,7 @@ def _typed_receipt(
                     "media_transcribe_temporal_evidence_link",
                     "media_ocr_grounding_evidence_link",
                 }
+                and item.ref.get("run_id") == run_id
             )
     if DocumentConverter in getattr(plan.action.definition.run, "capabilities", ()):
         from frisket.engine.store.receipts import ReceiptStore

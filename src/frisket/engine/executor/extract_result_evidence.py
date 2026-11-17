@@ -542,7 +542,6 @@ class ExtractResultEvidence:
                     row_id,
                     column_id,
                     f"{spec['action_kind']}: {failures[0]}",
-                    commit=False,
                 )
             if links or unsupported or failures or warnings:
                 store._record_writer_evidence(

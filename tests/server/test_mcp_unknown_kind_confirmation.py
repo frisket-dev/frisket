@@ -70,6 +70,7 @@ def test_mcp_status_uses_the_public_all_failed_projection(tmp_path) -> None:
         "UPDATE runs SET completed_rows=1, failed_rows=1 WHERE id=?",
         (run_id,),
     )
+    project.db.commit()
     RunResultStore(project).finish_run(run_id, "completed")
     project.close()
 

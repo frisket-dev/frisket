@@ -32,6 +32,7 @@ from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
+from frisket.engine.store.transactions import write_transaction
 from frisket.execution.attempt import (
     AttemptClaimRefused,
     abandon_stale_dispatching_attempts,
@@ -827,7 +828,8 @@ def test_set_run_halt_keeps_both_reader_representations_in_sync(
         )
         project.db.commit()
 
-    store.set_run_halt(run_id, halted_code, halted_reason)
+    with write_transaction(project.db):
+        store.set_run_halt(run_id, halted_code, halted_reason)
 
     row = store.get_run(run_id)
     assert row is not None
@@ -858,24 +860,21 @@ def test_set_run_halt_keeps_both_reader_representations_in_sync(
     ) == expected_stored_halt
 
 
-def test_set_run_halt_owns_only_its_default_transaction(project, consented_run):
+def test_set_run_halt_writes_only_inside_a_caller_transaction(project, consented_run):
     from frisket.engine.store.runs import RunResultStore
 
     run_id, _route, _set, _consent = consented_run
     store = RunResultStore(project)
-    statements = []
-    project.db.set_trace_callback(statements.append)
-    try:
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
         store.set_run_halt(run_id, "promise_violation", "re-consent")
-    finally:
-        project.db.set_trace_callback(None)
-
-    assert statements[0] == "BEGIN IMMEDIATE"
-    assert statements[-1] == "COMMIT"
     assert project.db.in_transaction is False
+    assert _halt_columns(project, run_id) == (None, None)
+
+    with write_transaction(project.db):
+        store.set_run_halt(run_id, "promise_violation", "re-consent")
 
     project.db.execute("BEGIN IMMEDIATE")
-    store.set_run_halt(run_id, None, "temporary legacy halt", commit=False)
+    store.set_run_halt(run_id, None, "temporary legacy halt")
     assert project.db.in_transaction is True
     assert _halt_columns(project, run_id) == (None, "temporary legacy halt")
     project.db.rollback()
@@ -893,7 +892,8 @@ def test_halt_columns_are_written_cleared_and_restored(project, consented_run):
     store = RunResultStore(project)
 
     # Written by the one finalization writer.
-    store.set_run_halt(run_id, "promise_violation", "re-consent to resume")
+    with write_transaction(project.db):
+        store.set_run_halt(run_id, "promise_violation", "re-consent to resume")
     project.db.execute(
         "UPDATE runs SET status='cancelled', finished_at='2026-07-25' WHERE id=?",
         (run_id,),
@@ -942,7 +942,8 @@ def test_losing_resume_claimant_does_not_revert_the_live_winner(project, consent
 
     run_id, _route, _set, _consent = consented_run
     store = RunResultStore(project)
-    store.set_run_halt(run_id, "promise_violation", "re-consent to resume")
+    with write_transaction(project.db):
+        store.set_run_halt(run_id, "promise_violation", "re-consent to resume")
     project.db.execute(
         "UPDATE runs SET status='cancelled', finished_at='2026-07-25' WHERE id=?",
         (run_id,),
@@ -991,7 +992,8 @@ def test_halted_reason_without_a_code_stays_representable(project, consented_run
     from frisket.engine.store.runs import RunResultStore
 
     run_id, _route, _set, _consent = consented_run
-    RunResultStore(project).set_run_halt(run_id, None, "halted after 10 failures")
+    with write_transaction(project.db):
+        RunResultStore(project).set_run_halt(run_id, None, "halted after 10 failures")
     assert _halt_columns(project, run_id) == (None, "halted after 10 failures")
 
 

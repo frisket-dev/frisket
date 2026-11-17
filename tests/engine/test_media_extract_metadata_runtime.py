@@ -579,11 +579,10 @@ def test_cache_namespace_copied_to_another_blob_is_reprobed(
     store = MediaBlobStore(project)
     copied = store.media_metadata_cache(first_digest)
     assert copied is not None
-    store.merge_metadata(
+    store.update_metadata(
         second_digest,
         {MEDIA_METADATA_CACHE_NAMESPACE: copy.deepcopy(copied)},
     )
-    project.db.commit()
     assert store.media_metadata_cache(second_digest) is None
 
     adapter_title["value"] = "Second blob title"

@@ -4,6 +4,7 @@ import sqlite3
 from pathlib import Path
 
 from frisket.engine.runner.review import review_bundles
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.upgrades.project.review_confidence_migration import (
@@ -104,11 +105,12 @@ def test_confidence_candidates_apply_pending_filter_before_ranking(
     project, run_id, row_ids, first, second = _review_run(tmp_path)
     try:
         store = RunResultStore(project)
-        for column_id in (first, second):
-            store.set_result_review_state(run_id, row_ids[2], column_id, "verified")
-            store.set_result_review_metadata(
-                run_id, row_ids[2], column_id, "accept", None
-            )
+        with write_transaction(project.db):
+            for column_id in (first, second):
+                store.set_result_review_state(run_id, row_ids[2], column_id, "verified")
+                store.set_result_review_metadata(
+                    run_id, row_ids[2], column_id, "accept", None
+                )
 
         pending = review_bundles(project, run_id=run_id, limit=3)
         assert [item["row_id"] for item in pending] == [

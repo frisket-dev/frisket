@@ -98,12 +98,11 @@ def _finalize_run_in_transaction(
         ).fetchall()
     }
     if auto_verify:
-        run_store.mark_run_results_verified(run_id, commit=False)
+        run_store.mark_run_results_verified(run_id)
     run_store.set_run_halt(
         run_id,
         halted_code,
         halted_reason,
-        commit=False,
     )
     # A queued cooperative cancel first lands recipe-specific projection work
     # (carry-forward, column pointers, visibility) while retaining the live

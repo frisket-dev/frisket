@@ -162,10 +162,9 @@ def test_exact_rows_preserve_order_filter_fields_and_read_fresh_decisions(
         )
 
         store = RunResultStore(project)
-        store.set_result_review_state(run_id, rows[0], answer, "verified", commit=False)
-        store.set_result_review_metadata(
-            run_id, rows[0], answer, "accept", "checked", commit=False
-        )
+        project.db.execute("BEGIN IMMEDIATE")
+        store.set_result_review_state(run_id, rows[0], answer, "verified")
+        store.set_result_review_metadata(run_id, rows[0], answer, "accept", "checked")
         project.db.commit()
 
         pending = exact_review_bundle_page(
@@ -253,6 +252,7 @@ def test_map_find_sampling_uses_derived_result_rows(tmp_path: Path) -> None:
         project.db.execute(
             "UPDATE columns SET current_run_id=? WHERE id=?", (run_id, match)
         )
+        project.db.commit()
         store.finish_run(run_id, "completed")
 
         page = sample_review_bundle_page(

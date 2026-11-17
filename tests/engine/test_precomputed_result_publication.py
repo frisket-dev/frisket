@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from frisket.contracts.action import Receipt
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.runner.publication import PUBLISH_VALUE
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
@@ -163,25 +164,27 @@ def test_precomputed_results_refuse_lost_receipt_or_claim_without_publication(
             )
         )
         with pytest.raises(RuntimeError, match="outside their output claim"):
-            store.write_precomputed_results(
-                run_id,
-                batch,
-                receipt_id="receipt_wrong_running",
-                action_kind="map.find",
-                params_hash="sha256:precomputed",
-                claim_token=claim_token,
-            )
+            with write_transaction(project.db):
+                store.write_precomputed_results(
+                    run_id,
+                    batch,
+                    receipt_id="receipt_wrong_running",
+                    action_kind="map.find",
+                    params_hash="sha256:precomputed",
+                    claim_token=claim_token,
+                )
         assert _publication_state(project, run_id) == before
 
         with pytest.raises(RuntimeError, match="outside their output claim"):
-            store.write_precomputed_results(
-                run_id,
-                batch,
-                receipt_id=receipt_id,
-                action_kind="map.find",
-                params_hash="sha256:precomputed",
-                claim_token="output-claim:wrong",
-            )
+            with write_transaction(project.db):
+                store.write_precomputed_results(
+                    run_id,
+                    batch,
+                    receipt_id=receipt_id,
+                    action_kind="map.find",
+                    params_hash="sha256:precomputed",
+                    claim_token="output-claim:wrong",
+                )
         assert _publication_state(project, run_id) == before
 
         ReceiptStore(project).update_body_status(
@@ -191,14 +194,15 @@ def test_precomputed_results_refuse_lost_receipt_or_claim_without_publication(
             require_status="running",
         )
         with pytest.raises(RuntimeError, match="lost their running action authority"):
-            store.write_precomputed_results(
-                run_id,
-                batch,
-                receipt_id=receipt_id,
-                action_kind="map.find",
-                params_hash="sha256:precomputed",
-                claim_token=claim_token,
-            )
+            with write_transaction(project.db):
+                store.write_precomputed_results(
+                    run_id,
+                    batch,
+                    receipt_id=receipt_id,
+                    action_kind="map.find",
+                    params_hash="sha256:precomputed",
+                    claim_token=claim_token,
+                )
         assert _publication_state(project, run_id) == before
     finally:
         project.close()
@@ -244,22 +248,24 @@ def test_attaching_neutral_model_call_facts_is_idempotent_and_atomic(
         store.write_unscoped_model_calls(
             [_model_call("call-foreign")], row_id=None, column_id=None
         )
-        store.attach_unscoped_model_calls(
-            other_run_id,
-            ["call-foreign"],
-            receipt_id=other_receipt_id,
-            action_kind="map.find",
-            params_hash="sha256:other",
-        )
+        with write_transaction(project.db):
+            store.attach_unscoped_model_calls(
+                other_run_id,
+                ["call-foreign"],
+                receipt_id=other_receipt_id,
+                action_kind="map.find",
+                params_hash="sha256:other",
+            )
 
         with pytest.raises(RuntimeError, match="cannot move model-call facts"):
-            store.attach_unscoped_model_calls(
-                run_id,
-                ["call-unattached", "call-foreign"],
-                receipt_id=receipt_id,
-                action_kind="map.find",
-                params_hash="sha256:precomputed",
-            )
+            with write_transaction(project.db):
+                store.attach_unscoped_model_calls(
+                    run_id,
+                    ["call-unattached", "call-foreign"],
+                    receipt_id=receipt_id,
+                    action_kind="map.find",
+                    params_hash="sha256:precomputed",
+                )
         assert (
             project.db.execute(
                 "SELECT run_id FROM model_calls WHERE id='call-unattached'"
@@ -268,31 +274,34 @@ def test_attaching_neutral_model_call_facts_is_idempotent_and_atomic(
         )
         assert store.model_calls(run_id) == []
 
-        store.attach_unscoped_model_calls(
-            run_id,
-            ["call-owned"],
-            receipt_id=receipt_id,
-            action_kind="map.find",
-            params_hash="sha256:precomputed",
-        )
-        store.attach_unscoped_model_calls(
-            run_id,
-            ["call-owned"],
-            receipt_id=receipt_id,
-            action_kind="map.find",
-            params_hash="sha256:precomputed",
-        )
-        assert [call["id"] for call in store.model_calls(run_id)] == ["call-owned"]
-        assert store.get_run(run_id)["cost_actual"] == pytest.approx(0.01)
-
-        with pytest.raises(RuntimeError, match="cannot attach missing model-call"):
+        with write_transaction(project.db):
             store.attach_unscoped_model_calls(
                 run_id,
-                ["call-missing", "call-unattached"],
+                ["call-owned"],
                 receipt_id=receipt_id,
                 action_kind="map.find",
                 params_hash="sha256:precomputed",
             )
+        with write_transaction(project.db):
+            store.attach_unscoped_model_calls(
+                run_id,
+                ["call-owned"],
+                receipt_id=receipt_id,
+                action_kind="map.find",
+                params_hash="sha256:precomputed",
+            )
+        assert [call["id"] for call in store.model_calls(run_id)] == ["call-owned"]
+        assert store.get_run(run_id)["cost_actual"] == pytest.approx(0.01)
+
+        with pytest.raises(RuntimeError, match="cannot attach missing model-call"):
+            with write_transaction(project.db):
+                store.attach_unscoped_model_calls(
+                    run_id,
+                    ["call-missing", "call-unattached"],
+                    receipt_id=receipt_id,
+                    action_kind="map.find",
+                    params_hash="sha256:precomputed",
+                )
         assert (
             project.db.execute(
                 "SELECT run_id FROM model_calls WHERE id='call-unattached'"

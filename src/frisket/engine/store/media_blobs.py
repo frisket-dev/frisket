@@ -14,6 +14,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.blob_metadata import (
     BlobMetadataDocumentStore,
     BlobMetadataNamespaceCASDecision,
@@ -244,8 +245,6 @@ class MediaBlobStore(BlobMetadataDocumentStore):
         self,
         digest: str,
         metadata: Mapping[str, Any],
-        *,
-        commit: bool = True,
     ) -> dict[str, Any]:
         """Atomically replace only the probe-owned namespace."""
 
@@ -255,7 +254,7 @@ class MediaBlobStore(BlobMetadataDocumentStore):
             current[MEDIA_PROBE_NAMESPACE] = probe
             return current
 
-        return self.transactionally_update_document(digest, replace, commit=commit)
+        return self.transactionally_update_document(digest, replace)
 
     def compare_and_swap_media_metadata_cache(
         self,
@@ -263,7 +262,6 @@ class MediaBlobStore(BlobMetadataDocumentStore):
         proposal: Mapping[str, Any],
         *,
         expected_generation: int,
-        commit: bool = True,
     ) -> MediaMetadataCacheCASResult:
         """Atomically replace only the extractor-owned cache namespace.
 
@@ -339,7 +337,6 @@ class MediaBlobStore(BlobMetadataDocumentStore):
             MEDIA_METADATA_CACHE_NAMESPACE,
             candidate,
             resolve,
-            commit=commit,
         )
         return MediaMetadataCacheCASResult(
             written=result.written,
@@ -390,15 +387,15 @@ class MediaBlobStore(BlobMetadataDocumentStore):
     ) -> None:
         if not metadata:
             return
-        if replace:
-            self.transactionally_update_document(
-                digest,
-                lambda _current: dict(metadata),
-                commit=False,
-            )
-        else:
-            self.merge_metadata(digest, metadata)
-        self.db.commit()
+        with write_transaction(self.db):
+            if replace:
+                self.transactionally_update_document(
+                    digest,
+                    lambda _current: dict(metadata),
+                    commit=False,
+                )
+            else:
+                self.merge_metadata(digest, metadata)
 
     def merge_metadata(self, digest: str, metadata: dict[str, Any]) -> None:
         def merge(current: dict[str, Any]) -> dict[str, Any]:

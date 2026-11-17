@@ -83,6 +83,7 @@ def _publish_managed_results(
                 for column_id in column_ids
             ],
         )
+    project.db.commit()
     RunResultStore(project).finish_run(run_id)
     return run_id
 
@@ -149,12 +150,12 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
         project.db.commit()
         assert review_bundle_count(project) == 1_260
 
+        project.db.execute("BEGIN IMMEDIATE")
         RunResultStore(project).set_result_review_state(
             replacement_run_id,
             replacement_rows[0],
             answer_id,
             "verified",
-            commit=False,
         )
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[1],))
 

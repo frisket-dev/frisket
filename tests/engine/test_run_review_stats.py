@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import review_stats as review_stats_module
 from frisket.engine.runner.review import review_bundle_page, review_runs_page
 from frisket.engine.store.review_stats import (
@@ -109,6 +110,7 @@ def _managed_run(
 
     start_change(project.db, op_id)
     project.db.execute("UPDATE results SET published=1 WHERE run_id=?", (run_id,))
+    project.db.commit()
     store.finish_run(run_id)
     return run_id
 
@@ -266,14 +268,11 @@ def test_review_stats_distinguish_resolved_unknown_from_human_decisions(
         ).fetchone()
         assert tuple(run) == (2, 0)
 
-        # The production writer separates state and metadata. Both directions
-        # keep row-bundle resolution exact throughout that ordering.
-        assert (
-            store.set_result_review_state(
-                run_id, row_ids[0], first, "verified", commit=False
-            )
-            == 1
-        )
+        # The production writer separates state and metadata inside one
+        # judgment transaction. Both directions keep row-bundle resolution
+        # exact throughout that ordering.
+        project.db.execute("BEGIN IMMEDIATE")
+        assert store.set_result_review_state(run_id, row_ids[0], first, "verified") == 1
         assert (
             project.db.execute(
                 "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
@@ -281,27 +280,21 @@ def test_review_stats_distinguish_resolved_unknown_from_human_decisions(
             == 1
         )
         assert (
-            store.set_result_review_metadata(
-                run_id, row_ids[0], first, "accept", None, commit=False
-            )
+            store.set_result_review_metadata(run_id, row_ids[0], first, "accept", None)
             == 1
         )
         assert _field(project, run_id, first)["reviewed_count"] == 1
 
         # Undo order restores state first while the decision is still present;
         # only clearing the decision makes the item and bundle pending again.
-        store.set_result_review_state(
-            run_id, row_ids[0], first, "unreviewed", commit=False
-        )
+        store.set_result_review_state(run_id, row_ids[0], first, "unreviewed")
         assert (
             project.db.execute(
                 "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
             ).fetchone()[0]
             == 1
         )
-        store.set_result_review_metadata(
-            run_id, row_ids[0], first, None, None, commit=False
-        )
+        store.set_result_review_metadata(run_id, row_ids[0], first, None, None)
         assert (
             project.db.execute(
                 "SELECT review_resolved_bundle_count FROM runs WHERE id=?", (run_id,)
@@ -332,12 +325,10 @@ def test_review_transition_serializes_prior_state_with_counter_delta(
         first_store = RunResultStore(project)
         project.db.execute("BEGIN IMMEDIATE")
         if transition == "state":
-            first_store.set_result_review_state(
-                run_id, rows[0], output, "verified", commit=False
-            )
+            first_store.set_result_review_state(run_id, rows[0], output, "verified")
         else:
             first_store.set_result_review_metadata(
-                run_id, rows[0], output, "accept", None, commit=False
+                run_id, rows[0], output, "accept", None
             )
 
         statements: queue.Queue[str] = queue.Queue()
@@ -360,13 +351,14 @@ def test_review_transition_serializes_prior_state_with_counter_delta(
             connection.set_trace_callback(trace)
             try:
                 store = RunResultStore(peer)
-                if transition == "state":
-                    return store.set_result_review_state(
-                        run_id, rows[0], output, "verified"
+                with write_transaction(connection):
+                    if transition == "state":
+                        return store.set_result_review_state(
+                            run_id, rows[0], output, "verified"
+                        )
+                    return store.set_result_review_metadata(
+                        run_id, rows[0], output, "accept", None
                     )
-                return store.set_result_review_metadata(
-                    run_id, rows[0], output, "accept", None
-                )
             finally:
                 connection.set_trace_callback(None)
 

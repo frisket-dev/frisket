@@ -15,6 +15,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.engine.store.transactions import write_transaction
+
 
 BLOB_METADATA_MAX_JSON_BYTES = 4 * 1024 * 1024
 BLOB_METADATA_MAX_JSON_DEPTH = 64
@@ -163,16 +165,12 @@ class BlobMetadataDocumentStore:
     ) -> dict[str, Any]:
         """Update the complete document under a lock acquired before its read.
 
-        When a surrounding transaction already exists, this method joins it.
-        ``commit=False`` leaves a transaction opened by this call available to
-        its caller, matching the store's existing caller-owned transaction
-        convention.
+        ``commit=False`` joins the caller's open transaction.
         """
 
-        owns_transaction = not self.db.in_transaction
-        try:
-            if owns_transaction:
-                self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(
+            self.db, commit=commit, what="blob metadata document update"
+        ):
             row = self.db.execute(
                 "SELECT metadata FROM blobs WHERE hash=?", (digest,)
             ).fetchone()
@@ -188,13 +186,7 @@ class BlobMetadataDocumentStore:
             )
             if cur.rowcount != 1:  # pragma: no cover - protected by write lock
                 raise KeyError(f"no blob {digest}")
-            if owns_transaction and commit:
-                self.db.commit()
             return self._decode_document(encoded)
-        except BaseException:
-            if owns_transaction and self.db.in_transaction:
-                self.db.rollback()
-            raise
 
     def compare_and_swap_metadata_namespace(
         self,
@@ -202,17 +194,12 @@ class BlobMetadataDocumentStore:
         namespace: str,
         proposal: Any,
         resolve: Callable[[Any, Any], BlobMetadataNamespaceCASDecision],
-        *,
-        commit: bool = True,
     ) -> BlobMetadataNamespaceCASResult:
         """Apply an owned namespace's CAS policy under one locked transaction."""
 
         if not isinstance(namespace, str) or not namespace:
             raise ValueError("blob metadata namespace must be a non-empty string")
-        owns_transaction = not self.db.in_transaction
-        try:
-            if owns_transaction:
-                self.db.execute("BEGIN IMMEDIATE")
+        with write_transaction(self.db):
             row = self.db.execute(
                 "SELECT metadata FROM blobs WHERE hash=?", (digest,)
             ).fetchone()
@@ -225,8 +212,6 @@ class BlobMetadataDocumentStore:
                     "blob metadata CAS resolver returned an invalid decision"
                 )
             if not decision.written:
-                if owns_transaction:
-                    self.db.rollback()
                 return BlobMetadataNamespaceCASResult(
                     written=False,
                     value=copy.deepcopy(decision.value),
@@ -240,14 +225,8 @@ class BlobMetadataDocumentStore:
             )
             if cur.rowcount != 1:  # pragma: no cover - protected by write lock
                 raise KeyError(f"no blob {digest}")
-            if owns_transaction and commit:
-                self.db.commit()
             return BlobMetadataNamespaceCASResult(
                 written=True,
                 value=copy.deepcopy(decision.value),
                 reason=decision.reason,
             )
-        except BaseException:
-            if owns_transaction and self.db.in_transaction:
-                self.db.rollback()
-            raise

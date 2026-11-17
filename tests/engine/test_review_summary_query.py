@@ -42,6 +42,7 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
                 for column_id in (answer_id, category_id, support_id)
             ],
         )
+        project.db.commit()
         RunResultStore(project).finish_run(run_id)
 
         # Two primary fields and an unreviewed support field still make one
@@ -50,10 +51,9 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
         assert review_bundle_count(project) == 2
 
         store = RunResultStore(project)
+        project.db.execute("BEGIN IMMEDIATE")
         for column_id in (answer_id, category_id):
-            store.set_result_review_state(
-                run_id, row_ids[0], column_id, "verified", commit=False
-            )
+            store.set_result_review_state(run_id, row_ids[0], column_id, "verified")
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[1],))
         project.db.commit()
 
