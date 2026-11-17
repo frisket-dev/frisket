@@ -4,24 +4,13 @@ import {
   createActionPreviewApi,
   createActionPreviewRunsApi,
 } from '../../src/api/actionPreviewRuns';
+import { ApiError, ConfirmationRequiredError } from '../../src/api/contractErrors';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped preview error ${status}`);
-    this.name = 'MappedContractError';
-    this.status = status;
-    this.payload = payload;
-  }
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -44,10 +33,7 @@ describe('action-preview lifecycle HTTP contracts', () => {
       }),
     ];
     vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
-    const api = createActionPreviewApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project-one',
-    );
+    const api = createActionPreviewApi('project-one');
     await api.startPreview({ action_id: 'map.translate', scope: { kind: 'sheet_rows', sheet_id: 1 },
       params: {}, output_names: {}, idempotency_key: 'preview-preparing' });
 
@@ -71,10 +57,7 @@ describe('action-preview lifecycle HTTP contracts', () => {
       progress: { done: 0, total: 1 }, accounting,
     })];
     vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
-    const api = createActionPreviewApi(
-      (code, payload) => new MappedContractError(code, payload),
-      'project-one',
-    );
+    const api = createActionPreviewApi('project-one');
     await api.startPreview({ action_id: 'media.ocr', scope: { kind: 'project' },
       params: {}, output_names: {}, idempotency_key: 'preview-paid' });
     await expect(api.getPreview('paid')).resolves.toMatchObject({ status, accounting });
@@ -90,10 +73,7 @@ describe('action-preview lifecycle HTTP contracts', () => {
         } }),
     ];
     vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
-    const api = createActionPreviewApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project-one',
-    );
+    const api = createActionPreviewApi('project-one');
     await expect(api.startPreview({ action_id: 'import.files', scope: { kind: 'project' },
       params: {}, output_names: {}, sheet_name: 'Files', idempotency_key: 'sample' }))
       .resolves.toEqual({ previewId: 'table', total: null });
@@ -127,10 +107,7 @@ describe('action-preview lifecycle HTTP contracts', () => {
       return responses.shift() as Response;
     }));
     const signal = new AbortController().signal;
-    const api = createActionPreviewRunsApi(
-      (status, payload) => new MappedContractError(status, payload),
-      projectId,
-    );
+    const api = createActionPreviewRunsApi(projectId);
     const options = { signal };
 
     await expect(api.start({
@@ -162,33 +139,101 @@ describe('action-preview lifecycle HTTP contracts', () => {
     expect(requests[2]?.init?.headers).toBeUndefined();
   });
 
-  it.each([400, 402, 404])('maps lifecycle HTTP %i through the provided error factory', async (status) => {
-    const errorFactory = vi.fn(
-      (actualStatus: number, payload: unknown) =>
-        new MappedContractError(actualStatus, payload),
-    );
-    const payload = {
-      schema_version: 'frisket.action_preview.v1',
-      error: { code: 'preview_not_found', message: `error-${status}` },
-    };
+  it.each([
+    [400, undefined],
+    [404, undefined],
+    [409, { preview_id: 'missing' }],
+  ] as const)('maps lifecycle HTTP %i preview envelopes to ApiError with details %j', async (status, details) => {
     const responses = [
       jsonResponse({
         schema_version: 'frisket.action_preview.v1',
         preview_id: 'missing',
         total: 1,
       }, 202),
-      jsonResponse(payload, status),
+      jsonResponse({
+        schema_version: 'frisket.action_preview.v1',
+        error: {
+          code: 'preview_not_found',
+          message: `error-${status}`,
+          ...(details === undefined ? {} : { details }),
+        },
+      }, status),
     ];
     vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
-    const api = createActionPreviewRunsApi(errorFactory, 'project/one');
+    const api = createActionPreviewRunsApi('project/one');
 
     await api.start({ kind: 'map.classify', params: {} });
-    await expect(api.get('missing')).rejects.toMatchObject({
-      name: 'MappedContractError',
+    const rejection = api.get('missing');
+    await expect(rejection).rejects.toBeInstanceOf(ApiError);
+    await expect(rejection).rejects.toMatchObject({
+      name: 'ApiError',
       status,
-      payload,
+      message: `error-${status}`,
+      code: 'preview_not_found',
+      details,
     });
-    expect(errorFactory).toHaveBeenCalledWith(status, payload);
+  });
+
+  it('maps a lifecycle HTTP 402 preview envelope to a consent error carrying every quoted fact', async () => {
+    const estimate = { cost: 0.42, rows: 7, model: 'gpt-x', pricing_version: 'v3' };
+    const claims = [{ field: 'cost', display: '$0.42' }];
+    const responses = [
+      jsonResponse({
+        schema_version: 'frisket.action_preview.v1',
+        preview_id: 'quoted',
+        total: 7,
+      }, 202),
+      jsonResponse({
+        schema_version: 'frisket.action_preview.v1',
+        error: {
+          code: 'needs_confirmation',
+          message: 'Confirm the quoted preview cost.',
+          details: {
+            estimate,
+            claims: [...claims, { field: 'dropped' }],
+            promise_set_hash: 'promise-hash-1',
+            reason: 'model_cost',
+          },
+        },
+      }, 402),
+    ];
+    vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
+    const api = createActionPreviewRunsApi('project/one');
+
+    await api.start({ kind: 'map.classify', params: {} });
+    const rejection = api.get('quoted');
+    await expect(rejection).rejects.toBeInstanceOf(ConfirmationRequiredError);
+    await expect(rejection).rejects.toMatchObject({
+      name: 'ConfirmationRequiredError',
+      message: 'Confirm the quoted preview cost.',
+      reason: 'model_cost',
+      estimate: { ...estimate, claims, promise_set_hash: 'promise-hash-1' },
+    });
+  });
+
+  it('maps a lifecycle HTTP 402 preview envelope without details to an empty-quote consent error', async () => {
+    const responses = [
+      jsonResponse({
+        schema_version: 'frisket.action_preview.v1',
+        preview_id: 'unquoted',
+        total: 1,
+      }, 202),
+      jsonResponse({
+        schema_version: 'frisket.action_preview.v1',
+        error: { code: 'preview_not_found', message: 'error-402' },
+      }, 402),
+    ];
+    vi.stubGlobal('fetch', vi.fn(async () => responses.shift() as Response));
+    const api = createActionPreviewRunsApi('project/one');
+
+    await api.start({ kind: 'map.classify', params: {} });
+    const rejection = api.get('unquoted');
+    await expect(rejection).rejects.toBeInstanceOf(ConfirmationRequiredError);
+    await expect(rejection).rejects.toMatchObject({
+      message: 'error-402',
+      reason: null,
+      estimate: { cost: null, rows: 0 },
+    });
   });
 
   it('forwards abort identity without replacing the browser rejection', async () => {
@@ -209,10 +254,7 @@ describe('action-preview lifecycle HTTP contracts', () => {
         });
       });
     }));
-    const api = createActionPreviewRunsApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project/one',
-    );
+    const api = createActionPreviewRunsApi('project/one');
     await api.start({ kind: 'map.classify', params: {} });
     const pending = api.get('preview-1', { signal: controller.signal });
     const abortError = new DOMException('preview cancelled', 'AbortError');

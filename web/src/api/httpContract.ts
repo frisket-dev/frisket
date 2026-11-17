@@ -3,7 +3,7 @@ import {
   type HttpContractOperationId,
   type HttpContractOperationMap,
 } from '../generated/openHttpContracts';
-import { apiErrorFromContract } from './contractErrors';
+import { errorFromContract } from './contractErrors';
 
 type FetchImplementation = typeof globalThis.fetch;
 type DecimalDigit = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9';
@@ -175,7 +175,7 @@ export async function httpContract<Id extends HttpContractOperationId, DomainRes
         detail: response.statusText || `Request failed (HTTP ${response.status})`,
       };
     }
-    throw (options.errorFactory ?? apiErrorFromContract)(response.status, payload);
+    throw (options.errorFactory ?? errorFromContract)(response.status, payload);
   }
   const payload: unknown = await response.json();
   const wire = payload as HttpContractSuccessResponse<Id>;

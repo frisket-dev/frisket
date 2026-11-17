@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createActionLaunchApi } from '../../src/api/actionLaunch';
+import { ApiError } from '../../src/api/contractErrors';
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -21,18 +22,6 @@ function actionResult(status: string) {
   };
 }
 
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped action-launch error ${status}`);
-    this.name = 'MappedContractError';
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
 afterEach(() => vi.unstubAllGlobals());
 
 describe('action-launch HTTP contract', () => {
@@ -43,10 +32,7 @@ describe('action-launch HTTP contract', () => {
       return jsonResponse(actionResult('completed'));
     }));
     const signal = new AbortController().signal;
-    const api = createActionLaunchApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project/one',
-    );
+    const api = createActionLaunchApi('project/one');
 
     await expect(api.launch({
       kind: 'map.classify',
@@ -75,10 +61,7 @@ describe('action-launch HTTP contract', () => {
     [500, 'failed'],
   ])('returns HTTP %i ActionResult outcomes as values', async (status, resultStatus) => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(actionResult(resultStatus), status)));
-    const api = createActionLaunchApi(
-      (actualStatus, payload) => new MappedContractError(actualStatus, payload),
-      'project-1',
-    );
+    const api = createActionLaunchApi('project-1');
 
     await expect(api.launch({ kind: 'map.classify' })).resolves.toMatchObject({
       status,
@@ -86,21 +69,19 @@ describe('action-launch HTTP contract', () => {
     });
   });
 
-  it.each([402, 503])('keeps flat hosted HTTP %i failures as ordinary mapped errors', async (status) => {
-    const payload = { detail: `hosted-${status}` };
-    const errorFactory = vi.fn(
-      (actualStatus: number, actualPayload: unknown) =>
-        new MappedContractError(actualStatus, actualPayload),
-    );
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload, status)));
-    const api = createActionLaunchApi(errorFactory, 'project-1');
+  it.each([402, 503])('keeps flat hosted HTTP %i failures as ordinary ApiErrors', async (status) => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `hosted-${status}` }, status)));
+    const api = createActionLaunchApi('project-1');
 
-    await expect(api.launch({ kind: 'map.classify' })).rejects.toMatchObject({
-      name: 'MappedContractError',
+    const rejection = api.launch({ kind: 'map.classify' });
+    await expect(rejection).rejects.toBeInstanceOf(ApiError);
+    await expect(rejection).rejects.toMatchObject({
+      name: 'ApiError',
       status,
-      payload,
+      message: `hosted-${status}`,
+      code: undefined,
+      details: undefined,
     });
-    expect(errorFactory).toHaveBeenCalledWith(status, payload);
   });
 
   it('forwards abort identity without replacing the browser rejection', async () => {
@@ -114,10 +95,7 @@ describe('action-launch HTTP contract', () => {
         });
       });
     }));
-    const api = createActionLaunchApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project-1',
-    );
+    const api = createActionLaunchApi('project-1');
     const pending = api.launch({ kind: 'map.classify' }, { signal: controller.signal });
     const abortError = new DOMException('action cancelled', 'AbortError');
     controller.abort(abortError);

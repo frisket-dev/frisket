@@ -12,6 +12,7 @@ import type {
   HttpRowSourceDocumentsResponse,
   HttpRunTraceRowEvidence,
 } from '../generated/openHttpContracts';
+import { isRecord } from './wireValues';
 
 
 
@@ -1572,10 +1573,6 @@ export interface ActionCatalogEntry {
   examples: Array<Record<string, unknown>>;
   ui_hints: ActionCatalogUiHints;
   receipt_policy: 'writes_receipt' | 'deferred_until_receipts_table';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 export type GeneratedSemanticControl =

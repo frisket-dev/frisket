@@ -273,18 +273,7 @@ describe('entity mention generated transport', () => {
   it('forwards adapter options and preserves bare, ordinary, and network failures', async () => {
     const fetchMock = stubFetch(PREVIEW_WIRE);
     const controller = new AbortController();
-    const transport = createEntityMentionsApi((status, payload) => {
-      if (
-        payload !== null
-        && typeof payload === 'object'
-        && 'message' in payload
-        && 'code' in payload
-      ) {
-        const error = payload as { message: string; code: string; details?: Record<string, unknown> };
-        return new ApiError(status, error.message, error.code, error.details);
-      }
-      return new ApiError(status, JSON.stringify(payload));
-    }, 'folder/child');
+    const transport = createEntityMentionsApi('folder/child');
     await transport.entityMentionsPreview(
       { sheetId: '7', columnId: '11' },
       { signal: controller.signal },
@@ -309,8 +298,10 @@ describe('entity mention generated transport', () => {
       },
       { ok: false, status: 400 },
     );
-    const bare = api.entityMentionsPreview({ sheetId: '7', columnId: '11' });
+    const bare = transport.entityMentionsPreview({ sheetId: '7', columnId: '11' });
+    await expect(bare).rejects.toBeInstanceOf(ApiError);
     await expect(bare).rejects.toMatchObject({
+      name: 'ApiError',
       status: 400,
       message: 'no such column',
       code: 'invalid_input_ref',
@@ -321,6 +312,20 @@ describe('entity mention generated transport', () => {
     await expect(api.entityMentionDocuments({
       sheetId: '7', columnId: '11', type: 'person', fingerprint: 'ada',
     })).rejects.toMatchObject({ status: 502, message: 'gateway denied' });
+
+    stubFetch(
+      { detail: { code: 'project_missing', message: 'project is gone' } },
+      { ok: false, status: 404 },
+    );
+    const wrapped = api.entityMentionsPreview({ sheetId: '7', columnId: '11' });
+    await expect(wrapped).rejects.toBeInstanceOf(ApiError);
+    await expect(wrapped).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 404,
+      message: 'project is gone',
+      code: 'project_missing',
+      details: undefined,
+    });
 
     const network = new Error('offline');
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(network)));

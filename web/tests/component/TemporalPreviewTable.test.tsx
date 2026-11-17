@@ -40,7 +40,7 @@ it('transports the preview-only envelope without converting it to opaque text', 
       result: { kind: 'table', columns: [{ name: 'Markers', column_type: 'timeline_points' }], rows: [{ Markers: { value } }], sampled: 1, total: 1, warnings: [] } },
   ];
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(responses.shift()), { status: 200, headers: { 'Content-Type': 'application/json' } })));
-  const api = createActionPreviewApi((status) => new Error(String(status)), 'preview');
+  const api = createActionPreviewApi('preview');
   await api.startPreview({ action_id: 'derive.temporal_segments', scope: { kind: 'sheet_rows', sheet_id: 1 }, params: {}, output_names: {}, sheet_name: 'Clips', idempotency_key: 'preview' });
   const result = await api.getPreview('sample');
   expect(result).toMatchObject({ kind: 'table', rows: [{ Markers: { value } }] });

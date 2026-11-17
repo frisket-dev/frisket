@@ -1,5 +1,5 @@
 import type { HttpActionEstimateValidationRequest } from '../generated/openHttpContracts';
-import { httpContract, type HttpContractSuccessResponse, type ContractErrorFactory } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import type {
   ActionExecutionRequest,
   ActionParamResolution,
@@ -74,7 +74,6 @@ export function runEstimateFromV1Wire(
 /** Owns the captured invocation, estimate/validation transport, and
  * wire-to-public mapping. */
 export function createActionEstimateValidationApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
   return {
@@ -85,7 +84,6 @@ export function createActionEstimateValidationApi(
         pathParams: { pid: invocation.projectId },
         body: { action: request as unknown as ActionEstimateValidationAction },
         signal: invocation.signal,
-        errorFactory,
       });
       return runEstimateFromV1Wire(wire.estimate);
     },
@@ -102,7 +100,6 @@ export function createActionEstimateValidationApi(
             params: request.params,
           },
         },
-        errorFactory,
       });
       const outputs = wire.logical_outputs;
       return {

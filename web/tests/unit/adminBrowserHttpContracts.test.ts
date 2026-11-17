@@ -18,9 +18,7 @@ describe('admin browser generated HTTP transport', () => {
       requests.push({ input, init });
       return jsonResponse({});
     }));
-    const api = createAdminBrowserApi((status, payload) =>
-      Object.assign(new Error(`admin-${status}`), { status, payload }),
-    );
+    const api = createAdminBrowserApi();
 
     await api.getAdminHealth();
     await api.getAdminUsers();
@@ -51,10 +49,10 @@ describe('admin browser generated HTTP transport', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       ok: false, outcome: 'already_terminal', job_id: 13, retryable: false, detail: 'done',
     }, 409)));
-    const api = createAdminBrowserApi((status, payload) =>
-      Object.assign(new Error(`admin-${status}`), { status, payload }),
-    );
+    const api = createAdminBrowserApi();
 
-    await expect(api.cancelAdminJob(13)).rejects.toMatchObject({ status: 409 });
+    await expect(api.cancelAdminJob(13)).rejects.toMatchObject({
+      name: 'ApiError', status: 409, message: 'done', code: undefined, details: undefined,
+    });
   });
 });

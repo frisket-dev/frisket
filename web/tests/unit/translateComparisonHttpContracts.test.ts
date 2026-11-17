@@ -82,7 +82,7 @@ describe('translate comparison HTTP contract', () => {
     });
   });
 
-  it('keeps the route-specific bare action error, including empty details', async () => {
+  it('maps a bare action error to ApiError, keeping its empty details object', async () => {
     stubFetch({
       schema_version: 'frisket.action_error.v1',
       code: 'invalid_request',
@@ -103,23 +103,28 @@ describe('translate comparison HTTP contract', () => {
     });
   });
 
-  it('defaults missing bare action-error details to an empty object', async () => {
+  it('leaves details undefined when a bare action error carries none, at any status', async () => {
     stubFetch({
       schema_version: 'frisket.action_error.v1',
-      code: 'invalid_request',
-      message: 'select at least one engine',
-    }, { status: 400 });
+      code: 'engine_unavailable',
+      message: 'opus_mt is not installed',
+    }, { status: 422 });
 
     const failure = api.compareTranslateScratch({
-      engines: [], text: 'hello world', targetLanguage: 'French',
+      engines: ['opus_mt'], text: 'hello world', targetLanguage: 'French',
     });
 
-    await failure.catch((error: ApiError) => {
-      expect(error.details).toEqual({});
+    await expect(failure).rejects.toBeInstanceOf(ApiError);
+    await expect(failure).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 422,
+      message: 'opus_mt is not installed',
+      code: 'engine_unavailable',
+      details: undefined,
     });
   });
 
-  it('keeps legacy detail-wrapped error behavior for other errors', async () => {
+  it('maps detail-wrapped errors to ApiError with the remaining detail keys as details', async () => {
     stubFetch({
       detail: { code: 'project_missing', message: 'project is gone', field: 'pid' },
     }, { status: 404 });
@@ -139,10 +144,7 @@ describe('translate comparison HTTP contract', () => {
   it('forwards adapter cancellation', async () => {
     const fetchMock = stubFetch(RESPONSE);
     const controller = new AbortController();
-    const adapter = createTranslateComparisonApi(
-      (status, payload) => new Error(`${status}:${payload}`),
-      'tenant/a % hostile',
-    );
+    const adapter = createTranslateComparisonApi('tenant/a % hostile');
 
     await adapter.compareTranslateScratch(
       { engines: ['opus_mt'], text: 'hello world', targetLanguage: 'French' },

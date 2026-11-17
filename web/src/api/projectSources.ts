@@ -13,6 +13,7 @@ import type {
   SourceRunPage,
 } from './types';
 import type { V1ActionSession } from './v1ActionSession';
+import { isRecord, sqliteTimestampToIso } from './wireValues';
 
 type ProjectSourceListWire =
   HttpContractSuccessResponse<'tenant.list_sources.get'>;
@@ -33,14 +34,6 @@ type SourceUpdateParams = GeneratedActionParams['source.update'];
 type SourceUpdatePatch = SourceUpdateParams['patch'];
 type SourceDeleteParams = GeneratedActionParams['source.delete'];
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/** sqlite CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC) → ISO. */
-const toIso = (ts: string): string =>
-  ts.includes('T') ? ts : `${ts.replace(' ', 'T')}Z`;
-
 const toSourceInfo = (w: ProjectSourceWire): SourceInfo => ({
   id: w.id,
   name: w.name,
@@ -50,7 +43,7 @@ const toSourceInfo = (w: ProjectSourceWire): SourceInfo => ({
   sheetId: w.sheet_id,
   schedule: w.schedule,
   enabled: Boolean(w.enabled),
-  lastCheckedAt: w.last_checked_at ? toIso(w.last_checked_at) : null,
+  lastCheckedAt: w.last_checked_at ? sqliteTimestampToIso(w.last_checked_at) : null,
   lastStatus: w.last_status,
   newRowsTotal: w.new_rows_total ?? 0,
 });
@@ -110,7 +103,7 @@ function wireSourceFromV1Ref(ref: Record<string, unknown>): SourceInfo {
     sheetId,
     schedule: typeof ref.schedule === 'string' ? ref.schedule : null,
     enabled: typeof ref.enabled === 'boolean' ? ref.enabled : Boolean(ref.enabled),
-    lastCheckedAt: typeof ref.last_checked_at === 'string' ? toIso(ref.last_checked_at) : null,
+    lastCheckedAt: typeof ref.last_checked_at === 'string' ? sqliteTimestampToIso(ref.last_checked_at) : null,
     lastStatus: typeof ref.last_status === 'string' ? ref.last_status : null,
     newRowsTotal,
   };
@@ -128,8 +121,8 @@ const toSourceRun = (w: ProjectSourceRunWire): SourceRun => ({
   costMicro: w.cost_micro ?? 0,
   receiptId: w.receipt_id ?? null,
   error: w.error ?? null,
-  startedAt: toIso(w.started_at),
-  finishedAt: w.finished_at ? toIso(w.finished_at) : null,
+  startedAt: sqliteTimestampToIso(w.started_at),
+  finishedAt: w.finished_at ? sqliteTimestampToIso(w.finished_at) : null,
 });
 
 const toSourceRunPage = (w: ProjectSourceRunPageWire): SourceRunPage => ({
@@ -154,13 +147,13 @@ const toSourceHealth = (w: ProjectSourceHealthWire): SourceHealth => ({
     enabled: Boolean(w.source.enabled),
     schedule: w.source.schedule,
     sheetId: w.source.sheet_id,
-    createdAt: w.source.created_at ? toIso(w.source.created_at) : null,
+    createdAt: w.source.created_at ? sqliteTimestampToIso(w.source.created_at) : null,
     redactions: w.source.redactions ?? [],
   },
   summary: {
     status: w.summary.status,
-    lastSuccessAt: w.summary.last_success_at ? toIso(w.summary.last_success_at) : null,
-    lastFailureAt: w.summary.last_failure_at ? toIso(w.summary.last_failure_at) : null,
+    lastSuccessAt: w.summary.last_success_at ? sqliteTimestampToIso(w.summary.last_success_at) : null,
+    lastFailureAt: w.summary.last_failure_at ? sqliteTimestampToIso(w.summary.last_failure_at) : null,
     consecutiveFailures: w.summary.consecutive_failures ?? 0,
     newRowsTotal: w.summary.new_rows_total ?? 0,
     newRowsRecent: w.summary.new_rows_recent ?? 0,
@@ -191,8 +184,8 @@ const toSourceHealth = (w: ProjectSourceHealthWire): SourceHealth => ({
     costMicro: run.cost_micro ?? 0,
     receiptId: run.receipt_id ?? null,
     error: run.error_summary ?? null,
-    startedAt: toIso(run.started_at),
-    finishedAt: run.finished_at ? toIso(run.finished_at) : null,
+    startedAt: sqliteTimestampToIso(run.started_at),
+    finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     sourceId: run.source_id,
     opId: run.op_id ?? null,
     errorSummary: run.error_summary ?? null,
@@ -206,9 +199,9 @@ const toSourceHealth = (w: ProjectSourceHealthWire): SourceHealth => ({
     status: job.status,
     attempts: job.attempts ?? 0,
     maxAttempts: job.max_attempts ?? 0,
-    createdAt: job.created_at ? toIso(job.created_at) : null,
-    startedAt: job.started_at ? toIso(job.started_at) : null,
-    finishedAt: job.finished_at ? toIso(job.finished_at) : null,
+    createdAt: job.created_at ? sqliteTimestampToIso(job.created_at) : null,
+    startedAt: job.started_at ? sqliteTimestampToIso(job.started_at) : null,
+    finishedAt: job.finished_at ? sqliteTimestampToIso(job.finished_at) : null,
     refs: job.refs ?? {},
     resultSummary: job.result_summary ?? {},
     errorSummary: job.error_summary ?? null,

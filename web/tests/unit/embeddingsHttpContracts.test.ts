@@ -257,7 +257,6 @@ describe('embeddings generated HTTP contracts', () => {
     const controller = new AbortController();
     const options = { signal: controller.signal };
     const api = createEmbeddingsApi(
-      (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
       'project one',
     );
@@ -316,20 +315,18 @@ describe('embeddings generated HTTP contracts', () => {
     }
   });
 
-  it('forwards non-2xx payloads to the scoped error factory', async () => {
-    const errorFactory = vi.fn((status: number, payload: unknown) =>
-      Object.assign(new Error('embedding failed'), { status, payload }),
-    );
+  it('maps non-2xx payloads through the shared contract error mapping', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
     }, 409)));
-    const api = createEmbeddingsApi(errorFactory, { v1ActionSession: readOnlyV1ActionSession }, 'project');
+    const api = createEmbeddingsApi({ v1ActionSession: readOnlyV1ActionSession }, 'project');
 
     await expect(api.embeddingIndexes(3)).rejects.toMatchObject({
-      message: 'embedding failed', status: 409,
-    });
-    expect(errorFactory).toHaveBeenCalledWith(409, {
-      detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
+      name: 'ApiError',
+      status: 409,
+      message: 'refresh required',
+      code: 'embedding_source_stale',
+      details: { extra: 'private' },
     });
   });
 
@@ -349,7 +346,6 @@ describe('embeddings generated HTTP contracts', () => {
       }],
     })));
     const api = createEmbeddingsApi(
-      (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
       'project',
     );
@@ -380,7 +376,6 @@ describe('embeddings generated HTTP contracts', () => {
       }],
     })));
     const api = createEmbeddingsApi(
-      (status, payload) => new Error(`${status}:${String(payload)}`),
       { v1ActionSession: readOnlyV1ActionSession },
       'project',
     );
@@ -415,7 +410,7 @@ describe('embeddings generated HTTP contracts', () => {
     ]);
   });
 
-  it('uses the project API embeddings error mapper without exposing detail extras', async () => {
+  it('uses the project API embeddings error mapping and carries detail extras as details', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'embedding_source_stale', message: 'refresh required', extra: 'private' },
     }, 409)));
@@ -427,7 +422,7 @@ describe('embeddings generated HTTP contracts', () => {
       status: 409,
       message: 'refresh required',
       code: 'embedding_source_stale',
-      details: undefined,
+      details: { extra: 'private' },
     });
   });
 

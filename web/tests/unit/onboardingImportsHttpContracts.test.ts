@@ -206,10 +206,7 @@ describe('onboarding/import generated HTTP contracts', () => {
         value: { dataset_id: 'dataset-1' },
       });
     }));
-    const api = createOnboardingImportsApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'ftm/project',
-    );
+    const api = createOnboardingImportsApi('ftm/project');
     const file = new File(['{"id":"x"}\n'], 'entities.jsonl', { type: 'application/json' });
 
     await expect(api.importFollowTheMoney(file, 'Entities')).resolves.toMatchObject({
@@ -302,10 +299,7 @@ describe('onboarding/import generated HTTP contracts', () => {
             message: 'Imported 2 files.',
           });
     }));
-    const api = createOnboardingImportsApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'bulk/project',
-    ) as unknown as {
+    const api = createOnboardingImportsApi('bulk/project') as unknown as {
       planBulkImport(
         files: File[], logicalPaths: string[], expandArchive: boolean, options?: RequestOptions,
       ): Promise<{ plan_id: string; questions: unknown[]; proposed_outputs: unknown[] }>;
@@ -382,10 +376,7 @@ describe('onboarding/import generated HTTP contracts', () => {
       message: 'Imported email.',
       warnings: ['mail/bad.eml: <img src="inert">'],
     })));
-    const api = createOnboardingImportsApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'bulk/project',
-    );
+    const api = createOnboardingImportsApi('bulk/project');
 
     await expect(api.executeBulkImport('warning-plan', {})).resolves.toMatchObject({
       first_sheet_id: 17,
@@ -408,10 +399,7 @@ describe('onboarding/import generated HTTP contracts', () => {
       message: '1 output failed.',
       warnings: [],
     })));
-    const api = createOnboardingImportsApi(
-      (status, payload) => Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'bulk/project',
-    );
+    const api = createOnboardingImportsApi('bulk/project');
 
     await expect(api.executeBulkImport('failed-email-plan', {})).resolves.toMatchObject({
       failed: [{
@@ -442,10 +430,7 @@ describe('onboarding/import generated HTTP contracts', () => {
             : { sheet_id: 7, rows: 2 });
     }));
     const controller = new AbortController();
-    const api = createOnboardingImportsApi((status, payload) =>
-      Object.assign(new Error(`mapped-${status}`), { status, payload }),
-      'hostile /%25 ☃',
-    );
+    const api = createOnboardingImportsApi('hostile /%25 ☃');
     const options = { signal: controller.signal };
     const file = new File(['name\nAda\n'], 'rows.csv', { type: 'text/csv' });
     await expect(api.seedSampleProject('hostile /%25 ☃', options)).resolves.toMatchObject({

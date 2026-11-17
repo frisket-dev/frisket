@@ -26,6 +26,7 @@ import {
   type RunProgress,
   type RegisteredActionRequest,
 } from './types';
+import { actionDisplayNameFromActionKind, isRecord } from './wireValues';
 
 interface RunContext {
   actionName: string;
@@ -40,19 +41,6 @@ interface ColumnRunInfo {
   actionName: string;
   prompt: string;
   model: string;
-}
-
-function actionDisplayNameFromActionKind(actionKind: string): string {
-  const normalized = actionKind.replace(/[._-]+/g, ' ').trim();
-  if (!normalized) return 'AI run';
-  return normalized
-    .split(/\s+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function firstOutputSheetId(outputs: V1ActionResult['outputs']): string | null {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createPdfImportsApi } from '../../src/api/pdfImports';
 import { createOnboardingImportsApi } from '../../src/api/onboardingImports';
+import { ApiError } from '../../src/api/contractErrors';
 
 const telemetry = vi.hoisted(() => vi.fn());
 vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
@@ -9,7 +10,7 @@ vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
 const response = (payload: unknown, status = 200) => new Response(JSON.stringify(payload), {
   status, headers: { 'Content-Type': 'application/json' },
 });
-const api = createOnboardingImportsApi((status) => Object.assign(new Error('private provider response'), { status }), 'private-project');
+const api = createOnboardingImportsApi('private-project');
 beforeEach(() => telemetry.mockClear());
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,10 +43,13 @@ it('counts mixed bulk results once and omits paths and error text', async () => 
 
 it('keeps rejected admission rejected and records only its category', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => response({ detail: 'private rejection' }, 403)));
-  await expect(api.executeBulkImport('private-plan', {})).rejects.toMatchObject({ status: 403 });
+  const rejection = api.executeBulkImport('private-plan', {});
+  await expect(rejection).rejects.toBeInstanceOf(ApiError);
+  await expect(rejection).rejects.toMatchObject({ status: 403, message: 'private rejection' });
   expect(telemetry).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'Import.submitted', properties: expect.objectContaining({
     result: 'failed', failureCategory: 'permission',
   }) }), 'private-project');
+  expect(JSON.stringify(telemetry.mock.calls)).not.toContain('private rejection');
 });
 
 it('records an aborted upload as cancelled, not a failed timeout', async () => {

@@ -4,6 +4,7 @@ import type {
   RunTraceRow,
   RunTraceRowEvidence,
 } from './types';
+import { actionDisplayNameFromActionKind, sqliteTimestampToIso } from './wireValues';
 
 type RunTraceRowEvidenceWire =
   HttpContractSuccessResponse<'tenant.action_run_trace_row.get'>;
@@ -14,18 +15,6 @@ type ProvenanceManifestWire =
 // signatures reflect FastAPI's integers; this cast preserves the established
 // URL bytes without adding a second runtime parser or validator.
 const numericPathRef = (value: string): number => value as unknown as number;
-
-const toIso = (timestamp: string): string =>
-  timestamp.includes('T') ? timestamp : `${timestamp.replace(' ', 'T')}Z`;
-
-function actionDisplayNameFromActionKind(actionKind: string): string {
-  const normalized = actionKind.replace(/[._-]+/g, ' ').trim();
-  if (!normalized) return 'AI run';
-  return normalized
-    .split(/\s+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
 
 function mapTraceRow(row: NonNullable<RunTraceRowEvidenceWire['trace']>['row']): RunTraceRow | null {
   if (row === null) return null;
@@ -121,8 +110,8 @@ function manifest(wire: ProvenanceManifestWire): ProvenanceManifest {
       completedRows: run.completed_rows,
       failedRows: run.failed_rows,
       cost: run.cost,
-      startedAt: run.started_at ? toIso(run.started_at) : null,
-      finishedAt: run.finished_at ? toIso(run.finished_at) : null,
+      startedAt: run.started_at ? sqliteTimestampToIso(run.started_at) : null,
+      finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     })),
     runsPage: {
       schemaVersion: wire.runs_page.schema_version,
@@ -138,7 +127,7 @@ function manifest(wire: ProvenanceManifestWire): ProvenanceManifest {
       actionKind: receipt.action_kind,
       status: receipt.status,
       runId: receipt.run_id == null ? null : String(receipt.run_id),
-      createdAt: receipt.created_at ? toIso(receipt.created_at) : null,
+      createdAt: receipt.created_at ? sqliteTimestampToIso(receipt.created_at) : null,
     })),
     receiptsPage: {
       schemaVersion: wire.receipts_page.schema_version,

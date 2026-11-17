@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   CreateEmbeddingIndexInput,
   EmbeddingComposedQuery,
@@ -267,7 +267,6 @@ async function runEmbeddingAction(
 }
 
 export function createEmbeddingsApi(
-  errorFactory: ContractErrorFactory,
   { v1ActionSession }: EmbeddingsApiDependencies,
   projectId: string,
 ) {
@@ -286,7 +285,6 @@ export function createEmbeddingsApi(
             ...(opts.sourceColumnType ? { source_column_type: opts.sourceColumnType } : {}),
           },
           signal: options.signal,
-          errorFactory,
         },
         mapProviderCatalog,
       );
@@ -303,7 +301,6 @@ export function createEmbeddingsApi(
           pathParams: { pid: projectId },
           query: { sheet_id: sheetId },
           signal: options.signal,
-          errorFactory,
         },
         mapIndexes,
       );
@@ -438,7 +435,6 @@ export function createEmbeddingsApi(
               : {}),
           },
           signal: options.signal,
-          errorFactory,
         },
         mapExport,
       );
@@ -472,7 +468,6 @@ export function createEmbeddingsApi(
             },
           },
           signal: options.signal,
-          errorFactory,
         },
         mapSimilarity,
       );
@@ -501,7 +496,6 @@ export function createEmbeddingsApi(
             },
           },
           signal: options.signal,
-          errorFactory,
         },
         mapHybrid,
       );

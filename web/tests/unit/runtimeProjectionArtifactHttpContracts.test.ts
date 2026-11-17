@@ -35,9 +35,8 @@ describe('runtime projection artifact HTTP contract', () => {
       requests.push({ input, init });
       return jsonResponse(timelineArtifact);
     }));
-    const errorFactory = vi.fn((status: number) => new Error(`status ${status}`));
     const controller = new AbortController();
-    await expect(createRuntimeProjectionsApi(errorFactory, 'project /%?☃').readRuntimeProjectionArtifact({
+    await expect(createRuntimeProjectionsApi('project /%?☃').readRuntimeProjectionArtifact({
       projectionKind: 'timeline', artifactId: 'artifact-1', target: { sheetId: 'sheet-1' },
       params: { includeFuture: true },
     }, {
@@ -72,12 +71,16 @@ describe('runtime projection artifact HTTP contract', () => {
   it.each([400, 404, 422, 500, 502])('maps declared HTTP %s errors without retry', async (status) => {
     const fetch = vi.fn(async () => jsonResponse({ detail: `failure ${status}` }, status));
     vi.stubGlobal('fetch', fetch);
-    const errorFactory = vi.fn((received: number) => new Error(`status ${received}`));
-    await expect(createRuntimeProjectionsApi(errorFactory, 'project /%?☃').readRuntimeProjectionArtifact({
+    await expect(createRuntimeProjectionsApi('project /%?☃').readRuntimeProjectionArtifact({
       projectionKind: 'timeline', artifactId: 'artifact-1', target: { sheetId: 'sheet-1' },
-    })).rejects.toThrow(`status ${status}`);
+    })).rejects.toMatchObject({
+      name: 'ApiError',
+      status,
+      message: `failure ${status}`,
+      code: undefined,
+      details: undefined,
+    });
 
-    expect(errorFactory).toHaveBeenCalledWith(status, { detail: `failure ${status}` });
     expect(fetch).toHaveBeenCalledOnce();
   });
 
@@ -86,10 +89,7 @@ describe('runtime projection artifact HTTP contract', () => {
       ...timelineArtifact,
       metrics: { sourceRowCount: -1, timelineItemCount: 1 },
     })));
-    await expect(createRuntimeProjectionsApi(
-      () => new Error('HTTP error'),
-      'project /%?☃',
-    ).readRuntimeProjectionArtifact({
+    await expect(createRuntimeProjectionsApi('project /%?☃').readRuntimeProjectionArtifact({
       projectionKind: 'timeline', artifactId: 'artifact-1', target: { sheetId: 'sheet-1' },
     })).rejects.toThrow('Invalid runtime projection artifact');
   });

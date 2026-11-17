@@ -28,6 +28,7 @@ import type {
   ReviewValueExcerpt,
   RunRowErrorSummary,
 } from './types';
+import { actionDisplayNameFromActionKind, cellValueFromWire, sqliteTimestampToIso } from './wireValues';
 
 interface HistoryReviewOptions {
   projectId?: string;
@@ -81,46 +82,6 @@ const HISTORY_KINDS: ReadonlySet<HistoryOp['kind']> = new Set([
 const toHistoryKind = (kind: string): HistoryOp['kind'] =>
   (HISTORY_KINDS.has(kind as HistoryOp['kind']) ? kind : 'edit') as HistoryOp['kind'];
 
-/** sqlite CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC) → ISO. */
-const toHistoryIso = (timestamp: string): string =>
-  timestamp.includes('T') ? timestamp : `${timestamp.replace(' ', 'T')}Z`;
-
-function actionDisplayNameFromActionKind(actionKind: string): string {
-  const normalized = actionKind.replace(/[._-]+/g, ' ').trim();
-  if (!normalized) return 'AI run';
-  return normalized
-    .split(/\s+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
-/** Backend values are real JSON. Legacy structured renderers still receive
- * JSON strings; source-bound temporal values keep their typed object shape. */
-function toReviewCellValue(value: unknown): CellValue {
-  if (value === null || value === undefined) return null;
-  if (
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  ) {
-    return value;
-  }
-  if (
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    typeof (value as { schema_version?: unknown }).schema_version === 'string' &&
-    [
-      'frisket.timeline_point.v1',
-      'frisket.timeline_points.v1',
-      'frisket.timeline_range.v1',
-      'frisket.timeline_ranges.v1',
-    ].includes((value as { schema_version: string }).schema_version)
-  ) {
-    return value as Record<string, unknown>;
-  }
-  return JSON.stringify(value);
-}
-
 function mapRunRowErrors(
   wire: WireRunRowErrorSummary | null | undefined,
 ): RunRowErrorSummary | undefined {
@@ -150,8 +111,8 @@ function mapColumnRun(wire: WireColumnRun): ColumnRun {
     completedRows: wire.completed_rows,
     failedRows: wire.failed_rows,
     cost: wire.cost_actual,
-    startedAt: wire.started_at ? toHistoryIso(wire.started_at) : null,
-    finishedAt: wire.finished_at ? toHistoryIso(wire.finished_at) : null,
+    startedAt: wire.started_at ? sqliteTimestampToIso(wire.started_at) : null,
+    finishedAt: wire.finished_at ? sqliteTimestampToIso(wire.finished_at) : null,
     durationMs: wire.duration_ms ?? null,
     tokensIn: wire.tokens_in ?? null,
     tokensOut: wire.tokens_out ?? null,
@@ -203,8 +164,8 @@ function mapHistoryRun(run: WireHistoryRun): HistoryOpRun | undefined {
     failedRows: run.failed_rows,
     costEstimate: run.cost_estimate ?? undefined,
     costActual: run.cost_actual,
-    startedAt: toHistoryIso(run.started_at),
-    finishedAt: run.finished_at ? toHistoryIso(run.finished_at) : null,
+    startedAt: sqliteTimestampToIso(run.started_at),
+    finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     workerVersion: run.worker_version,
     outputColumns: run.output_columns.map((column) => ({
       id: String(column.id),
@@ -222,7 +183,7 @@ function mapHistoryOp(wire: HistoryWire['ops'][number]): HistoryOp {
     executable: wire.executable,
     label: wire.label ?? wire.kind,
     kind: toHistoryKind(wire.kind),
-    at: toHistoryIso(wire.created_at),
+    at: sqliteTimestampToIso(wire.created_at),
     rowsAffected: wire.run?.total_rows ?? 0,
     cost: wire.run?.cost_actual,
     run: mapHistoryRun(wire.run),
@@ -283,7 +244,7 @@ function mapReviewBundleField(
     columnType: (wire.column_type as ColumnType | undefined) ?? 'text',
     semanticType: wire.semantic_type ?? null,
     format: wire.format ?? null,
-    value: wire.bounded_value ? null : toReviewCellValue(wire.value),
+    value: wire.bounded_value ? null : cellValueFromWire(wire.value),
     boundedValue: mapReviewValueExcerpt(wire.bounded_value),
     confidence: wire.confidence,
     justification: wire.bounded_justification ? '' : wire.justification ?? '',
@@ -315,7 +276,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
     const source = Object.fromEntries(
       Object.entries(bundle.source ?? {}).map(([key, value]) => [
         key,
-        toReviewCellValue(value),
+        cellValueFromWire(value),
       ]),
     );
     const sources = (bundle.sources ?? []).map((item) => ({
@@ -324,7 +285,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
       columnType: (item.column_type as ColumnType | undefined) ?? 'text',
       semanticType: item.semantic_type ?? null,
       format: item.format ?? null,
-      value: item.bounded_value ? null : toReviewCellValue(item.value),
+      value: item.bounded_value ? null : cellValueFromWire(item.value),
       boundedValue: mapReviewValueExcerpt(item.bounded_value),
     }));
     return {

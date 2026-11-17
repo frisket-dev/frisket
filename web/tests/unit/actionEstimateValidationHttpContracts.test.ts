@@ -67,18 +67,6 @@ const validateRequest = {
   params: { pattern: 'x' },
 };
 
-class MappedContractError extends Error {
-  readonly status: number;
-  readonly payload: unknown;
-
-  constructor(status: number, payload: unknown) {
-    super(`mapped preflight error ${status}`);
-    this.name = 'MappedContractError';
-    this.status = status;
-    this.payload = payload;
-  }
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -91,10 +79,7 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
       requests.push({ input, init });
       return jsonResponse(responses.shift());
     }));
-    const api = createActionEstimateValidationApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project/one',
-    );
+    const api = createActionEstimateValidationApi('project/one');
 
     const estimate = await api.estimateAction(estimateRequest);
     const validation = await api.resolveActionParams(validateRequest);
@@ -135,31 +120,52 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
   });
 
   it.each([400, 401, 403, 404, 422, 500, 418])(
-    'maps HTTP %i through the provided error factory',
+    'maps HTTP %i through the shared contract error mapping',
     async (status) => {
-      const errorFactory = vi.fn(
-        (actualStatus: number, payload: unknown) =>
-          new MappedContractError(actualStatus, payload),
-      );
       vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: `error-${status}` }, status)));
-      const api = createActionEstimateValidationApi(errorFactory, 'project-1');
+      const api = createActionEstimateValidationApi('project-1');
 
       for (const request of [
         api.estimateAction(estimateRequest),
         api.resolveActionParams(validateRequest),
       ]) {
         await expect(request).rejects.toMatchObject({
-          name: 'MappedContractError',
+          name: 'ApiError',
           status,
-          payload: { detail: `error-${status}` },
+          message: `error-${status}`,
+          code: undefined,
+          details: undefined,
         });
       }
-      expect(errorFactory.mock.calls).toEqual([
-        [status, { detail: `error-${status}` }],
-        [status, { detail: `error-${status}` }],
-      ]);
     },
   );
+
+  it.each([
+    ['carries its message', 'backfill is running', 'backfill is running'],
+    ['falls back to the HTTP status for a blank message', '', 'Request failed (HTTP 409)'],
+  ])('maps a bare v1 ActionError that %s', async (_label, message, expectedMessage) => {
+    const payload = {
+      schema_version: 'frisket.action_error.v1',
+      code: 'backfill_in_progress',
+      message,
+      details: { sheet_id: 7 },
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(payload, 409)));
+    const api = createActionEstimateValidationApi('project-1');
+
+    for (const request of [
+      api.estimateAction(estimateRequest),
+      api.resolveActionParams(validateRequest),
+    ]) {
+      await expect(request).rejects.toMatchObject({
+        name: 'ApiError',
+        status: 409,
+        message: expectedMessage,
+        code: 'backfill_in_progress',
+        details: { sheet_id: 7 },
+      });
+    }
+  });
 
   it('posts a registered action estimate directly', async () => {
     const requests: unknown[] = [];
@@ -167,10 +173,7 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
       requests.push(JSON.parse(String(init?.body)));
       return jsonResponse(estimateWire);
     }));
-    const api = createActionEstimateValidationApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project/one',
-    );
+    const api = createActionEstimateValidationApi('project/one');
     const request: GeneratedActionRequest = {
       action_id: 'map.ask',
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [9, 3] },
@@ -187,10 +190,7 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
   it('resolves dynamic outputs from the registered action request', async () => {
     const fetch = vi.fn(async () => jsonResponse(validationWire));
     vi.stubGlobal('fetch', fetch);
-    const api = createActionEstimateValidationApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project/one',
-    );
+    const api = createActionEstimateValidationApi('project/one');
 
     await expect(api.resolveActionParams({
       action_id: 'map.regex_extract',
@@ -222,10 +222,7 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
         { key: 'ordinary', column_type: 'text', existing_column_policy: null },
       ],
     })));
-    const api = createActionEstimateValidationApi(
-      (status, payload) => new MappedContractError(status, payload),
-      'project/one',
-    );
+    const api = createActionEstimateValidationApi('project/one');
     await expect(api.resolveActionParams({
       action_id: 'web.capture_page', scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: { source: 'url' },
@@ -244,9 +241,7 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ...validationWire,
       diagnostics: {}, runtime_setup: setup, logical_outputs: [{ key: 'screenshot', column_type: 'file' }],
     })));
-    const api = createActionEstimateValidationApi(
-      (status, payload) => new MappedContractError(status, payload), 'project/one',
-    );
+    const api = createActionEstimateValidationApi('project/one');
     await expect(api.resolveActionParams({ action_id: 'web.capture_screenshot',
       scope: { kind: 'sheet_rows', sheet_id: 7 }, params: { source: 'url' },
     })).resolves.toEqual({ diagnostics: {}, runtime_setup: setup,

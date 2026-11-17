@@ -9,7 +9,7 @@ it('sends the typed skill proposal save request to the exact Ask proposal', asyn
   const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
     status: 'saved', attempt_id: 'attempt', proposal_id: 'proposal', skill,
   })));
-  const api = createProjectQAApi(() => 'project / 1', () => new Error('unexpected generic error'));
+  const api = createProjectQAApi(() => 'project / 1');
   const result = await api.saveSkillProposal('thread', 'turn', 'proposal', {
     request_id: 'request', content: '# Review', expected_revision: 3,
   });
@@ -24,7 +24,7 @@ it('exposes the typed current revision from a save conflict', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
     detail: { code: 'revision_conflict', message: 'Changed in Settings.', current_revision: 6 },
   }), { status: 409 }));
-  const api = createProjectQAApi(() => 'project', () => new Error('unexpected generic error'));
+  const api = createProjectQAApi(() => 'project');
   await expect(api.saveSkillProposal('thread', 'turn', 'proposal', {
     request_id: 'request', content: '# Review', expected_revision: 3,
   })).rejects.toMatchObject<Partial<SkillProposalSaveError>>({ code: 'revision_conflict', currentRevision: 6, message: 'Changed in Settings.' });

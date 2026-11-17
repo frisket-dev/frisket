@@ -3,8 +3,9 @@ import {
   type HttpContractSuccessResponse,
   type RequestOptions,
 } from '../httpContract';
-import { apiErrorFromContract } from '../contractErrors';
+import { errorFromContract } from '../contractErrors';
 import type { ProjectInfo } from '../types';
+import { isRecord } from '../wireValues';
 
 type ProjectWire = HttpContractSuccessResponse<'tenant.get_project.get'>;
 type ProjectDeleteWire = HttpContractSuccessResponse<'tenant.delete_project.delete'>;
@@ -55,10 +56,6 @@ function mapProjectList(wire: ProjectListWire): ProjectInfo[] {
 function mapDeletedProject(wire: ProjectDeleteWire): void {
   void wire;
   return undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function projectDeletionLifetimeChallenge(
@@ -152,7 +149,7 @@ export function deleteProject(
           );
           if (challenge !== null) return challenge;
         }
-        return apiErrorFromContract(status, payload);
+        return errorFromContract(status, payload);
       },
     },
     mapDeletedProject,

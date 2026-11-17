@@ -8,13 +8,10 @@ import type {
   WorkbenchPluginRuntimeIndex,
   WorkbenchPluginSettingDescriptor,
 } from '../types';
+import { isRecord } from '../wireValues';
 
 type WorkbenchRuntimeIndexWire =
   HttpContractSuccessResponse<'tenant.workbench_plugins.get'>;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function mapWorkbenchSetting(value: unknown): WorkbenchPluginSettingDescriptor | null {
   if (!isRecord(value)) return null;

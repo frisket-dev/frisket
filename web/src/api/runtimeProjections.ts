@@ -3,7 +3,7 @@ import type {
   Http_RuntimeProjectionBuildRequest,
   Http_RuntimeProjectionRequest,
 } from '../generated/openHttpContracts';
-import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   RuntimeProjectionBuildPlan,
   RuntimeProjectionBuildRequest,
@@ -132,7 +132,6 @@ function requiredRowId(value: unknown, field: string): string | number {
 }
 
 export function createRuntimeProjectionsApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
   return {
@@ -146,7 +145,6 @@ export function createRuntimeProjectionsApi(
           pathParams: { pid: projectId },
           body: input as Http_RuntimeProjectionRequest,
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -161,7 +159,6 @@ export function createRuntimeProjectionsApi(
           pathParams: { pid: projectId },
           body: input as Http_RuntimeProjectionBuildRequest,
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -176,7 +173,6 @@ export function createRuntimeProjectionsApi(
           pathParams: { pid: projectId },
           body: input as HttpRuntimeProjectionArtifactRequest,
           signal: options.signal,
-          errorFactory,
         },
         artifactResponse,
       );

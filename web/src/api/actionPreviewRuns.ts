@@ -1,5 +1,6 @@
 import type { HttpActionPreviewRunRequest } from '../generated/openHttpContracts';
-import { httpContract, type HttpContractSuccessResponse, type ContractErrorFactory } from './httpContract';
+import { errorFromContract } from './contractErrors';
+import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import { resolveRunActionInvocation } from './v1ActionSession';
 import type {
   ActionExecutionRequest,
@@ -11,6 +12,7 @@ import type {
 } from './types';
 import { isDeriveCompositeRequest } from './types';
 import { parsePreviewTemporalValue } from '../temporal/preview';
+import { cellValueFromWire } from './wireValues';
 
 interface ActionPreviewRunOptions {
   projectId?: string;
@@ -24,11 +26,10 @@ export type ActionPreviewStatusWire =
   HttpContractSuccessResponse<'tenant.v1_action_preview_status.get'>;
 
 export function createActionPreviewRunsApi(
-  errorFactory: ContractErrorFactory,
   defaultProjectId: string,
 ) {
   const projectsByPreviewId = new Map<string, string>();
-  const previewNotFound = () => errorFactory(400, {
+  const previewNotFound = () => errorFromContract(400, {
     schema_version: 'frisket.action_preview.v1',
     error: {
       schema_version: 'frisket.action_error.v1',
@@ -56,7 +57,6 @@ export function createActionPreviewRunsApi(
           pathParams: { pid: projectId },
           body: action,
           signal: options.signal,
-          errorFactory,
         },
       );
       projectsByPreviewId.set(start.preview_id, projectId);
@@ -74,7 +74,6 @@ export function createActionPreviewRunsApi(
         {
           pathParams: { pid: projectId, preview_id: previewId },
           signal: options.signal,
-          errorFactory,
         },
       );
       if (preview.status !== 'running') projectsByPreviewId.delete(previewId);
@@ -89,7 +88,6 @@ export function createActionPreviewRunsApi(
         {
           pathParams: { pid: projectId, preview_id: previewId },
           signal: options.signal,
-          errorFactory,
         },
         () => undefined,
       );
@@ -112,25 +110,8 @@ function previewOverlayColumn(wire: WirePreviewColumn): PreviewOverlayColumn {
 }
 
 function previewCellValue(value: unknown): CellValue {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return value;
-  }
   if (parsePreviewTemporalValue(value)) return value as Record<string, unknown>;
-  if (
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    typeof (value as { schema_version?: unknown }).schema_version === 'string' &&
-    [
-      'frisket.timeline_point.v1',
-      'frisket.timeline_points.v1',
-      'frisket.timeline_range.v1',
-      'frisket.timeline_ranges.v1',
-    ].includes((value as { schema_version: string }).schema_version)
-  ) {
-    return value as Record<string, unknown>;
-  }
-  return JSON.stringify(value);
+  return cellValueFromWire(value);
 }
 
 function previewOverlayCell(cell: Record<string, unknown>): PreviewOverlayCell {
@@ -191,10 +172,9 @@ function previewSampleResult(wire: ActionPreviewStatusWire): PreviewSampleResult
 /** Owns preview translation, lifecycle binding, and preview-specific
  * wire-to-public mapping for one project. */
 export function createActionPreviewApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
-  const previewRuns = createActionPreviewRunsApi(errorFactory, projectId);
+  const previewRuns = createActionPreviewRunsApi(projectId);
 
   return {
     /** Bind a preview started by another route (scratch comparisons) to this

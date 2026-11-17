@@ -17,6 +17,7 @@ import type {
   NotificationStateFilter,
   NotificationSummary,
 } from "./types";
+import { sqliteTimestampToIso } from './wireValues';
 
 type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
   HttpContractOperationMap[Id]["request"],
@@ -50,10 +51,6 @@ type NotificationChannelBody =
 type NotificationRouteBody =
   ContractRequestBody<"tenant.create_notification_route.post">;
 
-/** sqlite CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC) → ISO. */
-const toNotificationIso = (timestamp: string): string =>
-  timestamp.includes("T") ? timestamp : `${timestamp.replace(" ", "T")}Z`;
-
 const toNotificationItem = (wire: NotificationItemWire): NotificationItem => ({
   id: wire.id,
   sourceKind: wire.source_kind,
@@ -65,12 +62,12 @@ const toNotificationItem = (wire: NotificationItemWire): NotificationItem => ({
   summary: wire.summary,
   severity: wire.severity,
   deepLink: wire.deep_link ?? {},
-  createdAt: toNotificationIso(wire.created_at),
-  updatedAt: toNotificationIso(wire.updated_at),
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
   state: wire.state,
-  seenAt: wire.seen_at ? toNotificationIso(wire.seen_at) : null,
-  readAt: wire.read_at ? toNotificationIso(wire.read_at) : null,
-  acknowledgedAt: wire.acknowledged_at ? toNotificationIso(wire.acknowledged_at) : null,
+  seenAt: wire.seen_at ? sqliteTimestampToIso(wire.seen_at) : null,
+  readAt: wire.read_at ? sqliteTimestampToIso(wire.read_at) : null,
+  acknowledgedAt: wire.acknowledged_at ? sqliteTimestampToIso(wire.acknowledged_at) : null,
   acknowledgedBy: wire.acknowledged_by,
 });
 
@@ -107,11 +104,11 @@ const toNotificationActorState = (
   notificationId: wire.notification_id,
   actorId: wire.actor_id,
   state: wire.state,
-  seenAt: wire.seen_at ? toNotificationIso(wire.seen_at) : null,
-  readAt: wire.read_at ? toNotificationIso(wire.read_at) : null,
-  acknowledgedAt: wire.acknowledged_at ? toNotificationIso(wire.acknowledged_at) : null,
+  seenAt: wire.seen_at ? sqliteTimestampToIso(wire.seen_at) : null,
+  readAt: wire.read_at ? sqliteTimestampToIso(wire.read_at) : null,
+  acknowledgedAt: wire.acknowledged_at ? sqliteTimestampToIso(wire.acknowledged_at) : null,
   acknowledgedBy: wire.acknowledged_by,
-  updatedAt: toNotificationIso(wire.updated_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
 });
 
 const toNotificationChannel = (wire: NotificationChannelWire): NotificationChannel => ({
@@ -122,8 +119,8 @@ const toNotificationChannel = (wire: NotificationChannelWire): NotificationChann
   ownerKind: wire.owner_kind ?? "project",
   config: wire.config,
   hasSecret: Boolean(wire.has_secret),
-  createdAt: toNotificationIso(wire.created_at),
-  updatedAt: toNotificationIso(wire.updated_at),
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
 });
 
 const toNotificationChannelsPage = (
@@ -150,8 +147,8 @@ const toNotificationRoute = (wire: NotificationRouteWire): NotificationRoute => 
   digestTimezone: wire.digest_timezone,
   digestAnchorTime: wire.digest_anchor_time,
   templateKey: wire.template_key,
-  createdAt: toNotificationIso(wire.created_at),
-  updatedAt: toNotificationIso(wire.updated_at),
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
 });
 
 const toNotificationRoutesPage = (
@@ -173,12 +170,12 @@ const toNotificationDeliveryRequest = (
   dedupeKey: wire.dedupe_key,
   status: wire.status,
   jobId: wire.job_id,
-  availableAt: toNotificationIso(wire.available_at),
+  availableAt: sqliteTimestampToIso(wire.available_at),
   lastError: wire.last_error,
   providerRef: wire.provider_ref,
-  createdAt: toNotificationIso(wire.created_at),
-  updatedAt: toNotificationIso(wire.updated_at),
-  sentAt: wire.sent_at ? toNotificationIso(wire.sent_at) : null,
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
+  sentAt: wire.sent_at ? sqliteTimestampToIso(wire.sent_at) : null,
 });
 
 const toNotificationDeliveryRequestsPage = (

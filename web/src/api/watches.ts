@@ -13,6 +13,7 @@ import type {
   WatchRunResult,
   WatchRunsPage,
 } from "./types";
+import { sqliteTimestampToIso } from './wireValues';
 
 type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
   HttpContractOperationMap[Id]["request"],
@@ -35,10 +36,6 @@ type WatchRunEventWire = WatchRunEventsPageWire["events"][number];
 
 type WatchCreateBody = ContractRequestBody<"tenant.create_watch.post">;
 type WatchPatchBody = ContractRequestBody<"tenant.patch_watch.patch">;
-
-/** sqlite CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC) → ISO. */
-const toWatchIso = (timestamp: string): string =>
-  timestamp.includes("T") ? timestamp : `${timestamp.replace(" ", "T")}Z`;
 
 const toWatchHit = (wire: WatchHitWire): WatchHit => ({
   runId: wire.run_id,
@@ -64,8 +61,8 @@ const toWatchRun = (wire: WatchRunWire & { hits?: WatchHitWire[] }): WatchRun =>
   errorCode: wire.error_code ?? null,
   resolvedQueryHash: wire.resolved_query_hash ?? null,
   resolvedQuery: wire.resolved_query ?? {},
-  startedAt: toWatchIso(wire.started_at),
-  finishedAt: wire.finished_at ? toWatchIso(wire.finished_at) : null,
+  startedAt: sqliteTimestampToIso(wire.started_at),
+  finishedAt: wire.finished_at ? sqliteTimestampToIso(wire.finished_at) : null,
   ...(wire.hits ? { hits: wire.hits.map(toWatchHit) } : {}),
 });
 
@@ -80,8 +77,8 @@ const toWatchInfo = (wire: WatchRowWire): WatchInfo => ({
   lastEvaluatedOp: wire.last_evaluated_op ?? 0,
   lastRunId: wire.last_run_id,
   lastStatus: wire.last_status,
-  createdAt: toWatchIso(wire.created_at),
-  updatedAt: toWatchIso(wire.updated_at),
+  createdAt: sqliteTimestampToIso(wire.created_at),
+  updatedAt: sqliteTimestampToIso(wire.updated_at),
   latestRun: wire.latest_run ? toWatchRun(wire.latest_run) : null,
 });
 
@@ -109,7 +106,7 @@ const toWatchRunEvent = (wire: WatchRunEventWire): WatchRunEvent => ({
   severity: wire.severity,
   rank: wire.rank,
   snippet: wire.snippet,
-  createdAt: toWatchIso(wire.created_at),
+  createdAt: sqliteTimestampToIso(wire.created_at),
 });
 
 const toWatchRunEventsPage = (

@@ -276,10 +276,7 @@ describe('columnValuesPreview', () => {
 describe('generated resolve preview transport', () => {
   it('takes the raw project id once and lets the renderer encode it once', async () => {
     const fetchMock = stubFetch(COLUMN_VALUES_WIRE);
-    const transport = createResolvePreviewsApi(
-      (status, payload) => new ApiError(status, String(payload)),
-      'folder/child',
-    );
+    const transport = createResolvePreviewsApi('folder/child');
 
     await transport.columnValuesPreview({ sheetId: '7', inputColumn: 'city' });
 
@@ -307,6 +304,20 @@ describe('generated resolve preview transport', () => {
     await expect(api.columnValuesPreview({ sheetId: '7', inputColumn: 'city' }))
       .rejects.toMatchObject({ status: 502, message: 'gateway denied' });
     expect(ordinary).toHaveBeenCalledTimes(1);
+
+    stubFetch(
+      { detail: { code: 'project_missing', message: 'project is gone' } },
+      { ok: false, status: 404 },
+    );
+    const wrapped = api.columnValuesPreview({ sheetId: '7', inputColumn: 'city' });
+    await expect(wrapped).rejects.toBeInstanceOf(ApiError);
+    await expect(wrapped).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 404,
+      message: 'project is gone',
+      code: 'project_missing',
+      details: undefined,
+    });
 
     const network = new Error('offline');
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(network)));
@@ -359,10 +370,7 @@ const CLUSTER_WIRE = {
 describe('clusterPreview', () => {
   it('maps the generated required cluster core directly to the browser shape', async () => {
     const fetchMock = stubFetch(CLUSTER_WIRE);
-    const transport = createResolvePreviewsApi(
-      (status, payload) => new ApiError(status, String(payload)),
-      'p1',
-    );
+    const transport = createResolvePreviewsApi('p1');
 
     const out = await transport.clusterPreview({
       sheetId: '7',

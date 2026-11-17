@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createActionPreviewRunsApi } from '../../src/api/actionPreviewRuns';
+import { ApiError } from '../../src/api/contractErrors';
 import { createProjectApi } from '../../src/api/real';
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -31,21 +32,20 @@ const terminalWire = (status: 'done' | 'error' | 'cancelled', previewId = 'previ
 });
 
 const previewNotFound = {
-  schema_version: 'frisket.action_preview.v1',
-  error: {
-    schema_version: 'frisket.action_error.v1',
-    code: 'preview_not_found',
-    message: 'Preview run was not found for this project.',
-    action_kind: null,
-    field: null,
-    details: {},
-    needs_confirmation: false,
-  },
+  constructor: ApiError,
+  name: 'ApiError',
+  status: 400,
+  message: 'Preview run was not found for this project.',
+  code: 'preview_not_found',
+  details: {},
 };
 
-function mappedError(status: number, payload: unknown): Error & { status: number; payload: unknown } {
-  return Object.assign(new Error(`preview error ${status}`), { status, payload });
-}
+const transientFailure = {
+  constructor: ApiError,
+  status: 500,
+  message: 'Request failed (HTTP 500)',
+  code: undefined,
+};
 
 function action(): { kind: string; params: Record<string, never> } {
   return { kind: 'map.classify', params: {} };
@@ -137,7 +137,7 @@ describe('action preview project binding', () => {
       requests.push(String(input));
       return responses.shift() as Response;
     }));
-    const api = createActionPreviewRunsApi(mappedError, 'project-a');
+    const api = createActionPreviewRunsApi('project-a');
 
     await api.start(action());
     await api.get('preview-1');
@@ -156,13 +156,16 @@ describe('action preview project binding', () => {
       error: { code: 'preview_refused', message: 'Preview refused.' },
     }, 400));
     vi.stubGlobal('fetch', fetchMock);
-    const api = createActionPreviewRunsApi(mappedError, 'project-a');
+    const api = createActionPreviewRunsApi('project-a');
 
-    await expect(api.start(action())).rejects.toMatchObject({ status: 400 });
-    await expect(api.get('preview-1')).rejects.toMatchObject({
+    await expect(api.start(action())).rejects.toMatchObject({
+      constructor: ApiError,
       status: 400,
-      payload: previewNotFound,
+      message: 'Preview refused.',
+      code: 'preview_refused',
+      details: undefined,
     });
+    await expect(api.get('preview-1')).rejects.toMatchObject(previewNotFound);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -171,17 +174,14 @@ describe('action preview project binding', () => {
     async (status) => {
       const fetchMock = vi.fn(async () => startWire());
       vi.stubGlobal('fetch', fetchMock);
-      const api = createActionPreviewRunsApi(mappedError, 'project-a');
+      const api = createActionPreviewRunsApi('project-a');
 
       await api.start(action());
       fetchMock.mockResolvedValueOnce(terminalWire(status));
       await api.get('preview-1');
       const callsAfterTerminal = fetchMock.mock.calls.length;
 
-      await expect(api.get('preview-1')).rejects.toMatchObject({
-        status: 400,
-        payload: previewNotFound,
-      });
+      await expect(api.get('preview-1')).rejects.toMatchObject(previewNotFound);
       expect(fetchMock).toHaveBeenCalledTimes(callsAfterTerminal);
     },
   );
@@ -200,20 +200,17 @@ describe('action preview project binding', () => {
       requests.push(String(input));
       return responses.shift() as Response;
     }));
-    const api = createActionPreviewRunsApi(mappedError, 'project-a');
+    const api = createActionPreviewRunsApi('project-a');
 
     await api.start(action());
-    await expect(api.get('retry-get')).rejects.toMatchObject({ status: 500 });
+    await expect(api.get('retry-get')).rejects.toMatchObject(transientFailure);
     await api.get('retry-get');
     await api.start(action());
-    await expect(api.cancel('retry-cancel')).rejects.toMatchObject({ status: 500 });
+    await expect(api.cancel('retry-cancel')).rejects.toMatchObject(transientFailure);
     await api.cancel('retry-cancel');
     const callsAfterCancel = requests.length;
 
-    await expect(api.cancel('retry-cancel')).rejects.toMatchObject({
-      status: 400,
-      payload: previewNotFound,
-    });
+    await expect(api.cancel('retry-cancel')).rejects.toMatchObject(previewNotFound);
     expect(requests).toHaveLength(callsAfterCancel);
     expect(requests).toEqual([
       '/api/projects/project-a/actions/v1/preview',
@@ -237,7 +234,7 @@ describe('action preview project binding', () => {
         init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
       });
     }));
-    const api = createActionPreviewRunsApi(mappedError, 'project-a');
+    const api = createActionPreviewRunsApi('project-a');
     const controller = new AbortController();
 
     await api.start(action());
@@ -257,16 +254,10 @@ describe('action preview project binding', () => {
   it.each(['', 'unknown'])('rejects %j get and cancel locally without a fetch', async (previewId) => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    const api = createActionPreviewRunsApi(mappedError, 'project-a');
+    const api = createActionPreviewRunsApi('project-a');
 
-    await expect(api.get(previewId)).rejects.toMatchObject({
-      status: 400,
-      payload: previewNotFound,
-    });
-    await expect(api.cancel(previewId)).rejects.toMatchObject({
-      status: 400,
-      payload: previewNotFound,
-    });
+    await expect(api.get(previewId)).rejects.toMatchObject(previewNotFound);
+    await expect(api.cancel(previewId)).rejects.toMatchObject(previewNotFound);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

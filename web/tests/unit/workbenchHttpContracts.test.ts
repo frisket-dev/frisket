@@ -137,10 +137,7 @@ describe('workbench plugin generated HTTP contracts', () => {
     }));
     const controller = new AbortController();
     const options = { signal: controller.signal };
-    const api = createWorkbenchPluginsApi(
-      (status, payload) => Object.assign(new Error('workbench failed'), { status, payload }),
-      'project one',
-    );
+    const api = createWorkbenchPluginsApi('project one');
     const pluginId = 'plug /☃';
     const activateInput = {
       pluginId, receiptId: 'receipt', trustAcknowledged: true,
@@ -202,7 +199,7 @@ describe('workbench plugin generated HTTP contracts', () => {
     }
   });
 
-  it('uses the scoped legacy ApiError mapping without producer details', async () => {
+  it('maps detail-wrapped lifecycle errors to ApiError with the remaining detail keys as details', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
       detail: { code: 'plugin_lifecycle_not_installed', message: 'not installed', details: { private: true } },
     }, 409)));
@@ -211,7 +208,7 @@ describe('workbench plugin generated HTTP contracts', () => {
 
     await expect(projectApi.disableWorkbenchPlugin('plug')).rejects.toMatchObject({
       name: 'ApiError', status: 409, message: 'not installed', code: 'plugin_lifecycle_not_installed',
-      details: undefined,
+      details: { details: { private: true } },
     });
   });
 });

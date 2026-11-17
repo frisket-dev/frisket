@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   EntityMentionDocumentsPage,
   EntityMentionGroup,
@@ -160,7 +160,6 @@ function mapPreview(
 }
 
 export function createEntityMentionsApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
   return {
@@ -190,7 +189,6 @@ export function createEntityMentionsApi(
             ...(input.offset != null ? { offset: input.offset } : {}),
           },
           signal: options.signal,
-          errorFactory,
         },
         mapPreview,
       );
@@ -218,7 +216,6 @@ export function createEntityMentionsApi(
             ...(input.offset != null ? { offset: input.offset } : {}),
           },
           signal: options.signal,
-          errorFactory,
         },
         mapDocuments,
       );
@@ -249,7 +246,6 @@ export function createEntityMentionsApi(
             ...(input.snippetRadius != null ? { snippet_radius: input.snippetRadius } : {}),
           },
           signal: options.signal,
-          errorFactory,
         },
         mapOccurrences,
       );

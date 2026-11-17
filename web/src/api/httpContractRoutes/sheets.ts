@@ -15,6 +15,7 @@ import type {
   SheetMeta,
   SheetRowLocation,
 } from '../types';
+import { cellValueFromWire } from '../wireValues';
 
 type ColumnStatsWire = HttpContractSuccessResponse<'tenant.column_stats.get'>;
 type SheetWire = HttpContractSuccessResponse<'tenant.update_sheet.patch'>;
@@ -120,27 +121,6 @@ function mapUpdatedSheet(wire: SheetWire): void {
   return undefined;
 }
 
-function toCellValue(value: unknown): CellValue {
-  if (value === null || value === undefined) return null;
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return value;
-  }
-  if (
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    typeof (value as { schema_version?: unknown }).schema_version === 'string' &&
-    [
-      'frisket.timeline_point.v1',
-      'frisket.timeline_points.v1',
-      'frisket.timeline_range.v1',
-      'frisket.timeline_ranges.v1',
-    ].includes((value as { schema_version: string }).schema_version)
-  ) {
-    return value as Record<string, unknown>;
-  }
-  return JSON.stringify(value);
-}
-
 function isCellValueRefKind(value: string): value is CellValueRef['kind'] {
   return value === 'manual_edit'
     || value === 'run_result'
@@ -172,7 +152,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
     rows: wire.rows.map((row, index) => {
       const cells: Record<string, CellValue> = {};
       for (const [columnId, value] of Object.entries(row.cells)) {
-        cells[columnId] = toCellValue(value);
+        cells[columnId] = cellValueFromWire(value);
       }
       const provenance: SheetDataPage['rows'][number]['provenance'] = {};
       const cellStates: Record<string, string> = {};
@@ -193,7 +173,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
         if (meta.invalid) invalidCells[columnId] = true;
         if (meta.pending_value) {
           replayPending[columnId] = {
-            freshValue: toCellValue(meta.pending_value.fresh_value),
+            freshValue: cellValueFromWire(meta.pending_value.fresh_value),
             runId: String(meta.pending_value.run_id),
             generatedValueHash: meta.pending_value.generated_value_hash,
           };

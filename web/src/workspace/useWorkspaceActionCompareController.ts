@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ActionLaunchPrefill } from '../actions/actionFormInitial';
 import { createActionComparisonApi, type ActionComparisonContext, type ActionComparisonSource } from '../api/actionComparison';
 import { createEvaluationApi } from '../api/evaluation';
-import { actionPreviewRunErrorFromContract } from '../api/contractErrors';
 import type { GeneratedActionDraft, RunEstimate, SheetDataOptions } from '../api/types';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useCompareViewHandle } from '../bind/useCompareViewHandle';
@@ -82,8 +81,8 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const catalog = useActionCatalogHandle();
   const entries = useSelector(catalog.store, state => state.catalog?.actions);
   const tab = useSelector(compareView.store, state => state.action);
-  const api = useMemo(() => createActionComparisonApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
-  const evaluationApi = useMemo(() => createEvaluationApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
+  const api = useMemo(() => createActionComparisonApi(projectId), [projectId]);
+  const evaluationApi = useMemo(() => createEvaluationApi(projectId), [projectId]);
   const [rowScope, setRowScope] = useState<ActionCompareRowScope>('sample');
   const [rowScopeTotal, setRowScopeTotal] = useState<number | null>(null);
   const [rowScopeBusy, setRowScopeBusy] = useState(false);

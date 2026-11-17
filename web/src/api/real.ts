@@ -62,18 +62,7 @@ import { createRuntimeProjectionsApi } from './runtimeProjections';
 import { createPreviewComparisonsApi } from './previewComparisons';
 import { createOAuthConnectionsApi } from './oauthConnections';
 import { createSpendApi } from './spend';
-import {
-  ApiError,
-  workbenchPluginErrorFromContract,
-  viewLensApiErrorFromContract,
-  actionEstimateValidationErrorFromContract,
-  translateComparisonErrorFromContract,
-  resolvePreviewErrorFromContract,
-  projectEvidenceErrorFromContract,
-  actionPreviewRunErrorFromContract,
-  embeddingErrorFromContract,
-  runtimeProjectionErrorFromContract,
-} from './contractErrors';
+import { ApiError } from './contractErrors';
 import { createApiTokensApi } from './apiTokens';
 import { createLocalProvidersApi } from './localProviders';
 import { createOrganizationProvidersApi } from './organizationProviders';
@@ -328,7 +317,7 @@ export function createProjectApi(projectId: string) {
   const {
     registerStarted: registerStartedPreview,
     ...actionPreview
-  } = createActionPreviewApi(actionPreviewRunErrorFromContract, projectId);
+  } = createActionPreviewApi(projectId);
   const {
     compareOcrScratch: startOcrScratchComparison,
     compareTranscribeScratch: startTranscribeScratchComparison,
@@ -361,7 +350,7 @@ export function createProjectApi(projectId: string) {
   return composeDisjoint(
     createWatchesApi(projectId),
     createNotificationsApi(projectId),
-    createViewsLensesApi(viewLensApiErrorFromContract, projectId),
+    createViewsLensesApi(projectId),
     createColumnTypesApi(projectId),
     createProjectDataManagementApi(projectId),
     createProjectSourcesApi({ v1ActionSession }, projectId),
@@ -373,22 +362,22 @@ export function createProjectApi(projectId: string) {
     createActionHistoryApi(projectId),
     createGoogleSheetsExportApi({ v1ActionSession }, projectId),
     scratchComparisons,
-    createProjectEvidenceApi(projectEvidenceErrorFromContract, projectId),
-    createRuntimeProjectionsApi(runtimeProjectionErrorFromContract, projectId),
+    createProjectEvidenceApi(projectId),
+    createRuntimeProjectionsApi(projectId),
     // Arrow is a browser binary protocol, not a JSON contract: keep its error
     // identity on the public API while the raw owner keeps route and decoder
     // details.
     createMapPointsArrowApi((status, message) => new ApiError(status, message), projectId),
-    createActionEstimateValidationApi(actionEstimateValidationErrorFromContract, projectId),
+    createActionEstimateValidationApi(projectId),
     actionPreview,
-    createEmbeddingsApi(embeddingErrorFromContract, { v1ActionSession }, projectId),
-    createWorkbenchPluginsApi(workbenchPluginErrorFromContract, projectId),
-    createResolvePreviewsApi(resolvePreviewErrorFromContract, projectId),
-    createEntityMentionsApi(resolvePreviewErrorFromContract, projectId),
+    createEmbeddingsApi({ v1ActionSession }, projectId),
+    createWorkbenchPluginsApi(projectId),
+    createResolvePreviewsApi(projectId),
+    createEntityMentionsApi(projectId),
     createGraphLineageApi(projectId),
     createRunProvenanceApi(projectId),
     createProjectAttemptsApi(projectId),
-    createTranslateComparisonApi(translateComparisonErrorFromContract, projectId),
+    createTranslateComparisonApi(projectId),
     createMcpServersApi(projectId),
     createOAuthConnectionsApi(),
     providerKeyReads,

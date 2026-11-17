@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   EvidenceViewerReadOptions,
   TextAnnotationsOptions,
@@ -7,6 +7,7 @@ import type {
   TextAnnotationSpan,
   TextAnnotationUnpositionedReason,
 } from './types';
+import { isRecord } from './wireValues';
 
 type EvidenceViewerOptions = EvidenceViewerReadOptions;
 
@@ -26,16 +27,11 @@ type RowSourceDocumentsWire =
 // existing URL bytes without adding a second runtime representation or validator.
 const numericPathRef = (value: string): number => value as unknown as number;
 
-
 const TEXT_ANNOTATION_UNPOSITIONED_REASONS: readonly TextAnnotationUnpositionedReason[] = [
   'content_hash_mismatch',
   'unsupported_offset_unit',
   'invalid_geometry',
 ];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
 
 function isUnpositionedReason(value: unknown): value is TextAnnotationUnpositionedReason {
   return TEXT_ANNOTATION_UNPOSITIONED_REASONS.includes(
@@ -136,7 +132,6 @@ function textAnnotationsFromWire(
  * as the generated transport returns them; annotations alone have a client
  * domain model because their geometry is rendered directly. */
 export function createProjectEvidenceApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
   return {
@@ -148,7 +143,6 @@ export function createProjectEvidenceApi(
         {
           pathParams: { pid: projectId, row_id: numericPathRef(rowId) },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -171,7 +165,6 @@ export function createProjectEvidenceApi(
             include_stale: options.includeStale ? (1 as unknown as boolean) : undefined,
           },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -194,7 +187,6 @@ export function createProjectEvidenceApi(
           },
           query: { start: options.start, limit: options.limit, revision: options.revision, occurrence_id: options.occurrenceId },
           signal: options.signal,
-          errorFactory,
         },
       );
       return textAnnotationsFromWire(wire, rowId, columnId);
@@ -218,7 +210,6 @@ export function createProjectEvidenceApi(
           },
           query: { row_ids: options.rowIds?.length ? options.rowIds.join(',') : undefined },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -243,7 +234,6 @@ export function createProjectEvidenceApi(
             text_span_id: options.textSpanId,
           },
           signal: options.signal,
-          errorFactory,
         },
       );
     },

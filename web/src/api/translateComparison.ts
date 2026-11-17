@@ -1,4 +1,4 @@
-import { httpContract, type RequestOptions, type ContractErrorFactory } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import type {
   TranslateCompareScratchInput,
   TranslateCompareScratchResult,
@@ -7,7 +7,6 @@ import type {
 // This route's public response is the server envelope. Keep the adapter
 // transport-only so warning/error extensions remain untouched.
 export function createTranslateComparisonApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
   return {
@@ -27,7 +26,6 @@ export function createTranslateComparisonApi(
             language: language ? [language] : null,
           },
           signal: options.signal,
-          errorFactory,
         },
       );
     },

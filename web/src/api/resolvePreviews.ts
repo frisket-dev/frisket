@@ -1,4 +1,4 @@
-import { httpContract, type HttpContractSuccessResponse, type RequestOptions, type ContractErrorFactory } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   ClusterGroup,
   ClusterPreviewResult,
@@ -234,7 +234,6 @@ function replaceRulesResult(wire: ReplaceRulesPreviewWire): ReplaceRulesPreview 
 }
 
 export function createResolvePreviewsApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
   return {
@@ -256,7 +255,6 @@ export function createResolvePreviewsApi(
             ...(input.keyTemplate?.trim() ? { key_template: input.keyTemplate.trim() } : {}),
           },
           signal: options.signal,
-          errorFactory,
         },
         clusterResult,
       );
@@ -283,7 +281,6 @@ export function createResolvePreviewsApi(
             ...(input.valueMode != null ? { value_mode: input.valueMode } : {}),
           },
           signal: options.signal,
-          errorFactory,
         },
         columnValuesResult,
       );
@@ -313,7 +310,6 @@ export function createResolvePreviewsApi(
             ...(input.testValue != null ? { test_value: input.testValue } : {}),
           },
           signal: options.signal,
-          errorFactory,
         },
         replaceRulesResult,
       );

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createActionComparisonApi, type ActionComparisonContext } from '../api/actionComparison';
-import { ApiError, actionPreviewRunErrorFromContract } from '../api/contractErrors';
+import { ApiError } from '../api/contractErrors';
 import { createEvaluationApi, type EvaluationLink, type EvaluationLinkInput, type EvaluationRule, type ExpectedProjection } from '../api/evaluation';
 import type { ActionCatalogEntry, ActionTemplate, CellValue, JsonValue, SheetMeta } from '../api/types';
 import { compatibleSourceColumns, primaryColumnRequirement } from '../actions/model';
@@ -58,8 +58,8 @@ function useRunDiscovery(
 export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta | undefined, sheets: SheetMeta[],
   projectApi: GridApiPort, entries: ActionCatalogEntry[] | undefined, templates: ActionTemplate[], completionSignal: string,
   showError: (message: string) => void) {
-  const api = useMemo(() => createEvaluationApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
-  const comparisonApi = useMemo(() => createActionComparisonApi(actionPreviewRunErrorFromContract, projectId), [projectId]);
+  const api = useMemo(() => createEvaluationApi(projectId), [projectId]);
+  const comparisonApi = useMemo(() => createActionComparisonApi(projectId), [projectId]);
   const [linkResult, setLinkResult] = useState<{ owner: string; links: EvaluationLink[]; counts: Record<number, number> } | null>(null);
   const [revision, setRevision] = useState(0);
   const [join, setJoin] = useState<{ actionId?: string; link?: EvaluationLink; step?: 'columns' } | null>(null);

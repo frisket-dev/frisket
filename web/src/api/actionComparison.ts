@@ -6,7 +6,7 @@ import type {
   RunEstimate,
 } from './types';
 import { createActionPreviewRunsApi, type ActionPreviewStatusWire } from './actionPreviewRuns';
-import { httpContract, type RequestOptions, type ContractErrorFactory } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import { runEstimateFromV1Wire } from './actionEstimateValidation';
 
 export type ActionComparisonSource =
@@ -170,10 +170,9 @@ export function actionComparisonPreviewSnapshot(
 export type ActionComparisonApi = ReturnType<typeof createActionComparisonApi>;
 
 export function createActionComparisonApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
-  const previewRuns = createActionPreviewRunsApi(errorFactory, projectId);
+  const previewRuns = createActionPreviewRunsApi(projectId);
   return {
     quotePreview(
       request: ActionComparisonPreviewRequest,
@@ -185,7 +184,7 @@ export function createActionComparisonApi(
           action: { ...draftForWire(request.action).draft, idempotency_key: request.action.idempotency_key },
           comparison: { ...request.comparison, basis: sourceForWire(request.comparison.basis) },
         },
-        signal: options.signal, errorFactory,
+        signal: options.signal,
       }, wire => ({ ...wire, estimate: runEstimateFromV1Wire(wire.estimate) }));
     },
     getContext(
@@ -196,7 +195,7 @@ export function createActionComparisonApi(
         'tenant.v1_action_compare_context.post',
         {
           pathParams: { pid: projectId }, body: { ...request, source: sourceForWire(request.source) },
-          signal: options.signal, errorFactory,
+          signal: options.signal,
         },
         normalizeActionComparisonContext,
       );
@@ -213,7 +212,7 @@ export function createActionComparisonApi(
               ...(request.action.confirmation === undefined ? {} : { confirmation: request.action.confirmation }) },
             comparison: { ...request.comparison, basis: sourceForWire(request.comparison.basis) },
           },
-          signal: options.signal, errorFactory,
+          signal: options.signal,
         },
       );
       previewRuns.registerStarted(start.preview_id);
@@ -233,7 +232,7 @@ export function createActionComparisonApi(
         'tenant.v1_action_preview_cancel.delete',
         {
           pathParams: { pid: projectId, preview_id: previewId },
-          query: { discard: true }, signal: options.signal, errorFactory,
+          query: { discard: true }, signal: options.signal,
         },
       );
     },

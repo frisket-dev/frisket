@@ -1,4 +1,4 @@
-import { httpContract, type RequestOptions, type ContractErrorFactory } from './httpContract';
+import { httpContract, type RequestOptions } from './httpContract';
 import type {
   WorkbenchPluginActivation,
   WorkbenchPluginActivationRequest,
@@ -11,7 +11,6 @@ import type {
 } from './types';
 
 export function createWorkbenchPluginsApi(
-  errorFactory: ContractErrorFactory,
   projectId: string,
 ) {
   return {
@@ -24,7 +23,6 @@ export function createWorkbenchPluginsApi(
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -40,7 +38,6 @@ export function createWorkbenchPluginsApi(
           pathParams: { pid: projectId, plugin_id: pluginId },
           body: { values: values as never },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -57,7 +54,6 @@ export function createWorkbenchPluginsApi(
           pathParams: { pid: projectId, plugin_id: pluginId },
           body: { source: source as never, arbitraryPackageLoadAllowed },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -85,7 +81,6 @@ export function createWorkbenchPluginsApi(
             arbitraryPackageLoadAllowed,
           },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -110,7 +105,6 @@ export function createWorkbenchPluginsApi(
             executableHandlersAllowed,
           },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -124,7 +118,6 @@ export function createWorkbenchPluginsApi(
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
@@ -138,7 +131,6 @@ export function createWorkbenchPluginsApi(
         {
           pathParams: { pid: projectId, plugin_id: pluginId },
           signal: options.signal,
-          errorFactory,
         },
       );
     },
