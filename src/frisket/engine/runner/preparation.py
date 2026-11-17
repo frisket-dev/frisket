@@ -573,11 +573,13 @@ def prepare_validated(
                 f"new output target {output_name!r} no longer has an absent precondition"
             )
         if existing:
-            if not existing["ai_generated"] and not spec.get("overwrite"):
+            # Source columns are never an output target, whatever the caller's
+            # overwrite intent: only a generated column may be reused.
+            if not existing["ai_generated"]:
                 raise ValueError(
                     f"output name '{f['name']}' collides with a source "
                     "column — AI output would hide original data. "
-                    "Rename the field (or pass overwrite=true)."
+                    "Rename the field."
                 )
             out_cols[f["name"]] = existing["id"]
             generation_managed = (
