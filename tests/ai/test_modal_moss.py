@@ -80,7 +80,7 @@ def test_models_sidecar_separates_edge_config_and_moss_link_secrets() -> None:
         "frisket-models-edge",
         "frisket-moss-link",
     }
-    assert spec.gpus == ["T4", "L4", "A10", "L40S", "A100-40GB", "A100-80GB"]
+    assert spec.gpus == ["L4", "A10", "L40S", "A100-40GB", "A100-80GB"]
     assert (spec.cpu, spec.memory) == (4.0, 32768)
     assert set(spec.volumes) == {"/frisket-model-cache"}
 
