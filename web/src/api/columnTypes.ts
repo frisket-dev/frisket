@@ -1,44 +1,7 @@
-import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
+import { httpContract, type HttpContractSuccessResponse } from './httpContract';
 import type { ColumnTypeInfo } from './types';
 
 type ColumnTypesWire = HttpContractSuccessResponse<'tenant.list_column_types.get'>;
-type ProjectColumnTypesWire =
-  HttpContractSuccessResponse<'tenant.list_project_column_types.get'>;
-
-interface ColumnTypesApi {
-  listColumnTypes(options?: RequestOptions): Promise<ColumnTypesWire>;
-  listProjectColumnTypes(
-    projectId: string,
-    options?: RequestOptions,
-  ): Promise<ProjectColumnTypesWire>;
-}
-
-interface ColumnTypesDomainApi {
-  listColumnTypes(): Promise<ColumnTypeInfo[]>;
-}
-
-export function createColumnTypesApi(): ColumnTypesApi {
-  return {
-    listColumnTypes(options = {}) {
-      return httpContract(
-        'tenant.list_column_types.get',
-        {
-          signal: options.signal,
-        },
-      );
-    },
-
-    listProjectColumnTypes(projectId, options = {}) {
-      return httpContract(
-        'tenant.list_project_column_types.get',
-        {
-          pathParams: { pid: projectId },
-          signal: options.signal,
-        },
-      );
-    },
-  };
-}
 
 function columnTypeInfoFromWire(
   wire: ColumnTypesWire[number],
@@ -57,16 +20,15 @@ function columnTypeInfoFromWire(
 /** Owns column-type scope selection and wire-to-public mapping. Project scope
  * is selected synchronously: only no selected project uses the global route;
  * a project request failure remains that request's failure. */
-export function createColumnTypesDomainApi(
-  projectId?: string | null,
-): ColumnTypesDomainApi {
-  const columnTypesApi = createColumnTypesApi();
-
+export function createColumnTypesApi(projectId?: string | null) {
   return {
-    async listColumnTypes() {
+    /** The column-type registry (core + plugin types, with presentation hints). */
+    async listColumnTypes(): Promise<ColumnTypeInfo[]> {
       const wire = projectId == null
-        ? await columnTypesApi.listColumnTypes()
-        : await columnTypesApi.listProjectColumnTypes(projectId);
+        ? await httpContract('tenant.list_column_types.get', {})
+        : await httpContract('tenant.list_project_column_types.get', {
+          pathParams: { pid: projectId },
+        });
       return wire.map(columnTypeInfoFromWire);
     },
   };

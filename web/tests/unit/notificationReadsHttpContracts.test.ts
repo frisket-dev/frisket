@@ -8,6 +8,7 @@ vi.mock("pluralize", () => ({
   }),
 }));
 
+import { createNotificationsApi } from "../../src/api/notifications";
 
 const itemRow = {
   id: 1,
@@ -122,53 +123,20 @@ function jsonResponse(
   });
 }
 
-interface Options {
-  signal?: AbortSignal;
-}
-
-interface NotificationsTransport {
-  listNotifications(
-    state?: string | null,
-    sourceKind?: string | null,
-    sourceRef?: string | null,
-    severity?: string | null,
-    offset?: number | null,
-    limit?: number | null,
-    options?: Options,
-  ): Promise<unknown>;
-  notificationsSummary(options?: Options): Promise<unknown>;
-  markNotificationsSeen(
-    body: Record<string, unknown>,
-    options?: Options,
-  ): Promise<unknown>;
-  markNotificationRead(
-    notificationId: number,
-    options?: Options,
-  ): Promise<unknown>;
-  ackNotification(notificationId: number, options?: Options): Promise<unknown>;
-  unackNotification(notificationId: number, options?: Options): Promise<unknown>;
-}
-
-interface NotificationsModule {
-  createNotificationsApi(projectId: string): NotificationsTransport;
-}
-
-async function notificationsModule(): Promise<NotificationsModule | undefined> {
-  const path = "../../src/api/notifications";
-  return import(/* @vite-ignore */ path).catch(() => undefined) as Promise<
-    NotificationsModule | undefined
-  >;
-}
-
-/** The six browser operations, by adapter method. */
-const methodOperationIds: Record<string, string> = {
-  listNotifications: "tenant.list_notifications.get",
-  notificationsSummary: "tenant.notifications_summary.get",
-  markNotificationsSeen: "tenant.mark_notifications_seen.post",
-  markNotificationRead: "tenant.mark_notification_read.post",
-  ackNotification: "tenant.ack_notification.post",
-  unackNotification: "tenant.unack_notification.post",
-};
+/** The six notification read operations, each with a call that reaches it. */
+const readInvocations: Array<
+  [string, (api: ReturnType<typeof createNotificationsApi>) => Promise<unknown>]
+> = [
+  ["tenant.list_notifications.get", (api) => api.listNotifications()],
+  ["tenant.notifications_summary.get", (api) => api.getNotificationsSummary()],
+  [
+    "tenant.mark_notifications_seen.post",
+    (api) => api.markNotificationsSeen({ notificationIds: [1] }),
+  ],
+  ["tenant.mark_notification_read.post", (api) => api.markNotificationRead(1)],
+  ["tenant.ack_notification.post", (api) => api.ackNotification(1)],
+  ["tenant.unack_notification.post", (api) => api.unackNotification(1)],
+];
 
 /** The realApi methods that must ride the generated transport, and the
  *  operation each one is expected to invoke. */
@@ -196,9 +164,14 @@ async function withMockedTransport<T>(
   const calls: TransportCall[] = [];
   vi.resetModules();
   vi.doMock("../../src/api/httpContract", () => ({
-    httpContract: (operationId: string, options: TransportCall["options"]) => {
+    httpContract: (
+      operationId: string,
+      options: TransportCall["options"],
+      mapResponse?: (wire: unknown) => unknown,
+    ) => {
       calls.push({ operationId, options });
-      return Promise.resolve(respond(operationId));
+      const wire = respond(operationId);
+      return Promise.resolve(mapResponse ? mapResponse(wire) : wire);
     },
   }));
   const fetchSpy = vi.fn(async () => jsonResponse({}));
@@ -224,21 +197,23 @@ function transportResponse(operationId: string): unknown {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("notification reads generated HTTP transport", () => {
-  it("owns exactly the six operations and preserves path, query, body, and signal", async () => {
-    const module = await notificationsModule();
-    expect(
-      module,
-      "INTENDED_F7A_RED: notifications generated adapter must exist",
-    ).toBeDefined();
-    if (!module) return;
-    const api = module.createNotificationsApi("notification-contract");
+  it("owns the fourteen notification operations and preserves path, query, method, and body", async () => {
+    const api = createNotificationsApi("notification-contract");
     expect(Object.keys(api).sort()).toEqual([
       "ackNotification",
+      "createNotificationChannel",
+      "createNotificationRoute",
+      "getNotificationsSummary",
+      "listNotificationChannels",
+      "listNotificationDeliveryRequests",
+      "listNotificationRoutes",
       "listNotifications",
       "markNotificationRead",
       "markNotificationsSeen",
-      "notificationsSummary",
+      "testNotificationRoute",
       "unackNotification",
+      "updateNotificationChannel",
+      "updateNotificationRoute",
     ]);
 
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
@@ -258,37 +233,30 @@ describe("notification reads generated HTTP transport", () => {
         return jsonResponse(responses.shift());
       }),
     );
-    const signal = new AbortController().signal;
-    const options = { signal };
 
-    await api.listNotifications(
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      options,
-    );
-    await api.listNotifications(
-      "unseen",
-      "watch",
-      '{"watch_id":5}',
-      "warning",
-      2,
-      3,
-      options,
-    );
-    await api.notificationsSummary(options);
-    await api.markNotificationsSeen({ notification_ids: [7] }, options);
-    await api.markNotificationRead(1, options);
-    await api.ackNotification(1, options);
-    await api.unackNotification(1, options);
+    await api.listNotifications();
+    await api.listNotifications({
+      state: "unseen",
+      sourceKind: "watch",
+      sourceRef: { watch_id: 5 },
+      severity: "warning",
+      offset: 2,
+      limit: 3,
+    });
+    await api.getNotificationsSummary();
+    await api.markNotificationsSeen({ notificationIds: [7] });
+    await api.markNotificationRead(1);
+    await api.ackNotification(1);
+    await api.unackNotification(1);
 
     expect(
       requests.map((request) => [request.input, request.init?.method]),
     ).toEqual([
-      ["/api/projects/notification-contract/notifications", "GET"],
+      [
+        "/api/projects/notification-contract/notifications" +
+          "?state=all&offset=0&limit=50",
+        "GET",
+      ],
       [
         "/api/projects/notification-contract/notifications" +
           "?state=unseen&offset=2&limit=3&source_kind=watch" +
@@ -312,9 +280,6 @@ describe("notification reads generated HTTP transport", () => {
       undefined,
       undefined,
     ]);
-    for (const request of requests) {
-      expect(request.init?.signal).toBe(signal);
-    }
   });
 
   it("keeps the preserved realApi domain mapping for pages, summary, and states", async () => {
@@ -414,29 +379,16 @@ describe("notification reads generated HTTP transport", () => {
   });
 
   it("calls each generated operation with its own id", async () => {
-    const module = await notificationsModule();
-    expect(
-      module,
-      "INTENDED_F7A_RED: notifications generated adapter must exist",
-    ).toBeDefined();
-    if (!module) return;
-
     await withMockedTransport(transportResponse, async (calls) => {
-      const fresh = (await import("../../src/api/notifications").catch(
-        () => undefined,
-      )) as NotificationsModule | undefined;
-      expect(fresh).toBeDefined();
-      if (!fresh) return;
-      const api = fresh.createNotificationsApi(
-        "notification-ids",
-      ) as unknown as Record<string, (...args: unknown[]) => unknown>;
+      const fresh = await import("../../src/api/notifications");
+      const api = fresh.createNotificationsApi("notification-ids");
 
-      for (const [method, operationId] of Object.entries(methodOperationIds)) {
+      for (const [operationId, invoke] of readInvocations) {
         calls.length = 0;
-        await api[method](1, {}, undefined, undefined, undefined, undefined, {});
+        await invoke(api);
         expect(
           calls.map((call) => call.operationId),
-          `${method} must call exactly its own generated operation`,
+          `${operationId} must be called exactly once by its own method`,
         ).toEqual([operationId]);
       }
     });

@@ -1,5 +1,6 @@
-import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
+import { httpContract, type ContractErrorFactory, type HttpContractSuccessResponse } from './httpContract';
 import type { SavedView, SavedViewCreateInput, SavedViewDefinitionReplaceInput, SavedViewRenameInput, ViewResolved } from './types';
+
 /** Structural twin of the generated contract's recursive JSON leaf. The
  *  generated module keeps its `JsonValue` private, so callers building a
  *  request body name the same shape here rather than casting into it. */
@@ -42,26 +43,6 @@ export function toWireJsonObject(value: Record<string, unknown>): { [key: string
 
 type SavedViewListWire = HttpContractSuccessResponse<'tenant.list_views.get'>;
 type SavedViewRowWire = SavedViewListWire[number];
-type SavedViewCreateBody = SavedViewCreateInput;
-type SavedViewPatchBody = SavedViewRenameInput;
-type SavedViewDefinitionReplaceBody = SavedViewDefinitionReplaceInput;
-interface ViewsLensesApi {
-  listViews(sheetId?: number | null, options?: RequestOptions): Promise<SavedViewListWire>;
-  createView(body: SavedViewCreateBody, options?: RequestOptions): Promise<SavedViewRowWire>;
-  renameView(viewId: number, body: SavedViewPatchBody, options?: RequestOptions): Promise<SavedViewRowWire>;
-  replaceViewDefinition(viewId: number, body: SavedViewDefinitionReplaceBody, options?: RequestOptions): Promise<SavedViewRowWire>;
-  deleteView(viewId: number, options?: RequestOptions): Promise<unknown>;
-  resolveView(viewId: number, limit?: number, offset?: number, options?: RequestOptions): Promise<ViewResolved>;
-}
-interface ViewsLensesDomainApi {
-  listViews(sheetId?: string): Promise<SavedView[]>;
-  saveView(input: SavedViewCreateInput): Promise<SavedView>;
-  renameView(viewId: number, input: SavedViewRenameInput): Promise<SavedView>;
-  replaceViewDefinition(viewId: number, input: SavedViewDefinitionReplaceInput): Promise<SavedView>;
-  deleteView(viewId: number): Promise<void>;
-  resolveView(viewId: number, opts?: { limit?: number; offset?: number }): Promise<ViewResolved>;
-}
-
 function definitionBody(body: SavedViewDefinitionReplaceInput) {
   return { selection: body.selection, presentation: toWireJsonObject({ ...body.presentation }) };
 }
@@ -73,36 +54,48 @@ function toSavedView(wire: SavedViewRowWire): SavedView {
   }
   return { ...wire, spec: spec as unknown as SavedView['spec'] };
 }
-export function createViewsLensesApi(errorFactory: (status: number, payload: unknown) => Error, projectId: string): ViewsLensesApi {
+export function createViewsLensesApi(errorFactory: ContractErrorFactory, projectId: string) {
   return {
-    listViews(sheetId, options = {}) {
-      return httpContract('tenant.list_views.get', { pathParams: { pid: projectId }, query: { sheet_id: sheetId ?? undefined }, ...options, errorFactory });
+    async listViews(sheetId?: string) {
+      return httpContract('tenant.list_views.get', {
+        pathParams: { pid: projectId },
+        query: { sheet_id: sheetId ? Number(sheetId) : undefined },
+        errorFactory,
+      }, (wire) => wire.map(toSavedView));
     },
-    createView(body, options = {}) {
-      return httpContract('tenant.create_view.post', { pathParams: { pid: projectId }, body: { name: body.name, ...definitionBody(body) }, ...options, errorFactory });
+    async saveView(input: SavedViewCreateInput) {
+      return httpContract('tenant.create_view.post', {
+        pathParams: { pid: projectId },
+        body: { name: input.name, ...definitionBody(input) },
+        errorFactory,
+      }, toSavedView);
     },
-    renameView(viewId, body, options = {}) {
-      return httpContract('tenant.patch_view.patch', { pathParams: { pid: projectId, view_id: viewId }, body, ...options, errorFactory });
+    async renameView(viewId: number, input: SavedViewRenameInput) {
+      return httpContract('tenant.patch_view.patch', {
+        pathParams: { pid: projectId, view_id: viewId },
+        body: input,
+        errorFactory,
+      }, toSavedView);
     },
-    replaceViewDefinition(viewId, body, options = {}) {
-      return httpContract('tenant.replace_view_definition.put', { pathParams: { pid: projectId, view_id: viewId }, body: definitionBody(body), ...options, errorFactory });
+    async replaceViewDefinition(viewId: number, input: SavedViewDefinitionReplaceInput) {
+      return httpContract('tenant.replace_view_definition.put', {
+        pathParams: { pid: projectId, view_id: viewId },
+        body: definitionBody(input),
+        errorFactory,
+      }, toSavedView);
     },
-    deleteView(viewId, options = {}) {
-      return httpContract('tenant.delete_view_ep.delete', { pathParams: { pid: projectId, view_id: viewId }, ...options, errorFactory });
+    async deleteView(viewId: number): Promise<void> {
+      await httpContract('tenant.delete_view_ep.delete', {
+        pathParams: { pid: projectId, view_id: viewId },
+        errorFactory,
+      });
     },
-    resolveView(viewId, limit, offset, options = {}) {
-      return httpContract('tenant.resolve_view.get', { pathParams: { pid: projectId, view_id: viewId }, query: { limit, offset }, ...options, errorFactory });
+    resolveView(viewId: number, opts?: { limit?: number; offset?: number }): Promise<ViewResolved> {
+      return httpContract('tenant.resolve_view.get', {
+        pathParams: { pid: projectId, view_id: viewId },
+        query: { limit: opts?.limit, offset: opts?.offset },
+        errorFactory,
+      });
     },
-  };
-}
-export function createViewsLensesDomainApi(errorFactory: (status: number, payload: unknown) => Error, projectId: string): ViewsLensesDomainApi {
-  const transport = createViewsLensesApi(errorFactory, projectId);
-  return {
-    async listViews(sheetId) { return (await transport.listViews(sheetId ? Number(sheetId) : null)).map(toSavedView); },
-    async saveView(input) { return toSavedView(await transport.createView(input)); },
-    async renameView(id, input) { return toSavedView(await transport.renameView(id, input)); },
-    async replaceViewDefinition(id, input) { return toSavedView(await transport.replaceViewDefinition(id, input)); },
-    async deleteView(id) { await transport.deleteView(id); },
-    resolveView(id, opts) { return transport.resolveView(id, opts?.limit, opts?.offset); },
   };
 }

@@ -53,14 +53,14 @@ import {
   workLogExportUrl as projectWorkLogExportUrl,
 } from './raw/projectResources';
 import {
-  createActionEstimateValidationDomainApi,
+  createActionEstimateValidationApi,
 } from './actionEstimateValidation';
 import {
   createActionPreviewDomainApi,
 } from './actionPreviewRuns';
 import { createActionHistoryApi } from './actionHistory';
-import { createHistoryReviewDomainApi } from './historyReview';
-import { createProjectEvidenceDomainApi } from './projectEvidence';
+import { createHistoryReviewApi } from './historyReview';
+import { createProjectEvidenceApi } from './projectEvidence';
 import { createInstanceRuntimeApi } from './instanceRuntime';
 import { createAdminOverviewApi } from './adminOverview';
 import {
@@ -79,7 +79,7 @@ import {
 import { createEmbeddingsApi } from './embeddings';
 import { createWorkbenchPluginsApi } from './workbenchPlugins';
 import { createProjectCollaborationApi } from './projectCollaboration';
-import { createColumnTypesDomainApi } from './columnTypes';
+import { createColumnTypesApi } from './columnTypes';
 import { createTranslateComparisonApi } from './translateComparison';
 import { createProjectSearchApi } from './projectSearch';
 import { createDocumentBrowsingApi } from './documentBrowsing';
@@ -125,13 +125,13 @@ import {
 } from './projectSources';
 import { createTeamLocalModelsApi } from './teamLocalModels';
 import {
-  createViewsLensesDomainApi,
+  createViewsLensesApi,
 } from './viewsLenses';
 import {
-  createWatchesDomainApi,
+  createWatchesApi,
 } from './watches';
 import {
-  createNotificationsDomainApi,
+  createNotificationsApi,
 } from './notifications';
 import type {
   AdminHealth,
@@ -759,11 +759,11 @@ class RealApi implements FrisketApi {
   private readonly projectId: string | null;
   private readonly mapPointsArrowApi: ReturnType<typeof createMapPointsArrowApi>;
   private readonly previewComparisonsApi: ReturnType<typeof createPreviewComparisonsApi>;
-  private readonly projectEvidenceApi: ReturnType<typeof createProjectEvidenceDomainApi>;
-  private readonly columnTypesApi: ReturnType<typeof createColumnTypesDomainApi>;
-  private readonly viewsLensesApi: ReturnType<typeof createViewsLensesDomainApi>;
-  private readonly watchesApi: ReturnType<typeof createWatchesDomainApi>;
-  private readonly notificationsApi: ReturnType<typeof createNotificationsDomainApi>;
+  private readonly projectEvidenceApi: ReturnType<typeof createProjectEvidenceApi>;
+  private readonly columnTypesApi: ReturnType<typeof createColumnTypesApi>;
+  private readonly viewsLensesApi: ReturnType<typeof createViewsLensesApi>;
+  private readonly watchesApi: ReturnType<typeof createWatchesApi>;
+  private readonly notificationsApi: ReturnType<typeof createNotificationsApi>;
   private readonly runtimeProjectionsApi: ReturnType<typeof createRuntimeProjectionsApi>;
   private readonly projectDataManagementApi: ReturnType<typeof createProjectDataManagementApi>;
   private readonly actionCatalog = actionCatalogCache;
@@ -776,7 +776,7 @@ class RealApi implements FrisketApi {
    * or run-metadata state.
    */
   private readonly v1ActionSession: ReturnType<typeof createV1ActionSession>;
-  private readonly actionEstimateValidation: ReturnType<typeof createActionEstimateValidationDomainApi>;
+  private readonly actionEstimateValidation: ReturnType<typeof createActionEstimateValidationApi>;
   // Preview owns its own translation, lifecycle binding, and wire mapping;
   // this adapter remains the sole owner of the shared browser action session.
   private readonly actionPreviewRuns: ReturnType<typeof createActionPreviewDomainApi>;
@@ -793,7 +793,7 @@ class RealApi implements FrisketApi {
   // including the invocation each one captures. This adapter keeps the shared
   // session and the column-run metadata it feeds back into action runs.
   private readonly actionHistory: ReturnType<typeof createActionHistoryApi>;
-  private readonly historyReview: ReturnType<typeof createHistoryReviewDomainApi>;
+  private readonly historyReview: ReturnType<typeof createHistoryReviewApi>;
 
   constructor(projectId: string | null = null) {
     this.projectId = projectId;
@@ -805,17 +805,17 @@ class RealApi implements FrisketApi {
     this.previewComparisonsApi = createPreviewComparisonsApi(
       scopedProjectId,
     );
-    this.projectEvidenceApi = createProjectEvidenceDomainApi(
+    this.projectEvidenceApi = createProjectEvidenceApi(
       projectEvidenceErrorFromContract,
       scopedProjectId,
     );
-    this.columnTypesApi = createColumnTypesDomainApi(projectId);
-    this.viewsLensesApi = createViewsLensesDomainApi(
+    this.columnTypesApi = createColumnTypesApi(projectId);
+    this.viewsLensesApi = createViewsLensesApi(
       viewLensApiErrorFromContract,
       scopedProjectId,
     );
-    this.watchesApi = createWatchesDomainApi(scopedProjectId);
-    this.notificationsApi = createNotificationsDomainApi(
+    this.watchesApi = createWatchesApi(scopedProjectId);
+    this.notificationsApi = createNotificationsApi(
       scopedProjectId,
     );
     this.runtimeProjectionsApi = createRuntimeProjectionsApi(
@@ -837,10 +837,10 @@ class RealApi implements FrisketApi {
         this.actionCompletion.waitForRunCompletion(result, fallbackMessage, invocation),
       actionDisplayNameFromActionKind,
     }, scopedProjectId);
-    this.actionEstimateValidation = createActionEstimateValidationDomainApi({
-      errorFactory: actionEstimateValidationErrorFromContract,
-      projectId: scopedProjectId,
-    });
+    this.actionEstimateValidation = createActionEstimateValidationApi(
+      actionEstimateValidationErrorFromContract,
+      scopedProjectId,
+    );
     this.actionPreviewRuns = createActionPreviewDomainApi({
       errorFactory: actionPreviewRunErrorFromContract,
     }, scopedProjectId);
@@ -858,7 +858,7 @@ class RealApi implements FrisketApi {
       v1ActionSession: this.v1ActionSession,
     }, scopedProjectId);
     this.actionHistory = createActionHistoryApi(scopedProjectId);
-    this.historyReview = createHistoryReviewDomainApi({
+    this.historyReview = createHistoryReviewApi({
       v1ActionSession: this.v1ActionSession,
     }, scopedProjectId);
   }
@@ -1576,13 +1576,13 @@ class RealApi implements FrisketApi {
   }
 
   estimateAction(req: ActionExecutionRequest): Promise<RunEstimate> {
-    return this.actionEstimateValidation.estimate(req);
+    return this.actionEstimateValidation.estimateAction(req);
   }
 
   resolveActionParams(
     req: Pick<RegisteredActionRequest, 'action_id' | 'scope' | 'params'>,
   ): Promise<ActionParamResolution> {
-    return this.actionEstimateValidation.resolveParams(req);
+    return this.actionEstimateValidation.resolveActionParams(req);
   }
 
   getRunProgress(
@@ -1750,7 +1750,7 @@ class RealApi implements FrisketApi {
     columnId: string,
     opts?: { includeStale?: boolean },
   ): Promise<CellEvidencePayload> {
-    return this.projectEvidenceApi.getCellEvidence(rowId, columnId, opts?.includeStale);
+    return this.projectEvidenceApi.getCellEvidence(rowId, columnId, { includeStale: opts?.includeStale });
   }
 
   getRowSourceDocuments(
@@ -1765,7 +1765,7 @@ class RealApi implements FrisketApi {
     columnId: string,
     opts?: { rowIds?: readonly string[] },
   ): Promise<ColumnEvidenceBatchPayload> {
-    return this.projectEvidenceApi.getColumnEvidence(sheetId, columnId, opts?.rowIds);
+    return this.projectEvidenceApi.getColumnEvidence(sheetId, columnId, { rowIds: opts?.rowIds });
   }
 
   getEvidenceViewer(

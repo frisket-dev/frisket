@@ -36,102 +36,17 @@ interface HistoryReviewOptions {
 
 type ColumnRunsWire =
   HttpContractSuccessResponse<'tenant.column_runs.get'>;
-type ReviewedRunRevisionWire =
-  HttpContractSuccessResponse<'tenant.reviewed_run_revision.get'>;
 type HistoryWire = HttpContractSuccessResponse<'tenant.history.get'>;
 type ReviewBundlesWire =
   HttpContractSuccessResponse<'tenant.review_bundles_ep.get'>;
-type ReviewCountWire =
-  HttpContractSuccessResponse<'tenant.review_count_ep.get'>;
 type ReviewRunsWire =
   HttpContractSuccessResponse<'tenant.review_runs_ep.get'>;
 type ReviewRunStatusWire =
   HttpContractSuccessResponse<'tenant.review_run_status_ep.post'>;
 
-interface HistoryReviewApi {
-  getColumnRuns(
-    columnId: string,
-    offset?: number,
-    limit?: number,
-    options?: HistoryReviewOptions,
-  ): Promise<ColumnRunsWire>;
-  getReviewedRunRevision(
-    columnId: string,
-    runId: string,
-    options?: HistoryReviewOptions,
-  ): Promise<ReviewedRunRevisionWire>;
-  getHistory(
-    offset?: number | null,
-    limit?: number,
-    options?: HistoryReviewOptions,
-  ): Promise<HistoryWire>;
-  getReviewBundles(
-    offset?: number,
-    limit?: number,
-    runId?: string,
-    includeReviewed?: boolean,
-    options?: HistoryReviewOptions,
-    bundleOptions?: ReviewBundleOptions,
-  ): Promise<ReviewBundlesWire>;
-  getReviewCount(runId?: string, options?: HistoryReviewOptions): Promise<ReviewCountWire>;
-  getReviewRuns(
-    offset?: number,
-    limit?: number,
-    runOptions?: ReviewRunsOptions,
-    options?: HistoryReviewOptions,
-  ): Promise<ReviewRunsWire>;
-  setReviewRunStatus(
-    runId: string,
-    status: ReviewRunStatus,
-    options?: HistoryReviewOptions,
-  ): Promise<ReviewRunStatusWire>;
-}
-
-/** The feature-facing history and review port: mapped reads plus the cursor
- * and review-queue mutations. real.ts composes this with the column-run cache
- * enrichment it still owns through the action-runs owner. */
-interface HistoryReviewDomainApi {
-  getColumnRuns(
-    columnId: string,
-    offset?: number,
-    limit?: number,
-  ): Promise<ColumnRunsInfo>;
-  getReviewedRunRevision(columnId: string, runId: string): Promise<GeneratedActionDraft>;
-  getHistory(
-    offset?: number | null,
-    limit?: number,
-    options?: HistoryReviewOptions,
-  ): Promise<HistoryState>;
-  getReviewBundles(
-    offset?: number,
-    limit?: number,
-    runId?: string,
-    includeReviewed?: boolean,
-    options?: ReviewBundleOptions,
-  ): Promise<ReviewBundlePage>;
-  getReviewCount(runId?: string): Promise<number>;
-  listReviewRuns(
-    offset?: number,
-    limit?: number,
-    options?: ReviewRunsOptions,
-  ): Promise<ReviewRunsPage>;
-  setReviewRunStatus(runId: string, status: ReviewRunStatus): Promise<ReviewRunStatusResult>;
-  undo(): Promise<HistoryState>;
-  redo(): Promise<HistoryState>;
-  revertOperation(opId: string): Promise<HistoryState>;
-  restoreOperation(opId: string): Promise<HistoryState>;
-  setReviewNote(runId: string, rowId: string, note: string | null): Promise<void>;
-  reviewItem(
-    itemId: string,
-    action: ReviewAction,
-    editedValue?: CellValue,
-    note?: string | null,
-  ): Promise<void>;
-}
-
-/** RealApi owns the one browser session; this domain receives only its narrow
- * V1 action surface for history and review mutations. It never mints its own
- * idempotency keys or project binding. */
+/** The project API owns the one browser session; this domain receives only its
+ * narrow V1 action surface for history and review mutations. It never mints its
+ * own idempotency keys or project binding. */
 interface HistoryReviewDependencies {
   v1ActionSession: Pick<
     V1ActionSession,
@@ -153,141 +68,6 @@ function reviewOwner(sourceId?: string) {
 
 function reviewSourceId(owner: { run_id?: number | null; copied_op_id?: number | null }): string {
   return owner.copied_op_id != null ? `copy:${owner.copied_op_id}` : String(owner.run_id);
-}
-
-export function createHistoryReviewApi(
-  projectId: string,
-): HistoryReviewApi {
-  return {
-    getColumnRuns(columnId, offset = 0, limit = 20, options = {}) {
-      return httpContract(
-        'tenant.column_runs.get',
-        {
-          pathParams: {
-            pid: projectId,
-            // FrisketApi's long-standing column reference is a string. The
-            // route's OpenAPI path parameter is numeric, so keep the existing
-            // browser bytes while using the generated operation signature.
-            column_id: columnId as unknown as number,
-          },
-          query: { offset, limit },
-          signal: options.signal,
-        },
-      );
-    },
-
-    getReviewedRunRevision(columnId, runId, options = {}) {
-      return httpContract(
-        'tenant.reviewed_run_revision.get',
-        {
-          pathParams: {
-            pid: projectId,
-            column_id: columnId as unknown as number,
-            run_id: Number(runId),
-          },
-          signal: options.signal,
-        },
-      );
-    },
-
-    getHistory(offset, limit = 50, options = {}) {
-      return httpContract(
-        'tenant.history.get',
-        {
-          pathParams: { pid: options.projectId ?? projectId },
-          query: { offset: offset ?? undefined, limit },
-          signal: options.signal,
-        },
-      );
-    },
-
-    getReviewBundles(
-      offset = 0,
-      limit = 25,
-      runId,
-      includeReviewed = false,
-      options = {},
-      bundleOptions = {},
-    ) {
-      if (bundleOptions.order === 'shuffle') {
-        const shared = {
-          ...reviewOwner(runId),
-          field_id: bundleOptions.fieldId === undefined ? undefined : Number(bundleOptions.fieldId),
-          include_reviewed: includeReviewed,
-        };
-        const body = bundleOptions.rowIds !== undefined
-          ? { ...shared, kind: 'rows' as const, row_ids: bundleOptions.rowIds.map(Number) }
-          : {
-              ...shared,
-              kind: 'sample' as const,
-              limit,
-              exclude_row_ids: (bundleOptions.excludeRowIds ?? []).map(Number),
-            };
-        return httpContract(
-          'tenant.review_batch_ep.post',
-          {
-            pathParams: { pid: projectId },
-            body,
-            signal: options.signal,
-          },
-        );
-      }
-      return httpContract(
-        'tenant.review_bundles_ep.get',
-        {
-          pathParams: { pid: projectId },
-          query: {
-            offset,
-            limit,
-            ...reviewOwner(runId),
-            include_reviewed: includeReviewed || undefined,
-            field_id: bundleOptions.fieldId === undefined ? undefined : Number(bundleOptions.fieldId),
-            order: bundleOptions.order,
-            cursor: bundleOptions.cursor,
-          },
-          signal: options.signal,
-        },
-      );
-    },
-
-    getReviewCount(runId, options = {}) {
-      return httpContract(
-        'tenant.review_count_ep.get',
-        {
-          pathParams: { pid: projectId },
-          query: { run_id: runId === undefined ? undefined : Number(runId) },
-          signal: options.signal,
-        },
-      );
-    },
-
-    getReviewRuns(offset = 0, limit = 50, runOptions = {}, options = {}) {
-      return httpContract(
-        'tenant.review_runs_ep.get',
-        {
-          pathParams: { pid: projectId },
-          query: {
-            offset,
-            limit,
-            sheet_id: runOptions.sheetId === undefined ? undefined : Number(runOptions.sheetId),
-            ...reviewOwner(runOptions.runId),
-          },
-          signal: options.signal,
-        },
-      );
-    },
-
-    setReviewRunStatus(runId, status, options = {}) {
-      return httpContract(
-        'tenant.review_run_status_ep.post',
-        {
-          pathParams: { pid: projectId, run_id: Number(runId) },
-          body: { status },
-          signal: options.signal,
-        },
-      );
-    },
-  };
 }
 
 type WireColumnRun = ColumnRunsWire['runs'][number];
@@ -657,12 +437,21 @@ const NON_MOVING_STEP_CODES: ReadonlySet<string> = new Set([
   'irreversible_barrier',
 ]);
 
-export function createHistoryReviewDomainApi(
+export function createHistoryReviewApi(
   dependencies: HistoryReviewDependencies,
   projectId: string,
-): HistoryReviewDomainApi {
-  const transport = createHistoryReviewApi(projectId);
+) {
   const { v1ActionSession } = dependencies;
+
+  const getHistory = (
+    offset?: number | null,
+    limit = 50,
+    options: HistoryReviewOptions = {},
+  ): Promise<HistoryState> => httpContract('tenant.history.get', {
+    pathParams: { pid: options.projectId ?? projectId },
+    query: { offset: offset ?? undefined, limit },
+    signal: options.signal,
+  }, mapHistory);
 
   /** Every step of one mutation uses the same explicit invocation. */
   const historyForInvocation = (
@@ -670,12 +459,10 @@ export function createHistoryReviewDomainApi(
     offset?: number | null,
     limit = 50,
   ): Promise<HistoryState> =>
-    transport
-      .getHistory(offset, limit, {
-        projectId: invocation.projectId,
-        signal: invocation.signal,
-      })
-      .then(mapHistory);
+    getHistory(offset, limit, {
+      projectId: invocation.projectId,
+      signal: invocation.signal,
+    });
 
   const runOperationStepAction = async (
     kind: OperationActionId,
@@ -731,12 +518,28 @@ export function createHistoryReviewDomainApi(
   };
 
   return {
-    async getColumnRuns(columnId, offset = 0, limit = 20) {
-      return mapColumnRuns(await transport.getColumnRuns(columnId, offset, limit));
+    /** Provenance for an AI column: a bounded newest-first run history page. */
+    async getColumnRuns(columnId: string, offset = 0, limit = 20): Promise<ColumnRunsInfo> {
+      return httpContract('tenant.column_runs.get', {
+        pathParams: {
+          pid: projectId,
+          // Column references are strings on the public API while the route's
+          // path parameter is numeric; keep the existing browser bytes.
+          column_id: columnId as unknown as number,
+        },
+        query: { offset, limit },
+      }, mapColumnRuns);
     },
 
-    async getReviewedRunRevision(columnId, runId) {
-      const { draft } = await transport.getReviewedRunRevision(columnId, runId);
+    /** Reopen a persisted run on exactly the rows graded by a human. */
+    async getReviewedRunRevision(columnId: string, runId: string): Promise<GeneratedActionDraft> {
+      const { draft } = await httpContract('tenant.reviewed_run_revision.get', {
+        pathParams: {
+          pid: projectId,
+          column_id: columnId as unknown as number,
+          run_id: Number(runId),
+        },
+      });
       return {
         action_id: draft.action_id,
         scope: draft.scope,
@@ -746,47 +549,98 @@ export function createHistoryReviewDomainApi(
       };
     },
 
-    async getHistory(offset, limit = 50, options) {
-      return mapHistory(await transport.getHistory(offset, limit, options));
+    async getHistory(offset?: number | null, limit = 50, options?: HistoryReviewOptions) {
+      return getHistory(offset, limit, options);
     },
 
-    async getReviewBundles(offset = 0, limit = 25, runId, includeReviewed = false, options) {
-      return mapReviewBundles(
-        await transport.getReviewBundles(offset, limit, runId, includeReviewed, undefined, options),
-      );
+    async getReviewBundles(
+      offset = 0,
+      limit = 25,
+      runId?: string,
+      includeReviewed = false,
+      options: ReviewBundleOptions = {},
+    ): Promise<ReviewBundlePage> {
+      const fieldId = options.fieldId === undefined ? undefined : Number(options.fieldId);
+      if (options.order === 'shuffle') {
+        const shared = {
+          ...reviewOwner(runId),
+          field_id: fieldId,
+          include_reviewed: includeReviewed,
+        };
+        const body = options.rowIds !== undefined
+          ? { ...shared, kind: 'rows' as const, row_ids: options.rowIds.map(Number) }
+          : {
+              ...shared,
+              kind: 'sample' as const,
+              limit,
+              exclude_row_ids: (options.excludeRowIds ?? []).map(Number),
+            };
+        return httpContract('tenant.review_batch_ep.post', {
+          pathParams: { pid: projectId },
+          body,
+        }, mapReviewBundles);
+      }
+      return httpContract('tenant.review_bundles_ep.get', {
+        pathParams: { pid: projectId },
+        query: {
+          offset,
+          limit,
+          ...reviewOwner(runId),
+          include_reviewed: includeReviewed || undefined,
+          field_id: fieldId,
+          order: options.order,
+          cursor: options.cursor,
+        },
+      }, mapReviewBundles);
     },
 
-    async getReviewCount(runId) {
-      const wire = await transport.getReviewCount(runId);
+    /** Pending review count, optionally scoped to one action run. */
+    async getReviewCount(runId?: string): Promise<number> {
+      const wire = await httpContract('tenant.review_count_ep.get', {
+        pathParams: { pid: projectId },
+        query: { run_id: runId === undefined ? undefined : Number(runId) },
+      });
       return Number(wire.count ?? 0);
     },
 
-    async listReviewRuns(offset = 0, limit = 50, options) {
-      return mapReviewRuns(await transport.getReviewRuns(offset, limit, options));
+    async listReviewRuns(offset = 0, limit = 50, options: ReviewRunsOptions = {}) {
+      return httpContract('tenant.review_runs_ep.get', {
+        pathParams: { pid: projectId },
+        query: {
+          offset,
+          limit,
+          sheet_id: options.sheetId === undefined ? undefined : Number(options.sheetId),
+          ...reviewOwner(options.runId),
+        },
+      }, mapReviewRuns);
     },
 
-    async setReviewRunStatus(runId, status) {
-      return mapReviewRunStatus(await transport.setReviewRunStatus(runId, status));
+    async setReviewRunStatus(runId: string, status: ReviewRunStatus) {
+      return httpContract('tenant.review_run_status_ep.post', {
+        pathParams: { pid: projectId, run_id: Number(runId) },
+        body: { status },
+      }, mapReviewRunStatus);
     },
 
-    async undo() {
+    async undo(): Promise<HistoryState> {
       const invocation = resolveRunActionInvocation(undefined, projectId);
       const hist = await historyForInvocation(invocation);
       await runOperationStepAction('operation.undo', hist.undoTarget?.id ?? null, invocation);
       return historyForInvocation(invocation);
     },
 
-    async redo() {
+    async redo(): Promise<HistoryState> {
       const invocation = resolveRunActionInvocation(undefined, projectId);
       const hist = await historyForInvocation(invocation);
       await runOperationStepAction('operation.redo', hist.redoTarget?.id ?? null, invocation);
       return historyForInvocation(invocation);
     },
 
-    revertOperation: (opId) => transitionOperation('revert', opId),
-    restoreOperation: (opId) => transitionOperation('restore', opId),
+    /** Selectively revert one operation without walking the cursor. */
+    revertOperation: (opId: string) => transitionOperation('revert', opId),
+    restoreOperation: (opId: string) => transitionOperation('restore', opId),
 
-    async setReviewNote(runId, rowId, note) {
+    async setReviewNote(runId: string, rowId: string, note: string | null): Promise<void> {
       const owner = reviewOwner(runId);
       const ids = [owner.run_id ?? owner.copied_op_id, Number(rowId)];
       if (!ids.every((id) => Number.isInteger(id) && (id ?? 0) > 0)) throw new ApiError(400, 'Invalid review row reference');
@@ -797,7 +651,12 @@ export function createHistoryReviewDomainApi(
       });
     },
 
-    async reviewItem(itemId, action, _editedValue, note) {
+    async reviewItem(
+      itemId: string,
+      action: ReviewAction,
+      _editedValue?: CellValue,
+      note?: string | null,
+    ): Promise<void> {
       const itemRef = itemId.split(':');
       const copied = itemRef[0] === 'copy';
       if (copied) itemRef.shift();

@@ -8,10 +8,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import {
-  createProjectEvidenceApi,
-  createProjectEvidenceDomainApi,
-} from '../../src/api/projectEvidence';
+import { createProjectEvidenceApi } from '../../src/api/projectEvidence';
 
 const linkSummary = {
   id: 11,
@@ -64,6 +61,31 @@ const annotationsFixture = {
       quote: 'Ada',
       metadata: { entity_type: 'PERSON', entity_fingerprint: 'person:ada' },
     }],
+  }],
+};
+
+const expectedAnnotations = {
+  sheetId: '3',
+  rowId: '7',
+  columnId: '5',
+  text: 'Ada',
+  contentHash: 'sha256:current',
+  layers: [{
+    toggleKey: '3:5:entities',
+    layerFamily: 'entities',
+    producerKind: 'entities',
+    producerEngine: null,
+    outputColumn: { id: '5', name: 'Entities' },
+    positioned: true,
+    spans: [{
+      occurrenceId: 'span:1',
+      start: 0,
+      end: 3,
+      quote: 'Ada',
+      entityType: 'PERSON',
+      entityFingerprint: 'person:ada',
+    }],
+    counts: { shown: 1, total: 1, invalid: 0 },
   }],
 };
 
@@ -180,7 +202,7 @@ describe('project evidence generated HTTP reads', () => {
           ...annotationsFixture.layers[0].spans[0], start: 3, end: 6, source_start: 502, source_end: 505, quote_truncated: true,
         }] }] } : viewerFixture);
     }));
-    const api = createProjectEvidenceDomainApi((status) => new Error(String(status)), 'project');
+    const api = createProjectEvidenceApi((status) => new Error(String(status)), 'project');
     const annotated = await api.getTextAnnotations('7', '5', { start: 500, limit: 10, revision: 9, occurrenceId: '1:2' });
     expect(annotated.window).toEqual(window);
     expect(annotated.layers[0].positioned && annotated.layers[0].spans[0]).toMatchObject({
@@ -207,11 +229,11 @@ describe('project evidence generated HTTP reads', () => {
       'evidence/project',
     );
 
-    await expect(api.getCellEvidence('row/a', 'column/b', true, options))
+    await expect(api.getCellEvidence('row/a', 'column/b', { includeStale: true, signal }))
       .resolves.toEqual(cellFixture);
     await expect(api.getTextAnnotations('row/a', 'column/b', options))
-      .resolves.toEqual(annotationsFixture);
-    await expect(api.getColumnEvidence('sheet/a', 'column/b', ['7', '8'], options))
+      .resolves.toEqual(expectedAnnotations);
+    await expect(api.getColumnEvidence('sheet/a', 'column/b', { rowIds: ['7', '8'], signal }))
       .resolves.toEqual(columnFixture);
     await expect(api.getEvidenceViewer('link/a', options)).resolves.toEqual(viewerFixture);
 
@@ -296,7 +318,7 @@ describe('project evidence generated HTTP reads', () => {
       viewerJsonLeavesFixture,
     ];
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(responses.shift())));
-    const api = createProjectEvidenceDomainApi(
+    const api = createProjectEvidenceApi(
       (status) => new Error(`evidence ${status}`),
       'evidence-domain-factory',
     );
@@ -347,7 +369,7 @@ describe('project evidence generated HTTP reads', () => {
       ],
     });
     await expect(api.getCellEvidence('7', '5')).resolves.toEqual(scalarCellValueFixture);
-    await expect(api.getColumnEvidence('3', '5', ['7'])).resolves.toEqual(columnFixture);
+    await expect(api.getColumnEvidence('3', '5', { rowIds: ['7'] })).resolves.toEqual(columnFixture);
     await expect(api.getEvidenceViewer('json-leaves')).resolves.toEqual(viewerJsonLeavesFixture);
   });
 
@@ -364,30 +386,7 @@ describe('project evidence generated HTTP reads', () => {
     const projectApi = real.createProjectApi('evidence-domain');
     const responses = [annotationsFixture, cellFixture, columnFixture, viewerFixture];
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(responses.shift())));
-    await expect(projectApi.getTextAnnotations('7', '5')).resolves.toEqual({
-      sheetId: '3',
-      rowId: '7',
-      columnId: '5',
-      text: 'Ada',
-      contentHash: 'sha256:current',
-      layers: [{
-        toggleKey: '3:5:entities',
-        layerFamily: 'entities',
-        producerKind: 'entities',
-        producerEngine: null,
-        outputColumn: { id: '5', name: 'Entities' },
-        positioned: true,
-        spans: [{
-          occurrenceId: 'span:1',
-          start: 0,
-          end: 3,
-          quote: 'Ada',
-          entityType: 'PERSON',
-          entityFingerprint: 'person:ada',
-        }],
-        counts: { shown: 1, total: 1, invalid: 0 },
-      }],
-    });
+    await expect(projectApi.getTextAnnotations('7', '5')).resolves.toEqual(expectedAnnotations);
     await expect(projectApi.getCellEvidence('7', '5', { includeStale: true }))
       .resolves.toEqual(cellFixture);
     await expect(projectApi.getColumnEvidence('3', '5', { rowIds: ['7'] }))
