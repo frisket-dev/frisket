@@ -4,7 +4,6 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { createElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('apache-arrow', () => ({ tableFromIPC: vi.fn() }));
 vi.mock('pluralize', () => ({
   default: Object.assign((word: string) => word, {
     addIrregularRule: vi.fn(),
