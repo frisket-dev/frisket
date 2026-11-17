@@ -445,7 +445,7 @@ function ToolbarOverflowMenu() {
             onClick={openSavedViewsSubmenu}
           >
             <BookOpen size={13} className="menu-item-icon" />
-            <span className="menu-item-name">Saved views</span>
+            <span className="menu-item-name">Views</span>
           </button>
           <button
             type="button"
@@ -502,14 +502,14 @@ function ToolbarOverflowMenu() {
           {views.length > 8 && (
             <TextInput
               className="saved-views-overflow-search"
-              aria-label="Search saved views"
+              aria-label="Search views"
               value={savedViewsQuery}
               onChange={(event) => setSavedViewsQuery(event.target.value)}
             />
           )}
           <div className="saved-views-overflow-list" data-testid="saved-views-overflow-list">
             {filteredViews.length === 0 ? (
-              <div className="menu-empty">No matching saved views</div>
+              <div className="menu-empty">No matching views</div>
             ) : (
               filteredViews.map((view) => (
                 <button
@@ -553,7 +553,7 @@ function ToolbarOverflowMenu() {
             }}
           >
             <BookOpen size={13} className="menu-item-icon" />
-            <span className="menu-item-name">Open Saved Views</span>
+            <span className="menu-item-name">Open Views</span>
           </button>
         </div>
       )}

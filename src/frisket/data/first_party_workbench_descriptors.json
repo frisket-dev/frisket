@@ -167,7 +167,7 @@
       "id": "frisket.core.panel.saved_views",
       "kind": "panel",
       "ownerPluginId": "frisket.core",
-      "title": "Saved views",
+      "title": "Views",
       "icon": "BookOpen",
       "placements": [
         {

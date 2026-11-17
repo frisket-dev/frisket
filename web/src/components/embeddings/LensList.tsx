@@ -84,7 +84,7 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
 
   return (
     <div className="embedding-lenses" data-testid={`embedding-lenses-${index.indexId}`}>
-      <span className="form-label">Saved views</span>
+      <span className="form-label">Views</span>
       <ul className="embedding-lens-list">
         {lenses.map((lens) => (
           <li key={lens.id} className="embedding-lens" data-testid={`embedding-lens-${lens.id}`}>

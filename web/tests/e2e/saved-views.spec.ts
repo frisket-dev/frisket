@@ -216,7 +216,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
     .click();
   const deleteDialog = page.getByTestId('delete-saved-view-confirmation');
   await expect(deleteDialog).toBeVisible();
-  await expect(deleteDialog).toContainText('Deleting this Saved View cannot be undone.');
+  await expect(deleteDialog).toContainText('Deleting this view cannot be undone.');
   await deleteDialog.getByTestId('confirm-delete-saved-view').click();
   await deleteResponse;
   await expect(
@@ -591,7 +591,7 @@ test('Saved Views overflow adds local search only above eight views and resets i
   const menu = page.getByTestId('saved-views-overflow-menu');
   const list = menu.getByTestId('saved-views-overflow-list');
   await expect(menu.getByTestId('saved-views-overflow-count')).toHaveCount(0);
-  await expect(menu.getByLabel('Search saved views')).toBeVisible();
+  await expect(menu.getByLabel('Search views')).toBeVisible();
   await expect(list).toHaveCount(1);
   await expect.poll(() => list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
 
@@ -604,14 +604,14 @@ test('Saved Views overflow adds local search only above eight views and resets i
       listRequests += 1;
     }
   });
-  const search = menu.getByLabel('Search saved views');
+  const search = menu.getByLabel('Search views');
   await search.fill('VIEW 9');
   await expect(list.getByTestId(`saved-views-overflow-view-${views[8].id}`)).toBeVisible();
   await expect(list.getByTestId(`saved-views-overflow-view-${views[0].id}`)).toHaveCount(0);
   expect(listRequests).toBe(0);
 
   await search.fill('does not exist');
-  await expect(menu.getByText('No matching saved views')).toBeVisible();
+  await expect(menu.getByText('No matching views')).toBeVisible();
   await expect(menu.getByTestId('saved-views-overflow-new')).toBeVisible();
   await expect(menu.getByTestId('saved-views-overflow-open-panel')).toBeVisible();
 
@@ -619,7 +619,7 @@ test('Saved Views overflow adds local search only above eight views and resets i
   await expect(menu).not.toBeVisible();
   await expect(page.getByTestId('toolbar-overflow-menu')).toBeVisible();
   await page.getByTestId('open-saved-views-submenu').click();
-  await expect(page.getByTestId('saved-views-overflow-menu').getByLabel('Search saved views')).toHaveValue('');
+  await expect(page.getByTestId('saved-views-overflow-menu').getByLabel('Search views')).toHaveValue('');
 });
 
 test('Saved Views overflow does not show a search field at exactly eight views', async ({ page }) => {
@@ -639,5 +639,5 @@ test('Saved Views overflow does not show a search field at exactly eight views',
 
   const menu = page.getByTestId('saved-views-overflow-menu');
   await expect(menu.getByTestId('saved-views-overflow-count')).toHaveCount(0);
-  await expect(menu.getByLabel('Search saved views')).toHaveCount(0);
+  await expect(menu.getByLabel('Search views')).toHaveCount(0);
 });
