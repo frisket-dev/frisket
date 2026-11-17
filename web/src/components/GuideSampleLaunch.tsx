@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { guideSamplesApi } from '../api/guideSamples';
+import { guideSamplesApi, type GuideSampleMetadata } from '../api/guideSamples';
 import { navigate } from '../routes';
 import { Button } from './Button';
 import { PanelLoading } from './PanelPrimitives';
@@ -16,7 +16,7 @@ export function GuideSampleLaunch({ sampleId }: { sampleId: string }) {
 
 function GuideSampleLaunchView({ sampleId, revision }: { sampleId: string; revision: number }) {
   const validRevision = Number.isSafeInteger(revision);
-  const loader = useLoader((signal) => guideSamplesApi.get(sampleId, revision, signal), [sampleId, revision],
+  const loader = useLoader<GuideSampleMetadata>((signal) => guideSamplesApi.get(sampleId, revision, signal), [sampleId, revision],
     { enabled: validRevision });
   const sample = loader.data;
   const [launchError, setError] = useState<string | null>(null);

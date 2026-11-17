@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage } from './errorMessage';
 
-export interface ActionOptions {
+interface ActionOptions {
   /** Message for a rejected value that is not an `Error`. */
   errorFallback?: string;
 }
 
-export interface Action {
+interface Action {
   /** True while the latest `run` is in flight. */
   busy: boolean;
   /** The latest failed run's message; cleared when the next run starts. */

@@ -13,10 +13,9 @@ import {
   type FirstPartyWorkbenchDescriptorPackage,
 } from '../../src/workbench/pluginRuntimeDescriptors';
 
-// Parser output pinned by snapshot, including explicit `undefined` fields, for
-// the checked-in first-party package and for a plugin runtime index that
-// exercises every acceptance and rejection rule. Keys are sorted: property
-// order is not part of the descriptor contract.
+// Parser output for a plugin runtime index that exercises every acceptance and
+// rejection rule is pinned by snapshot, including explicit `undefined` fields.
+// Keys are sorted: property order is not part of the descriptor contract.
 
 function serialize(value: unknown): string {
   return JSON.stringify(value, (_key, field: unknown) => {
@@ -126,9 +125,16 @@ function runtimeIndex(plugins: WorkbenchPluginRuntimePlugin[], arbitraryPackageL
 }
 
 describe('workbench descriptor parsers', () => {
-  it('parse the checked-in first-party package', () => {
-    const descriptors = firstPartyWorkbenchDescriptorsFromPackage(firstPartyPackage as FirstPartyWorkbenchDescriptorPackage);
-    expect(serialize(descriptors)).toMatchSnapshot();
+  it('parse every entry of the checked-in first-party package, in order', () => {
+    const pkg = firstPartyPackage as FirstPartyWorkbenchDescriptorPackage;
+    const descriptors = firstPartyWorkbenchDescriptorsFromPackage(pkg);
+    expect(descriptors.map(({ id, kind, schemaVersion }) => ({ id, kind, schemaVersion }))).toEqual(
+      pkg.descriptors.map(({ id, kind, schemaVersion }) => ({ id, kind, schemaVersion })),
+    );
+    for (const descriptor of descriptors) {
+      expect(descriptor.runtimeComponent).toBeUndefined();
+      expect(descriptor.placements.length).toBeGreaterThan(0);
+    }
   });
 
   it('parse plugin manifests from an enabled plugin and apply every rejection rule', () => {

@@ -12,7 +12,7 @@ export interface LoaderOptions {
   enabled?: boolean;
 }
 
-export interface Loader<T> {
+interface Loader<T> {
   data: T | null;
   error: string | null;
   loading: boolean;

@@ -1,12 +1,12 @@
 import '../settings/SettingsPrimitives.css';
 import { Button } from '../components/Button';
-import { getModelsGateway, type ModelsGatewayScope } from '../api/modelsGateway';
+import { getModelsGateway, type HttpModelsGatewayStatus, type ModelsGatewayScope } from '../api/modelsGateway';
 import { ModelsGatewayForm } from './ModelsGatewayForm';
 import { useLoader } from '../hooks/useLoader';
 
 /** Mounted only where the edition contributes the gateway status resource. */
 function ScopedModelsGatewaySettings({ scope }: { scope: ModelsGatewayScope }) {
-  const { data: status, error, loading, reload: refetch } = useLoader((signal) => getModelsGateway(scope, signal), [scope]);
+  const { data: status, error, loading, reload: refetch } = useLoader<HttpModelsGatewayStatus>((signal) => getModelsGateway(scope, signal), [scope]);
   const reload = () => { void refetch(); };
   return <section className="content-stack" data-testid="models-gateway-settings">
     <div className="settings-section-subhead"><h2>Models gateway</h2>
