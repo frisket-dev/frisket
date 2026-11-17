@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tarfile
 
 import pytest
@@ -87,6 +88,10 @@ def test_query_shapes_bbox_prefilter_and_rebuild(project, tmp_path):
     assert {c.row_id for c in shapes} == {rows[2]}
     shapes, _ = backend.query_shapes(sheet, geo_col, row_ids=[])
     assert shapes == []
+    backend.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 8)
+    allowed = [rows[2], *range(max(rows) + 1, max(rows) + 50)]
+    shapes, _ = backend.query_shapes(sheet, geo_col, row_ids=allowed)
+    assert {c.row_id for c in shapes} == {rows[2]}
 
     # Sidecar lives outside project.db and is safe to delete + rebuild.
     assert (project.path / GEO_SIDECAR_FILENAME).exists()
