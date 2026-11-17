@@ -192,11 +192,7 @@ from frisket.server.services.action_compare import ActionCompareService
 from frisket.server.services.evaluation import EvaluationService
 from frisket.server.routes.project_evaluation import register_project_evaluation_routes
 from frisket.server.services.action_registry import ActionRegistryService
-from frisket.server.services.action_run_rows import ActionRunRowsService
 from frisket.server.services.action_run_cancel import ActionRunCancelService
-from frisket.server.services.run_attempts import RunAttemptsService
-from frisket.server.services.action_run_status import ActionRunStatusService
-from frisket.server.services.action_run_trace import ActionRunTraceService
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.services.admin_pricing import AdminPricingService
 from frisket.server.services.column_runs import ColumnRunHistoryService
@@ -226,7 +222,6 @@ from frisket.server.services.previews import PreviewService
 from frisket.server.services.project_backfill_activity import (
     ProjectBackfillActivityService,
 )
-from frisket.server.services.project_attempts import ProjectAttemptsService
 from frisket.server.services.project_debug import ProjectDebugService
 from frisket.server.services.project_evidence import ProjectEvidenceService
 from frisket.server.services.project_exports import ProjectExportService
@@ -833,15 +828,14 @@ def create_app(
 
     register_embedding_routes(app, service=EmbeddingRouteService(ws))
 
+    action_run_service = ActionRunService(
+        ws,
+        stale_run_grace_seconds=stale_run_grace_seconds,
+        worker_liveness_window_seconds=liveness_window_seconds,
+        queue_timeout_seconds=queue_timeout,
+    )
     register_action_run_routes(
-        app,
-        service=ActionRunService(
-            ws,
-            stale_run_grace_seconds=stale_run_grace_seconds,
-            worker_liveness_window_seconds=liveness_window_seconds,
-            queue_timeout_seconds=queue_timeout,
-        ),
-        import_admission=import_admission,
+        app, service=action_run_service, import_admission=import_admission
     )
 
     ws.search_preparation_setup_completed = search_preparation_service.setup_completed
@@ -1101,21 +1095,13 @@ def create_app(
 
     register_project_timing_routes(app, service=ProjectTimingService(ws))
 
-    register_action_run_rows_routes(app, service=ActionRunRowsService(ws))
+    register_action_run_rows_routes(app, service=action_run_service)
 
     register_action_run_cancel_routes(app, service=ActionRunCancelService(ws))
 
-    register_action_run_status_routes(
-        app,
-        service=ActionRunStatusService(
-            ws,
-            stale_run_grace_seconds=stale_run_grace_seconds,
-            worker_liveness_window_seconds=liveness_window_seconds,
-            queue_timeout_seconds=queue_timeout,
-        ),
-    )
+    register_action_run_status_routes(app, service=action_run_service)
 
-    register_action_run_trace_routes(app, service=ActionRunTraceService(ws))
+    register_action_run_trace_routes(app, service=action_run_service)
 
     # ---------- columns ----------
 
@@ -1226,7 +1212,7 @@ def create_app(
     # adjacency chain over every earlier registration, and a read-only
     # addition should not force any of them to be rewritten. Its literal
     # path shadows nothing.
-    register_run_attempt_routes(app, service=RunAttemptsService(ws))
+    register_run_attempt_routes(app, service=action_run_service)
 
     # The run-keyed reader above cannot open a
     # compaction-orphaned attempt (`run_id` NULL by ruling 7's ON DELETE SET
@@ -1234,7 +1220,7 @@ def create_app(
     # with the run as an optional filter. Registered beside its sibling for
     # the same reason: a read-only addition should not rewrite the route-order
     # pins in tests/server/, and its literal path shadows nothing.
-    register_project_attempts_routes(app, service=ProjectAttemptsService(ws))
+    register_project_attempts_routes(app, service=action_run_service)
 
     # static frontend (built web/ bundle) — mounted last so API routes win.
     # Resolution: explicit static_dir arg -> FRISKET_STATIC_DIR -> packaged

@@ -24,7 +24,7 @@ from frisket.contracts.http.project_attempts import ProjectAttemptsPage
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.server.app import create_app
-from frisket.server.services.project_attempts import ProjectAttemptsService
+from frisket.server.services.action_runs import ActionRunService
 
 
 def _client(tmp_path: Path) -> TestClient:
@@ -139,7 +139,9 @@ def test_the_run_filter_answers_with_the_same_receipt_as_the_run_route(
 
     filtered = client.get(f"/api/projects/{pid}/actions/attempts?run_id={run_id}")
     assert filtered.status_code == 200, filtered.text
-    assert filtered.json() == ProjectAttemptsService(client.app.state.workspace).page(
+    assert filtered.json() == ActionRunService(
+        client.app.state.workspace
+    ).project_attempts(
         pid,
         run_id=run_id,
         offset=0,

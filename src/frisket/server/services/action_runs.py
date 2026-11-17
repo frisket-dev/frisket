@@ -42,7 +42,11 @@ from frisket.server.action_enqueue import (
     missing_provider_key_error,
     queue_v1_action_run,
 )
-from frisket.server.run_status import action_run_status_payload
+from frisket.authoring import actions as action_contract
+from frisket.execution.attempt import project_attempt_receipts, run_attempt_receipts
+from frisket.server.paging import offset_page_payload
+from frisket.server.run_payloads import action_run_rows_payload
+from frisket.server.run_status import action_run_status_payload, public_run_progress
 from frisket.server.workspace import Workspace
 from frisket.server.action_observation import ActionObservation
 from frisket.execution.provider import ExactExecutionMatch, ExecutionComposition
@@ -214,6 +218,9 @@ def _attach_job_contexts(
             context["sheet_name"] = names.get(context["sheet_id"])
             context["output_columns"] = outputs.get(payload.get("run_id"), [])
     return payloads
+
+
+ATTEMPT_RECEIPTS_SCHEMA_VERSION = "frisket.attempt_receipts.v1"
 
 
 class ActionRunService:
@@ -843,6 +850,118 @@ class ActionRunService:
             project_id=project_id,
             errors=[error],
         )
+
+    def run_rows(
+        self,
+        project_id: str,
+        run_id: int,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return action_run_rows_payload(
+                self._workspace.get(project_id),
+                run_id,
+                offset=offset,
+                limit=limit,
+                status=status,
+            )
+        except KeyError as exc:
+            raise RouteError(404, str(exc)) from exc
+        except ValueError as exc:
+            raise RouteError(400, str(exc)) from exc
+
+    def run_status(self, project_id: str, run_id: int) -> dict[str, Any]:
+        try:
+            return action_run_status_payload(
+                project_id=project_id,
+                project=self._workspace.get(project_id),
+                queue=self._workspace.queue,
+                active_runs=self._workspace.active_runs,
+                run_jobs=self._workspace.run_jobs,
+                run_id=run_id,
+                now=datetime.now(UTC),
+                stale_run_grace_seconds=self._stale_run_grace_seconds,
+                worker_liveness_window_seconds=self._worker_liveness_window_seconds,
+                queue_timeout_seconds=self._queue_timeout_seconds,
+                storage_org_id=self._workspace.queue_storage_org_id,
+            )
+        except KeyError as exc:
+            raise RouteError(404, str(exc)) from exc
+
+    def run_trace(self, project_id: str, run_id: int) -> dict[str, Any]:
+        project = self._workspace.get(project_id)
+        try:
+            return action_contract.run_trace(project_id, project, run_id)
+        except KeyError as exc:
+            raise RouteError(404, str(exc)) from exc
+        except FileNotFoundError:
+            return {
+                "schema_version": action_contract.ACTION_SCHEMA_VERSION,
+                "action": "run_trace",
+                "project_id": project_id,
+                "run_id": run_id,
+                "recorded": False,
+                "trace": None,
+            }
+
+    def run_trace_row(
+        self,
+        project_id: str,
+        run_id: int,
+        row_id: int,
+        *,
+        column_id: int | None,
+    ) -> dict[str, Any]:
+        project = self._workspace.get(project_id)
+        try:
+            payload = action_contract.run_trace_row(
+                project_id,
+                project,
+                run_id,
+                row_id,
+                column_id=column_id,
+            )
+            run = project.db.execute(
+                "SELECT * FROM runs WHERE id=?", (run_id,)
+            ).fetchone()
+            payload["run"]["status"] = public_run_progress(run, run["status"])["status"]
+            return payload
+        except KeyError as exc:
+            raise RouteError(404, str(exc)) from exc
+
+    def run_attempts(self, project_id: str, run_id: int) -> dict[str, Any]:
+        """Every attempt one run made; a compaction-orphaned attempt (its
+        ``run_id`` cleared) is reachable only through ``project_attempts``."""
+        project = self._workspace.get(project_id)
+        return {"run_id": run_id, "attempts": run_attempt_receipts(project, run_id)}
+
+    def project_attempts(
+        self,
+        project_id: str,
+        *,
+        run_id: int | None,
+        offset: int,
+        limit: int,
+    ) -> dict[str, Any]:
+        """Attempt receipts by project, with the run as a filter, not the key."""
+        project = self._workspace.get(project_id)
+        total, receipts = project_attempt_receipts(
+            project, run_id=run_id, offset=offset, limit=limit
+        )
+        payload = offset_page_payload(
+            ATTEMPT_RECEIPTS_SCHEMA_VERSION,
+            items=receipts,
+            item_key="attempts",
+            offset=offset,
+            limit=limit,
+            total=total,
+            order="created_at DESC",
+        )
+        payload["run_id"] = run_id
+        return payload
 
     def receipt_lookup(self, project_id: str, receipt_id: str) -> dict[str, Any]:
         project = self._workspace.get(project_id)

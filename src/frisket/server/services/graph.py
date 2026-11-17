@@ -12,10 +12,6 @@ from frisket.server.workspace import Workspace
 from frisket.server.route_errors import RouteError
 
 
-class GraphNeighborhoodRouteError(RouteError):
-    pass
-
-
 class GraphNeighborhoodService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
@@ -32,7 +28,7 @@ class GraphNeighborhoodService:
         limit_edges: int = 500,
     ) -> dict[str, Any]:
         if anchor_kind != "entity":
-            raise GraphNeighborhoodRouteError(
+            raise RouteError(
                 400,
                 {
                     "code": "unsupported_anchor_kind",
@@ -52,7 +48,7 @@ class GraphNeighborhoodService:
                 limit_edges=limit_edges,
             )
         except GraphNeighborhoodError as exc:
-            raise GraphNeighborhoodRouteError(
+            raise RouteError(
                 exc.status_code,
                 {"code": exc.code, "message": exc.message},
             ) from exc

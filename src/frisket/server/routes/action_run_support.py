@@ -21,11 +21,7 @@ from frisket.server.route_errors import (
     reject_unknown_query_parameters,
 )
 from frisket.server.services.action_run_cancel import ActionRunCancelService
-from frisket.server.services.action_run_rows import ActionRunRowsService
-from frisket.server.services.action_run_status import ActionRunStatusService
-from frisket.server.services.action_run_trace import ActionRunTraceService
-from frisket.server.services.project_attempts import ProjectAttemptsService
-from frisket.server.services.run_attempts import RunAttemptsService
+from frisket.server.services.action_runs import ActionRunService
 
 
 def register_action_run_cancel_routes(
@@ -55,7 +51,7 @@ def register_action_run_cancel_routes(
 def register_action_run_status_routes(
     app: FastAPI,
     *,
-    service: ActionRunStatusService,
+    service: ActionRunService,
 ) -> None:
     @app.get(
         "/api/projects/{pid}/actions/runs/{run_id}/status",
@@ -71,7 +67,7 @@ def register_action_run_status_routes(
 def register_action_run_rows_routes(
     app: FastAPI,
     *,
-    service: ActionRunRowsService,
+    service: ActionRunService,
 ) -> None:
     @app.get(
         "/api/projects/{pid}/actions/runs/{run_id}/rows",
@@ -101,7 +97,7 @@ def register_action_run_rows_routes(
 def register_action_run_trace_routes(
     app: FastAPI,
     *,
-    service: ActionRunTraceService,
+    service: ActionRunService,
 ) -> None:
     @app.get("/api/projects/{pid}/actions/runs/{run_id}/trace")
     def action_run_trace(pid: str, run_id: int) -> dict[str, Any]:
@@ -132,7 +128,7 @@ def register_action_run_trace_routes(
 def register_run_attempt_routes(
     app: FastAPI,
     *,
-    service: RunAttemptsService,
+    service: ActionRunService,
 ) -> None:
     @app.get("/api/projects/{pid}/actions/runs/{run_id}/attempts")
     def run_attempts(pid: str, run_id: int) -> dict[str, Any]:
@@ -148,13 +144,13 @@ def register_run_attempt_routes(
         authorized, and its terminal outcome. The same view joins settlement
         on ``attempt_id``.
         """
-        return service.receipts(pid, run_id)
+        return service.run_attempts(pid, run_id)
 
 
 def register_project_attempts_routes(
     app: FastAPI,
     *,
-    service: ProjectAttemptsService,
+    service: ActionRunService,
 ) -> None:
     @app.get(
         "/api/projects/{pid}/actions/attempts",
@@ -181,4 +177,4 @@ def register_project_attempts_routes(
         surface asks) off the same query, so the run view and the project
         list cannot disagree about a receipt.
         """
-        return service.page(pid, run_id=run_id, offset=offset, limit=limit)
+        return service.project_attempts(pid, run_id=run_id, offset=offset, limit=limit)

@@ -17,10 +17,6 @@ from frisket.authoring.workbench.plugin_subprocess_projections import (
 from frisket.server.route_errors import RouteError
 
 
-class RuntimeProjectionRouteError(RouteError):
-    pass
-
-
 class RuntimeProjectionService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
@@ -43,7 +39,7 @@ class RuntimeProjectionService:
                 params=params,
             )
         except ProjectionRuntimeError as exc:
-            raise RuntimeProjectionRouteError(
+            raise RouteError(
                 _runtime_projection_status_code(exc),
                 _runtime_projection_error_detail(exc),
             ) from exc
@@ -69,7 +65,7 @@ class RuntimeProjectionService:
                 mode=mode,
             )
         except ProjectionRuntimeError as exc:
-            raise RuntimeProjectionRouteError(
+            raise RouteError(
                 _runtime_projection_status_code(exc),
                 _runtime_projection_error_detail(exc),
             ) from exc
@@ -86,7 +82,7 @@ class RuntimeProjectionService:
     ) -> dict[str, Any]:
         project = self._workspace.get(project_id)
         if project_projection_runtime_binding(project, projection_kind) is None:
-            raise RuntimeProjectionRouteError(
+            raise RouteError(
                 404,
                 {
                     "code": "unsupported_runtime_projection",
@@ -104,7 +100,7 @@ class RuntimeProjectionService:
                 params=params,
             )
         except ProjectionRuntimeError as exc:
-            raise RuntimeProjectionRouteError(
+            raise RouteError(
                 _runtime_projection_status_code(exc),
                 _runtime_projection_error_detail(exc),
             ) from exc

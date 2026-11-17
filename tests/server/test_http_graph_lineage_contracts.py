@@ -10,11 +10,10 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
-from frisket.server.route_errors import register_route_error_handler
+from frisket.server.route_errors import RouteError, register_route_error_handler
 from frisket.server.routes.projects import register_project_lifecycle_routes
 from frisket.server.routes.sheet_features import register_sheet_graph_routes
 from frisket.server.services.projects import ProjectNotFound
-from frisket.server.services.sheet_graph import SheetGraphRouteError
 
 
 _LINEAGE_PATH = "/api/projects/{pid}/lineage"
@@ -56,7 +55,7 @@ class _SheetGraphService:
     def sheet_graph(self, pid: str, sheet_id: int, **kwargs: Any) -> dict[str, Any]:
         self.calls.append((pid, sheet_id, kwargs))
         if sheet_id == 404:
-            raise SheetGraphRouteError(
+            raise RouteError(
                 404,
                 {"code": "sheet_not_found", "message": "no sheet 404", "future": None},
             )
