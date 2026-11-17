@@ -4,7 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 from frisket.server import schemas
 
@@ -19,12 +18,6 @@ def test_schema_defaults_and_validation_contracts_are_preserved() -> None:
         "limit": 50,
         "columns": None,
     }
-    # Public onboarding request bodies belong to their generated HTTP-contract
-    # module, not the server-local schema catch-all.
-    with pytest.raises(AttributeError):
-        schemas.ImportPasteDraftBody
-    with pytest.raises(AttributeError):
-        schemas.ImportUrlsBody
 
 
 def test_server_app_imports_in_fresh_process() -> None:

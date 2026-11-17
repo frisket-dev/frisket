@@ -262,9 +262,7 @@ void path; void created;
     (
         "tenant.import_csv.post",
         "tenant.prepare_import_files.post",
-        "tenant.import_csv_preview.post",
         "tenant.import_xlsx.post",
-        "tenant.import_pdf.post",
         "tenant.import_files.post",
         "tenant.ocr_compare_scratch.post",
         "tenant.ocr_compare_scratch_estimate.post",

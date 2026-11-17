@@ -579,14 +579,25 @@ def test_import_urls_routes_youtube_watch_url_through_ytdlp(tmp_path, monkeypatc
     pid, project = _project(client)
 
     response = client.post(
-        f"/api/projects/{pid}/import/urls",
-        json={"urls": [f"  {YOUTUBE_WATCH}  "], "column": "media"},
+        f"/api/projects/{pid}/actions/v1/run",
+        json={
+            "action_id": "import.urls",
+            "scope": {"kind": "project"},
+            "params": {"urls": [f"  {YOUTUBE_WATCH}  "]},
+            "sheet_name": "downloads",
+            "output_names": {},
+            "idempotency_key": "test-import-urls-ytdlp",
+        },
     )
 
     assert response.status_code == 200, response.text
-    assert response.json()["downloaded"] == 1
+    assert response.json()["status"] == "completed"
     assert seen == [YOUTUBE_WATCH]
-    sheet_id = response.json()["sheet_id"]
+    sheet_id = next(
+        output["sheet_id"]
+        for output in response.json()["outputs"]
+        if output["kind"] == "sheet"
+    )
     media = _cell(
         client,
         pid,

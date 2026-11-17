@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import csv
-import io
 import json
 from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.executor import ExecutorDeps
-from frisket.server.route_errors import RouteError
 from frisket.server.services import import_csv_analysis, import_csv_execute
 from frisket.server.services.action_runs import v1_action_result_http_status
+from frisket.server.services.import_csv_errors import ImportCsvRouteError
 from frisket.server.services.import_tabular import (
     decode_destination_mapping,
     materialized_sheet_output,
@@ -28,10 +26,6 @@ class ImportCsvUploadResponse:
     status_code: int
     payload: dict[str, Any]
     force_json_response: bool = False
-
-
-class ImportCsvRouteError(RouteError):
-    pass
 
 
 def _source_path(upload: AdmittedUpload) -> str:
@@ -65,27 +59,6 @@ def _request_key(
     return "direct:" + hashlib.sha256(basis.encode()).hexdigest()
 
 
-def _preview_rows(
-    source: Any, scan: import_csv_analysis.CsvFileScan
-) -> list[dict[str, str]]:
-    """Project lexical CSV values for the preview without buffering the upload."""
-
-    source.seek(0)
-    wrapper = io.TextIOWrapper(source, encoding=scan.source_encoding, newline="")
-    try:
-        reader = csv.DictReader(
-            wrapper, fieldnames=scan.fieldnames, delimiter=scan.delimiter
-        )
-        next(reader, None)
-        return [
-            {name: value or "" for name, value in row.items() if name is not None}
-            for _, row in zip(range(20), reader, strict=False)
-        ]
-    finally:
-        wrapper.detach()
-        source.seek(0)
-
-
 class ImportCsvUploadService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
@@ -112,22 +85,6 @@ class ImportCsvUploadService:
         )
         upload.source.seek(0)
         return scan
-
-    def preview_csv(
-        self, project_id: str, *, upload: AdmittedUpload, encoding: str | None = None
-    ) -> dict[str, Any]:
-        self._workspace.get(project_id)
-        scan = self._scan(upload, encoding=encoding)
-        preview_rows = _preview_rows(upload.source, scan)
-        return {
-            "encoding": scan.source_encoding,
-            "delimiter": scan.delimiter,
-            "decimal_separator": scan.decimal_separator,
-            "row_count": scan.row_count,
-            "columns": scan.columns,
-            "preview_rows": preview_rows,
-            "truncated": scan.row_count > len(preview_rows),
-        }
 
     def upload_csv(
         self,

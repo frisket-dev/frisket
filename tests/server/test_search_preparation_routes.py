@@ -1112,7 +1112,7 @@ def test_mixed_pdf_plan_preserves_good_work_and_skipped_source_scope(
 ):
     from helpers import stub_rapidocr_run_scope
     from frisket.ops import ocr_engines
-    from tests.server.test_server_import_pdf_routes import _pdf_bytes
+    from tests.server.test_search_preparation_import_bridges import _pdf_bytes
 
     async def deterministic_ocr(_self, _engine, page_paths, _ctx, **_kwargs):
         return [

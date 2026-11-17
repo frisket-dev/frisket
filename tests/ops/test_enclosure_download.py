@@ -375,13 +375,25 @@ def test_import_urls_uses_shared_direct_download_primitive(tmp_path, monkeypatch
     pid, project = _project(client)
 
     response = client.post(
-        f"/api/projects/{pid}/import/urls",
-        json={"urls": ["https://cdn.example/ep1.mp3"], "column": "media"},
+        f"/api/projects/{pid}/actions/v1/run",
+        json={
+            "action_id": "import.urls",
+            "scope": {"kind": "project"},
+            "params": {"urls": ["https://cdn.example/ep1.mp3"]},
+            "sheet_name": "downloads",
+            "output_names": {},
+            "idempotency_key": "test-import-urls-direct-download",
+        },
     )
     assert response.status_code == 200, response.text
+    assert response.json()["status"] == "completed"
     assert seen == ["https://cdn.example/ep1.mp3"]
 
-    sheet_id = response.json()["sheet_id"]
+    sheet_id = next(
+        output["sheet_id"]
+        for output in response.json()["outputs"]
+        if output["kind"] == "sheet"
+    )
     data = client.get(f"/api/projects/{pid}/sheets/{sheet_id}/data").json()
     cols = {c["name"]: c for c in data["columns"]}
     media = data["rows"][0]["cells"][str(cols["media"]["id"])]

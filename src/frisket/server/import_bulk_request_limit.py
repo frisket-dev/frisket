@@ -21,10 +21,6 @@ _TOO_LARGE_BODIES = {
         {"detail": "CSV import request exceeds deployment limit"},
         separators=(",", ":"),
     ).encode(),
-    "csv_preview": json.dumps(
-        {"detail": "CSV import preview request exceeds deployment limit"},
-        separators=(",", ":"),
-    ).encode(),
     "import": json.dumps(
         {"detail": "import request exceeds deployment limit"},
         separators=(",", ":"),
@@ -170,13 +166,6 @@ def _limited_import_request_kind(scope: Scope) -> str | None:
         and segments[4:] == ["import", "csv"]
     ):
         return "csv_import"
-    if (
-        len(segments) == 7
-        and segments[1:3] == ["api", "projects"]
-        and bool(segments[3])
-        and segments[4:] == ["import", "csv", "preview"]
-    ):
-        return "csv_preview"
     return request_kind
 
 

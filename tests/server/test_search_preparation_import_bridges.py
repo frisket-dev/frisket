@@ -1,4 +1,4 @@
-"""Async import transports hand synchronous preparation to a worker thread."""
+"""A PDF upload publishes search preparation, and recovery retries a failed plan."""
 
 from __future__ import annotations
 
@@ -9,17 +9,50 @@ from fastapi.testclient import TestClient
 
 from frisket.actions.types import PdfPage
 from frisket.engine.executor.pdf_page_read import AdmittedPdfPageRenderer
-from frisket.ops import url_import
 from frisket.server.app import create_app
 from frisket.server.route_errors import RouteError
 from frisket.server.services.search_preparation import SearchPreparationService
-from tests.server.test_server_import_pdf_routes import PNG_1X1, _pdf_bytes
 
 
-@pytest.mark.parametrize("transport", ["pdf", "urls"])
+PNG_1X1 = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc```\x00\x00"
+    b"\x00\x04\x00\x01\xf6\x178U\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def _pdf_bytes(text: str = "Audit Findings 2026") -> bytes:
+    content = f"BT /F1 24 Tf 72 700 Td ({text}) Tj ET".encode()
+    objs = [
+        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n",
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n",
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]"
+        b"/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n",
+        b"4 0 obj<</Length "
+        + str(len(content)).encode()
+        + b">>stream\n"
+        + content
+        + b"\nendstream\nendobj\n",
+        b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for obj in objs:
+        offsets.append(len(out))
+        out += obj
+    xref = len(out)
+    out += b"xref\n0 6\n0000000000 65535 f \n"
+    for off in offsets:
+        out += (f"{off:010d} 00000 n \n").encode()
+    out += (
+        b"trailer<</Size 6/Root 1 0 R>>\nstartxref\n" + str(xref).encode() + b"\n%%EOF"
+    )
+    return bytes(out)
+
+
 @pytest.mark.parametrize("transient_failure", [False, True])
-def test_pdf_import_bridges_publish_search_preparation(
-    tmp_path, monkeypatch, transport, transient_failure
+def test_pdf_import_bridge_publishes_search_preparation(
+    tmp_path, monkeypatch, transient_failure
 ):
     raw_pdf = _pdf_bytes("")
 
@@ -34,11 +67,6 @@ def test_pdf_import_bridges_publish_search_preparation(
         }
 
     monkeypatch.setattr(AdmittedPdfPageRenderer, "render", render)
-    monkeypatch.setattr(
-        url_import,
-        "download_url",
-        lambda *_args, **_kwargs: (raw_pdf, "application/pdf", "scan.pdf", None),
-    )
     planning_unavailable = transient_failure
     original_plan = SearchPreparationService._plan
 
@@ -50,16 +78,10 @@ def test_pdf_import_bridges_publish_search_preparation(
     monkeypatch.setattr(SearchPreparationService, "_plan", plan)
     client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Preparation bridge"}).json()["id"]
-    if transport == "pdf":
-        response = client.post(
-            f"/api/projects/{pid}/import/pdf",
-            files={"file": ("scan.pdf", raw_pdf, "application/pdf")},
-        )
-    else:
-        response = client.post(
-            f"/api/projects/{pid}/import/urls",
-            json={"urls": ["https://example.test/scan.pdf"], "column": "media"},
-        )
+    response = client.post(
+        f"/api/projects/{pid}/import/files",
+        files={"files": ("scan.pdf", raw_pdf, "application/pdf")},
+    )
     assert response.status_code == 200, response.text
     workspace = client.app.state.workspace
     project = workspace.get(pid)
@@ -67,7 +89,7 @@ def test_pdf_import_bridges_publish_search_preparation(
     assert project.row_count(sheet) == 1
     preparation = SearchPreparationService(workspace)
     receipt = project.db.execute(
-        "SELECT id FROM receipts WHERE action_kind=?", (f"import.{transport}",)
+        "SELECT id FROM receipts WHERE action_kind=?", ("import.files",)
     ).fetchone()
     if transient_failure:
         assert (

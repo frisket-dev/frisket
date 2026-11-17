@@ -84,10 +84,8 @@ from frisket.server.routes.diagnose import register_diagnose_routes
 from frisket.server.routes.imports import (
     register_import_bulk_routes,
     register_import_csv_routes,
-    register_import_draft_routes,
     register_import_files_routes,
     register_import_followthemoney_routes,
-    register_import_pdf_routes,
     register_import_urls_routes,
     register_import_xlsx_routes,
 )
@@ -208,11 +206,8 @@ from frisket.server.services.graph import GraphNeighborhoodService
 from frisket.server.services.sheet_graph import SheetGraphService
 from frisket.server.services.import_csv import ImportCsvUploadService
 from frisket.server.services.import_bulk import BulkImportLimits, ImportBulkService
-from frisket.server.services.import_drafts import ImportDraftService
 from frisket.server.services.import_files import ImportFilesUploadService
 from frisket.server.services.import_followthemoney import FollowTheMoneyUploadService
-from frisket.server.services.import_pdf import ImportPdfUploadService
-from frisket.server.services.import_urls import ImportUrlsService
 from frisket.server.services.import_urls_prepare import ImportUrlsPrepareService
 from frisket.server.services.import_xlsx import ImportXlsxUploadService
 from frisket.server.services.pdf_packet_splits import PdfPacketSplitService
@@ -913,8 +908,6 @@ def create_app(
 
     # ---------- import ----------
 
-    register_import_draft_routes(app, service=ImportDraftService(ws))
-
     register_import_bulk_routes(
         app,
         service=ImportBulkService(
@@ -968,14 +961,6 @@ def create_app(
     register_import_xlsx_routes(
         app,
         service=ImportXlsxUploadService(ws),
-        limits=bulk_limits,
-    )
-
-    register_import_pdf_routes(
-        app,
-        service=ImportPdfUploadService(
-            ws, search_preparation=search_preparation_service
-        ),
         limits=bulk_limits,
     )
 
@@ -1048,10 +1033,7 @@ def create_app(
 
     register_import_urls_routes(
         app,
-        service=ImportUrlsService(ws, search_preparation=search_preparation_service),
-        prepare_service=ImportUrlsPrepareService(
-            ws, pdf_import_service=pdf_import_service
-        ),
+        service=ImportUrlsPrepareService(ws, pdf_import_service=pdf_import_service),
     )
 
     # ---------- recipes / runs ----------

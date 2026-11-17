@@ -8,7 +8,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { ApiError, cancelImportSession, chunkImportFiles, confirmImportRowsDraft, createImportSession, detectPastedRowsDraft, importCsv, importFiles, importPdf, importXlsx, importUrls, listImportSessions, prepareImportFiles, prepareImportUrls, previewCsv, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
+import { cancelImportSession, chunkImportFiles, createImportSession, importCsv, importFiles, importXlsx, listImportSessions, prepareImportFiles, prepareImportUrls, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
 import {
   createOnboardingImportsApi,
   type OnboardingImportOptions,
@@ -19,43 +19,6 @@ function jsonResponse(payload: unknown, status = 200): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
-}
-
-function pasteDraftResponse(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    schema_version: 'frisket.import_draft.v2',
-    draft_id: 'paste@sha256:example',
-    source_kind: 'paste',
-    sheet_name: 'Pasted rows',
-    row_count: 1,
-    columns: [{
-      key: 'name',
-      name: 'Name',
-      type: 'text',
-      include: true,
-      format: null,
-      sample_values: ['Ada'],
-      producer_column_extension: { retained: { nested: [null, 'value'] } },
-    }, {
-      key: 'note',
-      name: 'Note',
-      type: 'text',
-      include: true,
-      sample_values: [null],
-      producer_column_extension: { retained: null },
-    }],
-    preview_rows: [{ name: 'Ada', producer_row_extension: { retained: true } }],
-    warnings: ['producer warning'],
-    source: {
-      kind: 'inline',
-      label: 'Pasted rows',
-      fingerprint: 'sha256:example',
-      line_count: 2,
-      producer_source_extension: { retained: true },
-    },
-    producer_extension: { retained: true },
-    ...overrides,
-  };
 }
 
 afterEach(() => {
@@ -463,7 +426,7 @@ describe('onboarding/import generated HTTP contracts', () => {
     });
   });
 
-  it('uses exact routes, native multipart FormData, JSON encoding, headers, and abort', async () => {
+  it('uses exact routes, native multipart FormData, headers, and abort', async () => {
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({ input, init });
@@ -477,16 +440,10 @@ describe('onboarding/import generated HTTP contracts', () => {
             rows: 600,
           }
         : requests.length === 2
-          ? pasteDraftResponse()
+          ? { sheet_id: 4, rows: 1, columns: ['name'], encoding: 'utf-8' }
           : requests.length === 3
-            ? { sheet_id: 3, rows: 1, downloaded: 1, failed: 0 }
-            : requests.length === 4
-              ? { sheet_id: 4, rows: 1, columns: ['name'], encoding: 'utf-8' }
-              : requests.length === 5
-                ? { sheet_id: 5, rows: 1, columns: ['name'] }
-                : requests.length === 6
-                  ? { sheet_id: 6, rows: 1, pages: 1, columns: ['page', 'text'] }
-                  : { sheet_id: 7, rows: 2 });
+            ? { sheet_id: 5, rows: 1, columns: ['name'] }
+            : { sheet_id: 7, rows: 2 });
     }));
     const controller = new AbortController();
     const api = createOnboardingImportsApi((status, payload) =>
@@ -501,12 +458,6 @@ describe('onboarding/import generated HTTP contracts', () => {
     await expect(api.seedSampleProject('hostile /%25 ☃', options)).resolves.toMatchObject({
       sheet_id: 3,
     });
-    await expect(api.detectPastedRowsDraft('name\nAda\n', options)).resolves.toEqual(
-      pasteDraftResponse(),
-    );
-    await expect(api.importUrls(['https://example.test/a.mp3'], options)).resolves.toEqual({
-      sheet_id: 3, rows: 1, downloaded: 1, failed: 0,
-    });
     await expect(api.importCsv(file, options)).resolves.toEqual({
       sheet_id: 4,
       rows: 1,
@@ -514,24 +465,20 @@ describe('onboarding/import generated HTTP contracts', () => {
       encoding: 'utf-8',
     });
     await expect(api.importXlsx(file, options)).resolves.toMatchObject({ sheet_id: 5, rows: 1 });
-    await expect(api.importPdf(file, options)).resolves.toMatchObject({ sheet_id: 6, rows: 1 });
     await expect(api.importFiles([file, new File(['two'], 'two.txt')], options)).resolves.toMatchObject({ sheet_id: 7, rows: 2 });
 
     const base = '/api/projects/hostile%20%2F%2525%20%E2%98%83';
-    expect(requests.slice(0, 3).map(({ input, init }) => [String(input), init?.method, init?.body])).toEqual([
+    expect(requests.slice(0, 1).map(({ input, init }) => [String(input), init?.method, init?.body])).toEqual([
       [`${base}/seed-sample`, 'POST', undefined],
-      [`${base}/import/drafts/paste`, 'POST', JSON.stringify({ raw: 'name\nAda\n' })],
-      [`${base}/import/urls`, 'POST', JSON.stringify({ urls: ['https://example.test/a.mp3'] })],
     ]);
-    expect(requests[3]?.input).toBe(`${base}/import/csv`);
-    expect(requests[3]?.init?.body).toBeInstanceOf(FormData);
-    expect((requests[3]?.init?.body as FormData).get('file')).toBe(file);
-    expect(requests.slice(4).map(({ input }) => String(input))).toEqual([
-      `${base}/import/xlsx`, `${base}/import/pdf`, `${base}/import/files`,
+    expect(requests[1]?.input).toBe(`${base}/import/csv`);
+    expect(requests[1]?.init?.body).toBeInstanceOf(FormData);
+    expect((requests[1]?.init?.body as FormData).get('file')).toBe(file);
+    expect(requests.slice(2).map(({ input }) => String(input))).toEqual([
+      `${base}/import/xlsx`, `${base}/import/files`,
     ]);
-    expect((requests[4]?.init?.body as FormData).get('file')).toBe(file);
-    expect((requests[5]?.init?.body as FormData).get('file')).toBe(file);
-    expect((requests[6]?.init?.body as FormData).getAll('files')).toEqual([
+    expect((requests[2]?.init?.body as FormData).get('file')).toBe(file);
+    expect((requests[3]?.init?.body as FormData).getAll('files')).toEqual([
       file, expect.any(File),
     ]);
     for (const request of requests) {
@@ -541,152 +488,26 @@ describe('onboarding/import generated HTTP contracts', () => {
       expect(headers.get('x-trace-id')).toBe('onboarding-import');
     }
     expect(new Headers(requests[0]?.init?.headers).get('content-type')).toBeNull();
-    for (const request of requests.slice(1, 3)) {
-      expect(new Headers(request.init?.headers).get('content-type')).toBe('application/json');
-    }
-    expect(new Headers(requests[3]?.init?.headers).get('content-type')).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(7);
+    expect(new Headers(requests[1]?.init?.headers).get('content-type')).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 
-  it('keeps legacy paste limits, URL body omission, bare v1 errors, and network identity stable', async () => {
-    const fetch = vi.fn(async () => jsonResponse({
-      schema_version: 'frisket.action_result.v1',
-      action: { kind: 'import.urls', action_id: 'url-1' },
-      status: 'failed',
-      project_id: 'project/one',
-      errors: [{ code: 'url_import_failed', message: 'download refused', details: { url: 'x' } }],
-    }, 500));
-    vi.stubGlobal('fetch', fetch);
-    await expect(importUrls('project/one', ['  https://example.test/a.mp3  ', ' ', 'https://example.test/b.mp3']))
-      .rejects.toMatchObject({
-        name: 'ApiError', status: 500, code: 'url_import_failed', message: 'download refused',
-      } satisfies Partial<ApiError>);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls[0]?.[0]).toBe('/api/projects/project%2Fone/import/urls');
-    expect(fetch.mock.calls[0]?.[1]?.body).toBe(JSON.stringify({
-      urls: ['https://example.test/a.mp3', 'https://example.test/b.mp3'],
-    }));
-
-    await expect(detectPastedRowsDraft('project/one', 'x'.repeat(2_000_001))).rejects.toMatchObject({
-      name: 'ApiError', status: 413,
-    } satisfies Partial<ApiError>);
-    expect(fetch).toHaveBeenCalledTimes(1);
-
+  it('keeps network identity stable', async () => {
     const network = new Error('network identity');
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(network)));
     await expect(seedSampleProject('network/project')).rejects.toBe(network);
   });
 
-  it('sends raw paste and reviewed mapping to the captured project for server preparation', async () => {
-    const fetch = vi.fn(async () => jsonResponse({ sheet_id: 17, rows: 1, columns: ['Name'] }));
-    vi.stubGlobal('fetch', fetch);
-    const raw = 'name,note\nAda,omit me\n';
-    const draft = { ...pasteDraftResponse(), raw };
-    await expect(confirmImportRowsDraft('project /one', draft, {
-      sheetName: 'People',
-      columns: [
-        { key: 'name', name: 'Name', type: 'text', include: true },
-        { key: 'note', name: 'Note', type: 'text', include: false },
-      ],
-    })).resolves.toEqual({ sheet_id: 17, rows: 1, columns: ['Name'] });
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls[0]?.[0]).toBe('/api/projects/project%20%2Fone/import/drafts/paste/confirm');
-    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
-      raw, draft_id: draft.draft_id, sheet_name: 'People',
-      columns: [
-        { source_name: 'name', name: 'Name', type: 'text' },
-        { source_name: 'note', name: null, type: 'text' },
-      ],
-    });
-  });
-
-  it('normalizes the required paste-draft core while preserving recursive producer extensions and format omission', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(pasteDraftResponse())));
-
-    const draft = await detectPastedRowsDraft('project/one', 'name\nAda\n');
-
-    expect(draft).toMatchObject({
-      schema_version: 'frisket.import_draft.v2',
-      draft_id: 'paste@sha256:example',
-      row_count: 1,
-      columns: [{
-        key: 'name',
-        format: null,
-        sample_values: ['Ada'],
-        producer_column_extension: { retained: { nested: [null, 'value'] } },
-      }, {
-        key: 'note',
-        sample_values: [null],
-        producer_column_extension: { retained: null },
-      }],
-      preview_rows: [{ name: 'Ada', producer_row_extension: { retained: true } }],
-      warnings: ['producer warning'],
-      source: {
-        label: 'Pasted rows',
-        producer_source_extension: { retained: true },
-      },
-      producer_extension: { retained: true },
-    });
-    expect(draft.columns[1]).toMatchObject({
-      key: 'note',
-      sample_values: [null],
-      producer_column_extension: { retained: null },
-    });
-    expect(draft.columns[1]).not.toHaveProperty('format');
-  });
-
-  it('turns a malformed successful paste-draft response into a 500 ApiError', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(pasteDraftResponse({ row_count: 1.5 }))));
-
-    await expect(detectPastedRowsDraft('project/one', 'name\nAda\n')).rejects.toMatchObject({
-      name: 'ApiError', status: 500,
-    } satisfies Partial<ApiError>);
-  });
-
-  it('requires the generated source and sample_values response fields', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(pasteDraftResponse({
-      source: undefined,
-    }))));
-
-    await expect(detectPastedRowsDraft('project/one', 'name\nAda\n')).rejects.toMatchObject({
-      name: 'ApiError', status: 500,
-    } satisfies Partial<ApiError>);
-
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(pasteDraftResponse({
-      columns: [{
-        key: 'name', name: 'Name', type: 'text', include: true,
-      }],
-    }))));
-    await expect(detectPastedRowsDraft('project/one', 'name\nAda\n')).rejects.toMatchObject({
-      name: 'ApiError', status: 500,
-    } satisfies Partial<ApiError>);
-  });
-
-  it('routes CSV preview and import encoding through generated multipart contracts', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => jsonResponse(
-      String(input).includes('/preview')
-        ? {
-            encoding: 'cp1252',
-            delimiter: ',',
-            decimal_separator: '.',
-            row_count: 1,
-            columns: [{ name: 'name', type: 'text', format: null }],
-            preview_rows: [{ name: 'Muñoz' }],
-            truncated: false,
-          }
-        : { sheet_id: 4, rows: 1, columns: ['name'], encoding: 'cp1252' },
+  it('routes CSV import encoding through the generated multipart contract', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(
+      { sheet_id: 4, rows: 1, columns: ['name'], encoding: 'cp1252' },
     )));
 
     const file = new File(['name\nMuñoz\n'], 'rows.csv');
-    await expect(previewCsv('project/one', file, 'cp1252')).resolves.toMatchObject({
-      encoding: 'cp1252', preview_rows: [{ name: 'Muñoz' }],
-    });
-
     await expect(importCsv('project/one', file, 'cp1252')).resolves.toEqual({
       sheet_id: 4, rows: 1, columns: ['name'], encoding: 'cp1252',
     });
     expect(vi.mocked(fetch).mock.calls.map(([input]) => String(input))).toEqual([
-      '/api/projects/project%2Fone/import/csv/preview?encoding=cp1252',
       '/api/projects/project%2Fone/import/csv?encoding=cp1252',
     ]);
     for (const [, init] of vi.mocked(fetch).mock.calls) {
@@ -695,18 +516,16 @@ describe('onboarding/import generated HTTP contracts', () => {
     }
   });
 
-  it('routes the public XLSX, PDF, and files wrappers through generated multipart contracts', async () => {
+  it('routes the public XLSX and files wrappers through generated multipart contracts', async () => {
     vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(_input);
       if (path.endsWith('/xlsx')) return jsonResponse({ sheet_id: 5, rows: 1, columns: ['name'] });
-      if (path.endsWith('/pdf')) return jsonResponse({ sheet_id: 6, rows: 1, pages: 1, columns: ['page', 'text'] });
       expect((init?.body as FormData).getAll('files')).toHaveLength(2);
       return jsonResponse({ sheet_id: 7, rows: 2 });
     }));
     const first = new File(['one'], 'one.txt');
     const second = new File(['two'], 'two.txt');
     await expect(importXlsx('project/one', first)).resolves.toEqual({ sheet_id: 5, rows: 1, columns: ['name'] });
-    await expect(importPdf('project/one', first)).resolves.toEqual({ sheet_id: 6, rows: 1, pages: 1, columns: ['page', 'text'] });
     await expect(importFiles('project/one', [first, second])).resolves.toEqual({ sheet_id: 7, rows: 2 });
   });
 });

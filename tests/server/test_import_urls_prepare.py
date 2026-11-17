@@ -14,7 +14,6 @@ from frisket.ops import url_import
 from frisket.ops.ytdlp import DownloadedMedia
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.imports import register_import_urls_routes
-from frisket.server.services.import_urls import ImportUrlsService
 from frisket.server.services.import_urls_prepare import ImportUrlsPrepareService
 from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
 from frisket.server.services.pdf_imports.service import PdfImportService
@@ -62,8 +61,7 @@ def _client(tmp_path, *, limit=None, real_adopter=False):
     register_route_error_handler(app)
     register_import_urls_routes(
         app,
-        service=ImportUrlsService(workspace),
-        prepare_service=ImportUrlsPrepareService(workspace, pdf_import_service=adopter),
+        service=ImportUrlsPrepareService(workspace, pdf_import_service=adopter),
     )
     return TestClient(app), workspace, pid, adopter
 

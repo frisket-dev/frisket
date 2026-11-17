@@ -10,7 +10,6 @@ from openpyxl import Workbook
 
 from frisket.contracts.action import ActionResult
 from frisket.engine.executor import CellEditQueryLimits, ImportWorkloadLimits
-from frisket.engine.executor.pdf_page_read import AdmittedPdfPageRenderer
 from frisket.server.app import create_app
 from frisket.server.services import import_bulk_execute
 
@@ -508,70 +507,28 @@ def test_direct_files_obeys_injected_row_limit_before_blob_materialization(
 
 
 @pytest.mark.parametrize("max_rows", [2, None])
-@pytest.mark.parametrize("kind", ["files", "pdf"])
 def test_direct_media_allows_exact_bound_and_unlimited_workloads(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     max_rows: int | None,
-    kind: str,
 ) -> None:
-    monkeypatch.setattr(
-        AdmittedPdfPageRenderer, "render", lambda self, document, *, dpi: {}
-    )
     client = TestClient(
         create_app(
             tmp_path / "workspace",
             import_workload_limits=ImportWorkloadLimits(max_rows=max_rows),
         )
     )
-    project_id = _project(client, f"Direct {kind} {max_rows!r} limit")
-    uploads = (
-        [
-            ("files", ("one.txt", b"one", "text/plain")),
-            ("files", ("two.txt", b"two", "text/plain")),
-        ]
-        if kind == "files"
-        else [("file", ("two.pdf", _two_page_pdf_bytes(), "application/pdf"))]
-    )
-    response = client.post(f"/api/projects/{project_id}/import/{kind}", files=uploads)
+    project_id = _project(client, f"Direct files {max_rows!r} limit")
+    uploads = [
+        ("files", ("one.txt", b"one", "text/plain")),
+        ("files", ("two.txt", b"two", "text/plain")),
+    ]
+    response = client.post(f"/api/projects/{project_id}/import/files", files=uploads)
     assert response.status_code == 200, response.text
     assert response.json()["rows"] == 2
     project = client.app.state.workspace.get(project_id)
     assert len(project.sheets(include_hidden=True)) == 1
     assert project.row_count(response.json()["sheet_id"]) == 2
     assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-
-
-def test_direct_pdf_obeys_injected_row_limit_before_blob_materialization(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        AdmittedPdfPageRenderer,
-        "render",
-        lambda self, document, *, dpi: {},
-    )
-    client = TestClient(
-        create_app(
-            tmp_path / "workspace",
-            import_workload_limits=ImportWorkloadLimits(max_rows=1),
-        )
-    )
-    project_id = _project(client, "Direct PDF hosted limit")
-
-    response = client.post(
-        f"/api/projects/{project_id}/import/pdf",
-        files={"file": ("over-limit.pdf", _two_page_pdf_bytes(), "application/pdf")},
-    )
-
-    _assert_limit_action_result(
-        response,
-        project_id=project_id,
-        action_kind="import.pdf",
-        row_count=2,
-        max_rows=1,
-    )
-    _assert_no_import_residue(client, project_id)
 
 
 def test_bulk_xlsx_obeys_injected_row_limit_before_publication(

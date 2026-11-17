@@ -92,12 +92,6 @@ import { createRunProvenanceApi } from './runProvenance';
 import { createEntityMentionsApi } from './entityMentions';
 import { createGraphLineageApi } from './graphLineage';
 import { createRuntimeProjectionsApi } from './runtimeProjections';
-import type {
-  ImportDraft,
-  ImportDraftMapping,
-  ImportResult,
-} from './onboardingImports';
-import { submitImportRowsDraft } from './onboardingImports';
 import { createPreviewComparisonsApi } from './previewComparisons';
 import { createOAuthConnectionsApi } from './oauthConnections';
 import { createSpendApi } from './spend';
@@ -741,14 +735,6 @@ export function revokeProjectInvite(
 
 export type { ActionProposal };
 
-export async function confirmImportRowsDraft(
-  projectId: string,
-  draft: ImportDraft,
-  mapping: ImportDraftMapping,
-): Promise<ImportResult> {
-  return new RealApi(projectId).confirmImportRowsDraft(draft, mapping);
-}
-
 // ---------------------------------------------------------------------------
 // The adapter
 
@@ -892,13 +878,6 @@ class RealApi implements FrisketApi {
   }
 
   // ---- data ---------------------------------------------------------------
-
-  confirmImportRowsDraft(
-    draft: ImportDraft,
-    mapping: ImportDraftMapping,
-  ): Promise<ImportResult> {
-    return submitImportRowsDraft(this.requireProjectId(), draft, mapping);
-  }
 
   listActionCatalog(explicitProjectId?: string | null): Promise<ActionCatalogPayload> {
     const projectId =

@@ -19,19 +19,9 @@ from frisket.contracts.http.bulk_imports import (
 from frisket.contracts.http.onboarding_imports import (
     IMPORT_CSV_ERROR_RESPONSES,
     IMPORT_FILES_ERROR_RESPONSES,
-    IMPORT_PDF_ERROR_RESPONSES,
-    IMPORT_URLS_ERROR_RESPONSES,
     IMPORT_XLSX_ERROR_RESPONSES,
-    ImportCsvPreviewResponse,
     ImportCsvResponse,
     ImportFilesResponse,
-    ImportPasteConfirmBody,
-    ImportPasteConfirmResponse,
-    ImportPasteDraftBody,
-    ImportPasteDraftResponse,
-    ImportPdfResponse,
-    ImportUrlsBody,
-    ImportUrlsResponse,
     PrepareImportUrlsBody,
     PrepareImportUrlsResponse,
     ImportXlsxResponse,
@@ -45,63 +35,22 @@ from frisket.server.services.import_bulk import (
 )
 from frisket.server.services.import_csv import ImportCsvUploadService
 from frisket.server.services.import_followthemoney import FollowTheMoneyUploadService
-from frisket.server.services.import_drafts import ImportDraftService
 from frisket.server.services.import_files import (
     ImportFilesUploadService,
 )
-from frisket.server.services.import_pdf import ImportPdfUploadService
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.services.import_uploads import (
     AdmittedUpload,
     admit_uploads,
 )
-from frisket.server.services.import_urls import ImportUrlsService
 from frisket.server.services.import_urls_prepare import ImportUrlsPrepareService
 from frisket.server.services.import_xlsx import ImportXlsxUploadService
 from frisket.server.transport import (
     V1_IMPORT_CSV_UPLOAD_BRIDGE_TASK,
     V1_IMPORT_FILES_UPLOAD_BRIDGE_TASK,
-    V1_IMPORT_PDF_UPLOAD_BRIDGE_TASK,
-    V1_IMPORT_URLS_BRIDGE_TASK,
     V1_IMPORT_XLSX_UPLOAD_BRIDGE_TASK,
     v1_action_transport,
 )
-
-
-def register_import_draft_routes(
-    app: FastAPI,
-    *,
-    service: ImportDraftService,
-) -> None:
-    @app.post(
-        "/api/projects/{pid}/import/drafts/paste",
-        response_model=ImportPasteDraftResponse,
-        response_model_exclude_unset=True,
-        responses=http_error_responses(400, 401, 403, 404, 422, 500),
-    )
-    async def import_paste_draft(pid: str, body: ImportPasteDraftBody) -> dict:
-        return service.paste_draft(pid, body.raw)
-
-    @app.post(
-        "/api/projects/{pid}/import/drafts/paste/confirm",
-        response_model=ImportPasteConfirmResponse,
-        responses=http_error_responses(400, 401, 403, 404, 422, 500),
-    )
-    async def import_paste_confirm(
-        pid: str, body: ImportPasteConfirmBody, request: Request
-    ) -> dict[str, Any] | JSONResponse:
-        response = await await_thread_worker(
-            service.confirm,
-            pid,
-            body,
-            deps=service.executor_deps_for_request(pid, request),
-        )
-        if response.force_json_response:
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response.payload,
-            )
-        return response.payload
 
 
 def register_import_bulk_routes(
@@ -241,23 +190,6 @@ def register_import_csv_routes(
         return response.payload
 
     @app.post(
-        "/api/projects/{pid}/import/csv/preview",
-        response_model=ImportCsvPreviewResponse,
-        responses=http_error_responses(400, 401, 403, 404, 413, 422, 500),
-    )
-    async def import_csv_preview(
-        pid: str,
-        file: UploadFile = File(...),
-        encoding: str | None = None,
-    ) -> dict[str, Any]:
-        return await await_thread_worker(
-            service.preview_csv,
-            pid,
-            upload=await _admit_one(file, limits=limits),
-            encoding=encoding,
-        )
-
-    @app.post(
         "/api/projects/{pid}/import/csv",
         response_model=ImportCsvResponse,
         responses={
@@ -319,20 +251,6 @@ def register_import_xlsx_routes(
     service: ImportXlsxUploadService,
     limits: BulkImportLimits = BulkImportLimits(),
 ) -> None:
-    @app.post(
-        "/api/projects/{pid}/import/xlsx/preview",
-        response_model=ImportCsvPreviewResponse,
-        responses=http_error_responses(400, 401, 403, 404, 413, 422, 500),
-    )
-    async def import_xlsx_preview(
-        pid: str, file: Annotated[UploadFile, File()]
-    ) -> dict[str, Any]:
-        return await await_thread_worker(
-            service.preview_xlsx,
-            pid,
-            upload=await _admit_one(file, limits=limits),
-        )
-
     @app.post(
         "/api/projects/{pid}/import/xlsx",
         response_model=ImportXlsxResponse,
@@ -398,48 +316,6 @@ def register_import_xlsx_routes(
         if response.force_json_response:
             return JSONResponse(
                 status_code=response.status_code, content=response.payload
-            )
-        return response.payload
-
-
-def register_import_pdf_routes(
-    app: FastAPI,
-    *,
-    service: ImportPdfUploadService,
-    limits: BulkImportLimits = BulkImportLimits(),
-) -> None:
-    @app.post(
-        "/api/projects/{pid}/import/pdf",
-        response_model=ImportPdfResponse,
-        responses={
-            **IMPORT_PDF_ERROR_RESPONSES,
-            **http_error_responses(401, 403, 404, 422),
-        },
-        **v1_action_transport(
-            V1_IMPORT_PDF_UPLOAD_BRIDGE_TASK,
-            "import.pdf",
-            "multipart_upload",
-        ),
-    )
-    async def import_pdf(
-        pid: str,
-        request: Request,
-        file: UploadFile = File(...),
-        sheet_name: str | None = None,
-        dpi: int = 150,
-    ) -> dict[str, Any] | Response:
-        upload = await _admit_one(file, limits=limits)
-        response = await service.upload_pdf(
-            pid,
-            upload=upload,
-            sheet_name=sheet_name,
-            dpi=dpi,
-            deps=service.executor_deps_for_request(pid, request),
-        )
-        if response.force_json_response:
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response.payload,
             )
         return response.payload
 
@@ -547,77 +423,38 @@ async def _admit_one(file: UploadFile, *, limits: BulkImportLimits) -> AdmittedU
 def register_import_urls_routes(
     app: FastAPI,
     *,
-    service: ImportUrlsService,
-    prepare_service: ImportUrlsPrepareService | None = None,
+    service: ImportUrlsPrepareService,
 ) -> None:
     @app.post(
         "/api/projects/{pid}/import/urls/prepare",
         operation_id="prepareImportUrls",
         response_model=PrepareImportUrlsResponse,
-        responses=http_error_responses(400, 401, 403, 404, 413, 422, 499, 503),
+        responses=http_error_responses(400, 401, 403, 404, 413, 422, 499),
     )
     async def prepare_import_urls(
         pid: str,
         body: PrepareImportUrlsBody,
         request: Request,
     ) -> dict[str, Any] | Response:
-        if prepare_service is None:
-            raise HTTPException(503, "URL preparation is unavailable")
         prepared: dict[str, Any] | None = None
         try:
             if await request.is_disconnected():
                 return Response(status_code=499)
-            prepared = await prepare_service.prepare(
-                pid, request=request, urls=body.urls
-            )
+            prepared = await service.prepare(pid, request=request, urls=body.urls)
             if await request.is_disconnected():
-                await prepare_service.discard(pid, prepared)
+                await service.discard(pid, prepared)
                 return Response(status_code=499)
             return prepared
         except asyncio.CancelledError:
             if prepared is not None:
-                await prepare_service.discard(pid, prepared)
+                await service.discard(pid, prepared)
             raise
-
-    @app.post(
-        "/api/projects/{pid}/import/urls",
-        response_model=ImportUrlsResponse,
-        responses={
-            **IMPORT_URLS_ERROR_RESPONSES,
-            **http_error_responses(401, 403, 404, 422),
-        },
-        **v1_action_transport(
-            V1_IMPORT_URLS_BRIDGE_TASK,
-            "import.urls",
-            "json_url_import",
-        ),
-    )
-    async def import_urls(
-        pid: str,
-        body: ImportUrlsBody,
-        request: Request,
-    ) -> dict[str, Any] | Response:
-        response = await service.import_urls(
-            pid,
-            request=request,
-            urls=body.urls,
-            sheet_name=body.sheet_name,
-            column=body.column,
-        )
-        if response.force_json_response:
-            return JSONResponse(
-                status_code=response.status_code,
-                content=response.payload,
-            )
-        return response.payload
 
 
 __all__ = [
     "register_import_bulk_routes",
     "register_import_csv_routes",
-    "register_import_draft_routes",
     "register_import_files_routes",
-    "register_import_pdf_routes",
     "register_import_urls_routes",
     "register_import_xlsx_routes",
 ]

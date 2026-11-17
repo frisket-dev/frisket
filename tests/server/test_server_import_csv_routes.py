@@ -213,7 +213,7 @@ def test_direct_csv_request_limit_rejects_multipart_envelopes_before_staging(
     assert app.state.workspace.get(pid).sheets(include_hidden=True) == []
 
 
-def test_csv_preview_request_limit_rejects_chunked_body_before_parsing(
+def test_csv_import_request_limit_rejects_chunked_body_before_parsing(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -223,7 +223,7 @@ def test_csv_preview_request_limit_rejects_chunked_body_before_parsing(
     )
     client = TestClient(app)
     pid = client.post(
-        "/api/projects", json={"name": "CSV preview envelope quota"}
+        "/api/projects", json={"name": "CSV import envelope quota"}
     ).json()["id"]
     boundary = "frisket-csv-envelope-boundary"
     body = _multipart_csv_body(boundary=boundary, filename=f"{'m' * 1024}.csv")
@@ -232,7 +232,7 @@ def test_csv_preview_request_limit_rejects_chunked_body_before_parsing(
     status, body_reads = _raw_chunked_csv_upload(
         app,
         pid=pid,
-        path="/preview",
+        path="",
         body=body,
         boundary=boundary,
     )
@@ -480,32 +480,6 @@ def test_import_csv_route_declares_its_multipart_and_json_contract(
     }
 
 
-def test_import_csv_preview_declares_its_multipart_and_json_contract(
-    tmp_path: Path,
-) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-
-    operation = client.get("/openapi.json").json()["paths"][
-        "/api/projects/{pid}/import/csv/preview"
-    ]["post"]
-
-    assert operation["requestBody"]["required"] is True
-    assert set(operation["requestBody"]["content"]) == {"multipart/form-data"}
-    assert operation["responses"]["200"]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/ImportCsvPreviewResponse"
-    }
-    assert set(operation["responses"]) == {
-        "200",
-        "400",
-        "401",
-        "403",
-        "404",
-        "413",
-        "422",
-        "500",
-    }
-
-
 def test_import_csv_empty_file_validation_error_maps_to_400(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
@@ -536,70 +510,6 @@ def _sheet_cells(client: TestClient, pid: str, sheet_id: int) -> list[dict]:
         {names[int(cid)]: value for cid, value in row["cells"].items()}
         for row in data["rows"]
     ]
-
-
-def test_import_csv_preview_is_non_mutating_and_matches_import_analysis(
-    tmp_path: Path,
-) -> None:
-    workspace_root = tmp_path / "workspace"
-    client = TestClient(create_app(workspace_root))
-    pid = client.post("/api/projects", json={"name": "CSV Preview"}).json()["id"]
-    raw = "name;score;notes\nMuñoz;1,5;# Lead\nAna;2,0;Plain\n".encode("cp1252")
-
-    preview = client.post(
-        f"/api/projects/{pid}/import/csv/preview",
-        files={"file": ("permits.csv", raw, "text/csv")},
-    )
-
-    assert preview.status_code == 200, preview.text
-    assert preview.json() == {
-        "encoding": "cp1252",
-        "delimiter": ";",
-        "decimal_separator": ",",
-        "row_count": 2,
-        "columns": [
-            {"name": "name", "type": "text", "format": None},
-            {"name": "score", "type": "number", "format": None},
-            {"name": "notes", "type": "text", "format": None},
-        ],
-        "preview_rows": [
-            {"name": "Muñoz", "score": "1,5", "notes": "# Lead"},
-            {"name": "Ana", "score": "2,0", "notes": "Plain"},
-        ],
-        "truncated": False,
-    }
-
-    imported = client.post(
-        f"/api/projects/{pid}/import/csv",
-        files={"file": ("permits.csv", raw, "text/csv")},
-    )
-    assert imported.status_code == 200, imported.text
-    assert imported.json()["encoding"] == preview.json()["encoding"]
-    assert imported.json()["columns"] == [
-        column["name"] for column in preview.json()["columns"]
-    ]
-
-
-def test_import_csv_preview_reparses_when_encoding_changes(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
-    pid = client.post("/api/projects", json={"name": "CSV Preview"}).json()["id"]
-    raw = b'name,quote\nAna,"\x93hello\x94"\n'
-
-    windows = client.post(
-        f"/api/projects/{pid}/import/csv/preview?encoding=cp1252",
-        files={"file": ("quotes.csv", raw, "text/csv")},
-    )
-    macintosh = client.post(
-        f"/api/projects/{pid}/import/csv/preview?encoding=mac_roman",
-        files={"file": ("quotes.csv", raw, "text/csv")},
-    )
-
-    assert windows.status_code == 200, windows.text
-    assert macintosh.status_code == 200, macintosh.text
-    assert windows.json()["preview_rows"][0]["quote"] == "“hello”"
-    assert macintosh.json()["preview_rows"][0]["quote"] != "“hello”"
-    assert windows.json()["encoding"] == "cp1252"
-    assert macintosh.json()["encoding"] == "mac_roman"
 
 
 def test_import_csv_upload_reads_cp1252_without_replacing_characters(
@@ -686,44 +596,32 @@ def test_import_csv_upload_rejects_an_unknown_encoding_name(tmp_path: Path) -> N
     assert "not-a-codec" in response.json()["detail"]
 
 
-def test_import_csv_preview_and_upload_reject_non_text_codecs(tmp_path: Path) -> None:
+def test_import_csv_upload_rejects_non_text_codecs(tmp_path: Path) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
 
-    for route in ("preview", ""):
-        suffix = f"/{route}" if route else ""
-        response = client.post(
-            f"/api/projects/{pid}/import/csv{suffix}?encoding=base64_codec",
-            files={"file": ("rows.csv", b"name\nAda\n", "text/csv")},
-        )
-        assert response.status_code == 400
-        detail = response.json()["detail"]
-        assert "unsupported CSV encoding" in detail
-        assert "base64_codec" in detail
+    response = client.post(
+        f"/api/projects/{pid}/import/csv?encoding=base64_codec",
+        files={"file": ("rows.csv", b"name\nAda\n", "text/csv")},
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "unsupported CSV encoding" in detail
+    assert "base64_codec" in detail
 
 
-def test_explicit_utf8_strips_the_bom_from_preview_and_import_headers(
+def test_explicit_utf8_strips_the_bom_from_import_headers(
     tmp_path: Path,
 ) -> None:
     client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
     raw = b"\xef\xbb\xbfname,city\nAda,London\n"
 
-    preview = client.post(
-        f"/api/projects/{pid}/import/csv/preview?encoding=utf-8",
-        files={"file": ("people.csv", raw, "text/csv")},
-    )
     imported = client.post(
         f"/api/projects/{pid}/import/csv?encoding=utf-8",
         files={"file": ("people.csv", raw, "text/csv")},
     )
 
-    assert preview.status_code == 200, preview.text
-    assert preview.json()["encoding"] == "utf-8-sig"
-    assert [column["name"] for column in preview.json()["columns"]] == [
-        "name",
-        "city",
-    ]
     assert imported.status_code == 200, imported.text
     assert imported.json()["encoding"] == "utf-8-sig"
     assert imported.json()["columns"] == ["name", "city"]

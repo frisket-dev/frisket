@@ -114,9 +114,7 @@ def test_runtime_projection_browser_operations_have_typed_successes_only(
     # boundary; all other projected operations retain JSON transport.
     for operation_id, response_name in (
         ("tenant.import_csv.post", "ImportCsvResponse"),
-        ("tenant.import_csv_preview.post", "ImportCsvPreviewResponse"),
         ("tenant.import_xlsx.post", "ImportXlsxResponse"),
-        ("tenant.import_pdf.post", "ImportPdfResponse"),
         ("tenant.import_files.post", "ImportFilesResponse"),
     ):
         imported = _operation(real_openapi_document, operation_id)
@@ -388,7 +386,6 @@ def _case_local_team_surface(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert cloud_local_only <= set(exporter.CANONICAL_OPERATION_IDS.values())
     assert cloud_local_only <= _operation_ids(document)
     assert "tenant.import_followthemoney.post" in _operation_ids(document)
-    assert "tenant.import_paste_confirm.post" in _operation_ids(document)
     assert {
         "tenant.extraction_document_get.get",
         "tenant.extraction_templates_list.get",

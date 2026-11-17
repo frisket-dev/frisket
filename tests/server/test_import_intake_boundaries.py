@@ -17,8 +17,8 @@ from starlette.types import Message
 from frisket.server.app import create_app
 from frisket.server.import_admission import ImportAdmissionLease
 from frisket.server.import_bulk_request_limit import BulkImportRequestLimitMiddleware
-from frisket.server.services import import_drafts as import_drafts_service
-from frisket.server.services import import_urls as import_urls_service
+from frisket.server.services import import_urls_prepare as import_urls_service
+from frisket.server.services.import_files import ImportFilesUploadService
 from frisket.server.services.pdf_packet_splits import PdfPacketSplitService
 
 
@@ -55,11 +55,8 @@ def test_import_admission_lease_releases_when_background_start_fails() -> None:
     "suffix",
     [
         "xlsx",
-        "xlsx/preview",
-        "pdf",
         "files",
         "followthemoney",
-        "drafts/paste",
         "csv/update/preview",
         "xlsx/update/preview",
     ],
@@ -95,13 +92,13 @@ def test_import_envelope_refuses_declared_oversize_before_reading(suffix: str) -
 def test_import_envelope_counts_chunks_without_content_length() -> None:
     app = FastAPI()
 
-    @app.post("/api/projects/test/import/drafts/paste")
+    @app.post("/api/projects/test/import/urls/prepare")
     async def parse(request: Request):
         return await request.json()
 
     async def invoke() -> None:
         messages: list[Message] = []
-        chunks = iter([b'{"raw":', b'"too much text"}', b"   "])
+        chunks = iter([b'{"urls":', b'["too much text"]}', b"   "])
         reads = 0
 
         async def receive() -> Message:
@@ -120,7 +117,7 @@ def test_import_envelope_counts_chunks_without_content_length() -> None:
             {
                 "type": "http",
                 "method": "POST",
-                "path": "/api/projects/test/import/drafts/paste",
+                "path": "/api/projects/test/import/urls/prepare",
                 "headers": [(b"content-type", b"application/json")],
                 "query_string": b"",
             },
@@ -278,7 +275,7 @@ def test_non_multipart_import_does_not_check_temp_disk(monkeypatch) -> None:
     )
     app = FastAPI()
 
-    @app.post("/api/projects/test/import/drafts/paste")
+    @app.post("/api/projects/test/import/urls/prepare")
     async def parse(request: Request):
         return await request.json()
 
@@ -290,10 +287,10 @@ def test_non_multipart_import_does_not_check_temp_disk(monkeypatch) -> None:
             base_url="http://test",
         ) as client:
             response = await client.post(
-                "/api/projects/test/import/drafts/paste", json={"raw": "ok"}
+                "/api/projects/test/import/urls/prepare", json={"urls": ["ok"]}
             )
         assert response.status_code == 200
-        assert response.json() == {"raw": "ok"}
+        assert response.json() == {"urls": ["ok"]}
 
     asyncio.run(exercise())
 
@@ -372,13 +369,13 @@ def test_cancelled_native_url_import_holds_permit_until_worker_exits(
             acquisitions += 1
             return Permit()
 
-    def blocked_run_action(*_args, **_kwargs):
+    def blocked_acquire(*_args, **_kwargs):
         worker_started.set()
         assert release_worker.wait(5), "test did not release the URL import worker"
         worker_exited.set()
-        return object()
+        return {"acquisition_error": "cancelled"}
 
-    monkeypatch.setattr(import_urls_service, "run_action_spec", blocked_run_action)
+    monkeypatch.setattr(import_urls_service, "_acquire_one", blocked_acquire)
     app = create_app(tmp_path / "workspace", import_admission=Admission())
     pid = app.state.workspace.create("Cancelled URL import")["id"]
 
@@ -389,7 +386,7 @@ def test_cancelled_native_url_import_holds_permit_until_worker_exits(
         ) as client:
             task = asyncio.create_task(
                 client.post(
-                    f"/api/projects/{pid}/import/urls",
+                    f"/api/projects/{pid}/import/urls/prepare",
                     json={"urls": ["https://cdn.example/item.mp3"]},
                 )
             )
@@ -427,17 +424,15 @@ def test_cancelled_native_sync_import_holds_permit_until_worker_exits(
         def try_acquire(self):
             return Permit()
 
-    def blocked_confirm(*_args, **_kwargs):
+    def blocked_upload(*_args, **_kwargs):
         worker_started.set()
-        assert release_worker.wait(5), "test did not release the paste import worker"
+        assert release_worker.wait(5), "test did not release the file import worker"
         worker_exited.set()
         return object()
 
-    monkeypatch.setattr(
-        import_drafts_service.ImportDraftService, "confirm", blocked_confirm
-    )
+    monkeypatch.setattr(ImportFilesUploadService, "upload_files", blocked_upload)
     app = create_app(tmp_path / "workspace", import_admission=Admission())
-    pid = app.state.workspace.create("Cancelled paste import")["id"]
+    pid = app.state.workspace.create("Cancelled file import")["id"]
 
     async def cancel_while_worker_holds_permit() -> None:
         async with httpx.AsyncClient(
@@ -446,14 +441,8 @@ def test_cancelled_native_sync_import_holds_permit_until_worker_exits(
         ) as client:
             task = asyncio.create_task(
                 client.post(
-                    f"/api/projects/{pid}/import/drafts/paste/confirm",
-                    json={
-                        "raw": "id\n1\n",
-                        "draft_id": "cancelled-draft",
-                        "columns": [
-                            {"source_name": "id", "name": "id", "type": "text"}
-                        ],
-                    },
+                    f"/api/projects/{pid}/import/files",
+                    files={"files": ("cancelled.txt", b"id\n1\n", "text/plain")},
                 )
             )
             assert await asyncio.to_thread(worker_started.wait, 5)

@@ -405,12 +405,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "entity_mentions_preview",
             "POST",
         ): "tenant.entity_mentions_preview.post",
-        (
-            "tenant",
-            "import_paste_draft",
-            "POST",
-        ): "tenant.import_paste_draft.post",
-        ("tenant", "import_paste_confirm", "POST"): "tenant.import_paste_confirm.post",
         ("tenant", "import_csv", "POST"): "tenant.import_csv.post",
         ("tenant", "append_csv", "POST"): "tenant.append_csv.post",
         ("tenant", "update_csv", "POST"): "tenant.update_csv.post",
@@ -425,7 +419,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "POST",
         ): "tenant.import_update_preview.post",
         ("tenant", "append_xlsx", "POST"): "tenant.append_xlsx.post",
-        ("tenant", "import_xlsx_preview", "POST"): "tenant.import_xlsx_preview.post",
         (
             "tenant",
             "import_xlsx_update_preview",
@@ -442,11 +435,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "import_bulk_plan",
             "POST",
         ): "tenant.import_bulk_plan.post",
-        (
-            "tenant",
-            "import_csv_preview",
-            "POST",
-        ): "tenant.import_csv_preview.post",
         ("tenant", "import_files", "POST"): "tenant.import_files.post",
         (
             "tenant",
@@ -493,7 +481,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "import_followthemoney",
             "POST",
         ): "tenant.import_followthemoney.post",
-        ("tenant", "import_pdf", "POST"): "tenant.import_pdf.post",
         (
             "tenant",
             "create_table_import_from_file",
@@ -692,7 +679,6 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "delete_pdf_packet_split",
             "DELETE",
         ): "tenant.delete_pdf_packet_split.delete",
-        ("tenant", "import_urls", "POST"): "tenant.import_urls.post",
         ("tenant", "import_xlsx", "POST"): "tenant.import_xlsx.post",
         (
             "tenant",
@@ -1307,14 +1293,11 @@ def _native_form_data_request(
         ("tenant", "update_csv", "POST"),
         ("tenant", "import_csv_update_preview", "POST"),
         ("tenant", "append_xlsx", "POST"),
-        ("tenant", "import_xlsx_preview", "POST"),
         ("tenant", "import_xlsx_update_preview", "POST"),
         ("tenant", "update_xlsx", "POST"),
         ("tenant", "import_bulk_plan", "POST"),
         ("tenant", "prepare_import_files", "POST"),
-        ("tenant", "import_csv_preview", "POST"),
         ("tenant", "import_xlsx", "POST"),
-        ("tenant", "import_pdf", "POST"),
         ("tenant", "create_pdf_packet_split", "POST"),
         ("tenant", "import_files", "POST"),
         ("tenant", "upload_import_session_files", "POST"),

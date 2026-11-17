@@ -7,9 +7,7 @@ from typing import Any
 
 V1_IMPORT_CSV_UPLOAD_BRIDGE_TASK = "v1-http-import-csv-upload-bridge"
 V1_IMPORT_XLSX_UPLOAD_BRIDGE_TASK = "v1-import-xlsx-action-and-http-bridge"
-V1_IMPORT_PDF_UPLOAD_BRIDGE_TASK = "v1-import-pdf-action-and-http-bridge"
 V1_IMPORT_FILES_UPLOAD_BRIDGE_TASK = "v1-http-import-files-upload-bridge"
-V1_IMPORT_URLS_BRIDGE_TASK = "v1-import-urls-action-and-http-bridge"
 
 
 def v1_action_transport(

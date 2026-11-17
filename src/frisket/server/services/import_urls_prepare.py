@@ -18,10 +18,14 @@ from frisket.authoring.workbench.plugin_runtime_capabilities import (
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.store.disk_capacity import require_disk_headroom
 from frisket.ops.url_import import acquire_url_records
+from frisket.server.route_errors import RouteError
 from frisket.server.services.import_bulk_sources import fsync_directory
-from frisket.server.services.import_urls import ImportUrlsRouteError
 from frisket.server.thread_worker import await_thread_worker
 from frisket.server.workspace import Workspace
+
+
+class ImportUrlsRouteError(RouteError):
+    pass
 
 
 class ImportUrlsPrepareService:
