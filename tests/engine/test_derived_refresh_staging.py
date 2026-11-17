@@ -205,14 +205,13 @@ def test_cancellation_during_absence_keeps_completed_retirements_and_undo_restor
 
 
 def test_list_reader_pages_payloads_replays_schema_and_releases_item_tokens(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     from frisket.actions.types import ListColumnSource
-    from frisket.engine.store import Project
     from frisket.engine.executor.list_table_read import AdmittedListTableReader
     import frisket.engine.store.consumed_source_pages as pages_module
 
-    project = Project.create(tmp_path / "bounded-list")
+    project = make_project("bounded-list")
     reader = None
     try:
         sheet = project.add_sheet("lists")
@@ -264,15 +263,14 @@ def test_list_reader_pages_payloads_replays_schema_and_releases_item_tokens(
 
 
 def test_join_reader_stages_payloads_without_retaining_fanout_tokens(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    from frisket.engine.store import Project
     from frisket.engine.executor.joined_tables_read import AdmittedJoinedTablesReader
     from frisket.actions.types import SheetRows, SheetRef
     from frisket.actions.join_types import JoinKeyPair
     import frisket.engine.store.consumed_source_pages as pages_module
 
-    project = Project.create(tmp_path / "bounded-join")
+    project = make_project("bounded-join")
     reader = None
     try:
         sheets = []

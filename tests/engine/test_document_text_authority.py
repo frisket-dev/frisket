@@ -181,68 +181,56 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
 
 
 def test_role_lookup_precedes_source_validation_and_hidden_never_falls_back(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = Project.create(tmp_path / "roles.frisket")
-    try:
-        sheet_id = project.add_sheet("Documents")
-        source_column_id = project.add_column(sheet_id, "File", type="file")
-        text_column_id = project.add_column(sheet_id, "Text", type="text")
-        row_id = project.add_rows(sheet_id, [{}], {})[0]
-        assert (
-            resolve_document_text_selection(
-                project, (sheet_id, row_id, source_column_id)
-            )
-            is None
+    project = make_project("roles")
+    sheet_id = project.add_sheet("Documents")
+    source_column_id = project.add_column(sheet_id, "File", type="file")
+    text_column_id = project.add_column(sheet_id, "Text", type="text")
+    row_id = project.add_rows(sheet_id, [{}], {})[0]
+    assert (
+        resolve_document_text_selection(project, (sheet_id, row_id, source_column_id))
+        is None
+    )
+
+    project.db.execute("BEGIN IMMEDIATE")
+    role = ensure_document_text_role(
+        project,
+        source_column_id=source_column_id,
+        text_column_id=text_column_id,
+    )
+    project.db.commit()
+    assert document_text_role(project, source_column_id=source_column_id) == role
+    with pytest.raises(DocumentTextUnavailable):
+        resolve_document_text_selection(project, (sheet_id, row_id, source_column_id))
+
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (text_column_id,))
+    project.db.commit()
+    with pytest.raises(DocumentTextUnavailable) as exc:
+        resolve_document_text_selection(project, (sheet_id, row_id, source_column_id))
+    assert exc.value.reason == "text_column_hidden"
+
+
+def test_role_rejects_cross_sheet_and_conflicting_pairs(make_project) -> None:
+    project = make_project("conflicts")
+    first = project.add_sheet("First")
+    second = project.add_sheet("Second")
+    source = project.add_column(first, "File", type="file")
+    text = project.add_column(first, "Text")
+    other_text = project.add_column(second, "Other Text")
+    project.db.execute("BEGIN IMMEDIATE")
+    with pytest.raises(DocumentTextRoleError, match="share a sheet"):
+        ensure_document_text_role(
+            project, source_column_id=source, text_column_id=other_text
         )
-
-        project.db.execute("BEGIN IMMEDIATE")
-        role = ensure_document_text_role(
-            project,
-            source_column_id=source_column_id,
-            text_column_id=text_column_id,
-        )
-        project.db.commit()
-        assert document_text_role(project, source_column_id=source_column_id) == role
-        with pytest.raises(DocumentTextUnavailable):
-            resolve_document_text_selection(
-                project, (sheet_id, row_id, source_column_id)
-            )
-
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (text_column_id,))
-        project.db.commit()
-        with pytest.raises(DocumentTextUnavailable) as exc:
-            resolve_document_text_selection(
-                project, (sheet_id, row_id, source_column_id)
-            )
-        assert exc.value.reason == "text_column_hidden"
-    finally:
-        project.close()
-
-
-def test_role_rejects_cross_sheet_and_conflicting_pairs(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "conflicts.frisket")
-    try:
-        first = project.add_sheet("First")
-        second = project.add_sheet("Second")
-        source = project.add_column(first, "File", type="file")
-        text = project.add_column(first, "Text")
-        other_text = project.add_column(second, "Other Text")
-        project.db.execute("BEGIN IMMEDIATE")
-        with pytest.raises(DocumentTextRoleError, match="share a sheet"):
-            ensure_document_text_role(
-                project, source_column_id=source, text_column_id=other_text
-            )
-        ensure_document_text_role(project, source_column_id=source, text_column_id=text)
-        assert (
-            ensure_document_text_role(
-                project, source_column_id=source, text_column_id=text
-            ).text_column_id
-            == text
-        )
-        project.db.rollback()
-    finally:
-        project.close()
+    ensure_document_text_role(project, source_column_id=source, text_column_id=text)
+    assert (
+        ensure_document_text_role(
+            project, source_column_id=source, text_column_id=text
+        ).text_column_id
+        == text
+    )
+    project.db.rollback()
 
 
 def test_generation_snapshots_role_and_failed_replacement_preserves_success(

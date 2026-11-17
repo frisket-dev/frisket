@@ -71,12 +71,12 @@ class TestAddColumnSemanticTypeRoundTrip:
         p.close()
 
 
-def test_revived_column_converges_its_semantic_marker(tmp_path) -> None:
+def test_revived_column_converges_its_semantic_marker(make_project) -> None:
     """A column hidden by undo and re-created by name must take the NEW
     producer's marker. Keeping a stale one makes the marker a lie; dropping a
     declared one reads as "no entity column", which is indistinguishable from
     clean data."""
-    project = Project.create(tmp_path / "revive.frisket")
+    project = make_project("revive")
     sheet_id = project.add_sheet("s")
 
     column_id = project.add_column(

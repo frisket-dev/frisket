@@ -697,7 +697,7 @@ def test_unpriceable_actions_route_their_gate_to_an_explicit_consent():
 
 
 def test_typed_http_unknown_cost_requires_exact_consent_before_effect(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     import asyncio
     import httpx
@@ -705,7 +705,6 @@ def test_typed_http_unknown_cost_requires_exact_consent_before_effect(
     from frisket.ai.llm import ModelRouter
     from frisket.actions.types import ActionRequest
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store import Project
 
     monkeypatch.setattr(
         "frisket.ops.netguard.safe_pinned_addresses",
@@ -721,7 +720,7 @@ def test_typed_http_unknown_cost_requires_exact_consent_before_effect(
         model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
     )
     router._client = httpx.AsyncClient(transport=httpx.MockTransport(transport))
-    project = Project.create(tmp_path / "http-exact-consent.frisket")
+    project = make_project("http-exact-consent")
     try:
         sheet_id = project.add_sheet("Rows")
         project.add_rows(sheet_id, [{}], {})

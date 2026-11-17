@@ -916,12 +916,12 @@ def test_the_refusal_reaches_the_user_as_its_own_http_error(tmp_path):
     assert "different build of frisket" in str(excinfo.value.content)
 
 
-def test_the_double_billing_backstop_exists_on_every_fresh_bundle(tmp_path):
+def test_the_double_billing_backstop_exists_on_every_fresh_bundle(make_project):
     """``uq_execution_attempts_one_dispatching`` backstops a PROVEN
     double-billing race, and it used to be (re)created by the schema replay
     that ran on every open. With that replay gone, ``Project.create`` is the
     only thing that can put it there."""
-    project = Project.create(tmp_path / "indexed.frisket", name="Indexed")
+    project = make_project("Indexed")
     row = project.db.execute(
         "SELECT sql FROM sqlite_master WHERE type='index' "
         "AND name='uq_execution_attempts_one_dispatching'"

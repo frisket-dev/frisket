@@ -80,13 +80,13 @@ def _mutate_receipt_ref(
 
 
 def test_materialized_row_sources_schema_is_created_on_a_fresh_bundle(
-    tmp_path: Path,
+    make_project,
 ):
     """The CHECK constraint set and the three indexes come from
     ``Project.create`` and nowhere else -- the open-time replay and the
     CHECK-drift rebuild that used to repair them in place are gone, and a
     bundle that does not match ``schema.py`` is now refused, not converted."""
-    project = Project.create(tmp_path / "schema.frisket", name="schema")
+    project = make_project("schema")
     required_indexes = {
         "idx_materialized_row_sources_source",
         "idx_materialized_row_sources_materialized",

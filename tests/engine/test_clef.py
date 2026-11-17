@@ -302,13 +302,12 @@ async def test_wrong_credential_posture_refuses_before_http(monkeypatch):
 @pytest.mark.parametrize("engine", ["clef", "clef-flash"])
 @pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
 def test_executor_confirms_executes_and_replays_without_another_call(
-    tmp_path, monkeypatch, engine, action_id
+    make_project, monkeypatch, engine, action_id
 ):
     import asyncio
 
     from frisket.ai.llm import ModelRouter
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store import Project
     from frisket.engine.store.runs import RunResultStore
 
     monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "a" * 32)
@@ -331,7 +330,7 @@ def test_executor_confirms_executes_and_replays_without_another_call(
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     monkeypatch.setattr(ModelRouter, "client", property(lambda self: client))
-    project = Project.create(tmp_path / "clef.frisket", name="Clef")
+    project = make_project("Clef")
     try:
         sheet = project.add_sheet("Documents")
         column = project.add_column(sheet, "body", type="text")
@@ -403,54 +402,49 @@ def test_executor_confirms_executes_and_replays_without_another_call(
 @pytest.mark.parametrize("template", [False, True])
 @pytest.mark.parametrize("engine", ["clef", "openai-decisions"])
 def test_decision_image_sources_reject_before_provider_call(
-    tmp_path, monkeypatch, action_id, template, engine
+    make_project, monkeypatch, action_id, template, engine
 ):
     from frisket.ai.llm import ModelRouter
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.store import Project
 
     monkeypatch.setattr(
         ModelRouter,
         "client",
         property(lambda self: pytest.fail("must not call provider")),
     )
-    project = Project.create(tmp_path / "images.frisket")
-    try:
-        sheet = project.add_sheet("Images")
-        project.add_column(sheet, "image", type="image")
-        parameters = {"engine": engine, "source": ["image"], "fields": FIELDS}
-        if template:
-            parameters["source"] = {"text": "Read {{image}}"}
-        if action_id == "map.extract":
-            parameters["grounding"] = None
-        result = run_action_spec(
-            project,
-            {
-                "action_id": action_id,
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-                "params": parameters,
-                "idempotency_key": "image-reject",
-            },
-            project_id="images",
-        )
-        assert result.status == "failed"
-        assert any(
-            "Decision engines accept text" in error.message for error in result.errors
-        ), result.errors
-    finally:
-        project.close()
+    project = make_project("images")
+    sheet = project.add_sheet("Images")
+    project.add_column(sheet, "image", type="image")
+    parameters = {"engine": engine, "source": ["image"], "fields": FIELDS}
+    if template:
+        parameters["source"] = {"text": "Read {{image}}"}
+    if action_id == "map.extract":
+        parameters["grounding"] = None
+    result = run_action_spec(
+        project,
+        {
+            "action_id": action_id,
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": parameters,
+            "idempotency_key": "image-reject",
+        },
+        project_id="images",
+    )
+    assert result.status == "failed"
+    assert any(
+        "Decision engines accept text" in error.message for error in result.errors
+    ), result.errors
 
 
 @pytest.mark.parametrize("engine", ["clef", "openai-decisions"])
 def test_paid_extract_preview_uses_one_decision_call_without_publishing(
-    tmp_path, monkeypatch, engine
+    make_project, monkeypatch, engine
 ):
     import asyncio
     import json
 
     from frisket.ai.llm import ModelRouter
     from frisket.engine.executor import resolve_map_preview
-    from frisket.engine.store import Project
     from tests.preview.test_accounted_action_preview import _runner, _admit, _outputs
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-secret")
@@ -468,7 +462,7 @@ def test_paid_extract_preview_uses_one_decision_call_without_publishing(
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     monkeypatch.setattr(ModelRouter, "client", property(lambda self: client))
-    project = Project.create(tmp_path / "preview.frisket")
+    project = make_project("preview")
     try:
         sheet = project.add_sheet("Text")
         column = project.add_column(sheet, "body", type="text")

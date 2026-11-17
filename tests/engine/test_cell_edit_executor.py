@@ -251,122 +251,113 @@ def test_migrated_cell_and_column_legacy_envelopes_are_rejected() -> None:
         assert validation.error.code == "unsupported_action_kind"
 
 
-def test_cell_edit_batch_is_atomic_and_nullable(tmp_path: Path) -> None:
+def test_cell_edit_batch_is_atomic_and_nullable(make_project) -> None:
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "cell-edit-batch.frisket")
-    try:
-        sheet_id = project.add_sheet("Values")
-        columns = {
-            "number": project.add_column(sheet_id, "number", "integer"),
-            "note": project.add_column(sheet_id, "note", "text"),
-        }
-        [row_id] = project.add_rows(
-            sheet_id, [{"number": 7, "note": "before"}], columns
-        )
-        before = _write_counts(project)
-        invalid = _cell_edit_batch_action(
+    project = make_project("cell-edit-batch")
+    sheet_id = project.add_sheet("Values")
+    columns = {
+        "number": project.add_column(sheet_id, "number", "integer"),
+        "note": project.add_column(sheet_id, "note", "text"),
+    }
+    [row_id] = project.add_rows(sheet_id, [{"number": 7, "note": "before"}], columns)
+    before = _write_counts(project)
+    invalid = _cell_edit_batch_action(
+        [
+            {"row_id": row_id, "column_id": columns["note"], "value": None},
+            {
+                "row_id": row_id,
+                "column_id": columns["number"],
+                "value": "not-an-integer",
+            },
+        ],
+        key="cell-edit-atomic@sha256:invalid",
+    )
+    failed = run_action_spec(project, invalid, project_id="cell-edit-batch")
+    assert failed.status == "failed"
+    assert failed.errors[0].code == "column_value_validation_failed"
+    assert project.get_values(sheet_id, columns["note"], row_ids=[row_id]) == {
+        row_id: "before"
+    }
+    assert _write_counts(project) == before
+
+    completed = run_action_spec(
+        project,
+        _cell_edit_batch_action(
             [
-                {"row_id": row_id, "column_id": columns["note"], "value": None},
+                {
+                    "row_id": row_id,
+                    "column_id": columns["note"],
+                    "value": None,
+                },
                 {
                     "row_id": row_id,
                     "column_id": columns["number"],
-                    "value": "not-an-integer",
+                    "value": None,
                 },
             ],
-            key="cell-edit-atomic@sha256:invalid",
-        )
-        failed = run_action_spec(project, invalid, project_id="cell-edit-batch")
-        assert failed.status == "failed"
-        assert failed.errors[0].code == "column_value_validation_failed"
-        assert project.get_values(sheet_id, columns["note"], row_ids=[row_id]) == {
-            row_id: "before"
-        }
-        assert _write_counts(project) == before
-
-        completed = run_action_spec(
-            project,
-            _cell_edit_batch_action(
-                [
-                    {
-                        "row_id": row_id,
-                        "column_id": columns["note"],
-                        "value": None,
-                    },
-                    {
-                        "row_id": row_id,
-                        "column_id": columns["number"],
-                        "value": None,
-                    },
-                ],
-                key="cell-edit-atomic@sha256:null",
-            ),
-            project_id="cell-edit-batch",
-        )
-        assert completed.status == "completed", completed.errors
-        assert project.get_values(sheet_id, columns["note"], row_ids=[row_id]) == {
-            row_id: None
-        }
-        assert project.get_values(sheet_id, columns["number"], row_ids=[row_id]) == {
-            row_id: None
-        }
-    finally:
-        project.close()
+            key="cell-edit-atomic@sha256:null",
+        ),
+        project_id="cell-edit-batch",
+    )
+    assert completed.status == "completed", completed.errors
+    assert project.get_values(sheet_id, columns["note"], row_ids=[row_id]) == {
+        row_id: None
+    }
+    assert project.get_values(sheet_id, columns["number"], row_ids=[row_id]) == {
+        row_id: None
+    }
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_cell_edit_rejects_nonfinite_json_without_writes(
-    tmp_path: Path, value: float
+    tmp_path: Path, make_project, value: float
 ) -> None:
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "cell-edit-nonfinite.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        before = _write_counts(project)
-        result = run_action_spec(
-            project,
-            _cell_edit_action(
-                row_id=seeded["row_id"],
-                column_id=seeded["name_column_id"],
-                value=value,
-                key=f"cell-edit-nonfinite@sha256:{repr(value)}",
-            ),
-            project_id="cell-edit-nonfinite",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert _write_counts(project) == before
-    finally:
-        project.close()
+    project = make_project("cell-edit-nonfinite")
+    seeded = _seed(project, tmp_path)
+    before = _write_counts(project)
+    result = run_action_spec(
+        project,
+        _cell_edit_action(
+            row_id=seeded["row_id"],
+            column_id=seeded["name_column_id"],
+            value=value,
+            key=f"cell-edit-nonfinite@sha256:{repr(value)}",
+        ),
+        project_id="cell-edit-nonfinite",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert _write_counts(project) == before
 
 
-def test_cell_edit_replay_precedes_live_target_lookup(tmp_path: Path) -> None:
+def test_cell_edit_replay_precedes_live_target_lookup(
+    tmp_path: Path, make_project
+) -> None:
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "cell-edit-replay.frisket")
-    try:
-        seeded = _seed(project, tmp_path)
-        before = _write_counts(project)
-        action = _make_action(seeded)
-        first = run_action_spec(project, action, project_id="cell-edit-replay")
-        assert first.status == "completed", first.errors
-        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (seeded["row_id"],))
-        project.db.commit()
+    project = make_project("cell-edit-replay")
+    seeded = _seed(project, tmp_path)
+    before = _write_counts(project)
+    action = _make_action(seeded)
+    first = run_action_spec(project, action, project_id="cell-edit-replay")
+    assert first.status == "completed", first.errors
+    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (seeded["row_id"],))
+    project.db.commit()
 
-        replay = run_action_spec(project, action, project_id="cell-edit-replay")
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == first.receipt_id
-        assert replay.op_ids == first.op_ids
-        assert replay.outputs == first.outputs
-        assert _write_counts(project) == {
-            **before,
-            "ops": before["ops"] + 1,
-            "edits": before["edits"] + 1,
-            "receipts": before["receipts"] + 1,
-        }
-    finally:
-        project.close()
+    replay = run_action_spec(project, action, project_id="cell-edit-replay")
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == first.receipt_id
+    assert replay.op_ids == first.op_ids
+    assert replay.outputs == first.outputs
+    assert _write_counts(project) == {
+        **before,
+        "ops": before["ops"] + 1,
+        "edits": before["edits"] + 1,
+        "receipts": before["receipts"] + 1,
+    }
 
 
 def _cell_edit_query_action(
@@ -410,185 +401,173 @@ def _operation_action(kind: str, *, expected_op_id: int, key: str) -> dict[str, 
 
 
 def test_cell_edit_query_updates_1001_selected_rows_with_exact_replay_and_undo(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """Selector-backed edits scale independently from inline edit payloads."""
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "query-edit.frisket", name="Query edit")
-    try:
-        sheet_id = project.add_sheet("Tasks")
-        columns = {
-            "sequence": project.add_column(sheet_id, "sequence", "integer"),
-            "status": project.add_column(sheet_id, "status", "text"),
-        }
-        selected_row_ids = project.add_rows(
-            sheet_id,
-            [{"sequence": index, "status": "open"} for index in range(1_001)],
-            columns,
-        )
-        action = _cell_edit_query_action(
-            sheet_id=sheet_id,
-            column_id=columns["status"],
-            key="cell_edit_query@sha256:1001",
-        )
+    project = make_project("Query edit")
+    sheet_id = project.add_sheet("Tasks")
+    columns = {
+        "sequence": project.add_column(sheet_id, "sequence", "integer"),
+        "status": project.add_column(sheet_id, "status", "text"),
+    }
+    selected_row_ids = project.add_rows(
+        sheet_id,
+        [{"sequence": index, "status": "open"} for index in range(1_001)],
+        columns,
+    )
+    action = _cell_edit_query_action(
+        sheet_id=sheet_id,
+        column_id=columns["status"],
+        key="cell_edit_query@sha256:1001",
+    )
 
-        result = run_action_spec(project, action, project_id="query-edit")
+    result = run_action_spec(project, action, project_id="query-edit")
 
-        assert result.status == "completed", result.errors
-        assert result.outputs[0].row_ids == selected_row_ids
-        assert project.get_values(
-            sheet_id, columns["status"], row_ids=selected_row_ids
-        ) == dict.fromkeys(selected_row_ids, "closed")
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM edits WHERE op_id=?", (result.op_ids[0],)
-            ).fetchone()[0]
-            == 1_001
-        )
+    assert result.status == "completed", result.errors
+    assert result.outputs[0].row_ids == selected_row_ids
+    assert project.get_values(
+        sheet_id, columns["status"], row_ids=selected_row_ids
+    ) == dict.fromkeys(selected_row_ids, "closed")
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM edits WHERE op_id=?", (result.op_ids[0],)
+        ).fetchone()[0]
+        == 1_001
+    )
 
-        replay = run_action_spec(project, action, project_id="query-edit")
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-        assert replay.op_ids == result.op_ids
-        assert replay.outputs == result.outputs
-        assert replay.outputs[0].sheet_id == sheet_id
-        assert replay.outputs[0].column_id == columns["status"]
+    replay = run_action_spec(project, action, project_id="query-edit")
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
+    assert replay.op_ids == result.op_ids
+    assert replay.outputs == result.outputs
+    assert replay.outputs[0].sheet_id == sheet_id
+    assert replay.outputs[0].column_id == columns["status"]
 
-        undone = run_action_spec(
-            project,
-            _operation_action(
-                "operation.undo",
-                expected_op_id=result.op_ids[0],
-                key="operation_undo_query_edit@sha256:1001",
-            ),
-            project_id="query-edit",
-        )
-        assert undone.status == "completed", undone.errors
-        assert project.get_values(
-            sheet_id, columns["status"], row_ids=selected_row_ids
-        ) == dict.fromkeys(selected_row_ids, "open")
-    finally:
-        project.close()
+    undone = run_action_spec(
+        project,
+        _operation_action(
+            "operation.undo",
+            expected_op_id=result.op_ids[0],
+            key="operation_undo_query_edit@sha256:1001",
+        ),
+        project_id="query-edit",
+    )
+    assert undone.status == "completed", undone.errors
+    assert project.get_values(
+        sheet_id, columns["status"], row_ids=selected_row_ids
+    ) == dict.fromkeys(selected_row_ids, "open")
 
 
 def test_cell_edit_query_row_limit_refuses_before_values_or_targets_materialize(
-    tmp_path: Path,
+    make_project,
     monkeypatch,
 ) -> None:
     from frisket.engine.executor import CellEditQueryLimits, ExecutorDeps
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "limited-query-edit.frisket", name="Query edit")
-    try:
-        sheet_id = project.add_sheet("Tasks")
-        columns = {
-            "sequence": project.add_column(sheet_id, "sequence", "integer"),
-            "status": project.add_column(sheet_id, "status", "text"),
-        }
-        project.add_rows(
-            sheet_id,
-            [{"sequence": index, "status": "open"} for index in range(3)],
-            columns,
-        )
-        before = _write_counts(project)
+    project = make_project("Query edit")
+    sheet_id = project.add_sheet("Tasks")
+    columns = {
+        "sequence": project.add_column(sheet_id, "sequence", "integer"),
+        "status": project.add_column(sheet_id, "status", "text"),
+    }
+    project.add_rows(
+        sheet_id,
+        [{"sequence": index, "status": "open"} for index in range(3)],
+        columns,
+    )
+    before = _write_counts(project)
 
-        def values_must_not_be_read(*_args, **_kwargs):
-            raise AssertionError("over-limit query must not materialize cell values")
+    def values_must_not_be_read(*_args, **_kwargs):
+        raise AssertionError("over-limit query must not materialize cell values")
 
-        monkeypatch.setattr(project, "get_values_with_refs", values_must_not_be_read)
-        result = run_action_spec(
-            project,
-            _cell_edit_query_action(
-                sheet_id=sheet_id,
-                column_id=columns["status"],
-                key="cell_edit_query@sha256:limited",
-            ),
-            project_id="limited-query-edit",
-            deps=ExecutorDeps(cell_edit_query_limits=CellEditQueryLimits(max_rows=2)),
-        )
+    monkeypatch.setattr(project, "get_values_with_refs", values_must_not_be_read)
+    result = run_action_spec(
+        project,
+        _cell_edit_query_action(
+            sheet_id=sheet_id,
+            column_id=columns["status"],
+            key="cell_edit_query@sha256:limited",
+        ),
+        project_id="limited-query-edit",
+        deps=ExecutorDeps(cell_edit_query_limits=CellEditQueryLimits(max_rows=2)),
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "query_rowset_too_large"
-        assert result.errors[0].message == (
-            "cell.edit_query exceeds the deployment row limit of 2"
-        )
-        assert result.errors[0].details == {"row_count": 3, "max_rows": 2}
-        assert _write_counts(project) == before
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "query_rowset_too_large"
+    assert result.errors[0].message == (
+        "cell.edit_query exceeds the deployment row limit of 2"
+    )
+    assert result.errors[0].details == {"row_count": 3, "max_rows": 2}
+    assert _write_counts(project) == before
 
 
-def test_cell_edit_query_row_limit_admits_the_exact_total(tmp_path: Path) -> None:
+def test_cell_edit_query_row_limit_admits_the_exact_total(make_project) -> None:
     from frisket.engine.executor import CellEditQueryLimits, ExecutorDeps
     from frisket.engine.executor.actions import run_action_spec
 
-    project = Project.create(tmp_path / "exact-query-edit.frisket", name="Query edit")
-    try:
-        sheet_id = project.add_sheet("Tasks")
-        columns = {
-            "sequence": project.add_column(sheet_id, "sequence", "integer"),
-            "status": project.add_column(sheet_id, "status", "text"),
-        }
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"sequence": index, "status": "open"} for index in range(2)],
-            columns,
-        )
+    project = make_project("Query edit")
+    sheet_id = project.add_sheet("Tasks")
+    columns = {
+        "sequence": project.add_column(sheet_id, "sequence", "integer"),
+        "status": project.add_column(sheet_id, "status", "text"),
+    }
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"sequence": index, "status": "open"} for index in range(2)],
+        columns,
+    )
 
-        result = run_action_spec(
-            project,
-            _cell_edit_query_action(
-                sheet_id=sheet_id,
-                column_id=columns["status"],
-                key="cell_edit_query@sha256:exact",
-            ),
-            project_id="exact-query-edit",
-            deps=ExecutorDeps(cell_edit_query_limits=CellEditQueryLimits(max_rows=2)),
-        )
+    result = run_action_spec(
+        project,
+        _cell_edit_query_action(
+            sheet_id=sheet_id,
+            column_id=columns["status"],
+            key="cell_edit_query@sha256:exact",
+        ),
+        project_id="exact-query-edit",
+        deps=ExecutorDeps(cell_edit_query_limits=CellEditQueryLimits(max_rows=2)),
+    )
 
-        assert result.status == "completed", result.errors
-        assert result.outputs[0].row_ids == row_ids
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    assert result.outputs[0].row_ids == row_ids
 
 
-def test_cell_edit_query_rejects_claimed_column_without_writes(tmp_path: Path) -> None:
+def test_cell_edit_query_rejects_claimed_column_without_writes(make_project) -> None:
     from frisket.engine.executor.actions import run_action_spec
     from frisket.engine.store.output_claims import OutputColumnClaimStore
 
-    project = Project.create(tmp_path / "claimed-query-edit.frisket")
-    try:
-        sheet_id = project.add_sheet("Tasks")
-        columns = {
-            "sequence": project.add_column(sheet_id, "sequence", "integer"),
-            "status": project.add_column(sheet_id, "status", "text"),
-        }
-        project.add_rows(sheet_id, [{"sequence": 1, "status": "open"}], columns)
-        before = _write_counts(project)
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["status"],
-            action_kind="map.ask",
-            claim_token="claim:query-edit-test",
-            lease_seconds=None,
-        )
-        assert conflict is None
+    project = make_project("claimed-query-edit")
+    sheet_id = project.add_sheet("Tasks")
+    columns = {
+        "sequence": project.add_column(sheet_id, "sequence", "integer"),
+        "status": project.add_column(sheet_id, "status", "text"),
+    }
+    project.add_rows(sheet_id, [{"sequence": 1, "status": "open"}], columns)
+    before = _write_counts(project)
+    _claims, conflict = OutputColumnClaimStore(project).acquire(
+        sheet_id=sheet_id,
+        output_names=["status"],
+        action_kind="map.ask",
+        claim_token="claim:query-edit-test",
+        lease_seconds=None,
+    )
+    assert conflict is None
 
-        result = run_action_spec(
-            project,
-            _cell_edit_query_action(
-                sheet_id=sheet_id,
-                column_id=columns["status"],
-                key="cell-edit-query-claimed@sha256:v1",
-            ),
-            project_id="claimed-query-edit",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "output_column_busy"
-        assert _write_counts(project) == before
-    finally:
-        project.close()
+    result = run_action_spec(
+        project,
+        _cell_edit_query_action(
+            sheet_id=sheet_id,
+            column_id=columns["status"],
+            key="cell-edit-query-claimed@sha256:v1",
+        ),
+        project_id="claimed-query-edit",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "output_column_busy"
+    assert _write_counts(project) == before
 
 
 def test_inline_cell_edit_retains_1000_edit_payload_limit() -> None:

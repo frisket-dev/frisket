@@ -12,7 +12,6 @@ from frisket.engine.executor.map_rows_action import (
 from frisket.engine.jobs.runs import _deferred_publication
 from frisket.engine.executor.queued_actions import queued_v1_payload_envelope
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from http_test_helpers import drain_queue
 from test_typed_action_lifecycle import (
     REGISTRY,
@@ -26,84 +25,79 @@ from test_typed_project_run_queue import _client, _seed_regex, _regex_request
 @pytest.mark.parametrize("admitted", [False, True])
 @pytest.mark.parametrize("replacing", [False, True])
 def test_direct_preparation_derives_defer_and_visibility_from_program(
-    tmp_path, monkeypatch, admitted, replacing
+    make_project, monkeypatch, admitted, replacing
 ):
-    project = Project.create(tmp_path / "direct.frisket")
-    try:
-        sheet = project.add_sheet("Source")
-        source = project.add_column(sheet, "source", type="text")
-        columns = {"source": source}
-        rows = project.add_rows(
-            sheet,
-            [{"source": "value"}],
-            columns,
+    project = make_project("direct")
+    sheet = project.add_sheet("Source")
+    source = project.add_column(sheet, "source", type="text")
+    columns = {"source": source}
+    rows = project.add_rows(
+        sheet,
+        [{"source": "value"}],
+        columns,
+    )
+    project.db.commit()
+    if replacing:
+        baseline_request = _request(sheet, rows, key="baseline")
+        baseline = run_typed_map_rows_action(
+            project,
+            "test",
+            REGISTRY.get(baseline_request.action_id),
+            baseline_request,
+            None,
+            _runner,
         )
-        project.db.commit()
+        assert baseline.status == "completed", baseline.errors
+    request = _request(sheet, rows).model_copy(update={"replace_existing": replacing})
+    original_spec = TypedMapRowsPlan.spec_dict
+    monkeypatch.setattr(
+        TypedMapRowsPlan,
+        "spec_dict",
+        lambda self: {**original_spec(self), "deferred_publication": not admitted},
+    )
+    monkeypatch.setattr(
+        _TypedMapRowsProgram, "defer_generation_seal", admitted, raising=False
+    )
+    observed = []
+
+    async def stop_before_rows(self, spec, **kwargs):
+        run_id = kwargs["prepared_run"].run_id
+        assert kwargs["defer_generation_seal"] is admitted
+        assert kwargs["defer_attempt_close"] is admitted
+        assert _deferred_publication(project, run_id) is admitted
+        assert (spec.get("deferred_publication") is True) is admitted
+        column = project.db.execute(
+            "SELECT id,hidden FROM columns WHERE sheet_id=? AND name='upper'",
+            (sheet,),
+        ).fetchone()
+        assert bool(column["hidden"]) is (admitted and not replacing)
         if replacing:
-            baseline_request = _request(sheet, rows, key="baseline")
-            baseline = run_typed_map_rows_action(
-                project,
-                "test",
-                REGISTRY.get(baseline_request.action_id),
-                baseline_request,
-                None,
-                _runner,
-            )
-            assert baseline.status == "completed", baseline.errors
-        request = _request(sheet, rows).model_copy(
-            update={"replace_existing": replacing}
-        )
-        original_spec = TypedMapRowsPlan.spec_dict
-        monkeypatch.setattr(
-            TypedMapRowsPlan,
-            "spec_dict",
-            lambda self: {**original_spec(self), "deferred_publication": not admitted},
-        )
-        monkeypatch.setattr(
-            _TypedMapRowsProgram, "defer_generation_seal", admitted, raising=False
-        )
-        observed = []
+            current = project.get_values(sheet, column["id"])[rows[0]]
+            if admitted:
+                # Deferred/staged replacement preserves the prior head
+                # until the owning finalizer publishes the family.
+                assert current == "VALUE"
+            else:
+                # An ordinary same-descriptor replacement is active and
+                # may mask the row while its new result is pending.
+                assert current is None
+        observed.append(run_id)
+        raise RuntimeError("stop before domain finalizer")
 
-        async def stop_before_rows(self, spec, **kwargs):
-            run_id = kwargs["prepared_run"].run_id
-            assert kwargs["defer_generation_seal"] is admitted
-            assert kwargs["defer_attempt_close"] is admitted
-            assert _deferred_publication(project, run_id) is admitted
-            assert (spec.get("deferred_publication") is True) is admitted
-            column = project.db.execute(
-                "SELECT id,hidden FROM columns WHERE sheet_id=? AND name='upper'",
+    monkeypatch.setattr(MapRunner, "run", stop_before_rows)
+    result = run_typed_map_rows_action(
+        project, "test", REGISTRY.get(request.action_id), request, None, _runner
+    )
+    assert result.status == "failed"
+    assert len(observed) == 1, result.errors
+    if admitted and replacing:
+        output_id = int(
+            project.db.execute(
+                "SELECT id FROM columns WHERE sheet_id=? AND name='upper'",
                 (sheet,),
-            ).fetchone()
-            assert bool(column["hidden"]) is (admitted and not replacing)
-            if replacing:
-                current = project.get_values(sheet, column["id"])[rows[0]]
-                if admitted:
-                    # Deferred/staged replacement preserves the prior head
-                    # until the owning finalizer publishes the family.
-                    assert current == "VALUE"
-                else:
-                    # An ordinary same-descriptor replacement is active and
-                    # may mask the row while its new result is pending.
-                    assert current is None
-            observed.append(run_id)
-            raise RuntimeError("stop before domain finalizer")
-
-        monkeypatch.setattr(MapRunner, "run", stop_before_rows)
-        result = run_typed_map_rows_action(
-            project, "test", REGISTRY.get(request.action_id), request, None, _runner
+            ).fetchone()["id"]
         )
-        assert result.status == "failed"
-        assert len(observed) == 1, result.errors
-        if admitted and replacing:
-            output_id = int(
-                project.db.execute(
-                    "SELECT id FROM columns WHERE sheet_id=? AND name='upper'",
-                    (sheet,),
-                ).fetchone()["id"]
-            )
-            assert project.get_values(sheet, output_id)[rows[0]] == "VALUE"
-    finally:
-        project.close()
+        assert project.get_values(sheet, output_id)[rows[0]] == "VALUE"
 
 
 @pytest.mark.parametrize("admitted", [False, True])
@@ -144,22 +138,19 @@ def test_queue_persists_admission_and_worker_defers_from_durable_operation(
     )["errors"]
 
 
-def test_worker_defer_lookup_ignores_mutable_run_params(tmp_path):
-    project = Project.create(tmp_path / "durable.frisket")
-    try:
-        sheet = project.add_sheet("Source")
-        op = project.append_op("test", {"deferred_publication": True})
-        project.db.execute(
-            "INSERT INTO runs (op_id,sheet_id,action_kind,params) VALUES (?,?,'test',?)",
-            (op, sheet, json.dumps({"deferred_publication": False})),
-        )
-        run_id = project.db.execute("SELECT id FROM runs").fetchone()[0]
-        assert _deferred_publication(project, run_id)
-        project.db.execute("UPDATE ops SET spec='{}' WHERE id=?", (op,))
-        project.db.execute(
-            "UPDATE runs SET params=? WHERE id=?",
-            (json.dumps({"deferred_publication": True}), run_id),
-        )
-        assert not _deferred_publication(project, run_id)
-    finally:
-        project.close()
+def test_worker_defer_lookup_ignores_mutable_run_params(make_project):
+    project = make_project("durable")
+    sheet = project.add_sheet("Source")
+    op = project.append_op("test", {"deferred_publication": True})
+    project.db.execute(
+        "INSERT INTO runs (op_id,sheet_id,action_kind,params) VALUES (?,?,'test',?)",
+        (op, sheet, json.dumps({"deferred_publication": False})),
+    )
+    run_id = project.db.execute("SELECT id FROM runs").fetchone()[0]
+    assert _deferred_publication(project, run_id)
+    project.db.execute("UPDATE ops SET spec='{}' WHERE id=?", (op,))
+    project.db.execute(
+        "UPDATE runs SET params=? WHERE id=?",
+        (json.dumps({"deferred_publication": True}), run_id),
+    )
+    assert not _deferred_publication(project, run_id)

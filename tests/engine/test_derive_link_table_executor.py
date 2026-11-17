@@ -501,7 +501,7 @@ def test_link_table_replay_rejects_stale_materialized_edge(
 
 
 def test_link_table_review_selection_uses_exact_result_and_applied_op(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.contracts.action import Receipt, ReceiptIO
     from frisket.engine.executor.semantic_match_read import (
@@ -509,80 +509,77 @@ def test_link_table_review_selection_uses_exact_result_and_applied_op(
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    project = Project.create(tmp_path / "review-selection.frisket")
-    try:
+    project = make_project("review-selection")
 
-        def add_review(
-            receipt_id: str,
-            *,
-            run_id: int,
-            row_id: int,
-            column_id: int,
-        ) -> int:
-            from frisket.engine.store.changes import ChangeStore, start_change
-            from frisket.engine.store.review_judgments import record_judgment_changes
-            from frisket.engine.store.op_log import append_op
+    def add_review(
+        receipt_id: str,
+        *,
+        run_id: int,
+        row_id: int,
+        column_id: int,
+    ) -> int:
+        from frisket.engine.store.changes import ChangeStore, start_change
+        from frisket.engine.store.review_judgments import record_judgment_changes
+        from frisket.engine.store.op_log import append_op
 
-            target = f"{run_id}:{row_id}:{column_id}"
-            info = {
-                "review_metadata": {target: {"decision": None}},
-                "review_metadata_after": {target: {"decision": "accept"}},
-            }
-            op_id = append_op(project, "review.decision", undo_info=info)
-            with project.transaction_scope():
-                start_change(project.db, op_id)
-                record_judgment_changes(project.db, op_id, info)
-                ChangeStore(project).close(op_id)
-            ReceiptStore(project).insert(
-                Receipt(
-                    receipt_id=receipt_id,
-                    project_id="review-selection",
-                    action_id=f"action-{receipt_id}",
-                    action_kind="review.decision",
-                    op_ids=[op_id],
-                    status="completed",
-                    inputs=[
-                        ReceiptIO(
-                            name="target",
-                            ref={
-                                "kind": "target_result_cell",
-                                "run_id": run_id,
-                                "row_id": row_id,
-                                "column_id": column_id,
-                            },
-                        )
-                    ],
-                    review={"decision": "accept"},
-                )
-            )
-            return op_id
-
-        exact_op = add_review("exact", run_id=7, row_id=100, column_id=10)
-        add_review("same-row-wrong-run", run_id=8, row_id=100, column_id=10)
-        add_review("same-row-wrong-column", run_id=7, row_id=100, column_id=99)
-        add_review("wrong-row", run_id=7, row_id=101, column_id=10)
-        undone_op = add_review("undone-exact", run_id=7, row_id=100, column_id=11)
-        from frisket.engine.store.changes import ChangeStore
-
+        target = f"{run_id}:{row_id}:{column_id}"
+        info = {
+            "review_metadata": {target: {"decision": None}},
+            "review_metadata_after": {target: {"decision": "accept"}},
+        }
+        op_id = append_op(project, "review.decision", undo_info=info)
         with project.transaction_scope():
-            ChangeStore(project).revert(undone_op)
-
-        review_refs = _derive_link_table_review_refs(
-            project,
-            source_run_id=7,
-            output_column_ids={10, 11},
-            selected_row_ids=[100],
+            start_change(project.db, op_id)
+            record_judgment_changes(project.db, op_id, info)
+            ChangeStore(project).close(op_id)
+        ReceiptStore(project).insert(
+            Receipt(
+                receipt_id=receipt_id,
+                project_id="review-selection",
+                action_id=f"action-{receipt_id}",
+                action_kind="review.decision",
+                op_ids=[op_id],
+                status="completed",
+                inputs=[
+                    ReceiptIO(
+                        name="target",
+                        ref={
+                            "kind": "target_result_cell",
+                            "run_id": run_id,
+                            "row_id": row_id,
+                            "column_id": column_id,
+                        },
+                    )
+                ],
+                review={"decision": "accept"},
+            )
         )
-        assert review_refs["receipt_ids"] == ["exact"]
-        assert review_refs["reviewed_row_ids"] == [100]
-        assert review_refs["decisions"] == [
-            {
-                "receipt_id": "exact",
-                "row_id": 100,
-                "column_id": 10,
-                "decision": "accept",
-                "op_ids": [exact_op],
-            }
-        ]
-    finally:
-        project.close()
+        return op_id
+
+    exact_op = add_review("exact", run_id=7, row_id=100, column_id=10)
+    add_review("same-row-wrong-run", run_id=8, row_id=100, column_id=10)
+    add_review("same-row-wrong-column", run_id=7, row_id=100, column_id=99)
+    add_review("wrong-row", run_id=7, row_id=101, column_id=10)
+    undone_op = add_review("undone-exact", run_id=7, row_id=100, column_id=11)
+    from frisket.engine.store.changes import ChangeStore
+
+    with project.transaction_scope():
+        ChangeStore(project).revert(undone_op)
+
+    review_refs = _derive_link_table_review_refs(
+        project,
+        source_run_id=7,
+        output_column_ids={10, 11},
+        selected_row_ids=[100],
+    )
+    assert review_refs["receipt_ids"] == ["exact"]
+    assert review_refs["reviewed_row_ids"] == [100]
+    assert review_refs["decisions"] == [
+        {
+            "receipt_id": "exact",
+            "row_id": 100,
+            "column_id": 10,
+            "decision": "accept",
+            "op_ids": [exact_op],
+        }
+    ]

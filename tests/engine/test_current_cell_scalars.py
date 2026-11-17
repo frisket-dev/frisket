@@ -288,59 +288,54 @@ def test_generation_undo_redo_restores_and_clears_inline_scalars(
         project.close()
 
 
-def test_inline_scalar_eligibility_and_type_reclassification(tmp_path: Path) -> None:
-    project = Project.create(tmp_path / "scalar-eligibility.frisket")
-    try:
-        sheet_id = project.add_sheet("Values")
-        columns = {
-            name: project.add_column(sheet_id, name, type=type_)
-            for name, type_ in {
-                "integer": "integer",
-                "real": "number",
-                "boolean": "boolean",
-                "category": "category",
-                "date": "date",
-                "bigint": "number",
-                "text": "text",
-                "json": "json",
-                "long_category": "category",
-            }.items()
-        }
-        values = {
-            "integer": 7,
-            "real": 1.5,
-            "boolean": True,
-            "category": "alpha",
-            "date": "2026-10-05",
-            "bigint": 2**70,
-            "text": "short",
-            "json": {"a": 1},
-            "long_category": "é" * (INLINE_TEXT_BYTE_LIMIT // 2 + 1),
-        }
-        row_id = project.add_rows(sheet_id, [values], columns)[0]
+def test_inline_scalar_eligibility_and_type_reclassification(make_project) -> None:
+    project = make_project("scalar-eligibility")
+    sheet_id = project.add_sheet("Values")
+    columns = {
+        name: project.add_column(sheet_id, name, type=type_)
+        for name, type_ in {
+            "integer": "integer",
+            "real": "number",
+            "boolean": "boolean",
+            "category": "category",
+            "date": "date",
+            "bigint": "number",
+            "text": "text",
+            "json": "json",
+            "long_category": "category",
+        }.items()
+    }
+    values = {
+        "integer": 7,
+        "real": 1.5,
+        "boolean": True,
+        "category": "alpha",
+        "date": "2026-10-05",
+        "bigint": 2**70,
+        "text": "short",
+        "json": {"a": 1},
+        "long_category": "é" * (INLINE_TEXT_BYTE_LIMIT // 2 + 1),
+    }
+    row_id = project.add_rows(sheet_id, [values], columns)[0]
 
-        assert project.get_values(sheet_id, columns["json"], [row_id]) == {
-            row_id: {"a": 1}
-        }
-        assert {
-            name: _inline_value(project, row_id, column_id)
-            for name, column_id in columns.items()
-        } == {
-            "integer": ("integer", 7),
-            "real": ("real", 1.5),
-            "boolean": ("boolean", 1),
-            "category": ("text", "alpha"),
-            "date": ("text", "2026-10-05"),
-            "bigint": ("bigint", str(2**70)),
-            "text": ("text", "short"),
-            "json": (None, None),
-            "long_category": (None, None),
-        }
+    assert project.get_values(sheet_id, columns["json"], [row_id]) == {row_id: {"a": 1}}
+    assert {
+        name: _inline_value(project, row_id, column_id)
+        for name, column_id in columns.items()
+    } == {
+        "integer": ("integer", 7),
+        "real": ("real", 1.5),
+        "boolean": ("boolean", 1),
+        "category": ("text", "alpha"),
+        "date": ("text", "2026-10-05"),
+        "bigint": ("bigint", str(2**70)),
+        "text": ("text", "short"),
+        "json": (None, None),
+        "long_category": (None, None),
+    }
 
-        project.set_column_type(columns["category"], "text")
-        assert project.get_values(sheet_id, columns["category"], [row_id]) == {
-            row_id: "alpha"
-        }
-        assert _inline_value(project, row_id, columns["category"]) == ("text", "alpha")
-    finally:
-        project.close()
+    project.set_column_type(columns["category"], "text")
+    assert project.get_values(sheet_id, columns["category"], [row_id]) == {
+        row_id: "alpha"
+    }
+    assert _inline_value(project, row_id, columns["category"]) == ("text", "alpha")

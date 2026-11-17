@@ -192,12 +192,12 @@ def test_convert_text_column_path_is_content_not_file(tmp_path):
     p.close()
 
 
-def test_convert_blob_input_gets_mime_extension(tmp_path):
+def test_convert_blob_input_gets_mime_extension(tmp_path, make_project):
     """Ingested blobs (hash-named, no extension) convert using the mime
     hint; output_name is honored."""
     mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     docx = _make_docx(tmp_path / "memo.docx")
-    p = Project.create(tmp_path / "t.frisket", name="t")
+    p = make_project("t")
     sheet = p.add_sheet("data")
     cid = p.add_column(sheet, "doc", type="file")
     h = p.add_blob(docx.read_bytes(), filename="memo.docx", mime=mime)

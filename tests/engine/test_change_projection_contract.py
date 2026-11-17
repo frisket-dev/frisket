@@ -50,37 +50,34 @@ def _run(project, sheet, column, rows):
     return run
 
 
-def test_manual_correction_starts_and_closes_its_own_change(tmp_path):
+def test_manual_correction_starts_and_closes_its_own_change(make_project):
     from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 
-    project = Project.create(tmp_path / "same-change.frisket")
-    try:
-        sheet = project.add_sheet("Source")
-        column = project.add_column(sheet, "text")
-        row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
-        project.db.execute("BEGIN")
-        with project.db:
-            op = project.append_op("edit", {}, label="manual correction", commit=False)
-            insert_edits(
-                project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
-            )
-        state = project.db.execute(
-            "SELECT change_order,publication_closed FROM ops WHERE id=?", (op,)
-        ).fetchone()
-        assert state[0] is not None
-        assert state[1] == 1
-        values, refs = project.get_values_with_refs(sheet, column, [row])
-        assert values[row] == "corrected"
-        assert refs[row]["kind"] == "manual_edit"
-    finally:
-        project.close()
+    project = make_project("same-change")
+    sheet = project.add_sheet("Source")
+    column = project.add_column(sheet, "text")
+    row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
+    project.db.execute("BEGIN")
+    with project.db:
+        op = project.append_op("edit", {}, label="manual correction", commit=False)
+        insert_edits(
+            project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
+        )
+    state = project.db.execute(
+        "SELECT change_order,publication_closed FROM ops WHERE id=?", (op,)
+    ).fetchone()
+    assert state[0] is not None
+    assert state[1] == 1
+    values, refs = project.get_values_with_refs(sheet, column, [row])
+    assert values[row] == "corrected"
+    assert refs[row]["kind"] == "manual_edit"
 
 
-def test_shared_writers_reject_closed_change_before_dml(tmp_path):
+def test_shared_writers_reject_closed_change_before_dml(make_project):
     from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
     from frisket.engine.store.changes import ChangePublicationClosed
 
-    project = Project.create(tmp_path / "closed-writers.frisket")
+    project = make_project("closed-writers")
     try:
         sheet = project.add_sheet("Source")
         column = project.add_column(sheet, "text")
@@ -135,11 +132,11 @@ def test_shared_writers_reject_closed_change_before_dml(tmp_path):
         project.close()
 
 
-def test_open_change_accepts_multiple_edit_writes_until_owner_closes(tmp_path):
+def test_open_change_accepts_multiple_edit_writes_until_owner_closes(make_project):
     from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
     from frisket.engine.store.changes import ChangeStore, start_change
 
-    project = Project.create(tmp_path / "multi-writer.frisket")
+    project = make_project("multi-writer")
     try:
         sheet = project.add_sheet("Source")
         column = project.add_column(sheet, "text")
@@ -198,39 +195,36 @@ def test_open_change_accepts_multiple_edit_writes_until_owner_closes(tmp_path):
         project.close()
 
 
-def test_dirty_large_text_reads_stay_bounded(tmp_path):
-    project = Project.create(tmp_path / "large-dirty.frisket")
-    try:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "text")
-        rows = project.add_rows(
-            sheet,
-            [{"text": "a" * (5 * 1024 * 1024)}] + [{"text": "small"}] * 519,
-            {"text": column},
-        )
-        from frisket.engine.store.cell_projection import invalidate_region
+def test_dirty_large_text_reads_stay_bounded(make_project):
+    project = make_project("large-dirty")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "text")
+    rows = project.add_rows(
+        sheet,
+        [{"text": "a" * (5 * 1024 * 1024)}] + [{"text": "small"}] * 519,
+        {"text": column},
+    )
+    from frisket.engine.store.cell_projection import invalidate_region
 
-        project.db.execute("BEGIN IMMEDIATE")
-        invalidate_region(project.db, column, rows[0], rows[-1])
-        project.db.commit()
-        assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
-        tracemalloc.start()
-        try:
-            values = read_current_column(
-                project.db,
-                sheet_id=sheet,
-                column_id=column,
-                row_ids=rows[:1],
-                bounded=True,
-            )
-            _, peak = tracemalloc.get_traced_memory()
-        finally:
-            tracemalloc.stop()
-        assert values[rows[0]].value_present is False
-        assert values[rows[0]].bounded_value.total_bytes == 5 * 1024 * 1024
-        assert peak < 2 * 1024 * 1024
+    project.db.execute("BEGIN IMMEDIATE")
+    invalidate_region(project.db, column, rows[0], rows[-1])
+    project.db.commit()
+    assert project.db.execute("SELECT 1 FROM current_cell_repair").fetchone()
+    tracemalloc.start()
+    try:
+        values = read_current_column(
+            project.db,
+            sheet_id=sheet,
+            column_id=column,
+            row_ids=rows[:1],
+            bounded=True,
+        )
+        _, peak = tracemalloc.get_traced_memory()
     finally:
-        project.close()
+        tracemalloc.stop()
+    assert values[rows[0]].value_present is False
+    assert values[rows[0]].bounded_value.total_bytes == 5 * 1024 * 1024
+    assert peak < 2 * 1024 * 1024
 
 
 def test_dirty_undo_finds_new_filter_matches_and_exports_before_bounded_repair(
@@ -453,7 +447,7 @@ def test_output_family_and_evidence_publish_atomically(tmp_path, fail_evidence):
 
 
 def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear(
-    tmp_path,
+    make_project,
 ):
     from frisket.engine.store.cell_writes import (
         BaseCellWrite,
@@ -462,68 +456,65 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
         create_base_cell_producer,
     )
 
-    project = Project.create(tmp_path / "versions.frisket")
-    try:
-        sheet = project.add_sheet("Source")
-        column = project.add_column(sheet, "text")
-        row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
-        original = project.get_values_with_refs(sheet, column, [row])[1][row]
-        original_producer = original["producer_id"]
-        versions = [original_producer]
-        project.db.execute("BEGIN")
-        with project.db:
-            op_id = project.append_op("source.refresh", commit=False)
-            producer = create_base_cell_producer(
-                project.db, stage_id=f"op:{op_id}", op_id=op_id
-            )
-        for value in ("replacement", "another"):
-            project.db.execute("BEGIN")
-            with project.db:
-                replace_base_cells(
-                    project.db,
-                    producer_id=producer,
-                    column_ids=[column],
-                    row_ids=[row],
-                    cells=[BaseCellWrite(row, column, value)],
-                )
-            values, refs = project.get_values_with_refs(sheet, column, [row])
-            assert values[row] == value
-            versions.append(refs[row]["producer_id"])
-        assert len(set(versions)) == 3
-        assert [
-            r[0]
-            for r in project.db.execute(
-                "SELECT value FROM cells WHERE row_id=? AND column_id=? ORDER BY producer_id",
-                (row, column),
-            )
-        ] == ["original", "replacement", "another"]
-        for _ in range(2):
-            project.db.execute("BEGIN")
-            with project.db:
-                remove_base_cells(
-                    project.db, producer_id=producer, column_ids=[column], row_ids=[row]
-                )
-            assert project.get_values_with_refs(sheet, column, [row])[0][row] is None
-        assert (
-            project.db.execute(
-                "SELECT value FROM cells WHERE row_id=? AND column_id=? AND producer_id=?",
-                (row, column, original_producer),
-            ).fetchone()[0]
-            == "original"
+    project = make_project("versions")
+    sheet = project.add_sheet("Source")
+    column = project.add_column(sheet, "text")
+    row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
+    original = project.get_values_with_refs(sheet, column, [row])[1][row]
+    original_producer = original["producer_id"]
+    versions = [original_producer]
+    project.db.execute("BEGIN")
+    with project.db:
+        op_id = project.append_op("source.refresh", commit=False)
+        producer = create_base_cell_producer(
+            project.db, stage_id=f"op:{op_id}", op_id=op_id
         )
-        from frisket.engine.store.changes import ChangeStore, ChangePublicationClosed
-
+    for value in ("replacement", "another"):
         project.db.execute("BEGIN")
         with project.db:
-            ChangeStore(project).close(op_id)
-        project.db.execute("BEGIN")
-        with project.db, pytest.raises(ChangePublicationClosed):
             replace_base_cells(
                 project.db,
                 producer_id=producer,
                 column_ids=[column],
                 row_ids=[row],
-                cells=[BaseCellWrite(row, column, "too late")],
+                cells=[BaseCellWrite(row, column, value)],
             )
-    finally:
-        project.close()
+        values, refs = project.get_values_with_refs(sheet, column, [row])
+        assert values[row] == value
+        versions.append(refs[row]["producer_id"])
+    assert len(set(versions)) == 3
+    assert [
+        r[0]
+        for r in project.db.execute(
+            "SELECT value FROM cells WHERE row_id=? AND column_id=? ORDER BY producer_id",
+            (row, column),
+        )
+    ] == ["original", "replacement", "another"]
+    for _ in range(2):
+        project.db.execute("BEGIN")
+        with project.db:
+            remove_base_cells(
+                project.db, producer_id=producer, column_ids=[column], row_ids=[row]
+            )
+        assert project.get_values_with_refs(sheet, column, [row])[0][row] is None
+    assert (
+        project.db.execute(
+            "SELECT value FROM cells WHERE row_id=? AND column_id=? AND producer_id=?",
+            (row, column, original_producer),
+        ).fetchone()[0]
+        == "original"
+    )
+    from frisket.engine.store.changes import ChangeStore, ChangePublicationClosed
+
+    project.db.execute("BEGIN")
+    with project.db:
+        ChangeStore(project).close(op_id)
+    project.db.execute("BEGIN")
+    with project.db, pytest.raises(ChangePublicationClosed):
+        replace_base_cells(
+            project.db,
+            producer_id=producer,
+            column_ids=[column],
+            row_ids=[row],
+            cells=[BaseCellWrite(row, column, "too late")],
+        )
