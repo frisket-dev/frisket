@@ -8,6 +8,7 @@ from collections.abc import Mapping
 import pytest
 
 from frisket.redaction import (
+    _FRAME_LINE_RE,
     CYCLE,
     REDACTED,
     TRUNCATED,
@@ -560,3 +561,17 @@ def test_adversarial_input_is_bounded_before_pattern_matching() -> None:
 
     assert len(safe) <= 1_000
     assert elapsed < 1.0
+
+
+def test_traceback_frame_pattern_is_linear_on_whitespace_runs() -> None:
+    prefix = 'File "",\tline\t0,\tin\t'
+    crafted = prefix + "\t" * 50_000 + "\nx\n"
+    started = time.perf_counter()
+    assert _FRAME_LINE_RE.fullmatch(crafted) is None
+    safe = redact_text(prefix + "\t" * 60_000 + "\n" + SENTINEL, one_line=False)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 1.0
+    assert SENTINEL not in safe
+    assert _FRAME_LINE_RE.fullmatch('  File "x.py", line 3, in  run') is not None
+    assert _FRAME_LINE_RE.fullmatch('  File "x.py", line 3') is not None

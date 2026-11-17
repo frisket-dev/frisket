@@ -44,7 +44,9 @@ _CONTROL_OR_WHITESPACE_RE = re.compile(r"[\s\x00-\x1f\x7f]+")
 _SAFE_MARKER_RE = re.compile(
     r"(?i)(\[(?:redacted(?:-key|-jwt)?|cycle|truncated|traceback redacted)\])"
 )
-_FRAME_LINE_RE = re.compile(r'^\s*File\s+"[^"]*",\s+line\s+\d+(?:,\s+in\s+.*)?$')
+# Callers pass one line at a time; a single separator before ``.*`` keeps the
+# match linear even if a caller ever hands it text with embedded newlines.
+_FRAME_LINE_RE = re.compile(r'^\s*File\s+"[^"]*",\s+line\s+\d+(?:,\s+in\s.*)?$')
 _EXCEPTION_GROUP_HEADER_RE = re.compile(
     r"^\s*\+\s+Exception Group Traceback \(most recent call last\):$"
 )
