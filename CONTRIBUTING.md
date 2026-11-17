@@ -402,34 +402,90 @@ enqueued again.
 Because the queue gates what lands, the PR run is fast feedback only. Every
 required check (`deterministic-source`, `ci-pass`, `docker-ci`,
 `desktop-macos-ci`, `desktop-windows-ci`, `macos-portability`,
-`windows-portability`) still reports on every PR, passing when its heavy jobs
-are deliberately skipped; each workflow's `changes` job summary says whether a
-skipped job runs in the queue or is not affected by the diff at all.
+`windows-portability`) still reports on every PR and queue entry, passing when
+its heavy jobs are deliberately skipped. Its job summary says why: the diff
+changes one of the job's inputs, the job is "deferred to the nightly platform
+run on main", or the diff does "not affect" it at all.
 
-| | Pull request (fast tier) | Merge queue |
-| --- | --- | --- |
-| Lint, formatting, `scripts/ci` gates and ratchets, pyright, `tsc -b`, web tests type ratchet | yes, by layer | yes |
-| Web lint, vitest, build | when `web/`, `sdk/`, `scripts/`, `.github/`, `pyproject.toml` or `uv.lock` changed | yes |
-| Python tests | the test directories of the changed source areas plus the root tests; the complete suite when dependencies, test configuration, shared test helpers, package data, a top-level module, `sidecar/` or a wheel build input changed | complete suite, including the `gap` subset |
-| Sidecar, Postgres, GPU-topology checks | by layer | yes |
-| `deploy-smoke`, `e2e-cassette-core` | when the e2e specs, Playwright configs, `scripts/e2e/`, `web/package*.json` or `ci.yml` changed | yes |
-| Docker build and Compose smoke | when an image input changed | when an image input changed |
-| Desktop installed-app proofs | when `desktop/`, `src/frisket/runtime/`, `src/frisket/server/desktop.py`, packaging (`pyproject.toml`, `uv.lock`, `hatch_build.py`, `scripts/build_vec1.py`, `vendor/sqlite-vec1/`, `scripts/release/build_frontend.py`) or the workflow changed | when anything the app bundles changed: also `src/frisket/`, `web/`, `sdk/`, `sidecar/` |
-| macOS and Windows portability smokes | when packaging (as above plus `.python-version`), the workflow, `src/frisket/runtime/`, and on Windows `src/frisket/engine/sandbox/`, on macOS `src/frisket/retrieval/` changed | when `src/`, `tests/`, `sidecar/`, `conftest.py`, packaging or the workflow changed |
+| | Pull request (fast tier) | Merge queue | Nightly on `main` |
+| --- | --- | --- | --- |
+| Lint, formatting, `scripts/ci` gates and ratchets, pyright, `tsc -b`, web tests type ratchet | yes, by layer | yes | no |
+| Web lint, vitest, build | when `web/`, `sdk/`, `scripts/`, `.github/`, `pyproject.toml` or `uv.lock` changed | yes | no |
+| Python tests | the test directories of the changed source areas plus the root tests; the complete suite when dependencies, test configuration, shared test helpers, package data, a top-level module, `sidecar/` or a wheel build input changed | complete suite, including the `gap` subset | no |
+| Sidecar, Postgres, GPU-topology checks | by layer | yes | no |
+| `deploy-smoke`, `e2e-cassette-core` | when the e2e specs, Playwright configs, `scripts/e2e/`, `web/package*.json` or `ci.yml` changed | yes | no |
+| Docker build and Compose smoke | when an image input changed | when an image input changed | no (weekly, and every release) |
+| macOS and Windows installed-app proofs, macOS and Windows portability smokes | when the job's own inputs changed (below) | when the job's own inputs changed | always, in full |
+| macOS managed-Python slice (not required) | when `src/frisket/`, `tests/`, `pyproject.toml`, `uv.lock`, `.python-version`, the vec1 build or its workflow changed | same | always |
 
-Each workflow states its input sets next to its `changes` filter. A diff
-whose base cannot be resolved runs everything.
+The four platform jobs' own inputs, stated in full beside each workflow's
+`changes` filter, are:
 
-For a risky change, add the `ci:full` label: the PR reruns with exactly what
-the queue would run (the complete `ci` suite and the queue input sets for the
-platform jobs). `gh workflow run ci.yml --ref <branch>` also runs the complete
-`ci` suite on the branch head.
+- packaging: `pyproject.toml`, `uv.lock`, `.python-version`, `hatch_build.py`,
+  `scripts/build_vec1.py`, `vendor/sqlite-vec1/`, the workflow itself, and for
+  the installed app `scripts/release/build_frontend.py`;
+- platform-specific Python, the same for all four: `src/frisket/runtime/`,
+  `engine/sandbox/`, `engine/_workers/`, `cli/`, `data/model-server/`, and the
+  modules that branch on the OS for process trees, file locking, reserved names
+  and app paths (`recipe_fence_posture`, `retrieval/native`,
+  `operability/diagnostics`, `cloud_connection`, `project_identity`,
+  `server/workspace`, `team/security/secrets`, `ops/ytdlp`,
+  `ops/media_metadata`, `ops/integrations/mcp_stdio`);
+- any added or removed line under `src/` that branches on the OS or starts,
+  signals or confines a process (`sys.platform`, `os.name`, `subprocess`,
+  `signal`, `creationflags`, `fcntl`, `msvcrt`, `multiprocessing`, `ctypes`
+  and similar);
+- installed app: `desktop/`, `src/frisket/server/desktop.py`, and an added,
+  removed or renamed file under `src/frisket/data/` or a bundled plugin (the
+  desktop wheel must carry them); on Windows also the guardian test;
+- portability smokes: the tests each smoke runs, `conftest.py`, and the
+  modules those tests prove on that OS (store leases and blob paths, bulk
+  import; on Windows also the job queue and worker, project lifecycle, the
+  recipe registry and team bootstrap).
+
+A diff whose base cannot be resolved runs everything.
+
+For a risky change, add the `ci:full` label: the PR reruns with the complete
+`ci` suite and every platform proof, whatever the diff touches.
+`gh workflow run ci.yml --ref <branch>` also runs the complete `ci` suite on
+the branch head.
 
 The `ci`, `docker` and portability push runs on `main` ask
 `queue-tested.yml` whether that exact commit already passed in the queue; if
 so their test jobs skip and the run still succeeds, otherwise (a direct push,
-or the queue disabled) they run the complete suite as before. Releases still
-require a successful `ci` push or dispatch run for the released commit.
+or the queue disabled) they run the complete suite as before.
+
+#### Nightly platform proofs
+
+`nightly-platform.yml` runs at 07:23 UTC and proves the head of `main` on
+every platform, whatever changed: it calls `desktop-macos.yml` and
+`desktop-windows.yml` (the unsigned installed-app proofs) and the two
+portability workflows. A night on which `main` has not moved since the last
+green run is skipped. `gh workflow run nightly-platform.yml --ref main`
+proves the current head now.
+
+A red night opens one issue, "Nightly platform proof failed", labelled
+`nightly-platform` (the workflow creates the label), or comments on it if it
+is already open; the next green night closes it. The issue links the failing
+jobs and lists the merges since the last green night: one of them broke the
+platform, unless the list is empty (then suspect the runner or a network
+dependency, and rerun the failed jobs). When it opens:
+
+1. Read the failing job's log and evidence artifacts; the culprit is usually
+   evident from them and the listed merges.
+2. Otherwise bisect: push a branch at a commit in the range and run
+   `gh workflow run nightly-platform.yml --ref <that branch>`.
+3. Land the fix (or a revert) through the queue as usual, adding `ci:full` so
+   the PR proves every platform, then dispatch the nightly on `main` to close
+   the issue rather than waiting for the night.
+
+Releases require two passes on the exact released commit: its latest `ci`
+push or dispatch run, and the `platform-proofs` job of its latest
+`nightly-platform` run that got that far (a skipped night does not count). Before tagging or dispatching
+a release, check that the commit has a green nightly; if it has none, run
+`gh workflow run nightly-platform.yml --ref <main at that commit, or the tag>`
+and rerun the release once it is green. The desktop release additionally
+builds, signs and proves both installers on that commit itself.
 
 ### Reviewing model and pricing updates
 
