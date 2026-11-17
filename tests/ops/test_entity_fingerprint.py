@@ -72,7 +72,7 @@ def test_numeric_temporal_types_have_no_fingerprint(entity_type: str) -> None:
         "   ",
         "...",
         "!!! ---",
-        "​",
+        "\u200b",
         "\t\n",
         "()[]{}",
         # `&` is the trap: it is the one punctuation character that rewrites

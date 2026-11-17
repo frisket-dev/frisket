@@ -32,16 +32,16 @@ from typing import Any
 
 from frisket.ai.models import artifact_manifest
 from frisket.ai.models.artifact_manifest import (
-    PARAKEET_MODEL_HF_REPO as PARAKEET_MODEL_REPO,  # noqa: F401 - re-exported
-    PARAKEET_VAD_HF_REPO as PARAKEET_VAD_REPO,  # noqa: F401 - re-exported
+    PARAKEET_MODEL_HF_REPO as PARAKEET_MODEL_REPO,
+    PARAKEET_VAD_HF_REPO as PARAKEET_VAD_REPO,
 )
 
 from .parakeet_model import (
-    MODEL as PARAKEET_MODEL,  # noqa: F401 - re-exported for importers
-    MODEL_FILES as PARAKEET_MODEL_FILES,  # noqa: F401 - re-exported for importers
+    MODEL as PARAKEET_MODEL,
+    MODEL_FILES as PARAKEET_MODEL_FILES,
     MODEL_REVISION as PARAKEET_MODEL_REVISION,
-    VAD_FILES as PARAKEET_VAD_FILES,  # noqa: F401 - re-exported for importers
-    VAD_REVISION as PARAKEET_VAD_REVISION,  # noqa: F401 - re-exported for importers
+    VAD_FILES as PARAKEET_VAD_FILES,
+    VAD_REVISION as PARAKEET_VAD_REVISION,
 )
 
 

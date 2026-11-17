@@ -331,7 +331,6 @@ CASES = [
             error_codes=frozenset(
                 {
                     "invalid_action_request",
-                    "invalid_action_request",
                     "review_target_not_found",
                     "review_complete",
                     "output_column_busy",
